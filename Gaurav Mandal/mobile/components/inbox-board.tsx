@@ -126,6 +126,7 @@ export function InboxBoard() {
   const [saving, setSaving] = useState(false);
   const parentMode = user?.portal === "PARENT";
   const boardHeight = Math.max(560, height - 265);
+  const chatHeight = Math.max(150, boardHeight - 390);
   const mentionPeople = useMemo(() => {
     const names = [
       ...(data?.staff ?? []).map((person) => ({ name: person.name, role: person.role || person.kind || "Staff" })),
@@ -293,40 +294,24 @@ export function InboxBoard() {
           {!selected || !selectedParts ? (
             <Empty title={parentMode ? "Select a message" : "Select a request"} body="Choose a thread from the list." />
           ) : (
-            <View className="min-h-0 flex-1 p-6">
-              {selectedGroup ? (
-                <View className="mb-5 rounded-xl border border-ink-100 bg-ink-50 px-4 py-3">
-                  <View className="flex-row flex-wrap items-start justify-between gap-3">
-                    <View className="min-w-0 flex-1">
-                      <Text className="text-xl font-bold text-ink-900">{selectedGroup.student}</Text>
-                      <Text className="mt-1 text-sm text-ink-700">
-                        {selectedGroup.parent}{selectedGroup.classLabel ? ` · ${selectedGroup.classLabel}` : ""}
-                      </Text>
-                    </View>
-                    <View className="flex-row gap-2">
-                      <Badge tone={selectedGroup.openCount ? "sky" : "ink"}>{`${selectedGroup.openCount} open`}</Badge>
-                      <Badge tone={selectedGroup.waitingCount ? "warn" : "ink"}>{`${selectedGroup.tickets.length} total`}</Badge>
-                    </View>
-                  </View>
-                </View>
-              ) : null}
-
-              <View className="flex-row items-start justify-between gap-4 border-b border-ink-100 pb-5">
+            <View className="min-h-0 flex-1 p-5">
+              <View className="flex-row items-start justify-between gap-4 border-b border-ink-100 pb-4">
                 <View className="min-w-0 flex-1">
-                  <Text className="text-xs font-bold uppercase tracking-wide text-clay-600">{selectedStatus === "CLOSED" ? "Selected ticket" : "Active ticket"} · {ticketNo(selected)}</Text>
-                  <Text className="mt-1 text-2xl font-bold text-ink-900">{subjectFor(selected)}</Text>
+                  <View className="flex-row flex-wrap items-center gap-2">
+                    <Text className="text-xs font-bold uppercase tracking-wide text-clay-600">{ticketNo(selected)}</Text>
+                    <Badge tone={pillFor(selectedStatus)}>{selectedStatus}</Badge>
+                    {selectedGroup ? <Text className="text-xs font-semibold text-ink-600">{selectedGroup.openCount} open · {selectedGroup.tickets.length} total</Text> : null}
+                  </View>
+                  <Text className="mt-1 text-xl font-bold text-ink-900" numberOfLines={1}>{subjectFor(selected)}</Text>
                   <Text className="mt-2 text-sm text-ink-700">
                     {selectedParts.student}{selectedParts.classLabel ? ` · ${selectedParts.classLabel}` : ""}{selectedParts.parent ? ` · Parent: ${selectedParts.parent}` : ""}
                   </Text>
-                  <View className="mt-3 flex-row flex-wrap gap-2">
-                    {selectedParts.parent ? <PersonChip label={selectedParts.parent} prefix="Parent" /> : null}
-                    {selectedParts.directedTo ? <PersonChip label={selectedParts.directedTo} prefix="To" /> : <PersonChip label="Office" prefix="To" />}
-                    <PersonChip label={selected.author} prefix="From" />
-                  </View>
+                  <Text className="mt-1 text-xs text-ink-600">
+                    From {selected.author} · To {selectedParts.directedTo || "Office"}
+                  </Text>
                 </View>
                 {!parentMode ? (
                   <View className="items-end gap-2">
-                    <Badge tone={pillFor(selectedStatus)}>{selectedStatus}</Badge>
                     {selectedStatus !== "URGENT" && selectedStatus !== "CLOSED" ? (
                       <Pressable
                         disabled={saving}
@@ -341,7 +326,7 @@ export function InboxBoard() {
                 ) : null}
               </View>
 
-              <ScrollView className="mt-5 min-h-0 flex-1" contentContainerClassName="gap-4 pb-4">
+              <ScrollView className="mt-4 rounded-xl bg-ink-50/40" style={{ maxHeight: chatHeight }} contentContainerClassName="gap-3 p-3">
                 <ThreadBubble
                   label={parentMode ? "Message" : "Parent message"}
                   author={selected.author}
@@ -354,7 +339,7 @@ export function InboxBoard() {
                 ))}
               </ScrollView>
 
-              <View className="mt-4 rounded-xl border border-ink-200 bg-white p-4">
+              <View className="mt-3 rounded-xl border border-ink-200 bg-white p-4">
                 {!parentMode ? (
                   <View className="mb-3 flex-row gap-2">
                     {(["reply", "note"] as const).map((mode) => (
@@ -453,14 +438,6 @@ export function InboxBoard() {
           )}
         </Card>
       </View>
-    </View>
-  );
-}
-
-function PersonChip({ prefix, label }: { prefix: string; label: string }) {
-  return (
-    <View className="rounded-full border border-ink-200 bg-white px-3 py-1.5">
-      <Text className="text-xs text-ink-700"><Text className="font-semibold text-ink-900">{prefix}:</Text> {label}</Text>
     </View>
   );
 }
