@@ -338,11 +338,11 @@ export function InboxBoard() {
                 ))}
               </ScrollView>
 
-              <View className="mt-3 rounded-xl border border-ink-200 bg-white p-3">
+              <View className="mt-2 rounded-lg border border-ink-200 bg-white px-3 py-2">
                 {!composerOpen ? (
                   <View className="flex-row flex-wrap items-center justify-between gap-2">
                     <View className="flex-row flex-wrap gap-2">
-                      <Button
+                      <CompactAction
                         disabled={saving}
                         onPress={() => {
                           setComposeMode("reply");
@@ -350,9 +350,9 @@ export function InboxBoard() {
                         }}
                       >
                         Reply
-                      </Button>
+                      </CompactAction>
                       {!parentMode ? (
-                        <Button
+                        <CompactAction
                           disabled={saving}
                           variant="ghost"
                           onPress={() => {
@@ -360,11 +360,11 @@ export function InboxBoard() {
                             setComposerOpen(true);
                           }}
                         >
-                          Internal note
-                        </Button>
+                          Note
+                        </CompactAction>
                       ) : null}
                     </View>
-                    {!parentMode ? <Button disabled={saving} variant="danger" onPress={() => save("CLOSED")}>Close</Button> : null}
+                    {!parentMode ? <CompactAction disabled={saving} variant="danger" onPress={() => save("CLOSED")}>Close</CompactAction> : null}
                   </View>
                 ) : (
                   <>
@@ -389,7 +389,7 @@ export function InboxBoard() {
                       onChangeText={setCompose}
                       placeholder={parentMode ? "Write back to school…" : composeMode === "reply" ? "Write reply to parent…" : "Add note, e.g. @Kavita please check admit card issue"}
                       placeholderTextColor="#64748b"
-                      className="min-h-[86px] rounded-md border border-ink-200 bg-white px-3 py-2.5 text-sm leading-5 text-ink-900"
+                      className="min-h-[76px] rounded-md border border-ink-200 bg-white px-3 py-2 text-sm leading-5 text-ink-900"
                     />
                     {mentionSuggestions.length ? (
                       <View className="mt-2 overflow-hidden rounded-md border border-ink-200 bg-white">
@@ -414,7 +414,7 @@ export function InboxBoard() {
                     <View className="mt-2 flex-row flex-wrap items-center justify-between gap-2">
                       <Text className="text-xs text-ink-600">{parentMode ? "This reply stays inside this request." : "Use @name to notify staff."}</Text>
                       <View className="flex-row flex-wrap gap-2">
-                        <Button
+                        <CompactAction
                           disabled={saving}
                           variant="ghost"
                           onPress={() => {
@@ -423,11 +423,11 @@ export function InboxBoard() {
                           }}
                         >
                           Cancel
-                        </Button>
+                        </CompactAction>
                         {!parentMode ? (
-                          <Button disabled={saving} variant="danger" onPress={() => save("CLOSED")}>Close</Button>
+                          <CompactAction disabled={saving} variant="danger" onPress={() => save("CLOSED")}>Close</CompactAction>
                         ) : null}
-                        <Button disabled={saving} onPress={() => save(parentMode ? "OPEN" : selectedStatus)}>{saving ? "Sending..." : parentMode ? "Send" : "Send update"}</Button>
+                        <CompactAction disabled={saving} onPress={() => save(parentMode ? "OPEN" : selectedStatus)}>{saving ? "Sending..." : parentMode ? "Send" : "Send update"}</CompactAction>
                       </View>
                     </View>
                   </>
@@ -489,6 +489,35 @@ function ThreadBubble({ label, author, date, body, mine }: { label: string; auth
       <Text className="mt-1 text-xs text-ink-600">{author} · {date}</Text>
       <Text className="mt-3 text-base leading-6 text-ink-900">{body}</Text>
     </View>
+  );
+}
+
+function CompactAction({
+  children,
+  disabled,
+  onPress,
+  variant = "primary",
+}: {
+  children: string;
+  disabled?: boolean;
+  onPress: () => void;
+  variant?: "primary" | "ghost" | "danger";
+}) {
+  const cls =
+    variant === "danger"
+      ? "border-red-600 bg-red-600"
+      : variant === "ghost"
+        ? "border-ink-200 bg-white"
+        : "border-clay-500 bg-clay-500";
+  const textCls = variant === "ghost" ? "text-ink-800" : "text-white";
+  return (
+    <Pressable
+      disabled={disabled}
+      onPress={onPress}
+      className={`h-9 items-center justify-center rounded-md border px-4 ${cls} ${disabled ? "opacity-60" : ""}`}
+    >
+      <Text className={`text-sm font-semibold ${textCls}`}>{children}</Text>
+    </Pressable>
   );
 }
 
