@@ -95,7 +95,7 @@ function activeMentionQuery(value: string) {
 
 function groupKeyFor(n: Notice) {
   const parts = bodyParts(n.body);
-  return n.studentId || `${parts.student}|${parts.parent}|${parts.classLabel}`.toLowerCase();
+  return `${parts.student}|${parts.parent}|${parts.classLabel}`.toLowerCase().replace(/\s+/g, " ").trim() || n.studentId || n.id;
 }
 
 function newestFirst(a: Notice, b: Notice) {
@@ -359,12 +359,26 @@ export function InboxBoard() {
               </View>
 
               {related.length ? (
-                <View className="mt-4 rounded-lg bg-ink-50 px-4 py-3">
-                  <Text className="text-xs font-semibold uppercase tracking-wide text-ink-700">Older tickets for this student</Text>
-                  <View className="mt-2 gap-1.5">
-                    {related.map((row) => (
-                      <Pressable key={row.id} onPress={() => setSelectedId(row.id)}>
-                        <Text className="text-sm text-clay-700">{ticketNo(row)} · {subjectFor(row)} · {statusFor(row).toLowerCase()} · {shortDate(row.createdAt)}</Text>
+                <View className="mt-4">
+                  <Text className="text-xs font-semibold uppercase tracking-wide text-ink-700">History for this student</Text>
+                  <View className="mt-2 overflow-hidden rounded-xl border border-ink-100 bg-white">
+                    {related.map((row, index) => (
+                      <Pressable
+                        key={row.id}
+                        onPress={() => setSelectedId(row.id)}
+                        className={`flex-row items-center gap-3 px-4 py-3 ${index ? "border-t border-ink-100" : ""}`}
+                      >
+                        <View className="h-9 w-9 items-center justify-center rounded-full bg-ink-50">
+                          <Ionicons name={statusFor(row) === "CLOSED" ? "checkmark-done-outline" : "mail-outline"} size={16} color="#1e3a5f" />
+                        </View>
+                        <View className="min-w-0 flex-1">
+                          <Text className="text-sm font-bold text-clay-700">{ticketNo(row)}</Text>
+                          <Text className="mt-0.5 text-sm font-semibold text-ink-900" numberOfLines={1}>{subjectFor(row)}</Text>
+                        </View>
+                        <View className="items-end gap-1">
+                          <Badge tone={pillFor(statusFor(row))}>{statusFor(row)}</Badge>
+                          <Text className="text-xs text-ink-600">{shortDate(row.createdAt)}</Text>
+                        </View>
                       </Pressable>
                     ))}
                   </View>
