@@ -115,16 +115,17 @@ export function InboxBoard() {
   const { token, user } = useSession();
   const { data } = useRecord();
   const toast = useToast();
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const wide = width >= 1000;
   const [rows, setRows] = useState<Notice[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [selectedGroupKey, setSelectedGroupKey] = useState("");
-  const [filter, setFilter] = useState<"ALL" | InboxStatus>("ALL");
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [compose, setCompose] = useState("");
   const [composeMode, setComposeMode] = useState<ComposeMode>("reply");
   const [saving, setSaving] = useState(false);
   const parentMode = user?.portal === "PARENT";
+  const boardHeight = Math.max(560, height - 265);
   const mentionPeople = useMemo(() => {
     const names = [
       ...(data?.staff ?? []).map((person) => ({ name: person.name, role: person.role || person.kind || "Staff" })),
@@ -189,10 +190,7 @@ export function InboxBoard() {
       })
       .sort((a, b) => newestFirst(a.primary, b.primary));
   }, [rows]);
-  const groups = useMemo(() => {
-    if (filter === "ALL") return allGroups;
-    return allGroups.filter((group) => group.tickets.some((ticket) => statusFor(ticket) === filter));
-  }, [allGroups, filter]);
+  const groups = allGroups;
   const selectedGroup =
     groups.find((group) => group.key === selectedGroupKey) ||
     groups.find((group) => group.tickets.some((ticket) => ticket.id === selectedId)) ||
@@ -241,25 +239,10 @@ export function InboxBoard() {
         lede={parentMode ? "School replies and your request threads." : "Parent requests as simple mail-style tickets."}
       />
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
-      {!parentMode ? (
-        <View className="mb-3 flex-row flex-wrap gap-2">
-          {(["ALL", "OPEN", "WAITING", "URGENT", "CLOSED"] as const).map((item) => {
-            const on = filter === item;
-            return (
-              <Pressable
-                key={item}
-                onPress={() => setFilter(item)}
-                className={`rounded-full border px-4 py-2 ${on ? "border-clay-500 bg-clay-500" : "border-ink-200 bg-white"}`}
-              >
-                <Text className={`text-sm font-semibold ${on ? "text-white" : "text-ink-800"}`}>
-                  {item === "ALL" ? "All requests" : item[0] + item.slice(1).toLowerCase()}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      ) : null}
-      <View className={`min-h-0 flex-1 overflow-hidden rounded-md border border-ink-200 bg-white ${wide ? "flex-row" : ""}`}>
+      <View
+        className={`min-h-0 overflow-hidden rounded-md border border-ink-200 bg-white ${wide ? "flex-row" : ""}`}
+        style={{ height: boardHeight }}
+      >
         <View className={`${wide ? "w-[38%] border-r border-ink-200" : "max-h-[360px] border-b border-ink-200"} bg-white`}>
           <View className="border-b border-ink-100 px-4 py-3">
             <Text className="text-sm font-semibold text-ink-900">{groups.length} {groups.length === 1 ? "student thread" : "student threads"}</Text>
@@ -273,13 +256,13 @@ export function InboxBoard() {
               const n = group.primary;
               const on = selectedGroup?.key === group.key;
               const parts = bodyParts(n.body);
-              const status = statusFor(n);
               return (
                 <Pressable
                   key={group.key}
                   onPress={() => {
                     setSelectedGroupKey(group.key);
                     setSelectedId(group.primary.id);
+                    setHistoryOpen(false);
                   }}
                   className={`border-b border-ink-100 px-4 py-3 ${on ? "bg-blue-50" : "bg-white"}`}
                 >
@@ -290,7 +273,7 @@ export function InboxBoard() {
                     <View className="min-w-0 flex-1">
                       <View className="flex-row items-center gap-2">
                         <Text className="text-[11px] font-bold uppercase tracking-wide text-clay-600">{group.openCount} open · {group.tickets.length} total</Text>
-                        {!parentMode ? <Badge tone={pillFor(status)}>{status}</Badge> : /^Reply:/i.test(n.title) ? <Badge tone="sky">Reply</Badge> : null}
+                        {parentMode && /^Reply:/i.test(n.title) ? <Badge tone="sky">Reply</Badge> : null}
                       </View>
                       <Text className="mt-1 text-base font-semibold text-ink-900" numberOfLines={1}>{group.student}</Text>
                       <Text className="mt-0.5 text-sm text-ink-700" numberOfLines={1}>
@@ -310,7 +293,7 @@ export function InboxBoard() {
           {!selected || !selectedParts ? (
             <Empty title={parentMode ? "Select a message" : "Select a request"} body="Choose a thread from the list." />
           ) : (
-            <ScrollView className="min-h-0 flex-1" contentContainerClassName="p-6 pb-8">
+            <View className="min-h-0 flex-1 p-6">
               {selectedGroup ? (
                 <View className="mb-5 rounded-xl border border-ink-100 bg-ink-50 px-4 py-3">
                   <View className="flex-row flex-wrap items-start justify-between gap-3">
@@ -359,9 +342,22 @@ export function InboxBoard() {
               </View>
 
               {related.length ? (
-                <View className="mt-4">
-                  <Text className="text-xs font-semibold uppercase tracking-wide text-ink-700">History for this student</Text>
-                  <View className="mt-2 overflow-hidden rounded-xl border border-ink-100 bg-white">
+                <View className="mt-4 overflow-hidden rounded-xl border border-ink-100 bg-white">
+                  <Pressable
+                    onPress={() => setHistoryOpen((open) => !open)}
+                    className="flex-row items-center justify-between gap-3 px-4 py-3"
+                  >
+                    <View className="min-w-0 flex-1">
+                      <Text className="text-xs font-semibold uppercase tracking-wide text-ink-700">Old chats</Text>
+                      <Text className="mt-0.5 text-xs text-ink-600">{related.length} older {related.length === 1 ? "request" : "requests"} hidden</Text>
+                    </View>
+                    <View className="flex-row items-center gap-2">
+                      <Text className="text-xs font-semibold text-clay-700">{historyOpen ? "Hide" : "Show"}</Text>
+                      <Ionicons name={historyOpen ? "chevron-up" : "chevron-down"} size={16} color="#1d4ed8" />
+                    </View>
+                  </Pressable>
+                  {historyOpen ? (
+                    <View className="border-t border-ink-100">
                     {related.map((row, index) => (
                       <Pressable
                         key={row.id}
@@ -381,11 +377,12 @@ export function InboxBoard() {
                         </View>
                       </Pressable>
                     ))}
-                  </View>
+                    </View>
+                  ) : null}
                 </View>
               ) : null}
 
-              <View className="mt-6 gap-4">
+              <ScrollView className="mt-5 min-h-0 flex-1" contentContainerClassName="gap-4 pb-4">
                 <ThreadBubble
                   label={parentMode ? "Message" : "Parent message"}
                   author={selected.author}
@@ -396,9 +393,9 @@ export function InboxBoard() {
                 {selectedParts.events.map((event, index) => (
                   <ThreadEvent key={`${event.stamp}-${index}`} event={event} />
                 ))}
-              </View>
+              </ScrollView>
 
-              <View className="mt-6 rounded-xl border border-ink-200 bg-white p-4">
+              <View className="mt-4 rounded-xl border border-ink-200 bg-white p-4">
                 {!parentMode ? (
                   <View className="mb-3 flex-row gap-2">
                     {(["reply", "note"] as const).map((mode) => (
@@ -452,7 +449,7 @@ export function InboxBoard() {
                   </View>
                 </View>
               </View>
-            </ScrollView>
+            </View>
           )}
         </Card>
       </View>
