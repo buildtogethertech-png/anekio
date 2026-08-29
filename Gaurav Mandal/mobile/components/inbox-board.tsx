@@ -259,7 +259,21 @@ export function InboxBoard() {
                     <PersonChip label={selected.author} prefix="From" />
                   </View>
                 </View>
-                {!parentMode ? <Badge tone={pillFor(selectedStatus)}>{selectedStatus}</Badge> : null}
+                {!parentMode ? (
+                  <View className="items-end gap-2">
+                    <Badge tone={pillFor(selectedStatus)}>{selectedStatus}</Badge>
+                    {selectedStatus !== "URGENT" && selectedStatus !== "CLOSED" ? (
+                      <Pressable
+                        disabled={saving}
+                        onPress={() => save("URGENT")}
+                        className="flex-row items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5"
+                      >
+                        <Ionicons name="flag-outline" size={13} color="#92400e" />
+                        <Text className="text-xs font-semibold text-amber-800">Escalate</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                ) : null}
               </View>
 
               {related.length ? (
@@ -336,11 +350,7 @@ export function InboxBoard() {
                   <Text className="text-xs text-ink-600">{parentMode ? "Your reply becomes part of this request." : "Use @name to pull another staff member into the request."}</Text>
                   <View className="flex-row flex-wrap gap-2">
                     {!parentMode ? (
-                      <>
-                        <Button disabled={saving} variant="ghost" onPress={() => save("WAITING")}>Waiting</Button>
-                        <Button disabled={saving} variant="ghost" onPress={() => save("URGENT")}>Urgent</Button>
-                        <Button disabled={saving} variant="danger" onPress={() => save("CLOSED")}>Close</Button>
-                      </>
+                      <Button disabled={saving} variant="danger" onPress={() => save("CLOSED")}>Close</Button>
                     ) : null}
                     <Button disabled={saving} onPress={() => save(parentMode ? "OPEN" : selectedStatus)}>{saving ? "Sending..." : parentMode ? "Send" : "Send update"}</Button>
                   </View>
