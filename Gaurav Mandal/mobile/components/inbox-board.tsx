@@ -126,7 +126,7 @@ export function InboxBoard() {
   const [saving, setSaving] = useState(false);
   const parentMode = user?.portal === "PARENT";
   const boardHeight = Math.max(560, height - 265);
-  const chatHeight = Math.max(150, boardHeight - 390);
+  const chatHeight = Math.max(190, boardHeight - 345);
   const mentionPeople = useMemo(() => {
     const names = [
       ...(data?.staff ?? []).map((person) => ({ name: person.name, role: person.role || person.kind || "Staff" })),
@@ -294,20 +294,17 @@ export function InboxBoard() {
           {!selected || !selectedParts ? (
             <Empty title={parentMode ? "Select a message" : "Select a request"} body="Choose a thread from the list." />
           ) : (
-            <View className="min-h-0 flex-1 p-5">
-              <View className="flex-row items-start justify-between gap-4 border-b border-ink-100 pb-4">
+            <View className="min-h-0 flex-1 p-4">
+              <View className="flex-row items-center justify-between gap-4 border-b border-ink-100 pb-3">
                 <View className="min-w-0 flex-1">
                   <View className="flex-row flex-wrap items-center gap-2">
                     <Text className="text-xs font-bold uppercase tracking-wide text-clay-600">{ticketNo(selected)}</Text>
+                    <Text className="text-base font-bold text-ink-900" numberOfLines={1}>{subjectFor(selected)}</Text>
                     <Badge tone={pillFor(selectedStatus)}>{selectedStatus}</Badge>
                     {selectedGroup ? <Text className="text-xs font-semibold text-ink-600">{selectedGroup.openCount} open · {selectedGroup.tickets.length} total</Text> : null}
                   </View>
-                  <Text className="mt-1 text-xl font-bold text-ink-900" numberOfLines={1}>{subjectFor(selected)}</Text>
-                  <Text className="mt-2 text-sm text-ink-700">
-                    {selectedParts.student}{selectedParts.classLabel ? ` · ${selectedParts.classLabel}` : ""}{selectedParts.parent ? ` · Parent: ${selectedParts.parent}` : ""}
-                  </Text>
-                  <Text className="mt-1 text-xs text-ink-600">
-                    From {selected.author} · To {selectedParts.directedTo || "Office"}
+                  <Text className="mt-1 text-xs text-ink-700" numberOfLines={1}>
+                    {selectedParts.student}{selectedParts.classLabel ? ` · ${selectedParts.classLabel}` : ""}{selectedParts.parent ? ` · ${selectedParts.parent}` : ""}
                   </Text>
                 </View>
                 {!parentMode ? (
