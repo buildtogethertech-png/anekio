@@ -28,6 +28,15 @@ import { ensureAccessRoles } from "../lib/roles";
 import { scopePolicyFor } from "../lib/permissions";
 import { renderInvoicePage, renderPayPage, renderStudentPayPage } from "./pay-html";
 import { createAdmissionLeadFromWebsite, schoolWebsiteHtml } from "../lib/school-website";
+import {
+  adminHtml,
+  createSaasEnquiry,
+  createSaasRazorpayOrder,
+  marketingHtml,
+  robotsTxt,
+  sitemapXml,
+  updateSaasOrg,
+} from "../lib/cultivate-site";
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 12 * 1024 * 1024 } });
@@ -195,6 +204,76 @@ app.post("/school/:slug/lead", async (req, res) => {
     res.send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Enquiry sent</title><style>body{margin:0;background:#f5f8fc;font-family:Arial,sans-serif;color:#102a43}.card{max-width:520px;margin:12vh auto;background:white;border:1px solid #d9e2ec;border-radius:20px;padding:28px;text-align:center}a{display:inline-block;margin-top:16px;color:#1d4ed8;font-weight:700}</style></head><body><main class="card"><h1>Enquiry sent</h1><p>Thank you. The school office will contact you soon.</p><a href="/school/${encodeURIComponent(String(req.params.slug || ""))}">Back to school website</a></main></body></html>`);
   } catch (e) {
     sendError(res, 400, e instanceof Error ? e.message : "Could not send enquiry.");
+  }
+});
+
+app.get(["/", "/features", "/pricing"], (_req, res) => {
+  res.type("html").send(marketingHtml());
+});
+
+app.get("/robots.txt", (_req, res) => {
+  res.type("text/plain").send(robotsTxt());
+});
+
+app.get("/sitemap.xml", (_req, res) => {
+  res.type("application/xml").send(sitemapXml());
+});
+
+app.post("/cultivate/enquiry", async (req, res) => {
+  try {
+    await createSaasEnquiry(req.body || {});
+    res.type("html").send(marketingHtml("Thanks — enquiry saved. We will follow up with the school owner."));
+  } catch (e) {
+    res.status(400).type("html").send(marketingHtml(e instanceof Error ? e.message : "Could not save enquiry."));
+  }
+});
+
+app.get("/cultivate-admin", async (_req, res) => {
+  res.type("html").send(await adminHtml());
+});
+
+app.post("/cultivate-admin/orgs", async (req, res) => {
+  try {
+    await createSaasEnquiry(req.body || {});
+    res.type("html").send(await adminHtml("Organisation saved."));
+  } catch (e) {
+    res.status(400).type("html").send(await adminHtml(e instanceof Error ? e.message : "Could not save organisation."));
+  }
+});
+
+app.post("/cultivate-admin/orgs/:id", async (req, res) => {
+  try {
+    await updateSaasOrg(String(req.params.id || ""), req.body || {});
+    res.type("html").send(await adminHtml("Organisation updated."));
+  } catch (e) {
+    res.status(400).type("html").send(await adminHtml(e instanceof Error ? e.message : "Could not update organisation."));
+  }
+});
+
+app.post("/api/saas/enquiry", async (req, res) => {
+  try {
+    res.json({ ok: true, org: await createSaasEnquiry(req.body || {}) });
+  } catch (e) {
+    sendError(res, 400, e instanceof Error ? e.message : "Could not save enquiry.");
+  }
+});
+
+app.post("/api/saas/razorpay/order", async (req, res) => {
+  try {
+    const order = await createSaasRazorpayOrder(req.body || {});
+    const wantsHtml = !String(req.headers.accept || "").includes("application/json");
+    if (wantsHtml) {
+      return res.type("html").send(
+        marketingHtml(`Razorpay order created for ${order.org.schoolName}. Order ID: ${order.orderId}. Checkout UI can be connected when keys are live.`)
+      );
+    }
+    res.json({ ok: true, order });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Could not create Razorpay order.";
+    if (!String(req.headers.accept || "").includes("application/json")) {
+      return res.status(400).type("html").send(marketingHtml(message));
+    }
+    sendError(res, 400, message);
   }
 });
 

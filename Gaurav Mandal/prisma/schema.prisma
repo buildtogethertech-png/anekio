@@ -868,3 +868,49 @@ model TimetableSlot {
 
   @@unique([classId, periodId, weekday])
 }
+
+model SaasOrg {
+  id                 String        @id @default(cuid())
+  schoolName         String
+  ownerName          String
+  ownerEmail         String
+  ownerPhone         String
+  city               String        @default("")
+  teacherCount       Int?
+  studentCount       Int?
+  plan               String        @default("Monthly school")
+  monthlyPrice       Int           @default(1000)
+  paymentStatus      String        @default("PENDING")
+  subscriptionStatus String        @default("LEAD")
+  loginUrl           String        @default("")
+  apiUrl             String        @default("")
+  notes              String        @default("")
+  followUpStatus     String        @default("NEW")
+  razorpayCustomerId String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  payments           SaasPayment[]
+
+  @@index([ownerEmail])
+  @@index([ownerPhone])
+  @@index([subscriptionStatus])
+}
+
+model SaasPayment {
+  id        String    @id @default(cuid())
+  orgId     String
+  org       SaasOrg   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  amount    Int
+  currency  String    @default("INR")
+  provider  String    @default("RAZORPAY")
+  orderId   String?
+  paymentId String?
+  status    String    @default("CREATED")
+  notes     String    @default("")
+  createdAt DateTime  @default(now())
+  paidAt    DateTime?
+
+  @@index([orgId])
+  @@index([orderId])
+  @@index([paymentId])
+}
