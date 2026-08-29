@@ -4,6 +4,7 @@ import { Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } fro
 import { api, type Notice } from "../lib/api";
 import { act } from "../lib/mutate";
 import { classifyNotice } from "../lib/notice-kind";
+import { useRecord } from "../lib/record";
 import { useSession } from "../lib/session";
 import { Badge, Button, Card, Empty, PageHeader, Toast, useToast } from "./ui";
 
@@ -77,8 +78,14 @@ function longDate(value: string) {
   return new Date(value).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
 }
 
+function activeMentionQuery(value: string) {
+  const match = value.match(/(^|\s)@([A-Za-z .'-]*)$/);
+  return match ? match[2].trim().toLowerCase() : null;
+}
+
 export function InboxBoard() {
   const { token, user } = useSession();
+  const { data } = useRecord();
   const toast = useToast();
   const { width } = useWindowDimensions();
   const wide = width >= 1000;
@@ -89,6 +96,32 @@ export function InboxBoard() {
   const [composeMode, setComposeMode] = useState<ComposeMode>("reply");
   const [saving, setSaving] = useState(false);
   const parentMode = user?.portal === "PARENT";
+  const mentionPeople = useMemo(() => {
+    const names = [
+      ...(data?.staff ?? []).map((person) => ({ name: person.name, role: person.role || person.kind || "Staff" })),
+      ...(data?.peopleTeachers ?? []).map((person) => ({ name: person.name, role: person.role || "Teacher" })),
+      ...(data?.teachers ?? []).map((person) => ({ name: person.name, role: "Teacher" })),
+      ...(data?.timetable?.teachers ?? []).map((person) => ({ name: person.name, role: person.team ? "Team" : "Teacher" })),
+      ...(data?.team?.people ?? []).map((person) => ({ name: person.name, role: person.role || "Teacher" })),
+      ...(data?.managers ?? []).map((person) => ({ name: person.name, role: person.role || "Manager" })),
+      ...(data?.officeUsers ?? []).map((person) => ({ name: person.name, role: "Office" })),
+    ];
+    const seen = new Set<string>();
+    return names
+      .filter((person) => {
+        const key = person.name.trim().toLowerCase();
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [data?.managers, data?.officeUsers, data?.peopleTeachers, data?.staff, data?.teachers, data?.team?.people, data?.timetable?.teachers]);
+  const mentionQuery = !parentMode && composeMode === "note" ? activeMentionQuery(compose) : null;
+  const mentionSuggestions = mentionQuery === null
+    ? []
+    : mentionPeople
+        .filter((person) => person.name.toLowerCase().includes(mentionQuery))
+        .slice(0, 6);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -136,6 +169,13 @@ export function InboxBoard() {
     } finally {
       setSaving(false);
     }
+  }
+
+  function insertMention(name: string) {
+    setCompose((current) => {
+      const next = current.replace(/(^|\s)@([A-Za-z .'-]*)$/, (_match, space) => `${space}@${name} `);
+      return next === current ? `${current}${current.endsWith(" ") || !current ? "" : " "}@${name} ` : next;
+    });
   }
 
   return (
@@ -272,6 +312,26 @@ export function InboxBoard() {
                   placeholderTextColor="#64748b"
                   className="min-h-[110px] rounded-md border border-ink-200 bg-white px-3 py-3 text-sm leading-5 text-ink-900"
                 />
+                {mentionSuggestions.length ? (
+                  <View className="mt-2 overflow-hidden rounded-md border border-ink-200 bg-white">
+                    {mentionSuggestions.map((person, index) => (
+                      <Pressable
+                        key={`${person.role}-${person.name}`}
+                        onPress={() => insertMention(person.name)}
+                        className={`flex-row items-center gap-3 px-3 py-2.5 ${index ? "border-t border-ink-100" : ""}`}
+                      >
+                        <View className="h-8 w-8 items-center justify-center rounded-full bg-blue-50">
+                          <Text className="text-xs font-bold text-clay-700">{person.name.slice(0, 1).toUpperCase()}</Text>
+                        </View>
+                        <View className="min-w-0 flex-1">
+                          <Text className="text-sm font-semibold text-ink-900" numberOfLines={1}>{person.name}</Text>
+                          <Text className="text-xs text-ink-600" numberOfLines={1}>{person.role}</Text>
+                        </View>
+                        <Text className="text-xs font-semibold text-clay-700">@ mention</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : null}
                 <View className="mt-3 flex-row flex-wrap items-center justify-between gap-2">
                   <Text className="text-xs text-ink-600">{parentMode ? "Your reply becomes part of this request." : "Use @name to pull another staff member into the request."}</Text>
                   <View className="flex-row flex-wrap gap-2">
