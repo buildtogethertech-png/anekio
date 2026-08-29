@@ -1,0 +1,1099 @@
+import type { PrismaClient } from "@prisma/client";
+import type { Express } from "express";
+import request from "supertest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { seedPortalFixture, type PortalFixture } from "../support/factories";
+import { createTestDatabase, type TestDatabase } from "../support/test-database";
+
+let app: Express;
+let prisma: PrismaClient;
+let database: TestDatabase;
+let fixture: PortalFixture;
+
+async function login(email: string, password = fixture.password) {
+  return request(app).post("/api/v1/login").send({ login: email, password });
+}
+
+const nt5CronAuth = { Authorization: "Bearer fixture-cron-secret" };
+const nt5RoleIds = ["role-exam-only", "role-manager-only", "role-office-negative"];
+const nt5UserIds = ["user-exam-only", "user-manager-only", "user-office-negative", "user-evaluator"];
+
+async function resetNt5Fixture() {
+  await prisma.notice.deleteMany({ where: { eventKey: { startsWith: "NT-5:exam-nt5-" } } });
+  await prisma.exam.deleteMany({ where: { id: { startsWith: "exam-nt5-" } } });
+  await prisma.user.update({
+    where: { id: fixture.users.teacher.id },
+    data: { managerId: fixture.users.office.id, pushToken: null },
+  });
+  await prisma.user.update({ where: { id: fixture.users.office.id }, data: { pushToken: null } });
+  await prisma.user.deleteMany({
+    where: { OR: [{ id: { in: nt5UserIds } }, { id: { startsWith: "user-exam-chunk-" } }] },
+  });
+  await prisma.role.deleteMany({ where: { id: { in: nt5RoleIds } } });
+}
+
+async function setupNt5Actors() {
+  await resetNt5Fixture();
+  const officePassword = await prisma.user.findUniqueOrThrow({
+    where: { id: fixture.users.office.id },
+    select: { password: true },
+  });
+  await prisma.role.create({
+    data: {
+      id: "role-exam-only",
+      name: "Exam only",
+      slug: "EXAM_ONLY",
+      portal: "OFFICE",
+      grants: { create: [{ permission: "exams.view", scope: "SCHOOL" }] },
+    },
+  });
+  await prisma.role.createMany({
+    data: [
+      { id: "role-manager-only", name: "Manager only", slug: "MANAGER_ONLY", portal: "OFFICE" },
+      { id: "role-office-negative", name: "Notice viewer", slug: "NOTICE_VIEWER", portal: "OFFICE" },
+    ],
+  });
+  await prisma.roleGrant.createMany({
+    data: [
+      { roleId: "role-manager-only", permission: "desk.view", scope: "SCHOOL" },
+      { roleId: "role-office-negative", permission: "notices.view", scope: "SCHOOL" },
+    ],
+  });
+  await prisma.user.createMany({
+    data: [
+      {
+        id: "user-exam-only",
+        email: "exam.only@school.test",
+        password: officePassword.password,
+        name: "Exam Only User",
+        roleId: "role-exam-only",
+        pushToken: "ExponentPushToken[exam-only]",
+      },
+      {
+        id: "user-manager-only",
+        email: "manager.only@school.test",
+        password: officePassword.password,
+        name: "Manager Only User",
+        roleId: "role-manager-only",
+        pushToken: "ExponentPushToken[manager]",
+      },
+      {
+        id: "user-office-negative",
+        email: "notice.viewer@school.test",
+        password: officePassword.password,
+        name: "Notice Viewer",
+        roleId: "role-office-negative",
+        pushToken: "ExponentPushToken[non-recipient]",
+      },
+    ],
+  });
+  await prisma.user.create({
+    data: {
+      id: "user-evaluator",
+      email: "evaluator@school.test",
+      password: officePassword.password,
+      name: "Evaluator Teacher",
+      roleId: "role-teacher",
+      pushToken: "ExponentPushToken[evaluator]",
+      teacher: { create: { id: "teacher-evaluator", employeeId: "T-FIX-EVALUATOR" } },
+    },
+  });
+  await prisma.user.update({
+    where: { id: fixture.users.teacher.id },
+    data: { managerId: "user-manager-only", pushToken: "ExponentPushToken[teacher]" },
+  });
+  await prisma.user.update({
+    where: { id: fixture.users.office.id },
+    data: { pushToken: "ExponentPushToken[office]" },
+  });
+  return {
+    password: officePassword.password,
+    recipientIds: ["user-exam-only", "user-manager-only", fixture.users.office.id, fixture.users.teacher.id].sort(),
+    recipientTokens: [
+      "ExponentPushToken[exam-only]",
+      "ExponentPushToken[manager]",
+      "ExponentPushToken[office]",
+      "ExponentPushToken[teacher]",
+    ].sort(),
+  };
+}
+
+async function createNt5Exam(input: {
+  id: string;
+  dueOn?: Date | null;
+  paperAt?: Date | null;
+  setterId?: string | null;
+  teacherId?: string | null;
+}) {
+  return prisma.exam.create({
+    data: {
+      id: input.id,
+      title: input.id,
+      subjectId: "subject-mathematics",
+      classId: fixture.classId,
+      date: new Date("2026-09-15T00:00:00.000Z"),
+      paperDueOn: input.dueOn ?? null,
+      paperAt: input.paperAt ?? null,
+      setterId: input.setterId ?? null,
+      teacherId: input.teacherId ?? null,
+      maxMarks: 80,
+    },
+  });
+}
+
+describe("Express portal API", () => {
+  beforeAll(async () => {
+    process.env.NODE_ENV = "test";
+    delete process.env.VERCEL;
+    process.env.JWT_SECRET = "integration-test-secret-with-enough-entropy";
+    process.env.CRON_SECRET = "fixture-cron-secret";
+    database = createTestDatabase();
+
+    // DATABASE_URL must be set before either module is loaded because lib/prisma
+    // intentionally caches a single client for the application process. Clear
+    // this isolated test file's module registry before the dynamic imports.
+    vi.resetModules();
+    const prismaModule = await import("../../lib/prisma");
+    prisma = prismaModule.prisma;
+    fixture = await seedPortalFixture(prisma);
+    app = (await import("../../server/index")).default;
+  }, 30_000);
+
+  afterAll(async () => {
+    await prisma?.$disconnect();
+    database?.cleanup();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    process.env.CRON_SECRET = "fixture-cron-secret";
+  });
+
+  it("uses an isolated SQLite file outside prisma/dev.db", () => {
+    expect(database.databasePath).toMatch(/cultivate-vitest-/);
+    expect(database.databasePath).not.toContain("/prisma/dev.db");
+    expect(process.env.DATABASE_URL).toBe(database.databaseUrl);
+  });
+
+  it("reports API health without authentication", async () => {
+    const response = await request(app).get("/health");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ ok: true });
+  });
+
+  it("rejects incomplete and invalid credentials with explicit errors", async () => {
+    const incomplete = await request(app).post("/api/v1/login").send({ login: "" });
+    const invalid = await login(fixture.users.office.email, "wrong-password");
+
+    expect(incomplete.status).toBe(400);
+    expect(incomplete.body).toEqual({ error: "Email or number, and password." });
+    expect(invalid.status).toBe(401);
+    expect(invalid.body).toEqual({ error: "Those credentials are not in this school." });
+  });
+
+  it.each(["office", "teacher", "parent", "student"] as const)(
+    "logs in the %s portal with its role-scoped navigation",
+    async (kind) => {
+      const expected = fixture.users[kind];
+      const response = await login(expected.email);
+
+      expect(response.status).toBe(200);
+      expect(response.body.token).toEqual(expect.any(String));
+      expect(response.body.user).toMatchObject({
+        id: expected.id,
+        name: expected.name,
+        portal: expected.portal,
+      });
+      expect(response.body.user.permissions).toContain(expected.expectedPermission);
+      expect(response.body.nav.length).toBeGreaterThan(0);
+      expect(response.body.nav.every((item: { permission: string | null }) =>
+        item.permission === null || response.body.user.permissions.includes(item.permission)
+      )).toBe(true);
+    }
+  );
+
+  it("accepts a normalized Indian mobile number for parent login", async () => {
+    const response = await login("+91 98765 40003");
+
+    expect(response.status).toBe(200);
+    expect(response.body.user).toMatchObject({ id: fixture.users.parent.id, portal: "PARENT" });
+  });
+
+  it("restores the authenticated user through /me and rejects a bad bearer token", async () => {
+    const session = await login(fixture.users.teacher.email);
+    const restored = await request(app)
+      .get("/api/v1/me")
+      .set("Authorization", `Bearer ${session.body.token}`);
+    const rejected = await request(app)
+      .get("/api/v1/me")
+      .set("Authorization", "Bearer not-a-valid-token");
+
+    expect(restored.status).toBe(200);
+    expect(restored.body.user).toMatchObject({ id: fixture.users.teacher.id, portal: "TEACHER" });
+    expect(restored.body.nav.map((item: { key: string }) => item.key)).toContain("attendance");
+    expect(rejected.status).toBe(401);
+    expect(rejected.body).toEqual({ error: "Sign in again." });
+  });
+
+  it.each([
+    ["office", "OFFICE"],
+    ["teacher", "TEACHER"],
+    ["parent", "PARENT"],
+    ["student", "STUDENT"],
+  ] as const)("returns the %s portal record projection", async (kind, recordKind) => {
+    const session = await login(fixture.users[kind].email);
+    const response = await request(app)
+      .get("/api/v1/record")
+      .set("Authorization", `Bearer ${session.body.token}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.kind).toBe(recordKind);
+
+    if (kind === "office") {
+      expect(response.body.school.name).toBe("Fixture Academy");
+      expect(response.body.people).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: fixture.studentId, admissionNo: "ADM-FIX-1" })])
+      );
+      expect(response.body.roles).toEqual(
+        expect.arrayContaining([expect.objectContaining({ slug: "ADMIN", isSystem: true })])
+      );
+    } else if (kind === "teacher") {
+      expect(response.body).toMatchObject({ classId: fixture.classId, classLabel: "6-A", studentCount: 1 });
+      expect(response.body.roster).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: fixture.studentId, name: "Anaya Student" })])
+      );
+      expect(response.body.notices).toEqual(
+        expect.arrayContaining([expect.objectContaining({ title: "Fixture circular" })])
+      );
+    } else {
+      expect(response.body.children).toEqual([
+        expect.objectContaining({ id: fixture.studentId, name: "Anaya Student", classLabel: "6-A" }),
+      ]);
+      expect(response.body.child).toMatchObject({
+        id: fixture.studentId,
+        name: "Anaya Student",
+        admissionNo: "ADM-FIX-1",
+        classLabel: "6-A",
+      });
+      expect(response.body.child.fees).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: "invoice-anaya-april", period: "2026-04" })])
+      );
+    }
+  });
+
+  it("keeps teacher leave waiting until office approval", async () => {
+    const teacherSession = await login(fixture.users.teacher.email);
+    const teacherAuth = { Authorization: `Bearer ${teacherSession.body.token}` };
+    const applied = await request(app)
+      .post("/api/v1/act")
+      .set(teacherAuth)
+      .send({
+        op: "applyLeave",
+        typeId: "leave-sick",
+        from: "2026-09-01",
+        to: "2026-09-01",
+        reason: "Medical appointment",
+      });
+
+    expect(applied.status).toBe(200);
+    const requestRow = await prisma.leaveRequest.findFirstOrThrow({
+      where: { teacherId: "teacher-tara", from: "2026-09-01" },
+    });
+    expect(requestRow.status).toBe("WAITING");
+    expect(await prisma.staffDay.findFirst({ where: { teacherId: "teacher-tara" } })).toBeNull();
+    expect(
+      await prisma.notice.findFirst({
+        where: { authorId: fixture.users.teacher.id, title: { startsWith: "Leave request" } },
+      })
+    ).toMatchObject({ kind: "LEAVE" });
+
+    const officeSession = await login(fixture.users.office.email);
+    const officeAuth = { Authorization: `Bearer ${officeSession.body.token}` };
+    const officeRecord = await request(app).get("/api/v1/record").set(officeAuth);
+    expect(officeRecord.body.pendingLeave).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: requestRow.id, status: "WAITING" })])
+    );
+
+    const approved = await request(app)
+      .post("/api/v1/act")
+      .set(officeAuth)
+      .send({ op: "decideLeave", requestId: requestRow.id, yes: true });
+
+    expect(approved.status).toBe(200);
+    expect(await prisma.leaveRequest.findUnique({ where: { id: requestRow.id } })).toMatchObject({ status: "ACTIVE" });
+    expect(await prisma.staffDay.findFirst({ where: { teacherId: "teacher-tara" } })).toMatchObject({ status: "LEAVE" });
+  });
+
+  it("requires authentication before exposing portal records", async () => {
+    const response = await request(app).get("/api/v1/record");
+
+    expect(response.status).toBe(401);
+    expect(response.body).toEqual({ error: "Sign in again." });
+  });
+
+  it("notifies a staff member when they are mentioned in an inbox internal note", async () => {
+    const parentSession = await login(fixture.users.parent.email);
+    const parentAuth = { Authorization: `Bearer ${parentSession.body.token}` };
+    const submitted = await request(app)
+      .post("/api/v1/act")
+      .set(parentAuth)
+      .send({
+        op: "submitParentQuery",
+        studentId: fixture.studentId,
+        target: "office",
+        subject: "Transport issue",
+        message: "Please check the bus route.",
+      });
+    expect(submitted.status).toBe(200);
+
+    const query = await prisma.notice.findFirstOrThrow({
+      where: { authorId: fixture.users.parent.id, title: "Parent query: Transport issue" },
+      orderBy: { createdAt: "desc" },
+    });
+    const officeSession = await login(fixture.users.office.email);
+    const mentioned = await request(app)
+      .post("/api/v1/act")
+      .set({ Authorization: `Bearer ${officeSession.body.token}` })
+      .send({
+        op: "replyParentQuery",
+        noticeId: query.id,
+        internalNote: "@Tara Teacher please check this.",
+      });
+    expect(mentioned.status).toBe(200);
+
+    const mentionNotice = await prisma.notice.findFirstOrThrow({
+      where: {
+        title: "Mentioned in Transport issue",
+        recipients: { some: { userId: fixture.users.teacher.id } },
+      },
+      include: { recipients: true },
+    });
+    expect(mentionNotice.body).toContain("@Tara Teacher please check this.");
+
+    const teacherSession = await login(fixture.users.teacher.email);
+    const teacherRecord = await request(app)
+      .get("/api/v1/record")
+      .set({ Authorization: `Bearer ${teacherSession.body.token}` });
+    expect(teacherRecord.status).toBe(200);
+    expect(teacherRecord.body.notices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: mentionNotice.id,
+          title: "Mentioned in Transport issue",
+        }),
+      ])
+    );
+  });
+
+  it("keeps grouped update history and communication actions in the admission lead timeline", async () => {
+    const lead = await prisma.admissionLead.create({
+      data: {
+        studentName: "Old Student Name",
+        guardianName: "Fixture Guardian",
+        phone: "9876540010",
+        email: "",
+        classWanted: "5",
+      },
+    });
+    const session = await login(fixture.users.office.email);
+    const auth = { Authorization: `Bearer ${session.body.token}` };
+
+    const edited = await request(app)
+      .post("/api/v1/act")
+      .set(auth)
+      .send({
+        op: "updateAdmissionLead",
+        id: lead.id,
+        studentName: "New Student Name",
+        email: "guardian@example.test",
+        status: "FOLLOW_UP",
+        followUpAt: "2026-09-05 10:30",
+        remark: "Parent asked for fee details.",
+      });
+    expect(edited.status).toBe(200);
+
+    const call = await request(app)
+      .post("/api/v1/act")
+      .set(auth)
+      .send({
+        op: "updateAdmissionLead",
+        id: lead.id,
+        eventKind: "CALL",
+        eventTitle: "Call button clicked",
+        eventBody: "Calling 9876540010",
+      });
+    expect(call.status).toBe(200);
+
+    const events = await prisma.admissionLeadEvent.findMany({ where: { leadId: lead.id } });
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "UPDATE",
+          title: "Updated Student name, Email, Lead stage, Follow-up",
+          body: [
+            "Student name\nOld Student Name -> New Student Name",
+            "Email\n- -> guardian@example.test",
+            "Lead stage\nNew -> Follow Up",
+            "Follow-up\n- -> 2026-09-05 10:30",
+            "Remark\nParent asked for fee details.",
+          ].join("\n\n"),
+          actorName: "Ojas Office",
+        }),
+        expect.objectContaining({ kind: "CALL", title: "Call button clicked", body: "Calling 9876540010" }),
+      ])
+    );
+  });
+
+  it("saves, publishes, issues, verifies, and revokes an official document", async () => {
+    const session = await login(fixture.users.office.email);
+    const auth = { Authorization: `Bearer ${session.body.token}` };
+    const saved = await request(app)
+      .post("/api/v1/act")
+      .set(auth)
+      .send({
+        op: "saveDocumentTemplate",
+        type: "BONAFIDE",
+        name: "Fixture bonafide",
+        pageSize: "A4",
+        orientation: "PORTRAIT",
+        layout: {
+          elements: [
+            { id: "title", type: "TEXT", x: 10, y: 10, width: 80, height: 8, value: "Bonafide certificate" },
+            { id: "student", type: "FIELD", x: 10, y: 25, width: 80, height: 8, field: "student.name" },
+            { id: "verify", type: "VERIFY_QR", x: 75, y: 75, width: 16, height: 16 },
+            { id: "barcode", type: "BARCODE", x: 10, y: 78, width: 40, height: 10, field: "document.number" },
+          ],
+        },
+      });
+    expect(saved.status).toBe(200);
+    const templateId = saved.body.template.id as string;
+
+    const preview = await request(app)
+      .post("/api/v1/act")
+      .set(auth)
+      .send({
+        op: "previewDocumentTemplate",
+        pageSize: "CR80",
+        orientation: "LANDSCAPE",
+        layout: { elements: [{ id: "student", type: "FIELD", x: 10, y: 25, width: 80, height: 8, field: "student.name" }] },
+        data: { school: { name: "Fixture Academy" }, student: { name: "Preview Student" } },
+      });
+    expect(preview.status).toBe(200);
+    expect(preview.body.html).toContain("Preview Student");
+    expect(preview.body.html).toContain("width:85.6mm");
+
+    const published = await request(app)
+      .post("/api/v1/act")
+      .set(auth)
+      .send({ op: "publishDocumentTemplate", id: templateId });
+    expect(published.status).toBe(200);
+    expect(published.body.version).toBe(1);
+
+    const issued = await request(app)
+      .post("/api/v1/act")
+      .set(auth)
+      .send({
+        op: "issueDocument",
+        templateId,
+        subjectType: "STUDENT",
+        subjectId: fixture.studentId,
+        subjectLabel: "Anaya Student",
+        data: { school: { name: "Fixture Academy" }, student: { name: "Anaya Student" } },
+      });
+    expect(issued.status).toBe(200);
+    expect(issued.body.documentNumber).toMatch(/^B-\d{4}-\d{6}$/);
+
+    const row = await prisma.issuedDocument.findUnique({ where: { id: issued.body.id } });
+    expect(row?.renderedHtml).toContain("data:image/png;base64,");
+    expect(row?.fileHash).toMatch(/^[0-9a-f]{64}$/);
+
+    const verified = await request(app).get(`/verify/${row?.verifyToken}`);
+    expect(verified.status).toBe(200);
+    expect(verified.text).toContain("VALID");
+    expect(verified.text).not.toContain("Anaya Student");
+
+    const batch = await request(app)
+      .post("/api/v1/act")
+      .set(auth)
+      .send({
+        op: "issueDocumentBatch",
+        templateId,
+        subjects: [
+          { subjectType: "STUDENT", subjectId: "student-batch-1", subjectLabel: "First Student", data: { school: { name: "Fixture Academy" }, student: { name: "First Student" } } },
+          { subjectType: "STUDENT", subjectId: "student-batch-2", subjectLabel: "Second Student", data: { school: { name: "Fixture Academy" }, student: { name: "Second Student" } } },
+        ],
+      });
+    expect(batch.status).toBe(200);
+    expect(batch.body.issued).toHaveLength(2);
+    expect(batch.body.blocked).toEqual([]);
+    const combined = await request(app).get(`/document-batches/${batch.body.batchId}`);
+    expect(combined.status).toBe(200);
+    expect(combined.text.match(/class="page"/g)).toHaveLength(2);
+    const replacement = await request(app)
+      .post("/api/v1/act")
+      .set(auth)
+      .send({ op: "reissueDocument", id: batch.body.issued[0].id, reason: "Corrected in test" });
+    expect(replacement.status).toBe(200);
+    expect(await prisma.issuedDocument.findUnique({ where: { id: batch.body.issued[0].id } })).toMatchObject({ status: "SUPERSEDED" });
+
+    const revoked = await request(app)
+      .post("/api/v1/act")
+      .set(auth)
+      .send({ op: "changeIssuedDocumentStatus", id: issued.body.id, status: "REVOKED", reason: "Replaced in test" });
+    expect(revoked.status).toBe(200);
+    const rechecked = await request(app).get(`/verify/${row?.verifyToken}`);
+    expect(rechecked.text).toContain("REVOKED");
+    expect(await prisma.documentEvent.count({ where: { issuedDocumentId: issued.body.id } })).toBe(2);
+  });
+
+  it("persists valid scopes, rejects invalid scopes, and enforces report boundaries", async () => {
+    const session = await login(fixture.users.office.email);
+    const auth = { Authorization: `Bearer ${session.body.token}` };
+    const initial = await request(app).get("/api/v1/record").set(auth);
+    const admin = initial.body.roles.find((role: { slug: string }) => role.slug === "ADMIN");
+    const leaveCatalog = initial.body.permissionCatalog.find(
+      (permission: { key: string }) => permission.key === "leave.decide"
+    );
+
+    expect(admin.grantScopes["leave.decide"]).toBe("SCHOOL");
+    expect(leaveCatalog.scopes).toEqual(["REPORTS", "SCHOOL"]);
+    expect(
+      await prisma.roleGrant.count({ where: { scope: null } })
+    ).toBe(0);
+    expect(
+      await prisma.roleGrant.findUnique({
+        where: { roleId_permission: { roleId: "role-teacher", permission: "leave.decide" } },
+      })
+    ).toMatchObject({ scope: "REPORTS" });
+    expect(
+      await prisma.roleGrant.findUnique({
+        where: { roleId_permission: { roleId: "role-legacy-office", permission: "leave.decide" } },
+      })
+    ).toMatchObject({ scope: "SCHOOL" });
+    expect(
+      await prisma.roleGrant.findUnique({
+        where: { roleId_permission: { roleId: "role-legacy-teacher", permission: "leave.decide" } },
+      })
+    ).toMatchObject({ scope: "REPORTS" });
+
+    const invalid = await request(app)
+      .post("/api/v1/act")
+      .set(auth)
+      .send({
+        op: "setRolePermissions",
+        roleId: admin.id,
+        changes: [{ permission: "leave.decide", on: true, scope: "SELF" }],
+      });
+    expect(invalid.status).toBe(400);
+    expect(invalid.body.error).toContain("scope is not available");
+
+    const beforeAtomic = await prisma.roleGrant.findUnique({
+      where: { roleId_permission: { roleId: admin.id, permission: "leave.decide" } },
+    });
+    const mixedInvalid = await request(app)
+      .post("/api/v1/act")
+      .set(auth)
+      .send({
+        op: "setRolePermissions",
+        roleId: admin.id,
+        changes: [
+          { permission: "leave.decide", on: true, scope: "REPORTS" },
+          { permission: "attendance.mark", on: true, scope: "SELF" },
+        ],
+      });
+    expect(mixedInvalid.status).toBe(400);
+    expect(
+      await prisma.roleGrant.findUnique({
+        where: { roleId_permission: { roleId: admin.id, permission: "leave.decide" } },
+      })
+    ).toMatchObject({ scope: beforeAtomic?.scope });
+
+    const changed = await request(app)
+      .post("/api/v1/act")
+      .set(auth)
+      .send({
+        op: "setRolePermissions",
+        roleId: admin.id,
+        changes: [
+          { permission: "leave.decide", on: true, scope: "REPORTS" },
+          { permission: "timetable.view", on: true, scope: "REPORTS" },
+          { permission: "timetable.edit", on: true, scope: "REPORTS" },
+        ],
+      });
+    expect(changed.status).toBe(200);
+
+    await prisma.class.create({ data: { id: "class-7-b", name: "7", section: "B" } });
+    await prisma.user.create({
+      data: {
+        id: "user-outside-report",
+        email: "outside.report@school.test",
+        password: "unused",
+        name: "Outside Teacher",
+        roleId: "role-teacher",
+        teacher: { create: { id: "teacher-outside-report", employeeId: "T-FIX-2", classId: "class-7-b" } },
+      },
+    });
+    await prisma.leaveRequest.createMany({
+      data: [
+        {
+          id: "leave-direct-report",
+          typeId: "leave-sick",
+          from: "2026-08-28",
+          to: "2026-08-28",
+          status: "ACTIVE",
+          requesterId: fixture.users.teacher.id,
+          teacherId: "teacher-tara",
+        },
+        {
+          id: "leave-outside-report",
+          typeId: "leave-sick",
+          from: "2026-08-28",
+          to: "2026-08-28",
+          status: "ACTIVE",
+          requesterId: "user-outside-report",
+          teacherId: "teacher-outside-report",
+        },
+      ],
+    });
+
+    const scopedRecord = await request(app).get("/api/v1/record").set(auth);
+    expect(scopedRecord.body.pendingLeave.map((leave: { id: string }) => leave.id)).toContain("leave-direct-report");
+    expect(scopedRecord.body.pendingLeave.map((leave: { id: string }) => leave.id)).not.toContain("leave-outside-report");
+    expect(scopedRecord.body.timetable.classes.map((schoolClass: { id: string }) => schoolClass.id)).toContain(fixture.classId);
+    expect(scopedRecord.body.timetable.classes.map((schoolClass: { id: string }) => schoolClass.id)).not.toContain("class-7-b");
+
+    const deniedLeave = await request(app)
+      .post("/api/v1/act")
+      .set(auth)
+      .send({ op: "decideLeave", requestId: "leave-outside-report", yes: false });
+    expect(deniedLeave.status).toBe(400);
+    expect(deniedLeave.body).toEqual({ error: "No access." });
+
+    const deniedTimetable = await request(app)
+      .post("/api/v1/act")
+      .set(auth)
+      .send({
+        op: "saveTimetableSlot",
+        classId: "class-7-b",
+        periodId: "period-1",
+        weekday: 1,
+        clear: true,
+      });
+    expect(deniedTimetable.status).toBe(400);
+    expect(deniedTimetable.body).toEqual({ error: "No access." });
+
+    const copied = await request(app)
+      .post("/api/v1/act")
+      .set(auth)
+      .send({ op: "createCustomRole", name: "Scoped copy", fromId: admin.id });
+    expect(copied.status).toBe(200);
+    const copiedRole = await prisma.role.findUnique({ where: { slug: "SCOPED_COPY" }, include: { grants: true } });
+    expect(copiedRole?.grants.find((grant) => grant.permission === "leave.decide")?.scope).toBe("REPORTS");
+
+    await request(app)
+      .post("/api/v1/act")
+      .set(auth)
+      .send({
+        op: "setRolePermissions",
+        roleId: admin.id,
+        changes: [
+          { permission: "leave.decide", on: true, scope: "SCHOOL" },
+          { permission: "timetable.view", on: true, scope: "SCHOOL" },
+          { permission: "timetable.edit", on: true, scope: "SCHOOL" },
+        ],
+      });
+  });
+
+  it("keeps the NT-5 cron POST-only and fails closed without a configured secret", async () => {
+    await setupNt5Actors();
+    await createNt5Exam({
+      id: "exam-nt5-auth",
+      dueOn: new Date("2026-08-01T00:00:00.000Z"),
+      setterId: "teacher-tara",
+    });
+
+    const getResponse = await request(app).get("/api/cron/exams").set(nt5CronAuth);
+    const putResponse = await request(app).put("/api/cron/exams").set(nt5CronAuth);
+    expect(getResponse.status).toBe(404);
+    expect(putResponse.status).toBe(404);
+
+    const configuredSecret = process.env.CRON_SECRET;
+    try {
+      delete process.env.CRON_SECRET;
+      const unset = await request(app).post("/api/cron/exams");
+      const bearerUndefined = await request(app)
+        .post("/api/cron/exams")
+        .set("Authorization", "Bearer undefined");
+      process.env.CRON_SECRET = "";
+      const empty = await request(app)
+        .post("/api/cron/exams")
+        .set("Authorization", "Bearer undefined");
+      expect([unset.status, bearerUndefined.status, empty.status]).toEqual([401, 401, 401]);
+    } finally {
+      process.env.CRON_SECRET = configuredSecret;
+    }
+    expect(await prisma.notice.count({ where: { eventKey: { startsWith: "NT-5:exam-nt5-" } } })).toBe(0);
+  });
+
+  it("creates exact, idempotent NT-5 recipients and pushes only to them", async () => {
+    await resetNt5Fixture();
+    const unauthorized = await request(app).post("/api/cron/exams");
+    const wrongSecret = await request(app)
+      .post("/api/cron/exams")
+      .set("Authorization", "Bearer wrong-secret");
+    expect(unauthorized.status).toBe(401);
+    expect(wrongSecret.status).toBe(401);
+    expect(await prisma.notice.count({ where: { eventKey: { startsWith: "NT-5:" } } })).toBe(0);
+
+    const officePassword = await prisma.user.findUniqueOrThrow({
+      where: { id: fixture.users.office.id },
+      select: { password: true },
+    });
+    await prisma.role.create({
+      data: {
+        id: "role-exam-only",
+        name: "Exam only",
+        slug: "EXAM_ONLY",
+        portal: "OFFICE",
+        grants: { create: [{ permission: "exams.view", scope: "SCHOOL" }] },
+      },
+    });
+    await prisma.user.create({
+      data: {
+        id: "user-exam-only",
+        email: "exam.only@school.test",
+        password: officePassword.password,
+        name: "Exam Only User",
+        roleId: "role-exam-only",
+      },
+    });
+    await prisma.role.createMany({
+      data: [
+        {
+          id: "role-manager-only",
+          name: "Manager only",
+          slug: "MANAGER_ONLY",
+          portal: "OFFICE",
+        },
+        {
+          id: "role-office-negative",
+          name: "Notice viewer",
+          slug: "NOTICE_VIEWER",
+          portal: "OFFICE",
+        },
+      ],
+    });
+    await prisma.roleGrant.createMany({
+      data: [
+        { roleId: "role-manager-only", permission: "desk.view", scope: "SCHOOL" },
+        { roleId: "role-office-negative", permission: "notices.view", scope: "SCHOOL" },
+      ],
+    });
+    await prisma.user.createMany({
+      data: [
+        {
+          id: "user-manager-only",
+          email: "manager.only@school.test",
+          password: officePassword.password,
+          name: "Manager Only User",
+          roleId: "role-manager-only",
+          pushToken: "ExponentPushToken[manager]",
+        },
+        {
+          id: "user-office-negative",
+          email: "notice.viewer@school.test",
+          password: officePassword.password,
+          name: "Notice Viewer",
+          roleId: "role-office-negative",
+          pushToken: "ExponentPushToken[non-recipient]",
+        },
+      ],
+    });
+    await prisma.user.create({
+      data: {
+        id: "user-evaluator",
+        email: "evaluator@school.test",
+        password: officePassword.password,
+        name: "Evaluator Teacher",
+        roleId: "role-teacher",
+        pushToken: "ExponentPushToken[evaluator]",
+        teacher: { create: { id: "teacher-evaluator", employeeId: "T-FIX-EVALUATOR" } },
+      },
+    });
+    await prisma.user.update({
+      where: { id: fixture.users.teacher.id },
+      data: { managerId: "user-manager-only" },
+    });
+    const indiaToday = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Kolkata",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+    const todayStart = new Date(`${indiaToday}T00:00:00+05:30`);
+    const baseExam = {
+      subjectId: "subject-mathematics",
+      classId: fixture.classId,
+      date: new Date("2026-09-15T00:00:00.000Z"),
+      maxMarks: 80,
+    };
+    await prisma.exam.createMany({
+      data: [
+        {
+          ...baseExam,
+          id: "exam-nt5-setter",
+          title: "Setter deadline",
+          setterId: "teacher-tara",
+          teacherId: "teacher-evaluator",
+          paperDueOn: new Date("2026-08-01T00:00:00.000Z"),
+        },
+        {
+          ...baseExam,
+          id: "exam-nt5-fallback",
+          title: "Evaluator fallback deadline",
+          teacherId: "teacher-tara",
+          paperDueOn: new Date("2026-08-02T00:00:00.000Z"),
+        },
+        {
+          ...baseExam,
+          id: "exam-nt5-today",
+          title: "Due today",
+          setterId: "teacher-tara",
+          paperDueOn: todayStart,
+        },
+        {
+          ...baseExam,
+          id: "exam-nt5-future",
+          title: "Due later",
+          setterId: "teacher-tara",
+          paperDueOn: new Date(todayStart.getTime() + 86_400_000),
+        },
+        {
+          ...baseExam,
+          id: "exam-nt5-ready",
+          title: "Already ready",
+          setterId: "teacher-tara",
+          paperDueOn: new Date("2026-08-03T00:00:00.000Z"),
+          paperAt: new Date("2026-08-03T12:00:00.000Z"),
+        },
+        {
+          ...baseExam,
+          id: "exam-nt5-no-deadline",
+          title: "No deadline",
+          setterId: "teacher-tara",
+        },
+      ],
+    });
+    await prisma.user.update({ where: { id: fixture.users.office.id }, data: { pushToken: "ExponentPushToken[office]" } });
+    await prisma.user.update({ where: { id: fixture.users.teacher.id }, data: { pushToken: "ExponentPushToken[teacher]" } });
+    await prisma.user.update({ where: { id: "user-exam-only" }, data: { pushToken: "ExponentPushToken[exam-only]" } });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue({ ok: true } as Response);
+    const cronAuth = { Authorization: "Bearer fixture-cron-secret" };
+
+    const first = await request(app).post("/api/cron/exams").set(cronAuth);
+    expect(first.status).toBe(200);
+    expect(first.body).toEqual({ eligible: 2, created: 2, skipped: 0, recipients: 8 });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const call of fetchMock.mock.calls) {
+      const messages = JSON.parse(String((call[1] as RequestInit).body)) as { to: string }[];
+      expect(messages.map((message) => message.to).sort()).toEqual([
+        "ExponentPushToken[exam-only]",
+        "ExponentPushToken[manager]",
+        "ExponentPushToken[office]",
+        "ExponentPushToken[teacher]",
+      ]);
+    }
+    const notices = await prisma.notice.findMany({
+      where: { eventKey: { startsWith: "NT-5:" } },
+      include: { recipients: true, audiences: true, classes: true },
+      orderBy: { eventKey: "asc" },
+    });
+    expect(notices).toHaveLength(2);
+    expect(notices.map((notice) => notice.eventKey)).toEqual([
+      "NT-5:exam-nt5-fallback:2026-08-02",
+      "NT-5:exam-nt5-setter:2026-08-01",
+    ]);
+    for (const notice of notices) {
+      expect(notice.recipients.map((recipient) => recipient.userId).sort()).toEqual([
+        "user-exam-only",
+        "user-manager-only",
+        fixture.users.office.id,
+        fixture.users.teacher.id,
+      ]);
+      expect(notice.recipients.map((recipient) => recipient.userId)).not.toContain("user-evaluator");
+      expect(notice.recipients.map((recipient) => recipient.userId)).not.toContain("user-office-negative");
+      expect(notice.audiences).toEqual([]);
+      expect(notice.classes).toEqual([]);
+    }
+
+    const repeated = await request(app).post("/api/cron/exams").set(cronAuth);
+    expect(repeated.body).toEqual({ eligible: 2, created: 0, skipped: 2, recipients: 0 });
+    expect(
+      await prisma.noticeRecipient.count({
+        where: { notice: { eventKey: { startsWith: "NT-5:" } } },
+      })
+    ).toBe(8);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    const sessions = await Promise.all([
+      login(fixture.users.office.email),
+      login(fixture.users.teacher.email),
+      login(fixture.users.parent.email),
+      login(fixture.users.student.email),
+      login("exam.only@school.test"),
+      login("manager.only@school.test"),
+      login("notice.viewer@school.test"),
+    ]);
+    const inboxes = await Promise.all(
+      sessions.map((session) =>
+        request(app).get("/api/v1/notices").set("Authorization", `Bearer ${session.body.token}`)
+      )
+    );
+    expect(inboxes[0].body.notices.filter((notice: { kind: string }) => notice.kind === "EXAM")).toHaveLength(2);
+    expect(inboxes[1].body.notices.filter((notice: { kind: string }) => notice.kind === "EXAM")).toHaveLength(2);
+    expect(inboxes[2].body.notices.filter((notice: { kind: string }) => notice.kind === "EXAM")).toHaveLength(0);
+    expect(inboxes[3].body.notices.filter((notice: { kind: string }) => notice.kind === "EXAM")).toHaveLength(0);
+    expect(inboxes[4].body.notices.filter((notice: { kind: string }) => notice.kind === "EXAM")).toHaveLength(2);
+    expect(inboxes[5].status).toBe(200);
+    expect(inboxes[5].body.notices.filter((notice: { kind: string }) => notice.kind === "EXAM")).toHaveLength(2);
+    expect(inboxes[6].status).toBe(200);
+    expect(inboxes[6].body.notices.filter((notice: { kind: string }) => notice.kind === "EXAM")).toHaveLength(0);
+    for (const inbox of inboxes.slice(0, 4)) {
+      expect(inbox.body.notices).toEqual(
+        expect.arrayContaining([expect.objectContaining({ title: "Fixture circular" })])
+      );
+    }
+
+    await prisma.exam.create({
+      data: {
+        ...baseExam,
+        id: "exam-nt5-concurrent",
+        title: "Concurrent deadline",
+        setterId: "teacher-tara",
+        paperDueOn: new Date("2026-08-04T00:00:00.000Z"),
+      },
+    });
+    const concurrent = await Promise.all([
+      request(app).post("/api/cron/exams").set(cronAuth),
+      request(app).post("/api/cron/exams").set(cronAuth),
+    ]);
+    expect(concurrent.every((response) => response.status === 200)).toBe(true);
+    expect(concurrent.reduce((sum, response) => sum + response.body.created, 0)).toBe(1);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(await prisma.notice.count({ where: { eventKey: "NT-5:exam-nt5-concurrent:2026-08-04" } })).toBe(1);
+    expect(
+      await prisma.noticeRecipient.count({
+        where: { notice: { eventKey: "NT-5:exam-nt5-concurrent:2026-08-04" } },
+      })
+    ).toBe(4);
+    fetchMock.mockRestore();
+  });
+
+  it("persists and deduplicates an NT-5 event when Expo push fails", async () => {
+    await setupNt5Actors();
+    await prisma.exam.create({
+      data: {
+        id: "exam-nt5-push-failure",
+        title: "Push failure deadline",
+        subjectId: "subject-mathematics",
+        classId: fixture.classId,
+        setterId: "teacher-tara",
+        teacherId: "teacher-evaluator",
+        date: new Date("2026-09-15T00:00:00.000Z"),
+        paperDueOn: new Date("2026-08-05T00:00:00.000Z"),
+        maxMarks: 80,
+      },
+    });
+    const pushSignals: (AbortSignal | null)[] = [];
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation((_url, init) => {
+      pushSignals.push(init?.signal instanceof AbortSignal ? init.signal : null);
+      return Promise.reject(new DOMException("Expo request timed out", "TimeoutError"));
+    });
+    const cronAuth = { Authorization: "Bearer fixture-cron-secret" };
+
+    const first = await request(app).post("/api/cron/exams").set(cronAuth);
+    expect(first.status).toBe(200);
+    expect(first.body).toEqual({ eligible: 1, created: 1, skipped: 0, recipients: 4 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(pushSignals[0]).toBeInstanceOf(AbortSignal);
+    const persisted = await prisma.notice.findUnique({
+      where: { eventKey: "NT-5:exam-nt5-push-failure:2026-08-05" },
+      include: { recipients: true },
+    });
+    expect(persisted?.recipients.map((recipient) => recipient.userId).sort()).toEqual([
+      "user-exam-only",
+      "user-manager-only",
+      fixture.users.office.id,
+      fixture.users.teacher.id,
+    ]);
+
+    const repeated = await request(app).post("/api/cron/exams").set(cronAuth);
+    expect(repeated.body).toEqual({ eligible: 1, created: 0, skipped: 1, recipients: 0 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(
+      await prisma.notice.count({ where: { eventKey: "NT-5:exam-nt5-push-failure:2026-08-05" } })
+    ).toBe(1);
+    fetchMock.mockRestore();
+  });
+
+  it("attempts later exact-recipient push chunks after an earlier chunk fails", async () => {
+    const actors = await setupNt5Actors();
+    await prisma.user.createMany({
+      data: Array.from({ length: 101 }, (_, index) => ({
+        id: `user-exam-chunk-${index}`,
+        email: `exam.chunk.${index}@school.test`,
+        password: actors.password,
+        name: `Exam Chunk ${index}`,
+        roleId: "role-exam-only",
+        pushToken: `ExponentPushToken[chunk-${index}]`,
+      })),
+    });
+    await prisma.exam.create({
+      data: {
+        id: "exam-nt5-push-chunks",
+        title: "Push chunk deadline",
+        subjectId: "subject-mathematics",
+        classId: fixture.classId,
+        setterId: "teacher-tara",
+        date: new Date("2026-09-15T00:00:00.000Z"),
+        paperDueOn: new Date("2026-08-06T00:00:00.000Z"),
+        maxMarks: 80,
+      },
+    });
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({ ok: false, status: 503 } as Response)
+      .mockResolvedValueOnce({ ok: true, status: 200 } as Response);
+
+    const response = await request(app)
+      .post("/api/cron/exams")
+      .set("Authorization", "Bearer fixture-cron-secret");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ eligible: 1, created: 1, skipped: 0, recipients: 105 });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const chunkSizes = fetchMock.mock.calls.map((call) =>
+      (JSON.parse(String((call[1] as RequestInit).body)) as unknown[]).length
+    );
+    expect(chunkSizes).toEqual([100, 5]);
+    const pushedTokens = fetchMock.mock.calls.flatMap((call) =>
+      (JSON.parse(String((call[1] as RequestInit).body)) as { to: string }[]).map((message) => message.to)
+    );
+    const expectedTokens = [
+      ...actors.recipientTokens,
+      ...Array.from({ length: 101 }, (_, index) => `ExponentPushToken[chunk-${index}]`),
+    ].sort();
+    expect(pushedTokens.sort()).toEqual(expectedTokens);
+    expect(new Set(pushedTokens)).toHaveLength(105);
+    expect(pushedTokens).not.toContain("ExponentPushToken[evaluator]");
+    expect(pushedTokens).not.toContain("ExponentPushToken[non-recipient]");
+    expect(fetchMock.mock.calls.every((call) => (call[1] as RequestInit).signal instanceof AbortSignal)).toBe(true);
+    expect(
+      await prisma.noticeRecipient.count({
+        where: { notice: { eventKey: "NT-5:exam-nt5-push-chunks:2026-08-06" } },
+      })
+    ).toBe(105);
+    fetchMock.mockRestore();
+  });
+});
