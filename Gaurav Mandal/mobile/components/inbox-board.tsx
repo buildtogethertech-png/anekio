@@ -341,47 +341,6 @@ export function InboxBoard() {
                 ) : null}
               </View>
 
-              {related.length ? (
-                <View className="mt-4 overflow-hidden rounded-xl border border-ink-100 bg-white">
-                  <Pressable
-                    onPress={() => setHistoryOpen((open) => !open)}
-                    className="flex-row items-center justify-between gap-3 px-4 py-3"
-                  >
-                    <View className="min-w-0 flex-1">
-                      <Text className="text-xs font-semibold uppercase tracking-wide text-ink-700">Old chats</Text>
-                      <Text className="mt-0.5 text-xs text-ink-600">{related.length} older {related.length === 1 ? "request" : "requests"} hidden</Text>
-                    </View>
-                    <View className="flex-row items-center gap-2">
-                      <Text className="text-xs font-semibold text-clay-700">{historyOpen ? "Hide" : "Show"}</Text>
-                      <Ionicons name={historyOpen ? "chevron-up" : "chevron-down"} size={16} color="#1d4ed8" />
-                    </View>
-                  </Pressable>
-                  {historyOpen ? (
-                    <View className="border-t border-ink-100">
-                    {related.map((row, index) => (
-                      <Pressable
-                        key={row.id}
-                        onPress={() => setSelectedId(row.id)}
-                        className={`flex-row items-center gap-3 px-4 py-3 ${index ? "border-t border-ink-100" : ""}`}
-                      >
-                        <View className="h-9 w-9 items-center justify-center rounded-full bg-ink-50">
-                          <Ionicons name={statusFor(row) === "CLOSED" ? "checkmark-done-outline" : "mail-outline"} size={16} color="#1e3a5f" />
-                        </View>
-                        <View className="min-w-0 flex-1">
-                          <Text className="text-sm font-bold text-clay-700">{ticketNo(row)}</Text>
-                          <Text className="mt-0.5 text-sm font-semibold text-ink-900" numberOfLines={1}>{subjectFor(row)}</Text>
-                        </View>
-                        <View className="items-end gap-1">
-                          <Badge tone={pillFor(statusFor(row))}>{statusFor(row)}</Badge>
-                          <Text className="text-xs text-ink-600">{shortDate(row.createdAt)}</Text>
-                        </View>
-                      </Pressable>
-                    ))}
-                    </View>
-                  ) : null}
-                </View>
-              ) : null}
-
               <ScrollView className="mt-5 min-h-0 flex-1" contentContainerClassName="gap-4 pb-4">
                 <ThreadBubble
                   label={parentMode ? "Message" : "Parent message"}
@@ -449,6 +408,47 @@ export function InboxBoard() {
                   </View>
                 </View>
               </View>
+
+              {related.length ? (
+                <View className="mt-3 overflow-hidden rounded-xl border border-ink-100 bg-white">
+                  <Pressable
+                    onPress={() => setHistoryOpen((open) => !open)}
+                    className="flex-row items-center justify-between gap-3 px-4 py-2.5"
+                  >
+                    <View className="min-w-0 flex-1">
+                      <Text className="text-xs font-semibold uppercase tracking-wide text-ink-700">Old chats</Text>
+                      <Text className="mt-0.5 text-xs text-ink-600">{related.length} older {related.length === 1 ? "request" : "requests"} hidden</Text>
+                    </View>
+                    <View className="flex-row items-center gap-2">
+                      <Text className="text-xs font-semibold text-clay-700">{historyOpen ? "Hide" : "Show"}</Text>
+                      <Ionicons name={historyOpen ? "chevron-up" : "chevron-down"} size={16} color="#1d4ed8" />
+                    </View>
+                  </Pressable>
+                  {historyOpen ? (
+                    <ScrollView className="max-h-[190px] border-t border-ink-100">
+                      {related.map((row, index) => (
+                        <Pressable
+                          key={row.id}
+                          onPress={() => setSelectedId(row.id)}
+                          className={`flex-row items-center gap-3 px-4 py-3 ${index ? "border-t border-ink-100" : ""}`}
+                        >
+                          <View className="h-9 w-9 items-center justify-center rounded-full bg-ink-50">
+                            <Ionicons name={statusFor(row) === "CLOSED" ? "checkmark-done-outline" : "mail-outline"} size={16} color="#1e3a5f" />
+                          </View>
+                          <View className="min-w-0 flex-1">
+                            <Text className="text-sm font-bold text-clay-700">{ticketNo(row)}</Text>
+                            <Text className="mt-0.5 text-sm font-semibold text-ink-900" numberOfLines={1}>{subjectFor(row)}</Text>
+                          </View>
+                          <View className="items-end gap-1">
+                            <Badge tone={pillFor(statusFor(row))}>{statusFor(row)}</Badge>
+                            <Text className="text-xs text-ink-600">{shortDate(row.createdAt)}</Text>
+                          </View>
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                  ) : null}
+                </View>
+              ) : null}
             </View>
           )}
         </Card>
