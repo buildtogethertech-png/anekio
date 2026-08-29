@@ -38,6 +38,7 @@ import {
 } from "./school-session";
 import { placeFields, requireJoinedOn, STAFF_FIRST_PASSWORD, todayJoinedOn } from "./staff-profile";
 import { assertManagerChoice, defaultManagerIdForRole, managerIdForNewUser, teamClassIds } from "./reports";
+import { admissionFormFields, admissionFormJson, admissionLeadInput } from "./admission-form";
 
 function need(user: AccessUser, ...keys: string[]) {
   if (!keys.some((k) => can(user, k))) throw new Error("No access.");
@@ -1315,6 +1316,48 @@ export async function saveSchoolIdentityCore(
   }
 }
 
+export async function saveAdmissionFormCore(user: AccessUser, input: { fields?: unknown }) {
+  needSchoolScope(user, "admissions.manage");
+  const fields = admissionFormJson(input.fields);
+  await prisma.schoolConfig.upsert({
+    where: { id: "school" },
+    update: { admissionFormJson: fields },
+    create: { id: "school", admissionFormJson: fields },
+  });
+}
+
+export async function createAdmissionLeadCore(user: AccessUser, input: Record<string, unknown>) {
+  needSchoolScope(user, "admissions.manage");
+  const config = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
+  const values = admissionLeadInput(config?.admissionFormJson, input);
+  const actorName = user.name || "School office";
+  const customSummary = values.fields
+    .filter((field) => !field.builtin && values.customValues[field.id])
+    .map((field) => `${field.label}: ${values.customValues[field.id]}`)
+    .join("\n");
+  const lead = await prisma.admissionLead.create({
+    data: {
+      studentName: values.studentName,
+      guardianName: values.guardianName,
+      phone: values.phone,
+      email: values.email,
+      classWanted: values.classWanted,
+      message: values.message,
+      customFieldsJson: JSON.stringify(values.customValues),
+      source: "walk_in",
+      events: {
+        create: {
+          kind: "NEW",
+          title: "Walk-in lead added",
+          body: [values.classWanted ? `Class interested: ${values.classWanted}` : "", customSummary].filter(Boolean).join("\n"),
+          actorName,
+        },
+      },
+    },
+  });
+  return { leadId: lead.id };
+}
+
 export async function updateAdmissionLeadCore(
   user: AccessUser,
   input: {
@@ -1368,10 +1411,12 @@ export async function updateAdmissionLeadCore(
   if (input.message !== undefined) data.message = String(input.message || "").trim().slice(0, 800);
   if (input.followUpAt !== undefined) data.followUpAt = String(input.followUpAt || "").trim().slice(0, 20);
   if (input.notes !== undefined) data.notes = String(input.notes || "").trim().slice(0, 2000);
-  if (data.studentName === "") throw new Error("Student name is required.");
-  if (data.guardianName === "") throw new Error("Guardian name is required.");
-  if (data.phone === "") throw new Error("Phone is required.");
-  if (data.classWanted === "") throw new Error("Class interested is required.");
+  const config = await prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { admissionFormJson: true } });
+  const requiredBuiltin = admissionFormFields(config?.admissionFormJson).filter((field) => field.builtin && field.visible && field.required);
+  for (const field of requiredBuiltin) {
+    const value = String((data as Record<string, unknown>)[field.id] ?? (existing as unknown as Record<string, unknown>)[field.id] ?? "").trim();
+    if (!value) throw new Error(`${field.label} is required.`);
+  }
 
   const events: { kind: string; title: string; body?: string; actorName: string }[] = [];
   const actorName = user.name || "School office";

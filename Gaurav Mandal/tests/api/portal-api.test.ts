@@ -445,6 +445,45 @@ describe("Express portal API", () => {
     );
   });
 
+  it("saves one admission form and uses it for permission-scoped walk-in leads", async () => {
+    const officeSession = await login(fixture.users.office.email);
+    const officeAuth = { Authorization: `Bearer ${officeSession.body.token}` };
+    const fields = [
+      { id: "studentName", label: "Child name", type: "text", required: true, visible: true, builtin: true },
+      { id: "classWanted", label: "Class", type: "text", required: true, visible: true, builtin: true },
+      { id: "guardianName", label: "Guardian", type: "text", required: true, visible: true, builtin: true },
+      { id: "phone", label: "Mobile", type: "phone", required: true, visible: true, builtin: true },
+      { id: "email", label: "Email", type: "email", required: false, visible: false, builtin: true },
+      { id: "message", label: "Notes", type: "textarea", required: false, visible: true, builtin: true },
+      { id: "custom_transport", label: "Transport needed", type: "select", required: true, visible: true, options: ["Yes", "No"], builtin: false },
+    ];
+
+    const saved = await request(app).post("/api/v1/act").set(officeAuth).send({ op: "saveAdmissionForm", fields });
+    expect(saved.status).toBe(200);
+
+    const created = await request(app).post("/api/v1/act").set(officeAuth).send({
+      op: "createAdmissionLead",
+      studentName: "Walk In Child",
+      classWanted: "Nursery",
+      guardianName: "Walk In Guardian",
+      phone: "9876540099",
+      message: "Visited the front office",
+      custom_transport: "Yes",
+    });
+    expect(created.status).toBe(200);
+    const lead = await prisma.admissionLead.findUniqueOrThrow({ where: { id: created.body.leadId } });
+    expect(lead).toMatchObject({ studentName: "Walk In Child", source: "walk_in" });
+    expect(JSON.parse(lead.customFieldsJson)).toEqual({ custom_transport: "Yes" });
+
+    const teacherSession = await login(fixture.users.teacher.email);
+    const forbidden = await request(app)
+      .post("/api/v1/act")
+      .set("Authorization", `Bearer ${teacherSession.body.token}`)
+      .send({ op: "createAdmissionLead", studentName: "Blocked" });
+    expect(forbidden.status).toBe(400);
+    expect(forbidden.body).toEqual({ error: "No access." });
+  });
+
   it("saves, publishes, issues, verifies, and revokes an official document", async () => {
     const session = await login(fixture.users.office.email);
     const auth = { Authorization: `Bearer ${session.body.token}` };

@@ -32,6 +32,7 @@ import { parseSubjectCatalog, parseWeekdays, weekCapacity, WEEKDAY_SHORT } from 
 import { ensureSchoolSessions } from "./school-session";
 import { documentStudioBundle } from "./document-studio";
 import { CONTEST_TYPE_LABEL, daysLate, formatInr, LEVEL_LABEL, PATH_LABEL, percent, publicOrigin } from "./utils";
+import { admissionCustomValues, admissionFormFields } from "./admission-form";
 
 function inDate(value: Date | string) {
   return new Date(value).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
@@ -986,6 +987,7 @@ async function officePayload(user: AccessUser) {
       sessionId: current.id,
       sessionLabel: current.label,
       admissionCharge: config?.admissionCharge || 0,
+      admissionForm: admissionFormFields(config?.admissionFormJson),
       whatsappCommunityUrl: config?.whatsappCommunityUrl || "",
       website: {
         enabled: config?.websiteEnabled || false,
@@ -1008,6 +1010,7 @@ async function officePayload(user: AccessUser) {
         email: lead.email,
         classWanted: lead.classWanted,
         message: lead.message,
+        customFields: admissionCustomValues(lead.customFieldsJson),
         source: lead.source,
         status: lead.status,
         followUpAt: lead.followUpAt,
