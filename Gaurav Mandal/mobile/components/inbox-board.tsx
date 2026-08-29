@@ -10,6 +10,16 @@ import { Badge, Button, Card, Empty, PageHeader, Toast, useToast } from "./ui";
 
 type InboxStatus = "OPEN" | "WAITING" | "URGENT" | "CLOSED";
 type ComposeMode = "reply" | "note";
+type InboxGroup = {
+  key: string;
+  student: string;
+  classLabel: string;
+  parent: string;
+  tickets: Notice[];
+  primary: Notice;
+  openCount: number;
+  waitingCount: number;
+};
 
 function isInboxNotice(n: Notice, portal?: string | null) {
   if (classifyNotice(n).kind !== "FEEDBACK") return false;
@@ -83,6 +93,24 @@ function activeMentionQuery(value: string) {
   return match ? match[2].trim().toLowerCase() : null;
 }
 
+function groupKeyFor(n: Notice) {
+  const parts = bodyParts(n.body);
+  return n.studentId || `${parts.student}|${parts.parent}|${parts.classLabel}`.toLowerCase();
+}
+
+function newestFirst(a: Notice, b: Notice) {
+  return +new Date(b.createdAt) - +new Date(a.createdAt);
+}
+
+function bestTicket(tickets: Notice[]) {
+  return [...tickets].sort((a, b) => {
+    const aClosed = statusFor(a) === "CLOSED" ? 1 : 0;
+    const bClosed = statusFor(b) === "CLOSED" ? 1 : 0;
+    if (aClosed !== bClosed) return aClosed - bClosed;
+    return newestFirst(a, b);
+  })[0];
+}
+
 export function InboxBoard() {
   const { token, user } = useSession();
   const { data } = useRecord();
@@ -91,6 +119,7 @@ export function InboxBoard() {
   const wide = width >= 1000;
   const [rows, setRows] = useState<Notice[]>([]);
   const [selectedId, setSelectedId] = useState("");
+  const [selectedGroupKey, setSelectedGroupKey] = useState("");
   const [filter, setFilter] = useState<"ALL" | InboxStatus>("ALL");
   const [compose, setCompose] = useState("");
   const [composeMode, setComposeMode] = useState<ComposeMode>("reply");
@@ -129,22 +158,49 @@ export function InboxBoard() {
     const tickets = payload.notices.filter((n) => isInboxNotice(n, user?.portal));
     setRows(tickets);
     setSelectedId((old) => old || tickets[0]?.id || "");
+    setSelectedGroupKey((old) => old || (tickets[0] ? groupKeyFor(tickets[0]) : ""));
   }, [token, user?.portal]);
 
   useEffect(() => {
     load().catch((e) => toast.show(e instanceof Error ? e.message : "Could not load inbox."));
   }, [load]);
 
-  const visible = useMemo(() => {
-    if (filter === "ALL") return rows;
-    return rows.filter((n) => statusFor(n) === filter);
-  }, [filter, rows]);
-  const selected = rows.find((n) => n.id === selectedId) || visible[0] || rows[0];
+  const allGroups = useMemo(() => {
+    const map = new Map<string, Notice[]>();
+    for (const row of rows) {
+      const key = groupKeyFor(row);
+      map.set(key, [...(map.get(key) || []), row]);
+    }
+    return [...map.entries()]
+      .map(([key, tickets]): InboxGroup => {
+        const ordered = [...tickets].sort(newestFirst);
+        const primary = bestTicket(ordered);
+        const parts = bodyParts(primary.body);
+        return {
+          key,
+          student: parts.student || "Unknown student",
+          classLabel: parts.classLabel,
+          parent: parts.parent || primary.author,
+          tickets: ordered,
+          primary,
+          openCount: ordered.filter((n) => statusFor(n) !== "CLOSED").length,
+          waitingCount: ordered.filter((n) => statusFor(n) === "WAITING").length,
+        };
+      })
+      .sort((a, b) => newestFirst(a.primary, b.primary));
+  }, [rows]);
+  const groups = useMemo(() => {
+    if (filter === "ALL") return allGroups;
+    return allGroups.filter((group) => group.tickets.some((ticket) => statusFor(ticket) === filter));
+  }, [allGroups, filter]);
+  const selectedGroup =
+    groups.find((group) => group.key === selectedGroupKey) ||
+    groups.find((group) => group.tickets.some((ticket) => ticket.id === selectedId)) ||
+    groups[0];
+  const selected = selectedGroup?.tickets.find((n) => n.id === selectedId) || selectedGroup?.primary || rows.find((n) => n.id === selectedId) || rows[0];
   const selectedParts = selected ? bodyParts(selected.body) : null;
   const selectedStatus = selected ? statusFor(selected) : "OPEN";
-  const related = selected && selectedParts
-    ? rows.filter((row) => row.id !== selected.id && (row.studentId === selected.studentId || bodyParts(row.body).parent === selectedParts.parent)).slice(0, 4)
-    : [];
+  const related = selectedGroup?.tickets.filter((row) => row.id !== selected?.id) || [];
 
   async function save(status: InboxStatus = selectedStatus) {
     if (!selected) return;
@@ -206,33 +262,42 @@ export function InboxBoard() {
       <View className={`min-h-0 flex-1 overflow-hidden rounded-md border border-ink-200 bg-white ${wide ? "flex-row" : ""}`}>
         <View className={`${wide ? "w-[38%] border-r border-ink-200" : "max-h-[360px] border-b border-ink-200"} bg-white`}>
           <View className="border-b border-ink-100 px-4 py-3">
-            <Text className="text-sm font-semibold text-ink-900">{visible.length} {visible.length === 1 ? "request" : "requests"}</Text>
-            <Text className="mt-0.5 text-xs text-ink-600">Click a row to read the full thread.</Text>
+            <Text className="text-sm font-semibold text-ink-900">{groups.length} {groups.length === 1 ? "student thread" : "student threads"}</Text>
+            <Text className="mt-0.5 text-xs text-ink-600">Grouped by student and parent.</Text>
           </View>
           <ScrollView className="min-h-0">
-            {!visible.length ? (
+            {!groups.length ? (
               <Empty title={parentMode ? "No inbox messages" : "No parent requests"} body={parentMode ? "School replies will appear here." : "New parent requests will appear here."} />
             ) : null}
-            {visible.map((n) => {
-              const on = selected?.id === n.id;
+            {groups.map((group) => {
+              const n = group.primary;
+              const on = selectedGroup?.key === group.key;
               const parts = bodyParts(n.body);
               const status = statusFor(n);
               return (
-                <Pressable key={n.id} onPress={() => setSelectedId(n.id)} className={`border-b border-ink-100 px-4 py-3 ${on ? "bg-blue-50" : "bg-white"}`}>
+                <Pressable
+                  key={group.key}
+                  onPress={() => {
+                    setSelectedGroupKey(group.key);
+                    setSelectedId(group.primary.id);
+                  }}
+                  className={`border-b border-ink-100 px-4 py-3 ${on ? "bg-blue-50" : "bg-white"}`}
+                >
                   <View className="flex-row items-start gap-3">
                     <View className={`mt-1 h-9 w-9 items-center justify-center rounded-full ${on ? "bg-clay-500" : "bg-ink-100"}`}>
-                      <Ionicons name="mail-outline" size={17} color={on ? "#ffffff" : "#1e3a5f"} />
+                      <Ionicons name="person-outline" size={17} color={on ? "#ffffff" : "#1e3a5f"} />
                     </View>
                     <View className="min-w-0 flex-1">
                       <View className="flex-row items-center gap-2">
-                        <Text className="text-[11px] font-bold uppercase tracking-wide text-clay-600">{ticketNo(n)}</Text>
+                        <Text className="text-[11px] font-bold uppercase tracking-wide text-clay-600">{group.openCount} open · {group.tickets.length} total</Text>
                         {!parentMode ? <Badge tone={pillFor(status)}>{status}</Badge> : /^Reply:/i.test(n.title) ? <Badge tone="sky">Reply</Badge> : null}
                       </View>
-                      <Text className="mt-1 text-base font-semibold text-ink-900" numberOfLines={1}>{subjectFor(n)}</Text>
+                      <Text className="mt-1 text-base font-semibold text-ink-900" numberOfLines={1}>{group.student}</Text>
                       <Text className="mt-0.5 text-sm text-ink-700" numberOfLines={1}>
-                        {parts.student}{parts.classLabel ? ` · ${parts.classLabel}` : ""}{parts.parent ? ` · ${parts.parent}` : ""}
+                        {group.parent}{group.classLabel ? ` · ${group.classLabel}` : ""}
                       </Text>
-                      <Text className="mt-2 text-sm leading-5 text-ink-800" numberOfLines={2}>{parts.message}</Text>
+                      <Text className="mt-2 text-sm font-medium leading-5 text-ink-900" numberOfLines={1}>Latest: {subjectFor(n)}</Text>
+                      <Text className="mt-0.5 text-sm leading-5 text-ink-700" numberOfLines={2}>{parts.message}</Text>
                       <Text className="mt-2 text-xs text-ink-600">{shortDate(n.createdAt)} · {n.author}</Text>
                     </View>
                   </View>
@@ -246,9 +311,26 @@ export function InboxBoard() {
             <Empty title={parentMode ? "Select a message" : "Select a request"} body="Choose a thread from the list." />
           ) : (
             <ScrollView className="min-h-0 flex-1" contentContainerClassName="p-6 pb-8">
+              {selectedGroup ? (
+                <View className="mb-5 rounded-xl border border-ink-100 bg-ink-50 px-4 py-3">
+                  <View className="flex-row flex-wrap items-start justify-between gap-3">
+                    <View className="min-w-0 flex-1">
+                      <Text className="text-xl font-bold text-ink-900">{selectedGroup.student}</Text>
+                      <Text className="mt-1 text-sm text-ink-700">
+                        {selectedGroup.parent}{selectedGroup.classLabel ? ` · ${selectedGroup.classLabel}` : ""}
+                      </Text>
+                    </View>
+                    <View className="flex-row gap-2">
+                      <Badge tone={selectedGroup.openCount ? "sky" : "ink"}>{`${selectedGroup.openCount} open`}</Badge>
+                      <Badge tone={selectedGroup.waitingCount ? "warn" : "ink"}>{`${selectedGroup.tickets.length} total`}</Badge>
+                    </View>
+                  </View>
+                </View>
+              ) : null}
+
               <View className="flex-row items-start justify-between gap-4 border-b border-ink-100 pb-5">
                 <View className="min-w-0 flex-1">
-                  <Text className="text-xs font-bold uppercase tracking-wide text-clay-600">{ticketNo(selected)}</Text>
+                  <Text className="text-xs font-bold uppercase tracking-wide text-clay-600">{selectedStatus === "CLOSED" ? "Selected ticket" : "Active ticket"} · {ticketNo(selected)}</Text>
                   <Text className="mt-1 text-2xl font-bold text-ink-900">{subjectFor(selected)}</Text>
                   <Text className="mt-2 text-sm text-ink-700">
                     {selectedParts.student}{selectedParts.classLabel ? ` · ${selectedParts.classLabel}` : ""}{selectedParts.parent ? ` · Parent: ${selectedParts.parent}` : ""}
@@ -278,11 +360,11 @@ export function InboxBoard() {
 
               {related.length ? (
                 <View className="mt-4 rounded-lg bg-ink-50 px-4 py-3">
-                  <Text className="text-xs font-semibold uppercase tracking-wide text-ink-700">Related</Text>
+                  <Text className="text-xs font-semibold uppercase tracking-wide text-ink-700">Older tickets for this student</Text>
                   <View className="mt-2 gap-1.5">
                     {related.map((row) => (
                       <Pressable key={row.id} onPress={() => setSelectedId(row.id)}>
-                        <Text className="text-sm text-clay-700">{ticketNo(row)} · {subjectFor(row)}</Text>
+                        <Text className="text-sm text-clay-700">{ticketNo(row)} · {subjectFor(row)} · {statusFor(row).toLowerCase()} · {shortDate(row.createdAt)}</Text>
                       </Pressable>
                     ))}
                   </View>
