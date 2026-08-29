@@ -121,12 +121,13 @@ export function InboxBoard() {
   const [selectedId, setSelectedId] = useState("");
   const [selectedGroupKey, setSelectedGroupKey] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [composerOpen, setComposerOpen] = useState(false);
   const [compose, setCompose] = useState("");
   const [composeMode, setComposeMode] = useState<ComposeMode>("reply");
   const [saving, setSaving] = useState(false);
   const parentMode = user?.portal === "PARENT";
   const boardHeight = Math.max(560, height - 265);
-  const chatHeight = Math.max(190, boardHeight - 345);
+  const chatHeight = Math.max(composerOpen ? 190 : 300, boardHeight - (composerOpen ? 345 : 230));
   const mentionPeople = useMemo(() => {
     const names = [
       ...(data?.staff ?? []).map((person) => ({ name: person.name, role: person.role || person.kind || "Staff" })),
@@ -217,6 +218,7 @@ export function InboxBoard() {
         status,
       });
       setCompose("");
+      setComposerOpen(false);
       toast.show(parentMode ? "Reply sent to school." : status === "CLOSED" ? "Request closed." : "Request updated.");
       await load();
     } catch (e) {
@@ -244,10 +246,9 @@ export function InboxBoard() {
         className={`min-h-0 overflow-hidden rounded-md border border-ink-200 bg-white ${wide ? "flex-row" : ""}`}
         style={{ height: boardHeight }}
       >
-        <View className={`${wide ? "w-[38%] border-r border-ink-200" : "max-h-[360px] border-b border-ink-200"} bg-white`}>
-          <View className="border-b border-ink-100 px-4 py-3">
+        <View className={`${wide ? "w-[31%] border-r border-ink-200" : "max-h-[320px] border-b border-ink-200"} bg-white`}>
+          <View className="border-b border-ink-100 px-3 py-2">
             <Text className="text-sm font-semibold text-ink-900">{groups.length} {groups.length === 1 ? "student thread" : "student threads"}</Text>
-            <Text className="mt-0.5 text-xs text-ink-600">Grouped by student and parent.</Text>
           </View>
           <ScrollView className="min-h-0">
             {!groups.length ? (
@@ -264,25 +265,26 @@ export function InboxBoard() {
                     setSelectedGroupKey(group.key);
                     setSelectedId(group.primary.id);
                     setHistoryOpen(false);
+                    setComposerOpen(false);
                   }}
-                  className={`border-b border-ink-100 px-4 py-3 ${on ? "bg-blue-50" : "bg-white"}`}
+                  className={`border-b border-ink-100 px-3 py-2.5 ${on ? "bg-blue-50" : "bg-white"}`}
                 >
-                  <View className="flex-row items-start gap-3">
-                    <View className={`mt-1 h-9 w-9 items-center justify-center rounded-full ${on ? "bg-clay-500" : "bg-ink-100"}`}>
-                      <Ionicons name="person-outline" size={17} color={on ? "#ffffff" : "#1e3a5f"} />
+                  <View className="flex-row items-start gap-2.5">
+                    <View className={`mt-0.5 h-8 w-8 items-center justify-center rounded-full ${on ? "bg-clay-500" : "bg-ink-100"}`}>
+                      <Ionicons name="person-outline" size={15} color={on ? "#ffffff" : "#1e3a5f"} />
                     </View>
                     <View className="min-w-0 flex-1">
                       <View className="flex-row items-center gap-2">
-                        <Text className="text-[11px] font-bold uppercase tracking-wide text-clay-600">{group.openCount} open · {group.tickets.length} total</Text>
+                        <Text className="text-[10px] font-bold uppercase tracking-wide text-clay-600">{group.openCount} open · {group.tickets.length} total</Text>
                         {parentMode && /^Reply:/i.test(n.title) ? <Badge tone="sky">Reply</Badge> : null}
                       </View>
-                      <Text className="mt-1 text-base font-semibold text-ink-900" numberOfLines={1}>{group.student}</Text>
-                      <Text className="mt-0.5 text-sm text-ink-700" numberOfLines={1}>
+                      <Text className="mt-0.5 text-sm font-semibold text-ink-900" numberOfLines={1}>{group.student}</Text>
+                      <Text className="text-xs text-ink-700" numberOfLines={1}>
                         {group.parent}{group.classLabel ? ` · ${group.classLabel}` : ""}
                       </Text>
-                      <Text className="mt-2 text-sm font-medium leading-5 text-ink-900" numberOfLines={1}>Latest: {subjectFor(n)}</Text>
-                      <Text className="mt-0.5 text-sm leading-5 text-ink-700" numberOfLines={2}>{parts.message}</Text>
-                      <Text className="mt-2 text-xs text-ink-600">{shortDate(n.createdAt)} · {n.author}</Text>
+                      <Text className="mt-1 text-xs font-medium text-ink-900" numberOfLines={1}>{subjectFor(n)}</Text>
+                      <Text className="text-xs text-ink-700" numberOfLines={1}>{parts.message}</Text>
+                      <Text className="mt-1 text-[11px] text-ink-600">{shortDate(n.createdAt)} · {n.author}</Text>
                     </View>
                   </View>
                 </Pressable>
@@ -336,59 +338,100 @@ export function InboxBoard() {
                 ))}
               </ScrollView>
 
-              <View className="mt-3 rounded-xl border border-ink-200 bg-white p-4">
-                {!parentMode ? (
-                  <View className="mb-3 flex-row gap-2">
-                    {(["reply", "note"] as const).map((mode) => (
-                      <Pressable
-                        key={mode}
-                        onPress={() => setComposeMode(mode)}
-                        className={`rounded-full border px-3 py-1.5 ${composeMode === mode ? "border-clay-500 bg-blue-50" : "border-ink-200 bg-white"}`}
+              <View className="mt-3 rounded-xl border border-ink-200 bg-white p-3">
+                {!composerOpen ? (
+                  <View className="flex-row flex-wrap items-center justify-between gap-2">
+                    <View className="flex-row flex-wrap gap-2">
+                      <Button
+                        disabled={saving}
+                        onPress={() => {
+                          setComposeMode("reply");
+                          setComposerOpen(true);
+                        }}
                       >
-                        <Text className={`text-xs font-semibold ${composeMode === mode ? "text-clay-700" : "text-ink-700"}`}>
-                          {mode === "reply" ? "Reply to parent" : "Internal note / @mention"}
-                        </Text>
-                      </Pressable>
-                    ))}
+                        Reply
+                      </Button>
+                      {!parentMode ? (
+                        <Button
+                          disabled={saving}
+                          variant="ghost"
+                          onPress={() => {
+                            setComposeMode("note");
+                            setComposerOpen(true);
+                          }}
+                        >
+                          Internal note
+                        </Button>
+                      ) : null}
+                    </View>
+                    {!parentMode ? <Button disabled={saving} variant="danger" onPress={() => save("CLOSED")}>Close</Button> : null}
                   </View>
-                ) : null}
-                <TextInput
-                  multiline
-                  value={compose}
-                  onChangeText={setCompose}
-                  placeholder={parentMode ? "Write back to school…" : composeMode === "reply" ? "Write reply to parent…" : "Add note, e.g. @Kavita please check admit card issue"}
-                  placeholderTextColor="#64748b"
-                  className="min-h-[110px] rounded-md border border-ink-200 bg-white px-3 py-3 text-sm leading-5 text-ink-900"
-                />
-                {mentionSuggestions.length ? (
-                  <View className="mt-2 overflow-hidden rounded-md border border-ink-200 bg-white">
-                    {mentionSuggestions.map((person, index) => (
-                      <Pressable
-                        key={`${person.role}-${person.name}`}
-                        onPress={() => insertMention(person.name)}
-                        className={`flex-row items-center gap-3 px-3 py-2.5 ${index ? "border-t border-ink-100" : ""}`}
-                      >
-                        <View className="h-8 w-8 items-center justify-center rounded-full bg-blue-50">
-                          <Text className="text-xs font-bold text-clay-700">{person.name.slice(0, 1).toUpperCase()}</Text>
-                        </View>
-                        <View className="min-w-0 flex-1">
-                          <Text className="text-sm font-semibold text-ink-900" numberOfLines={1}>{person.name}</Text>
-                          <Text className="text-xs text-ink-600" numberOfLines={1}>{person.role}</Text>
-                        </View>
-                        <Text className="text-xs font-semibold text-clay-700">@ mention</Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                ) : null}
-                <View className="mt-3 flex-row flex-wrap items-center justify-between gap-2">
-                  <Text className="text-xs text-ink-600">{parentMode ? "Your reply becomes part of this request." : "Use @name to pull another staff member into the request."}</Text>
-                  <View className="flex-row flex-wrap gap-2">
+                ) : (
+                  <>
                     {!parentMode ? (
-                      <Button disabled={saving} variant="danger" onPress={() => save("CLOSED")}>Close</Button>
+                      <View className="mb-2 flex-row gap-2">
+                        {(["reply", "note"] as const).map((mode) => (
+                          <Pressable
+                            key={mode}
+                            onPress={() => setComposeMode(mode)}
+                            className={`rounded-full border px-3 py-1.5 ${composeMode === mode ? "border-clay-500 bg-blue-50" : "border-ink-200 bg-white"}`}
+                          >
+                            <Text className={`text-xs font-semibold ${composeMode === mode ? "text-clay-700" : "text-ink-700"}`}>
+                              {mode === "reply" ? "Reply to parent" : "Internal note / @mention"}
+                            </Text>
+                          </Pressable>
+                        ))}
+                      </View>
                     ) : null}
-                    <Button disabled={saving} onPress={() => save(parentMode ? "OPEN" : selectedStatus)}>{saving ? "Sending..." : parentMode ? "Send" : "Send update"}</Button>
-                  </View>
-                </View>
+                    <TextInput
+                      multiline
+                      value={compose}
+                      onChangeText={setCompose}
+                      placeholder={parentMode ? "Write back to school…" : composeMode === "reply" ? "Write reply to parent…" : "Add note, e.g. @Kavita please check admit card issue"}
+                      placeholderTextColor="#64748b"
+                      className="min-h-[86px] rounded-md border border-ink-200 bg-white px-3 py-2.5 text-sm leading-5 text-ink-900"
+                    />
+                    {mentionSuggestions.length ? (
+                      <View className="mt-2 overflow-hidden rounded-md border border-ink-200 bg-white">
+                        {mentionSuggestions.map((person, index) => (
+                          <Pressable
+                            key={`${person.role}-${person.name}`}
+                            onPress={() => insertMention(person.name)}
+                            className={`flex-row items-center gap-3 px-3 py-2.5 ${index ? "border-t border-ink-100" : ""}`}
+                          >
+                            <View className="h-8 w-8 items-center justify-center rounded-full bg-blue-50">
+                              <Text className="text-xs font-bold text-clay-700">{person.name.slice(0, 1).toUpperCase()}</Text>
+                            </View>
+                            <View className="min-w-0 flex-1">
+                              <Text className="text-sm font-semibold text-ink-900" numberOfLines={1}>{person.name}</Text>
+                              <Text className="text-xs text-ink-600" numberOfLines={1}>{person.role}</Text>
+                            </View>
+                            <Text className="text-xs font-semibold text-clay-700">@ mention</Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    ) : null}
+                    <View className="mt-2 flex-row flex-wrap items-center justify-between gap-2">
+                      <Text className="text-xs text-ink-600">{parentMode ? "This reply stays inside this request." : "Use @name to notify staff."}</Text>
+                      <View className="flex-row flex-wrap gap-2">
+                        <Button
+                          disabled={saving}
+                          variant="ghost"
+                          onPress={() => {
+                            setCompose("");
+                            setComposerOpen(false);
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                        {!parentMode ? (
+                          <Button disabled={saving} variant="danger" onPress={() => save("CLOSED")}>Close</Button>
+                        ) : null}
+                        <Button disabled={saving} onPress={() => save(parentMode ? "OPEN" : selectedStatus)}>{saving ? "Sending..." : parentMode ? "Send" : "Send update"}</Button>
+                      </View>
+                    </View>
+                  </>
+                )}
               </View>
 
               {related.length ? (
