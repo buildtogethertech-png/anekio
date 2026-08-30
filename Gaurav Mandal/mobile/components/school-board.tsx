@@ -1561,7 +1561,7 @@ export function SchoolBoard() {
                         A simple public page with school details and an enquiry form. Every submitted form becomes a lead here.
                       </Text>
                       <Text className="mt-2 text-xs font-semibold text-blue-800">
-                        {webOrigin()}/school/{form.websiteSlug || "demo"}
+                        https://{form.websiteSlug || "demo"}.anekio.com
                       </Text>
                     </View>
                     <Button variant={form.websiteEnabled ? "primary" : "ghost"} onPress={() => patch("websiteEnabled", !form.websiteEnabled)}>
