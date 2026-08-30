@@ -34,8 +34,10 @@ import {
   createSaasRazorpayOrder,
   marketingHtml,
   robotsTxt,
+  saasCheckoutHtml,
   sitemapXml,
   updateSaasOrg,
+  verifySaasRazorpayPayment,
 } from "../lib/cultivate-site";
 
 const app = express();
@@ -329,9 +331,7 @@ app.post("/api/saas/razorpay/order", async (req, res) => {
     const order = await createSaasRazorpayOrder(req.body || {});
     const wantsHtml = !String(req.headers.accept || "").includes("application/json");
     if (wantsHtml) {
-      return res.type("html").send(
-        marketingHtml(`Razorpay order created for ${order.org.schoolName}. Order ID: ${order.orderId}. Checkout UI can be connected when keys are live.`)
-      );
+      return res.type("html").send(saasCheckoutHtml(order));
     }
     res.json({ ok: true, order });
   } catch (e) {
@@ -340,6 +340,14 @@ app.post("/api/saas/razorpay/order", async (req, res) => {
       return res.status(400).type("html").send(marketingHtml(message));
     }
     sendError(res, 400, message);
+  }
+});
+
+app.post("/api/saas/razorpay/verify", async (req, res) => {
+  try {
+    res.json(await verifySaasRazorpayPayment(req.body || {}));
+  } catch (e) {
+    sendError(res, 400, e instanceof Error ? e.message : "Could not verify payment.");
   }
 });
 
