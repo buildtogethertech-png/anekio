@@ -1,0 +1,55 @@
+{
+  "expo": {
+    "name": "Anekio",
+    "slug": "anekio",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "anekio",
+    "userInterfaceStyle": "light",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "backgroundColor": "#f4f7fb",
+      "image": "./assets/icon.png"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "in.anekio.school",
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
+      }
+    },
+    "android": {
+      "package": "in.anekio.school",
+      "usesCleartextTraffic": true
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-asset",
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#1d4ed8",
+          "defaultChannel": "notices"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "7e9a8f9a-cfab-40a4-bc43-f8b4b5cac82b"
+      }
+    }
+  }
+}

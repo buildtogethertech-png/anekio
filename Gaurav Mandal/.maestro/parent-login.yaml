@@ -1,0 +1,20 @@
+appId: in.anekio.school
+name: Parent login reaches the parent home
+tags:
+  - P0
+---
+- clearState
+- launchApp
+- assertVisible:
+    id: "login-screen"
+- runFlow:
+    file: subflows/login.yaml
+    env:
+      LOGIN_IDENTITY: "${ANEKIO_PARENT_LOGIN}"
+      LOGIN_PASSWORD: "${ANEKIO_PARENT_PASSWORD}"
+- extendedWaitUntil:
+    visible:
+      id: "home-parent"
+    timeout: 30000
+- assertVisible:
+    id: "home-parent"

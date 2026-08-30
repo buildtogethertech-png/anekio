@@ -1,0 +1,17 @@
+_bmad
+_bmad-output
+.agents
+uploads
+.env
+.env.local
+mobile/.env
+mobile/.env.local
+mobile/.expo
+mobile/ios
+mobile/android
+mobile/node_modules
+node_modules
+*.md
+AGENTS.md
+Anekio-demo-logins.json
+Anekio-demo-logins.csv

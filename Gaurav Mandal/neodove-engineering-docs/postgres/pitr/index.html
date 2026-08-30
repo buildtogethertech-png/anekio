@@ -1,0 +1,531 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Set up PostgreSQL 15 point-in-time recovery with AWS Backup EBS snapshots and S3 WAL archiving.">
+  <title>PostgreSQL PITR Setup · NeoDove Engineering</title>
+  <link rel="stylesheet" href="../../assets/styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header__inner">
+      <a class="brand" href="../../index.html">NeoDove Engineering</a>
+      <nav class="top-nav" aria-label="Primary navigation"><a href="../index.html" aria-current="page">PostgreSQL</a><a href="../../gitlab/deploy-keys/index.html">GitLab access</a></nav>
+    </div>
+  </header>
+
+  <main class="page-shell">
+    <aside class="sidebar">
+      <div class="sidebar__title">PostgreSQL 15</div>
+      <nav aria-label="PostgreSQL runbooks">
+        <a href="../index.html">Overview</a>
+        <a href="../backup/index.html">Take a backup</a>
+        <a href="../restore/index.html">Restore a backup</a>
+        <a href="../replication/index.html">Add a replica</a>
+        <a href="index.html" aria-current="page">Set up PITR</a>
+        <a href="../disaster-recovery/index.html">Disaster recovery</a>
+      </nav>
+    </aside>
+
+    <article class="content">
+      <div class="breadcrumbs"><a href="../../index.html">Runbooks</a> / <a href="../index.html">PostgreSQL</a> / PITR</div>
+      <h1 class="page-title">Set up PostgreSQL PITR with AWS Backup + S3 WAL</h1>
+      <p class="lead">For staging, use AWS Backup EBS snapshots as the base copy and PostgreSQL WAL archiving to S3 for point-in-time recovery. This protects against accidental deletes, bad migrations, and corruption that replicas will also receive.</p>
+
+      <section class="callout callout--danger">
+        <strong>PITR is not complete until a restore test passes</strong>
+        Seeing WAL files in S3 is not enough. A recovery machine must restore a base backup, replay WAL, stop at a target time, and open cleanly.
+      </section>
+
+      <section class="section">
+        <h2>Current staging strategy</h2>
+        <p>This is the cheaper staging pattern NeoDove is using for the first drill:</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Part</th><th>Use</th><th>Status for staging</th><th>Cost note</th></tr></thead>
+            <tbody>
+              <tr><td>AWS Backup EBS snapshot</td><td>Base copy of the PostgreSQL disk</td><td>Required, every 12 hours</td><td>Costs start after the backup plan has a resource assignment and recovery points are created. Snapshot storage is incremental, not full disk every run.</td></tr>
+              <tr><td>S3 WAL archive</td><td>Recover from latest snapshot time to exact target time</td><td>Required, continuous</td><td>Small S3 storage + PUT request cost, grows with database write volume and retention days.</td></tr>
+              <tr><td>PostgreSQL <code>pg_basebackup</code> to S3</td><td>Postgres-native base backup</td><td>Optional, not needed for this staging plan</td><td>Duplicates storage cost if AWS Backup is already the base copy.</td></tr>
+              <tr><td>AWS Backup PITR checkbox</td><td>AWS-managed continuous backup for supported resources</td><td>Keep OFF for this PostgreSQL-on-EC2 staging plan</td><td>Can add extra cost and does not replace PostgreSQL WAL archive design here.</td></tr>
+              <tr><td>Cold storage / cross-region / air-gapped vault</td><td>Long-term or stronger isolation</td><td>Keep OFF for cheapest staging drill</td><td>Can increase cost or minimum retention commitments.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout callout--safe">
+          <strong>Important mental model</strong>
+          AWS Backup gets you back to the snapshot time. S3 WAL archive moves PostgreSQL forward from that snapshot to the exact recovery time. Without WAL, a 12:00 snapshot restored at 14:47 loses 2h47m of data.
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Fill PITR inputs</h2>
+        <p>Fill these once. Commands below update and save in this browser. Use a private encrypted bucket, not a public URL.</p>
+        <form class="runbook-form" aria-label="PITR inputs">
+          <div class="field">
+            <label for="pitr-env">Environment name</label>
+            <input id="pitr-env" data-var="PITR_ENV" value="staging" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="pitr-region">AWS region</label>
+            <input id="pitr-region" data-var="PITR_REGION" value="ap-south-1" autocomplete="off">
+          </div>
+          <div class="field field--wide">
+            <label for="pitr-bucket">S3 bucket name</label>
+            <input id="pitr-bucket" data-var="PITR_BUCKET" value="neodove-postgres-pitr-staging" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="pitr-prefix">S3 prefix</label>
+            <input id="pitr-prefix" data-var="PITR_PREFIX" value="postgresql" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="pitr-retention">Retention days</label>
+            <input id="pitr-retention" data-var="PITR_RETENTION_DAYS" value="3" inputmode="numeric" autocomplete="off">
+          </div>
+          <div class="field field--wide">
+            <label for="pitr-local-backup">Local temporary base backup directory</label>
+            <input id="pitr-local-backup" data-var="PITR_LOCAL_BACKUP_DIR" value="/var/backups/postgresql/pitr" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="pitr-aws-bin">AWS CLI binary path</label>
+            <input id="pitr-aws-bin" data-var="PITR_AWS_BIN" value="/usr/bin/aws" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="pitr-account">AWS account ID</label>
+            <input id="pitr-account" data-var="PITR_AWS_ACCOUNT_ID" value="123456789012" inputmode="numeric" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="pitr-role">IAM role/user name for DB host</label>
+            <input id="pitr-role" data-var="PITR_IAM_NAME" value="postgres-pitr-staging" autocomplete="off">
+          </div>
+          <div class="field field--wide">
+            <label for="aws-backup-plan">AWS Backup plan name</label>
+            <input id="aws-backup-plan" data-var="AWS_BACKUP_PLAN" value="postgres-staging-12hour-backup" autocomplete="off">
+          </div>
+          <div class="field field--wide">
+            <label for="aws-backup-rule">AWS Backup rule name</label>
+            <input id="aws-backup-rule" data-var="AWS_BACKUP_RULE" value="postgres-staging-12hour-ebs-snapshot" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="aws-backup-vault">AWS Backup vault</label>
+            <input id="aws-backup-vault" data-var="AWS_BACKUP_VAULT" value="neodove-staging" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="aws-backup-volume">EBS volume ID</label>
+            <input id="aws-backup-volume" data-var="AWS_BACKUP_VOLUME_ID" value="vol-08303325b983b88d5" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="aws-backup-retention">AWS Backup retention days</label>
+            <input id="aws-backup-retention" data-var="AWS_BACKUP_RETENTION_DAYS" value="2" inputmode="numeric" autocomplete="off">
+          </div>
+          <div class="field field--wide">
+            <label for="pitr-target-time">Restore test target time</label>
+            <input id="pitr-target-time" data-var="PITR_TARGET_TIME" value="2026-08-27 15:20:00+05:30" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="pitr-restore-base">Restore-test base backup stamp</label>
+            <input id="pitr-restore-base" data-var="PITR_RESTORE_BASE_STAMP" value="YYYYMMDDTHHMMSSZ" autocomplete="off">
+          </div>
+        </form>
+        <div class="command"><pre tabindex="0"><code>printf 'Environment: %s\nRegion: %s\nBucket: %s\nAWS Backup plan: %s\nAWS Backup vault: %s\nEBS volume: %s\nWAL archive: %s\nS3 WAL retention days: %s\n' \
+  "{{PITR_ENV}}" \
+  "{{PITR_REGION}}" \
+  "{{PITR_BUCKET}}" \
+  "{{AWS_BACKUP_PLAN}}" \
+  "{{AWS_BACKUP_VAULT}}" \
+  "{{AWS_BACKUP_VOLUME_ID}}" \
+  "{{PITR_WAL_URI}}" \
+  "{{PITR_RETENTION_DAYS}}"</code></pre></div>
+      </section>
+
+      <section class="section">
+        <h2>Preconditions</h2>
+        <ul class="checklist">
+          <li><input type="checkbox" aria-label="Primary confirmed"><span>The PostgreSQL primary is confirmed and reachable.</span></li>
+          <li><input type="checkbox" aria-label="AWS CLI available"><span>AWS CLI is installed on the database host and can authenticate without putting keys in shell history.</span></li>
+          <li><input type="checkbox" aria-label="S3 approved"><span>The S3 bucket is private, encrypted, versioned, and access is least privilege.</span></li>
+          <li><input type="checkbox" aria-label="Restart approved"><span>A PostgreSQL restart window is approved because <code>archive_mode</code> requires restart.</span></li>
+          <li><input type="checkbox" aria-label="Restore host available"><span>A separate restore-test host or volume is available.</span></li>
+        </ul>
+        <div class="verify-grid" aria-label="How to verify PITR preconditions">
+          <div class="verify-item">
+            <h3>Verify primary and active paths</h3>
+            <div class="command"><pre tabindex="0"><code>hostname -f
+sudo -iu postgres psql -d postgres -c "SELECT version(), pg_is_in_recovery();"
+sudo -iu postgres psql -d postgres -c "SHOW config_file; SHOW hba_file; SHOW data_directory;"</code></pre></div>
+            <p><code>pg_is_in_recovery()</code> must be <code>f</code> on the primary where WAL archiving is enabled.</p>
+          </div>
+          <div class="verify-item">
+            <h3>Verify AWS identity and S3 access</h3>
+            <div class="command"><pre tabindex="0"><code>command -v aws
+{{PITR_AWS_BIN}} --version
+{{PITR_AWS_BIN}} sts get-caller-identity
+{{PITR_AWS_BIN}} s3 ls "s3://{{PITR_BUCKET}}/"</code></pre></div>
+            <p>The caller must be the approved DB-host role/user and the bucket must be reachable.</p>
+          </div>
+          <div class="verify-item">
+            <h3>Verify current archive state</h3>
+            <div class="command"><pre tabindex="0"><code>sudo -iu postgres psql -d postgres -c "SHOW archive_mode; SHOW archive_command; SHOW archive_timeout;"
+sudo -iu postgres psql -d postgres -c "SELECT archived_count, failed_count, last_archived_wal, last_archived_time FROM pg_stat_archiver;"</code></pre></div>
+            <p>Record the old values before changing anything.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>1. Install AWS CLI on the database host</h2>
+        <p>Run this on the PostgreSQL primary. The Ubuntu package is enough for S3 upload/archive commands. After install, copy the printed path into the <code>AWS CLI binary path</code> input above if it is different.</p>
+        <div class="command"><pre tabindex="0"><code>command -v aws || true
+sudo apt-get update
+sudo apt-get install -y awscli
+command -v aws
+aws --version</code></pre></div>
+        <p>If the package is unavailable or your team requires AWS CLI v2 from AWS, use the official installer. First check CPU architecture; installing the wrong zip causes <code>cannot execute binary file: Exec format error</code>.</p>
+        <div class="command"><pre tabindex="0"><code>uname -m
+file /bin/bash</code></pre></div>
+        <p>For Intel/AMD instances where <code>uname -m</code> prints <code>x86_64</code>:</p>
+        <div class="command"><pre tabindex="0"><code>sudo apt-get update
+sudo apt-get install -y curl unzip
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip"
+unzip -q /tmp/awscliv2.zip -d /tmp
+sudo /tmp/aws/install --update
+/usr/local/bin/aws --version</code></pre></div>
+        <p>For Graviton/ARM instances where <code>uname -m</code> prints <code>aarch64</code>:</p>
+        <div class="command"><pre tabindex="0"><code>sudo apt-get update
+sudo apt-get install -y curl unzip
+curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "/tmp/awscliv2.zip"
+unzip -q /tmp/awscliv2.zip -d /tmp
+sudo /tmp/aws/install --update
+/usr/local/bin/aws --version</code></pre></div>
+        <p>If the wrong architecture was already installed, remove it and rerun the correct installer:</p>
+        <div class="command"><pre tabindex="0"><code>sudo /usr/local/aws-cli/v2/current/dist/aws --version || true
+sudo unlink /usr/local/bin/aws || true
+sudo unlink /usr/local/bin/aws_completer || true
+sudo mv /usr/local/aws-cli "/usr/local/aws-cli.wrong-arch-$(date -u +%Y%m%dT%H%M%SZ)" || true
+uname -m</code></pre></div>
+        <div class="callout callout--warn"><strong>Use an IAM role if this is EC2</strong>Do not put permanent AWS access keys in shell history or root files. Prefer an EC2 instance profile/role with the S3 policy in step 4. In AWS Console: EC2 -> Instances -> select DB host -> Actions -> Security -> Modify IAM role.</div>
+        <p>After attaching the role, verify credentials as the normal login user and as <code>postgres</code>:</p>
+        <div class="command"><pre tabindex="0"><code>{{PITR_AWS_BIN}} sts get-caller-identity
+sudo -iu postgres {{PITR_AWS_BIN}} sts get-caller-identity
+sudo -iu postgres {{PITR_AWS_BIN}} configure list</code></pre></div>
+        <p>If the postgres check fails, fix the instance role or AWS CLI access before continuing. Avoid <code>sudo aws configure</code>; that configures root, not PostgreSQL.</p>
+      </section>
+
+      <section class="section">
+        <h2>2. Create the S3 bucket safely</h2>
+        <p>Bucket settings to use in AWS Console: block all public access, bucket owner enforced, default encryption SSE-S3 or SSE-KMS, versioning enabled, lifecycle retention reviewed, and no public bucket policy.</p>
+        <div class="command"><pre tabindex="0"><code>{{PITR_AWS_BIN}} s3api create-bucket \
+  --bucket "{{PITR_BUCKET}}" \
+  --region "{{PITR_REGION}}" \
+  --create-bucket-configuration LocationConstraint="{{PITR_REGION}}"
+
+{{PITR_AWS_BIN}} s3api put-public-access-block \
+  --bucket "{{PITR_BUCKET}}" \
+  --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+
+{{PITR_AWS_BIN}} s3api put-bucket-versioning \
+  --bucket "{{PITR_BUCKET}}" \
+  --versioning-configuration Status=Enabled
+
+{{PITR_AWS_BIN}} s3api put-bucket-encryption \
+  --bucket "{{PITR_BUCKET}}" \
+  --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'</code></pre></div>
+        <p>If the region is <code>us-east-1</code>, create the bucket without <code>--create-bucket-configuration</code>. For other regions, keep the region constraint.</p>
+        <div class="callout callout--warn"><strong>If you need Object Lock</strong>Object Lock must be enabled when creating the bucket. Use it for production if the organization requires write-once retention against accidental or malicious deletion.</div>
+      </section>
+
+      <section class="section">
+        <h2>3. Create S3 folder layout</h2>
+        <div class="command"><pre tabindex="0"><code>{{PITR_AWS_BIN}} s3api put-object --bucket "{{PITR_BUCKET}}" --key "{{PITR_PREFIX}}/{{PITR_ENV}}/base/"
+{{PITR_AWS_BIN}} s3api put-object --bucket "{{PITR_BUCKET}}" --key "{{PITR_PREFIX}}/{{PITR_ENV}}/wal/"
+{{PITR_AWS_BIN}} s3 ls "{{PITR_ROOT_URI}}/"</code></pre></div>
+        <p>Expected layout:</p>
+        <div class="command"><pre tabindex="0"><code>{{PITR_ROOT_URI}}/base/
+{{PITR_ROOT_URI}}/wal/</code></pre></div>
+      </section>
+
+      <section class="section">
+        <h2>4. Create least-privilege IAM permissions</h2>
+        <div class="callout callout--safe">
+          <strong>Choose role, not user, for EC2</strong>
+          For a PostgreSQL server running on EC2, create an IAM role with trusted entity <code>AWS service</code> and use case <code>EC2</code>. Do not create an IAM user for this case. IAM users create long-lived access keys, which are easier to leak and harder to rotate safely.
+        </div>
+        <p>Create an EC2 IAM role for database hosts and attach it to the instance when PITR is enabled. For the primary, read-only is not enough: PostgreSQL must continuously upload WAL files. Use a separate read-only role only for restore-test hosts that never upload WAL.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Role</th><th>Attach to</th><th>Needs</th><th>Why</th></tr></thead>
+            <tbody>
+              <tr><td><code>{{PITR_IAM_NAME}}-writer</code></td><td>Primary DB host</td><td>List, read, write, multipart upload</td><td>Archive WAL files to S3.</td></tr>
+              <tr><td><code>{{PITR_IAM_NAME}}-reader</code></td><td>Restore-test or recovery-only host</td><td>List and read</td><td>Download base backup and WAL for PITR restore.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Attach permissions to the instance role if possible. Prefer instance role over long-lived access keys on the server.</p>
+        <h3>AWS Console steps for EC2 role</h3>
+        <ol class="steps">
+          <li>Open <code>IAM -> Roles -> Create role</code>.</li>
+          <li>On <code>Select trusted entity</code>, choose <code>AWS service</code>.</li>
+          <li>Under <code>Service or use case</code>, choose <code>EC2</code>, then continue.</li>
+          <li>Create or select the reviewed S3 policy below. Use writer policy for DB hosts, reader policy for restore-only hosts.</li>
+          <li>Name the role <code>{{PITR_IAM_NAME}}-writer</code> for primary hosts or <code>{{PITR_IAM_NAME}}-reader</code> for restore-only hosts.</li>
+          <li>Attach the role to EC2: <code>EC2 -> Instances -> select DB host -> Actions -> Security -> Modify IAM role</code>.</li>
+          <li>Back on the server, run the access test in step 5 as the <code>postgres</code> user.</li>
+        </ol>
+        <h3>Writer policy for DB hosts</h3>
+        <div class="command"><pre tabindex="0"><code>{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ListPitrBucket",
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket"],
+      "Resource": "arn:aws:s3:::{{PITR_BUCKET}}",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": [
+            "{{PITR_PREFIX}}/{{PITR_ENV}}/*"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ReadWritePitrObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:AbortMultipartUpload",
+        "s3:ListMultipartUploadParts"
+      ],
+      "Resource": "arn:aws:s3:::{{PITR_BUCKET}}/{{PITR_PREFIX}}/{{PITR_ENV}}/*"
+    }
+  ]
+}</code></pre></div>
+        <h3>Read-only policy for restore hosts</h3>
+        <div class="command"><pre tabindex="0"><code>{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ListPitrBucketForRestore",
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket"],
+      "Resource": "arn:aws:s3:::{{PITR_BUCKET}}",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": [
+            "{{PITR_PREFIX}}/{{PITR_ENV}}/*"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ReadPitrObjectsForRestore",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject"],
+      "Resource": "arn:aws:s3:::{{PITR_BUCKET}}/{{PITR_PREFIX}}/{{PITR_ENV}}/*"
+    }
+  ]
+}</code></pre></div>
+        <h3>If this is not EC2</h3>
+        <p>Create an IAM user only for a non-EC2 machine that cannot use an instance role. Give it the same least-privilege policy, create an access key, store it in the approved secret manager, and configure only the operating-system user that runs the backup commands. Do not use root credentials, and do not paste keys into shared notes or shell history.</p>
+        <div class="command"><pre tabindex="0"><code>sudo -iu postgres {{PITR_AWS_BIN}} configure
+sudo -iu postgres {{PITR_AWS_BIN}} sts get-caller-identity</code></pre></div>
+        <div class="callout callout--warn"><strong>Deletion permissions</strong>Do not grant <code>s3:DeleteObject</code> to the database host unless your backup platform explicitly requires it. Retention cleanup should be a separate controlled lifecycle policy or admin job.</div>
+      </section>
+
+      <section class="section">
+        <h2>5. Test S3 access as the postgres user</h2>
+        <p>On the primary/backup host with the writer role, both upload and list must work:</p>
+        <div class="command"><pre tabindex="0"><code>sudo -iu postgres {{PITR_AWS_BIN}} sts get-caller-identity
+sudo -iu postgres {{PITR_AWS_BIN}} s3 cp /etc/hostname "{{PITR_ROOT_URI}}/access-test/hostname-$(date -u +%Y%m%dT%H%M%SZ)"
+sudo -iu postgres {{PITR_AWS_BIN}} s3 ls "{{PITR_ROOT_URI}}/access-test/"</code></pre></div>
+        <p>On a restore-only host with the reader role, list and download must work, but upload should fail:</p>
+        <div class="command"><pre tabindex="0"><code>sudo -iu postgres {{PITR_AWS_BIN}} sts get-caller-identity
+sudo -iu postgres {{PITR_AWS_BIN}} s3 ls "{{PITR_ROOT_URI}}/"
+sudo -iu postgres {{PITR_AWS_BIN}} s3 cp "{{PITR_ROOT_URI}}/access-test/" /tmp/pitr-access-test --recursive</code></pre></div>
+        <p>If this fails, fix IAM or AWS CLI configuration before touching PostgreSQL archiving.</p>
+      </section>
+
+      <section class="section">
+        <h2>6. Enable WAL archiving on the primary</h2>
+        <p>The archive command below avoids overwriting an existing WAL object. <code>archive_mode</code> needs a PostgreSQL restart.</p>
+        <div class="command"><pre tabindex="0"><code>sudo -iu postgres psql -d postgres -c "ALTER SYSTEM SET archive_mode = 'on';"
+sudo -iu postgres psql -d postgres -c "ALTER SYSTEM SET archive_timeout = '60s';"
+sudo -iu postgres psql -d postgres -c "ALTER SYSTEM SET archive_command = '{{PITR_AWS_BIN}} s3api head-object --bucket {{PITR_BUCKET}} --key {{PITR_PREFIX}}/{{PITR_ENV}}/wal/%f >/dev/null 2>&1 || {{PITR_AWS_BIN}} s3 cp %p s3://{{PITR_BUCKET}}/{{PITR_PREFIX}}/{{PITR_ENV}}/wal/%f';"
+sudo pg_ctlcluster 15 main restart
+sudo pg_ctlcluster 15 main status</code></pre></div>
+        <div class="command"><pre tabindex="0"><code>sudo -iu postgres psql -d postgres -c "SHOW archive_mode; SHOW archive_command; SHOW archive_timeout;"
+sudo -iu postgres psql -d postgres -c "SELECT pg_switch_wal();"
+sleep 10
+sudo -iu postgres psql -d postgres -c "SELECT archived_count, failed_count, last_archived_wal, last_archived_time FROM pg_stat_archiver;"
+sudo -iu postgres {{PITR_AWS_BIN}} s3 ls "{{PITR_WAL_URI}}/" | tail</code></pre></div>
+        <div class="callout callout--danger"><strong>Stop condition</strong>If <code>failed_count</code> increases or no WAL appears in S3, do not continue. Fix archive authentication, bucket permissions, region, or network access first.</div>
+      </section>
+
+      <section class="section">
+        <h2>7. Create AWS Backup base-copy plan</h2>
+        <p>For staging, AWS Backup is the base-copy mechanism. Create snapshots for the database EBS volume, then use archived WAL from S3 to recover to the exact time.</p>
+        <div class="callout callout--warn">
+          <strong>Cost starts here</strong>
+          After a resource assignment is added, AWS Backup will create recovery points on schedule. EBS snapshots are incremental, so every 12-hour run does not upload the full volume again, but retained changed blocks still cost money. Keep staging retention short.
+        </div>
+        <h3>AWS Console settings</h3>
+        <ol class="steps">
+          <li>Open <code>AWS Backup -> Vaults -> Create vault</code>. Use vault name <code>{{AWS_BACKUP_VAULT}}</code>. Use a normal backup vault for staging.</li>
+          <li>Open <code>AWS Backup -> Backup plans -> Create backup plan</code>.</li>
+          <li>Choose <code>Build a new plan</code> if no template fits. Name it <code>{{AWS_BACKUP_PLAN}}</code>.</li>
+          <li>Add rule name <code>{{AWS_BACKUP_RULE}}</code>.</li>
+          <li>Frequency: every <code>12 hours</code>. For staging, start at <code>00:30 Asia/Calcutta</code> or another quiet time.</li>
+          <li>Backup window: <code>Start within 8 hours</code>. Complete window: <code>1 day</code> is enough for staging.</li>
+          <li>Lifecycle: keep retention at <code>{{AWS_BACKUP_RETENTION_DAYS}} days</code> for cheapest staging drill.</li>
+          <li>Leave <code>Point-in-time recovery (PITR)</code> unchecked here. PostgreSQL PITR is handled by S3 WAL archive.</li>
+          <li>Leave cold storage, cross-region copy, logically air-gapped vault, and malware scanning off unless the team explicitly wants the extra cost.</li>
+          <li>Assign resources: choose resource type <code>EBS</code>, then select volume <code>{{AWS_BACKUP_VOLUME_ID}}</code>.</li>
+        </ol>
+        <div class="callout callout--danger">
+          <strong>Do not select all resources</strong>
+          For staging cost control, assign only the PostgreSQL data EBS volume. Selecting all resources can unexpectedly back up unrelated volumes and increase cost.
+        </div>
+        <h3>Verify the plan after creating it</h3>
+        <div class="command"><pre tabindex="0"><code>printf 'Backup plan: {{AWS_BACKUP_PLAN}}\nRule: {{AWS_BACKUP_RULE}}\nVault: {{AWS_BACKUP_VAULT}}\nVolume: {{AWS_BACKUP_VOLUME_ID}}\nRetention: {{AWS_BACKUP_RETENTION_DAYS}} days\n'</code></pre></div>
+        <p>In AWS Console, check <code>AWS Backup -> Backup plans -> {{AWS_BACKUP_PLAN}}</code>. It must show one backup rule and one resource assignment for volume <code>{{AWS_BACKUP_VOLUME_ID}}</code>.</p>
+        <p>First scheduled backup depends on the rule start time and backup window. If you need a restore drill today, create one on-demand backup from the assigned volume.</p>
+        <div class="callout callout--warn">
+          <strong>On-demand backup also costs</strong>
+          Use it only when you need a same-day drill. Keep its retention short, same as staging.
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>8. Configure S3 WAL lifecycle retention</h2>
+        <p>Lifecycle should keep WAL for longer than the oldest AWS Backup snapshot you might restore. If AWS Backup retention is 2 days, keep S3 WAL at least 3 days so there is overlap.</p>
+        <div class="command"><pre tabindex="0"><code>{
+  "Rules": [
+    {
+      "ID": "ExpireOldPitrObjects",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": "{{PITR_PREFIX}}/{{PITR_ENV}}/"
+      },
+      "Expiration": {
+        "Days": {{PITR_RETENTION_DAYS}}
+      },
+      "NoncurrentVersionExpiration": {
+        "NoncurrentDays": {{PITR_RETENTION_DAYS}}
+      }
+    }
+  ]
+}</code></pre></div>
+        <p>Save this as a reviewed lifecycle JSON, then apply it:</p>
+        <div class="command"><pre tabindex="0"><code>nano pitr-lifecycle.json</code></pre></div>
+        <div class="command"><pre tabindex="0"><code>{{PITR_AWS_BIN}} s3api put-bucket-lifecycle-configuration \
+  --bucket "{{PITR_BUCKET}}" \
+  --lifecycle-configuration file://pitr-lifecycle.json
+
+{{PITR_AWS_BIN}} s3api get-bucket-lifecycle-configuration --bucket "{{PITR_BUCKET}}"</code></pre></div>
+      </section>
+
+      <section class="section">
+        <h2>9. Monitor WAL archiving and AWS Backup</h2>
+        <div class="command"><pre tabindex="0"><code>sudo -iu postgres psql -d postgres -c "SELECT archived_count, failed_count, last_archived_wal, last_archived_time, now() - last_archived_time AS archive_age FROM pg_stat_archiver;"
+sudo -iu postgres {{PITR_AWS_BIN}} s3 ls "{{PITR_WAL_URI}}/" | tail
+sudo -iu postgres psql -d postgres -c "SELECT pg_switch_wal();"</code></pre></div>
+        <p>Alert if <code>failed_count</code> increases, <code>archive_age</code> is too old, or S3 object count stops changing during write activity.</p>
+        <p>In AWS Console, check <code>AWS Backup -> Jobs</code> and <code>AWS Backup -> Backup vaults -> {{AWS_BACKUP_VAULT}}</code>. The latest recovery point for <code>{{AWS_BACKUP_VOLUME_ID}}</code> should be completed.</p>
+      </section>
+
+      <section class="section">
+        <h2>10. Tomorrow drill: restore AWS Backup snapshot, then replay S3 WAL</h2>
+        <p>Do not test PITR on the only working database directory. Restore to a separate EC2 host or separate EBS volume.</p>
+        <h3>AWS Console restore steps</h3>
+        <ol class="steps">
+          <li>Open <code>AWS Backup -> Backup vaults -> {{AWS_BACKUP_VAULT}}</code>.</li>
+          <li>Choose a completed recovery point for EBS volume <code>{{AWS_BACKUP_VOLUME_ID}}</code> that is older than <code>{{PITR_TARGET_TIME}}</code>.</li>
+          <li>Click <code>Restore</code>.</li>
+          <li>Restore as a new EBS volume in the same Availability Zone as the restore-test EC2 instance.</li>
+          <li>Attach the restored volume to the restore-test EC2 instance as a secondary disk. Do not detach or overwrite the live primary volume.</li>
+          <li>Mount it and confirm it contains the PostgreSQL data directory before changing recovery settings.</li>
+        </ol>
+        <div class="callout callout--danger">
+          <strong>Stop condition</strong>
+          If you are on the live primary host or the only working database directory, stop. PITR drills must happen on separate infrastructure.
+        </div>
+        <p>On the restore host, identify and mount the restored volume. Replace <code>/dev/nvme1n1</code> with the restored disk from <code>lsblk</code>.</p>
+        <div class="command"><pre tabindex="0"><code>lsblk -f
+sudo install -d -m 755 /mnt/aws-backup-restore
+sudo mount /dev/nvme1n1 /mnt/aws-backup-restore
+sudo find /mnt/aws-backup-restore -maxdepth 5 -name PG_VERSION -print</code></pre></div>
+        <p>Then stop PostgreSQL before replacing the restore host's empty data directory:</p>
+        <div class="command"><pre tabindex="0"><code>sudo pg_ctlcluster 15 main stop
+RUNBOOK_DATA_DIR="$(sudo -iu postgres psql -d postgres -Atqc "SHOW data_directory;" 2>/dev/null || echo /var/lib/postgresql/15/main)"
+RUNBOOK_OLD_DATA="${RUNBOOK_DATA_DIR}.before-pitr-restore-$(date -u +%Y%m%dT%H%M%SZ)"
+sudo mv "$RUNBOOK_DATA_DIR" "$RUNBOOK_OLD_DATA"
+sudo install -d -o postgres -g postgres -m 700 "$RUNBOOK_DATA_DIR"</code></pre></div>
+        <p>Copy the restored snapshot's PostgreSQL data directory into <code>$RUNBOOK_DATA_DIR</code>. Adjust the mounted path after checking the disk.</p>
+        <div class="command"><pre tabindex="0"><code>sudo rsync -aHAX --numeric-ids /mnt/aws-backup-restore/RESTORED_POSTGRES_DATA_DIR/ "$RUNBOOK_DATA_DIR/"
+sudo chown -R postgres:postgres "$RUNBOOK_DATA_DIR"
+sudo chmod 700 "$RUNBOOK_DATA_DIR"</code></pre></div>
+        <p>Add recovery settings for PostgreSQL 15:</p>
+        <div class="command"><pre tabindex="0"><code>sudo -iu postgres tee "$RUNBOOK_DATA_DIR/postgresql.auto.conf" &gt; /dev/null &lt;&lt;'EOF'
+restore_command = '{{PITR_AWS_BIN}} s3 cp s3://{{PITR_BUCKET}}/{{PITR_PREFIX}}/{{PITR_ENV}}/wal/%f %p'
+recovery_target_time = '{{PITR_TARGET_TIME}}'
+recovery_target_action = 'promote'
+EOF
+sudo -iu postgres touch "$RUNBOOK_DATA_DIR/recovery.signal"
+sudo chmod 700 "$RUNBOOK_DATA_DIR"</code></pre></div>
+        <div class="command"><pre tabindex="0"><code>sudo pg_ctlcluster 15 main start
+sudo pg_ctlcluster 15 main status
+sudo -iu postgres psql -d postgres -c "SELECT pg_is_in_recovery(), pg_current_wal_lsn(), now();"
+sudo journalctl -u postgresql@15-main --since "30 minutes ago" --no-pager</code></pre></div>
+        <p>Expected: PostgreSQL replays WAL, reaches the target time, promotes, and opens. Verify the bad change is absent and good data is present.</p>
+      </section>
+
+      <section class="section">
+        <h2>Optional: PostgreSQL-native base backup to S3</h2>
+        <p>This is not required for the current cheapest staging plan because AWS Backup already provides the base copy. Use this later only if the team wants PostgreSQL-native backups with tools like pgBackRest/Barman, or wants an extra base copy outside AWS Backup.</p>
+        <div class="callout callout--warn">
+          <strong>Cost note</strong>
+          Running this in addition to AWS Backup duplicates base-backup storage. For staging, keep it off unless you are testing the backup tool itself.
+        </div>
+        <div class="command"><pre tabindex="0"><code>PITR_BACKUP_STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+PITR_BACKUP_DIR="{{PITR_LOCAL_BACKUP_DIR}}/base_${PITR_BACKUP_STAMP}"
+
+sudo install -d -o postgres -g postgres -m 700 "{{PITR_LOCAL_BACKUP_DIR}}"
+sudo -iu postgres /usr/lib/postgresql/15/bin/pg_basebackup \
+  --pgdata="$PITR_BACKUP_DIR" \
+  --format=tar \
+  --gzip \
+  --wal-method=none \
+  --checkpoint=fast \
+  --progress \
+  --verbose
+
+sudo -iu postgres {{PITR_AWS_BIN}} s3 cp "$PITR_BACKUP_DIR" "{{PITR_BASE_URI}}/${PITR_BACKUP_STAMP}/" --recursive
+sudo -iu postgres {{PITR_AWS_BIN}} s3 ls "{{PITR_BASE_URI}}/${PITR_BACKUP_STAMP}/"</code></pre></div>
+      </section>
+
+      <section class="section">
+        <h2>Completion checklist</h2>
+        <ul class="checklist">
+          <li><input type="checkbox" aria-label="Bucket private"><span>S3 bucket is private, encrypted, versioned, and lifecycle reviewed.</span></li>
+          <li><input type="checkbox" aria-label="IAM tested"><span>The postgres user can upload/list required S3 paths with least-privilege access.</span></li>
+          <li><input type="checkbox" aria-label="Archiving healthy"><span>WAL archiving is enabled, files arrive in S3, and <code>failed_count</code> is stable.</span></li>
+          <li><input type="checkbox" aria-label="AWS Backup assignment"><span>AWS Backup plan <code>{{AWS_BACKUP_PLAN}}</code> protects only the intended EBS volume <code>{{AWS_BACKUP_VOLUME_ID}}</code>.</span></li>
+          <li><input type="checkbox" aria-label="AWS Backup recovery point"><span>At least one AWS Backup recovery point completed in vault <code>{{AWS_BACKUP_VAULT}}</code>.</span></li>
+          <li><input type="checkbox" aria-label="Restore tested"><span>A PITR restore test to a target time passed on separate infrastructure.</span></li>
+        </ul>
+        <div class="next-links"><a class="button-link" href="../disaster-recovery/index.html">Open disaster recovery</a><a class="button-link button-link--secondary" href="../restore/index.html">Restore a logical backup</a></div>
+      </section>
+
+      <section class="section">
+        <h2>Official references</h2>
+        <p><a href="https://www.postgresql.org/docs/15/continuous-archiving.html">PostgreSQL 15: Continuous archiving and PITR</a> · <a href="https://www.postgresql.org/docs/15/app-pgbasebackup.html">PostgreSQL 15: pg_basebackup</a></p>
+      </section>
+    </article>
+  </main>
+
+  <footer class="footer">PITR runbook · AWS Backup base copy plus continuous S3 WAL archive</footer>
+  <script src="../../assets/runbook.js"></script>
+</body>
+</html>

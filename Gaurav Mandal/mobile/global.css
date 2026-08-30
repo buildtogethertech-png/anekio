@@ -1,0 +1,11 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* App chrome stays put; screens scroll inside their own panes. */
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}

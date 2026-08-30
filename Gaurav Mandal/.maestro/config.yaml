@@ -1,0 +1,12 @@
+# Device flows run against an installed release-shaped APK or simulator app.
+# Do not use Expo Go: it does not carry Anekio's native-module surface.
+flows:
+  - "*.yaml"
+
+# Shared flows live in subflows/ and are intentionally outside the discovery glob.
+# Use --include-tags P0 for the pull-request gate; the default runs the full suite.
+excludeTags:
+  - manual
+
+executionOrder:
+  continueOnFailure: false

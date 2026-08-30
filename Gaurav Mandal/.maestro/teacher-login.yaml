@@ -1,0 +1,20 @@
+appId: in.anekio.school
+name: Teacher login reaches the teacher home
+tags:
+  - P0
+---
+- clearState
+- launchApp
+- assertVisible:
+    id: "login-screen"
+- runFlow:
+    file: subflows/login.yaml
+    env:
+      LOGIN_IDENTITY: "${ANEKIO_TEACHER_LOGIN}"
+      LOGIN_PASSWORD: "${ANEKIO_TEACHER_PASSWORD}"
+- extendedWaitUntil:
+    visible:
+      id: "home-teacher"
+    timeout: 30000
+- assertVisible:
+    id: "home-teacher"

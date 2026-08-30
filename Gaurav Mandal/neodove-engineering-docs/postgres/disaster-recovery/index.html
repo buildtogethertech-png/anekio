@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="PostgreSQL 15 disaster triage, recovery selection, and controlled failover.">
+  <title>PostgreSQL Disaster Recovery · NeoDove Engineering</title>
+  <link rel="stylesheet" href="../../assets/styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header__inner">
+      <a class="brand" href="../../index.html">NeoDove Engineering</a>
+      <nav class="top-nav" aria-label="Primary navigation"><a href="../index.html" aria-current="page">PostgreSQL</a><a href="../../gitlab/deploy-keys/index.html">GitLab access</a></nav>
+    </div>
+  </header>
+
+  <main class="page-shell">
+    <aside class="sidebar">
+      <div class="sidebar__title">PostgreSQL 15</div>
+      <nav aria-label="PostgreSQL runbooks">
+        <a href="../index.html">Overview</a>
+        <a href="../backup/index.html">Take a backup</a>
+        <a href="../restore/index.html">Restore a backup</a>
+        <a href="../replication/index.html">Add a replica</a>
+        <a href="../pitr/index.html">Set up PITR</a>
+        <a href="index.html" aria-current="page">Disaster recovery</a>
+      </nav>
+    </aside>
+
+    <article class="content">
+      <div class="breadcrumbs"><a href="../../index.html">Runbooks</a> / <a href="../index.html">PostgreSQL</a> / Disaster recovery</div>
+      <h1 class="page-title">PostgreSQL disaster recovery</h1>
+      <p class="lead">Use this page first during a database incident. Stabilize the situation, preserve evidence, select one recovery path, and verify business behavior before declaring recovery.</p>
+
+      <section class="callout callout--danger">
+        <strong>First rule: prevent a second disaster</strong>
+        Do not delete data directories, drop databases, detach volumes, promote multiple replicas, or restart the old primary after failover. One incident commander owns the recovery sequence.
+      </section>
+
+      <section class="section">
+        <h2>Incident inputs</h2>
+        <p>Fill the common values once. The health and validation commands below will update before you copy them.</p>
+        <form class="runbook-form" aria-label="Disaster recovery inputs">
+          <div class="field">
+            <label for="dr-data-dir">PostgreSQL data root</label>
+            <input id="dr-data-dir" data-var="RUNBOOK_DATA_ROOT" value="/var/lib/postgresql" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="dr-journal-window">Journal lookback</label>
+            <input id="dr-journal-window" data-var="RUNBOOK_JOURNAL_SINCE" value="30 minutes ago" autocomplete="off">
+          </div>
+        </form>
+      </section>
+
+      <section class="section">
+        <h2>First 10 minutes</h2>
+        <ol class="steps">
+          <li><strong>Declare the incident.</strong> Record the UTC start time, affected environment, reporter, and incident commander.</li>
+          <li><strong>Stop risky changes.</strong> Pause deployments, migrations, maintenance jobs, and automated restarts.</li>
+          <li><strong>Control writes.</strong> If data integrity is uncertain, put the application in maintenance/read-only mode.</li>
+          <li><strong>Preserve evidence.</strong> Keep the original machines, volumes, logs, WAL, and backups unchanged.</li>
+          <li><strong>Measure before acting.</strong> Collect the health snapshot below from each reachable database node.</li>
+        </ol>
+      </section>
+
+      <section class="section">
+        <h2>Capture a health snapshot</h2>
+        <p>Run on every reachable PostgreSQL node and label the output with its hostname.</p>
+        <div class="command"><pre tabindex="0"><code>date -u
+hostname -f
+sudo pg_ctlcluster 15 main status
+df -h {{RUNBOOK_DATA_ROOT}}
+sudo -iu postgres psql -d postgres -x -c "SELECT version(), pg_is_in_recovery(), now();"
+sudo -iu postgres psql -d postgres -x -c "SHOW config_file; SHOW hba_file; SHOW data_directory;"
+sudo -iu postgres psql -d postgres -x -c "SELECT pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn(), pg_last_xact_replay_timestamp();"
+sudo -iu postgres psql -d postgres -x -c "SELECT status, sender_host, slot_name, written_lsn, flushed_lsn, latest_end_lsn, last_msg_receipt_time FROM pg_stat_wal_receiver;"
+sudo -iu postgres psql -d postgres -x -c "SELECT client_addr, state, sync_state, sent_lsn, write_lsn, flush_lsn, replay_lsn FROM pg_stat_replication;"</code></pre></div>
+        <p>The WAL receiver view is populated on a connected standby; the replication view is populated on a primary with connected standbys. Empty results help identify the node's role or a broken connection. Record all output and do not hide unexpected errors.</p>
+      </section>
+
+      <section class="section">
+        <h2>Choose exactly one recovery path</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Observed failure</th><th>Recovery path</th><th>Do not do</th></tr></thead>
+            <tbody>
+              <tr><td>Primary is healthy; one replica failed</td><td><a href="../replication/index.html">Rebuild only the failed replica</a></td><td>Do not promote the failed replica.</td></tr>
+              <tr><td>Primary is lost; one replica is current and healthy</td><td>Controlled replica promotion below</td><td>Do not allow the old primary to return and accept writes.</td></tr>
+              <tr><td>Accidental delete or bad migration</td><td>Restore into an isolated database; use <a href="../pitr/index.html">PITR</a> only if WAL archive exists</td><td>Do not assume the replica has clean data.</td></tr>
+              <tr><td>Database files or volume are corrupted</td><td><a href="../restore/index.html">Restore a verified backup to new storage</a></td><td>Do not overwrite the damaged source before evidence is captured.</td></tr>
+              <tr><td>Credentials or host compromised</td><td>Isolate host, restore on clean infrastructure, rotate all credentials</td><td>Do not trust binaries, configuration, or private keys from the compromised host.</td></tr>
+              <tr><td>No verified backup and no healthy replica</td><td>Preserve everything and escalate to PostgreSQL recovery specialists</td><td>Do not improvise file deletion, reset WAL, or forced startup.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Controlled promotion of one replica</h2>
+        <div class="callout callout--danger"><strong>Promotion is irreversible for this topology</strong>Proceed only after the old primary is fenced from application traffic and cannot accept writes. Promotion creates a new timeline; the old primary must later be rebuilt as a replica.</div>
+
+        <h3>1. Fence the old primary</h3>
+        <ul class="checklist">
+          <li><input type="checkbox" aria-label="Writes stopped"><span>Application writes are stopped or routed away from the old primary.</span></li>
+          <li><input type="checkbox" aria-label="Primary fenced"><span>The old primary is stopped, isolated by network controls, or confirmed unavailable.</span></li>
+          <li><input type="checkbox" aria-label="One candidate"><span>Exactly one standby has been selected as the promotion candidate.</span></li>
+          <li><input type="checkbox" aria-label="Approval"><span>The incident commander approved the expected data-loss window.</span></li>
+        </ul>
+
+        <h3>2. Measure the candidate standby</h3>
+        <div class="command"><pre tabindex="0"><code>date -u
+hostname -f
+sudo -iu postgres psql -d postgres -x -c "SHOW config_file; SHOW hba_file; SHOW data_directory;"
+sudo -iu postgres psql -d postgres -x -c "SELECT pg_is_in_recovery(), pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn(), pg_last_xact_replay_timestamp();"
+sudo -iu postgres psql -d postgres -x -c "SELECT status, sender_host, slot_name, latest_end_lsn, last_msg_receipt_time FROM pg_stat_wal_receiver;"</code></pre></div>
+        <p>Record the last replay LSN and transaction timestamp. If they are older than the accepted recovery point, stop and choose a better recovery source.</p>
+
+        <h3>3. Promote the selected standby</h3>
+        <div class="command"><pre tabindex="0"><code>sudo pg_ctlcluster 15 main promote
+sudo pg_ctlcluster 15 main status
+sudo -iu postgres psql -d postgres -c "SELECT pg_is_in_recovery(), pg_current_wal_lsn(), now();"</code></pre></div>
+        <p>Expected: <code>pg_is_in_recovery()</code> returns <code>f</code>.</p>
+
+        <h3>4. Validate before restoring writes</h3>
+        <div class="command"><pre tabindex="0"><code>sudo -iu postgres psql -d postgres -c "SELECT datname, pg_size_pretty(pg_database_size(datname)) FROM pg_database ORDER BY pg_database_size(datname) DESC;"
+sudo -iu postgres psql -d postgres -c "SELECT count(*) AS invalid_indexes FROM pg_index WHERE NOT indisvalid;"
+sudo journalctl -u postgresql@15-main --since "{{RUNBOOK_JOURNAL_SINCE}}" --no-pager</code></pre></div>
+        <p>Update the approved application database endpoint to this host, run read-only smoke tests, then restore writes gradually while monitoring database and application errors.</p>
+      </section>
+
+      <section class="section">
+        <h2>Accidental change and point-in-time recovery</h2>
+        <p>PITR requires a base backup plus an unbroken sequence of archived WAL that was configured and tested before the incident. If either is missing, do not claim point-in-time recovery is available.</p>
+        <ol class="steps">
+          <li>Record the last known good UTC time and the bad-change time from application and database evidence.</li>
+          <li>Preserve the current timeline, base backups, and WAL archive.</li>
+          <li>Recover into isolated infrastructure to a target time before the bad change.</li>
+          <li>Validate critical rows and business totals; adjust the target using a fresh isolated recovery if needed.</li>
+          <li>Plan cutover separately with write freeze, endpoint switch, and rollback criteria.</li>
+        </ol>
+        <div class="callout callout--warn"><strong>Environment-specific configuration required</strong>Archive location, restore command, encryption, retention, and recovery target settings must match the approved backup platform. Do not invent an <code>archive_command</code> during an incident.</div>
+      </section>
+
+      <section class="section">
+        <h2>After service is restored</h2>
+        <ul class="checklist">
+          <li><input type="checkbox" aria-label="Business checks"><span>Critical business queries and application flows are verified.</span></li>
+          <li><input type="checkbox" aria-label="Monitoring"><span>Error rate, connections, disk, WAL, replication, and latency are monitored.</span></li>
+          <li><input type="checkbox" aria-label="Old primary isolated"><span>The old primary remains isolated and is scheduled to be rebuilt from the new primary.</span></li>
+          <li><input type="checkbox" aria-label="Backup taken"><span>A new backup is created from the recovered timeline after stability is confirmed.</span></li>
+          <li><input type="checkbox" aria-label="Incident record"><span>Timeline, commands, decisions, data loss, and follow-up actions are recorded.</span></li>
+          <li><input type="checkbox" aria-label="Runbook updated"><span>This runbook is updated with every lesson from the incident.</span></li>
+        </ul>
+      </section>
+
+      <section class="section">
+        <h2>Official references</h2>
+        <p><a href="https://www.postgresql.org/docs/15/continuous-archiving.html">PostgreSQL 15: Continuous archiving and PITR</a> · <a href="https://www.postgresql.org/docs/15/warm-standby.html">Warm standby and failover</a></p>
+      </section>
+    </article>
+  </main>
+
+  <footer class="footer">Disaster recovery · Preserve first, recover second</footer>
+  <script src="../../assets/runbook.js"></script>
+</body>
+</html>

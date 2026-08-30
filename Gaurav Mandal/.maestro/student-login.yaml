@@ -1,0 +1,20 @@
+appId: in.anekio.school
+name: Student login reaches the student home
+tags:
+  - P0
+---
+- clearState
+- launchApp
+- assertVisible:
+    id: "login-screen"
+- runFlow:
+    file: subflows/login.yaml
+    env:
+      LOGIN_IDENTITY: "${ANEKIO_STUDENT_LOGIN}"
+      LOGIN_PASSWORD: "${ANEKIO_STUDENT_PASSWORD}"
+- extendedWaitUntil:
+    visible:
+      id: "home-student"
+    timeout: 30000
+- assertVisible:
+    id: "home-student"

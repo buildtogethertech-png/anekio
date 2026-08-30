@@ -1,0 +1,145 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { usePathname, useRouter } from "expo-router";
+import { Pressable, ScrollView, Text, View } from "react-native";
+import { iconForNav, visibleTabs } from "../lib/nav-icons";
+import { pathForNav } from "../lib/paths";
+import { useSession } from "../lib/session";
+import { PageHeader } from "./ui";
+
+const OFFICE_SIDEBAR_ORDER = new Map(
+  ["home", "inbox", "people", "staff", "timetable", "fees", "exams", "notices", "admissions", "school", "roles"].map((key, index) => [
+    key,
+    index,
+  ])
+);
+
+function navLabel(portal: string | undefined, item: { key: string; label: string }) {
+  if (portal === "OFFICE" && item.key === "school") return "Settings";
+  if (portal === "OFFICE" && item.key === "roles") return "Roles & permissions";
+  return item.label;
+}
+
+export function NavMenu({ onNavigate }: { onNavigate?: () => void }) {
+  const { user, nav, signOut } = useSession();
+  const pathname = usePathname();
+  const router = useRouter();
+  const items = nav
+    .filter((n) => n.key !== "profile" && n.key !== "uploads")
+    .sort((a, b) => {
+      if (user?.portal !== "OFFICE") return 0;
+      return (OFFICE_SIDEBAR_ORDER.get(a.key) ?? Number.MAX_SAFE_INTEGER) -
+        (OFFICE_SIDEBAR_ORDER.get(b.key) ?? Number.MAX_SAFE_INTEGER);
+    });
+
+  function active(key: string) {
+    const href = pathForNav(key);
+    if (key === "home") return pathname === "/" || pathname === "" || pathname === "/index";
+    return pathname === href || pathname.startsWith(`${href}/`);
+  }
+
+  function go(key: string) {
+    onNavigate?.();
+    router.push(pathForNav(key) as never);
+  }
+
+  return (
+    <View className="flex-1">
+      <ScrollView className="flex-1 px-3" contentContainerStyle={{ paddingBottom: 8 }}>
+        {items.map((item) => {
+          const on = active(item.key);
+          return (
+            <Pressable
+              key={item.key}
+              onPress={() => go(item.key)}
+              className={`mb-0.5 min-h-[48px] flex-row items-center gap-3 rounded-lg px-3 ${on ? "bg-clay-500" : ""}`}
+            >
+              <Ionicons name={iconForNav(item.key)} size={20} color={on ? "#ffffff" : "#1e3a5f"} />
+              <Text className={`min-w-0 flex-1 text-base ${on ? "font-medium text-white" : "text-ink-900"}`}>
+                {navLabel(user?.portal, item)}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+      <View className="border-t border-ink-200 px-4 py-4">
+        <Pressable
+          onPress={() => {
+            onNavigate?.();
+            router.push("/profile" as never);
+          }}
+          className="min-h-[44px] justify-center"
+        >
+          <Text className="text-base font-semibold text-ink-900">{user?.name}</Text>
+          <Text className="text-xs text-ink-700">{user?.roleName} · Profile</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => {
+            onNavigate?.();
+            signOut();
+          }}
+          className="mt-2 min-h-[44px] justify-center"
+        >
+          <Text className="text-sm font-medium text-red-700">Sign out</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+export function MoreBoard() {
+  const { user, nav, signOut } = useSession();
+  const router = useRouter();
+  const pathname = usePathname();
+  const skip = new Set(visibleTabs(user?.portal, nav).filter((key) => key !== "more"));
+  const rest = nav.filter(
+    (item) => !skip.has(item.key) && item.key !== "uploads" && item.key !== "profile"
+  );
+
+  function go(key: string) {
+    router.push(pathForNav(key) as never);
+  }
+
+  return (
+    <View>
+      <PageHeader title="More" />
+      <View className="overflow-hidden rounded-xl border border-ink-200 bg-white">
+        {rest.map((item, index) => {
+          const href = pathForNav(item.key);
+          const on = pathname === href || pathname.startsWith(`${href}/`);
+          return (
+            <Pressable
+              key={item.key}
+              onPress={() => go(item.key)}
+              className={`min-h-[56px] flex-row items-center gap-3 px-4 py-3 ${
+                index ? "border-t border-ink-200" : ""
+              } ${on ? "bg-blue-50" : "bg-white"}`}
+            >
+              <Ionicons name={iconForNav(item.key)} size={21} color={on ? "#1d4ed8" : "#1e3a5f"} />
+              <Text className={`min-w-0 flex-1 text-base ${on ? "font-medium text-clay-500" : "text-ink-900"}`}>
+                {navLabel(user?.portal, item)}
+              </Text>
+              <Ionicons name="chevron-forward" size={18} color="#64748b" />
+            </Pressable>
+          );
+        })}
+        <Pressable
+          onPress={() => router.push("/profile" as never)}
+          className={`min-h-[56px] flex-row items-center gap-3 px-4 py-3 ${
+            rest.length ? "border-t border-ink-200" : ""
+          }`}
+        >
+          <Ionicons name="person-outline" size={21} color="#1e3a5f" />
+          <Text className="min-w-0 flex-1 text-base text-ink-900">Profile</Text>
+          <Ionicons name="chevron-forward" size={18} color="#64748b" />
+        </Pressable>
+        <Pressable
+          onPress={() => signOut()}
+          className="min-h-[56px] flex-row items-center gap-3 border-t border-ink-200 px-4 py-3"
+        >
+          <Ionicons name="log-out-outline" size={21} color="#b91c1c" />
+          <Text className="text-base font-medium text-red-700">Sign out</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}

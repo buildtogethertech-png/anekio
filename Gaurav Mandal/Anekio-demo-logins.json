@@ -1,0 +1,686 @@
+{
+  "password": "12345",
+  "note": "Every login uses password 12345. Parents, teachers, and staff also have a mobile. Students do not.",
+  "office": [
+    {
+      "role": "Office",
+      "name": "Vikram Rao",
+      "email": "admin@school.test",
+      "password": "12345",
+      "phone": "9800000001",
+      "detail": "Admin — everything"
+    },
+    {
+      "role": "Office",
+      "name": "Ritu Shah",
+      "email": "fees@school.test",
+      "password": "12345",
+      "phone": "9800000002",
+      "detail": "Fees — collector"
+    },
+    {
+      "role": "Office",
+      "name": "Kiran Mehta",
+      "email": "exams@school.test",
+      "password": "12345",
+      "phone": "9800000003",
+      "detail": "Exams — controller"
+    }
+  ],
+  "teachers": [
+    {
+      "role": "Teacher",
+      "name": "Kavita Joshi",
+      "email": "kavita.joshi@school.test",
+      "password": "12345",
+      "phone": "9800000004",
+      "detail": "Class teacher · 1-A"
+    },
+    {
+      "role": "Teacher",
+      "name": "Sandeep Gill",
+      "email": "sandeep.gill@school.test",
+      "password": "12345",
+      "phone": "9800000010",
+      "detail": "Class teacher · 2-A"
+    },
+    {
+      "role": "Teacher",
+      "name": "Rhea DSouza",
+      "email": "rhea.dsouza@school.test",
+      "password": "12345",
+      "phone": "9800000016",
+      "detail": "Class teacher · 3-A"
+    },
+    {
+      "role": "Teacher",
+      "name": "Manoj Pillai",
+      "email": "manoj.pillai@school.test",
+      "password": "12345",
+      "phone": "9800000022",
+      "detail": "Class teacher · 4-A"
+    },
+    {
+      "role": "Teacher",
+      "name": "Shalini Gupta",
+      "email": "shalini.gupta@school.test",
+      "password": "12345",
+      "phone": "9800000028",
+      "detail": "Class teacher · 5-A"
+    }
+  ],
+  "parents": [
+    {
+      "role": "Parent",
+      "name": "Meera Sharma",
+      "email": "parent.1a.1@school.test",
+      "password": "12345",
+      "phone": "9800000005",
+      "detail": "1-A · Aisha Sharma, Rohan Sharma"
+    },
+    {
+      "role": "Parent",
+      "name": "Anita Kapoor",
+      "email": "parent.1a.2@school.test",
+      "password": "12345",
+      "phone": "9800000006",
+      "detail": "1-A · Diya Kapoor, Arjun Kapoor"
+    },
+    {
+      "role": "Parent",
+      "name": "Tapas Sen",
+      "email": "parent.1a.3@school.test",
+      "password": "12345",
+      "phone": "9800000007",
+      "detail": "1-A · Myra Sen, Kabir Sen"
+    },
+    {
+      "role": "Parent",
+      "name": "Nisha Rao",
+      "email": "parent.1a.4@school.test",
+      "password": "12345",
+      "phone": "9800000008",
+      "detail": "1-A · Advait Rao, Tanvi Rao"
+    },
+    {
+      "role": "Parent",
+      "name": "Amit Das",
+      "email": "parent.1a.5@school.test",
+      "password": "12345",
+      "phone": "9800000009",
+      "detail": "1-A · Kiara Das, Vihaan Das"
+    },
+    {
+      "role": "Parent",
+      "name": "Suresh Menon",
+      "email": "parent.2a.1@school.test",
+      "password": "12345",
+      "phone": "9800000011",
+      "detail": "2-A · Aanya Menon, Dev Menon"
+    },
+    {
+      "role": "Parent",
+      "name": "Farah Qureshi",
+      "email": "parent.2a.2@school.test",
+      "password": "12345",
+      "phone": "9800000012",
+      "detail": "2-A · Zara Qureshi, Ali Qureshi"
+    },
+    {
+      "role": "Parent",
+      "name": "Deepak Nair",
+      "email": "parent.2a.3@school.test",
+      "password": "12345",
+      "phone": "9800000013",
+      "detail": "2-A · Devika Nair, Yash Nair"
+    },
+    {
+      "role": "Parent",
+      "name": "Anjali Bose",
+      "email": "parent.2a.4@school.test",
+      "password": "12345",
+      "phone": "9800000014",
+      "detail": "2-A · Anika Bose, Reyansh Bose"
+    },
+    {
+      "role": "Parent",
+      "name": "Imran Sheikh",
+      "email": "parent.2a.5@school.test",
+      "password": "12345",
+      "phone": "9800000015",
+      "detail": "2-A · Sara Sheikh, Neel Sheikh"
+    },
+    {
+      "role": "Parent",
+      "name": "Lakshmi Iyer",
+      "email": "parent.3a.1@school.test",
+      "password": "12345",
+      "phone": "9800000017",
+      "detail": "3-A · Ananya Iyer, Karthik Iyer"
+    },
+    {
+      "role": "Parent",
+      "name": "Rohan Kapoor",
+      "email": "parent.3a.2@school.test",
+      "password": "12345",
+      "phone": "9800000018",
+      "detail": "3-A · Ira Kapoor, Vivaan Kapoor"
+    },
+    {
+      "role": "Parent",
+      "name": "Priya Nair",
+      "email": "parent.3a.3@school.test",
+      "password": "12345",
+      "phone": "9800000019",
+      "detail": "3-A · Maya Nair, Aarav Nair"
+    },
+    {
+      "role": "Parent",
+      "name": "Sameer Khan",
+      "email": "parent.3a.4@school.test",
+      "password": "12345",
+      "phone": "9800000020",
+      "detail": "3-A · Hana Khan, Omar Khan"
+    },
+    {
+      "role": "Parent",
+      "name": "Kavita Reddy",
+      "email": "parent.3a.5@school.test",
+      "password": "12345",
+      "phone": "9800000021",
+      "detail": "3-A · Sana Reddy, Aditya Reddy"
+    },
+    {
+      "role": "Parent",
+      "name": "Leena Shah",
+      "email": "parent.4a.1@school.test",
+      "password": "12345",
+      "phone": "9800000023",
+      "detail": "4-A · Ishaan Shah, Riya Shah"
+    },
+    {
+      "role": "Parent",
+      "name": "Harshad Rao",
+      "email": "parent.4a.2@school.test",
+      "password": "12345",
+      "phone": "9800000024",
+      "detail": "4-A · Anvi Rao, Kabir Rao"
+    },
+    {
+      "role": "Parent",
+      "name": "Neha Joshi",
+      "email": "parent.4a.3@school.test",
+      "password": "12345",
+      "phone": "9800000025",
+      "detail": "4-A · Tisha Joshi, Arnav Joshi"
+    },
+    {
+      "role": "Parent",
+      "name": "Farhan Sheikh",
+      "email": "parent.4a.4@school.test",
+      "password": "12345",
+      "phone": "9800000026",
+      "detail": "4-A · Ayaan Sheikh, Inaaya Sheikh"
+    },
+    {
+      "role": "Parent",
+      "name": "Pooja Mehta",
+      "email": "parent.4a.5@school.test",
+      "password": "12345",
+      "phone": "9800000027",
+      "detail": "4-A · Kiara Mehta, Riaan Mehta"
+    },
+    {
+      "role": "Parent",
+      "name": "Anand Verma",
+      "email": "parent.5a.1@school.test",
+      "password": "12345",
+      "phone": "9800000029",
+      "detail": "5-A · Diya Verma, Harsh Verma"
+    },
+    {
+      "role": "Parent",
+      "name": "Sneha Patil",
+      "email": "parent.5a.2@school.test",
+      "password": "12345",
+      "phone": "9800000030",
+      "detail": "5-A · Avni Patil, Yash Patil"
+    },
+    {
+      "role": "Parent",
+      "name": "Mohit Mehta",
+      "email": "parent.5a.3@school.test",
+      "password": "12345",
+      "phone": "9800000031",
+      "detail": "5-A · Mira Mehta, Veer Mehta"
+    },
+    {
+      "role": "Parent",
+      "name": "Ayesha Ali",
+      "email": "parent.5a.4@school.test",
+      "password": "12345",
+      "phone": "9800000032",
+      "detail": "5-A · Noor Ali, Zayan Ali"
+    },
+    {
+      "role": "Parent",
+      "name": "Rahul Bose",
+      "email": "parent.5a.5@school.test",
+      "password": "12345",
+      "phone": "9800000033",
+      "detail": "5-A · Tara Bose, Arjun Bose"
+    }
+  ],
+  "students": [
+    {
+      "role": "Student",
+      "name": "Aisha Sharma",
+      "email": "student.1a.01@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "1-A · ADM-101 · Meera Sharma"
+    },
+    {
+      "role": "Student",
+      "name": "Rohan Sharma",
+      "email": "student.1a.02@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "1-A · ADM-102 · Meera Sharma"
+    },
+    {
+      "role": "Student",
+      "name": "Diya Kapoor",
+      "email": "student.1a.03@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "1-A · ADM-103 · Anita Kapoor"
+    },
+    {
+      "role": "Student",
+      "name": "Arjun Kapoor",
+      "email": "student.1a.04@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "1-A · ADM-104 · Anita Kapoor"
+    },
+    {
+      "role": "Student",
+      "name": "Myra Sen",
+      "email": "student.1a.05@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "1-A · ADM-105 · Tapas Sen"
+    },
+    {
+      "role": "Student",
+      "name": "Kabir Sen",
+      "email": "student.1a.06@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "1-A · ADM-106 · Tapas Sen"
+    },
+    {
+      "role": "Student",
+      "name": "Advait Rao",
+      "email": "student.1a.07@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "1-A · ADM-107 · Nisha Rao"
+    },
+    {
+      "role": "Student",
+      "name": "Tanvi Rao",
+      "email": "student.1a.08@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "1-A · ADM-108 · Nisha Rao"
+    },
+    {
+      "role": "Student",
+      "name": "Kiara Das",
+      "email": "student.1a.09@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "1-A · ADM-109 · Amit Das"
+    },
+    {
+      "role": "Student",
+      "name": "Vihaan Das",
+      "email": "student.1a.10@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "1-A · ADM-110 · Amit Das"
+    },
+    {
+      "role": "Student",
+      "name": "Aanya Menon",
+      "email": "student.2a.01@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "2-A · ADM-201 · Suresh Menon"
+    },
+    {
+      "role": "Student",
+      "name": "Dev Menon",
+      "email": "student.2a.02@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "2-A · ADM-202 · Suresh Menon"
+    },
+    {
+      "role": "Student",
+      "name": "Zara Qureshi",
+      "email": "student.2a.03@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "2-A · ADM-203 · Farah Qureshi"
+    },
+    {
+      "role": "Student",
+      "name": "Ali Qureshi",
+      "email": "student.2a.04@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "2-A · ADM-204 · Farah Qureshi"
+    },
+    {
+      "role": "Student",
+      "name": "Devika Nair",
+      "email": "student.2a.05@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "2-A · ADM-205 · Deepak Nair"
+    },
+    {
+      "role": "Student",
+      "name": "Yash Nair",
+      "email": "student.2a.06@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "2-A · ADM-206 · Deepak Nair"
+    },
+    {
+      "role": "Student",
+      "name": "Anika Bose",
+      "email": "student.2a.07@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "2-A · ADM-207 · Anjali Bose"
+    },
+    {
+      "role": "Student",
+      "name": "Reyansh Bose",
+      "email": "student.2a.08@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "2-A · ADM-208 · Anjali Bose"
+    },
+    {
+      "role": "Student",
+      "name": "Sara Sheikh",
+      "email": "student.2a.09@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "2-A · ADM-209 · Imran Sheikh"
+    },
+    {
+      "role": "Student",
+      "name": "Neel Sheikh",
+      "email": "student.2a.10@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "2-A · ADM-210 · Imran Sheikh"
+    },
+    {
+      "role": "Student",
+      "name": "Ananya Iyer",
+      "email": "student.3a.01@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "3-A · ADM-301 · Lakshmi Iyer"
+    },
+    {
+      "role": "Student",
+      "name": "Karthik Iyer",
+      "email": "student.3a.02@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "3-A · ADM-302 · Lakshmi Iyer"
+    },
+    {
+      "role": "Student",
+      "name": "Ira Kapoor",
+      "email": "student.3a.03@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "3-A · ADM-303 · Rohan Kapoor"
+    },
+    {
+      "role": "Student",
+      "name": "Vivaan Kapoor",
+      "email": "student.3a.04@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "3-A · ADM-304 · Rohan Kapoor"
+    },
+    {
+      "role": "Student",
+      "name": "Maya Nair",
+      "email": "student.3a.05@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "3-A · ADM-305 · Priya Nair"
+    },
+    {
+      "role": "Student",
+      "name": "Aarav Nair",
+      "email": "student.3a.06@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "3-A · ADM-306 · Priya Nair"
+    },
+    {
+      "role": "Student",
+      "name": "Hana Khan",
+      "email": "student.3a.07@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "3-A · ADM-307 · Sameer Khan"
+    },
+    {
+      "role": "Student",
+      "name": "Omar Khan",
+      "email": "student.3a.08@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "3-A · ADM-308 · Sameer Khan"
+    },
+    {
+      "role": "Student",
+      "name": "Sana Reddy",
+      "email": "student.3a.09@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "3-A · ADM-309 · Kavita Reddy"
+    },
+    {
+      "role": "Student",
+      "name": "Aditya Reddy",
+      "email": "student.3a.10@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "3-A · ADM-310 · Kavita Reddy"
+    },
+    {
+      "role": "Student",
+      "name": "Ishaan Shah",
+      "email": "student.4a.01@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "4-A · ADM-401 · Leena Shah"
+    },
+    {
+      "role": "Student",
+      "name": "Riya Shah",
+      "email": "student.4a.02@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "4-A · ADM-402 · Leena Shah"
+    },
+    {
+      "role": "Student",
+      "name": "Anvi Rao",
+      "email": "student.4a.03@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "4-A · ADM-403 · Harshad Rao"
+    },
+    {
+      "role": "Student",
+      "name": "Kabir Rao",
+      "email": "student.4a.04@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "4-A · ADM-404 · Harshad Rao"
+    },
+    {
+      "role": "Student",
+      "name": "Tisha Joshi",
+      "email": "student.4a.05@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "4-A · ADM-405 · Neha Joshi"
+    },
+    {
+      "role": "Student",
+      "name": "Arnav Joshi",
+      "email": "student.4a.06@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "4-A · ADM-406 · Neha Joshi"
+    },
+    {
+      "role": "Student",
+      "name": "Ayaan Sheikh",
+      "email": "student.4a.07@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "4-A · ADM-407 · Farhan Sheikh"
+    },
+    {
+      "role": "Student",
+      "name": "Inaaya Sheikh",
+      "email": "student.4a.08@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "4-A · ADM-408 · Farhan Sheikh"
+    },
+    {
+      "role": "Student",
+      "name": "Kiara Mehta",
+      "email": "student.4a.09@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "4-A · ADM-409 · Pooja Mehta"
+    },
+    {
+      "role": "Student",
+      "name": "Riaan Mehta",
+      "email": "student.4a.10@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "4-A · ADM-410 · Pooja Mehta"
+    },
+    {
+      "role": "Student",
+      "name": "Diya Verma",
+      "email": "student.5a.01@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "5-A · ADM-501 · Anand Verma"
+    },
+    {
+      "role": "Student",
+      "name": "Harsh Verma",
+      "email": "student.5a.02@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "5-A · ADM-502 · Anand Verma"
+    },
+    {
+      "role": "Student",
+      "name": "Avni Patil",
+      "email": "student.5a.03@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "5-A · ADM-503 · Sneha Patil"
+    },
+    {
+      "role": "Student",
+      "name": "Yash Patil",
+      "email": "student.5a.04@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "5-A · ADM-504 · Sneha Patil"
+    },
+    {
+      "role": "Student",
+      "name": "Mira Mehta",
+      "email": "student.5a.05@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "5-A · ADM-505 · Mohit Mehta"
+    },
+    {
+      "role": "Student",
+      "name": "Veer Mehta",
+      "email": "student.5a.06@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "5-A · ADM-506 · Mohit Mehta"
+    },
+    {
+      "role": "Student",
+      "name": "Noor Ali",
+      "email": "student.5a.07@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "5-A · ADM-507 · Ayesha Ali"
+    },
+    {
+      "role": "Student",
+      "name": "Zayan Ali",
+      "email": "student.5a.08@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "5-A · ADM-508 · Ayesha Ali"
+    },
+    {
+      "role": "Student",
+      "name": "Tara Bose",
+      "email": "student.5a.09@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "5-A · ADM-509 · Rahul Bose"
+    },
+    {
+      "role": "Student",
+      "name": "Arjun Bose",
+      "email": "student.5a.10@school.test",
+      "password": "12345",
+      "phone": "",
+      "detail": "5-A · ADM-510 · Rahul Bose"
+    }
+  ],
+  "staff": [
+    {
+      "role": "Staff",
+      "name": "Ramesh Kulkarni",
+      "email": "",
+      "password": "",
+      "phone": "9800000034",
+      "detail": "Clerk · no login"
+    }
+  ]
+}

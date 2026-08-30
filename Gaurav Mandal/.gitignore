@@ -1,0 +1,27 @@
+node_modules
+.next
+.env
+mobile/.expo
+mobile/dist
+mobile/ios
+mobile/android
+.env.local
+*.db
+*.db-journal
+/uploads
+/prisma/dev.db
+/prisma/dev.db-journal
+
+# BMAD personal config (team config stays in _bmad/config.toml)
+_bmad/config.user.toml
+_bmad/custom/*.user.toml
+.vercel
+api/handler.cjs
+
+# Test reports, temporary databases, and local test configuration
+coverage/
+mobile/coverage/
+playwright-report/
+test-results/
+maestro-results/
+.env.test

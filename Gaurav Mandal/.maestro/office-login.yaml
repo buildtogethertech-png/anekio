@@ -1,0 +1,20 @@
+appId: in.anekio.school
+name: Office login reaches the office home
+tags:
+  - P0
+---
+- clearState
+- launchApp
+- assertVisible:
+    id: "login-screen"
+- runFlow:
+    file: subflows/login.yaml
+    env:
+      LOGIN_IDENTITY: "${ANEKIO_OFFICE_LOGIN}"
+      LOGIN_PASSWORD: "${ANEKIO_OFFICE_PASSWORD}"
+- extendedWaitUntil:
+    visible:
+      id: "home-office"
+    timeout: 30000
+- assertVisible:
+    id: "home-office"

@@ -1,0 +1,11 @@
+- tapOn:
+    id: "login-identity"
+- eraseText
+- inputText: "${LOGIN_IDENTITY}"
+- tapOn:
+    id: "login-password"
+- eraseText
+- inputText: "${LOGIN_PASSWORD}"
+- hideKeyboard
+- tapOn:
+    id: "login-submit"
