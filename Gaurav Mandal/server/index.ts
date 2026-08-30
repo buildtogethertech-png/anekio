@@ -219,6 +219,10 @@ app.get("/sitemap.xml", (_req, res) => {
   res.type("application/xml").send(sitemapXml());
 });
 
+app.get("/cultivate/enquiry", (_req, res) => {
+  res.type("html").send(marketingHtml());
+});
+
 app.post("/cultivate/enquiry", async (req, res) => {
   try {
     await createSaasEnquiry(req.body || {});
