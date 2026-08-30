@@ -8,9 +8,11 @@
 
 ## 1. Product summary
 
-Build a secure internal admin portal where authorised Anekio staff can onboard and manage customer organisations (initially schools), see the responsible people, manage subscription status, create invoices, record and reconcile payments, and track follow-ups.
+Build a secure, polished internal admin portal where authorised Anekio staff can onboard and manage customer organisations (initially schools), see the responsible people, manage subscription status, create invoices, record and reconcile payments, and track follow-ups.
 
 This is an operations console, not a school-facing portal. It evolves the existing Express-rendered admin surface at `admin.<host>` / `/cultivate-admin` and the existing `SaasOrg` and `SaasPayment` records. It must not introduce Next.js, NextAuth, or a separate admin application.
+
+The current screenshot is a reference for the starting functionality only. Its single long form and dense editable table are not the target UI. The release must provide a real admin information architecture with navigation, dashboard summaries, list/detail screens, focused forms, and clear action feedback.
 
 ## 2. Problem
 
@@ -113,6 +115,72 @@ Use a summary header and focused sections or tabs:
 ### 6.4 Invoice detail
 
 Show seller and customer details, line items, taxes, totals, payment allocation, balance, status history, internal notes, and downloadable PDF. Provide only actions valid for the current state.
+
+### 6.5 Required application shell
+
+The authenticated portal uses a consistent application shell:
+
+- **Desktop:** left navigation, top bar, page title/actions, and a constrained readable content area.
+- **Phone:** compact header and drawer or bottom navigation without horizontal page scrolling.
+- **Navigation:** Dashboard, Organisations, Invoices, Payments, Follow-ups, and Settings.
+- **Top bar:** global search, signed-in operator identity, and sign-out.
+- **Page header:** breadcrumb where useful, page title, short context, and one clear primary action.
+
+The marketing-page button shown in the reference is not a primary operational action. If retained, it belongs in a secondary account/help menu.
+
+### 6.6 MVP screen blueprint
+
+#### Dashboard
+
+- First row: Active organisations, Outstanding amount, Overdue invoices, Payments this month.
+- Main column: organisations needing attention and invoices due/overdue.
+- Secondary column: follow-ups due and recent activity.
+- One primary action: **Add organisation**.
+
+#### Organisation list
+
+- Header with **Add organisation**.
+- Search and filters directly above the list.
+- Rows show organisation, main contact, lifecycle, plan, outstanding amount, next follow-up, and overflow actions.
+- Clicking a row opens its detail page; fields are not edited inside the table.
+- Empty state explains the feature and offers **Add first organisation**.
+
+#### Add/edit organisation
+
+- Use a focused page or modal with grouped sections: Basic details, Primary contact, Billing address/tax, Subscription, Internal ownership, and Notes.
+- The initial view asks only for essential fields; optional details can be expanded so the form does not feel overwhelming.
+- Use appropriate input types, Indian phone formatting, selects for controlled statuses, and date pickers for dates.
+- Provide Save and Cancel actions, inline errors, unsaved-change protection, and visible success feedback.
+
+#### Organisation detail
+
+- Summary header with organisation name, lifecycle badge, primary contact, plan, balance, and actions.
+- Tabs or sections: Overview, Subscription, Invoices, Payments, Activity.
+- Primary contextual action changes by need: Create invoice, Record payment, or Edit organisation.
+- Notes and audit history are visually distinct; operators must not mistake internal notes for customer-facing invoice notes.
+
+#### Invoice composer
+
+- Use an invoice-style editor, not a generic textarea or raw JSON field.
+- Add/remove line-item rows with description, quantity, rate, tax, and calculated amount.
+- Keep subtotal, tax, round-off, paid amount, and total visible in a summary panel.
+- Actions: Save draft, Preview, Issue invoice. Issuing requires confirmation.
+
+#### Payment recorder
+
+- Display organisation, invoice number, total, paid, and outstanding amount before entry.
+- Fields: payment date, amount, method, reference/UTR, optional proof, and internal note.
+- Show the new balance before confirmation and prevent amounts above the supported balance policy.
+
+### 6.7 UI quality bar
+
+- The portal must look intentionally designed, not like a generated HTML form or database editor.
+- Establish reusable visual tokens for spacing, typography, colour, borders, elevation, focus, and status badges.
+- Use a neutral working surface with restrained Anekio brand accents; avoid oversized empty fields and excessive card nesting.
+- Tables use comfortable density, sticky headers where helpful, aligned numeric columns, and responsive card fallback on small screens.
+- Every action has loading, success, error, empty, and disabled states.
+- Destructive or irreversible actions are visually separated from ordinary actions.
+- Skeleton/loading states must not cause major layout shifts.
 
 ## 7. Core workflows
 
@@ -275,7 +343,7 @@ Show seller and customer details, line items, taxes, totals, payment allocation,
 
 ## 12. UX requirements
 
-- Retain the clean visual direction in the reference image, but replace the very wide all-in-one table with a dashboard, organisation list, and detail views.
+- Treat the reference image as evidence of the current workflow, not a visual design to preserve. Replace the very wide all-in-one form/table with the application shell and screen blueprint in section 6.
 - Optimise the main workflow for desktop while keeping all tasks usable on phone widths.
 - Use clear labels and controlled selects instead of free-text status fields.
 - Show financial status using both text and colour; colour alone must not carry meaning.
@@ -283,6 +351,22 @@ Show seller and customer details, line items, taxes, totals, payment allocation,
 - Preserve entered form values after validation errors and prevent double submission.
 - Provide empty, loading, success, and error states for every major view.
 - Meet WCAG 2.1 AA expectations for keyboard operation, focus, contrast, labels, and error messaging.
+
+### 12.1 Minimum usable functionality
+
+The first usable release is not complete unless an authorised operator can perform this entire path through the UI without database access or terminal commands:
+
+1. Sign in and sign out.
+2. View a meaningful dashboard.
+3. Add an organisation with owner/contact details.
+4. Search for and reopen that organisation.
+5. Edit organisation, subscription, and follow-up information.
+6. Create, preview, issue, and download an invoice.
+7. Record a partial or full payment against that invoice.
+8. See the updated invoice status and organisation outstanding balance.
+9. Review who performed each important action and when.
+
+Authentication around the existing page alone does not satisfy the requirement.
 
 ## 13. Non-functional requirements
 
@@ -306,6 +390,8 @@ Show seller and customer details, line items, taxes, totals, payment allocation,
 8. Invalid input is rejected server-side with actionable errors and without exposing stack traces or secrets.
 9. Desktop and phone layouts support sign-in, organisation management, invoice creation, and payment recording.
 10. Relevant type checks and focused automated tests pass, and `GET /health` succeeds on Express port `4000` after schema changes and API restart.
+11. The delivered portal uses separate dashboard, list, detail, and task-focused form experiences; it does not ship as the current single long form plus editable table.
+12. A stakeholder can complete the minimum usable path in section 12.1 without assistance, hidden routes, database edits, or terminal commands.
 
 ## 15. Success measures
 
