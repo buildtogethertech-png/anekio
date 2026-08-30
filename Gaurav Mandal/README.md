@@ -36,13 +36,18 @@ http://app.localhost:4000/      ERP app shell
 http://admin.localhost:4000/    admin portal
 ```
 
-The internal SaaS admin uses Google sign-in and fails closed until
-`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are configured. Register the
-callback URL for the route you use:
+During local development and tests, the internal SaaS admin accepts an allowed
+email with the existing demo password (`12345`). Override it locally with
+`ANEKIO_ADMIN_DEV_PASSWORD`. This password login is disabled automatically in
+production.
+
+Production uses Google sign-in and fails closed until `GOOGLE_CLIENT_ID` and
+`GOOGLE_CLIENT_SECRET` are configured. Register the callback URL for the route
+you use:
 
 ```text
 http://admin.localhost:4000/auth/google/callback
-http://localhost:4000/cultivate-admin/auth/google/callback
+http://localhost:4000/anekio-admin/auth/google/callback
 ```
 
 Production uses the same `/auth/google/callback` path on the admin host. Access

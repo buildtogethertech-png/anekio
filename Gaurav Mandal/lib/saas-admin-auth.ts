@@ -79,14 +79,28 @@ export function adminEmailAllowed(rawEmail: string) {
   if (at <= 0 || at === email.length - 1) return false;
   const exactEmails = new Set([
     "buildtogether.tech@gmail.com",
-    ...list(process.env.CULTIVATE_ADMIN_ALLOWED_EMAILS),
+    ...list(process.env.ANEKIO_ADMIN_ALLOWED_EMAILS),
   ]);
   const domains = new Set([
     "anekio.com",
     "anekio.in",
-    ...list(process.env.CULTIVATE_ADMIN_ALLOWED_DOMAINS).map((domain) => domain.replace(/^@/, "")),
+    ...list(process.env.ANEKIO_ADMIN_ALLOWED_DOMAINS).map((domain) => domain.replace(/^@/, "")),
   ]);
   return exactEmails.has(email) || domains.has(email.slice(at + 1));
+}
+
+export function localAdminLoginAvailable() {
+  return process.env.NODE_ENV !== "production";
+}
+
+export function verifyLocalAdminLogin(rawEmail: string, rawPassword: string) {
+  if (!localAdminLoginAvailable()) return false;
+  const email = rawEmail.trim().toLowerCase();
+  if (!adminEmailAllowed(email)) return false;
+  const expected = String(process.env.ANEKIO_ADMIN_DEV_PASSWORD || "12345");
+  const actualBuffer = Buffer.from(rawPassword);
+  const expectedBuffer = Buffer.from(expected);
+  return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer);
 }
 
 export function createAdminSession(email: string, now = Date.now()) {

@@ -3,19 +3,25 @@ import {
   ADMIN_SESSION_COOKIE,
   adminEmailAllowed,
   createAdminSession,
+  localAdminLoginAvailable,
   readAdminSession,
+  verifyLocalAdminLogin,
 } from "../../lib/saas-admin-auth";
 
 describe("SaaS admin authentication", () => {
   beforeEach(() => {
     process.env.JWT_SECRET = "saas-admin-test-secret-with-enough-entropy";
-    delete process.env.CULTIVATE_ADMIN_ALLOWED_EMAILS;
-    delete process.env.CULTIVATE_ADMIN_ALLOWED_DOMAINS;
+    delete process.env.ANEKIO_ADMIN_ALLOWED_EMAILS;
+    delete process.env.ANEKIO_ADMIN_ALLOWED_DOMAINS;
+    delete process.env.ANEKIO_ADMIN_DEV_PASSWORD;
+    process.env.NODE_ENV = "test";
   });
 
   afterEach(() => {
-    delete process.env.CULTIVATE_ADMIN_ALLOWED_EMAILS;
-    delete process.env.CULTIVATE_ADMIN_ALLOWED_DOMAINS;
+    delete process.env.ANEKIO_ADMIN_ALLOWED_EMAILS;
+    delete process.env.ANEKIO_ADMIN_ALLOWED_DOMAINS;
+    delete process.env.ANEKIO_ADMIN_DEV_PASSWORD;
+    process.env.NODE_ENV = "test";
   });
 
   it("allows only the built-in exact account and exact Anekio domains", () => {
@@ -28,8 +34,8 @@ describe("SaaS admin authentication", () => {
   });
 
   it("supports explicit additive allowlist configuration", () => {
-    process.env.CULTIVATE_ADMIN_ALLOWED_EMAILS = "operator@example.com";
-    process.env.CULTIVATE_ADMIN_ALLOWED_DOMAINS = "trusted.example";
+    process.env.ANEKIO_ADMIN_ALLOWED_EMAILS = "operator@example.com";
+    process.env.ANEKIO_ADMIN_ALLOWED_DOMAINS = "trusted.example";
 
     expect(adminEmailAllowed("operator@example.com")).toBe(true);
     expect(adminEmailAllowed("finance@trusted.example")).toBe(true);
@@ -45,6 +51,20 @@ describe("SaaS admin authentication", () => {
     expect(session).toMatchObject({ email: "buildtogether.tech@gmail.com" });
     expect(session?.csrf.length).toBeGreaterThan(20);
     expect(readAdminSession(cookie, now + 13 * 60 * 60 * 1_000)).toBeNull();
+  });
+
+  it("accepts the retained local credential only for allowlisted accounts outside production", () => {
+    expect(localAdminLoginAvailable()).toBe(true);
+    expect(verifyLocalAdminLogin("buildtogether.tech@gmail.com", "12345")).toBe(true);
+    expect(verifyLocalAdminLogin("outsider@example.com", "12345")).toBe(false);
+    expect(verifyLocalAdminLogin("buildtogether.tech@gmail.com", "wrong")).toBe(false);
+
+    process.env.ANEKIO_ADMIN_DEV_PASSWORD = "different-local-secret";
+    expect(verifyLocalAdminLogin("finance@anekio.in", "different-local-secret")).toBe(true);
+
+    process.env.NODE_ENV = "production";
+    expect(localAdminLoginAvailable()).toBe(false);
+    expect(verifyLocalAdminLogin("buildtogether.tech@gmail.com", "different-local-secret")).toBe(false);
   });
 
   it("rejects a forged session", () => {

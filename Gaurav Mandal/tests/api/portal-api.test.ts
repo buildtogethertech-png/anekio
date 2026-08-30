@@ -6,7 +6,6 @@ import { seedPortalFixture, type PortalFixture } from "../support/factories";
 import { createTestDatabase, type TestDatabase } from "../support/test-database";
 import {
   ADMIN_SESSION_COOKIE,
-  createAdminSession,
   readAdminSession,
 } from "../../lib/saas-admin-auth";
 
@@ -188,18 +187,24 @@ describe("Express portal API", () => {
   });
 
   it("protects the SaaS admin and completes the organisation, invoice, and payment workflow", async () => {
-    const anonymous = await request(app).get("/cultivate-admin");
+    const anonymous = await request(app).get("/anekio-admin");
     expect(anonymous.status).toBe(200);
     expect(anonymous.text).toContain("Sign in to Anekio Admin");
+    expect(anonymous.text).toContain("Sign in locally");
     expect(anonymous.text).not.toContain("Manage customer ownership");
 
-    const token = createAdminSession("buildtogether.tech@gmail.com");
-    const cookie = `${ADMIN_SESSION_COOKIE}=${token}`;
+    const localLogin = await request(app)
+      .post("/anekio-admin/login")
+      .type("form")
+      .send({ email: "buildtogether.tech@gmail.com", password: "12345" });
+    expect(localLogin.status).toBe(303);
+    const cookie = String(localLogin.headers["set-cookie"]?.[0] || "").split(";")[0];
+    expect(cookie).toContain(`${ADMIN_SESSION_COOKIE}=`);
     const session = readAdminSession(cookie);
     expect(session).not.toBeNull();
 
     const createOrg = await request(app)
-      .post("/cultivate-admin/orgs")
+      .post("/anekio-admin/orgs")
       .set("Cookie", cookie)
       .type("form")
       .send({
@@ -216,21 +221,21 @@ describe("Express portal API", () => {
 
     const org = await prisma.saasOrg.findFirstOrThrow({ where: { schoolName: "Anekio Test School" } });
     const detail = await request(app)
-      .get(`/cultivate-admin?view=org&id=${org.id}`)
+      .get(`/anekio-admin?view=org&id=${org.id}`)
       .set("Cookie", cookie);
     expect(detail.status).toBe(200);
     expect(detail.text).toContain("Anekio Test School");
     expect(detail.text).toContain("Create invoice");
 
     const createInvoice = await request(app)
-      .post(`/cultivate-admin/orgs/${org.id}/invoices`)
+      .post(`/anekio-admin/orgs/${org.id}/invoices`)
       .set("Cookie", cookie)
       .type("form")
       .send({
         csrf: session!.csrf,
         issueDate: "2026-08-30",
         dueDate: "2026-09-06",
-        description: "Cultivate subscription",
+        description: "Anekio subscription",
         quantity: "1",
         unitPrice: "10000",
         taxPercent: "18",
@@ -240,14 +245,14 @@ describe("Express portal API", () => {
     const invoice = await prisma.saasInvoice.findFirstOrThrow({ where: { orgId: org.id } });
     expect(invoice.total).toBe(11800);
     const issue = await request(app)
-      .post(`/cultivate-admin/invoices/${invoice.id}/issue`)
+      .post(`/anekio-admin/invoices/${invoice.id}/issue`)
       .set("Cookie", cookie)
       .type("form")
       .send({ csrf: session!.csrf });
     expect(issue.status).toBe(303);
 
     const payment = await request(app)
-      .post(`/cultivate-admin/invoices/${invoice.id}/payments`)
+      .post(`/anekio-admin/invoices/${invoice.id}/payments`)
       .set("Cookie", cookie)
       .type("form")
       .send({

@@ -59,6 +59,7 @@ import {
   finishGoogleAdminAuth,
   readAdminSession,
   secureRequest,
+  verifyLocalAdminLogin,
 } from "../lib/saas-admin-auth";
 
 const app = express();
@@ -94,7 +95,7 @@ function isAdminHost(req: express.Request) {
 }
 
 function adminBase(req: express.Request) {
-  return isAdminHost(req) ? "" : "/cultivate-admin";
+  return isAdminHost(req) ? "" : "/anekio-admin";
 }
 
 function requestOrigin(req: express.Request) {
@@ -311,7 +312,7 @@ async function renderAdminPage(req: express.Request, res: express.Response) {
 }
 
 function adminRouteRequest(req: express.Request) {
-  return isAdminHost(req) || req.path === "/cultivate-admin" || req.path.startsWith("/cultivate-admin/");
+  return isAdminHost(req) || req.path === "/anekio-admin" || req.path.startsWith("/anekio-admin/");
 }
 
 function requireAdminAction(req: express.Request, res: express.Response) {
@@ -328,7 +329,25 @@ function requireAdminAction(req: express.Request, res: express.Response) {
   return session;
 }
 
-app.get(["/auth/google", "/cultivate-admin/auth/google"], (req, res, next) => {
+app.post(["/login", "/anekio-admin/login"], (req, res, next) => {
+  if (!adminRouteRequest(req)) return next();
+  const basePath = adminBase(req);
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  const password = String(req.body?.password || "");
+  if (!verifyLocalAdminLogin(email, password)) {
+    return res.redirect(303, `${basePath || "/"}?authError=${encodeURIComponent("Those local test credentials are not authorised.")}`);
+  }
+  res.setHeader(
+    "Set-Cookie",
+    cookieValue(ADMIN_SESSION_COOKIE, createAdminSession(email), {
+      secure: adminSecureCookie(req),
+      maxAgeSeconds: 60 * 60 * 12,
+    })
+  );
+  res.redirect(303, basePath || "/");
+});
+
+app.get(["/auth/google", "/anekio-admin/auth/google"], (req, res, next) => {
   if (!adminRouteRequest(req)) return next();
   try {
     const basePath = adminBase(req);
@@ -342,7 +361,7 @@ app.get(["/auth/google", "/cultivate-admin/auth/google"], (req, res, next) => {
   }
 });
 
-app.get(["/auth/google/callback", "/cultivate-admin/auth/google/callback"], async (req, res, next) => {
+app.get(["/auth/google/callback", "/anekio-admin/auth/google/callback"], async (req, res, next) => {
   if (!adminRouteRequest(req)) return next();
   const basePath = adminBase(req);
   try {
@@ -363,7 +382,7 @@ app.get(["/auth/google/callback", "/cultivate-admin/auth/google/callback"], asyn
   }
 });
 
-app.get(["/logout", "/cultivate-admin/logout"], (req, res, next) => {
+app.get(["/logout", "/anekio-admin/logout"], (req, res, next) => {
   if (!adminRouteRequest(req)) return next();
   res.setHeader("Set-Cookie", clearCookie(ADMIN_SESSION_COOKIE, adminSecureCookie(req)));
   res.redirect(303, adminBase(req) || "/");
@@ -406,7 +425,7 @@ app.post("/cultivate/enquiry", async (req, res) => {
   }
 });
 
-app.get("/cultivate-admin", renderAdminPage);
+app.get("/anekio-admin", renderAdminPage);
 
 app.post("/orgs", async (req, res, next) => {
   if (!isAdminHost(req)) return next();
@@ -432,29 +451,29 @@ app.post("/orgs/:id", async (req, res, next) => {
   }
 });
 
-app.post("/cultivate-admin/orgs", async (req, res) => {
+app.post("/anekio-admin/orgs", async (req, res) => {
   const session = requireAdminAction(req, res);
   if (!session) return;
   try {
     const org = await createAdminOrganisation(req.body || {}, session.email);
-    res.redirect(303, `/cultivate-admin?view=org&id=${encodeURIComponent(org.id)}&saved=${encodeURIComponent("Organisation added.")}`);
+    res.redirect(303, `/anekio-admin?view=org&id=${encodeURIComponent(org.id)}&saved=${encodeURIComponent("Organisation added.")}`);
   } catch (e) {
-    res.redirect(303, `/cultivate-admin?view=new-org&error=${encodeURIComponent(e instanceof Error ? e.message : "Could not add organisation.")}`);
+    res.redirect(303, `/anekio-admin?view=new-org&error=${encodeURIComponent(e instanceof Error ? e.message : "Could not add organisation.")}`);
   }
 });
 
-app.post("/cultivate-admin/orgs/:id", async (req, res) => {
+app.post("/anekio-admin/orgs/:id", async (req, res) => {
   const session = requireAdminAction(req, res);
   if (!session) return;
   try {
     const org = await updateAdminOrganisation(String(req.params.id || ""), req.body || {}, session.email);
-    res.redirect(303, `/cultivate-admin?view=org&id=${encodeURIComponent(org.id)}&saved=${encodeURIComponent("Organisation updated.")}`);
+    res.redirect(303, `/anekio-admin?view=org&id=${encodeURIComponent(org.id)}&saved=${encodeURIComponent("Organisation updated.")}`);
   } catch (e) {
-    res.redirect(303, `/cultivate-admin?view=edit-org&id=${encodeURIComponent(String(req.params.id || ""))}&error=${encodeURIComponent(e instanceof Error ? e.message : "Could not update organisation.")}`);
+    res.redirect(303, `/anekio-admin?view=edit-org&id=${encodeURIComponent(String(req.params.id || ""))}&error=${encodeURIComponent(e instanceof Error ? e.message : "Could not update organisation.")}`);
   }
 });
 
-app.post(["/orgs/:id/invoices", "/cultivate-admin/orgs/:id/invoices"], async (req, res, next) => {
+app.post(["/orgs/:id/invoices", "/anekio-admin/orgs/:id/invoices"], async (req, res, next) => {
   if (!adminRouteRequest(req)) return next();
   const session = requireAdminAction(req, res);
   if (!session) return;
@@ -467,7 +486,7 @@ app.post(["/orgs/:id/invoices", "/cultivate-admin/orgs/:id/invoices"], async (re
   }
 });
 
-app.post(["/invoices/:id/issue", "/cultivate-admin/invoices/:id/issue"], async (req, res, next) => {
+app.post(["/invoices/:id/issue", "/anekio-admin/invoices/:id/issue"], async (req, res, next) => {
   if (!adminRouteRequest(req)) return next();
   const session = requireAdminAction(req, res);
   if (!session) return;
@@ -480,7 +499,7 @@ app.post(["/invoices/:id/issue", "/cultivate-admin/invoices/:id/issue"], async (
   }
 });
 
-app.post(["/invoices/:id/payments", "/cultivate-admin/invoices/:id/payments"], async (req, res, next) => {
+app.post(["/invoices/:id/payments", "/anekio-admin/invoices/:id/payments"], async (req, res, next) => {
   if (!adminRouteRequest(req)) return next();
   const session = requireAdminAction(req, res);
   if (!session) return;
@@ -493,7 +512,7 @@ app.post(["/invoices/:id/payments", "/cultivate-admin/invoices/:id/payments"], a
   }
 });
 
-app.get(["/invoices/:id/print", "/cultivate-admin/invoices/:id/print"], async (req, res, next) => {
+app.get(["/invoices/:id/print", "/anekio-admin/invoices/:id/print"], async (req, res, next) => {
   if (!adminRouteRequest(req)) return next();
   if (!adminSession(req)) return res.redirect(303, adminBase(req) || "/");
   const html = await adminInvoicePrintHtml(String(req.params.id || ""));
