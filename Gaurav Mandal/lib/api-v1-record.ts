@@ -33,6 +33,7 @@ import { ensureSchoolSessions } from "./school-session";
 import { documentStudioBundle } from "./document-studio";
 import { CONTEST_TYPE_LABEL, daysLate, formatInr, LEVEL_LABEL, PATH_LABEL, percent, publicOrigin } from "./utils";
 import { admissionCustomValues, admissionFormFields } from "./admission-form";
+import { subscriptionLockForUser } from "./anekio-site";
 
 function inDate(value: Date | string) {
   return new Date(value).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
@@ -1193,6 +1194,13 @@ async function officePayload(user: AccessUser) {
 }
 
 export async function recordPayload(user: AccessUser, childId?: string | null) {
+  const subscriptionLock = await subscriptionLockForUser(user.id);
+  if (subscriptionLock) {
+    return {
+      kind: user.portal,
+      subscriptionLock,
+    };
+  }
   if (user.portal === "PARENT" || user.portal === "STUDENT") {
     return parentStudentPayload(user, childId);
   }

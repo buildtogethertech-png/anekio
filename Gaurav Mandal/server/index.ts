@@ -34,8 +34,10 @@ import {
   createSaasTrial,
   marketingHtml,
   robotsTxt,
+  saasRenewalHtml,
   saasCheckoutHtml,
   sitemapXml,
+  subscriptionLockForUser,
   trialStartedHtml,
   verifySaasRazorpayPayment,
 } from "../lib/anekio-site";
@@ -152,6 +154,13 @@ async function requireUser(req: express.Request, res: express.Response) {
   return user;
 }
 
+async function requireActiveSubscription(userId: string, res: express.Response) {
+  const lock = await subscriptionLockForUser(userId);
+  if (!lock) return true;
+  sendError(res, 402, "Renew Anekio to continue.");
+  return false;
+}
+
 app.post("/api/v1/login", async (req, res) => {
   const login = String(req.body?.login || "").trim();
   const password = String(req.body?.password || "");
@@ -216,12 +225,14 @@ app.get("/api/v1/record", async (req, res) => {
 app.get("/api/v1/home", async (req, res) => {
   const user = await requireUser(req, res);
   if (!user) return;
+  if (!(await requireActiveSubscription(user.id, res))) return;
   res.json(await homePayload(user, typeof req.query.childId === "string" ? req.query.childId : null));
 });
 
 app.get("/api/v1/notices", async (req, res) => {
   const user = await requireUser(req, res);
   if (!user) return;
+  if (!(await requireActiveSubscription(user.id, res))) return;
   const notices = await noticesForUser(user);
   if (!hasAny(user, ["notices.view", "children.view", "attendance.mark", "self.view"])) {
     const exactNotices = notices.filter((notice) => notice.recipients.length > 0);
@@ -234,6 +245,7 @@ app.get("/api/v1/notices", async (req, res) => {
 app.post("/api/v1/act", async (req, res) => {
   const user = await requireUser(req, res);
   if (!user) return;
+  if (!(await requireActiveSubscription(user.id, res))) return;
   try {
     res.json(await runAct(user, (req.body || {}) as Record<string, unknown>));
   } catch (e) {
@@ -244,6 +256,7 @@ app.post("/api/v1/act", async (req, res) => {
 app.post("/api/files", upload.single("file"), async (req, res) => {
   const user = await requireUser(req, res);
   if (!user) return;
+  if (!(await requireActiveSubscription(user.id, res))) return;
   const file = req.file;
   if (!file?.buffer) return sendError(res, 400, "File required");
   try {
@@ -542,6 +555,10 @@ app.post("/api/saas/trial", async (req, res) => {
     }
     sendError(res, 400, message);
   }
+});
+
+app.get("/anekio/renew", async (req, res) => {
+  res.type("html").send(await saasRenewalHtml({ orgId: req.query.org, contact: req.query.contact }));
 });
 
 async function createSaasPaymentOrder(req: express.Request, res: express.Response) {

@@ -50,6 +50,15 @@ export type AdmissionFormField = {
 
 export type RecordPayload = {
   kind: "PARENT" | "STUDENT" | "TEACHER" | "OFFICE";
+  subscriptionLock?: {
+    locked: true;
+    orgId: string;
+    schoolName: string;
+    status: string;
+    renewalOn: string;
+    renewUrl: string;
+    amount: number;
+  };
   children?: { id: string; name: string; classLabel: string }[];
   child?: {
     id: string;

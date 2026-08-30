@@ -1,6 +1,7 @@
 import Razorpay from "razorpay";
 import crypto from "node:crypto";
 import { prisma } from "./prisma";
+import { normalizeMobile } from "./phone";
 
 const PRODUCT_NAME = "Anekio";
 const PLAN_PRICE = 29999;
@@ -16,6 +17,16 @@ type EnquiryInput = {
   teacherCount?: unknown;
   studentCount?: unknown;
   notes?: unknown;
+};
+
+export type SaasSubscriptionLock = {
+  locked: true;
+  orgId: string;
+  schoolName: string;
+  status: string;
+  renewalOn: string;
+  renewUrl: string;
+  amount: number;
 };
 
 type OrgUpdateInput = Partial<{
@@ -57,6 +68,45 @@ function escapeHtml(value: unknown) {
 
 function formatInr(amount: number) {
   return new Intl.NumberFormat("en-IN").format(amount);
+}
+
+function normalEmail(value: unknown) {
+  return text(value).toLowerCase();
+}
+
+function normalPhone(value: unknown) {
+  return normalizeMobile(text(value));
+}
+
+function addOneYear(date: Date) {
+  const next = new Date(date);
+  next.setFullYear(next.getFullYear() + 1);
+  return next;
+}
+
+function renewalUrl(orgId: string) {
+  return pageUrl(`/anekio/renew?org=${encodeURIComponent(orgId)}`);
+}
+
+function isRenewalRequired(org: { subscriptionStatus: string; renewalOn: Date | null }) {
+  const status = org.subscriptionStatus.toUpperCase();
+  if (["PAUSED", "CANCELLED", "CLOSED", "INACTIVE", "EXPIRED", "OVERDUE"].includes(status)) return true;
+  if (status === "ACTIVE" && org.renewalOn && org.renewalOn.getTime() < Date.now()) return true;
+  return false;
+}
+
+async function findSaasOrgByContact(input: { ownerEmail?: unknown; ownerPhone?: unknown }) {
+  const email = normalEmail(input.ownerEmail);
+  const phone = normalPhone(input.ownerPhone);
+  const conditions = [
+    email ? { ownerEmail: { equals: email } } : null,
+    phone ? { ownerPhone: { equals: phone } } : null,
+  ].filter(Boolean) as { ownerEmail?: { equals: string }; ownerPhone?: { equals: string } }[];
+  if (!conditions.length) return null;
+  return prisma.saasOrg.findFirst({
+    where: { OR: conditions },
+    orderBy: { updatedAt: "desc" },
+  });
 }
 
 function pageUrl(path = "/") {
@@ -278,8 +328,8 @@ export function marketingHtml(message = "") {
 export async function createSaasEnquiry(input: EnquiryInput) {
   const schoolName = text(input.schoolName);
   const ownerName = text(input.ownerName);
-  const ownerEmail = text(input.ownerEmail);
-  const ownerPhone = text(input.ownerPhone);
+  const ownerEmail = normalEmail(input.ownerEmail);
+  const ownerPhone = normalPhone(input.ownerPhone) || text(input.ownerPhone);
   if (!schoolName || !ownerName || !ownerEmail || !ownerPhone) {
     throw new Error("School name, owner name, email, and phone are required.");
   }
@@ -380,36 +430,56 @@ export async function createSaasRazorpayOrder(input: EnquiryInput & { orgId?: un
   const keySecret = text(process.env.ANEKIO_RAZORPAY_KEY_SECRET || process.env.RAZORPAY_KEY_SECRET);
   if (!keyId || !keySecret) throw new Error("Anekio secure payment is not configured yet.");
   const orgId = text(input.orgId);
-  const org = orgId ? await prisma.saasOrg.findUnique({ where: { id: orgId } }) : await createSaasEnquiry(input);
+  const existing = orgId ? null : await findSaasOrgByContact(input);
+  const org = orgId
+    ? await prisma.saasOrg.findUnique({ where: { id: orgId } })
+    : existing
+      ? await prisma.saasOrg.update({
+          where: { id: existing.id },
+          data: {
+            monthlyPrice: EARLY_BIRD_PRICE,
+            paymentStatus: existing.paymentStatus === "PAID" ? "RENEWAL_DUE" : existing.paymentStatus,
+            followUpStatus: "RENEWAL_STARTED",
+          },
+        })
+      : await createSaasEnquiry(input);
   if (!org) throw new Error("Organisation not found.");
+  const renewal = Boolean(orgId || existing);
   const razorpay = new Razorpay({ key_id: keyId, key_secret: keySecret });
   const order = await razorpay.orders.create({
-    amount: org.monthlyPrice * 100,
+    amount: EARLY_BIRD_PRICE * 100,
     currency: "INR",
     receipt: org.id.slice(0, 40),
-    notes: { orgId: org.id, schoolName: org.schoolName, product: PRODUCT_NAME },
+    notes: { orgId: org.id, schoolName: org.schoolName, product: PRODUCT_NAME, purpose: renewal ? "renewal" : "new" },
   });
   await prisma.saasPayment.create({
     data: {
       orgId: org.id,
-      amount: org.monthlyPrice,
+      amount: EARLY_BIRD_PRICE,
       orderId: order.id,
       status: "CREATED",
-      notes: "Subscription order created",
+      notes: renewal ? "Renewal order created" : "Subscription order created",
     },
   });
-  return { keyId, orderId: order.id, amount: org.monthlyPrice, amountPaise: org.monthlyPrice * 100, org };
+  return { keyId, orderId: order.id, amount: EARLY_BIRD_PRICE, amountPaise: EARLY_BIRD_PRICE * 100, org, renewal };
 }
 
 export function saasCheckoutHtml(order: Awaited<ReturnType<typeof createSaasRazorpayOrder>>) {
   const verifyPayload = { orgId: order.org.id, amount: order.amount };
+  const heading = order.renewal ? "Renew your Anekio plan" : "Complete your Anekio payment";
+  const description = order.renewal ? "Anekio launch plan renewal" : "Early bird school ERP plan";
+  const successTitle = order.renewal ? "Renewal received" : "Payment received";
+  const successHeading = order.renewal ? "Your Anekio access is renewing" : "Welcome to Anekio";
+  const successCopy = order.renewal
+    ? "Your renewal payment is recorded. You can continue using Anekio while our account manager follows up."
+    : "Your early-bird payment is recorded. One of our account managers will connect with you for onboarding.";
   return shell(
     "Complete payment | Anekio",
     "Complete your Anekio early-bird payment securely.",
     `<main class="wrap" style="min-height:100vh;display:grid;place-items:center;padding:40px 0">
       <section class="price-card" style="max-width:620px;width:100%">
         <div class="eyebrow">Secure checkout</div>
-        <h1 style="font-size:44px;margin-bottom:10px">Complete your Anekio payment</h1>
+        <h1 style="font-size:44px;margin-bottom:10px">${heading}</h1>
         <p class="lead" style="font-size:18px">School: ${escapeHtml(order.org.schoolName)}</p>
         <div class="price">₹${formatInr(order.amount)}</div>
         <p class="muted">Secure checkout should open automatically. If it does not, use the button below.</p>
@@ -432,7 +502,7 @@ export function saasCheckoutHtml(order: Awaited<ReturnType<typeof createSaasRazo
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || "Payment verification failed.");
-        document.body.innerHTML = '<main class="wrap" style="min-height:100vh;display:grid;place-items:center;padding:40px 0"><section class="price-card" style="max-width:620px;width:100%"><div class="eyebrow">Payment received</div><h1 style="font-size:44px;margin-bottom:10px">Welcome to Anekio</h1><p class="lead" style="font-size:18px">Your early-bird payment is recorded. Our team will contact you for onboarding.</p><a class="btn primary" href="/">Back to Anekio</a></section></main>';
+        document.body.innerHTML = '<main class="wrap" style="min-height:100vh;display:grid;place-items:center;padding:40px 0"><section class="price-card" style="max-width:620px;width:100%"><div class="eyebrow">${successTitle}</div><h1 style="font-size:44px;margin-bottom:10px">${successHeading}</h1><p class="lead" style="font-size:18px">${successCopy}</p><a class="btn primary" href="/">Back to Anekio</a></section></main>';
       }
       function openCheckout() {
         if (!window.Razorpay) {
@@ -444,7 +514,7 @@ export function saasCheckoutHtml(order: Awaited<ReturnType<typeof createSaasRazo
           amount: ${order.amountPaise},
           currency: "INR",
           name: "Anekio",
-          description: "Early bird school ERP plan",
+          description: "${description}",
           order_id: "${escapeHtml(order.orderId)}",
           prefill: {
             name: "${escapeHtml(order.org.ownerName)}",
@@ -484,7 +554,7 @@ export async function verifySaasRazorpayPayment(input: Record<string, unknown>) 
     await prisma.saasPayment.create({
       data: {
         orgId,
-        amount: org.monthlyPrice,
+        amount: EARLY_BIRD_PRICE,
         orderId: razorpayOrderId,
         paymentId: razorpayPaymentId,
         status: "PAID",
@@ -495,9 +565,72 @@ export async function verifySaasRazorpayPayment(input: Record<string, unknown>) 
   }
   await prisma.saasOrg.update({
     where: { id: orgId },
-    data: { paymentStatus: "PAID", subscriptionStatus: "ACTIVE", followUpStatus: "ONBOARDING" },
+    data: {
+      monthlyPrice: EARLY_BIRD_PRICE,
+      paymentStatus: "PAID",
+      subscriptionStatus: "ACTIVE",
+      followUpStatus: org.subscriptionStatus === "ACTIVE" ? "RENEWED" : "ONBOARDING",
+      subscriptionStart: org.subscriptionStart || new Date(),
+      renewalOn: addOneYear(new Date()),
+    },
   });
   return { ok: true, alreadyProcessed: Boolean(existing) };
+}
+
+export async function saasRenewalHtml(input: { orgId?: unknown; contact?: unknown } = {}) {
+  const orgId = text(input.orgId);
+  const contact = text(input.contact);
+  const org = orgId
+    ? await prisma.saasOrg.findUnique({ where: { id: orgId } })
+    : contact
+      ? await findSaasOrgByContact({ ownerEmail: contact, ownerPhone: contact })
+      : null;
+  return shell(
+    "Renew Anekio | Anekio",
+    "Renew your Anekio school ERP plan.",
+    `<main class="wrap" style="min-height:100vh;display:grid;place-items:center;padding:40px 0">
+      <section class="price-card" style="max-width:680px;width:100%">
+        <div class="eyebrow">Renew Anekio</div>
+        <h1 style="font-size:48px;margin-bottom:12px">Renew to continue.</h1>
+        ${
+          org
+            ? `<p class="lead" style="font-size:18px">School: ${escapeHtml(org.schoolName)}</p>
+              <div class="price">₹${formatInr(EARLY_BIRD_PRICE)}</div>
+              <p class="muted">This renews the current Anekio launch plan. After payment, access is marked active again and our account manager will connect with you.</p>
+              <form method="post" action="/api/saas/payment/order">
+                <input type="hidden" name="orgId" value="${escapeHtml(org.id)}">
+                <button class="btn primary" type="submit" style="width:100%;margin-top:14px">Renew ₹${formatInr(EARLY_BIRD_PRICE)} securely</button>
+              </form>`
+            : `<p class="lead" style="font-size:18px">Enter the email or phone used for your school account. We will find your organisation and open renewal checkout.</p>
+              <form class="form" method="get" action="/anekio/renew">
+                <label>Email or phone<input name="contact" required placeholder="owner@school.in or +91 98765 43210"></label>
+                <button class="btn primary" type="submit">Find renewal</button>
+              </form>`
+        }
+        <p class="fine">If you need help, our account manager can complete the renewal with you.</p>
+      </section>
+    </main>`
+  );
+}
+
+export async function subscriptionLockForUser(userId: string): Promise<SaasSubscriptionLock | null> {
+  const row = await prisma.user.findUnique({ where: { id: userId }, select: { email: true, phone: true } });
+  if (!row) return null;
+  let org = await findSaasOrgByContact({ ownerEmail: row.email || "", ownerPhone: row.phone || "" });
+  if (!org) {
+    const school = await prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { email: true, phone: true } });
+    org = await findSaasOrgByContact({ ownerEmail: school?.email || "", ownerPhone: school?.phone || "" });
+  }
+  if (!org || !isRenewalRequired(org)) return null;
+  return {
+    locked: true,
+    orgId: org.id,
+    schoolName: org.schoolName,
+    status: org.subscriptionStatus,
+    renewalOn: org.renewalOn ? org.renewalOn.toISOString() : "",
+    renewUrl: renewalUrl(org.id),
+    amount: EARLY_BIRD_PRICE,
+  };
 }
 
 export async function markSaasPayment(input: { orgId: string; orderId?: string; paymentId?: string; status?: string; notes?: string }) {
