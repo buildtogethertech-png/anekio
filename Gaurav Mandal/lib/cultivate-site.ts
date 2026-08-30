@@ -5,6 +5,7 @@ import { prisma } from "./prisma";
 const PRODUCT_NAME = "Anekio";
 const PLAN_PRICE = 29999;
 const EARLY_BIRD_PRICE = 14999;
+const TRIAL_DAYS = 7;
 
 type EnquiryInput = {
   schoolName?: unknown;
@@ -113,8 +114,8 @@ function shell(title: string, description: string, body: string, extraHead = "")
     .product-card{background:white;border:1px solid var(--line);border-radius:26px;box-shadow:var(--shadow);overflow:hidden}.product-top{padding:18px 20px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}.dots{display:flex;gap:7px}.dots i{width:10px;height:10px;border-radius:50%;background:#d6e2f0}.dash{padding:18px;display:grid;gap:14px}.metric-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.metric{background:#f7fbff;border:1px solid #e0eaf6;border-radius:18px;padding:16px}.metric strong{font-size:30px}.metric span{display:block;color:var(--muted);font-size:13px}.flow{display:grid;grid-template-columns:1fr 1fr;gap:12px}.mini{border:1px solid var(--line);border-radius:18px;padding:14px}.bar{height:10px;border-radius:999px;background:linear-gradient(90deg,var(--mint) 0 55%,#f04444 55%);margin-top:12px}
     .sections{padding:54px 0}.section-title{font-size:42px;letter-spacing:-.04em;line-height:1.08;margin:8px 0 12px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:24px}.card{background:white;border:1px solid var(--line);border-radius:22px;padding:24px;box-shadow:0 14px 38px rgba(16,32,51,.06)}.card h3{margin:10px 0 8px;font-size:20px}.icon{width:42px;height:42px;border-radius:14px;background:#eef5ff;display:grid;place-items:center;color:var(--blue);font-weight:950}.muted{color:var(--muted)}
     .band{background:#0f2034;color:white;border-radius:30px;padding:34px;box-shadow:var(--shadow)}.band .muted{color:#c7d5e8}.split{display:grid;grid-template-columns:.95fr 1.05fr;gap:24px;align-items:start}.price-card{background:linear-gradient(145deg,#fff,var(--cream));border:1px solid #f1dec0;border-radius:26px;padding:28px;box-shadow:var(--shadow)}.price-old{text-decoration:line-through;color:#7b8795;font-size:22px;font-weight:900}.price{font-size:62px;font-weight:980;letter-spacing:-.06em;line-height:1}.save{display:inline-flex;background:#e9fff7;color:#077354;border:1px solid #bdf4df;border-radius:999px;padding:8px 12px;font-weight:950;margin:12px 0}.chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}.chip{border:1px solid #d6e4f4;background:#fff;border-radius:999px;padding:8px 11px;font-weight:850;font-size:13px}
-    .form{display:grid;gap:12px}.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}label{font-weight:850;color:#3b4f68;font-size:14px}input,select,textarea{width:100%;border:1px solid #c9d8ec;border-radius:14px;padding:13px 14px;font:inherit;background:white;color:var(--ink)}textarea{min-height:110px}.fine{font-size:13px;color:var(--muted)}.admin{padding:38px 0 70px}.table{width:100%;border-collapse:separate;border-spacing:0;background:white;border:1px solid var(--line);border-radius:18px;overflow:hidden}.table th,.table td{padding:12px;border-bottom:1px solid #edf2fa;text-align:left;vertical-align:top}.table th{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#52657d;background:#f8fbff}.badge{display:inline-block;border-radius:999px;padding:4px 8px;background:#eaf2ff;color:#174ea6;font-weight:900;font-size:12px}.admin-card{background:white;border:1px solid var(--line);border-radius:20px;padding:18px;margin-top:18px}footer{border-top:1px solid var(--line);padding:26px 0;color:var(--muted);background:white}
-    @media(max-width:900px){.hero-grid,.grid,.two,.split,.flow{grid-template-columns:1fr}.navlinks{display:none}h1{font-size:44px}.hero{padding-top:48px}.proof,.metric-grid{grid-template-columns:1fr}.price{font-size:48px}.table{font-size:14px}}
+    .form-shell{position:relative;overflow:hidden;border-radius:30px;background:linear-gradient(145deg,#ffffff 0%,#f8fbff 58%,#eef6ff 100%);border:1px solid #d7e4f5;box-shadow:0 24px 70px rgba(16,32,51,.1)}.form-shell:before{content:"";position:absolute;inset:-120px auto auto -110px;width:260px;height:260px;border-radius:50%;background:rgba(33,182,232,.16)}.form-shell:after{content:"";position:absolute;right:-120px;bottom:-140px;width:280px;height:280px;border-radius:50%;background:rgba(40,85,246,.12)}.form-content{position:relative;z-index:1;display:grid;grid-template-columns:.9fr 1.1fr;gap:30px;padding:30px}.form-panel{background:rgba(255,255,255,.86);border:1px solid #dbe7f6;border-radius:24px;padding:22px;box-shadow:0 18px 45px rgba(16,32,51,.08)}.form{display:grid;gap:14px}.two{display:grid;grid-template-columns:1fr 1fr;gap:14px}label{display:grid;gap:7px;font-weight:900;color:#314861;font-size:13px}input,select,textarea{width:100%;border:1px solid #c9d8ec;border-radius:16px;padding:14px 15px;font:inherit;background:white;color:var(--ink);box-shadow:0 8px 20px rgba(16,32,51,.035);outline:none}input:focus,select:focus,textarea:focus{border-color:var(--blue);box-shadow:0 0 0 4px rgba(40,85,246,.12)}textarea{min-height:116px;resize:vertical}.form-note{display:flex;align-items:flex-start;gap:10px;border:1px solid #cfe7ff;background:#f4faff;color:#36516f;border-radius:18px;padding:12px 13px;font-size:13px;font-weight:750}.form-note b{color:#102033}.check-list{display:grid;gap:10px;margin:22px 0}.check-list span{display:flex;gap:10px;align-items:flex-start;color:#4c6078;font-weight:750}.check-list span:before{content:"✓";display:grid;place-items:center;flex:0 0 22px;width:22px;height:22px;border-radius:50%;background:#e9fff7;color:#07825e;font-weight:950}.fine{font-size:13px;color:var(--muted)}.admin{padding:38px 0 70px}.table{width:100%;border-collapse:separate;border-spacing:0;background:white;border:1px solid var(--line);border-radius:18px;overflow:hidden}.table th,.table td{padding:12px;border-bottom:1px solid #edf2fa;text-align:left;vertical-align:top}.table th{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#52657d;background:#f8fbff}.badge{display:inline-block;border-radius:999px;padding:4px 8px;background:#eaf2ff;color:#174ea6;font-weight:900;font-size:12px}.admin-card{background:white;border:1px solid var(--line);border-radius:20px;padding:18px;margin-top:18px}footer{border-top:1px solid var(--line);padding:26px 0;color:var(--muted);background:white}
+    @media(max-width:900px){.hero-grid,.grid,.two,.split,.flow,.form-content{grid-template-columns:1fr}.navlinks{display:none}h1{font-size:44px}.hero{padding-top:48px}.proof,.metric-grid{grid-template-columns:1fr}.price{font-size:48px}.table{font-size:14px}.form-content{padding:18px}.form-panel{padding:16px}}
   </style>
 </head>
 <body>${body}</body>
@@ -138,7 +139,7 @@ export function marketingHtml(message = "") {
   return shell(
     title,
     description,
-    `<nav class="nav"><div class="wrap"><a class="brand" href="/"><span class="mark">A</span><span><strong>Anekio</strong><span class="tag">One system. Infinite possibilities.</span></span></a><div class="navlinks"><a href="#features">Features</a><a href="#pricing">Pricing</a><a href="#enquiry">Enquire</a><a class="btn primary" href="#pricing">Get early bird</a></div></div></nav>
+    `<nav class="nav"><div class="wrap"><a class="brand" href="/"><span class="mark">A</span><span><strong>Anekio</strong><span class="tag">One system. Infinite possibilities.</span></span></a><div class="navlinks"><a href="#features">Features</a><a href="#pricing">Pricing</a><a href="#trial">Free trial</a><a href="#enquiry">Enquire</a><a class="btn primary" href="#trial">Start free trial</a></div></div></nav>
 <main>
   <section class="hero wrap">
     <div class="hero-grid">
@@ -146,7 +147,7 @@ export function marketingHtml(message = "") {
         <span class="pill">School ERP for growing Indian schools</span>
         <h1>Run the whole school from one calm system.</h1>
         <p class="lead">Anekio connects fees, admissions, attendance, exams, documents, parent communication, staff work, and student records so every team sees the same truth.</p>
-        <div class="cta"><a class="btn primary" href="#pricing">Start early bird</a><a class="btn light" href="#features">Explore modules</a></div>
+        <div class="cta"><a class="btn primary" href="#trial">Start 7-day free trial</a><a class="btn light" href="#pricing">See launch price</a></div>
         <div class="proof"><div><b>4</b><span>Portals</span></div><div><b>12+</b><span>School flows</span></div><div><b>1</b><span>Source of truth</span></div></div>
         ${message ? `<p class="card" style="margin-top:18px;border-color:#bbf7d0;color:#166534">${escapeHtml(message)}</p>` : ""}
       </div>
@@ -203,34 +204,66 @@ export function marketingHtml(message = "") {
       </div>
       <div class="card">
         <div class="eyebrow">Reserve your launch plan</div>
-        <h2 style="margin:8px 0 8px">Pay securely with Razorpay</h2>
-        <p class="muted">Enter school owner details. Checkout opens after the order is created.</p>
-        <form class="form" method="post" action="/api/saas/razorpay/order">
+        <h2 style="margin:8px 0 8px">Lock the early-bird price</h2>
+        <p class="muted">Enter school owner details. Secure checkout opens after your order is created.</p>
+        <form class="form" method="post" action="/api/saas/payment/order">
           <div class="two"><label>School name<input name="schoolName" required placeholder="Example Public School"></label><label>City<input name="city" placeholder="Bengaluru"></label></div>
           <div class="two"><label>Owner name<input name="ownerName" required placeholder="Principal / Owner"></label><label>Phone<input name="ownerPhone" required placeholder="+91 98765 43210"></label></div>
           <label>Email<input name="ownerEmail" type="email" required placeholder="owner@school.in"></label>
           <input type="hidden" name="teacherCount" value="0">
-          <button class="btn primary" type="submit">Pay ₹${formatInr(EARLY_BIRD_PRICE)} now</button>
-          <p class="fine">Payments use Razorpay Standard Checkout. If gateway keys are not configured, the page will ask the school to send an enquiry instead.</p>
+          <button class="btn primary" type="submit">Pay ₹${formatInr(EARLY_BIRD_PRICE)} securely</button>
+          <p class="fine">Secure payment opens on the next screen. If online payment is not available, submit the free-trial form and our team will help.</p>
         </form>
       </div>
     </div>
   </section>
+  <section id="trial" class="sections wrap" style="padding-top:0">
+    <div class="form-shell">
+      <div class="form-content">
+        <div>
+          <div class="eyebrow">Self-serve trial</div>
+          <h2 class="section-title">Try Anekio free for ${TRIAL_DAYS} days.</h2>
+          <p class="lead">No payment needed. Share your school details and we will prepare a trial workspace so your team can explore the product flow first.</p>
+          <div class="check-list">
+            <span>Trial request created instantly for your school.</span>
+            <span>Explore fees, attendance, admissions, parent desk, exams, and documents.</span>
+            <span>Upgrade later only when you are ready.</span>
+          </div>
+          <p class="form-note">Best for school owners and principals who want to see the system before paying.</p>
+        </div>
+        <div class="form-panel">
+          <form class="form" method="post" action="/api/saas/trial">
+            <div class="two"><label>School name<input name="schoolName" required placeholder="VidyaPith Public School"></label><label>City<input name="city" placeholder="Bengaluru"></label></div>
+            <div class="two"><label>Your name<input name="ownerName" required placeholder="Principal / Owner"></label><label>Phone<input name="ownerPhone" required placeholder="+91 98765 43210"></label></div>
+            <div class="two"><label>Email<input name="ownerEmail" type="email" required placeholder="owner@school.in"></label><label>Teachers<input name="teacherCount" type="number" min="0" placeholder="60"></label></div>
+            <label>What do you want to try first?<textarea name="notes" placeholder="Example: fees collection, parent queries, attendance, admissions..."></textarea></label>
+            <button class="btn primary" type="submit" style="width:100%">Start my ${TRIAL_DAYS}-day free trial</button>
+            <p class="fine">We will use this to create your trial request and contact you for workspace setup.</p>
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
   <section id="enquiry" class="sections wrap" style="padding-top:0">
-    <div class="card">
-      <div class="two" style="align-items:start">
+    <div class="form-shell">
+      <div class="form-content">
         <div>
           <div class="eyebrow">Talk to us</div>
           <h2 class="section-title">Want a demo before payment?</h2>
           <p class="lead">Send your details and we will walk you through the school workflows that matter first.</p>
+          <div class="check-list">
+            <span>Personal walkthrough for your school team.</span>
+            <span>We map your current fees, admissions, attendance, and communication flow.</span>
+            <span>You get a clear rollout suggestion before buying.</span>
+          </div>
         </div>
-        <div>
+        <div class="form-panel">
           <form class="form" method="post" action="/cultivate/enquiry">
-            <div class="two"><label>School name<input name="schoolName" required placeholder="Example Public School"></label><label>City<input name="city" placeholder="Bengaluru"></label></div>
-            <div class="two"><label>Owner name<input name="ownerName" required placeholder="Owner / Principal name"></label><label>Phone<input name="ownerPhone" required placeholder="+91 98765 43210"></label></div>
+            <div class="two"><label>School name<input name="schoolName" required placeholder="VidyaPith Public School"></label><label>City<input name="city" placeholder="Bengaluru"></label></div>
+            <div class="two"><label>Your name<input name="ownerName" required placeholder="Owner / Principal"></label><label>Phone<input name="ownerPhone" required placeholder="+91 98765 43210"></label></div>
             <div class="two"><label>Email<input name="ownerEmail" type="email" required placeholder="owner@school.in"></label><label>Teachers<input name="teacherCount" type="number" min="0" placeholder="60"></label></div>
             <label>Notes<textarea name="notes" placeholder="Tell us what you want to manage first: fees, admissions, parent queries, report cards..."></textarea></label>
-            <button class="btn dark" type="submit">Book a demo</button>
+            <button class="btn dark" type="submit" style="width:100%">Book a demo</button>
           </form>
         </div>
       </div>
@@ -269,6 +302,47 @@ export async function createSaasEnquiry(input: EnquiryInput) {
   });
 }
 
+export async function createSaasTrial(input: EnquiryInput) {
+  const org = await createSaasEnquiry({
+    ...input,
+    notes: ["7-day free trial requested", text(input.notes)].filter(Boolean).join(" · "),
+  });
+  return prisma.saasOrg.update({
+    where: { id: org.id },
+    data: {
+      plan: `${TRIAL_DAYS}-day free trial`,
+      monthlyPrice: 0,
+      paymentStatus: "TRIAL",
+      subscriptionStatus: "TRIAL",
+      followUpStatus: "TRIAL_REQUESTED",
+    },
+  });
+}
+
+export function trialStartedHtml(org: Awaited<ReturnType<typeof createSaasTrial>>) {
+  return shell(
+    "Free trial started | Anekio",
+    "Your Anekio free trial request has been received.",
+    `<main class="wrap" style="min-height:100vh;display:grid;place-items:center;padding:40px 0">
+      <section class="form-shell" style="max-width:760px;width:100%">
+        <div class="form-content" style="grid-template-columns:1fr">
+          <div>
+            <div class="eyebrow">Trial request received</div>
+            <h1 style="font-size:52px;margin-bottom:12px">Your ${TRIAL_DAYS}-day Anekio trial is ready to start.</h1>
+            <p class="lead">Thanks, ${escapeHtml(org.ownerName)}. We have saved the trial request for ${escapeHtml(org.schoolName)} and will help you open the workspace.</p>
+            <div class="check-list">
+              <span>No payment is needed for the trial.</span>
+              <span>Your school details are saved for setup.</span>
+              <span>Our team will contact you on ${escapeHtml(org.ownerPhone)}.</span>
+            </div>
+            <a class="btn primary" href="/">Back to Anekio</a>
+          </div>
+        </div>
+      </section>
+    </main>`
+  );
+}
+
 export async function updateSaasOrg(id: string, input: OrgUpdateInput) {
   const data: Record<string, string | number | null> = {};
   for (const key of [
@@ -304,7 +378,7 @@ export async function listSaasOrgs() {
 export async function createSaasRazorpayOrder(input: EnquiryInput & { orgId?: unknown }) {
   const keyId = text(process.env.CULTIVATE_RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID);
   const keySecret = text(process.env.CULTIVATE_RAZORPAY_KEY_SECRET || process.env.RAZORPAY_KEY_SECRET);
-  if (!keyId || !keySecret) throw new Error("Anekio Razorpay keys are not configured yet.");
+  if (!keyId || !keySecret) throw new Error("Anekio secure payment is not configured yet.");
   const orgId = text(input.orgId);
   const org = orgId ? await prisma.saasOrg.findUnique({ where: { id: orgId } }) : await createSaasEnquiry(input);
   if (!org) throw new Error("Organisation not found.");
@@ -331,15 +405,15 @@ export function saasCheckoutHtml(order: Awaited<ReturnType<typeof createSaasRazo
   const verifyPayload = { orgId: order.org.id, amount: order.amount };
   return shell(
     "Complete payment | Anekio",
-    "Complete your Anekio early-bird payment securely with Razorpay.",
+    "Complete your Anekio early-bird payment securely.",
     `<main class="wrap" style="min-height:100vh;display:grid;place-items:center;padding:40px 0">
       <section class="price-card" style="max-width:620px;width:100%">
         <div class="eyebrow">Secure checkout</div>
         <h1 style="font-size:44px;margin-bottom:10px">Complete your Anekio payment</h1>
         <p class="lead" style="font-size:18px">School: ${escapeHtml(order.org.schoolName)}</p>
         <div class="price">₹${formatInr(order.amount)}</div>
-        <p class="muted">Razorpay checkout should open automatically. If it does not, use the button below.</p>
-        <button id="pay" class="btn primary" type="button" style="width:100%;margin-top:12px">Open Razorpay checkout</button>
+        <p class="muted">Secure checkout should open automatically. If it does not, use the button below.</p>
+        <button id="pay" class="btn primary" type="button" style="width:100%;margin-top:12px">Open secure checkout</button>
         <p id="status" class="fine"></p>
       </section>
     </main>
@@ -351,7 +425,7 @@ export function saasCheckoutHtml(order: Awaited<ReturnType<typeof createSaasRazo
       function setStatus(message) { statusEl.textContent = message; }
       async function verify(response) {
         setStatus("Verifying payment...");
-        const res = await fetch("/api/saas/razorpay/verify", {
+        const res = await fetch("/api/saas/payment/verify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ...verifyPayload, ...response })
@@ -362,7 +436,7 @@ export function saasCheckoutHtml(order: Awaited<ReturnType<typeof createSaasRazo
       }
       function openCheckout() {
         if (!window.Razorpay) {
-          setStatus("Razorpay checkout could not load. Please refresh and try again.");
+          setStatus("Secure checkout could not load. Please refresh and try again.");
           return;
         }
         const checkout = new window.Razorpay({
@@ -393,13 +467,13 @@ export function saasCheckoutHtml(order: Awaited<ReturnType<typeof createSaasRazo
 
 export async function verifySaasRazorpayPayment(input: Record<string, unknown>) {
   const keySecret = text(process.env.CULTIVATE_RAZORPAY_KEY_SECRET || process.env.RAZORPAY_KEY_SECRET);
-  if (!keySecret) throw new Error("Anekio Razorpay secret is not configured.");
+  if (!keySecret) throw new Error("Anekio secure payment is not configured.");
   const orgId = text(input.orgId);
   const razorpayOrderId = text(input.razorpay_order_id);
   const razorpayPaymentId = text(input.razorpay_payment_id);
   const razorpaySignature = text(input.razorpay_signature);
   if (!orgId || !razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
-    throw new Error("Missing Razorpay verification fields.");
+    throw new Error("Missing payment verification fields.");
   }
   const expected = crypto.createHmac("sha256", keySecret).update(`${razorpayOrderId}|${razorpayPaymentId}`).digest("hex");
   if (expected !== razorpaySignature.trim().toLowerCase()) throw new Error("Payment signature verification failed.");
@@ -414,7 +488,7 @@ export async function verifySaasRazorpayPayment(input: Record<string, unknown>) 
         orderId: razorpayOrderId,
         paymentId: razorpayPaymentId,
         status: "PAID",
-        notes: "Razorpay checkout verified",
+        notes: "Secure checkout verified",
         paidAt: new Date(),
       },
     });
@@ -453,7 +527,7 @@ export async function adminHtml(saved = "", basePath = "/cultivate-admin") {
     "Internal Cultivate School SaaS admin portal.",
     `<main class="admin wrap">
       <div style="display:flex;justify-content:space-between;gap:16px;align-items:end;flex-wrap:wrap">
-        <div><div class="eyebrow">Internal admin</div><h1 style="font-size:38px;margin-bottom:6px">Onboarded schools</h1><p class="muted">Manage owners, subscription status, Razorpay records, URLs, notes, and follow-ups.</p></div>
+        <div><div class="eyebrow">Internal admin</div><h1 style="font-size:38px;margin-bottom:6px">Onboarded schools</h1><p class="muted">Manage owners, subscription status, payment records, URLs, notes, and follow-ups.</p></div>
         <a class="btn" href="/">Marketing page</a>
       </div>
       ${saved ? `<p class="card" style="border-color:#bbf7d0;color:#166534">${escapeHtml(saved)}</p>` : ""}

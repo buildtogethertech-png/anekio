@@ -32,10 +32,12 @@ import {
   adminHtml,
   createSaasEnquiry,
   createSaasRazorpayOrder,
+  createSaasTrial,
   marketingHtml,
   robotsTxt,
   saasCheckoutHtml,
   sitemapXml,
+  trialStartedHtml,
   updateSaasOrg,
   verifySaasRazorpayPayment,
 } from "../lib/cultivate-site";
@@ -326,7 +328,23 @@ app.post("/api/saas/enquiry", async (req, res) => {
   }
 });
 
-app.post("/api/saas/razorpay/order", async (req, res) => {
+app.post("/api/saas/trial", async (req, res) => {
+  try {
+    const org = await createSaasTrial(req.body || {});
+    if (!String(req.headers.accept || "").includes("application/json")) {
+      return res.type("html").send(trialStartedHtml(org));
+    }
+    res.json({ ok: true, org });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Could not start trial.";
+    if (!String(req.headers.accept || "").includes("application/json")) {
+      return res.status(400).type("html").send(marketingHtml(message));
+    }
+    sendError(res, 400, message);
+  }
+});
+
+async function createSaasPaymentOrder(req: express.Request, res: express.Response) {
   try {
     const order = await createSaasRazorpayOrder(req.body || {});
     const wantsHtml = !String(req.headers.accept || "").includes("application/json");
@@ -335,21 +353,27 @@ app.post("/api/saas/razorpay/order", async (req, res) => {
     }
     res.json({ ok: true, order });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Could not create Razorpay order.";
+    const message = e instanceof Error ? e.message : "Could not create payment order.";
     if (!String(req.headers.accept || "").includes("application/json")) {
       return res.status(400).type("html").send(marketingHtml(message));
     }
     sendError(res, 400, message);
   }
-});
+}
 
-app.post("/api/saas/razorpay/verify", async (req, res) => {
+app.post("/api/saas/payment/order", createSaasPaymentOrder);
+app.post("/api/saas/razorpay/order", createSaasPaymentOrder);
+
+async function verifySaasPaymentOrder(req: express.Request, res: express.Response) {
   try {
     res.json(await verifySaasRazorpayPayment(req.body || {}));
   } catch (e) {
     sendError(res, 400, e instanceof Error ? e.message : "Could not verify payment.");
   }
-});
+}
+
+app.post("/api/saas/payment/verify", verifySaasPaymentOrder);
+app.post("/api/saas/razorpay/verify", verifySaasPaymentOrder);
 
 app.post("/api/pay/order", async (req, res) => {
   const pay = await getSchoolPaySecrets();
