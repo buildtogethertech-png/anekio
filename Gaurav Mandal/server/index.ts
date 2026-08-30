@@ -58,6 +58,23 @@ function sendError(res: express.Response, status: number, error: string) {
   res.status(status).json({ error });
 }
 
+function hostName(req: express.Request) {
+  return String(req.headers["x-forwarded-host"] || req.headers.host || "")
+    .split(",")[0]
+    .split(":")[0]
+    .toLowerCase();
+}
+
+function isAdminHost(req: express.Request) {
+  const host = hostName(req);
+  return host === "admin.localhost" || host.startsWith("admin.");
+}
+
+function isConnectHost(req: express.Request) {
+  const host = hostName(req);
+  return host === "connect.localhost" || host.startsWith("connect.");
+}
+
 async function requireUser(req: express.Request, res: express.Response) {
   const user = await userFromAuthHeader(req.headers.authorization);
   if (!user) {
@@ -207,7 +224,13 @@ app.post("/school/:slug/lead", async (req, res) => {
   }
 });
 
-app.get(["/", "/features", "/pricing"], (_req, res) => {
+app.get("/", async (req, res, next) => {
+  if (isAdminHost(req)) return res.type("html").send(await adminHtml("", ""));
+  if (isConnectHost(req)) return next();
+  res.type("html").send(marketingHtml());
+});
+
+app.get(["/features", "/pricing"], (_req, res) => {
   res.type("html").send(marketingHtml());
 });
 
@@ -234,6 +257,26 @@ app.post("/cultivate/enquiry", async (req, res) => {
 
 app.get("/cultivate-admin", async (_req, res) => {
   res.type("html").send(await adminHtml());
+});
+
+app.post("/orgs", async (req, res, next) => {
+  if (!isAdminHost(req)) return next();
+  try {
+    await createSaasEnquiry(req.body || {});
+    res.type("html").send(await adminHtml("Organisation saved.", ""));
+  } catch (e) {
+    res.status(400).type("html").send(await adminHtml(e instanceof Error ? e.message : "Could not save organisation.", ""));
+  }
+});
+
+app.post("/orgs/:id", async (req, res, next) => {
+  if (!isAdminHost(req)) return next();
+  try {
+    await updateSaasOrg(String(req.params.id || ""), req.body || {});
+    res.type("html").send(await adminHtml("Organisation updated.", ""));
+  } catch (e) {
+    res.status(400).type("html").send(await adminHtml(e instanceof Error ? e.message : "Could not update organisation.", ""));
+  }
 });
 
 app.post("/cultivate-admin/orgs", async (req, res) => {

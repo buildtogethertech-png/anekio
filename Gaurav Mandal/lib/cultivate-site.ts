@@ -59,6 +59,27 @@ function pageUrl(path = "/") {
   return `${origin}${path}`;
 }
 
+function adminUrl() {
+  const configured = (process.env.CULTIVATE_ADMIN_URL || "").trim();
+  if (configured) return configured;
+  const publicUrl = pageUrl("/");
+  if (!publicUrl.startsWith("http")) return "/cultivate-admin";
+  try {
+    const url = new URL(publicUrl);
+    const parts = url.hostname.split(".");
+    if (parts.length >= 2) {
+      url.hostname = ["admin", ...parts.slice(parts[0] === "www" ? 1 : 0)].join(".");
+      url.pathname = "/";
+      url.search = "";
+      url.hash = "";
+      return url.toString();
+    }
+  } catch {
+    return "/cultivate-admin";
+  }
+  return "/cultivate-admin";
+}
+
 function shell(title: string, description: string, body: string, extraHead = "") {
   return `<!doctype html>
 <html lang="en-IN">
@@ -115,7 +136,7 @@ export function marketingHtml(message = "") {
   return shell(
     title,
     description,
-    `<nav class="nav"><div class="wrap"><a class="brand" href="/">Cultivate<span>India first school OS</span></a><div class="navlinks"><a href="#features">Features</a><a href="#pricing">Pricing</a><a href="#enquiry">Enquire</a><a class="btn" href="/cultivate-admin">Admin</a></div></div></nav>
+    `<nav class="nav"><div class="wrap"><a class="brand" href="/">Cultivate<span>India first school OS</span></a><div class="navlinks"><a href="#features">Features</a><a href="#pricing">Pricing</a><a href="#enquiry">Enquire</a><a class="btn" href="${escapeHtml(adminUrl())}">Admin</a></div></div></nav>
 <main>
   <section class="hero wrap">
     <div class="hero-grid">
@@ -291,8 +312,9 @@ export async function markSaasPayment(input: { orgId: string; orderId?: string; 
   return payment;
 }
 
-export async function adminHtml(saved = "") {
+export async function adminHtml(saved = "", basePath = "/cultivate-admin") {
   const orgs = await listSaasOrgs();
+  const actionBase = basePath.replace(/\/$/, "");
   return shell(
     "Cultivate SaaS Admin",
     "Internal Cultivate School SaaS admin portal.",
@@ -304,7 +326,7 @@ export async function adminHtml(saved = "") {
       ${saved ? `<p class="card" style="border-color:#bbf7d0;color:#166534">${escapeHtml(saved)}</p>` : ""}
       <section class="admin-card">
         <h2 style="margin-top:0">Add organisation</h2>
-        <form class="form" method="post" action="/cultivate-admin/orgs">
+        <form class="form" method="post" action="${actionBase}/orgs">
           <div class="two"><label>School<input name="schoolName" required></label><label>City<input name="city"></label></div>
           <div class="two"><label>Owner<input name="ownerName" required></label><label>Phone<input name="ownerPhone" required></label></div>
           <div class="two"><label>Email<input name="ownerEmail" type="email" required></label><label>Teachers<input name="teacherCount" type="number" min="0"></label></div>
@@ -327,7 +349,7 @@ export async function adminHtml(saved = "") {
                 <td><span class="fine">Login: ${escapeHtml(org.loginUrl || "-")}<br>API: ${escapeHtml(org.apiUrl || "-")}</span></td>
                 <td>${org.payments.length ? org.payments.map((p) => `<span class="fine">${escapeHtml(p.status)} ₹${p.amount} ${escapeHtml(p.paymentId || p.orderId || "")}</span>`).join("<br>") : "<span class=\"fine\">No records</span>"}</td>
                 <td>
-                  <form class="form" method="post" action="/cultivate-admin/orgs/${encodeURIComponent(org.id)}" style="min-width:260px">
+                  <form class="form" method="post" action="${actionBase}/orgs/${encodeURIComponent(org.id)}" style="min-width:260px">
                     <div class="two"><select name="subscriptionStatus"><option>${escapeHtml(org.subscriptionStatus)}</option><option>LEAD</option><option>ACTIVE</option><option>INACTIVE</option></select><select name="paymentStatus"><option>${escapeHtml(org.paymentStatus)}</option><option>PENDING</option><option>PAID</option><option>OVERDUE</option><option>FAILED</option></select></div>
                     <div class="two"><input name="loginUrl" placeholder="Login URL" value="${escapeHtml(org.loginUrl)}"><input name="apiUrl" placeholder="API URL" value="${escapeHtml(org.apiUrl)}"></div>
                     <input name="followUpStatus" placeholder="Follow-up status" value="${escapeHtml(org.followUpStatus)}">
