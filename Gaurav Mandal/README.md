@@ -1,6 +1,6 @@
-# Cultivate
+# Anekio
 
-India-first education product. Cultivates student strength — not marks-as-the-goal.
+India-first education product built around student strength — not marks-as-the-goal.
 
 One Expo app (web, Android, iOS). One Express API. Four portals (parent, teacher, office, student).
 
@@ -55,7 +55,7 @@ is built in for the exact `buildtogether.tech@gmail.com` account and exact
 `anekio.com` / `anekio.in` domains; optional additive allowlists are documented
 in `.env.example`.
 
-Every demo login uses password `12345`. See `Cultivate-demo-logins.json`.
+Every demo login uses password `12345`. See `Anekio-demo-logins.json`.
 
 ## Project changes
 

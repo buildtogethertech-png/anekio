@@ -1251,7 +1251,7 @@ export async function saveSchoolIdentityCore(
     return value;
   };
   const data = {
-    name: (input.name || "Cultivate School").trim() || "Cultivate School",
+    name: (input.name || "Anekio School").trim() || "Anekio School",
     address: (input.address || "").trim(),
     city: (input.city || "").trim(),
     state: (input.state || "").trim(),

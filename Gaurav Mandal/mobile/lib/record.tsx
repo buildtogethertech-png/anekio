@@ -215,7 +215,7 @@ export type RecordPayload = {
   }[];
   callHome?: { id: string; name: string; days: number; parentName: string; phone: string; wa: string }[];
   weekPapers?: { id: string; title: string; subject: string; date: string; classLabel: string }[];
-  cultivate?: string[];
+  needsAttention?: string[];
   breakout?: number;
   subjects?: { id: string; name: string }[];
   roster?: {

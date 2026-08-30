@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
-export const ADMIN_SESSION_COOKIE = "cultivate_saas_admin";
-export const ADMIN_OAUTH_COOKIE = "cultivate_saas_oauth";
+export const ADMIN_SESSION_COOKIE = "anekio_saas_admin";
+export const ADMIN_OAUTH_COOKIE = "anekio_saas_oauth";
 
 export type SaasAdminSession = {
   email: string;

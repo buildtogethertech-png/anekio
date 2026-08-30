@@ -38,7 +38,7 @@ import {
   sitemapXml,
   trialStartedHtml,
   verifySaasRazorpayPayment,
-} from "../lib/cultivate-site";
+} from "../lib/anekio-site";
 import {
   adminInvoicePrintHtml,
   adminLoginHtml,
@@ -412,11 +412,11 @@ app.get("/sitemap.xml", (_req, res) => {
   res.type("application/xml").send(sitemapXml());
 });
 
-app.get("/cultivate/enquiry", (_req, res) => {
+app.get("/anekio/enquiry", (_req, res) => {
   res.type("html").send(marketingHtml());
 });
 
-app.post("/cultivate/enquiry", async (req, res) => {
+app.post("/anekio/enquiry", async (req, res) => {
   try {
     await createSaasEnquiry(req.body || {});
     res.type("html").send(marketingHtml("Thanks — enquiry saved. We will follow up with the school owner."));
@@ -782,6 +782,6 @@ export default app;
 
 if (!process.env.VERCEL && (process.env.NODE_ENV !== "test" || process.env.TEST_SERVER_LISTEN === "1")) {
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Cultivate API on http://localhost:${PORT}`);
+    console.log(`Anekio API on http://localhost:${PORT}`);
   });
 }

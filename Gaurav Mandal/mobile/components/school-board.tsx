@@ -1388,7 +1388,7 @@ export function SchoolBoard() {
                   </Half>
                   <Half>
                     <Field label="Account holder">
-                      <Input value={form.bankAccountName} placeholder="Cultivate School" onChangeText={(v) => patch("bankAccountName", v)} />
+                      <Input value={form.bankAccountName} placeholder="Anekio School" onChangeText={(v) => patch("bankAccountName", v)} />
                     </Field>
                   </Half>
                   <Half>
@@ -1404,7 +1404,7 @@ export function SchoolBoard() {
                 </View>
                 <View className="gap-3">
                   <Text className="text-sm font-medium text-ink-900">Online gateway</Text>
-                  <Text className="text-sm text-ink-700">School's own Razorpay, Cashfree, or BillDesk. Cultivate never receives the fee.</Text>
+                  <Text className="text-sm text-ink-700">School's own Razorpay, Cashfree, or BillDesk. Anekio never receives the fee.</Text>
                   <View className="flex-row flex-wrap gap-2">
                     {PAY_GATEWAYS.map((g) => {
                       const on = form.payGateway === g.id;
@@ -1736,7 +1736,7 @@ export function SchoolBoard() {
                 <View className="gap-3">
                   <Text className="text-sm font-medium text-ink-900">WhatsApp</Text>
                   <Text className="text-sm text-ink-700">
-                    School's own AiSensy account. Cultivate does not send from a shared number or buy credits.
+                    School's own AiSensy account. Anekio does not send from a shared number or buy credits.
                   </Text>
                   <Field label="School community / whole-school group">
                     <Input
@@ -1797,7 +1797,7 @@ export function SchoolBoard() {
                 <View className="gap-3">
                   <Text className="text-sm font-medium text-ink-900">Email</Text>
                   <Text className="text-sm text-ink-700">
-                    School's own Resend account. Messages come from the school's address, not Cultivate.
+                    School's own Resend account. Messages come from the school's address, not Anekio.
                   </Text>
                   <View className="flex-row flex-wrap gap-3">
                     <Half>
@@ -1989,7 +1989,7 @@ function blankForm(s?: RecordPayload["school"]): SchoolForm {
     admissionNote?: string;
   } })?.website;
   return {
-    name: s?.name || "Cultivate School",
+    name: s?.name || "Anekio School",
     address: s?.address || "",
     city: s?.city || "",
     state: s?.state || "",
@@ -2024,7 +2024,7 @@ function blankForm(s?: RecordPayload["school"]): SchoolForm {
     websiteEnabled: website?.enabled ?? false,
     websiteSlug: website?.slug || "demo",
     websiteTheme: website?.theme || "blue",
-    websiteHeroTitle: website?.heroTitle || `${s?.name || "Cultivate School"} admissions are open`,
+    websiteHeroTitle: website?.heroTitle || `${s?.name || "Anekio School"} admissions are open`,
     websiteHeroSubtitle: website?.heroSubtitle || "Enquire for admissions, campus visits, fees, and entrance test details.",
     websiteAbout: website?.about || "We help children learn with care, structure, regular parent communication, and a safe school environment.",
     websiteHighlights: (website?.highlights || ["Admissions open", "Safe campus", "Smart parent updates", "Entrance test support"]).join("\n"),
@@ -2109,7 +2109,7 @@ function BrandAssetPreview({
             )}
           </View>
           <View className="flex-1">
-            <Text className="text-sm font-semibold text-ink-900">{form.name || "Cultivate School"}</Text>
+            <Text className="text-sm font-semibold text-ink-900">{form.name || "Anekio School"}</Text>
             <Text className="mt-0.5 text-[11px] text-ink-700" numberOfLines={2}>
               {[form.address, form.city, form.state].filter(Boolean).join(" · ") || "School address appears here"}
             </Text>
@@ -2158,7 +2158,7 @@ function InvoicePreview({ form, logoPath }: { form: SchoolForm; logoPath?: strin
       <View className={`flex-row items-start justify-between gap-3 ${compact ? "border-b border-ink-200 pb-3" : "border-b-2 border-clay-500 pb-3"}`}>
         <View className="flex-1">
           {compact ? null : <Text className="text-[10px] font-medium uppercase tracking-widest text-clay-600">Proforma invoice</Text>}
-          <Text className="text-base font-semibold text-ink-900">{form.name || "Cultivate School"}</Text>
+          <Text className="text-base font-semibold text-ink-900">{form.name || "Anekio School"}</Text>
           {place ? <Text className="mt-1 text-[11px] text-ink-700">{place}</Text> : null}
           {form.phone || form.email ? (
             <Text className="mt-0.5 text-[11px] text-ink-700">
@@ -2219,7 +2219,7 @@ function MessagePreview({ schoolName, fromEmail }: { schoolName: string; fromEma
             <Text className="mt-2 text-[13px] leading-5 text-ink-900">Amount due: ₹4500</Text>
             <Text className="mt-2 text-[13px] leading-5 text-ink-900">Please complete the payment using this secure link:</Text>
             <Text className="mt-0.5 text-[13px] text-[#027eb5] underline">https://your-school.com/pay/sample</Text>
-            <Text className="mt-2 text-[11px] text-ink-700">{schoolName || "Cultivate School"}</Text>
+            <Text className="mt-2 text-[11px] text-ink-700">{schoolName || "Anekio School"}</Text>
           </View>
         </View>
       </View>
@@ -2227,7 +2227,7 @@ function MessagePreview({ schoolName, fromEmail }: { schoolName: string; fromEma
         <Text className="mb-1.5 text-[11px] font-medium text-ink-700">Email</Text>
         <View className="rounded-md border border-ink-200 bg-white p-3">
           <Text className="text-[11px] text-ink-700">
-            From {schoolName || "Cultivate School"} &lt;{fromEmail || "fees@your-school.edu.in"}&gt;
+            From {schoolName || "Anekio School"} &lt;{fromEmail || "fees@your-school.edu.in"}&gt;
           </Text>
           <Text className="mt-1 text-[13px] font-medium text-ink-900">Fee reminder · Aarav Sharma · April 2026</Text>
           <Text className="mt-3 text-[13px] leading-5 text-ink-900">Dear Parent,</Text>

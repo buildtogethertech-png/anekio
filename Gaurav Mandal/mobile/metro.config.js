@@ -3,10 +3,10 @@ const { getDefaultConfig } = require("expo/metro-config");
 const { withNativeWind } = require("nativewind/metro");
 
 const config = withNativeWind(getDefaultConfig(__dirname), { input: "./global.css" });
-const apiProxyPort = Number(process.env.CULTIVATE_API_PROXY_PORT || 4000);
+const apiProxyPort = Number(process.env.ANEKIO_API_PROXY_PORT || 4000);
 const serverRenderedRoutes = [
-  "/cultivate-admin",
-  "/cultivate/enquiry",
+  "/anekio-admin",
+  "/anekio/enquiry",
   "/features",
   "/pricing",
   "/robots.txt",

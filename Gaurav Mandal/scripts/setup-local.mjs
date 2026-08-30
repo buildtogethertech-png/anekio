@@ -49,5 +49,5 @@ Host-header checks:
   curl -H "Host: admin.anekio.com" http://127.0.0.1:4000/
 
 Every demo login uses password: 12345
-See Cultivate-demo-logins.json after seeding.
+See Anekio-demo-logins.json after seeding.
 `);

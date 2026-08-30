@@ -174,7 +174,7 @@ describe("Express portal API", () => {
   });
 
   it("uses an isolated SQLite file outside prisma/dev.db", () => {
-    expect(database.databasePath).toMatch(/cultivate-vitest-/);
+    expect(database.databasePath).toMatch(/anekio-vitest-/);
     expect(database.databasePath).not.toContain("/prisma/dev.db");
     expect(process.env.DATABASE_URL).toBe(database.databaseUrl);
   });

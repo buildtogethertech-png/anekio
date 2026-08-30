@@ -60,17 +60,17 @@ function formatInr(amount: number) {
 }
 
 function pageUrl(path = "/") {
-  const base = (process.env.CULTIVATE_PUBLIC_URL || process.env.VERCEL_PROJECT_PRODUCTION_URL || "").replace(/\/$/, "");
+  const base = (process.env.ANEKIO_PUBLIC_URL || process.env.VERCEL_PROJECT_PRODUCTION_URL || "").replace(/\/$/, "");
   if (!base) return path;
   const origin = base.startsWith("http") ? base : `https://${base}`;
   return `${origin}${path}`;
 }
 
 function adminUrl() {
-  const configured = (process.env.CULTIVATE_ADMIN_URL || "").trim();
+  const configured = (process.env.ANEKIO_ADMIN_URL || "").trim();
   if (configured) return configured;
   const publicUrl = pageUrl("/");
-  if (!publicUrl.startsWith("http")) return "/cultivate-admin";
+  if (!publicUrl.startsWith("http")) return "/anekio-admin";
   try {
     const url = new URL(publicUrl);
     const parts = url.hostname.split(".");
@@ -82,9 +82,9 @@ function adminUrl() {
       return url.toString();
     }
   } catch {
-    return "/cultivate-admin";
+    return "/anekio-admin";
   }
-  return "/cultivate-admin";
+  return "/anekio-admin";
 }
 
 function shell(title: string, description: string, body: string, extraHead = "") {
@@ -258,7 +258,7 @@ export function marketingHtml(message = "") {
           </div>
         </div>
         <div class="form-panel">
-          <form class="form" method="post" action="/cultivate/enquiry">
+          <form class="form" method="post" action="/anekio/enquiry">
             <div class="two"><label>School name<input name="schoolName" required placeholder="VidyaPith Public School"></label><label>City<input name="city" placeholder="Bengaluru"></label></div>
             <div class="two"><label>Your name<input name="ownerName" required placeholder="Owner / Principal"></label><label>Phone<input name="ownerPhone" required placeholder="+91 98765 43210"></label></div>
             <div class="two"><label>Email<input name="ownerEmail" type="email" required placeholder="owner@school.in"></label><label>Teachers<input name="teacherCount" type="number" min="0" placeholder="60"></label></div>
@@ -376,8 +376,8 @@ export async function listSaasOrgs() {
 }
 
 export async function createSaasRazorpayOrder(input: EnquiryInput & { orgId?: unknown }) {
-  const keyId = text(process.env.CULTIVATE_RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID);
-  const keySecret = text(process.env.CULTIVATE_RAZORPAY_KEY_SECRET || process.env.RAZORPAY_KEY_SECRET);
+  const keyId = text(process.env.ANEKIO_RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID);
+  const keySecret = text(process.env.ANEKIO_RAZORPAY_KEY_SECRET || process.env.RAZORPAY_KEY_SECRET);
   if (!keyId || !keySecret) throw new Error("Anekio secure payment is not configured yet.");
   const orgId = text(input.orgId);
   const org = orgId ? await prisma.saasOrg.findUnique({ where: { id: orgId } }) : await createSaasEnquiry(input);
@@ -466,7 +466,7 @@ export function saasCheckoutHtml(order: Awaited<ReturnType<typeof createSaasRazo
 }
 
 export async function verifySaasRazorpayPayment(input: Record<string, unknown>) {
-  const keySecret = text(process.env.CULTIVATE_RAZORPAY_KEY_SECRET || process.env.RAZORPAY_KEY_SECRET);
+  const keySecret = text(process.env.ANEKIO_RAZORPAY_KEY_SECRET || process.env.RAZORPAY_KEY_SECRET);
   if (!keySecret) throw new Error("Anekio secure payment is not configured.");
   const orgId = text(input.orgId);
   const razorpayOrderId = text(input.razorpay_order_id);
@@ -519,12 +519,12 @@ export async function markSaasPayment(input: { orgId: string; orderId?: string; 
   return payment;
 }
 
-export async function adminHtml(saved = "", basePath = "/cultivate-admin") {
+export async function adminHtml(saved = "", basePath = "/anekio-admin") {
   const orgs = await listSaasOrgs();
   const actionBase = basePath.replace(/\/$/, "");
   return shell(
-    "Cultivate SaaS Admin",
-    "Internal Cultivate School SaaS admin portal.",
+    "Anekio SaaS Admin",
+    "Internal Anekio School SaaS admin portal.",
     `<main class="admin wrap">
       <div style="display:flex;justify-content:space-between;gap:16px;align-items:end;flex-wrap:wrap">
         <div><div class="eyebrow">Internal admin</div><h1 style="font-size:38px;margin-bottom:6px">Onboarded schools</h1><p class="muted">Manage owners, subscription status, payment records, URLs, notes, and follow-ups.</p></div>
