@@ -70,9 +70,22 @@ function isAdminHost(req: express.Request) {
   return host === "admin.localhost" || host.startsWith("admin.");
 }
 
+function isAppHost(req: express.Request) {
+  const host = hostName(req);
+  return host === "app.localhost" || host.startsWith("app.");
+}
+
 function isConnectHost(req: express.Request) {
   const host = hostName(req);
   return host === "connect.localhost" || host.startsWith("connect.");
+}
+
+function schoolSlugHost(req: express.Request) {
+  const host = hostName(req);
+  if (!host.endsWith(".anekio.com")) return "";
+  const slug = host.slice(0, -".anekio.com".length);
+  if (!slug || ["admin", "app", "connect", "www"].includes(slug)) return "";
+  return slug;
 }
 
 async function requireUser(req: express.Request, res: express.Response) {
@@ -226,7 +239,13 @@ app.post("/school/:slug/lead", async (req, res) => {
 
 app.get("/", async (req, res, next) => {
   if (isAdminHost(req)) return res.type("html").send(await adminHtml("", ""));
-  if (isConnectHost(req)) return next();
+  if (isAppHost(req) || isConnectHost(req)) return next();
+  const slug = schoolSlugHost(req);
+  if (slug) {
+    const html = await schoolWebsiteHtml(slug);
+    if (html) return res.type("html").send(html);
+    return sendError(res, 404, "School website not found");
+  }
   res.type("html").send(marketingHtml());
 });
 

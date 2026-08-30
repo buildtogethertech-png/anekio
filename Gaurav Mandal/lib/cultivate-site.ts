@@ -1,7 +1,7 @@
 import Razorpay from "razorpay";
 import { prisma } from "./prisma";
 
-const PRODUCT_NAME = "Cultivate School";
+const PRODUCT_NAME = "Anekio";
 const MONTHLY_PRICE = 1000;
 
 type EnquiryInput = {
@@ -120,9 +120,9 @@ function shell(title: string, description: string, body: string, extraHead = "")
 }
 
 export function marketingHtml(message = "") {
-  const title = "Cultivate School | School management software for small Indian schools";
+  const title = "Anekio | School ERP for India-first schools";
   const description =
-    "Cultivate School helps small Indian schools manage admissions, fees, attendance, exams, documents, parent tickets, teachers, and school communication for ₹1000 per month.";
+    "Anekio helps schools manage admissions, fees, attendance, exams, documents, parent communication, teachers, and daily operations in one connected school ERP.";
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
@@ -136,14 +136,14 @@ export function marketingHtml(message = "") {
   return shell(
     title,
     description,
-    `<nav class="nav"><div class="wrap"><a class="brand" href="/">Cultivate<span>India first school OS</span></a><div class="navlinks"><a href="#features">Features</a><a href="#pricing">Pricing</a><a href="#enquiry">Enquire</a><a class="btn" href="${escapeHtml(adminUrl())}">Admin</a></div></div></nav>
+    `<nav class="nav"><div class="wrap"><a class="brand" href="/">Anekio<span>One system. Infinite possibilities.</span></a><div class="navlinks"><a href="#features">Features</a><a href="#pricing">Pricing</a><a href="#enquiry">Enquire</a><a class="btn" href="${escapeHtml(adminUrl())}">Admin</a></div></div></nav>
 <main>
   <section class="hero wrap">
     <div class="hero-grid">
       <div>
-        <div class="eyebrow">Built for small schools with 60–70 teachers</div>
-        <h1>Run your school office without ten different tools.</h1>
-        <p class="lead">Cultivate School brings fees, admissions, attendance, exams, documents, parent requests, teacher work, and school communication into one simple product.</p>
+        <div class="eyebrow">School ERP for India-first schools</div>
+        <h1>One school system for every path to success.</h1>
+        <p class="lead">Anekio brings fees, admissions, attendance, exams, documents, parent requests, teacher work, and school communication into one connected platform.</p>
         <div class="cta"><a class="btn primary" href="#enquiry">Book a demo</a><a class="btn" href="#pricing">See ₹${MONTHLY_PRICE}/month plan</a></div>
         ${message ? `<p class="card" style="margin-top:18px;border-color:#bbf7d0;color:#166534">${escapeHtml(message)}</p>` : ""}
       </div>
@@ -159,7 +159,7 @@ export function marketingHtml(message = "") {
   </section>
   <section id="features" class="sections wrap">
     <h2 class="section-title">Everything a growing school needs</h2>
-    <p class="lead">One app for office, teachers, parents, and students — designed around Indian school workflows.</p>
+    <p class="lead">One app for office, teachers, parents, and students, designed around real Indian school workflows.</p>
     <div class="grid" style="margin-top:22px">
       ${[
         ["Fees & payment links", "Invoices, parent pay links, receipts, fee status, and online collection workflows."],
@@ -203,7 +203,7 @@ export function marketingHtml(message = "") {
     </div>
   </section>
 </main>
-<footer><div class="wrap">© ${new Date().getFullYear()} Cultivate School · School management software for India-first schools.</div></footer>`,
+<footer><div class="wrap">© ${new Date().getFullYear()} Anekio · One system. Infinite possibilities.</div></footer>`,
     `<script type="application/ld+json">${escapeHtml(JSON.stringify(jsonLd))}</script>`
   );
 }
