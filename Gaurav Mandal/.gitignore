@@ -5,6 +5,9 @@ mobile/.expo
 mobile/dist
 mobile/ios
 mobile/android
+*.apk
+*.aab
+*.ipa
 .env.local
 *.db
 *.db-journal
