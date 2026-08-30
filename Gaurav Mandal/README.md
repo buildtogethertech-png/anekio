@@ -36,6 +36,20 @@ http://app.localhost:4000/      ERP app shell
 http://admin.localhost:4000/    admin portal
 ```
 
+The internal SaaS admin uses Google sign-in and fails closed until
+`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are configured. Register the
+callback URL for the route you use:
+
+```text
+http://admin.localhost:4000/auth/google/callback
+http://localhost:4000/cultivate-admin/auth/google/callback
+```
+
+Production uses the same `/auth/google/callback` path on the admin host. Access
+is built in for the exact `buildtogether.tech@gmail.com` account and exact
+`anekio.com` / `anekio.in` domains; optional additive allowlists are documented
+in `.env.example`.
+
 Every demo login uses password `12345`. See `Cultivate-demo-logins.json`.
 
 ## Project changes

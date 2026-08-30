@@ -4,6 +4,11 @@ import request from "supertest";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { seedPortalFixture, type PortalFixture } from "../support/factories";
 import { createTestDatabase, type TestDatabase } from "../support/test-database";
+import {
+  ADMIN_SESSION_COOKIE,
+  createAdminSession,
+  readAdminSession,
+} from "../../lib/saas-admin-auth";
 
 let app: Express;
 let prisma: PrismaClient;
@@ -180,6 +185,83 @@ describe("Express portal API", () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ ok: true });
+  });
+
+  it("protects the SaaS admin and completes the organisation, invoice, and payment workflow", async () => {
+    const anonymous = await request(app).get("/cultivate-admin");
+    expect(anonymous.status).toBe(200);
+    expect(anonymous.text).toContain("Sign in to Anekio Admin");
+    expect(anonymous.text).not.toContain("Manage customer ownership");
+
+    const token = createAdminSession("buildtogether.tech@gmail.com");
+    const cookie = `${ADMIN_SESSION_COOKIE}=${token}`;
+    const session = readAdminSession(cookie);
+    expect(session).not.toBeNull();
+
+    const createOrg = await request(app)
+      .post("/cultivate-admin/orgs")
+      .set("Cookie", cookie)
+      .type("form")
+      .send({
+        csrf: session!.csrf,
+        schoolName: "Anekio Test School",
+        ownerName: "Test Owner",
+        ownerEmail: "owner@school.example",
+        ownerPhone: "+91 98765 43210",
+        subscriptionStatus: "LEAD",
+        plan: "Annual school",
+        monthlyPrice: "14999",
+      });
+    expect(createOrg.status).toBe(303);
+
+    const org = await prisma.saasOrg.findFirstOrThrow({ where: { schoolName: "Anekio Test School" } });
+    const detail = await request(app)
+      .get(`/cultivate-admin?view=org&id=${org.id}`)
+      .set("Cookie", cookie);
+    expect(detail.status).toBe(200);
+    expect(detail.text).toContain("Anekio Test School");
+    expect(detail.text).toContain("Create invoice");
+
+    const createInvoice = await request(app)
+      .post(`/cultivate-admin/orgs/${org.id}/invoices`)
+      .set("Cookie", cookie)
+      .type("form")
+      .send({
+        csrf: session!.csrf,
+        issueDate: "2026-08-30",
+        dueDate: "2026-09-06",
+        description: "Cultivate subscription",
+        quantity: "1",
+        unitPrice: "10000",
+        taxPercent: "18",
+      });
+    expect(createInvoice.status).toBe(303);
+
+    const invoice = await prisma.saasInvoice.findFirstOrThrow({ where: { orgId: org.id } });
+    expect(invoice.total).toBe(11800);
+    const issue = await request(app)
+      .post(`/cultivate-admin/invoices/${invoice.id}/issue`)
+      .set("Cookie", cookie)
+      .type("form")
+      .send({ csrf: session!.csrf });
+    expect(issue.status).toBe(303);
+
+    const payment = await request(app)
+      .post(`/cultivate-admin/invoices/${invoice.id}/payments`)
+      .set("Cookie", cookie)
+      .type("form")
+      .send({
+        csrf: session!.csrf,
+        amount: "11800",
+        paidAt: "2026-08-30",
+        method: "UPI",
+        reference: "UTR-ADMIN-TEST-1",
+      });
+    expect(payment.status).toBe(303);
+
+    const paid = await prisma.saasInvoice.findUniqueOrThrow({ where: { id: invoice.id } });
+    expect(paid).toMatchObject({ status: "PAID", paidAmount: 11800 });
+    expect(await prisma.saasAuditEvent.count({ where: { orgId: org.id } })).toBe(4);
   });
 
   it("rejects incomplete and invalid credentials with explicit errors", async () => {

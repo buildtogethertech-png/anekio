@@ -29,7 +29,6 @@ import { scopePolicyFor } from "../lib/permissions";
 import { renderInvoicePage, renderPayPage, renderStudentPayPage } from "./pay-html";
 import { createAdmissionLeadFromWebsite, schoolWebsiteHtml } from "../lib/school-website";
 import {
-  adminHtml,
   createSaasEnquiry,
   createSaasRazorpayOrder,
   createSaasTrial,
@@ -38,9 +37,29 @@ import {
   saasCheckoutHtml,
   sitemapXml,
   trialStartedHtml,
-  updateSaasOrg,
   verifySaasRazorpayPayment,
 } from "../lib/cultivate-site";
+import {
+  adminInvoicePrintHtml,
+  adminLoginHtml,
+  adminPortalHtml,
+  createAdminInvoice,
+  createAdminOrganisation,
+  issueAdminInvoice,
+  recordAdminPayment,
+  updateAdminOrganisation,
+} from "../lib/saas-admin";
+import {
+  ADMIN_OAUTH_COOKIE,
+  ADMIN_SESSION_COOKIE,
+  clearCookie,
+  cookieValue,
+  createAdminSession,
+  createGoogleAdminAuth,
+  finishGoogleAdminAuth,
+  readAdminSession,
+  secureRequest,
+} from "../lib/saas-admin-auth";
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 12 * 1024 * 1024 } });
@@ -72,6 +91,37 @@ function hostName(req: express.Request) {
 function isAdminHost(req: express.Request) {
   const host = hostName(req);
   return host === "admin.localhost" || host.startsWith("admin.");
+}
+
+function adminBase(req: express.Request) {
+  return isAdminHost(req) ? "" : "/cultivate-admin";
+}
+
+function requestOrigin(req: express.Request) {
+  const forwardedProto = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+  const protocol = forwardedProto || req.protocol;
+  const host = String(req.headers["x-forwarded-host"] || req.headers.host || "localhost:4000").split(",")[0].trim();
+  return `${protocol}://${host}`;
+}
+
+function adminSecureCookie(req: express.Request) {
+  return secureRequest({
+    protocol: req.protocol,
+    forwardedProto: String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim(),
+  });
+}
+
+function adminSession(req: express.Request) {
+  try {
+    return readAdminSession(req.headers.cookie);
+  } catch {
+    return null;
+  }
+}
+
+function adminCsrf(req: express.Request, csrf: string) {
+  const provided = String(req.body?.csrf || "");
+  return provided.length === csrf.length && provided === csrf;
 }
 
 function isAppHost(req: express.Request) {
@@ -241,8 +291,86 @@ app.post("/school/:slug/lead", async (req, res) => {
   }
 });
 
+async function renderAdminPage(req: express.Request, res: express.Response) {
+  const basePath = adminBase(req);
+  const session = adminSession(req);
+  if (!session) {
+    return res.type("html").send(adminLoginHtml(basePath, String(req.query.authError || "")));
+  }
+  return res.type("html").send(
+    await adminPortalHtml({
+      basePath,
+      session,
+      view: typeof req.query.view === "string" ? req.query.view : "dashboard",
+      id: typeof req.query.id === "string" ? req.query.id : "",
+      q: typeof req.query.q === "string" ? req.query.q.trim() : "",
+      flash: typeof req.query.saved === "string" ? req.query.saved : "",
+      error: typeof req.query.error === "string" ? req.query.error : "",
+    })
+  );
+}
+
+function adminRouteRequest(req: express.Request) {
+  return isAdminHost(req) || req.path === "/cultivate-admin" || req.path.startsWith("/cultivate-admin/");
+}
+
+function requireAdminAction(req: express.Request, res: express.Response) {
+  const session = adminSession(req);
+  const basePath = adminBase(req);
+  if (!session) {
+    res.redirect(303, basePath || "/");
+    return null;
+  }
+  if (!adminCsrf(req, session.csrf)) {
+    res.status(403).type("html").send(adminLoginHtml(basePath, "The form expired. Refresh the page and try again."));
+    return null;
+  }
+  return session;
+}
+
+app.get(["/auth/google", "/cultivate-admin/auth/google"], (req, res, next) => {
+  if (!adminRouteRequest(req)) return next();
+  try {
+    const basePath = adminBase(req);
+    const redirectUri = `${requestOrigin(req)}${basePath}/auth/google/callback`;
+    const auth = createGoogleAdminAuth(redirectUri, basePath);
+    res.setHeader("Set-Cookie", cookieValue(ADMIN_OAUTH_COOKIE, auth.cookie, { secure: adminSecureCookie(req), maxAgeSeconds: 600 }));
+    res.redirect(302, auth.url);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Sign-in is unavailable.";
+    res.redirect(302, `${adminBase(req) || "/"}?authError=${encodeURIComponent(message)}`);
+  }
+});
+
+app.get(["/auth/google/callback", "/cultivate-admin/auth/google/callback"], async (req, res, next) => {
+  if (!adminRouteRequest(req)) return next();
+  const basePath = adminBase(req);
+  try {
+    const profile = await finishGoogleAdminAuth({
+      cookieHeader: req.headers.cookie,
+      state: String(req.query.state || ""),
+      code: String(req.query.code || ""),
+    });
+    res.setHeader("Set-Cookie", [
+      cookieValue(ADMIN_SESSION_COOKIE, createAdminSession(profile.email), { secure: adminSecureCookie(req), maxAgeSeconds: 60 * 60 * 12 }),
+      clearCookie(ADMIN_OAUTH_COOKIE, adminSecureCookie(req)),
+    ]);
+    res.redirect(303, profile.basePath || "/");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Sign-in could not be completed.";
+    res.setHeader("Set-Cookie", clearCookie(ADMIN_OAUTH_COOKIE, adminSecureCookie(req)));
+    res.redirect(303, `${basePath || "/"}?authError=${encodeURIComponent(message)}`);
+  }
+});
+
+app.get(["/logout", "/cultivate-admin/logout"], (req, res, next) => {
+  if (!adminRouteRequest(req)) return next();
+  res.setHeader("Set-Cookie", clearCookie(ADMIN_SESSION_COOKIE, adminSecureCookie(req)));
+  res.redirect(303, adminBase(req) || "/");
+});
+
 app.get("/", async (req, res, next) => {
-  if (isAdminHost(req)) return res.type("html").send(await adminHtml("", ""));
+  if (isAdminHost(req)) return renderAdminPage(req, res);
   if (isAppHost(req) || isConnectHost(req)) return next();
   const slug = schoolSlugHost(req);
   if (slug) {
@@ -278,46 +406,99 @@ app.post("/cultivate/enquiry", async (req, res) => {
   }
 });
 
-app.get("/cultivate-admin", async (_req, res) => {
-  res.type("html").send(await adminHtml());
-});
+app.get("/cultivate-admin", renderAdminPage);
 
 app.post("/orgs", async (req, res, next) => {
   if (!isAdminHost(req)) return next();
+  const session = requireAdminAction(req, res);
+  if (!session) return;
   try {
-    await createSaasEnquiry(req.body || {});
-    res.type("html").send(await adminHtml("Organisation saved.", ""));
+    const org = await createAdminOrganisation(req.body || {}, session.email);
+    res.redirect(303, `/?view=org&id=${encodeURIComponent(org.id)}&saved=${encodeURIComponent("Organisation added.")}`);
   } catch (e) {
-    res.status(400).type("html").send(await adminHtml(e instanceof Error ? e.message : "Could not save organisation.", ""));
+    res.redirect(303, `/?view=new-org&error=${encodeURIComponent(e instanceof Error ? e.message : "Could not add organisation.")}`);
   }
 });
 
 app.post("/orgs/:id", async (req, res, next) => {
   if (!isAdminHost(req)) return next();
+  const session = requireAdminAction(req, res);
+  if (!session) return;
   try {
-    await updateSaasOrg(String(req.params.id || ""), req.body || {});
-    res.type("html").send(await adminHtml("Organisation updated.", ""));
+    const org = await updateAdminOrganisation(String(req.params.id || ""), req.body || {}, session.email);
+    res.redirect(303, `/?view=org&id=${encodeURIComponent(org.id)}&saved=${encodeURIComponent("Organisation updated.")}`);
   } catch (e) {
-    res.status(400).type("html").send(await adminHtml(e instanceof Error ? e.message : "Could not update organisation.", ""));
+    res.redirect(303, `/?view=edit-org&id=${encodeURIComponent(String(req.params.id || ""))}&error=${encodeURIComponent(e instanceof Error ? e.message : "Could not update organisation.")}`);
   }
 });
 
 app.post("/cultivate-admin/orgs", async (req, res) => {
+  const session = requireAdminAction(req, res);
+  if (!session) return;
   try {
-    await createSaasEnquiry(req.body || {});
-    res.type("html").send(await adminHtml("Organisation saved."));
+    const org = await createAdminOrganisation(req.body || {}, session.email);
+    res.redirect(303, `/cultivate-admin?view=org&id=${encodeURIComponent(org.id)}&saved=${encodeURIComponent("Organisation added.")}`);
   } catch (e) {
-    res.status(400).type("html").send(await adminHtml(e instanceof Error ? e.message : "Could not save organisation."));
+    res.redirect(303, `/cultivate-admin?view=new-org&error=${encodeURIComponent(e instanceof Error ? e.message : "Could not add organisation.")}`);
   }
 });
 
 app.post("/cultivate-admin/orgs/:id", async (req, res) => {
+  const session = requireAdminAction(req, res);
+  if (!session) return;
   try {
-    await updateSaasOrg(String(req.params.id || ""), req.body || {});
-    res.type("html").send(await adminHtml("Organisation updated."));
+    const org = await updateAdminOrganisation(String(req.params.id || ""), req.body || {}, session.email);
+    res.redirect(303, `/cultivate-admin?view=org&id=${encodeURIComponent(org.id)}&saved=${encodeURIComponent("Organisation updated.")}`);
   } catch (e) {
-    res.status(400).type("html").send(await adminHtml(e instanceof Error ? e.message : "Could not update organisation."));
+    res.redirect(303, `/cultivate-admin?view=edit-org&id=${encodeURIComponent(String(req.params.id || ""))}&error=${encodeURIComponent(e instanceof Error ? e.message : "Could not update organisation.")}`);
   }
+});
+
+app.post(["/orgs/:id/invoices", "/cultivate-admin/orgs/:id/invoices"], async (req, res, next) => {
+  if (!adminRouteRequest(req)) return next();
+  const session = requireAdminAction(req, res);
+  if (!session) return;
+  const basePath = adminBase(req);
+  try {
+    const invoice = await createAdminInvoice(String(req.params.id || ""), req.body || {}, session.email);
+    res.redirect(303, `${basePath || "/"}?view=invoice&id=${encodeURIComponent(invoice.id)}&saved=${encodeURIComponent("Invoice draft created.")}`);
+  } catch (e) {
+    res.redirect(303, `${basePath || "/"}?view=new-invoice&id=${encodeURIComponent(String(req.params.id || ""))}&error=${encodeURIComponent(e instanceof Error ? e.message : "Could not create invoice.")}`);
+  }
+});
+
+app.post(["/invoices/:id/issue", "/cultivate-admin/invoices/:id/issue"], async (req, res, next) => {
+  if (!adminRouteRequest(req)) return next();
+  const session = requireAdminAction(req, res);
+  if (!session) return;
+  const basePath = adminBase(req);
+  try {
+    const invoice = await issueAdminInvoice(String(req.params.id || ""), session.email);
+    res.redirect(303, `${basePath || "/"}?view=invoice&id=${encodeURIComponent(invoice.id)}&saved=${encodeURIComponent("Invoice issued.")}`);
+  } catch (e) {
+    res.redirect(303, `${basePath || "/"}?view=invoice&id=${encodeURIComponent(String(req.params.id || ""))}&error=${encodeURIComponent(e instanceof Error ? e.message : "Could not issue invoice.")}`);
+  }
+});
+
+app.post(["/invoices/:id/payments", "/cultivate-admin/invoices/:id/payments"], async (req, res, next) => {
+  if (!adminRouteRequest(req)) return next();
+  const session = requireAdminAction(req, res);
+  if (!session) return;
+  const basePath = adminBase(req);
+  try {
+    await recordAdminPayment(String(req.params.id || ""), req.body || {}, session.email);
+    res.redirect(303, `${basePath || "/"}?view=invoice&id=${encodeURIComponent(String(req.params.id || ""))}&saved=${encodeURIComponent("Payment recorded.")}`);
+  } catch (e) {
+    res.redirect(303, `${basePath || "/"}?view=invoice&id=${encodeURIComponent(String(req.params.id || ""))}&error=${encodeURIComponent(e instanceof Error ? e.message : "Could not record payment.")}`);
+  }
+});
+
+app.get(["/invoices/:id/print", "/cultivate-admin/invoices/:id/print"], async (req, res, next) => {
+  if (!adminRouteRequest(req)) return next();
+  if (!adminSession(req)) return res.redirect(303, adminBase(req) || "/");
+  const html = await adminInvoicePrintHtml(String(req.params.id || ""));
+  if (!html) return res.status(404).send("Invoice not found");
+  res.type("html").send(html);
 });
 
 app.post("/api/saas/enquiry", async (req, res) => {
