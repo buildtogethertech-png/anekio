@@ -12,8 +12,11 @@ type EnquiryInput = {
   schoolName?: unknown;
   ownerName?: unknown;
   ownerEmail?: unknown;
+  ownerCountryCode?: unknown;
   ownerPhone?: unknown;
   city?: unknown;
+  state?: unknown;
+  gstin?: unknown;
   teacherCount?: unknown;
   studentCount?: unknown;
   notes?: unknown;
@@ -33,8 +36,11 @@ type OrgUpdateInput = Partial<{
   schoolName: unknown;
   ownerName: unknown;
   ownerEmail: unknown;
+  ownerCountryCode: unknown;
   ownerPhone: unknown;
   city: unknown;
+  state: unknown;
+  gstin: unknown;
   teacherCount: unknown;
   studentCount: unknown;
   plan: unknown;
@@ -78,6 +84,11 @@ function normalPhone(value: unknown) {
   return normalizeMobile(text(value));
 }
 
+function countryCode(value: unknown) {
+  const digits = text(value, "+91").replace(/[^\d]/g, "");
+  return digits ? `+${digits}` : "+91";
+}
+
 function addOneYear(date: Date) {
   const next = new Date(date);
   next.setFullYear(next.getFullYear() + 1);
@@ -98,9 +109,11 @@ function isRenewalRequired(org: { subscriptionStatus: string; renewalOn: Date | 
 async function findSaasOrgByContact(input: { ownerEmail?: unknown; ownerPhone?: unknown }) {
   const email = normalEmail(input.ownerEmail);
   const phone = normalPhone(input.ownerPhone);
+  const rawPhone = text(input.ownerPhone);
   const conditions = [
     email ? { ownerEmail: { equals: email } } : null,
     phone ? { ownerPhone: { equals: phone } } : null,
+    rawPhone && rawPhone !== phone ? { ownerPhone: { equals: rawPhone } } : null,
   ].filter(Boolean) as { ownerEmail?: { equals: string }; ownerPhone?: { equals: string } }[];
   if (!conditions.length) return null;
   return prisma.saasOrg.findFirst({
@@ -258,7 +271,8 @@ export function marketingHtml(message = "") {
         <p class="muted">Enter school owner details. Secure checkout opens after your order is created.</p>
         <form class="form" method="post" action="/api/saas/payment/order">
           <div class="two"><label>School name<input name="schoolName" required placeholder="Example Public School"></label><label>City<input name="city" placeholder="Bengaluru"></label></div>
-          <div class="two"><label>Owner name<input name="ownerName" required placeholder="Principal / Owner"></label><label>Phone<input name="ownerPhone" required placeholder="+91 98765 43210"></label></div>
+          <div class="two"><label>State<input name="state" placeholder="Karnataka"></label><label>GSTIN <span class="fine">(optional)</span><input name="gstin" maxlength="15" placeholder="29ABCDE1234F1Z5"></label></div>
+          <div class="two"><label>Owner name<input name="ownerName" required placeholder="Principal / Owner"></label><label>Phone<div class="two" style="grid-template-columns:110px 1fr"><select name="ownerCountryCode" aria-label="Country code"><option value="+91" selected>🇮🇳 +91</option></select><input name="ownerPhone" required inputmode="tel" placeholder="98765 43210"></div></label></div>
           <label>Email<input name="ownerEmail" type="email" required placeholder="owner@school.in"></label>
           <input type="hidden" name="teacherCount" value="0">
           <button class="btn primary" type="submit">Pay ₹${formatInr(EARLY_BIRD_PRICE)} securely</button>
@@ -284,7 +298,8 @@ export function marketingHtml(message = "") {
         <div class="form-panel">
           <form class="form" method="post" action="/api/saas/trial">
             <div class="two"><label>School name<input name="schoolName" required placeholder="VidyaPith Public School"></label><label>City<input name="city" placeholder="Bengaluru"></label></div>
-            <div class="two"><label>Your name<input name="ownerName" required placeholder="Principal / Owner"></label><label>Phone<input name="ownerPhone" required placeholder="+91 98765 43210"></label></div>
+            <div class="two"><label>State<input name="state" placeholder="Karnataka"></label><label>GSTIN <span class="fine">(optional)</span><input name="gstin" maxlength="15" placeholder="29ABCDE1234F1Z5"></label></div>
+            <div class="two"><label>Your name<input name="ownerName" required placeholder="Principal / Owner"></label><label>Phone<div class="two" style="grid-template-columns:110px 1fr"><select name="ownerCountryCode" aria-label="Country code"><option value="+91" selected>🇮🇳 +91</option></select><input name="ownerPhone" required inputmode="tel" placeholder="98765 43210"></div></label></div>
             <div class="two"><label>Email<input name="ownerEmail" type="email" required placeholder="owner@school.in"></label><label>Teachers<input name="teacherCount" type="number" min="0" placeholder="60"></label></div>
             <label>What do you want to try first?<textarea name="notes" placeholder="Example: fees collection, parent queries, attendance, admissions..."></textarea></label>
             <button class="btn primary" type="submit" style="width:100%">Start my ${TRIAL_DAYS}-day free trial</button>
@@ -310,7 +325,8 @@ export function marketingHtml(message = "") {
         <div class="form-panel">
           <form class="form" method="post" action="/anekio/enquiry">
             <div class="two"><label>School name<input name="schoolName" required placeholder="VidyaPith Public School"></label><label>City<input name="city" placeholder="Bengaluru"></label></div>
-            <div class="two"><label>Your name<input name="ownerName" required placeholder="Owner / Principal"></label><label>Phone<input name="ownerPhone" required placeholder="+91 98765 43210"></label></div>
+            <div class="two"><label>State<input name="state" placeholder="Karnataka"></label><label>GSTIN <span class="fine">(optional)</span><input name="gstin" maxlength="15" placeholder="29ABCDE1234F1Z5"></label></div>
+            <div class="two"><label>Your name<input name="ownerName" required placeholder="Owner / Principal"></label><label>Phone<div class="two" style="grid-template-columns:110px 1fr"><select name="ownerCountryCode" aria-label="Country code"><option value="+91" selected>🇮🇳 +91</option></select><input name="ownerPhone" required inputmode="tel" placeholder="98765 43210"></div></label></div>
             <div class="two"><label>Email<input name="ownerEmail" type="email" required placeholder="owner@school.in"></label><label>Teachers<input name="teacherCount" type="number" min="0" placeholder="60"></label></div>
             <label>Notes<textarea name="notes" placeholder="Tell us what you want to manage first: fees, admissions, parent queries, report cards..."></textarea></label>
             <button class="btn dark" type="submit" style="width:100%">Book a demo</button>
@@ -329,6 +345,7 @@ export async function createSaasEnquiry(input: EnquiryInput) {
   const schoolName = text(input.schoolName);
   const ownerName = text(input.ownerName);
   const ownerEmail = normalEmail(input.ownerEmail);
+  const ownerCountryCode = countryCode(input.ownerCountryCode);
   const ownerPhone = normalPhone(input.ownerPhone) || text(input.ownerPhone);
   if (!schoolName || !ownerName || !ownerEmail || !ownerPhone) {
     throw new Error("School name, owner name, email, and phone are required.");
@@ -338,8 +355,11 @@ export async function createSaasEnquiry(input: EnquiryInput) {
       schoolName,
       ownerName,
       ownerEmail,
+      ownerCountryCode,
       ownerPhone,
       city: text(input.city),
+      billingState: text(input.state),
+      gstin: text(input.gstin).toUpperCase(),
       teacherCount: intOrNull(input.teacherCount),
       studentCount: intOrNull(input.studentCount),
       notes: text(input.notes),
@@ -399,6 +419,7 @@ export async function updateSaasOrg(id: string, input: OrgUpdateInput) {
     "schoolName",
     "ownerName",
     "ownerEmail",
+    "ownerCountryCode",
     "ownerPhone",
     "city",
     "plan",
@@ -415,6 +436,8 @@ export async function updateSaasOrg(id: string, input: OrgUpdateInput) {
   if (input.teacherCount !== undefined) data.teacherCount = intOrNull(input.teacherCount);
   if (input.studentCount !== undefined) data.studentCount = intOrNull(input.studentCount);
   if (input.monthlyPrice !== undefined) data.monthlyPrice = intOrNull(input.monthlyPrice) ?? EARLY_BIRD_PRICE;
+  if (input.state !== undefined) data.billingState = text(input.state);
+  if (input.gstin !== undefined) data.gstin = text(input.gstin).toUpperCase();
   return prisma.saasOrg.update({ where: { id }, data });
 }
 
@@ -437,6 +460,10 @@ export async function createSaasRazorpayOrder(input: EnquiryInput & { orgId?: un
       ? await prisma.saasOrg.update({
           where: { id: existing.id },
           data: {
+            ownerCountryCode: countryCode(input.ownerCountryCode || existing.ownerCountryCode),
+            city: text(input.city, existing.city),
+            billingState: text(input.state, existing.billingState),
+            gstin: text(input.gstin, existing.gstin).toUpperCase(),
             monthlyPrice: EARLY_BIRD_PRICE,
             paymentStatus: existing.paymentStatus === "PAID" ? "RENEWAL_DUE" : existing.paymentStatus,
             followUpStatus: "RENEWAL_STARTED",

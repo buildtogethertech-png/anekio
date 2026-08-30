@@ -874,6 +874,7 @@ model SaasOrg {
   schoolName         String
   ownerName          String
   ownerEmail         String
+  ownerCountryCode   String           @default("+91")
   ownerPhone         String
   city               String           @default("")
   teacherCount       Int?
