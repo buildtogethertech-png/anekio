@@ -536,6 +536,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   const [q, setQ] = useState("");
   const [kind, setKind] = useState<PeopleKind>("student");
   const [classIds, setClassIds] = useState<string[]>([]);
+  const [parentQuery, setParentQuery] = useState("");
   const [feeFilter, setFeeFilter] = useState<"all" | "due" | "overdue" | "clear">(incoming ? "due" : "all");
   const [studentSort, setStudentSort] = useState<StudentSort>("name");
   const [picked, setPicked] = useState<{ kind: PeopleKind; id: string } | null>(
@@ -558,17 +559,18 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   const parentsAll = data?.peopleParents ?? [];
   const showFees = can(user, "fees.view");
   const needle = q.trim().toLowerCase();
+  const parentNeedle = parentQuery.trim().toLowerCase();
   const showStudents = studentOnly || kind === "student";
   const showTeachers = !studentOnly && kind === "teacher";
-  const showParents = !studentOnly && kind === "parent";
-  const addKind: PeopleKind = kind === "parent" ? "parent" : "student";
+  const showParents = false;
   const filtered = people.filter((s) => {
     if (classIds.length && !classIds.includes(s.classId || "")) return false;
     if (showFees && feeFilter === "due" && !(s.dueAmount && s.dueAmount > 0)) return false;
     if (showFees && feeFilter === "overdue" && !(s.overdueCount && s.overdueCount > 0)) return false;
     if (showFees && feeFilter === "clear" && (s.dueAmount || 0) > 0) return false;
+    if (parentNeedle && ![s.parent, s.parentEmail, s.parentPhone].join(" ").toLowerCase().includes(parentNeedle)) return false;
     if (!needle) return true;
-    return [s.name, s.admissionNo, s.parent, s.classLabel, s.parentEmail].join(" ").toLowerCase().includes(needle);
+    return [s.name, s.admissionNo, s.parent, s.classLabel, s.parentEmail, s.parentPhone].join(" ").toLowerCase().includes(needle);
   });
   const sortedStudents = [...filtered].sort((a, b) => {
     if (studentSort === "class") {
@@ -639,6 +641,12 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
         type: "multi-select",
         options: (data?.classes ?? []).map((c) => ({ id: c.id, label: c.label })),
       },
+      {
+        key: "parentQuery",
+        label: "Parent",
+        type: "text",
+        placeholder: "Name, phone, or email",
+      },
     ];
     if (showFees) {
       filters.push({
@@ -657,15 +665,18 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   const studentFilterValues = useMemo<FilterValues>(
     () => ({
       classIds,
+      parentQuery,
       feeStatus: feeFilter === "all" ? "" : feeFilter,
     }),
-    [classIds, feeFilter]
+    [classIds, parentQuery, feeFilter]
   );
 
   function applyStudentFilters(values: FilterValues) {
     const nextClassIds = values.classIds;
+    const nextParentQuery = values.parentQuery;
     const nextFeeStatus = values.feeStatus;
     setClassIds(Array.isArray(nextClassIds) ? nextClassIds : []);
+    setParentQuery(typeof nextParentQuery === "string" ? nextParentQuery : "");
     setFeeFilter(nextFeeStatus === "due" || nextFeeStatus === "overdue" || nextFeeStatus === "clear" ? nextFeeStatus : "all");
   }
 
@@ -710,16 +721,6 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
           ))}
         </View>
       ) : null}
-      {!studentOnly ? <View className="mt-2">
-        <Segmented
-          options={[
-            { id: "student", label: "Student" },
-            { id: "parent", label: "Parent" },
-          ]}
-          value={kind}
-          onChange={(id) => pickKind(id as PeopleKind)}
-        />
-      </View> : null}
     </View>
   );
 
@@ -1599,7 +1600,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
             <Button
               variant="ghost"
               onPress={() => {
-                setImportKind(addKind);
+                setImportKind("student");
                 setImportOpen(true);
               }}
             >
@@ -1607,9 +1608,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
             </Button>
           ) : null}
           {can(user, "people.edit") ? (
-            <Button onPress={() => setAdd(addKind)}>
-              {addKind === "parent" ? "Add parent" : "Add student"}
-            </Button>
+            <Button onPress={() => setAdd("student")}>Add student</Button>
           ) : null}
         </View>
       </View>
@@ -1661,11 +1660,6 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
           <Text className="text-sm text-ink-700">
             Paste CSV with a header row. Students need name, admissionNo, dateOfBirth, class, parentEmail.
           </Text>
-          <View className="flex-row flex-wrap gap-2">
-            {(["student", "parent"] as PeopleKind[]).map((id) => (
-              <Chip key={id} label={id} active={importKind === id} onPress={() => setImportKind(id)} />
-            ))}
-          </View>
           <Field label="CSV">
             <Input value={importCsv} onChangeText={setImportCsv} multiline />
           </Field>
