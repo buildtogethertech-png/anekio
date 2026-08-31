@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { Linking, Platform, Pressable, Share, Text, View } from "react-native";
 import { webOrigin } from "../lib/api";
 import { act } from "../lib/mutate";
-import { useRecord } from "../lib/record";
 import { useSession } from "../lib/session";
 import { Button, Field, Input, Modal } from "./ui";
 
@@ -15,7 +15,7 @@ const PAYMENT_METHODS = [
 ] as const;
 
 type Method = (typeof PAYMENT_METHODS)[number]["id"];
-type Busy = null | "collect" | "fees" | "copy" | "whatsapp" | "email";
+type Busy = null | "collect" | "fees" | "copy" | "whatsapp" | "call";
 
 type OpenMonth = {
   id: string;
@@ -72,13 +72,9 @@ function whatsAppDigits(raw?: string | null) {
   return "";
 }
 
-function channelHint(opts: { channels: { whatsapp: boolean; email: boolean }; wa: boolean; email: boolean }) {
-  const missing = [!opts.wa ? "parent phone" : "", !opts.email ? "parent email" : ""].filter(Boolean);
-  if (opts.channels.whatsapp) {
-    return `Sends from the school WhatsApp number through AiSensy.${missing.length ? ` Add the ${missing.join(" and ")}.` : ""}`;
-  }
-  if (missing.length) return `Opens WhatsApp or email on this device. Add the ${missing.join(" and ")}.`;
-  return "Opens WhatsApp or email on this device with the pay link filled in.";
+function channelHint(opts: { wa: boolean }) {
+  if (!opts.wa) return "Add the parent phone to enable WhatsApp and call.";
+  return "Opens WhatsApp or phone on this device with the selected pay link.";
 }
 
 function payLinkText(opts: { studentName: string; range: string; due: number; url: string }) {
@@ -112,14 +108,12 @@ export function GeneratePayment({
   onDone: (message: string) => Promise<void> | void;
 }) {
   const { token } = useSession();
-  const { data } = useRecord();
   const [picked, setPicked] = useState<string[]>([]);
   const [method, setMethod] = useState<Method>("CASH");
   const [reference, setReference] = useState("");
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState<Busy>(null);
   const [copied, setCopied] = useState(false);
-  const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const roster = students?.length ? students : student ? [student] : [];
   const lead = roster[0] || null;
@@ -146,13 +140,7 @@ export function GeneratePayment({
   const selected = months.filter((m) => picked.includes(m.id));
   const due = selected.reduce((sum, m) => sum + m.dueNow, 0);
   const current = PAYMENT_METHODS.find((m) => m.id === method)!;
-  const schoolPay = data?.school?.pay;
-  const channels = {
-    whatsapp: Boolean(schoolPay?.aisensyKeySet),
-    email: Boolean(schoolPay?.resendKeySet),
-  };
   const wa = whatsAppDigits(lead?.parentPhone);
-  const email = (lead?.parentEmail || "").trim();
   const heading = title || (roster.length > 1 ? `Payment · ${roster.length} children` : lead ? `Payment · ${lead.name}` : "Payment");
 
   useEffect(() => {
@@ -163,7 +151,6 @@ export function GeneratePayment({
     setNotes("");
     setBusy(null);
     setCopied(false);
-    setNotice("");
     setError("");
   }, [open, lead?.id, months.length]);
 
@@ -252,15 +239,6 @@ export function GeneratePayment({
     try {
       const ids = [...new Set(selected.map((m) => m.studentId))];
       if (ids.length !== 1) throw new Error("Pay link is one child at a time. Untick the other children.");
-      if (channels.whatsapp) {
-        await act(token, "sendPayLink", {
-          studentId: ids[0],
-          invoiceIds: selected.map((m) => m.id),
-          channel: "whatsapp",
-        });
-        setNotice("Sent from the school WhatsApp");
-        return;
-      }
       if (!wa) throw new Error("Add the parent phone on this student first");
       const url = await payUrl();
       const text = payLinkText({
@@ -277,32 +255,15 @@ export function GeneratePayment({
     }
   }
 
-  async function sendEmail() {
-    if (!lead || !selected.length) return;
-    setBusy("email");
+  async function callParent() {
+    if (!lead) return;
+    setBusy("call");
     setError("");
     try {
-      const ids = [...new Set(selected.map((m) => m.studentId))];
-      if (ids.length !== 1) throw new Error("Pay link is one child at a time. Untick the other children.");
-      if (channels.email) {
-        await act(token, "sendPayLink", {
-          studentId: ids[0],
-          invoiceIds: selected.map((m) => m.id),
-          channel: "email",
-        });
-        setNotice("Sent by email");
-        return;
-      }
-      if (!email) throw new Error("Add the parent email on this student first");
-      const url = await payUrl();
-      const range = payRangeLabel(selected.map((m) => m.title));
-      const body = payLinkText({ studentName: lead.name, range, due, url });
-      const subject = `Fee payment · ${lead.name} · ${range}`;
-      await Linking.openURL(
-        `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
-      );
+      if (!wa) throw new Error("Add the parent phone on this student first");
+      await Linking.openURL(`tel:+${wa}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Email could not send");
+      setError(e instanceof Error ? e.message : "Could not start call");
     } finally {
       setBusy(null);
     }
@@ -310,9 +271,9 @@ export function GeneratePayment({
 
   const monthWord = selected.length === 1 ? "month" : "months";
   const locked = busy !== null;
-  const copyLabel = busy === "copy" ? "Copying…" : copied ? "Pay link copied" : "Copy pay link";
-  const waLabel = busy === "whatsapp" ? "Sending…" : channels.whatsapp ? "Send from school WhatsApp" : "Send WhatsApp";
-  const emailLabel = busy === "email" ? "Sending…" : "Send email";
+  const copyLabel = busy === "copy" ? "Copying" : copied ? "Copied" : "Copy";
+  const waLabel = busy === "whatsapp" ? "Opening" : "WhatsApp";
+  const callLabel = busy === "call" ? "Calling" : "Call";
   const collectLabel = busy === "collect" ? "Collecting…" : `Collect ${selected.length} ${monthWord}`;
 
   return (
@@ -368,7 +329,6 @@ export function GeneratePayment({
                   disabled={locked}
                   onPress={() => {
                     setMethod(m.id);
-                    setNotice("");
                     setCopied(false);
                     setError("");
                   }}
@@ -404,33 +364,28 @@ export function GeneratePayment({
             </Field>
           ) : null}
           {method === "RAZORPAY" ? (
-            <View className="gap-2 rounded-md border border-ink-200 bg-ink-50 px-3 py-3">
+            <View className="gap-2 rounded-md border border-ink-100 bg-white px-3 py-2.5">
               <Text className="text-sm text-ink-800">
-                Copy the link, or send it on WhatsApp or email. The parent pays only the {selected.length}{" "}
-                {monthWord} ticked above.
+                Parent pays only the {selected.length} {monthWord} ticked above.
               </Text>
               <View className="flex-row flex-wrap gap-2">
-                <Button disabled={!selected.length || locked} onPress={copyLink}>
-                  {copyLabel}
-                </Button>
-                <Button
-                  variant="ghost"
-                  disabled={!selected.length || locked || (!channels.whatsapp && !wa)}
+                <PayLinkAction
+                  icon={copied ? "checkmark" : "copy-outline"}
+                  label={copyLabel}
+                  disabled={!selected.length || locked}
+                  onPress={copyLink}
+                />
+                <PayLinkAction
+                  icon="logo-whatsapp"
+                  label={waLabel}
+                  disabled={!selected.length || locked || !wa}
                   onPress={sendWhatsApp}
-                >
-                  {waLabel}
-                </Button>
-                <Button
-                  variant="ghost"
-                  disabled={!selected.length || locked || (!channels.email && !email)}
-                  onPress={sendEmail}
-                >
-                  {emailLabel}
-                </Button>
+                  color="#16a34a"
+                />
+                <PayLinkAction icon="call-outline" label={callLabel} disabled={locked || !wa} onPress={callParent} />
               </View>
-              {notice ? <Text className="text-sm text-leaf-600">{notice}</Text> : null}
               <Text className="text-[11px] text-ink-700">
-                {channelHint({ channels, wa: Boolean(wa), email: Boolean(email) })}
+                {channelHint({ wa: Boolean(wa) })}
               </Text>
             </View>
           ) : null}
@@ -496,5 +451,34 @@ export function GeneratePayment({
         </View>
       )}
     </Modal>
+  );
+}
+
+function PayLinkAction({
+  icon,
+  label,
+  disabled,
+  onPress,
+  color = "#183153",
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  disabled?: boolean;
+  onPress: () => void;
+  color?: string;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      disabled={disabled}
+      onPress={onPress}
+      className={`min-w-[92px] flex-row items-center justify-center gap-1.5 rounded-md border border-ink-200 bg-ink-50 px-2.5 py-2 ${
+        disabled ? "opacity-50" : ""
+      }`}
+    >
+      <Ionicons name={icon} size={17} color={disabled ? "#64748b" : color} />
+      <Text className="text-xs font-medium text-ink-800">{label}</Text>
+    </Pressable>
   );
 }

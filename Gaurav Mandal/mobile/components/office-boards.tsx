@@ -1,4 +1,5 @@
 import { createElement, useMemo, useState, useEffect } from "react";
+import type { ReactNode } from "react";
 import { Linking, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -6,6 +7,7 @@ import { GeneratePayment } from "./generate-payment";
 import { Dropdown } from "./form";
 import { Badge, Button, Card, Chip, Empty, Field, Input, Modal, PageHeader, Segmented, Sheet, Stat, Switch, Toast, useToast } from "./ui";
 import { DateField } from "./date-field";
+import { FilterBar, type FilterConfig, type FilterValues } from "./filter";
 import { StaffAdmitForm, type StaffAdmitPayload } from "./staff-admit-form";
 import { StudentAdmitForm, type StudentAdmitPayload } from "./student-admit-form";
 import { ReportCardSheet, type ReportCardData } from "./report-card-sheet";
@@ -68,11 +70,91 @@ function SectionLabel({ children }: { children: string }) {
 
 function FeeText({ label, tone }: { label?: string; tone?: string }) {
   const color =
-    tone === "paid" ? "text-leaf-600" : tone === "overdue" ? "text-amber-800" : "text-ink-700";
-  return <Text className={`text-xs ${color}`}>{label || ""}</Text>;
+    tone === "paid" ? "text-leaf-600" : tone === "overdue" ? "text-amber-800" : "text-amber-800";
+  const bg = tone === "paid" ? "bg-emerald-50" : tone === "overdue" ? "bg-amber-50" : "bg-orange-50";
+  if (!label) return null;
+  return (
+    <View className={`shrink-0 rounded px-2 py-1 ${bg}`}>
+      <Text className={`text-[11px] font-semibold ${color}`}>{label}</Text>
+    </View>
+  );
+}
+
+function MoneyText({ amount }: { amount: number }) {
+  if (amount <= 0) return <Text className="text-sm font-medium text-leaf-600">No dues</Text>;
+  return <Text className="text-sm font-semibold text-amber-800">₹{Math.round(amount).toLocaleString("en-IN")} due</Text>;
+}
+
+function DetailField({ label, value }: { label: string; value?: string }) {
+  return (
+    <View className="min-w-[44%] flex-1 py-2">
+      <Text className="text-xs text-ink-700">{label}</Text>
+      <Text className="mt-1 text-sm font-medium text-ink-900" numberOfLines={2}>
+        {value || "Not provided"}
+      </Text>
+    </View>
+  );
+}
+
+function DetailSection({
+  title,
+  action,
+  children,
+}: {
+  title: string;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <View className="border-t border-ink-100 pt-4">
+      <View className="mb-2 flex-row items-center justify-between gap-3">
+        <Text className="text-sm font-semibold text-ink-900">{title}</Text>
+        {action}
+      </View>
+      {children}
+    </View>
+  );
+}
+
+function MetricTile({ label, value, tone = "ink", hint }: { label: string; value: string; tone?: "ink" | "leaf" | "warn"; hint?: string }) {
+  const valueColor = tone === "leaf" ? "text-green-700" : tone === "warn" ? "text-amber-800" : "text-ink-900";
+  return (
+    <View className="min-w-[30%] flex-1 rounded-md bg-ink-50 px-3 py-3">
+      <Text className="text-xs text-ink-700">{label}</Text>
+      <Text className={`mt-1 text-base font-semibold ${valueColor}`}>{value}</Text>
+      {hint ? <Text className="mt-1 text-xs text-ink-700">{hint}</Text> : null}
+    </View>
+  );
+}
+
+function UnderlineTabs({
+  tabs,
+  value,
+  onChange,
+}: {
+  tabs: { id: string; label: string }[];
+  value: string;
+  onChange: (id: string) => void;
+}) {
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} className="grow-0 border-b border-ink-100">
+      <View className="flex-row gap-5">
+        {tabs.map((tab) => {
+          const on = tab.id === value;
+          return (
+            <Pressable key={tab.id} onPress={() => onChange(tab.id)} className={`pb-2 ${on ? "border-b-2 border-clay-500" : ""}`}>
+              <Text className={`text-sm font-medium ${on ? "text-clay-600" : "text-ink-700"}`}>{tab.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </ScrollView>
+  );
 }
 
 type PeopleKind = "student" | "teacher" | "parent";
+type StudentTab = "overview" | "fees" | "attendance" | "reports" | "documents";
+type StudentSort = "name" | "class" | "due";
 
 const PATH_OPTIONS = [
   { id: "OLYMPIAD", label: "Olympiad" },
@@ -454,7 +536,9 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   const [q, setQ] = useState("");
   const [kind, setKind] = useState<PeopleKind>("student");
   const [classIds, setClassIds] = useState<string[]>([]);
+  const [parentQuery, setParentQuery] = useState("");
   const [feeFilter, setFeeFilter] = useState<"all" | "due" | "overdue" | "clear">(incoming ? "due" : "all");
+  const [studentSort, setStudentSort] = useState<StudentSort>("name");
   const [picked, setPicked] = useState<{ kind: PeopleKind; id: string } | null>(
     incoming ? { kind: "student", id: incoming } : null
   );
@@ -464,8 +548,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   const [importOpen, setImportOpen] = useState(false);
   const [importCsv, setImportCsv] = useState("");
   const [importKind, setImportKind] = useState<PeopleKind>("student");
-  const [filterOpen, setFilterOpen] = useState(false);
-  const [fileTab, setFileTab] = useState<"file" | "fees" | "reports">("file");
+  const [fileTab, setFileTab] = useState<StudentTab>("overview");
   const [fileEdit, setFileEdit] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
   const [edit, setEdit] = useState<Record<string, string>>({});
@@ -476,17 +559,27 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   const parentsAll = data?.peopleParents ?? [];
   const showFees = can(user, "fees.view");
   const needle = q.trim().toLowerCase();
+  const parentNeedle = parentQuery.trim().toLowerCase();
   const showStudents = studentOnly || kind === "student";
   const showTeachers = !studentOnly && kind === "teacher";
-  const showParents = !studentOnly && kind === "parent";
-  const addKind: PeopleKind = kind === "parent" ? "parent" : "student";
+  const showParents = false;
   const filtered = people.filter((s) => {
     if (classIds.length && !classIds.includes(s.classId || "")) return false;
     if (showFees && feeFilter === "due" && !(s.dueAmount && s.dueAmount > 0)) return false;
     if (showFees && feeFilter === "overdue" && !(s.overdueCount && s.overdueCount > 0)) return false;
     if (showFees && feeFilter === "clear" && (s.dueAmount || 0) > 0) return false;
+    if (parentNeedle && ![s.parent, s.parentEmail, s.parentPhone].join(" ").toLowerCase().includes(parentNeedle)) return false;
     if (!needle) return true;
-    return [s.name, s.admissionNo, s.parent, s.classLabel, s.parentEmail].join(" ").toLowerCase().includes(needle);
+    return [s.name, s.admissionNo, s.parent, s.classLabel, s.parentEmail, s.parentPhone].join(" ").toLowerCase().includes(needle);
+  });
+  const sortedStudents = [...filtered].sort((a, b) => {
+    if (studentSort === "class") {
+      return a.classLabel.localeCompare(b.classLabel) || a.name.localeCompare(b.name);
+    }
+    if (studentSort === "due") {
+      return (b.dueAmount || 0) - (a.dueAmount || 0) || a.name.localeCompare(b.name);
+    }
+    return a.name.localeCompare(b.name);
   });
   const filteredTeachers = teachersAll.filter((t) => {
     if (!needle) return true;
@@ -501,9 +594,9 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   });
   const selectedStudent =
     picked?.kind === "student"
-      ? people.find((s) => s.id === picked.id) || (wide ? filtered[0] || null : null)
+      ? people.find((s) => s.id === picked.id) || (wide ? sortedStudents[0] || null : null)
       : wide && showStudents && !showTeachers && !showParents
-        ? filtered[0] || null
+        ? sortedStudents[0] || null
         : null;
   const selectedTeacher =
     picked?.kind === "teacher"
@@ -511,7 +604,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       : null;
   const selectedParent =
     picked?.kind === "parent"
-      ? parentsAll.find((p) => p.id === picked.id) || (wide ? filteredParents[0] || null : null)
+      ? filteredParents.find((p) => p.id === picked.id) || (wide ? filteredParents[0] || null : null)
       : null;
   const selected = selectedStudent;
 
@@ -521,10 +614,10 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
     setClassIds([]);
     setKind("student");
     setPicked({ kind: "student", id: incoming });
-    setFileTab("file");
+    setFileTab("overview");
   }, [incoming]);
   useEffect(() => {
-    setFileTab("file");
+    setFileTab("overview");
   }, [picked?.id]);
   useEffect(() => {
     setFileEdit(false);
@@ -540,96 +633,94 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       ? studentYearScore(selected.id, yearPlan, yearSittings, examPack?.policy ?? { bands: [], passPercent: 33, showRank: false })
       : null;
   const classmates = people.filter((s) => s.classId === selected?.classId);
-  const classSummary =
-    classIds.length === 0
-      ? null
-      : classIds.length === 1
-        ? (data?.classes ?? []).find((c) => c.id === classIds[0])?.label || "1 class"
-        : `${classIds.length} classes`;
-  const feeSummary = !showFees || feeFilter === "all" ? null : feeFilter === "due" ? "Due" : feeFilter === "overdue" ? "Overdue" : "Paid up";
-  const filterLabel = [classSummary, feeSummary].filter(Boolean).join(" · ") || "Filter";
-  const filterOn = filterLabel !== "Filter";
+  const studentFilters = useMemo<FilterConfig[]>(() => {
+    const filters: FilterConfig[] = [
+      {
+        key: "classIds",
+        label: "Class",
+        type: "multi-select",
+        options: (data?.classes ?? []).map((c) => ({ id: c.id, label: c.label })),
+      },
+      {
+        key: "parentQuery",
+        label: "Parent",
+        type: "text",
+        placeholder: "Name, phone, or email",
+      },
+    ];
+    if (showFees) {
+      filters.push({
+        key: "feeStatus",
+        label: "Fee status",
+        type: "single-select",
+        options: [
+          { id: "due", label: "Due" },
+          { id: "overdue", label: "Overdue" },
+          { id: "clear", label: "Paid up" },
+        ],
+      });
+    }
+    return filters;
+  }, [data?.classes, showFees]);
+  const studentFilterValues = useMemo<FilterValues>(
+    () => ({
+      classIds,
+      parentQuery,
+      feeStatus: feeFilter === "all" ? "" : feeFilter,
+    }),
+    [classIds, parentQuery, feeFilter]
+  );
+
+  function applyStudentFilters(values: FilterValues) {
+    const nextClassIds = values.classIds;
+    const nextParentQuery = values.parentQuery;
+    const nextFeeStatus = values.feeStatus;
+    setClassIds(Array.isArray(nextClassIds) ? nextClassIds : []);
+    setParentQuery(typeof nextParentQuery === "string" ? nextParentQuery : "");
+    setFeeFilter(nextFeeStatus === "due" || nextFeeStatus === "overdue" || nextFeeStatus === "clear" ? nextFeeStatus : "all");
+  }
 
   function pickKind(next: PeopleKind) {
     setKind(next);
-    setFileTab("file");
+    setFileTab("overview");
     if (!wide) {
       setPicked(null);
       return;
     }
-    if (next === "student") setPicked(filtered[0] ? { kind: "student", id: filtered[0].id } : null);
+    if (next === "student") setPicked(sortedStudents[0] ? { kind: "student", id: sortedStudents[0].id } : null);
     if (next === "teacher") setPicked(filteredTeachers[0] ? { kind: "teacher", id: filteredTeachers[0].id } : null);
     if (next === "parent") setPicked(filteredParents[0] ? { kind: "parent", id: filteredParents[0].id } : null);
   }
 
-  const filterBody = (
-    <View className="gap-4">
-      <View>
-        <Text className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-ink-700">Class</Text>
-        <View className="flex-row flex-wrap gap-1.5">
-          <Chip label="All" active={classIds.length === 0} onPress={() => setClassIds([])} />
-          {(data?.classes ?? []).map((c) => (
-            <Chip
-              key={c.id}
-              label={c.label}
-              active={classIds.includes(c.id)}
-              onPress={() =>
-                setClassIds((ids) => (ids.includes(c.id) ? ids.filter((id) => id !== c.id) : [...ids, c.id]))
-              }
-            />
-          ))}
-        </View>
-      </View>
-      {showFees ? <View>
-        <Text className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-ink-700">Fees</Text>
-        <View className="flex-row flex-wrap gap-1.5">
-          {(
-            [
-              ["all", "All"],
-              ["due", "Due"],
-              ["overdue", "Overdue"],
-              ["clear", "Paid up"],
-            ] as const
-          ).map(([id, label]) => (
-            <Chip key={id} label={label} active={feeFilter === id} onPress={() => setFeeFilter(id)} />
-          ))}
-        </View>
-      </View> : null}
-    </View>
-  );
-
   const listTools = (
-    <View className="border-b border-ink-100 p-2.5">
-      <View className="flex-row gap-2">
-        <View className="min-w-0 flex-1">
-          <Input placeholder="Search" value={q} onChangeText={setQ} />
-        </View>
-        {showStudents ? (
-          <View className="relative shrink-0">
+    <View className="gap-3 p-3">
+      {showStudents ? (
+        <FilterBar
+          searchPlaceholder="Search students"
+          searchValue={q}
+          onSearchChange={setQ}
+          filters={studentFilters}
+          values={studentFilterValues}
+          onApply={applyStudentFilters}
+        />
+      ) : (
+        <Input placeholder="Search" value={q} onChangeText={setQ} className="border-ink-100 bg-ink-50" />
+      )}
+      {showStudents ? (
+        <View className="flex-row flex-wrap items-center gap-1.5">
+          {(["name", "class", "due"] as StudentSort[]).map((id) => (
             <Pressable
-              onPress={() => setFilterOpen((on) => !on)}
-              className={`h-[42px] max-w-[7.5rem] justify-center rounded-md border px-2.5 ${
-                filterOn ? "border-clay-500 bg-clay-500" : "border-ink-200 bg-white"
-              }`}
+              key={id}
+              onPress={() => setStudentSort(id)}
+              className={`rounded-full px-2.5 py-1 ${studentSort === id ? "bg-ink-900" : "bg-ink-50"}`}
             >
-              <Text numberOfLines={1} className={`text-xs ${filterOn ? "text-white" : "text-ink-900"}`}>
-                {filterLabel}
+              <Text className={`text-xs font-medium ${studentSort === id ? "text-white" : "text-ink-700"}`}>
+                {id === "name" ? "Name" : id === "class" ? "Class" : "Due"}
               </Text>
             </Pressable>
-          </View>
-        ) : null}
-      </View>
-      {!studentOnly ? <View className="mt-2">
-        <Segmented
-          options={[
-            { id: "student", label: "Student" },
-            { id: "parent", label: "Parent" },
-          ]}
-          value={kind}
-          onChange={(id) => pickKind(id as PeopleKind)}
-        />
-      </View> : null}
-      {wide && showStudents && filterOpen ? <View className="mt-2 border-t border-ink-100 pt-2">{filterBody}</View> : null}
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 
@@ -755,35 +846,76 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       .filter((row) => row.type === "STUDENT_ID" && row.subjectType === "STUDENT" && row.subjectId === selected.id)
       .sort((a, b) => new Date(b.issuedAt).getTime() - new Date(a.issuedAt).getTime())[0];
     const activeIdTemplate = (data?.documentStudio?.templates || []).some((row) => row.status === "ACTIVE" && row.type === "STUDENT_ID");
+    const studentDocs = (data?.documentStudio?.issued || [])
+      .filter((row) => row.subjectType === "STUDENT" && row.subjectId === selected.id)
+      .sort((a, b) => new Date(b.issuedAt).getTime() - new Date(a.issuedAt).getTime());
+    const docTypeLabel = (type: string) =>
+      data?.documentStudio?.types?.find((row) => row.id === type)?.label || type.replace(/_/g, " ").toLowerCase();
+    const parentTel = phoneHref(selected.parentPhone);
     const header = (
       <>
-        <View className="flex-row flex-wrap items-start justify-between gap-3">
-          <View className="min-w-0 flex-1">
-            <Text className="text-2xl font-semibold text-ink-900">{selected.name}</Text>
-            <Text className="mt-1 text-sm text-ink-700">
-              {selected.classLabel} · {selected.admissionNo}
-              {selected.born ? ` · Born ${selected.born}` : ""}
-            </Text>
+        <View className="flex-row flex-wrap items-start justify-between gap-4">
+          <View className="min-w-0 flex-1 flex-row items-start gap-3">
+            <View className="h-12 w-12 items-center justify-center rounded-full bg-ink-100">
+              <Text className="text-base font-semibold text-ink-900">{initials(selected.name)}</Text>
+            </View>
+            <View className="min-w-0 flex-1">
+              <View className="flex-row flex-wrap items-center gap-2">
+                <Text className="text-2xl font-semibold text-ink-900" numberOfLines={1}>{selected.name}</Text>
+                {showFees ? <FeeText label={selected.feeLabel} tone={selected.feeTone} /> : null}
+              </View>
+              <Text className="mt-1 text-sm text-ink-800">{selected.classLabel} · {selected.admissionNo}</Text>
+              {selected.born ? <Text className="mt-0.5 text-xs text-ink-700">Born {selected.born}</Text> : null}
+            </View>
           </View>
-          {data ? (
-            <QuickDocumentButton
-              data={data}
-              subjectType="STUDENT"
-              subjectId={selected.id}
-              subjectLabel={selected.name}
-              allowedTypes={["STUDENT_ID", "BONAFIDE", "STUDY_CERTIFICATE", "DOB_CERTIFICATE", "CHARACTER_CERTIFICATE", "ATTENDANCE_CERTIFICATE", "PROMOTION_CERTIFICATE", "TRANSFER_CERTIFICATE", "NO_DUES", "GATE_PASS", "LIBRARY_CARD", "TRANSPORT_CARD", "BUS_PASS", "ADMIT_CARD", "REPORT_CARD", "CONSOLIDATED_REPORT", "GRADE_SHEET", "PROGRESS_REPORT", "ACHIEVEMENT_CERTIFICATE", "PARTICIPATION_CERTIFICATE", "MERIT_CERTIFICATE", "FEE_INVOICE", "FEE_CHALLAN", "PAYMENT_RECEIPT", "CONSOLIDATED_RECEIPT", "FEE_STATEMENT", "DUES_NOTICE", "LATE_FEE_NOTICE", "FEE_CLEARANCE", "CUSTOM_LETTER"]}
-            />
-          ) : null}
+          <View className="flex-row flex-wrap justify-end gap-2">
+            {can(user, "people.edit") ? (
+              <Button
+                variant="ghost"
+                onPress={() => {
+                  setEdit({
+                    name: selected.name,
+                    admissionNo: selected.admissionNo,
+                    dateOfBirth: selected.dateOfBirth || "",
+                    classId: selected.classId || "",
+                    parentId: selected.parentId || "",
+                    parentName: selected.parent,
+                    parentEmail: selected.parentEmail || "",
+                    parentPhone: selected.parentPhone || "",
+                    address: selected.parentStreet || selected.parentAddress || "",
+                    city: selected.parentCity || "",
+                    state: selected.parentState || "",
+                    pincode: selected.parentPincode || "",
+                  });
+                  setEditTags(pathIds(selected.path));
+                  setFileTab("overview");
+                  setFileEdit(true);
+                }}
+              >
+                Edit
+              </Button>
+            ) : null}
+            <Button variant="ghost" onPress={() => setFileTab("documents")}>Documents</Button>
+            <Pressable
+              disabled={!parentTel}
+              onPress={() => parentTel ? void Linking.openURL(parentTel) : undefined}
+              className={`h-[42px] w-[42px] items-center justify-center rounded-md border border-ink-200 bg-white ${parentTel ? "" : "opacity-50"}`}
+            >
+              <Ionicons name="call-outline" size={18} color="#3d4f66" />
+            </Pressable>
+          </View>
         </View>
-        <View className="mt-4">
-          <Segmented
-            options={[
-              { id: "file", label: "File" },
+        <View className="mt-5">
+          <UnderlineTabs
+            tabs={[
+              { id: "overview", label: "Overview" },
               ...(showFees ? [{ id: "fees", label: "Fees" }] : []),
-              { id: "reports", label: "Reports" },
+              { id: "attendance", label: "Attendance" },
+              { id: "reports", label: "Exams & Reports" },
+              { id: "documents", label: "Documents" },
             ]}
             value={fileTab}
-            onChange={(id) => setFileTab(id as "file" | "fees" | "reports")}
+            onChange={(id) => setFileTab(id as StudentTab)}
           />
         </View>
       </>
@@ -848,130 +980,106 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
         </View>
       </View>
     ) : (
-      <View className="mt-2">
-        <View className="flex-row items-center justify-between py-1">
-          <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">Details</Text>
-          {can(user, "people.edit") ? (
-            <Pencil
-              onPress={() => {
-                setEdit({
-                  name: selected.name,
-                  admissionNo: selected.admissionNo,
-                  dateOfBirth: selected.dateOfBirth || "",
-                  classId: selected.classId || "",
-                  parentId: selected.parentId || "",
-                  parentName: selected.parent,
-                  parentEmail: selected.parentEmail || "",
-                  parentPhone: selected.parentPhone || "",
-                  address: selected.parentStreet || selected.parentAddress || "",
-                  city: selected.parentCity || "",
-                  state: selected.parentState || "",
-                  pincode: selected.parentPincode || "",
-                });
-                setEditTags(pathIds(selected.path));
-                setFileEdit(true);
-              }}
-            />
-          ) : null}
-        </View>
-        <FactRow label="Parent" value={selected.parent} />
-        <FactRow label="Phone" value={selected.parentPhone || "—"} />
-        <FactRow label="Email" value={selected.parentEmail || "—"} />
-        <FactRow label="Address" value={selected.parentAddress || "—"} />
-        <View className="my-3 rounded-md border border-blue-100 bg-blue-50 p-4">
-          <View className="flex-row flex-wrap items-start justify-between gap-3">
-            <View className="min-w-0 flex-1">
-              <View className="flex-row items-center gap-2">
-                <Ionicons name="id-card-outline" size={18} color="#1d4ed8" />
-                <Text className="text-sm font-semibold text-ink-900">Student ID card</Text>
-              </View>
-              <Text className="mt-1 text-xs leading-5 text-ink-700">
-                {latestIdCard
-                  ? `${latestIdCard.documentNumber} · issued ${new Date(latestIdCard.issuedAt).toLocaleDateString("en-IN")}`
-                  : activeIdTemplate
-                    ? "Ready to issue from the approved ID card template."
-                    : "Approve and publish the Student ID card template first."}
-              </Text>
-            </View>
-            <View className="flex-row flex-wrap justify-end gap-2">
-              {latestIdCard ? (
-                <Button variant="ghost" onPress={() => void Linking.openURL(latestIdCard.documentUrl)}>
-                  Open ID card
-                </Button>
-              ) : null}
-              <Button disabled={idCardPending || !activeIdTemplate} onPress={() => void issueStudentIdCard()}>
-                {idCardPending ? "Issuing…" : latestIdCard ? "Reissue" : "Issue ID card"}
-              </Button>
-            </View>
+      <View className="mt-5 gap-5">
+        <DetailSection title="Profile">
+          <View className="flex-row flex-wrap gap-x-6">
+            <DetailField label="Parent" value={selected.parent} />
+            <DetailField label="Phone" value={selected.parentPhone} />
+            <DetailField label="Email" value={selected.parentEmail} />
+            <DetailField label="Address" value={selected.parentAddress} />
           </View>
-        </View>
-        <View className="flex-row items-center justify-between gap-4 border-b border-ink-100 py-2.5">
-          <Text className="w-24 shrink-0 text-xs text-ink-700">Class teacher</Text>
-          {classTeacher ? (
-            <View className="min-w-0 flex-1 items-end">
-              <Text numberOfLines={1} className="text-right text-sm font-medium text-ink-900">
-                {classTeacher.name}
-              </Text>
-              <Pressable onPress={() => router.push("/staff" as never)} hitSlop={8} className="mt-0.5">
-                <Text className="text-xs font-medium text-clay-600">View in Employees</Text>
+        </DetailSection>
+        <DetailSection
+          title="Academic"
+          action={
+            classTeacher ? (
+              <Pressable onPress={() => router.push("/staff" as never)} hitSlop={8}>
+                <Text className="text-xs font-medium text-clay-600">View teacher</Text>
               </Pressable>
+            ) : null
+          }
+        >
+          <View className="flex-row flex-wrap gap-x-6">
+            <DetailField label="Class" value={selected.classLabel} />
+            <DetailField label="Admission no." value={selected.admissionNo} />
+            <DetailField label="Class teacher" value={classTeacher?.name || "Not assigned"} />
+            <View className="min-w-[44%] flex-1 py-2">
+              <Text className="text-xs text-ink-700">Stream / Path</Text>
+              <View className="mt-1 flex-row flex-wrap gap-1">
+                {(selected.path ?? []).length ? (
+                  selected.path!.map((p) => (
+                    <Badge key={p} tone="clay">
+                      {p}
+                    </Badge>
+                  ))
+                ) : (
+                  <Text className="text-sm font-medium text-ink-900">Not provided</Text>
+                )}
+              </View>
             </View>
-          ) : (
-            <Text className="min-w-0 flex-1 text-right text-sm text-ink-900">Not assigned</Text>
-          )}
-        </View>
-        <View className="flex-row items-center justify-between gap-4 py-2.5">
-          <Text className="w-24 shrink-0 text-xs text-ink-700">Path</Text>
-          <View className="flex-1 flex-row flex-wrap justify-end gap-1">
-            {(selected.path ?? []).length ? (
-              selected.path!.map((p) => (
-                <Badge key={p} tone="clay">
-                  {p}
-                </Badge>
-              ))
-            ) : (
-              <Text className="text-sm text-ink-900">—</Text>
-            )}
           </View>
-        </View>
+        </DetailSection>
+        <DetailSection
+          title="Documents"
+          action={<Pressable onPress={() => setFileTab("documents")} hitSlop={8}><Text className="text-xs font-medium text-clay-600">View all</Text></Pressable>}
+        >
+          <View className="rounded-md bg-sky-50 p-4">
+            <View className="flex-row flex-wrap items-start justify-between gap-3">
+              <View className="min-w-0 flex-1">
+                <View className="flex-row items-center gap-2">
+                  <Ionicons name="id-card-outline" size={18} color="#1d4ed8" />
+                  <Text className="text-sm font-semibold text-ink-900">Student ID card</Text>
+                </View>
+                <Text className="mt-1 text-xs leading-5 text-ink-700">
+                  {latestIdCard
+                    ? `${latestIdCard.documentNumber} · issued ${new Date(latestIdCard.issuedAt).toLocaleDateString("en-IN")}`
+                    : activeIdTemplate
+                      ? "Ready to issue from the approved ID card template."
+                      : "Approve and publish the Student ID card template first."}
+                </Text>
+              </View>
+              <View className="flex-row flex-wrap justify-end gap-2">
+                {latestIdCard ? (
+                  <Button variant="ghost" onPress={() => void Linking.openURL(latestIdCard.documentUrl)}>
+                    Open ID card
+                  </Button>
+                ) : null}
+                <Button disabled={idCardPending || !activeIdTemplate} onPress={() => void issueStudentIdCard()}>
+                  {idCardPending ? "Issuing..." : latestIdCard ? "Reissue" : "Issue ID card"}
+                </Button>
+              </View>
+            </View>
+          </View>
+        </DetailSection>
       </View>
     );
+    const nextDue = selected.invoices?.find((inv) => inv.status !== "paid")?.due || "";
     const feesBody = (
-      <View className="mt-3 min-h-0 flex-1">
-        <View className="mb-3 flex-row items-center justify-between">
-          <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">Fees</Text>
+      <View className="mt-5 min-h-0 flex-1 gap-4">
+        <View className="flex-row items-center justify-between gap-3">
+          <Text className="text-sm font-semibold text-ink-900">Fee summary</Text>
           {can(user, "fees.collect") || can(user, "people.edit") ? (
-            <Pressable onPress={() => setPayOpen(true)} className="py-1">
-              <Text className="text-sm font-medium text-clay-600">Generate payment</Text>
-            </Pressable>
+            <Button onPress={() => setPayOpen(true)}>Record payment</Button>
           ) : null}
         </View>
-        <View className="flex-row">
-          <View className="flex-1">
-            <Text className="text-xs text-ink-700">Billed</Text>
-            <Text className="mt-1 text-base font-semibold text-ink-900">{selected.billed || "₹0"}</Text>
-          </View>
-          <View className="flex-1">
-            <Text className="text-xs text-ink-700">Paid</Text>
-            <Text className="mt-1 text-base font-semibold text-ink-900">{selected.paid || "₹0"}</Text>
-          </View>
-          <View className="flex-1">
-            <Text className="text-xs text-ink-700">Due now</Text>
-            <Text
-              className={`mt-1 text-base font-semibold ${
-                (selected.dueAmount || 0) > 0 ? "text-amber-800" : "text-leaf-600"
-              }`}
-            >
-              {selected.dueNow || "₹0"}
-            </Text>
-            {selected.overdueCount ? (
-              <Text className="mt-1 text-xs text-amber-800">{selected.overdueCount} overdue</Text>
-            ) : null}
-          </View>
+        <View className="flex-row flex-wrap gap-3">
+          <MetricTile label="Total fees" value={selected.billed || "₹0"} />
+          <MetricTile label="Paid" value={selected.paid || "₹0"} tone="leaf" />
+          <MetricTile
+            label="Outstanding"
+            value={selected.dueNow || "₹0"}
+            tone={(selected.dueAmount || 0) > 0 ? "warn" : "leaf"}
+            hint={selected.overdueCount ? `${selected.overdueCount} overdue` : (selected.dueAmount || 0) > 0 ? "Due now" : "Clear"}
+          />
+          <MetricTile label="Next due date" value={nextDue || "Not scheduled"} />
         </View>
         {selected.invoices?.length ? (
-          <ScrollView className="mt-3 min-h-0 flex-1" nestedScrollEnabled>
-            <View className="overflow-hidden rounded-md border border-ink-200">
+          <ScrollView className="min-h-0 flex-1" nestedScrollEnabled>
+            <View className="overflow-hidden rounded-md bg-white">
+              <View className="flex-row items-center justify-between border-b border-ink-100 px-3 pb-2">
+                <Text className="text-sm font-semibold text-ink-900">Payment history</Text>
+                <Text className="text-xs text-ink-700">{selected.invoices.length} item{selected.invoices.length === 1 ? "" : "s"}</Text>
+              </View>
               {selected.invoices.map((inv, i) => (
                 <View
                   key={inv.id}
@@ -998,8 +1106,40 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
         )}
       </View>
     );
+    const attendanceCounts = (selected.attendance ?? []).reduce(
+      (acc, row) => {
+        if (row.status === "PRESENT") acc.present += 1;
+        else if (row.status === "ABSENT") acc.absent += 1;
+        else if (row.status === "LATE") acc.late += 1;
+        return acc;
+      },
+      { present: 0, absent: 0, late: 0 }
+    );
+    const attendanceMarked = attendanceCounts.present + attendanceCounts.absent + attendanceCounts.late;
+    const attendancePctValue = attendanceMarked
+      ? `${Math.round((attendanceCounts.present / attendanceMarked) * 100)}%`
+      : "Not marked";
+    const attendanceBody = (
+      <View className="mt-5 gap-4">
+        <View className="flex-row flex-wrap gap-3">
+          <MetricTile label="Attendance" value={attendancePctValue} />
+          <MetricTile label="Present" value={String(attendanceCounts.present)} tone="leaf" />
+          <MetricTile label="Absent" value={String(attendanceCounts.absent)} tone={attendanceCounts.absent ? "warn" : "ink"} />
+        </View>
+        <DetailSection title="Recent attendance">
+          <View className="rounded-md bg-ink-50 p-4">
+            <Text className="text-sm font-medium text-ink-900">{attendanceMarked || "No"} marked record{attendanceMarked === 1 ? "" : "s"}</Text>
+            <Text className="mt-1 text-xs leading-5 text-ink-700">Dated attendance is managed from the Attendance workspace for this class.</Text>
+          </View>
+        </DetailSection>
+      </View>
+    );
     const reportsBody = (
-      <View className="mt-3">
+      <View className="mt-5 gap-4">
+        <View>
+          <Text className="text-sm font-semibold text-ink-900">Exams & reports</Text>
+          <Text className="mt-1 text-xs text-ink-700">{selected.classLabel} · {yearSession || "Current session"}</Text>
+        </View>
         {year?.entered ? (
           <Text className="text-sm text-ink-800">
             Year {year.pct}%
@@ -1007,7 +1147,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
           </Text>
         ) : null}
         {classSittings.length ? (
-          <View className="mt-2 overflow-hidden rounded-md border border-ink-200">
+          <View className="overflow-hidden rounded-md bg-white">
             {classSittings.map((series, i) => {
               const score = studentSeriesScore(
                 selected.id,
@@ -1058,7 +1198,70 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
         )}
       </View>
     );
-    const tabBody = showFees && fileTab === "fees" ? feesBody : fileTab === "reports" ? reportsBody : fileBody;
+    const documentRows = [
+      { type: "STUDENT_ID", label: "Student ID" },
+      { type: "DOB_CERTIFICATE", label: "Birth certificate" },
+      { type: "TRANSFER_CERTIFICATE", label: "Transfer certificate" },
+      { type: "OTHER", label: "Other documents" },
+    ];
+    const documentsBody = (
+      <View className="mt-5 gap-4">
+        <View className="flex-row flex-wrap items-center justify-between gap-3">
+          <View>
+            <Text className="text-sm font-semibold text-ink-900">Documents</Text>
+            <Text className="mt-1 text-xs text-ink-700">{studentDocs.length} issued for this student</Text>
+          </View>
+          {data ? (
+            <QuickDocumentButton
+              data={data}
+              subjectType="STUDENT"
+              subjectId={selected.id}
+              subjectLabel={selected.name}
+              allowedTypes={["STUDENT_ID", "BONAFIDE", "STUDY_CERTIFICATE", "DOB_CERTIFICATE", "CHARACTER_CERTIFICATE", "ATTENDANCE_CERTIFICATE", "PROMOTION_CERTIFICATE", "TRANSFER_CERTIFICATE", "NO_DUES", "GATE_PASS", "LIBRARY_CARD", "TRANSPORT_CARD", "BUS_PASS", "ADMIT_CARD", "REPORT_CARD", "CONSOLIDATED_REPORT", "GRADE_SHEET", "PROGRESS_REPORT", "ACHIEVEMENT_CERTIFICATE", "PARTICIPATION_CERTIFICATE", "MERIT_CERTIFICATE", "FEE_INVOICE", "FEE_CHALLAN", "PAYMENT_RECEIPT", "CONSOLIDATED_RECEIPT", "FEE_STATEMENT", "DUES_NOTICE", "LATE_FEE_NOTICE", "FEE_CLEARANCE", "CUSTOM_LETTER"]}
+            />
+          ) : null}
+        </View>
+        <View className="overflow-hidden rounded-md bg-white">
+          {documentRows.map((doc, index) => {
+            const issued =
+              doc.type === "OTHER"
+                ? studentDocs.find((row) => !["STUDENT_ID", "DOB_CERTIFICATE", "TRANSFER_CERTIFICATE"].includes(row.type))
+                : studentDocs.find((row) => row.type === doc.type);
+            return (
+              <View
+                key={doc.type}
+                className={`flex-row items-center justify-between gap-3 px-3 py-3 ${index ? "border-t border-ink-100" : ""}`}
+              >
+                <View className="min-w-0 flex-1">
+                  <Text className="text-sm font-medium text-ink-900">{issued ? docTypeLabel(issued.type) : doc.label}</Text>
+                  <Text className="mt-1 text-xs text-ink-700">
+                    {issued ? `Uploaded ${new Date(issued.issuedAt).toLocaleDateString("en-IN")} · ${issued.documentNumber}` : "Not uploaded"}
+                  </Text>
+                </View>
+                <View className="flex-row items-center gap-2">
+                  <Badge tone={issued ? "leaf" : "ink"}>{issued ? issued.status.toLowerCase() : "missing"}</Badge>
+                  {issued ? (
+                    <Pressable onPress={() => void Linking.openURL(issued.documentUrl)} hitSlop={8}>
+                      <Text className="text-xs font-medium text-clay-600">Open</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              </View>
+            );
+          })}
+        </View>
+      </View>
+    );
+    const tabBody =
+      showFees && fileTab === "fees"
+        ? feesBody
+        : fileTab === "attendance"
+          ? attendanceBody
+          : fileTab === "reports"
+            ? reportsBody
+            : fileTab === "documents"
+              ? documentsBody
+              : fileBody;
     if (bare) {
       return (
         <View className="px-5 pb-6">
@@ -1068,7 +1271,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       );
     }
     return (
-      <Card className="min-h-0 flex-1 overflow-hidden p-5">
+      <Card className="min-h-0 flex-1 overflow-hidden border-transparent p-6 shadow-sm">
         {header}
         {tabBody}
       </Card>
@@ -1148,7 +1351,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       </>
     );
     if (bare) return <View className="px-5 pb-6">{body}</View>;
-    return <Card className="min-h-0 flex-1 overflow-hidden p-5">{body}</Card>;
+    return <Card className="min-h-0 flex-1 overflow-hidden border-transparent p-6 shadow-sm">{body}</Card>;
   }
 
   function ParentPane({ bare }: { bare?: boolean }) {
@@ -1156,6 +1359,11 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       return <Empty title="Pick a parent" body="Contact and children show here." />;
     }
     const kids = Array.isArray(selectedParent.children) ? selectedParent.children : [];
+    const childRecords = people.filter((student) => student.parentId === selectedParent.id);
+    const childCards = childRecords.length
+      ? childRecords
+      : kids.map((kid) => people.find((student) => student.id === kid.id)).filter((student): student is (typeof people)[number] => Boolean(student));
+    const totalDue = childCards.reduce((sum, child) => sum + (child.dueAmount || 0), 0);
     const body = fileEdit ? (
       <View className="mt-4 gap-3">
         <Field label="Name">
@@ -1204,14 +1412,75 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
           <FactRow label="Address" value={selectedParent.address || "—"} />
         </View>
         <View className="mt-4 flex-row items-center justify-between">
-          <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">Children</Text>
-          {can(user, "fees.collect") || can(user, "people.edit") ? (
+          <View>
+            <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">Children</Text>
+            <Text className="mt-0.5 text-xs text-ink-700">
+              {childCards.length || kids.length} {(childCards.length || kids.length) === 1 ? "student" : "students"}
+              {showFees ? ` · ${totalDue > 0 ? `₹${Math.round(totalDue).toLocaleString("en-IN")} due` : "no dues"}` : ""}
+            </Text>
+          </View>
+          {can(user, "fees.collect") ? (
             <Pressable onPress={() => setPayOpen(true)} className="py-1">
-              <Text className="text-sm font-medium text-clay-600">Generate payment</Text>
+              <Text className="text-sm font-medium text-clay-600">Collect all dues</Text>
             </Pressable>
           ) : null}
         </View>
-        {kids.length ? (
+        {childCards.length ? (
+          <View className="mt-3 gap-2">
+            {childCards.map((child) => {
+              const classTeacher = teachersAll.find((teacher) => teacher.classId && teacher.classId === child.classId);
+              const openBills = (child.invoices || []).filter((invoice) => invoice.status !== "paid" && (invoice.dueNow || 0) > 0);
+              return (
+                <Pressable
+                  key={child.id}
+                  onPress={() => {
+                    setKind("student");
+                    setPicked({ kind: "student", id: child.id });
+                    setFileTab("overview");
+                  }}
+                  className="rounded-md border border-ink-100 bg-ink-50 px-3 py-3"
+                >
+                  <View className="flex-row items-start justify-between gap-3">
+                    <View className="min-w-0 flex-1">
+                      <View className="flex-row flex-wrap items-center gap-2">
+                        <Text className="text-base font-semibold text-ink-900" numberOfLines={1}>{child.name}</Text>
+                        {showFees ? <FeeText label={child.feeLabel} tone={child.feeTone} /> : null}
+                      </View>
+                      <Text className="mt-1 text-sm text-ink-800">{child.classLabel} · {child.admissionNo}</Text>
+                      {child.born ? <Text className="mt-0.5 text-xs text-ink-700">Born {child.born}</Text> : null}
+                    </View>
+                    {showFees ? <MoneyText amount={child.dueAmount || 0} /> : null}
+                  </View>
+                  <View className="mt-3 flex-row flex-wrap gap-x-6 gap-y-2 border-t border-ink-100 pt-3">
+                    <View className="min-w-[42%] flex-1">
+                      <Text className="text-xs text-ink-700">Class teacher</Text>
+                      <Text className="mt-0.5 text-sm font-medium text-ink-900">{classTeacher?.name || "Not assigned"}</Text>
+                    </View>
+                    <View className="min-w-[42%] flex-1">
+                      <Text className="text-xs text-ink-700">Open bills</Text>
+                      <Text className="mt-0.5 text-sm font-medium text-ink-900">
+                        {showFees ? `${openBills.length} ${openBills.length === 1 ? "month" : "months"}` : "Fees hidden"}
+                      </Text>
+                    </View>
+                    <View className="min-w-[42%] flex-1">
+                      <Text className="text-xs text-ink-700">Parent phone</Text>
+                      <Text className="mt-0.5 text-sm font-medium text-ink-900">{child.parentPhone || selectedParent.phone || "Not provided"}</Text>
+                    </View>
+                    <View className="min-w-[42%] flex-1">
+                      <Text className="text-xs text-ink-700">Parent email</Text>
+                      <Text className="mt-0.5 text-sm font-medium text-ink-900" numberOfLines={1}>
+                        {child.parentEmail || selectedParent.email || "Not provided"}
+                      </Text>
+                    </View>
+                  </View>
+                  <View className="mt-3 flex-row justify-end">
+                    <Text className="text-sm font-medium text-clay-600">Open student record</Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : kids.length ? (
           kids.map((c) => (
             <Pressable
               key={c.id}
@@ -1231,7 +1500,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       </>
     );
     if (bare) return <View className="px-5 pb-6">{body}</View>;
-    return <Card className="min-h-0 flex-1 overflow-hidden p-5">{body}</Card>;
+    return <Card className="min-h-0 flex-1 overflow-hidden border-transparent p-6 shadow-sm">{body}</Card>;
   }
 
   function FilePane({ bare }: { bare?: boolean }) {
@@ -1244,27 +1513,32 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
     (!showStudents || !filtered.length) &&
     (!showTeachers || !filteredTeachers.length) &&
     (!showParents || !filteredParents.length);
+  const visibleCount = showStudents ? filtered.length : showParents ? filteredParents.length : filteredTeachers.length;
+  const visibleNoun = showStudents ? "student" : showParents ? "parent" : "employee";
 
   const peopleList = (
-    <Card className={`min-h-0 overflow-hidden ${wide ? "" : "flex-1"}`} style={wide ? { width: 320 } : undefined}>
+    <Card className={`min-h-0 overflow-hidden border-transparent shadow-sm ${wide ? "" : "flex-1"}`} style={wide ? { width: 372 } : undefined}>
       {listTools}
       {listEmpty ? (
         <Text className="px-4 py-10 text-center text-sm text-ink-700">No people match that filter.</Text>
       ) : (
         <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" className="flex-1" contentContainerClassName={wide ? undefined : "pb-24"}>
           {showStudents
-            ? filtered.map((s, i) => {
+            ? sortedStudents.map((s) => {
                 const on = picked?.kind === "student" && picked.id === s.id;
                 return (
                   <Pressable
                     key={`student-${s.id}`}
                     onPress={() => setPicked({ kind: "student", id: s.id })}
-                    className={`flex-row items-start justify-between gap-3 px-4 py-3 ${i ? "border-t border-ink-100" : ""} ${
-                      on ? "bg-blue-50" : ""
+                    className={`mx-2 mb-1 flex-row items-center gap-3 rounded-md px-3 py-2.5 ${
+                      on ? "bg-blue-50" : "bg-white"
                     }`}
                   >
-                    <View className="flex-1">
-                      <Text className="font-medium text-ink-900">{s.name}</Text>
+                    <View className={`h-9 w-9 items-center justify-center rounded-full ${on ? "bg-white" : "bg-ink-100"}`}>
+                      <Text className="text-xs font-semibold text-ink-900">{initials(s.name)}</Text>
+                    </View>
+                    <View className="min-w-0 flex-1">
+                      <Text className="font-medium text-ink-900" numberOfLines={1}>{s.name}</Text>
                       <Text className="mt-0.5 text-xs text-ink-700">
                         {s.classLabel} · {s.admissionNo}
                       </Text>
@@ -1275,13 +1549,13 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
               })
             : null}
           {showTeachers
-            ? filteredTeachers.map((t, i) => {
+            ? filteredTeachers.map((t) => {
                 const on = picked?.kind === "teacher" && picked.id === t.id;
                 return (
                   <Pressable
                     key={`teacher-${t.id}`}
                     onPress={() => setPicked({ kind: "teacher", id: t.id })}
-                    className={`px-4 py-3 ${i ? "border-t border-ink-100" : ""} ${on ? "bg-blue-50" : ""}`}
+                    className={`border-l-2 px-4 py-3 ${on ? "border-l-clay-500 bg-blue-50" : "border-l-transparent"}`}
                   >
                     <Text className="font-medium text-ink-900">{t.name}</Text>
                     <Text className="mt-0.5 text-xs text-ink-700">
@@ -1293,13 +1567,13 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
               })
             : null}
           {showParents
-            ? filteredParents.map((p, i) => {
+            ? filteredParents.map((p) => {
                 const on = picked?.kind === "parent" && picked.id === p.id;
                 return (
                   <Pressable
                     key={`parent-${p.id}`}
                     onPress={() => setPicked({ kind: "parent", id: p.id })}
-                    className={`px-4 py-3 ${i ? "border-t border-ink-100" : ""} ${on ? "bg-blue-50" : ""}`}
+                    className={`border-l-2 px-4 py-3 ${on ? "border-l-clay-500 bg-blue-50" : "border-l-transparent"}`}
                   >
                     <Text className="font-medium text-ink-900">{p.name}</Text>
                     <Text className="mt-0.5 text-xs text-ink-700">
@@ -1316,14 +1590,17 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
 
   return (
     <View className="flex-1">
-      <View className="mb-3 flex-row items-center justify-between gap-2">
-        <Text className="text-xl font-semibold text-ink-900">{title}</Text>
+      <View className="mb-4 flex-row items-center justify-between gap-2">
+        <View>
+          <Text className="text-2xl font-semibold text-ink-900">{title}</Text>
+          <Text className="mt-1 text-xs text-ink-700">{visibleCount} {visibleNoun}{visibleCount === 1 ? "" : "s"} in view</Text>
+        </View>
         <View className="flex-row flex-wrap gap-2">
           {can(user, "people.import") || can(user, "people.edit") ? (
             <Button
               variant="ghost"
               onPress={() => {
-                setImportKind(addKind);
+                setImportKind("student");
                 setImportOpen(true);
               }}
             >
@@ -1331,16 +1608,14 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
             </Button>
           ) : null}
           {can(user, "people.edit") ? (
-            <Button onPress={() => setAdd(addKind)}>
-              {addKind === "parent" ? "Add parent" : "Add student"}
-            </Button>
+            <Button onPress={() => setAdd("student")}>Add student</Button>
           ) : null}
         </View>
       </View>
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
 
       {wide ? (
-        <View className="min-h-0 flex-1 flex-row gap-4">
+        <View className="min-h-0 flex-1 flex-row gap-5">
           {peopleList}
           <View className="min-h-0 flex-1">
             <FilePane />
@@ -1380,20 +1655,11 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
         }}
       /> : null}
 
-      <Sheet open={!wide && showStudents && filterOpen} onClose={() => setFilterOpen(false)}>
-        <View className="px-5 pb-4">{filterBody}</View>
-      </Sheet>
-
       <Modal open={importOpen} title="Import sheet" onClose={() => setImportOpen(false)}>
         <View className="gap-3">
           <Text className="text-sm text-ink-700">
             Paste CSV with a header row. Students need name, admissionNo, dateOfBirth, class, parentEmail.
           </Text>
-          <View className="flex-row flex-wrap gap-2">
-            {(["student", "parent"] as PeopleKind[]).map((id) => (
-              <Chip key={id} label={id} active={importKind === id} onPress={() => setImportKind(id)} />
-            ))}
-          </View>
           <Field label="CSV">
             <Input value={importCsv} onChangeText={setImportCsv} multiline />
           </Field>
