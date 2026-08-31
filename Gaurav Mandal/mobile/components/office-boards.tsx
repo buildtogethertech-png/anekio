@@ -7,6 +7,7 @@ import { GeneratePayment } from "./generate-payment";
 import { Dropdown } from "./form";
 import { Badge, Button, Card, Chip, Empty, Field, Input, Modal, PageHeader, Segmented, Sheet, Stat, Switch, Toast, useToast } from "./ui";
 import { DateField } from "./date-field";
+import { FilterBar, type FilterConfig, type FilterValues } from "./filter";
 import { StaffAdmitForm, type StaffAdmitPayload } from "./staff-admit-form";
 import { StudentAdmitForm, type StudentAdmitPayload } from "./student-admit-form";
 import { ReportCardSheet, type ReportCardData } from "./report-card-sheet";
@@ -541,7 +542,6 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   const [importOpen, setImportOpen] = useState(false);
   const [importCsv, setImportCsv] = useState("");
   const [importKind, setImportKind] = useState<PeopleKind>("student");
-  const [filterOpen, setFilterOpen] = useState(false);
   const [fileTab, setFileTab] = useState<StudentTab>("overview");
   const [fileEdit, setFileEdit] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
@@ -626,15 +626,43 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       ? studentYearScore(selected.id, yearPlan, yearSittings, examPack?.policy ?? { bands: [], passPercent: 33, showRank: false })
       : null;
   const classmates = people.filter((s) => s.classId === selected?.classId);
-  const classSummary =
-    classIds.length === 0
-      ? null
-      : classIds.length === 1
-        ? (data?.classes ?? []).find((c) => c.id === classIds[0])?.label || "1 class"
-        : `${classIds.length} classes`;
-  const feeSummary = !showFees || feeFilter === "all" ? null : feeFilter === "due" ? "Due" : feeFilter === "overdue" ? "Overdue" : "Paid up";
-  const filterLabel = [classSummary, feeSummary].filter(Boolean).join(" · ") || "Filter";
-  const filterOn = filterLabel !== "Filter";
+  const studentFilters = useMemo<FilterConfig[]>(() => {
+    const filters: FilterConfig[] = [
+      {
+        key: "classIds",
+        label: "Class",
+        type: "multi-select",
+        options: (data?.classes ?? []).map((c) => ({ id: c.id, label: c.label })),
+      },
+    ];
+    if (showFees) {
+      filters.push({
+        key: "feeStatus",
+        label: "Fee status",
+        type: "single-select",
+        options: [
+          { id: "due", label: "Due" },
+          { id: "overdue", label: "Overdue" },
+          { id: "clear", label: "Paid up" },
+        ],
+      });
+    }
+    return filters;
+  }, [data?.classes, showFees]);
+  const studentFilterValues = useMemo<FilterValues>(
+    () => ({
+      classIds,
+      feeStatus: feeFilter === "all" ? "" : feeFilter,
+    }),
+    [classIds, feeFilter]
+  );
+
+  function applyStudentFilters(values: FilterValues) {
+    const nextClassIds = values.classIds;
+    const nextFeeStatus = values.feeStatus;
+    setClassIds(Array.isArray(nextClassIds) ? nextClassIds : []);
+    setFeeFilter(nextFeeStatus === "due" || nextFeeStatus === "overdue" || nextFeeStatus === "clear" ? nextFeeStatus : "all");
+  }
 
   function pickKind(next: PeopleKind) {
     setKind(next);
@@ -648,64 +676,20 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
     if (next === "parent") setPicked(filteredParents[0] ? { kind: "parent", id: filteredParents[0].id } : null);
   }
 
-  const filterBody = (
-    <View className="gap-4">
-      <View>
-        <Text className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-ink-700">Class</Text>
-        <View className="flex-row flex-wrap gap-1.5">
-          <Chip label="All" active={classIds.length === 0} onPress={() => setClassIds([])} />
-          {(data?.classes ?? []).map((c) => (
-            <Chip
-              key={c.id}
-              label={c.label}
-              active={classIds.includes(c.id)}
-              onPress={() =>
-                setClassIds((ids) => (ids.includes(c.id) ? ids.filter((id) => id !== c.id) : [...ids, c.id]))
-              }
-            />
-          ))}
-        </View>
-      </View>
-      {showFees ? <View>
-        <Text className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-ink-700">Fees</Text>
-        <View className="flex-row flex-wrap gap-1.5">
-          {(
-            [
-              ["all", "All"],
-              ["due", "Due"],
-              ["overdue", "Overdue"],
-              ["clear", "Paid up"],
-            ] as const
-          ).map(([id, label]) => (
-            <Chip key={id} label={label} active={feeFilter === id} onPress={() => setFeeFilter(id)} />
-          ))}
-        </View>
-      </View> : null}
-    </View>
-  );
-
   const listTools = (
     <View className="gap-3 p-3">
-      <View className="flex-row items-center gap-2">
-        <View className="min-w-0 flex-1">
-          <Input placeholder={showStudents ? "Search students" : "Search"} value={q} onChangeText={setQ} className="border-ink-100 bg-ink-50" />
-        </View>
-        {showStudents ? (
-          <View className="relative shrink-0">
-            <Pressable
-              onPress={() => setFilterOpen((on) => !on)}
-              className={`h-[42px] max-w-[7.5rem] flex-row items-center gap-1.5 rounded-md border px-2.5 ${
-                filterOn ? "border-clay-200 bg-blue-50" : "border-ink-100 bg-white"
-              }`}
-            >
-              <Ionicons name="filter-outline" size={15} color={filterOn ? "#1d4ed8" : "#3d4f66"} />
-              <Text numberOfLines={1} className={`text-xs ${filterOn ? "font-medium text-clay-600" : "text-ink-900"}`}>
-                {filterLabel}
-              </Text>
-            </Pressable>
-          </View>
-        ) : null}
-      </View>
+      {showStudents ? (
+        <FilterBar
+          searchPlaceholder="Search students"
+          searchValue={q}
+          onSearchChange={setQ}
+          filters={studentFilters}
+          values={studentFilterValues}
+          onApply={applyStudentFilters}
+        />
+      ) : (
+        <Input placeholder="Search" value={q} onChangeText={setQ} className="border-ink-100 bg-ink-50" />
+      )}
       {showStudents ? (
         <View className="flex-row flex-wrap items-center gap-1.5">
           {(["name", "class", "due"] as StudentSort[]).map((id) => (
@@ -731,7 +715,6 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
           onChange={(id) => pickKind(id as PeopleKind)}
         />
       </View> : null}
-      {wide && showStudents && filterOpen ? <View className="mt-3 rounded-md bg-ink-50 p-3">{filterBody}</View> : null}
     </View>
   );
 
@@ -1601,10 +1584,6 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
           await reload();
         }}
       /> : null}
-
-      <Sheet open={!wide && showStudents && filterOpen} onClose={() => setFilterOpen(false)}>
-        <View className="px-5 pb-4">{filterBody}</View>
-      </Sheet>
 
       <Modal open={importOpen} title="Import sheet" onClose={() => setImportOpen(false)}>
         <View className="gap-3">
