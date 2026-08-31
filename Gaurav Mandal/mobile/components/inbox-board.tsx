@@ -235,6 +235,43 @@ export function InboxBoard() {
     });
   }
 
+  if (!groups.length) {
+    return (
+      <View className="min-h-0 flex-1">
+        <PageHeader
+          title="Inbox"
+          lede={parentMode ? "School replies and your request threads." : "Parent requests as simple mail-style tickets."}
+        />
+        {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
+        <View className="min-h-[420px] items-center justify-center rounded-md border border-ink-200 bg-white px-6 py-12">
+          <View className="w-full max-w-lg items-center">
+            <View className="h-16 w-16 items-center justify-center rounded-full bg-blue-50">
+              <Ionicons name={parentMode ? "chatbubble-ellipses-outline" : "mail-unread-outline"} size={28} color="#1d4ed8" />
+            </View>
+            <Text className="mt-5 text-center text-xl font-semibold text-ink-900">
+              {parentMode ? "No inbox messages yet" : "No parent requests yet"}
+            </Text>
+            <Text className="mt-2 text-center text-sm leading-6 text-ink-700">
+              {parentMode
+                ? "Replies from the school will appear here as soon as there is an update."
+                : "New parent queries, replies, and follow-ups will appear here as threads."}
+            </Text>
+            <View className="mt-6 w-full rounded-md border border-ink-100 bg-ink-50 px-4 py-3">
+              <View className="flex-row items-start gap-3">
+                <Ionicons name="checkmark-circle-outline" size={18} color="#047857" />
+                <Text className="min-w-0 flex-1 text-sm leading-5 text-ink-700">
+                  {parentMode
+                    ? "You are all caught up. Check back after sending a request or receiving a school reply."
+                    : "You are all caught up. Active conversations will open here with status, history, and replies."}
+                </Text>
+              </View>
+            </View>
+          </View>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View className="min-h-0 flex-1">
       <PageHeader
@@ -251,9 +288,6 @@ export function InboxBoard() {
             <Text className="text-sm font-semibold text-ink-900">{groups.length} {groups.length === 1 ? "student thread" : "student threads"}</Text>
           </View>
           <ScrollView className="min-h-0">
-            {!groups.length ? (
-              <Empty title={parentMode ? "No inbox messages" : "No parent requests"} body={parentMode ? "School replies will appear here." : "New parent requests will appear here."} />
-            ) : null}
             {groups.map((group) => {
               const n = group.primary;
               const on = selectedGroup?.key === group.key;
