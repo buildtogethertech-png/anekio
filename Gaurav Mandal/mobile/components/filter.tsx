@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Modal as RnModal, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Input, Sheet } from "./ui";
 
@@ -174,6 +174,8 @@ export function FilterBar({
   const wide = width >= 768;
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<FilterValues>(values);
+  const [panelFrame, setPanelFrame] = useState({ left: 16, top: 64 });
+  const buttonRef = useRef<View>(null);
   const chips = useMemo(() => activeFilters(filters, values), [filters, values]);
   const activeCount = chips.length;
 
@@ -190,6 +192,19 @@ export function FilterBar({
 
   function removeChip(chip: ActiveFilter) {
     onApply(withoutActiveValue(filters, values, chip));
+  }
+
+  function toggleOpen() {
+    const nextOpen = !open;
+    if (nextOpen && wide) {
+      buttonRef.current?.measureInWindow((x, y, measuredWidth) => {
+        setPanelFrame({
+          left: Math.max(12, x + measuredWidth - 320),
+          top: y + 48,
+        });
+      });
+    }
+    setOpen(nextOpen);
   }
 
   const panel = (
@@ -227,16 +242,17 @@ export function FilterBar({
   );
 
   return (
-    <View className="gap-2">
+    <View className="relative z-20 gap-2">
       <View className="z-20 flex-row items-center gap-2">
         <View className="min-w-0 flex-1">
           <Input placeholder={searchPlaceholder} value={searchValue} onChangeText={onSearchChange} className="border-ink-100 bg-ink-50" />
         </View>
         <View className="shrink-0">
           <Pressable
+            ref={buttonRef}
             accessibilityRole="button"
             accessibilityLabel={activeCount ? `Filter, ${activeCount} active` : "Filter"}
-            onPress={() => setOpen((on) => !on)}
+            onPress={toggleOpen}
             className={`h-[42px] min-w-[92px] flex-row items-center justify-center gap-1.5 rounded-md border px-3 ${
               activeCount ? "border-clay-200 bg-blue-50" : "border-ink-100 bg-white"
             }`}
@@ -247,13 +263,17 @@ export function FilterBar({
           </Pressable>
         </View>
       </View>
-      {wide && open ? (
-        <View className="z-50 items-end">
-          <View className="w-80 rounded-md border border-ink-200 bg-white p-4 shadow-lg">
+      <RnModal visible={wide && open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <Pressable className="flex-1" onPress={() => setOpen(false)}>
+          <Pressable
+            className="absolute w-80 rounded-md border border-ink-200 bg-white p-4 shadow-lg"
+            style={{ left: panelFrame.left, top: panelFrame.top }}
+            onPress={() => {}}
+          >
             {panel}
-          </View>
-        </View>
-      ) : null}
+          </Pressable>
+        </Pressable>
+      </RnModal>
       {chips.length ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} className="grow-0">
           <View className="flex-row items-center gap-1.5 pr-1">
