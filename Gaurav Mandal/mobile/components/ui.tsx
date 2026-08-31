@@ -99,7 +99,7 @@ export function Card({
   style?: StyleProp<ViewStyle>;
 }) {
   return (
-    <View className={`rounded-md border border-ink-200 bg-white ${className || ""}`} style={style}>
+    <View className={`rounded-xl border border-ink-200 bg-white ${className || ""}`} style={style}>
       {children}
     </View>
   );

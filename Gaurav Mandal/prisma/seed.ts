@@ -366,7 +366,7 @@ async function main() {
             admissionNo,
             name: kidName,
             dateOfBirth: born,
-            interests: { create: [{ tag: kidNo % 2 ? PathTag.SCIENCE : PathTag.ARTS }] },
+            interests: { create: [{ tag: kidNo % 2 ? PathTag.ARTS : PathTag.SCIENCE }] },
           },
         });
         logins.push({

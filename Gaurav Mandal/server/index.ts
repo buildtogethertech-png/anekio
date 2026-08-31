@@ -721,7 +721,7 @@ app.post("/api/cron/exams", async (req, res) => {
 });
 
 app.get("/pay/s/:token", async (req, res) => {
-  const html = await renderStudentPayPage(req.params.token, String(req.query.m || ""), req.query.embed === "1");
+  const html = await renderStudentPayPage(req.params.token, String(req.query.m || ""), req.query.embed === "1", req.query.paid === "1");
   if (!html) return res.status(404).send("Not found");
   res.type("html").send(html);
 });

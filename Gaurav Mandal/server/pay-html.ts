@@ -33,7 +33,21 @@ function layout(title: string, body: string) {
     @media print { button, .noprint { display: none; } body { background: #fff; } }
   </style>
 </head>
-<body><main>${body}</main></body>
+<body><main>${body}</main>
+<script>
+(function () {
+  function notifyPaid() {
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ source: "anekio-pay", paid: true }, "*");
+      }
+    } catch (e) {}
+  }
+  window.anekioNotifyPaid = notifyPaid;
+  if (new URLSearchParams(location.search).get("paid") === "1") notifyPaid();
+})();
+</script>
+</body>
 </html>`;
 }
 
@@ -47,6 +61,17 @@ function checkoutScript(opts: {
 }) {
   return `<script>
 const payload = ${JSON.stringify(opts)};
+function hostWin() {
+  try {
+    if (window.parent && window.parent !== window && window.parent.location.origin === window.location.origin) {
+      return window.parent;
+    }
+  } catch (e) {}
+  return window;
+}
+function notifyPaid() {
+  if (typeof window.anekioNotifyPaid === "function") window.anekioNotifyPaid();
+}
 async function pay() {
   const err = document.getElementById("err");
   const btn = document.getElementById("pay");
@@ -64,9 +89,10 @@ async function pay() {
     });
     const order = await res.json();
     if (!res.ok) throw new Error(order.error || "Could not start payment");
+    const w = hostWin();
     if (order.provider === "CASHFREE") {
       await load("https://sdk.cashfree.com/js/v3/cashfree.js");
-      const cashfree = window.Cashfree({ mode: order.mode || "sandbox" });
+      const cashfree = w.Cashfree({ mode: order.mode || "sandbox" });
       const result = await cashfree.checkout({ paymentSessionId: order.paymentSessionId, redirectTarget: "_modal" });
       if (result && result.error && result.error.message) throw new Error(result.error.message);
       await verify({ provider: "CASHFREE", orderId: (result && result.paymentDetails && result.paymentDetails.orderId) || order.orderId });
@@ -78,7 +104,7 @@ async function pay() {
     }
     await load("https://checkout.razorpay.com/v1/checkout.js");
     await new Promise((resolve, reject) => {
-      const rzp = new window.Razorpay({
+      const rzp = new w.Razorpay({
         key: order.keyId,
         amount: order.amountPaise,
         currency: "INR",
@@ -109,17 +135,21 @@ async function verify(extra) {
   });
   const body = await res.json();
   if (!res.ok) throw new Error(body.error || "Verification failed");
+  notifyPaid();
   const next = new URL(window.location.href);
   next.searchParams.set("paid", "1");
   window.location.replace(next.toString());
 }
 function load(src) {
+  const w = hostWin();
   return new Promise((resolve, reject) => {
-    const s = document.createElement("script");
+    const existing = Array.from(w.document.getElementsByTagName("script")).some((s) => s.src === src);
+    if (existing) return resolve();
+    const s = w.document.createElement("script");
     s.src = src;
     s.onload = () => resolve();
     s.onerror = () => reject(new Error("Could not load checkout"));
-    document.body.appendChild(s);
+    w.document.body.appendChild(s);
   });
 }
 document.getElementById("pay").addEventListener("click", pay);
@@ -137,7 +167,7 @@ export async function renderPayPage(token: string, embed: boolean, paid: boolean
   const bank = schoolBankLine(school);
   const lines = feeLineTotal(parseFeeLines(inv.linesJson)).rows;
   const body = `
-    <p class="noprint">${embed ? "" : escapeHtml(school.affiliation || "")}</p>
+    <p class="noprint">${embed ? `<a href="/fees">Back to Anekio</a>` : escapeHtml(school.affiliation || "")}</p>
     <h1>${escapeHtml(school.name)}</h1>
     <p>${escapeHtml(inv.student.name)} · ${escapeHtml(inv.student.class.name)}-${escapeHtml(inv.student.class.section)}</p>
     ${paid ? `<p class="ok">Payment received.</p>` : ""}
@@ -169,7 +199,7 @@ export async function renderPayPage(token: string, embed: boolean, paid: boolean
   return layout(`${school.name} · Pay`, body);
 }
 
-export async function renderStudentPayPage(token: string, monthsRaw: string, embed: boolean) {
+export async function renderStudentPayPage(token: string, monthsRaw: string, embed: boolean, paid = false) {
   const data = await getStudentPay(token);
   if (!data) return null;
   const school = schoolFromConfig(data.config);
@@ -186,9 +216,10 @@ export async function renderStudentPayPage(token: string, monthsRaw: string, emb
   const ready = gatewayReady(pay) && dueNow > 0;
   const bank = schoolBankLine(school);
   const body = `
-    <p class="noprint">${embed ? "" : escapeHtml(school.affiliation || "")}</p>
+    <p class="noprint">${embed ? `<a href="/fees">Back to Anekio</a>` : escapeHtml(school.affiliation || "")}</p>
     <h1>${escapeHtml(school.name)}</h1>
     <p>${escapeHtml(data.student.name)} · ${escapeHtml(data.student.class.name)}-${escapeHtml(data.student.class.section)}</p>
+    ${paid ? `<p class="ok">Payment received.</p>` : ""}
     <div class="card">
       ${months.map((m) => `<div class="row"><span>${escapeHtml(m.title)}${m.lateLabel ? " · " + escapeHtml(m.lateLabel) : ""}</span><strong>${escapeHtml(formatInr(m.dueNow))}</strong></div>`).join("") || "<p>Nothing due.</p>"}
       ${months.length ? `<div class="row"><span>Total</span><strong>${escapeHtml(formatInr(dueNow))}</strong></div>` : ""}

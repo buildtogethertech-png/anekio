@@ -9,3 +9,16 @@ body,
   height: 100%;
   overflow: hidden;
 }
+
+@keyframes anekio-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+.anekio-pulse {
+  animation: anekio-pulse 1.8s ease-in-out infinite;
+}

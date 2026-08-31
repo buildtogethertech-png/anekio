@@ -28,12 +28,12 @@ export function AppTabBar() {
   return (
     <View
       className="border-t border-ink-200 bg-white"
-      style={{ paddingBottom: Math.max(insets.bottom, 6) }}
+      style={{ paddingBottom: Math.max(insets.bottom, 8) }}
     >
       <View className="flex-row">
         {tabs.map((key) => {
           const on = key === "more" ? onMore : pathMatches(key, pathname);
-          const color = on ? "#1d4ed8" : "#3d4f66";
+          const color = on ? "#2855F6" : "#64748B";
           const label = tabLabel(key, user?.portal, nav);
           return (
             <Pressable

@@ -3,6 +3,7 @@ import { usePathname, useRouter } from "expo-router";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { iconForNav, visibleTabs } from "../lib/nav-icons";
 import { pathForNav } from "../lib/paths";
+import { useNoticeInbox } from "../lib/notice-inbox";
 import { useSession } from "../lib/session";
 import { PageHeader } from "./ui";
 
@@ -23,6 +24,7 @@ export function NavMenu({ onNavigate }: { onNavigate?: () => void }) {
   const { user, nav, signOut } = useSession();
   const pathname = usePathname();
   const router = useRouter();
+  const inbox = useNoticeInbox();
   const items = nav
     .filter((n) => n.key !== "profile" && n.key !== "uploads")
     .sort((a, b) => {
@@ -44,42 +46,48 @@ export function NavMenu({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <View className="flex-1">
-      <ScrollView className="flex-1 px-3" contentContainerStyle={{ paddingBottom: 8 }}>
+      <ScrollView className="flex-1 px-2" contentContainerStyle={{ paddingBottom: 8 }}>
         {items.map((item) => {
           const on = active(item.key);
+          const badge = item.key === "notices" ? inbox?.unread || 0 : 0;
           return (
             <Pressable
               key={item.key}
               onPress={() => go(item.key)}
-              className={`mb-0.5 min-h-[48px] flex-row items-center gap-3 rounded-lg px-3 ${on ? "bg-clay-500" : ""}`}
+              className={`mb-0.5 min-h-[40px] flex-row items-center gap-2.5 rounded-xl px-3 ${on ? "bg-[#EEF2FF]" : ""}`}
             >
-              <Ionicons name={iconForNav(item.key)} size={20} color={on ? "#ffffff" : "#1e3a5f"} />
-              <Text className={`min-w-0 flex-1 text-base ${on ? "font-medium text-white" : "text-ink-900"}`}>
+              <Ionicons name={iconForNav(item.key)} size={18} color={on ? "#2855F6" : "#64748B"} />
+              <Text className={`min-w-0 flex-1 text-[14px] ${on ? "font-semibold text-clay-500" : "text-ink-900"}`}>
                 {navLabel(user?.portal, item)}
               </Text>
+              {badge > 0 ? (
+                <View className="min-w-[18px] items-center rounded-full bg-ink-100 px-1.5">
+                  <Text className="text-[10px] font-semibold text-ink-800">{badge > 9 ? "9+" : badge}</Text>
+                </View>
+              ) : null}
             </Pressable>
           );
         })}
       </ScrollView>
-      <View className="border-t border-ink-200 px-4 py-4">
+      <View className="border-t border-ink-200 px-3 py-3">
         <Pressable
           onPress={() => {
             onNavigate?.();
             router.push("/profile" as never);
           }}
-          className="min-h-[44px] justify-center"
+          className="min-h-[44px] justify-center rounded-xl px-2 py-1"
         >
-          <Text className="text-base font-semibold text-ink-900">{user?.name}</Text>
-          <Text className="text-xs text-ink-700">{user?.roleName} · Profile</Text>
+          <Text className="text-sm font-semibold text-ink-900">{user?.name}</Text>
+          <Text className="text-[11px] text-ink-500">{user?.portal === "PARENT" ? "Parent" : user?.roleName}</Text>
         </Pressable>
         <Pressable
           onPress={() => {
             onNavigate?.();
             signOut();
           }}
-          className="mt-2 min-h-[44px] justify-center"
+          className="mt-1 min-h-[36px] justify-center px-2"
         >
-          <Text className="text-sm font-medium text-red-700">Sign out</Text>
+          <Text className="text-sm font-medium text-ink-500">Sign out</Text>
         </Pressable>
       </View>
     </View>

@@ -55,7 +55,7 @@ export function iconForNav(key: string): IoniconName {
 }
 
 export function tabsForPortal(portal?: string | null) {
-  if (portal === "PARENT") return ["home", "attendance", "fees", "notices", "more"];
+  if (portal === "PARENT") return ["home", "timetable", "fees", "more"];
   if (portal === "TEACHER") return ["home", "attendance", "class", "exams", "more"];
   if (portal === "OFFICE") return ["home", "people", "staff", "fees", "more"];
   return ["home", "timetable", "fees", "profile", "more"];
@@ -78,6 +78,7 @@ export function tabLabel(key: string, portal: string | undefined, nav: { key: st
     if (officeLabels[key]) return officeLabels[key];
   }
   if (key === "more") return "More";
-  if (key === "home" && portal === "PARENT") return "Home";
+  if (portal === "PARENT" && key === "home") return "Home";
+  if (portal === "PARENT" && key === "timetable") return "Schedule";
   return nav.find((item) => item.key === key)?.label || key;
 }
