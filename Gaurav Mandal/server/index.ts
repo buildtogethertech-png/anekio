@@ -3,6 +3,7 @@ import cors from "cors";
 import express from "express";
 import { existsSync } from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 import multer from "multer";
 import bcrypt from "bcryptjs";
 import { signAppToken } from "../lib/app-jwt";
@@ -67,6 +68,33 @@ import {
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 12 * 1024 * 1024 } });
 const PORT = Number(process.env.PORT || 4000);
+const serverDir = path.dirname(fileURLToPath(import.meta.url));
+const argvRoot = process.argv[1] ? path.resolve(path.dirname(process.argv[1]), "..") : "";
+const appShellRoutes = [
+  "/login",
+  "/notices",
+  "/notifications",
+  "/inbox",
+  "/more",
+  "/people",
+  "/admissions",
+  "/staff",
+  "/school",
+  "/timetable",
+  "/fees",
+  "/exams",
+  "/roles",
+  "/attendance",
+  "/class",
+  "/leave",
+  "/subjects",
+  "/tests",
+  "/papers",
+  "/path",
+  "/letter",
+  "/uploads",
+  "/profile",
+];
 
 app.use(
   cors({
@@ -775,8 +803,14 @@ app.get("/document-batches/:batchId", async (req, res) => {
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
-const webDir = path.join(process.cwd(), "mobile", "dist");
-if (existsSync(webDir)) {
+const webDir = [argvRoot, path.resolve(serverDir, ".."), process.cwd()]
+  .filter(Boolean)
+  .map((root) => path.join(root, "mobile", "dist"))
+  .find((dir) => existsSync(path.join(dir, "index.html")));
+if (webDir && existsSync(webDir)) {
+  app.get(appShellRoutes, (_req, res) => {
+    res.sendFile(path.join(webDir, "index.html"));
+  });
   app.use(express.static(webDir));
   app.use((req, res, next) => {
     if (req.method !== "GET" && req.method !== "HEAD") return next();
