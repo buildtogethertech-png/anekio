@@ -68,7 +68,8 @@ import {
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 12 * 1024 * 1024 } });
 const PORT = Number(process.env.PORT || 4000);
-const serverDir = path.dirname(fileURLToPath(import.meta.url));
+const serverDir =
+  typeof __dirname !== "undefined" ? __dirname : path.dirname(fileURLToPath(import.meta.url));
 const argvRoot = process.argv[1] ? path.resolve(path.dirname(process.argv[1]), "..") : "";
 const appShellRoutes = [
   "/login",
