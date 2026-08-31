@@ -80,6 +80,11 @@ function FeeText({ label, tone }: { label?: string; tone?: string }) {
   );
 }
 
+function MoneyText({ amount }: { amount: number }) {
+  if (amount <= 0) return <Text className="text-sm font-medium text-leaf-600">No dues</Text>;
+  return <Text className="text-sm font-semibold text-amber-800">₹{Math.round(amount).toLocaleString("en-IN")} due</Text>;
+}
+
 function DetailField({ label, value }: { label: string; value?: string }) {
   return (
     <View className="min-w-[44%] flex-1 py-2">
@@ -597,7 +602,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       : null;
   const selectedParent =
     picked?.kind === "parent"
-      ? parentsAll.find((p) => p.id === picked.id) || (wide ? filteredParents[0] || null : null)
+      ? filteredParents.find((p) => p.id === picked.id) || (wide ? filteredParents[0] || null : null)
       : null;
   const selected = selectedStudent;
 
@@ -1353,6 +1358,11 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       return <Empty title="Pick a parent" body="Contact and children show here." />;
     }
     const kids = Array.isArray(selectedParent.children) ? selectedParent.children : [];
+    const childRecords = people.filter((student) => student.parentId === selectedParent.id);
+    const childCards = childRecords.length
+      ? childRecords
+      : kids.map((kid) => people.find((student) => student.id === kid.id)).filter((student): student is (typeof people)[number] => Boolean(student));
+    const totalDue = childCards.reduce((sum, child) => sum + (child.dueAmount || 0), 0);
     const body = fileEdit ? (
       <View className="mt-4 gap-3">
         <Field label="Name">
@@ -1401,14 +1411,75 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
           <FactRow label="Address" value={selectedParent.address || "—"} />
         </View>
         <View className="mt-4 flex-row items-center justify-between">
-          <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">Children</Text>
-          {can(user, "fees.collect") || can(user, "people.edit") ? (
+          <View>
+            <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">Children</Text>
+            <Text className="mt-0.5 text-xs text-ink-700">
+              {childCards.length || kids.length} {(childCards.length || kids.length) === 1 ? "student" : "students"}
+              {showFees ? ` · ${totalDue > 0 ? `₹${Math.round(totalDue).toLocaleString("en-IN")} due` : "no dues"}` : ""}
+            </Text>
+          </View>
+          {can(user, "fees.collect") ? (
             <Pressable onPress={() => setPayOpen(true)} className="py-1">
-              <Text className="text-sm font-medium text-clay-600">Generate payment</Text>
+              <Text className="text-sm font-medium text-clay-600">Collect all dues</Text>
             </Pressable>
           ) : null}
         </View>
-        {kids.length ? (
+        {childCards.length ? (
+          <View className="mt-3 gap-2">
+            {childCards.map((child) => {
+              const classTeacher = teachersAll.find((teacher) => teacher.classId && teacher.classId === child.classId);
+              const openBills = (child.invoices || []).filter((invoice) => invoice.status !== "paid" && (invoice.dueNow || 0) > 0);
+              return (
+                <Pressable
+                  key={child.id}
+                  onPress={() => {
+                    setKind("student");
+                    setPicked({ kind: "student", id: child.id });
+                    setFileTab("overview");
+                  }}
+                  className="rounded-md border border-ink-100 bg-ink-50 px-3 py-3"
+                >
+                  <View className="flex-row items-start justify-between gap-3">
+                    <View className="min-w-0 flex-1">
+                      <View className="flex-row flex-wrap items-center gap-2">
+                        <Text className="text-base font-semibold text-ink-900" numberOfLines={1}>{child.name}</Text>
+                        {showFees ? <FeeText label={child.feeLabel} tone={child.feeTone} /> : null}
+                      </View>
+                      <Text className="mt-1 text-sm text-ink-800">{child.classLabel} · {child.admissionNo}</Text>
+                      {child.born ? <Text className="mt-0.5 text-xs text-ink-700">Born {child.born}</Text> : null}
+                    </View>
+                    {showFees ? <MoneyText amount={child.dueAmount || 0} /> : null}
+                  </View>
+                  <View className="mt-3 flex-row flex-wrap gap-x-6 gap-y-2 border-t border-ink-100 pt-3">
+                    <View className="min-w-[42%] flex-1">
+                      <Text className="text-xs text-ink-700">Class teacher</Text>
+                      <Text className="mt-0.5 text-sm font-medium text-ink-900">{classTeacher?.name || "Not assigned"}</Text>
+                    </View>
+                    <View className="min-w-[42%] flex-1">
+                      <Text className="text-xs text-ink-700">Open bills</Text>
+                      <Text className="mt-0.5 text-sm font-medium text-ink-900">
+                        {showFees ? `${openBills.length} ${openBills.length === 1 ? "month" : "months"}` : "Fees hidden"}
+                      </Text>
+                    </View>
+                    <View className="min-w-[42%] flex-1">
+                      <Text className="text-xs text-ink-700">Parent phone</Text>
+                      <Text className="mt-0.5 text-sm font-medium text-ink-900">{child.parentPhone || selectedParent.phone || "Not provided"}</Text>
+                    </View>
+                    <View className="min-w-[42%] flex-1">
+                      <Text className="text-xs text-ink-700">Parent email</Text>
+                      <Text className="mt-0.5 text-sm font-medium text-ink-900" numberOfLines={1}>
+                        {child.parentEmail || selectedParent.email || "Not provided"}
+                      </Text>
+                    </View>
+                  </View>
+                  <View className="mt-3 flex-row justify-end">
+                    <Text className="text-sm font-medium text-clay-600">Open student record</Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : kids.length ? (
           kids.map((c) => (
             <Pressable
               key={c.id}
