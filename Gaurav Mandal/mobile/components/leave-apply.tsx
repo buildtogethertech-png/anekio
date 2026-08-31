@@ -272,7 +272,7 @@ export function LeaveApplyCard({
             </Text>
           </View>
         ) : null}
-        <View className="flex-row gap-3">
+        <View className="flex-col gap-3 sm:flex-row">
           <View className="flex-1">
             <Field label="First day">
               <DateField
@@ -291,6 +291,7 @@ export function LeaveApplyCard({
               <DateField
                 placeholder="Select last day"
                 value={to || from}
+                min={from || undefined}
                 closedReason={leaveClosedReason}
                 onChange={setTo}
               />

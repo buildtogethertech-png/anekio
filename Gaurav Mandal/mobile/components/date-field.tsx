@@ -1,12 +1,20 @@
 import { useMemo, useState } from "react";
 import { Modal, Pressable, Text, useWindowDimensions, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { Calendar, type DateData } from "react-native-calendars";
 import { closedCaption, prettyDay } from "../lib/calendar";
 import { Popover } from "./form/popover";
 
-const WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 const WEEKDAY_LONG = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+type CalendarMark = {
+  disabled?: boolean;
+  disableTouchEvent?: boolean;
+  selected?: boolean;
+  selectedColor?: string;
+  selectedTextColor?: string;
+  textColor?: string;
+};
+type CalendarMarks = Record<string, CalendarMark>;
 
 function toYmd(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -18,10 +26,16 @@ function fromYmd(value: string) {
   return new Date(y, m - 1, d);
 }
 
+function monthDates(cursor: Date) {
+  const daysInMonth = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate();
+  return Array.from({ length: daysInMonth }, (_, index) => toYmd(new Date(cursor.getFullYear(), cursor.getMonth(), index + 1)));
+}
+
 export function DateField({
   value,
   onChange,
   closedReason,
+  min,
   max,
   plain,
   bare,
@@ -30,6 +44,7 @@ export function DateField({
   value: string;
   onChange: (next: string) => void;
   closedReason?: (ymd: string) => string;
+  min?: string;
   max?: string;
   plain?: boolean;
   bare?: boolean;
@@ -40,97 +55,75 @@ export function DateField({
   const selected = fromYmd(value) || new Date();
   const [open, setOpen] = useState(false);
   const [cursor, setCursor] = useState(() => new Date(selected.getFullYear(), selected.getMonth(), 1));
+  const beforeMin = Boolean(min && value && value < min);
   const futureSelected = Boolean(max && value && value > max);
-  const reason = futureSelected ? "Future" : closedReason?.(value) || "";
-  const caption = futureSelected ? "That day has not come yet." : closedCaption(reason);
+  const reason = beforeMin ? "Before start" : futureSelected ? "Future" : closedReason?.(value) || "";
+  const caption = beforeMin ? "Choose a day on or after the first day." : futureSelected ? "That day has not come yet." : closedCaption(reason);
   const weekday = WEEKDAY_LONG[selected.getDay()] || "";
   const sideLabel = value ? (reason ? (reason.length > 18 ? "Off" : reason) : weekday) : "";
-  const maxMonth = max ? fromYmd(max) : null;
-  const nextMonth = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
-  const canNext = !maxMonth || nextMonth <= new Date(maxMonth.getFullYear(), maxMonth.getMonth(), 1);
+  const markedDates = useMemo<CalendarMarks>(() => {
+    const marks: CalendarMarks = {};
+    for (const stamp of monthDates(cursor)) {
+      const disabled = Boolean((min && stamp < min) || (max && stamp > max) || closedReason?.(stamp));
+      if (disabled) {
+        marks[stamp] = {
+          disabled: true,
+          disableTouchEvent: true,
+          textColor: "#9aa7b7",
+        };
+      }
+    }
+    if (value) {
+      marks[value] = {
+        ...(marks[value] || {}),
+        selected: true,
+        selectedColor: "#2456d6",
+        selectedTextColor: "#ffffff",
+      };
+    }
+    return marks;
+  }, [closedReason, cursor, max, min, value]);
 
-  const cells = useMemo(() => {
-    const start = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
-    const startPad = start.getDay();
-    const daysInMonth = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate();
-    const slots: (number | null)[] = [];
-    for (let i = 0; i < startPad; i++) slots.push(null);
-    for (let d = 1; d <= daysInMonth; d++) slots.push(d);
-    while (slots.length % 7) slots.push(null);
-    return slots;
-  }, [cursor]);
-
-  const today = toYmd(new Date());
   const calendar = (
-    <View className="p-3.5">
-      <View className="mb-3 flex-row items-center justify-between">
-        <Pressable
-          onPress={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))}
-          className="h-8 w-8 items-center justify-center rounded-full"
-        >
-          <Ionicons name="chevron-back" size={18} color="#1e3a5f" />
-        </Pressable>
-        <Text className="text-sm font-semibold text-ink-900">
-          {MONTHS[cursor.getMonth()]} {cursor.getFullYear()}
-        </Text>
-        <Pressable
-          disabled={!canNext}
-          onPress={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))}
-          className={`h-8 w-8 items-center justify-center rounded-full ${canNext ? "" : "opacity-30"}`}
-        >
-          <Ionicons name="chevron-forward" size={18} color="#1e3a5f" />
-        </Pressable>
-      </View>
-      <View className="mb-1 flex-row border-b border-ink-100 pb-1">
-        {WEEKDAYS.map((d) => (
-          <Text key={d} className="h-7 flex-1 text-center text-[11px] font-medium text-ink-700">
-            {d}
-          </Text>
-        ))}
-      </View>
-      <View>
-        {Array.from({ length: cells.length / 7 }, (_, row) => (
-          <View key={row} className="flex-row">
-            {cells.slice(row * 7, row * 7 + 7).map((day, col) => {
-              if (!day) {
-                return <View key={`e-${row}-${col}`} className="h-10 flex-1" />;
-              }
-              const stamp = toYmd(new Date(cursor.getFullYear(), cursor.getMonth(), day));
-              const active = stamp === value;
-              const isToday = stamp === today;
-              const future = Boolean(max && stamp > max);
-              const closed = Boolean(closedReason?.(stamp));
-              const blocked = future || closed;
-              return (
-                <Pressable
-                  key={stamp}
-                  disabled={blocked}
-                  onPress={() => {
-                    if (blocked) return;
-                    onChange(stamp);
-                    setOpen(false);
-                  }}
-                  className="h-10 flex-1 items-center justify-center"
-                >
-                  <View
-                    className={`h-8 w-8 items-center justify-center rounded-full ${
-                      active ? "bg-clay-500" : blocked ? "bg-ink-50" : isToday ? "border border-clay-500" : ""
-                    }`}
-                  >
-                    <Text
-                      className={`text-sm ${
-                        active ? "text-white" : blocked ? "text-ink-400" : "text-ink-900"
-                      }`}
-                    >
-                      {day}
-                    </Text>
-                  </View>
-                </Pressable>
-              );
-            })}
+    <View className="rounded-lg bg-white px-2 py-2">
+      <Calendar
+        current={toYmd(cursor)}
+        firstDay={0}
+        hideExtraDays
+        minDate={min}
+        maxDate={max}
+        markedDates={markedDates}
+        disableAllTouchEventsForDisabledDays
+        onMonthChange={(date: DateData) => setCursor(new Date(date.year, date.month - 1, 1))}
+        onDayPress={(date: DateData) => {
+          const stamp = date.dateString;
+          if ((min && stamp < min) || (max && stamp > max) || closedReason?.(stamp)) return;
+          onChange(stamp);
+          setOpen(false);
+        }}
+        renderArrow={(direction: "left" | "right") => (
+          <View className="h-8 w-8 items-center justify-center rounded-full bg-ink-50">
+            <Ionicons name={direction === "left" ? "chevron-back" : "chevron-forward"} size={18} color="#1e3a5f" />
           </View>
-        ))}
-      </View>
+        )}
+        theme={{
+          calendarBackground: "#ffffff",
+          textSectionTitleColor: "#52667d",
+          selectedDayBackgroundColor: "#2456d6",
+          selectedDayTextColor: "#ffffff",
+          todayTextColor: "#2456d6",
+          dayTextColor: "#102a43",
+          monthTextColor: "#102a43",
+          textDisabledColor: "#9aa7b7",
+          arrowColor: "#1e3a5f",
+          textDayFontSize: 14,
+          textMonthFontSize: 16,
+          textDayHeaderFontSize: 12,
+          textDayFontWeight: "500",
+          textMonthFontWeight: "700",
+          textDayHeaderFontWeight: "700",
+        }}
+      />
     </View>
   );
 
@@ -181,7 +174,7 @@ export function DateField({
           </Modal>
         </>
       ) : (
-        <Popover open={open} onClose={() => setOpen(false)} panel={calendar} maxHeight={360} fixedHeight={350} width={320} align="end">
+        <Popover open={open} onClose={() => setOpen(false)} panel={calendar} maxHeight={390} width={340} align="end">
           {trigger}
         </Popover>
       )}
