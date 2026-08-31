@@ -51,10 +51,10 @@ export function NavMenu({ onNavigate }: { onNavigate?: () => void }) {
             <Pressable
               key={item.key}
               onPress={() => go(item.key)}
-              className={`mb-0.5 min-h-[48px] flex-row items-center gap-3 rounded-lg px-3 ${on ? "bg-clay-500" : ""}`}
+              className={`mb-0.5 min-h-[48px] flex-row items-center gap-3 rounded-lg px-3 ${on ? "bg-blue-50" : ""}`}
             >
-              <Ionicons name={iconForNav(item.key)} size={20} color={on ? "#ffffff" : "#1e3a5f"} />
-              <Text className={`min-w-0 flex-1 text-base ${on ? "font-medium text-white" : "text-ink-900"}`}>
+              <Ionicons name={iconForNav(item.key)} size={20} color={on ? "#1d4ed8" : "#1e3a5f"} />
+              <Text className={`min-w-0 flex-1 text-base ${on ? "font-medium text-clay-600" : "text-ink-900"}`}>
                 {navLabel(user?.portal, item)}
               </Text>
             </Pressable>
