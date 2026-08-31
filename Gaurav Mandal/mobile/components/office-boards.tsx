@@ -68,8 +68,14 @@ function SectionLabel({ children }: { children: string }) {
 
 function FeeText({ label, tone }: { label?: string; tone?: string }) {
   const color =
-    tone === "paid" ? "text-leaf-600" : tone === "overdue" ? "text-amber-800" : "text-ink-700";
-  return <Text className={`text-xs ${color}`}>{label || ""}</Text>;
+    tone === "paid" ? "text-leaf-600" : tone === "overdue" ? "text-amber-800" : "text-amber-800";
+  const bg = tone === "paid" ? "bg-emerald-50" : tone === "overdue" ? "bg-amber-50" : "bg-orange-50";
+  if (!label) return null;
+  return (
+    <View className={`shrink-0 rounded px-2 py-1 ${bg}`}>
+      <Text className={`text-[11px] font-semibold ${color}`}>{label}</Text>
+    </View>
+  );
 }
 
 type PeopleKind = "student" | "teacher" | "parent";
@@ -599,17 +605,17 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   );
 
   const listTools = (
-    <View className="border-b border-ink-100 p-2.5">
+    <View className="p-3">
       <View className="flex-row gap-2">
         <View className="min-w-0 flex-1">
-          <Input placeholder="Search" value={q} onChangeText={setQ} />
+          <Input placeholder="Search" value={q} onChangeText={setQ} className="border-ink-100 bg-ink-50" />
         </View>
         {showStudents ? (
           <View className="relative shrink-0">
             <Pressable
               onPress={() => setFilterOpen((on) => !on)}
               className={`h-[42px] max-w-[7.5rem] justify-center rounded-md border px-2.5 ${
-                filterOn ? "border-clay-500 bg-clay-500" : "border-ink-200 bg-white"
+                filterOn ? "border-clay-500 bg-clay-500" : "border-ink-100 bg-white"
               }`}
             >
               <Text numberOfLines={1} className={`text-xs ${filterOn ? "text-white" : "text-ink-900"}`}>
@@ -629,7 +635,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
           onChange={(id) => pickKind(id as PeopleKind)}
         />
       </View> : null}
-      {wide && showStudents && filterOpen ? <View className="mt-2 border-t border-ink-100 pt-2">{filterBody}</View> : null}
+      {wide && showStudents && filterOpen ? <View className="mt-3 rounded-md bg-ink-50 p-3">{filterBody}</View> : null}
     </View>
   );
 
@@ -775,7 +781,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
             />
           ) : null}
         </View>
-        <View className="mt-4">
+        <View className="mt-5 rounded-md bg-ink-50 p-1">
           <Segmented
             options={[
               { id: "file", label: "File" },
@@ -848,7 +854,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
         </View>
       </View>
     ) : (
-      <View className="mt-2">
+      <View className="mt-4">
         <View className="flex-row items-center justify-between py-1">
           <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">Details</Text>
           {can(user, "people.edit") ? (
@@ -874,11 +880,13 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
             />
           ) : null}
         </View>
-        <FactRow label="Parent" value={selected.parent} />
-        <FactRow label="Phone" value={selected.parentPhone || "—"} />
-        <FactRow label="Email" value={selected.parentEmail || "—"} />
-        <FactRow label="Address" value={selected.parentAddress || "—"} />
-        <View className="my-3 rounded-md border border-blue-100 bg-blue-50 p-4">
+        <View className="mt-1 overflow-hidden rounded-md bg-white">
+          <FactRow label="Parent" value={selected.parent} />
+          <FactRow label="Phone" value={selected.parentPhone || "—"} />
+          <FactRow label="Email" value={selected.parentEmail || "—"} />
+          <FactRow label="Address" value={selected.parentAddress || "—"} />
+        </View>
+        <View className="my-4 rounded-md bg-sky-50 p-4">
           <View className="flex-row flex-wrap items-start justify-between gap-3">
             <View className="min-w-0 flex-1">
               <View className="flex-row items-center gap-2">
@@ -905,7 +913,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
             </View>
           </View>
         </View>
-        <View className="flex-row items-center justify-between gap-4 border-b border-ink-100 py-2.5">
+        <View className="flex-row items-center justify-between gap-4 border-b border-ink-100 py-3">
           <Text className="w-24 shrink-0 text-xs text-ink-700">Class teacher</Text>
           {classTeacher ? (
             <View className="min-w-0 flex-1 items-end">
@@ -920,7 +928,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
             <Text className="min-w-0 flex-1 text-right text-sm text-ink-900">Not assigned</Text>
           )}
         </View>
-        <View className="flex-row items-center justify-between gap-4 py-2.5">
+        <View className="flex-row items-center justify-between gap-4 py-3">
           <Text className="w-24 shrink-0 text-xs text-ink-700">Path</Text>
           <View className="flex-1 flex-row flex-wrap justify-end gap-1">
             {(selected.path ?? []).length ? (
@@ -1068,7 +1076,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       );
     }
     return (
-      <Card className="min-h-0 flex-1 overflow-hidden p-5">
+      <Card className="min-h-0 flex-1 overflow-hidden border-transparent p-6 shadow-sm">
         {header}
         {tabBody}
       </Card>
@@ -1148,7 +1156,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       </>
     );
     if (bare) return <View className="px-5 pb-6">{body}</View>;
-    return <Card className="min-h-0 flex-1 overflow-hidden p-5">{body}</Card>;
+    return <Card className="min-h-0 flex-1 overflow-hidden border-transparent p-6 shadow-sm">{body}</Card>;
   }
 
   function ParentPane({ bare }: { bare?: boolean }) {
@@ -1231,7 +1239,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       </>
     );
     if (bare) return <View className="px-5 pb-6">{body}</View>;
-    return <Card className="min-h-0 flex-1 overflow-hidden p-5">{body}</Card>;
+    return <Card className="min-h-0 flex-1 overflow-hidden border-transparent p-6 shadow-sm">{body}</Card>;
   }
 
   function FilePane({ bare }: { bare?: boolean }) {
@@ -1244,26 +1252,28 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
     (!showStudents || !filtered.length) &&
     (!showTeachers || !filteredTeachers.length) &&
     (!showParents || !filteredParents.length);
+  const visibleCount = showStudents ? filtered.length : showParents ? filteredParents.length : filteredTeachers.length;
+  const visibleNoun = showStudents ? "student" : showParents ? "parent" : "employee";
 
   const peopleList = (
-    <Card className={`min-h-0 overflow-hidden ${wide ? "" : "flex-1"}`} style={wide ? { width: 320 } : undefined}>
+    <Card className={`min-h-0 overflow-hidden border-transparent shadow-sm ${wide ? "" : "flex-1"}`} style={wide ? { width: 340 } : undefined}>
       {listTools}
       {listEmpty ? (
         <Text className="px-4 py-10 text-center text-sm text-ink-700">No people match that filter.</Text>
       ) : (
         <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" className="flex-1" contentContainerClassName={wide ? undefined : "pb-24"}>
           {showStudents
-            ? filtered.map((s, i) => {
+            ? filtered.map((s) => {
                 const on = picked?.kind === "student" && picked.id === s.id;
                 return (
                   <Pressable
                     key={`student-${s.id}`}
                     onPress={() => setPicked({ kind: "student", id: s.id })}
-                    className={`flex-row items-start justify-between gap-3 px-4 py-3 ${i ? "border-t border-ink-100" : ""} ${
-                      on ? "bg-blue-50" : ""
+                    className={`flex-row items-start justify-between gap-3 border-l-2 px-4 py-3 ${
+                      on ? "border-l-clay-500 bg-blue-50" : "border-l-transparent"
                     }`}
                   >
-                    <View className="flex-1">
+                    <View className="min-w-0 flex-1">
                       <Text className="font-medium text-ink-900">{s.name}</Text>
                       <Text className="mt-0.5 text-xs text-ink-700">
                         {s.classLabel} · {s.admissionNo}
@@ -1275,13 +1285,13 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
               })
             : null}
           {showTeachers
-            ? filteredTeachers.map((t, i) => {
+            ? filteredTeachers.map((t) => {
                 const on = picked?.kind === "teacher" && picked.id === t.id;
                 return (
                   <Pressable
                     key={`teacher-${t.id}`}
                     onPress={() => setPicked({ kind: "teacher", id: t.id })}
-                    className={`px-4 py-3 ${i ? "border-t border-ink-100" : ""} ${on ? "bg-blue-50" : ""}`}
+                    className={`border-l-2 px-4 py-3 ${on ? "border-l-clay-500 bg-blue-50" : "border-l-transparent"}`}
                   >
                     <Text className="font-medium text-ink-900">{t.name}</Text>
                     <Text className="mt-0.5 text-xs text-ink-700">
@@ -1293,13 +1303,13 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
               })
             : null}
           {showParents
-            ? filteredParents.map((p, i) => {
+            ? filteredParents.map((p) => {
                 const on = picked?.kind === "parent" && picked.id === p.id;
                 return (
                   <Pressable
                     key={`parent-${p.id}`}
                     onPress={() => setPicked({ kind: "parent", id: p.id })}
-                    className={`px-4 py-3 ${i ? "border-t border-ink-100" : ""} ${on ? "bg-blue-50" : ""}`}
+                    className={`border-l-2 px-4 py-3 ${on ? "border-l-clay-500 bg-blue-50" : "border-l-transparent"}`}
                   >
                     <Text className="font-medium text-ink-900">{p.name}</Text>
                     <Text className="mt-0.5 text-xs text-ink-700">
@@ -1316,8 +1326,11 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
 
   return (
     <View className="flex-1">
-      <View className="mb-3 flex-row items-center justify-between gap-2">
-        <Text className="text-xl font-semibold text-ink-900">{title}</Text>
+      <View className="mb-4 flex-row items-center justify-between gap-2">
+        <View>
+          <Text className="text-2xl font-semibold text-ink-900">{title}</Text>
+          <Text className="mt-1 text-xs text-ink-700">{visibleCount} {visibleNoun}{visibleCount === 1 ? "" : "s"} in view</Text>
+        </View>
         <View className="flex-row flex-wrap gap-2">
           {can(user, "people.import") || can(user, "people.edit") ? (
             <Button
@@ -1340,7 +1353,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
 
       {wide ? (
-        <View className="min-h-0 flex-1 flex-row gap-4">
+        <View className="min-h-0 flex-1 flex-row gap-5">
           {peopleList}
           <View className="min-h-0 flex-1">
             <FilePane />
