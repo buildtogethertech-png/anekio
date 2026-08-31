@@ -18,6 +18,7 @@ type InboxGroup = {
   tickets: Notice[];
   primary: Notice;
   openCount: number;
+  issueCount: number;
   waitingCount: number;
 };
 
@@ -33,6 +34,10 @@ function subjectFor(n: Notice) {
 
 function ticketNo(n: Notice) {
   return `REQ-${n.id.replace(/[^a-z0-9]/gi, "").slice(-6).toUpperCase() || "NEW"}`;
+}
+
+function isThreadRoot(n: Notice) {
+  return /^Parent (query|consult):/i.test(n.title);
 }
 
 function bodyParts(body: string) {
@@ -115,7 +120,7 @@ function newestFirst(a: Notice, b: Notice) {
 }
 
 function bestTicket(tickets: Notice[]) {
-  const originals = tickets.filter((ticket) => /^Parent (query|consult):/i.test(ticket.title));
+  const originals = tickets.filter(isThreadRoot);
   const pool = originals.length ? originals : tickets;
   return [...pool].sort((a, b) => {
     const aClosed = statusFor(a) === "CLOSED" ? 1 : 0;
@@ -123,6 +128,14 @@ function bestTicket(tickets: Notice[]) {
     if (aClosed !== bClosed) return aClosed - bClosed;
     return newestFirst(a, b);
   })[0];
+}
+
+function openTickets(tickets: Notice[]) {
+  return tickets.filter((ticket) => isThreadRoot(ticket) && statusFor(ticket) !== "CLOSED");
+}
+
+function closedTickets(tickets: Notice[]) {
+  return tickets.filter((ticket) => isThreadRoot(ticket) && statusFor(ticket) === "CLOSED");
 }
 
 function latestThreadPreview(parts: ReturnType<typeof bodyParts>) {
@@ -208,7 +221,9 @@ export function InboxBoard() {
     return [...map.entries()]
       .map(([key, tickets]): InboxGroup => {
         const ordered = [...tickets].sort(newestFirst);
-        const primary = bestTicket(ordered);
+        const open = openTickets(ordered);
+        const issueCount = ordered.filter(isThreadRoot).length;
+        const primary = open.sort((a, b) => latestThreadAt(b) - latestThreadAt(a))[0] || bestTicket(ordered);
         const parts = bodyParts(primary.body);
         return {
           key,
@@ -217,21 +232,25 @@ export function InboxBoard() {
           parent: parts.parent || primary.author,
           tickets: ordered,
           primary,
-          openCount: ordered.filter((n) => statusFor(n) !== "CLOSED").length,
-          waitingCount: ordered.filter((n) => statusFor(n) === "WAITING").length,
+          openCount: open.length,
+          issueCount,
+          waitingCount: open.filter((n) => statusFor(n) === "WAITING").length,
         };
       })
       .sort((a, b) => latestThreadAt(b.primary) - latestThreadAt(a.primary));
   }, [rows]);
-  const groups = allGroups;
+  const groups = allGroups.filter((group) => group.openCount > 0);
   const selectedGroup =
     groups.find((group) => group.key === selectedGroupKey) ||
     groups.find((group) => group.tickets.some((ticket) => ticket.id === selectedId)) ||
     groups[0];
-  const selected = selectedGroup?.tickets.find((n) => n.id === selectedId) || selectedGroup?.primary || rows.find((n) => n.id === selectedId) || rows[0];
+  const selected =
+    selectedGroup?.tickets.find((n) => n.id === selectedId && isThreadRoot(n) && statusFor(n) !== "CLOSED") ||
+    selectedGroup?.primary;
   const selectedParts = selected ? bodyParts(selected.body) : null;
   const selectedStatus = selected ? statusFor(selected) : "OPEN";
-  const related = selectedGroup?.tickets.filter((row) => row.id !== selected?.id) || [];
+  const related = selectedGroup ? closedTickets(selectedGroup.tickets).filter((row) => row.id !== selected?.id) : [];
+  const oldChats = allGroups.flatMap((group) => closedTickets(group.tickets).map((ticket) => ({ group, ticket })));
 
   async function save(status: InboxStatus = selectedStatus) {
     if (!selected) return;
@@ -266,7 +285,7 @@ export function InboxBoard() {
     });
   }
 
-  if (!groups.length) {
+  if (!groups.length && !oldChats.length) {
     return (
       <View className="min-h-0 flex-1">
         <PageHeader
@@ -303,6 +322,52 @@ export function InboxBoard() {
     );
   }
 
+  if (!groups.length) {
+    return (
+      <View className="min-h-0 flex-1">
+        <PageHeader
+          title="Inbox"
+          lede={parentMode ? "Your chat threads with the school." : "Parent-school chat threads."}
+        />
+        {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
+        <View className="min-h-[420px] rounded-md border border-ink-200 bg-white px-6 py-10">
+          <View className="items-center">
+            <View className="h-14 w-14 items-center justify-center rounded-full bg-blue-50">
+              <Ionicons name="checkmark-circle-outline" size={26} color="#047857" />
+            </View>
+            <Text className="mt-4 text-center text-xl font-semibold text-ink-900">No open issue</Text>
+            <Text className="mt-2 max-w-xl text-center text-sm leading-6 text-ink-700">
+              Closed chats are saved below. A new issue starts only when a parent raises a new query.
+            </Text>
+          </View>
+          <View className="mt-8 overflow-hidden rounded-xl border border-ink-100 bg-white">
+            <View className="border-b border-ink-100 px-4 py-3">
+              <Text className="text-xs font-semibold uppercase tracking-wide text-ink-700">Old chats</Text>
+              <Text className="mt-0.5 text-xs text-ink-600">{oldChats.length} closed {oldChats.length === 1 ? "chat" : "chats"}</Text>
+            </View>
+            <ScrollView className="max-h-[260px]">
+              {oldChats.map(({ group, ticket }, index) => (
+                <View key={ticket.id} className={`flex-row items-center gap-3 px-4 py-3 ${index ? "border-t border-ink-100" : ""}`}>
+                  <View className="h-9 w-9 items-center justify-center rounded-full bg-ink-50">
+                    <Ionicons name="checkmark-done-outline" size={16} color="#1e3a5f" />
+                  </View>
+                  <View className="min-w-0 flex-1">
+                    <Text className="text-sm font-bold text-clay-700">{ticketNo(ticket)}</Text>
+                    <Text className="mt-0.5 text-sm font-semibold text-ink-900" numberOfLines={1}>{subjectFor(ticket)}</Text>
+                    <Text className="mt-0.5 text-xs text-ink-600" numberOfLines={1}>
+                      {group.student}{group.classLabel ? ` · ${group.classLabel}` : ""}{group.parent ? ` · ${group.parent}` : ""}
+                    </Text>
+                  </View>
+                  <Text className="text-xs text-ink-600">{shortDate(ticket.createdAt)}</Text>
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View className="min-h-0 flex-1">
       <PageHeader
@@ -316,7 +381,7 @@ export function InboxBoard() {
       >
         <View className={`${wide ? "w-[31%] border-r border-ink-200" : "max-h-[320px] border-b border-ink-200"} bg-white`}>
           <View className="border-b border-ink-100 px-3 py-2">
-            <Text className="text-sm font-semibold text-ink-900">{groups.length} {groups.length === 1 ? "student thread" : "student threads"}</Text>
+            <Text className="text-sm font-semibold text-ink-900">{groups.length} open {groups.length === 1 ? "issue" : "issues"}</Text>
           </View>
           <ScrollView className="min-h-0">
             {groups.map((group) => {
@@ -340,7 +405,7 @@ export function InboxBoard() {
                     </View>
                     <View className="min-w-0 flex-1">
                       <View className="flex-row items-center gap-2">
-                        <Text className="text-[10px] font-bold uppercase tracking-wide text-clay-600">{group.openCount} open · {group.tickets.length} total</Text>
+                        <Text className="text-[10px] font-bold uppercase tracking-wide text-clay-600">{group.openCount} open · {group.issueCount} total</Text>
                         {parentMode && /^Reply:/i.test(n.title) ? <Badge tone="sky">Reply</Badge> : null}
                       </View>
                       <Text className="mt-0.5 text-sm font-semibold text-ink-900" numberOfLines={1}>{group.student}</Text>
@@ -368,7 +433,7 @@ export function InboxBoard() {
                     <Text className="text-xs font-bold uppercase tracking-wide text-clay-600">{ticketNo(selected)}</Text>
                     <Text className="text-base font-bold text-ink-900" numberOfLines={1}>{subjectFor(selected)}</Text>
                     <Badge tone={pillFor(selectedStatus)}>{selectedStatus}</Badge>
-                    {selectedGroup ? <Text className="text-xs font-semibold text-ink-600">{selectedGroup.openCount} open · {selectedGroup.tickets.length} total</Text> : null}
+                    {selectedGroup ? <Text className="text-xs font-semibold text-ink-600">{selectedGroup.openCount} open · {selectedGroup.issueCount} total</Text> : null}
                   </View>
                   <Text className="mt-1 text-xs text-ink-700" numberOfLines={1}>
                     {selectedParts.student}{selectedParts.classLabel ? ` · ${selectedParts.classLabel}` : ""}{selectedParts.parent ? ` · ${selectedParts.parent}` : ""}
@@ -403,6 +468,12 @@ export function InboxBoard() {
                 ))}
               </ScrollView>
 
+              {selectedStatus === "CLOSED" ? (
+                <View className="mt-2 rounded-lg border border-ink-200 bg-white px-3 py-3">
+                  <Text className="text-sm font-semibold text-ink-900">Closed chat</Text>
+                  <Text className="mt-1 text-xs text-ink-600">A parent must raise a new query to start a new issue.</Text>
+                </View>
+              ) : (
               <View className="mt-2 rounded-lg border border-ink-200 bg-white px-3 py-2">
                 {!composerOpen ? (
                   <View className="flex-row flex-wrap items-center justify-between gap-2">
@@ -498,6 +569,7 @@ export function InboxBoard() {
                   </>
                 )}
               </View>
+              )}
 
               {related.length ? (
                 <View className="mt-3 overflow-hidden rounded-xl border border-ink-100 bg-white">

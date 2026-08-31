@@ -1105,29 +1105,7 @@ export async function replyParentQueryCore(
       }).catch(() => undefined);
       return;
     }
-    const title = `Parent query: ${subject}`;
-    const body = `${student.name} · ${student.class.name}-${student.class.section} · Parent: ${user.name || "Parent"}\n\n${reply}`;
-    const nextThread = await prisma.notice.create({
-      data: {
-        title,
-        body,
-        kind: "FEEDBACK",
-        priority: "ACTION",
-        authorId: user.id,
-        studentId: student.id,
-        classes: { create: [{ classId: student.classId }] },
-        audiences: { create: [{ portal: Portal.OFFICE }, { portal: Portal.TEACHER }] },
-      },
-    });
-    void notifyNoticePublished({
-      noticeId: nextThread.id,
-      title,
-      body,
-      portals: [Portal.OFFICE, Portal.TEACHER],
-      classIds: [student.classId],
-      authorId: user.id,
-    }).catch(() => undefined);
-    return;
+    throw new Error("This chat is closed. Raise a new query to start a new issue.");
   }
   const now = new Date();
   const timeline = [
