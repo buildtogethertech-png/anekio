@@ -57,7 +57,7 @@ export function DateField({
   const [cursor, setCursor] = useState(() => new Date(selected.getFullYear(), selected.getMonth(), 1));
   const beforeMin = Boolean(min && value && value < min);
   const futureSelected = Boolean(max && value && value > max);
-  const reason = beforeMin ? "Before start" : futureSelected ? "Future" : closedReason?.(value) || "";
+  const reason = beforeMin ? "Before start" : futureSelected ? "Future" : value ? closedReason?.(value) || "" : "";
   const caption = beforeMin ? "Choose a day on or after the first day." : futureSelected ? "That day has not come yet." : closedCaption(reason);
   const weekday = WEEKDAY_LONG[selected.getDay()] || "";
   const sideLabel = value ? (reason ? (reason.length > 18 ? "Off" : reason) : weekday) : "";
@@ -137,7 +137,7 @@ export function DateField({
       accessibilityRole="button"
       accessibilityLabel={value ? prettyDay(value, true) : placeholder}
       onPress={toggle}
-      className={`flex-row items-center ${bare ? "gap-2 py-1" : "rounded-lg border border-ink-200 bg-white px-3 py-2.5"} ${
+      className={`min-h-[44px] w-full flex-row items-center ${bare ? "gap-2 py-1" : "rounded-md border border-ink-200 bg-white px-3 py-2.5"} ${
         plain ? "gap-2" : ""
       }`}
     >
@@ -178,7 +178,7 @@ export function DateField({
           {trigger}
         </Popover>
       )}
-      {!plain && caption ? <Text className="mt-1 text-[11px] text-ink-700">{caption}</Text> : null}
+      {!plain && value && caption ? <Text className="mt-1 text-[11px] text-ink-700">{caption}</Text> : null}
     </View>
   );
 }

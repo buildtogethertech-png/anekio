@@ -197,11 +197,21 @@ export function LeaveApplyCard({
     );
   }
 
+  function openApplyModal() {
+    const initialDate = from || earliest;
+    setFormError("");
+    setSelectedStudentIds((current) => studentId ? [studentId] : current.length ? current : children[0]?.id ? [children[0].id] : []);
+    if (initialDate) {
+      setFrom(initialDate);
+      if (!to || to < initialDate) setTo(initialDate);
+    }
+    setOpen(true);
+  }
+
   const trigger = (
     <Button onPress={() => {
       setFormError("");
-      setSelectedStudentIds((current) => studentId ? [studentId] : current.length ? current : children[0]?.id ? [children[0].id] : []);
-      setOpen(true);
+      openApplyModal();
     }}>Apply for leave</Button>
   );
   const allChildrenSelected = Boolean(children.length) && selectedStudentIds.length === children.length;
@@ -272,11 +282,11 @@ export function LeaveApplyCard({
             </Text>
           </View>
         ) : null}
-        <View className="flex-col gap-3 sm:flex-row">
-          <View className="flex-1">
-            <Field label="First day">
+        <View className="flex-col gap-3 sm:flex-row sm:items-start">
+          <View className="min-w-0 flex-1">
+            <Field label="Start date">
               <DateField
-                placeholder="Select first day"
+                placeholder="Select start date"
                 value={from}
                 closedReason={leaveClosedReason}
                 onChange={(next) => {
@@ -286,10 +296,10 @@ export function LeaveApplyCard({
               />
             </Field>
           </View>
-          <View className="flex-1">
-            <Field label="Last day">
+          <View className="min-w-0 flex-1">
+            <Field label="End date">
               <DateField
-                placeholder="Select last day"
+                placeholder="Select end date"
                 value={to || from}
                 min={from || undefined}
                 closedReason={leaveClosedReason}
@@ -304,8 +314,8 @@ export function LeaveApplyCard({
           busy={busy}
           onSubmit={async (reason) => {
             if (!from) {
-              setFormError("Choose the first day.");
-              onError("Choose the first day.");
+              setFormError("Choose the start date.");
+              onError("Choose the start date.");
               return;
             }
             const blockedFrom = leaveClosedReason(from);
