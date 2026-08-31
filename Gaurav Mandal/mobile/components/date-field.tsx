@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ComponentProps } from "react";
 import { Modal, Pressable, Text, useWindowDimensions, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Calendar, type DateData } from "react-native-calendars";
@@ -6,6 +6,7 @@ import { closedCaption, prettyDay } from "../lib/calendar";
 import { Popover } from "./form/popover";
 
 const WEEKDAY_LONG = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const DESKTOP_CALENDAR_SIZE = { width: 304, height: 318 };
 type CalendarMark = {
   disabled?: boolean;
   disableTouchEvent?: boolean;
@@ -15,6 +16,7 @@ type CalendarMark = {
   textColor?: string;
 };
 type CalendarMarks = Record<string, CalendarMark>;
+type CalendarTheme = NonNullable<ComponentProps<typeof Calendar>["theme"]> & Record<string, unknown>;
 
 function toYmd(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -85,8 +87,9 @@ export function DateField({
   }, [closedReason, cursor, max, min, value]);
 
   const calendar = (
-    <View className="rounded-lg bg-white px-2 py-2">
+    <View className="rounded-lg bg-white px-1 py-1">
       <Calendar
+        style={{ width: DESKTOP_CALENDAR_SIZE.width }}
         current={toYmd(cursor)}
         firstDay={0}
         hideExtraDays
@@ -102,8 +105,8 @@ export function DateField({
           setOpen(false);
         }}
         renderArrow={(direction: "left" | "right") => (
-          <View className="h-8 w-8 items-center justify-center rounded-full bg-ink-50">
-            <Ionicons name={direction === "left" ? "chevron-back" : "chevron-forward"} size={18} color="#1e3a5f" />
+          <View className="h-7 w-7 items-center justify-center rounded-full bg-ink-50">
+            <Ionicons name={direction === "left" ? "chevron-back" : "chevron-forward"} size={17} color="#1e3a5f" />
           </View>
         )}
         theme={{
@@ -116,13 +119,41 @@ export function DateField({
           monthTextColor: "#102a43",
           textDisabledColor: "#9aa7b7",
           arrowColor: "#1e3a5f",
-          textDayFontSize: 14,
-          textMonthFontSize: 16,
-          textDayHeaderFontSize: 12,
+          textDayFontSize: 13,
+          textMonthFontSize: 15,
+          textDayHeaderFontSize: 11,
           textDayFontWeight: "500",
           textMonthFontWeight: "700",
           textDayHeaderFontWeight: "700",
-        }}
+          "stylesheet.calendar.header": {
+            header: {
+              flexDirection: "row",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginHorizontal: 4,
+              paddingLeft: 4,
+              paddingRight: 4,
+              marginTop: 4,
+              marginBottom: 4,
+            },
+            week: {
+              marginTop: 8,
+              flexDirection: "row",
+              justifyContent: "space-around",
+            },
+          },
+          "stylesheet.day.basic": {
+            base: {
+              width: 30,
+              height: 30,
+              alignItems: "center",
+              justifyContent: "center",
+            },
+            selected: {
+              borderRadius: 15,
+            },
+          },
+        } as CalendarTheme}
       />
     </View>
   );
@@ -174,7 +205,15 @@ export function DateField({
           </Modal>
         </>
       ) : (
-        <Popover open={open} onClose={() => setOpen(false)} panel={calendar} maxHeight={390} width={340} align="end">
+        <Popover
+          open={open}
+          onClose={() => setOpen(false)}
+          panel={calendar}
+          maxHeight={DESKTOP_CALENDAR_SIZE.height}
+          width={DESKTOP_CALENDAR_SIZE.width}
+          align="end"
+          fixedHeight={DESKTOP_CALENDAR_SIZE.height}
+        >
           {trigger}
         </Popover>
       )}

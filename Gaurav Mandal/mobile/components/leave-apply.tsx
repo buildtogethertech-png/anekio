@@ -6,6 +6,9 @@ import { act } from "../lib/mutate";
 import { useRecord, type LeaveRow, type RecordPayload } from "../lib/record";
 import { calendarFrom, closedReason, isSchoolDay, nextSchoolDay, snapToSchoolDay, ymd, type SchoolCalendar } from "../lib/calendar";
 
+const EMPTY_CHILDREN: NonNullable<RecordPayload["children"]> = [];
+const EMPTY_LEAVE_TYPES: NonNullable<RecordPayload["leaveTypes"]> = [];
+
 function prettyRange(from: string, to: string) {
   if (!from) return "";
   const a = new Date(`${from}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
@@ -147,15 +150,20 @@ export function LeaveApplyCard({
   className?: string;
 }) {
   const { data } = useRecord();
-  const children = data?.children ?? [];
+  const children = data?.children ?? EMPTY_CHILDREN;
   const schoolCalendar = useMemo(
     () => calendarFrom(data?.calendar?.holidays, data?.calendar?.weekdays),
     [data?.calendar?.holidays, data?.calendar?.weekdays]
   );
-  const types = (data?.leaveTypes ?? []).filter((t) =>
-    audience === "teacher" ? t.forTeacher : audience === "staff" ? t.forStaff : t.forStudent
+  const types = useMemo(
+    () =>
+      (data?.leaveTypes ?? EMPTY_LEAVE_TYPES).filter((t) =>
+        audience === "teacher" ? t.forTeacher : audience === "staff" ? t.forStaff : t.forStudent
+      ),
+    [audience, data?.leaveTypes]
   );
   const mine = (data?.myLeave ?? []).filter((r) => (studentId ? r.subjectId === studentId : true));
+  const childIds = useMemo(() => children.map((child) => child.id), [children]);
   const [open, setOpen] = useState(openByDefault);
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>(studentId ? [studentId] : children[0]?.id ? [children[0].id] : []);
   const [typeId, setTypeId] = useState(types[0]?.id || "");
@@ -181,15 +189,16 @@ export function LeaveApplyCard({
 
   useEffect(() => {
     if (studentId) {
-      setSelectedStudentIds([studentId]);
+      setSelectedStudentIds((current) => (current.length === 1 && current[0] === studentId ? current : [studentId]));
       return;
     }
     setSelectedStudentIds((current) => {
-      const allowed = new Set(children.map((child) => child.id));
+      const allowed = new Set(childIds);
       const kept = current.filter((id) => allowed.has(id));
-      return kept.length ? kept : children[0]?.id ? [children[0].id] : [];
+      const next = kept.length ? kept : childIds[0] ? [childIds[0]] : [];
+      return next.length === current.length && next.every((id, index) => id === current[index]) ? current : next;
     });
-  }, [children, studentId]);
+  }, [childIds, studentId]);
 
   if (!types.length) {
     return (
@@ -335,7 +344,8 @@ export function LeaveApplyCard({
             setFormError("");
             setBusy(true);
             try {
-              for (const selected of targetStudentIds) {
+              const leaveTargets = audience === "student" ? targetStudentIds : [undefined];
+              for (const selected of leaveTargets) {
                 await act(token, "applyLeave", {
                   typeId: picked?.id,
                   from,
@@ -347,7 +357,7 @@ export function LeaveApplyCard({
               setOpen(false);
               setFrom("");
               setTo("");
-              await onDone(targetStudentIds.length > 1 ? `Leave sent for ${targetStudentIds.length} children.` : "Leave sent.");
+              await onDone(audience === "student" && targetStudentIds.length > 1 ? `Leave sent for ${targetStudentIds.length} children.` : "Leave sent.");
             } catch (e) {
               const message = e instanceof Error ? e.message : "Could not apply.";
               setFormError(message);

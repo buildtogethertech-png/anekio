@@ -25,6 +25,7 @@ export function Popover({
   minWidth,
   width,
   align = "start",
+  fixedHeight,
 }: {
   open: boolean;
   onClose: () => void;
@@ -34,6 +35,7 @@ export function Popover({
   minWidth?: number;
   width?: number;
   align?: Align;
+  fixedHeight?: number;
 }) {
   const { refs, floatingStyles, context, isPositioned } = useFloating({
     open,
@@ -45,23 +47,29 @@ export function Popover({
     whileElementsMounted: autoUpdate,
     middleware: [
       offset(6),
-      autoPlacement({
-        altBoundary: true,
-        padding: 10,
-        allowedPlacements:
-          align === "end"
-            ? ["bottom-end", "top-end", "bottom-start", "top-start"]
-            : ["bottom-start", "top-start", "bottom-end", "top-end"],
-      }),
-      shift({ altBoundary: true, padding: 10 }),
+      ...(fixedHeight
+        ? []
+        : [
+            autoPlacement({
+              altBoundary: true,
+              padding: 10,
+              allowedPlacements:
+                align === "end"
+                  ? ["bottom-end", "top-end", "bottom-start", "top-start"]
+                  : ["bottom-start", "top-start", "bottom-end", "top-end"],
+            }),
+          ]),
+      fixedHeight ? shift({ padding: 10 }) : shift({ altBoundary: true, padding: 10 }),
       size({
-        altBoundary: true,
+        altBoundary: !fixedHeight,
         padding: 10,
         apply({ availableWidth, availableHeight, elements, rects }) {
           const nextWidth = width ?? Math.max(rects.reference.width, minWidth ?? 160);
+          const nextMaxHeight = fixedHeight ? fixedHeight : Math.max(120, Math.min(maxHeight, availableHeight));
           Object.assign(elements.floating.style, {
             width: `${Math.min(nextWidth, availableWidth)}px`,
-            maxHeight: `${Math.max(120, Math.min(maxHeight, availableHeight))}px`,
+            height: fixedHeight ? `${fixedHeight}px` : undefined,
+            maxHeight: `${nextMaxHeight}px`,
           });
         },
       }),
@@ -75,7 +83,7 @@ export function Popover({
   const panelStyle: CSSProperties = {
     ...floatingStyles,
     zIndex: 10050,
-    overflow: "auto",
+    overflow: fixedHeight ? "visible" : "auto",
     overscrollBehavior: "contain",
     background: "#fff",
     border: "1px solid #e2e8f0",
