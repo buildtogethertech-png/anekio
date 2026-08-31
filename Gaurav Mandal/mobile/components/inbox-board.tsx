@@ -136,6 +136,12 @@ function latestThreadPreview(parts: ReturnType<typeof bodyParts>) {
   return parts.message;
 }
 
+function latestThreadAt(n: Notice) {
+  const parts = bodyParts(n.body);
+  const lastStamp = parts.events.at(-1)?.stamp;
+  return +new Date(lastStamp || n.createdAt);
+}
+
 export function InboxBoard() {
   const { token, user } = useSession();
   const { data } = useRecord();
@@ -215,7 +221,7 @@ export function InboxBoard() {
           waitingCount: ordered.filter((n) => statusFor(n) === "WAITING").length,
         };
       })
-      .sort((a, b) => newestFirst(a.primary, b.primary));
+      .sort((a, b) => latestThreadAt(b.primary) - latestThreadAt(a.primary));
   }, [rows]);
   const groups = allGroups;
   const selectedGroup =
@@ -543,10 +549,13 @@ export function InboxBoard() {
 
 function ThreadBubble({ label, author, date, body, mine }: { label: string; author: string; date: string; body: string; mine?: boolean }) {
   return (
-    <View className={`rounded-xl border px-4 py-3 ${mine ? "border-blue-100 bg-blue-50" : "border-ink-100 bg-ink-50"}`}>
-      <Text className="text-[11px] font-bold uppercase tracking-wide text-ink-700">{label}</Text>
-      <Text className="mt-1 text-xs text-ink-600">{author} · {date}</Text>
-      <Text className="mt-3 text-base leading-6 text-ink-900">{body}</Text>
+    <View className={`max-w-[82%] ${mine ? "self-end items-end" : "self-start items-start"}`}>
+      <View className={`rounded-2xl px-4 py-2.5 ${mine ? "rounded-br-md bg-clay-500" : "rounded-bl-md bg-white"}`}>
+        <Text className={`text-[11px] font-semibold ${mine ? "text-blue-50" : "text-clay-700"}`}>{label}</Text>
+        <Text className={`mt-1 text-sm leading-5 ${mine ? "text-white" : "text-ink-900"}`}>{body}</Text>
+        <Text className={`mt-1 text-[10px] ${mine ? "text-blue-50" : "text-ink-500"}`}>{date}</Text>
+      </View>
+      {author && author !== label ? <Text className="mt-1 px-1 text-[10px] text-ink-500">{author}</Text> : null}
     </View>
   );
 }
@@ -602,6 +611,18 @@ function ThreadEvent({
           ? "Assigned"
           : "Status updated";
   const author = isParentMessage ? parentName : isSchoolMessage ? event.replyAuthor : "";
+  const mine = parentMode ? isParentMessage : isSchoolMessage;
+  if (isParentMessage || isSchoolMessage) {
+    return (
+      <ThreadBubble
+        label={label}
+        author={author}
+        date={event.stamp ? longDate(event.stamp) : ""}
+        body={body}
+        mine={mine}
+      />
+    );
+  }
   return (
     <View className="flex-row gap-3">
       <View className="mt-1 h-8 w-8 items-center justify-center rounded-full bg-blue-50">

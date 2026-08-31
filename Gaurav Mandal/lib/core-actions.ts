@@ -987,6 +987,28 @@ function cleanParentQuerySubject(title: string) {
   return title.replace(/^(Reply:|Parent (query|consult|reply):|Note ·)\s*/i, "").trim() || "General query";
 }
 
+function inboxStatusForBody(body: string) {
+  const matches = [...body.matchAll(/Status:\s*(OPEN|WAITING|URGENT|CLOSED)/gi)];
+  return matches.at(-1)?.[1]?.toUpperCase() || "OPEN";
+}
+
+async function activeParentThreadForReply(input: { originalId: string; studentId: string; subject: string }) {
+  const rows = await prisma.notice.findMany({
+    where: {
+      kind: "FEEDBACK",
+      studentId: input.studentId,
+      title: {
+        in: [`Parent query: ${input.subject}`, `Parent consult: ${input.subject}`],
+      },
+    },
+    include: { audiences: true, classes: true },
+    orderBy: { createdAt: "desc" },
+  });
+  return rows.find((row) => row.id === input.originalId && inboxStatusForBody(row.body) !== "CLOSED")
+    || rows.find((row) => inboxStatusForBody(row.body) !== "CLOSED")
+    || null;
+}
+
 function normalizeMentionName(value: string) {
   return String(value || "")
     .replace(/^@+/, "")
@@ -1057,10 +1079,37 @@ export async function replyParentQueryCore(
     if (student.parent.userId !== user.id) throw new Error("No access to this message.");
     if (!reply) throw new Error("Write a reply to send to the school.");
     const subject = cleanParentQuerySubject(original.title);
+    const activeThread = await activeParentThreadForReply({ originalId: original.id, studentId: student.id, subject });
+    const now = new Date();
+    const parentReplyEvent = `\n\n--- inbox:${now.toISOString()} ---\nParent replied: ${reply}`;
+    if (activeThread) {
+      await Promise.all([
+        prisma.notice.update({
+          where: { id: activeThread.id },
+          data: { body: `${activeThread.body}${parentReplyEvent}` },
+        }),
+        original.id !== activeThread.id
+          ? prisma.notice.update({
+              where: { id: original.id },
+              data: { body: `${original.body}${parentReplyEvent}` },
+            })
+          : Promise.resolve(),
+      ]);
+      void notifyNoticePublished({
+        noticeId: activeThread.id,
+        title: activeThread.title,
+        body: reply,
+        portals: [Portal.OFFICE, Portal.TEACHER],
+        classIds: activeThread.classes.map((row) => row.classId),
+        authorId: user.id,
+      }).catch(() => undefined);
+      return;
+    }
+    const title = `Parent query: ${subject}`;
     const body = `${student.name} · ${student.class.name}-${student.class.section} · Parent: ${user.name || "Parent"}\n\n${reply}`;
-    const parentReply = await prisma.notice.create({
+    const nextThread = await prisma.notice.create({
       data: {
-        title: `Parent reply: ${subject}`,
+        title,
         body,
         kind: "FEEDBACK",
         priority: "ACTION",
@@ -1070,16 +1119,9 @@ export async function replyParentQueryCore(
         audiences: { create: [{ portal: Portal.OFFICE }, { portal: Portal.TEACHER }] },
       },
     });
-    const now = new Date();
-    await prisma.notice.update({
-      where: { id: original.id },
-      data: {
-        body: `${original.body}\n\n--- inbox:${now.toISOString()} ---\nParent replied: ${reply}`,
-      },
-    });
     void notifyNoticePublished({
-      noticeId: parentReply.id,
-      title: parentReply.title,
+      noticeId: nextThread.id,
+      title,
       body,
       portals: [Portal.OFFICE, Portal.TEACHER],
       classIds: [student.classId],
