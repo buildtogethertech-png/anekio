@@ -42,15 +42,16 @@ function bodyParts(body: string) {
   const directedTo = lines.find((line) => /^For /i.test(line))?.replace(/^For /i, "").trim() || "";
   const message = lines
     .slice(1)
-    .filter((line) => !/^For /i.test(line))
+    .filter((line) => !/^For |^Replying to:/i.test(line))
     .join("\n")
     .trim();
   const bits = meta.split("·").map((part) => part.trim()).filter(Boolean);
+  const parent = bits.find((part) => /^Parent:/i.test(part))?.replace(/^Parent:\s*/i, "") || "";
   return {
     meta,
     student: bits[0] || "",
     classLabel: bits[1] || "",
-    parent: bits.find((part) => /^Parent:/i.test(part))?.replace(/^Parent:\s*/i, "") || "",
+    parent,
     directedTo,
     message: message || "No message written.",
     events: events.map((e) => parseEvent(`inbox:${e.trim()}`)),
@@ -65,7 +66,18 @@ function parseEvent(event: string) {
   const note = lines.find((line) => /^Internal note:/i.test(line))?.replace(/^Internal note:\s*/i, "");
   const reply = lines.find((line) => /^Reply sent by /i.test(line))?.replace(/^Reply sent by /i, "");
   const parentReply = lines.find((line) => /^Parent replied:/i.test(line))?.replace(/^Parent replied:\s*/i, "");
-  return { stamp, status, assigned, note, reply, parentReply, raw: lines.join("\n") };
+  const replyMatch = reply?.match(/^(.+?):\s*([\s\S]*)$/);
+  return {
+    stamp,
+    status,
+    assigned,
+    note,
+    reply,
+    replyAuthor: replyMatch?.[1]?.trim() || "",
+    replyBody: replyMatch?.[2]?.trim() || reply || "",
+    parentReply,
+    raw: lines.join("\n"),
+  };
 }
 
 function statusFor(n: Notice): InboxStatus {
@@ -95,7 +107,7 @@ function activeMentionQuery(value: string) {
 
 function groupKeyFor(n: Notice) {
   const parts = bodyParts(n.body);
-  return `${parts.student}|${parts.parent}|${parts.classLabel}`.toLowerCase().replace(/\s+/g, " ").trim() || n.studentId || n.id;
+  return (n.studentId || `${parts.student}|${parts.classLabel}`).toLowerCase().replace(/\s+/g, " ").trim() || n.id;
 }
 
 function newestFirst(a: Notice, b: Notice) {
@@ -103,12 +115,25 @@ function newestFirst(a: Notice, b: Notice) {
 }
 
 function bestTicket(tickets: Notice[]) {
-  return [...tickets].sort((a, b) => {
+  const originals = tickets.filter((ticket) => /^Parent (query|consult):/i.test(ticket.title));
+  const pool = originals.length ? originals : tickets;
+  return [...pool].sort((a, b) => {
     const aClosed = statusFor(a) === "CLOSED" ? 1 : 0;
     const bClosed = statusFor(b) === "CLOSED" ? 1 : 0;
     if (aClosed !== bClosed) return aClosed - bClosed;
     return newestFirst(a, b);
   })[0];
+}
+
+function latestThreadPreview(parts: ReturnType<typeof bodyParts>) {
+  const latest = parts.events.at(-1);
+  if (!latest) return parts.message;
+  if (latest.parentReply) return latest.parentReply;
+  if (latest.replyBody) return latest.replyBody;
+  if (latest.note) return latest.note;
+  if (latest.assigned) return `Assigned to ${latest.assigned}`;
+  if (latest.status) return `Status ${latest.status}`;
+  return parts.message;
 }
 
 export function InboxBoard() {
@@ -240,7 +265,7 @@ export function InboxBoard() {
       <View className="min-h-0 flex-1">
         <PageHeader
           title="Inbox"
-          lede={parentMode ? "School replies and your request threads." : "Parent requests as simple mail-style tickets."}
+          lede={parentMode ? "Your chat threads with the school." : "Parent-school chat threads."}
         />
         {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
         <View className="min-h-[420px] items-center justify-center rounded-md border border-ink-200 bg-white px-6 py-12">
@@ -276,7 +301,7 @@ export function InboxBoard() {
     <View className="min-h-0 flex-1">
       <PageHeader
         title="Inbox"
-        lede={parentMode ? "School replies and your request threads." : "Parent requests as simple mail-style tickets."}
+        lede={parentMode ? "Your chat threads with the school." : "Parent-school chat threads."}
       />
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
       <View
@@ -317,7 +342,7 @@ export function InboxBoard() {
                         {group.parent}{group.classLabel ? ` · ${group.classLabel}` : ""}
                       </Text>
                       <Text className="mt-1 text-xs font-medium text-ink-900" numberOfLines={1}>{subjectFor(n)}</Text>
-                      <Text className="text-xs text-ink-700" numberOfLines={1}>{parts.message}</Text>
+                      <Text className="text-xs text-ink-700" numberOfLines={1}>{latestThreadPreview(parts)}</Text>
                       <Text className="mt-1 text-[11px] text-ink-600">{shortDate(n.createdAt)} · {n.author}</Text>
                     </View>
                   </View>
@@ -361,14 +386,14 @@ export function InboxBoard() {
 
               <ScrollView className="mt-4 rounded-xl bg-ink-50/40" style={{ maxHeight: chatHeight }} contentContainerClassName="gap-3 p-3">
                 <ThreadBubble
-                  label={parentMode ? "Message" : "Parent message"}
-                  author={selected.author}
+                  label={parentMode ? "You" : "Parent"}
+                  author={selectedParts.parent || selected.author}
                   date={longDate(selected.createdAt)}
                   body={selectedParts.message}
                   mine={parentMode}
                 />
                 {selectedParts.events.map((event, index) => (
-                  <ThreadEvent key={`${event.stamp}-${index}`} event={event} />
+                  <ThreadEvent key={`${event.stamp}-${index}`} event={event} parentName={selectedParts.parent || selected.author} parentMode={parentMode} />
                 ))}
               </ScrollView>
 
@@ -555,9 +580,28 @@ function CompactAction({
   );
 }
 
-function ThreadEvent({ event }: { event: ReturnType<typeof parseEvent> }) {
-  const body = event.parentReply || event.reply || event.note || event.assigned || event.status || event.raw;
-  const label = event.parentReply ? "Parent replied" : event.reply ? "School replied" : event.note ? "Internal note" : event.assigned ? "Assigned" : "Status updated";
+function ThreadEvent({
+  event,
+  parentName,
+  parentMode,
+}: {
+  event: ReturnType<typeof parseEvent>;
+  parentName: string;
+  parentMode: boolean;
+}) {
+  const body = event.parentReply || event.replyBody || event.note || event.assigned || event.status || event.raw;
+  const isParentMessage = Boolean(event.parentReply);
+  const isSchoolMessage = Boolean(event.replyBody);
+  const label = isParentMessage
+    ? parentMode ? "You" : "Parent"
+    : isSchoolMessage
+      ? parentMode ? "School" : event.replyAuthor || "School"
+      : event.note
+        ? "Internal note"
+        : event.assigned
+          ? "Assigned"
+          : "Status updated";
+  const author = isParentMessage ? parentName : isSchoolMessage ? event.replyAuthor : "";
   return (
     <View className="flex-row gap-3">
       <View className="mt-1 h-8 w-8 items-center justify-center rounded-full bg-blue-50">
@@ -565,7 +609,11 @@ function ThreadEvent({ event }: { event: ReturnType<typeof parseEvent> }) {
       </View>
       <View className="min-w-0 flex-1 rounded-xl border border-ink-100 bg-white px-4 py-3">
         <Text className="text-sm font-semibold text-ink-900">{label}</Text>
-        {event.stamp ? <Text className="mt-0.5 text-xs text-ink-600">{longDate(event.stamp)}</Text> : null}
+        {event.stamp ? (
+          <Text className="mt-0.5 text-xs text-ink-600">
+            {[author, longDate(event.stamp)].filter(Boolean).join(" · ")}
+          </Text>
+        ) : null}
         {body ? <Text className="mt-2 text-sm leading-5 text-ink-800">{body}</Text> : null}
       </View>
     </View>

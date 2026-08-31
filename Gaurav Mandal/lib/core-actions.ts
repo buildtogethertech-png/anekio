@@ -1057,7 +1057,7 @@ export async function replyParentQueryCore(
     if (student.parent.userId !== user.id) throw new Error("No access to this message.");
     if (!reply) throw new Error("Write a reply to send to the school.");
     const subject = cleanParentQuerySubject(original.title);
-    const body = `${student.name} · ${student.class.name}-${student.class.section} · Parent: ${user.name || "Parent"}\nReplying to: ${original.title}\n\n${reply}`;
+    const body = `${student.name} · ${student.class.name}-${student.class.section} · Parent: ${user.name || "Parent"}\n\n${reply}`;
     const parentReply = await prisma.notice.create({
       data: {
         title: `Parent reply: ${subject}`,
