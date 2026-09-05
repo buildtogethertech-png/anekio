@@ -4,15 +4,18 @@ import { addDays, ymd } from "../lib/calendar";
 import { act } from "../lib/mutate";
 import { pickFile } from "../lib/upload";
 import type { RecordPayload } from "../lib/record";
+import { teacherCanEditMarks, workflowLabel } from "../lib/exam-workflow";
+import { openMarksheetPdf } from "../lib/print-html";
 import { Button, Input, Modal } from "./ui";
 
 type Todo = NonNullable<RecordPayload["todos"]>[number];
 type Sheet = NonNullable<RecordPayload["markSheets"]>[number];
 
-export function examTodoKind(todo: Todo): "paper" | "marks" | "skip" {
+export function examTodoKind(todo: Todo): "paper" | "marks" | "take" | "skip" {
   if (todo.kind === "copies" || todo.title.toLowerCase().startsWith("upload copies")) return "skip";
+  if (todo.kind === "take" || todo.id.startsWith("take-") || todo.title.toLowerCase().startsWith("take exam")) return "take";
   if (todo.kind === "paper" || todo.id.startsWith("paper-")) return "paper";
-  if (todo.kind === "marks" || todo.id.startsWith("marks-") || todo.title.toLowerCase().includes("enter marks")) {
+  if (todo.kind === "marks" || todo.id.startsWith("marks-") || todo.title.toLowerCase().includes("enter marks") || todo.title.toLowerCase().includes("correct marks")) {
     return "marks";
   }
   return "skip";
@@ -117,6 +120,8 @@ export function ExamTodoCard({
   onDone,
   onUndo,
   onOpenMarks,
+  onTake,
+  onUpload,
   embedded,
 }: {
   todo: Todo;
@@ -125,6 +130,8 @@ export function ExamTodoCard({
   onDone?: () => void;
   onUndo?: () => void;
   onOpenMarks?: () => void;
+  onTake?: () => void;
+  onUpload?: () => void;
   embedded?: boolean;
 }) {
   const { width } = useWindowDimensions();
@@ -141,8 +148,13 @@ export function ExamTodoCard({
         ? "bg-amber-50 text-amber-800"
         : "bg-ink-50 text-ink-700";
   const marksRow = kind === "marks" && onOpenMarks;
+  const takeRow = kind === "take" && onTake;
   const action =
-    kind === "paper" && onDone && !done ? (
+    kind === "paper" && onUpload && !done ? (
+      <Button variant="ghost" disabled={pending} onPress={onUpload} className="px-3 py-2">
+        Prepare paper
+      </Button>
+    ) : kind === "paper" && onDone && !done ? (
       <Button variant="ghost" disabled={pending} onPress={onDone} className="px-3 py-2">
         Mark done
       </Button>
@@ -150,9 +162,17 @@ export function ExamTodoCard({
       <Button variant="ghost" disabled={pending} onPress={onUndo} className="px-3 py-2">
         Undo
       </Button>
+    )     : takeRow ? (
+      <View className="min-w-[92px] items-center rounded-md border border-clay-500 bg-[#EEF2FF] px-3 py-2">
+        <Text className="text-sm font-medium text-ink-900">Take exam</Text>
+      </View>
+    ) : kind === "take" && done ? (
+      <View className="min-w-[92px] items-center rounded-md border border-ink-200 bg-white px-3 py-2">
+        <Text className="text-sm font-medium text-ink-800">Taken</Text>
+      </View>
     ) : marksRow ? (
       <View className="min-w-[92px] items-center rounded-md border border-ink-200 bg-white px-3 py-2">
-        <Text className="text-sm font-medium text-ink-800">{done ? "Edit marks" : "Enter marks"}</Text>
+        <Text className="text-sm font-medium text-ink-800">{done ? "View marks" : "Enter marks"}</Text>
       </View>
     ) : null;
   const body = (
@@ -180,7 +200,16 @@ export function ExamTodoCard({
           : `mb-2 overflow-hidden rounded-md border bg-white ${done ? "border-ink-100" : "border-ink-200"}`
       }
     >
-      {marksRow ? (
+      {takeRow ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Take exam. ${todo.title}`}
+          disabled={pending}
+          onPress={onTake}
+        >
+          {body}
+        </Pressable>
+      ) : marksRow ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={done ? `Change marks. ${todo.title}` : todo.title}
@@ -201,17 +230,22 @@ export function TeacherMarksModal({
   token,
   onClose,
   onSaved,
+  mode = "teacher",
 }: {
   sheet: Sheet | null;
   token: string | null;
   onClose: () => void;
   onSaved: () => Promise<void>;
+  mode?: "teacher" | "admin";
 }) {
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [query, setQuery] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
+  const [returnNote, setReturnNote] = useState("");
+  const locked = mode === "teacher" && !teacherCanEditMarks(sheet?.workflowStatus);
+  const adminReview = mode === "admin";
 
   useEffect(() => {
     if (!sheet) return;
@@ -223,6 +257,7 @@ export function TeacherMarksModal({
     setQuery("");
     setError("");
     setNote("");
+    setReturnNote("");
   }, [sheet]);
 
   const needle = query.trim().toLowerCase();
@@ -234,19 +269,32 @@ export function TeacherMarksModal({
           [s.name, s.admissionNo].join(" ").toLowerCase().includes(needle)
         );
 
-  async function saveTyped() {
+  async function saveTyped(submit = false) {
     if (!sheet) return;
     setPending(true);
     setError("");
     try {
-      await act(token, "saveExamMarks", {
-        examId: sheet.examId,
-        marks: sheet.students.map((s) => {
-          const raw = (draft[s.id] || "").trim();
-          const absent = /^(ab|absent)$/i.test(raw);
-          return { studentId: s.id, marks: absent ? "" : raw, absent };
-        }),
+      const marks = sheet.students.map((s) => {
+        const raw = (draft[s.id] || "").trim();
+        const absent = /^(ab|absent)$/i.test(raw);
+        return { studentId: s.id, marks: absent ? "" : raw, absent };
       });
+      await act(token, submit ? "submitExamMarks" : "saveExamMarks", { examId: sheet.examId, marks });
+      await onSaved();
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function adminRun(op: string) {
+    if (!sheet) return;
+    setPending(true);
+    setError("");
+    try {
+      await act(token, op, { examId: sheet.examId, note: returnNote });
       await onSaved();
       onClose();
     } catch (e) {
@@ -338,6 +386,9 @@ export function TeacherMarksModal({
   const entered = sheet
     ? sheet.students.filter((s) => (draft[s.id] || "").trim()).length
     : 0;
+  const absents = sheet
+    ? sheet.students.filter((s) => /^(ab|absent)$/i.test((draft[s.id] || "").trim())).length
+    : 0;
 
   return (
     <Modal
@@ -348,10 +399,48 @@ export function TeacherMarksModal({
       footer={
         sheet ? (
           <View className="flex-row flex-wrap items-center justify-between gap-3">
-            <Text className="text-xs text-ink-700">{entered} of {sheet.students.length} entered</Text>
-            <View className="flex-row items-center gap-2">
+            <Text className="text-xs text-ink-700">
+              {entered} of {sheet.students.length} entered · {entered - absents} present · {absents} absent · {workflowLabel(sheet.workflowStatus)}
+            </Text>
+            <View className="flex-row flex-wrap items-center justify-end gap-2">
               <Button variant="ghost" disabled={pending} onPress={onClose}>Cancel</Button>
-              <Button disabled={pending} onPress={saveTyped}>{pending ? "Saving…" : "Save marks"}</Button>
+              {adminReview ? (
+                <>
+                  {sheet.workflowStatus !== "PUBLISHED" ? (
+                    <Button variant="ghost" disabled={pending} onPress={() => void saveTyped(false)}>
+                      Save overrides
+                    </Button>
+                  ) : null}
+                  {sheet.workflowStatus === "SUBMITTED" || sheet.workflowStatus === "UNDER_REVIEW" || sheet.workflowStatus === "APPROVED" ? (
+                    <Button
+                      variant="ghost"
+                      disabled={pending || !returnNote.trim()}
+                      onPress={() => void adminRun("returnExamMarks")}
+                    >
+                      Return for correction
+                    </Button>
+                  ) : null}
+                  {sheet.workflowStatus === "SUBMITTED" || sheet.workflowStatus === "UNDER_REVIEW" ? (
+                    <Button disabled={pending} onPress={() => void adminRun("approveExamMarks")}>
+                      Approve
+                    </Button>
+                  ) : null}
+                  {sheet.workflowStatus === "APPROVED" ? (
+                    <Button disabled={pending} onPress={() => void adminRun("publishExamResults")}>
+                      Publish to parents
+                    </Button>
+                  ) : null}
+                </>
+              ) : locked ? null : (
+                <>
+                  <Button variant="ghost" disabled={pending} onPress={() => void saveTyped(false)}>
+                    {pending ? "Saving…" : "Save draft"}
+                  </Button>
+                  <Button disabled={pending} onPress={() => void saveTyped(true)}>
+                    {sheet.workflowStatus === "CORRECTION_REQUIRED" ? "Submit again" : "Submit to office"}
+                  </Button>
+                </>
+              )}
             </View>
           </View>
         ) : null
@@ -361,11 +450,17 @@ export function TeacherMarksModal({
         <View>
           <View className="rounded-md bg-ink-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
             <View className="min-w-0 flex-1">
-              <Text className="text-sm font-medium text-ink-900">Enter marks out of {sheet.maxMarks}</Text>
-              <Text className="mt-0.5 text-xs text-ink-700">Use Ab only when a student was absent.</Text>
+              <Text className="text-sm font-medium text-ink-900">
+                {sheet.seriesName || sheet.subject}{sheet.classLabel ? ` · ${sheet.classLabel}` : ""} · Max {sheet.maxMarks}
+              </Text>
+              <Text className="mt-0.5 text-xs text-ink-700">
+                {workflowLabel(sheet.workflowStatus)}
+                {sheet.date ? ` · ${sheet.date}` : ""}
+                {locked ? " · locked after submit" : " · You can enter marks as soon as this paper is scheduled. Exam date does not block entry."}
+              </Text>
             </View>
             <View className="mt-3 flex-row flex-wrap gap-2 sm:mt-0">
-              <Button variant="ghost" disabled={pending} onPress={fillFromCsv} className="px-3 py-2">
+              <Button variant="ghost" disabled={pending || locked} onPress={fillFromCsv} className="px-3 py-2">
                 {pending ? "Reading…" : "Import CSV"}
               </Button>
               {Platform.OS === "web" ? (
@@ -376,6 +471,21 @@ export function TeacherMarksModal({
             </View>
           </View>
           {note ? <Text className="mt-3 rounded-md bg-blue-50 px-3 py-2 text-sm text-clay-600">{note}</Text> : null}
+          {sheet.correctionNote ? (
+            <Text className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">{sheet.correctionNote}</Text>
+          ) : null}
+          {adminReview ? (
+            <View className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3">
+              <Text className="text-sm font-medium text-amber-950">Return to teacher if marks are wrong</Text>
+              <Text className="mt-1 text-xs text-amber-900">Write what to correct, then use Return for correction.</Text>
+              <Input
+                value={returnNote}
+                onChangeText={setReturnNote}
+                placeholder="Required: tell the teacher what to correct"
+                className="mt-2 bg-white"
+              />
+            </View>
+          ) : null}
           {error ? <Text className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</Text> : null}
           {sheet.students.length > 12 ? (
             <Input
@@ -409,6 +519,9 @@ export function TeacherMarksModal({
                         {s.name}
                       </Text>
                       {s.admissionNo ? <Text className="text-[11px] text-ink-700">{s.admissionNo}</Text> : null}
+                      {s.correctionRequested && s.correctionNote ? (
+                        <Text className="mt-1 text-[11px] text-amber-800">{s.correctionNote}</Text>
+                      ) : null}
                     </View>
                     <TextInput
                       keyboardType="number-pad"
@@ -416,7 +529,7 @@ export function TeacherMarksModal({
                       onChangeText={(v) => setDraft((cur) => ({ ...cur, [s.id]: v }))}
                       placeholder={absent ? "Ab" : ""}
                       placeholderTextColor="#3d4f66"
-                      editable={!absent}
+                      editable={!absent && !(locked || (mode === "teacher" && sheet.workflowStatus === "CORRECTION_REQUIRED" && sheet.students.some((row) => row.correctionRequested) && !s.correctionRequested && !sheet.correctionNote))}
                       style={{
                         width: 80,
                         height: 38,
@@ -432,6 +545,7 @@ export function TeacherMarksModal({
                       }}
                     />
                     <Pressable
+                      disabled={locked}
                       onPress={() =>
                         setDraft((cur) => ({
                           ...cur,
@@ -444,6 +558,18 @@ export function TeacherMarksModal({
                     >
                       <Text className={`text-xs font-medium ${absent ? "text-amber-800" : "text-ink-700"}`}>Ab</Text>
                     </Pressable>
+                    {adminReview && sheet.workflowStatus === "PUBLISHED" ? (
+                      <Pressable
+                        onPress={() =>
+                          void openMarksheetPdf(token, { examId: sheet.examId, studentId: s.id }).catch((e) =>
+                            setError(e instanceof Error ? e.message : "Could not open the marksheet.")
+                          )
+                        }
+                        className="h-[38px] items-center justify-center px-1"
+                      >
+                        <Text className="text-xs font-medium text-clay-600">PDF</Text>
+                      </Pressable>
+                    ) : null}
                   </View>
                 );
               })

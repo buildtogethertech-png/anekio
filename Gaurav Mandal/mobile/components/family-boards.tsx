@@ -1,10 +1,11 @@
 import { createElement, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Dimensions, Linking, Modal as RnModal, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { DateField } from "./date-field";
 import { Badge, Button, Card, Chip, ChipScroller, CloseButton, Empty, Field, Input, Modal, PageHeader, Stat, Toast, useToast } from "./ui";
 import { act } from "../lib/mutate";
+import { pickFile, uploadFile } from "../lib/upload";
 import { webOrigin } from "../lib/api";
 import {
   attendanceCbseNote,
@@ -19,10 +20,12 @@ import { addDays, calendarFrom, closedCaption, closedReason, ymd, type SchoolCal
 import { AttendanceDots, DayMark, OnLeaveSign } from "./attendance-mark";
 import { useRecord, type RecordPayload } from "../lib/record";
 import { useSession } from "../lib/session";
+import { openAuthedFile, openMarksheetPdf } from "../lib/print-html";
 import { ExamTodoCard, TeacherMarksModal, examTodoKind, examTodoTone } from "./exam-teacher-work";
-import { ReportCardSheet } from "./report-card-sheet";
+import { teacherBucket, teacherCanEditMarks } from "../lib/exam-workflow";
 import { LeaveApplyCard, LeaveDecideList } from "./leave-apply";
 import { ManagerPicker } from "./manager-picker";
+import { TeacherMonthlyRegister } from "./teacher-monthly-register";
 
 function can(user: { permissions: string[] } | null, key: string) {
   return Boolean(user?.permissions.includes(key));
@@ -923,6 +926,7 @@ export function TeacherAttendanceBoard() {
   const phone = width < 768;
   const roster = data?.roster ?? [];
   const [q, setQ] = useState("");
+  const [monthly, setMonthly] = useState(false);
   const calendar = useMemo(
     () => calendarFrom(data?.calendar?.holidays, data?.calendar?.weekdays ?? data?.timetable?.weekdays),
     [data?.calendar, data?.timetable?.weekdays]
@@ -1097,11 +1101,40 @@ export function TeacherAttendanceBoard() {
 
   return (
     <View className="min-h-0 flex-1">
-      <PageHeader
-        kicker="Class teacher"
-        title="Attendance"
-        lede={data?.classLabel ? `Mark P, A or late · ${data.classLabel}.` : "Mark P, A or late."}
-      />
+      {monthly && roster.length ? (
+        <TeacherMonthlyRegister
+          classLabel={data?.classLabel || ""}
+          roster={roster}
+          people={data?.people}
+          calendar={calendar}
+          token={token}
+          onBack={() => setMonthly(false)}
+          onSaved={async () => {
+            await reload();
+          }}
+        />
+      ) : (
+        <>
+      <View className="mb-3 flex-row flex-wrap items-start justify-between gap-3">
+        <View className="min-w-0 flex-1">
+          <PageHeader
+            kicker="Class teacher"
+            title="Attendance"
+            lede={data?.classLabel ? `Mark P, A or late · ${data.classLabel}.` : "Mark P, A or late."}
+          />
+        </View>
+        {roster.length ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="View Monthly Attendance"
+            onPress={() => setMonthly(true)}
+            className="mt-1 h-10 flex-row items-center gap-2 rounded-md border border-ink-200 bg-white px-3"
+          >
+            <Ionicons name="calendar-outline" size={16} color="#2855F6" />
+            <Text className="text-sm font-medium text-ink-900">View Monthly Attendance</Text>
+          </Pressable>
+        ) : null}
+      </View>
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
       <LeaveDecideList
         rows={data?.pendingLeave ?? []}
@@ -1345,6 +1378,8 @@ export function TeacherAttendanceBoard() {
           </Modal>
         </Card>
       )}
+        </>
+      )}
     </View>
   );
 }
@@ -1352,16 +1387,23 @@ export function TeacherAttendanceBoard() {
 export function TeacherExamsBoard({ uploads }: { uploads?: boolean }) {
   const { data, reload } = useRecord();
   const { token } = useSession();
+  const params = useLocalSearchParams<{ examId?: string; view?: string }>();
   const toast = useToast();
   const [pending, setPending] = useState("");
-  const [showDone, setShowDone] = useState(false);
+  const [showDone, setShowDone] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [host, setHost] = useState({ title: "", subjectId: data?.subjects?.[0]?.id || "", date: "", maxMarks: "40" });
   const [sheetId, setSheetId] = useState("");
   const todos = (data?.todos ?? []).filter((t) => examTodoKind(t) !== "skip");
   const doneWork = data?.doneWork ?? [];
+  const today = ymd(new Date());
   const sheets = data?.markSheets ?? [];
   const openSheet = sheets.find((s) => s.examId === sheetId) || null;
+  const submittedExams = sheets.filter((s) => teacherBucket(s.workflowStatus, s.date, today) === "submitted");
+  const paperTodos = todos.filter((t) => examTodoKind(t) === "paper");
+  const takeTodos = todos.filter((t) => examTodoKind(t) === "take");
+  const marksTodos = todos.filter((t) => examTodoKind(t) === "marks");
+  const correctionTodos = todos.filter((t) => (t.title || "").toLowerCase().includes("correct marks"));
   const { width, height } = useWindowDimensions();
   const phone = width < 768;
   const openWorkMaxHeight = phone ? 420 : Math.max(300, Math.min(520, height - 480));
@@ -1370,6 +1412,41 @@ export function TeacherExamsBoard({ uploads }: { uploads?: boolean }) {
 
   function openMarks(examId: string) {
     setSheetId(examId);
+  }
+
+  useEffect(() => {
+    const examId = String(params.examId || "");
+    if (!examId) return;
+    if (params.view === "marks" || params.view === "review" || params.view === "paper") openMarks(examId);
+  }, [params.examId, params.view]);
+
+  async function uploadQuestion(examId: string) {
+    setPending(examId);
+    try {
+      const file = await pickFile(".pdf,.doc,.docx,application/pdf");
+      if (!file) return;
+      await uploadFile(token, file, { kind: "question", examId });
+      toast.show("Question paper uploaded.");
+      await reload();
+    } catch (e) {
+      toast.show(e instanceof Error ? e.message : "Could not upload.");
+    } finally {
+      setPending("");
+    }
+  }
+
+  async function takeExam(examId: string) {
+    setPending(examId);
+    try {
+      await act(token, "takeExam", { examId });
+      toast.show("Exam taken. Enter marks when office has allowed marks entry.");
+      await reload();
+      setSheetId(examId);
+    } catch (e) {
+      toast.show(e instanceof Error ? e.message : "Could not save.");
+    } finally {
+      setPending("");
+    }
   }
 
   async function postClassTest() {
@@ -1389,7 +1466,7 @@ export function TeacherExamsBoard({ uploads }: { uploads?: boolean }) {
       <PageHeader
         kicker="Reports"
         title="Exams"
-        lede="Open work first. Finished work is folded away."
+        lede="Set the question paper and take the exam when due. Enter marks only after office allows marks entry. Families see scores after office publishes results."
         action={
           data?.classTeacher && data.classId ? (
             <Button onPress={() => setShowAdd(true)}>+ Class test</Button>
@@ -1399,10 +1476,11 @@ export function TeacherExamsBoard({ uploads }: { uploads?: boolean }) {
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
       <View className={`mb-4 gap-3 ${phone ? "" : "flex-row"}`}>
         {[
-          { label: "Open work", value: todos.length, hint: "Tasks requiring action", color: "text-clay-600" },
-          { label: "Due soon", value: dueSoonCount, hint: "Within five days", color: "text-amber-700" },
-          { label: "Overdue", value: overdueCount, hint: "Needs attention", color: overdueCount ? "text-red-600" : "text-ink-700" },
-          { label: "Completed", value: doneWork.length, hint: "Folded below", color: "text-green-700" },
+          { label: "Set paper", value: paperTodos.length, hint: "First step", color: "text-ink-700" },
+          { label: "Take exam", value: takeTodos.length, hint: "After the paper is set", color: "text-clay-600" },
+          { label: "Enter marks", value: marksTodos.length, hint: "After office allows entry", color: "text-amber-700" },
+          { label: "Sent to office", value: submittedExams.length, hint: "Waiting to publish", color: "text-green-700" },
+          { label: "Correction", value: correctionTodos.length, hint: "Admin sent back", color: "text-red-700" },
         ].map((stat) => (
           <Card key={stat.label} className="flex-1 p-4">
             <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">{stat.label}</Text>
@@ -1412,12 +1490,64 @@ export function TeacherExamsBoard({ uploads }: { uploads?: boolean }) {
         ))}
       </View>
 
+      {sheets.filter((sheet) => teacherCanEditMarks(sheet.workflowStatus) || ["SUBMITTED", "UNDER_REVIEW", "RESUBMITTED", "APPROVED", "PUBLISHED"].includes(sheet.workflowStatus || "")).length ? (
+        <Card className="mb-4 overflow-hidden">
+          <View className="bg-ink-50 px-4 py-3">
+            <Text className="text-sm font-semibold text-ink-900">My mark entries</Text>
+            <Text className="mt-0.5 text-xs text-ink-700">Office must allow marks entry on each paper. Exam date does not unlock scores.</Text>
+          </View>
+          {sheets
+            .filter((sheet) => teacherCanEditMarks(sheet.workflowStatus) || sheet.workflowStatus === "SUBMITTED" || sheet.workflowStatus === "RESUBMITTED" || sheet.workflowStatus === "APPROVED" || sheet.workflowStatus === "PUBLISHED")
+            .map((sheet) => {
+              const entered = sheet.students.filter((row) => row.absent || row.marks != null).length;
+              const pendingCount = sheet.students.length - entered;
+              const submitted = sheet.workflowStatus === "SUBMITTED" || sheet.workflowStatus === "UNDER_REVIEW" || sheet.workflowStatus === "RESUBMITTED" || sheet.workflowStatus === "APPROVED" || sheet.workflowStatus === "PUBLISHED";
+              const correction = sheet.workflowStatus === "CORRECTION_REQUIRED";
+              const locked = submitted && !correction;
+              const waitingGrant = !sheet.canEnterMarks && !locked;
+              return (
+                <View key={sheet.examId} className="flex-row flex-wrap items-center justify-between gap-3 border-t border-ink-100 px-4 py-3">
+                  <View className="min-w-0 flex-1">
+                    <Text className="text-sm font-semibold text-ink-900">
+                      {sheet.seriesName} · {sheet.subject}
+                    </Text>
+                    <Text className="mt-0.5 text-xs text-ink-700">
+                      {sheet.classLabel} · {sheet.students.length} students · {entered}/{sheet.students.length} entered
+                      {pendingCount ? ` · ${pendingCount} pending` : ""}
+                    </Text>
+                    <Text className="mt-1 text-xs font-medium text-ink-800">
+                      {waitingGrant
+                        ? "Waiting for office to allow marks entry"
+                        : correction
+                        ? "↻ Correction required"
+                        : locked
+                          ? "✓ Submitted"
+                          : entered
+                            ? "Marks in progress"
+                            : "Pending"}
+                    </Text>
+                  </View>
+                  {waitingGrant ? (
+                    <Badge>Not allowed yet</Badge>
+                  ) : correction || !locked ? (
+                    <Button onPress={() => openMarks(sheet.examId)}>
+                      {correction ? "Review correction" : entered ? "Continue mark entry" : "Enter marks"}
+                    </Button>
+                  ) : (
+                    <Badge tone="leaf">Submitted</Badge>
+                  )}
+                </View>
+              );
+            })}
+        </Card>
+      ) : null}
+
       {todos.length ? (
         <Card className="mb-4 overflow-hidden">
           <View className="flex-row items-center justify-between bg-ink-50 px-4 py-3">
             <View>
               <Text className="text-sm font-semibold text-ink-900">Open work</Text>
-              <Text className="mt-0.5 text-xs text-ink-700">Complete papers or open mark sheets.</Text>
+              <Text className="mt-0.5 text-xs text-ink-700">Paper, then take exam, then marks. Nearest papers first.</Text>
             </View>
             <Badge tone={overdueCount ? "danger" : dueSoonCount ? "warn" : "ink"}>
               {`${todos.length} ${todos.length === 1 ? "task" : "tasks"}`}
@@ -1456,12 +1586,22 @@ export function TeacherExamsBoard({ uploads }: { uploads?: boolean }) {
                     ? () => openMarks(t.examId || t.id.replace(/^marks-/, ""))
                     : undefined
                 }
+                onTake={
+                  examTodoKind(t) === "take"
+                    ? () => void takeExam(t.examId || t.id.replace(/^take-/, ""))
+                    : undefined
+                }
+                onUpload={
+                  examTodoKind(t) === "paper"
+                    ? () => void uploadQuestion(t.examId || t.id.replace(/^paper-/, ""))
+                    : undefined
+                }
               />
             ))}
           </ScrollView>
         </Card>
       ) : (
-        <Empty title="Nothing waiting" body="A paper or marks task shows from five days before it is due." />
+        <Empty title="Nothing waiting" body="When office assigns you a paper, set it, take the exam, enter marks, then send them to office." />
       )}
       <Card className="overflow-hidden">
         <Pressable
@@ -1473,7 +1613,7 @@ export function TeacherExamsBoard({ uploads }: { uploads?: boolean }) {
           <View>
             <Text className="text-sm font-semibold text-ink-900">Completed work</Text>
             <Text className="mt-0.5 text-xs text-ink-700">
-              {doneWork.length ? `${doneWork.length} finished` : "Nothing finished yet"}
+              {doneWork.length ? `${doneWork.length} finished · nearest papers first` : "Nothing finished yet"}
             </Text>
           </View>
           <Ionicons name={showDone ? "chevron-up" : "chevron-down"} size={18} color="#3d4f66" />
@@ -2246,12 +2386,10 @@ function ParentAttendanceCalendar({
         accessibilityRole="button"
         accessibilityLabel={`${day} ${style.label}`}
         onPress={onPress}
-        className={`min-h-[68px] justify-between rounded-[10px] border px-1.5 py-1.5 ${style.cell} ${today ? "border-2 border-clay-500" : ""}`}
+        className={`h-[46px] items-center justify-center rounded-lg border ${style.cell} ${today ? "border-clay-500" : ""}`}
       >
-        <Text className="text-[13px] font-semibold text-ink-900">{day}</Text>
-        <Text className={`text-[11px] font-medium ${style.text}`} numberOfLines={1}>
-          {style.badge ? `${style.badge}  ${style.label}` : style.label}
-        </Text>
+        <Text className="text-[13px] font-semibold leading-4 text-ink-900">{day}</Text>
+        {style.badge ? <Text className={`mt-0.5 text-[9px] font-semibold leading-3 ${style.text}`}>{style.badge}</Text> : null}
       </Pressable>
     );
   }
@@ -2291,17 +2429,15 @@ function ParentAttendanceCalendar({
         </View>
       </View>
 
-      <View className="mb-3 flex-row flex-wrap gap-x-3 gap-y-1.5">
+      <View className="mb-2.5 flex-row flex-wrap gap-x-3 gap-y-1">
         {(Object.keys(PARENT_DAY_STYLE) as ParentDayKind[])
           .filter((k) => k !== "upcoming")
           .map((k) => {
             const s = PARENT_DAY_STYLE[k];
             return (
               <View key={k} className="flex-row items-center gap-1">
-                <View className={`h-5 min-w-[22px] items-center justify-center rounded border px-1 ${s.cell}`}>
-                  <Text className={`text-[10px] font-semibold ${s.text}`}>{s.badge || "·"}</Text>
-                </View>
-                <Text className="text-[11px] text-ink-700">{s.label}</Text>
+                <View className={`h-2.5 w-2.5 rounded-sm border ${s.cell}`} />
+                <Text className="text-[11px] text-ink-600">{s.badge ? `${s.badge} ${s.label}` : s.label}</Text>
               </View>
             );
           })}
@@ -2318,12 +2454,12 @@ function ParentAttendanceCalendar({
           </View>
           <View className="flex-row flex-wrap">
             {blanks.map((cell) => (
-              <View key={cell.key} className="w-[14.285%] p-[3px]">
-                <View className="min-h-[68px]" />
+              <View key={cell.key} className="w-[14.285%] p-[2px]">
+                <View className="h-[46px]" />
               </View>
             ))}
             {days.map((cell) => (
-              <View key={cell.key} className="w-[14.285%] p-[3px]">
+              <View key={cell.key} className="w-[14.285%] p-[2px]">
                 <DayCell day={cell.day} kind={cell.kind} today={cell.today} onPress={() => setPicked(cell.key)} />
               </View>
             ))}
@@ -2337,7 +2473,7 @@ function ParentAttendanceCalendar({
               <Pressable
                 key={cell.key}
                 onPress={() => setPicked(cell.key)}
-                className={`mb-1 flex-row items-center justify-between rounded-[10px] border px-3 py-2 ${s.cell}`}
+                className={`mb-1 flex-row items-center justify-between rounded-lg border px-3 py-1.5 ${s.cell}`}
               >
                 <Text className="text-[13px] font-semibold text-ink-900">
                   {cell.day} {monthLabel(activeMonth).split(" ")[0]}
@@ -2367,23 +2503,19 @@ function ParentAttendanceCalendar({
         </View>
       ) : null}
 
-      <View className="mt-3 flex-row flex-wrap gap-2 border-t border-ink-100 pt-3">
+      <View className="mt-3 flex-row flex-wrap gap-x-4 gap-y-1 border-t border-ink-100 pt-3">
         {(
           [
-            ["Present", counts.present, "present"],
-            ["Absent", counts.absent, "absent"],
-            ["Late", counts.late, "late"],
-            ["Weekly off", counts.wo, "wo"],
-            ["Holiday", counts.holiday, "holiday"],
-            ["Planned leave", counts.pl, "pl"],
-            ["Not marked", counts.nm, "nm"],
-            ["Total days", days.length, "nm"],
+            ["Present", counts.present],
+            ["Absent", counts.absent],
+            ["Late", counts.late],
+            ["Leave", counts.pl],
+            ["Off / holiday", counts.wo + counts.holiday],
           ] as const
-        ).map(([label, value, kind]) => (
-          <View key={label} className={`rounded-md border px-2 py-1.5 ${PARENT_DAY_STYLE[kind].cell}`}>
-            <Text className={`text-[15px] font-semibold ${PARENT_DAY_STYLE[kind].text}`}>{value}</Text>
-            <Text className="text-[10px] text-ink-500">{label}</Text>
-          </View>
+        ).map(([label, value]) => (
+          <Text key={label} className="text-[12px] text-ink-600">
+            <Text className="font-semibold text-ink-900">{value}</Text> {label}
+          </Text>
         ))}
       </View>
     </Card>
@@ -2457,24 +2589,26 @@ export function FamilyAttendance() {
 
   return (
     <View>
-      <View className="mb-3 flex-row flex-wrap items-center justify-between gap-3 border-b border-ink-200 pb-3">
-        <View>
-          <Text className="text-2xl font-semibold text-ink-900">Attendance</Text>
-          <Text className="mt-0.5 text-sm text-ink-700">
-            {child ? `${child.name.split(" ")[0]}'s month at a glance.` : "Presence, punctuality, and leave."}
+      <View className="mb-4 flex-row flex-wrap items-center justify-between gap-3">
+        <View className="min-w-0 flex-1">
+          <Text className="text-[22px] font-semibold leading-7 text-ink-900">Attendance</Text>
+          <Text className="mt-0.5 text-[13px] text-ink-500">
+            {child ? `${child.name.split(" ")[0]} · Class ${child.classLabel}` : "Presence, punctuality, and leave."}
           </Text>
         </View>
-        {user?.portal === "PARENT" ? (
-          <LeaveApplyCard
-            audience="student"
-            token={token}
-            onDone={async (ok) => { toast.show(ok); await reload(); }}
-            onError={(msg) => toast.show(msg)}
-            triggerOnly
-          />
-        ) : null}
+        <View className="flex-row flex-wrap items-center gap-2">
+          <ChildSwitch />
+          {user?.portal === "PARENT" ? (
+            <LeaveApplyCard
+              audience="student"
+              token={token}
+              onDone={async (ok) => { toast.show(ok); await reload(); }}
+              onError={(msg) => toast.show(msg)}
+              triggerOnly
+            />
+          ) : null}
+        </View>
       </View>
-      <ChildSwitch />
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
       {user?.portal === "PARENT" ? (
         <LeaveDecideList
@@ -2491,62 +2625,50 @@ export function FamilyAttendance() {
       {!rows.length ? (
         <Empty title="No days marked yet" body="When the teacher marks the class, it appears here. Open days still show as weekly off, holiday, upcoming, or not marked." />
       ) : (
-        <View>
-          <View className="mb-4">
-            <View className="overflow-hidden rounded-xl bg-ink-900 p-4">
-              <View className="flex-row items-start justify-between gap-4">
-                <View className="min-w-0 flex-1">
-                  <View className="flex-row items-center gap-2">
-                    <View className={`h-2 w-2 rounded-full ${att.pct >= 75 ? "bg-emerald-400" : "bg-amber-400"}`} />
-                    <Text className="text-xs font-semibold uppercase tracking-[1.5px] text-blue-100">Last {att.marked} marked days</Text>
-                  </View>
-                  <Text className="mt-2 text-4xl font-semibold tracking-tight text-white">{att.pct}%</Text>
-                  <Text className="mt-1 text-base font-medium text-white">{attendanceMessage}</Text>
-                </View>
-                {todayLabel ? (
-                  <View className="flex-row items-center gap-2 rounded-full bg-white/10 px-3 py-2">
-                    <View className={`h-2 w-2 rounded-full ${today === "out" ? "bg-red-400" : today === "late" ? "bg-amber-400" : "bg-emerald-400"}`} />
-                    <Text className="text-xs font-medium text-white">{todayLabel}</Text>
-                  </View>
-                ) : null}
-              </View>
-
-              <View className="mt-4">
-                <View className="h-2 overflow-hidden rounded-full bg-white/15">
-                  <View className={`h-2 rounded-full ${progressTone}`} style={{ width: `${Math.max(2, att.pct)}%` }} />
-                </View>
-                <View className="mt-2 flex-row justify-between">
-                  <Text className="text-xs text-blue-100">Current attendance</Text>
-                  <Text className="text-xs text-blue-100">75% required</Text>
-                </View>
-              </View>
-
-              <View className="mt-4 flex-row overflow-hidden rounded-lg bg-white/10">
-                {[
-                  { label: "Present", value: att.inDays, color: "text-emerald-300" },
-                  { label: "Late", value: att.late, color: "text-amber-300" },
-                  { label: "Absent", value: att.out, color: "text-red-300" },
-                  { label: "This month", value: `${att.thisMonth.inDays}/${att.thisMonth.marked}`, color: "text-white" },
-                ].map((item, index) => (
-                  <View key={item.label} className={`flex-1 px-3 py-3 ${index ? "border-l border-white/10" : ""}`}>
-                    <Text className={`text-xl font-semibold ${item.color}`}>{item.value}</Text>
-                    <Text className="mt-0.5 text-[11px] text-blue-100">{item.label}</Text>
-                  </View>
-                ))}
+        <Card className="mb-4 p-4">
+          <View className="flex-row flex-wrap items-end justify-between gap-3">
+            <View>
+              <Text className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-500">
+                Last {att.marked} marked days
+              </Text>
+              <View className="mt-1 flex-row items-baseline gap-2">
+                <Text className="text-3xl font-semibold tracking-tight text-ink-900">{att.pct}%</Text>
+                <Text className="text-[13px] font-medium text-ink-600">{attendanceMessage}</Text>
               </View>
             </View>
+            {todayLabel ? (
+              <View className="rounded-full bg-[#EEF2FF] px-3 py-1.5">
+                <Text className="text-[12px] font-medium text-clay-500">{todayLabel}</Text>
+              </View>
+            ) : null}
           </View>
-        </View>
+          <View className="mt-3">
+            <View className="h-1.5 overflow-hidden rounded-full bg-ink-100">
+              <View className={`h-1.5 rounded-full ${progressTone}`} style={{ width: `${Math.max(2, att.pct)}%` }} />
+            </View>
+            <Text className="mt-1.5 text-[11px] text-ink-500">75% required for CBSE</Text>
+          </View>
+          <View className="mt-3 flex-row overflow-hidden rounded-lg border border-ink-100">
+            {[
+              { label: "Present", value: String(att.inDays), tone: "text-emerald-700" },
+              { label: "Late", value: String(att.late), tone: "text-amber-700" },
+              { label: "Absent", value: String(att.out), tone: "text-red-700" },
+              { label: "This month", value: `${att.thisMonth.inDays}/${att.thisMonth.marked}`, tone: "text-ink-900" },
+            ].map((item, index) => (
+              <View key={item.label} className={`flex-1 px-3 py-2.5 ${index ? "border-l border-ink-100" : ""}`}>
+                <Text className={`text-lg font-semibold ${item.tone}`}>{item.value}</Text>
+                <Text className="mt-0.5 text-[11px] text-ink-500">{item.label}</Text>
+              </View>
+            ))}
+          </View>
+        </Card>
       )}
 
-          <View className="mb-3 mt-4 flex-row items-end justify-between gap-3">
-            <View>
-              <Text className="text-lg font-semibold text-ink-900">Attendance calendar</Text>
-              <Text className="mt-1 text-xs text-ink-500">Each day is tinted by status so the month is scannable at a glance.</Text>
-            </View>
+          <View className="mb-2 mt-1 flex-row items-end justify-between gap-3">
+            <Text className="text-[15px] font-semibold text-ink-900">Month</Text>
             {cbse ? (
-              <View className="rounded-full bg-amber-50 px-3 py-1.5">
-                <Text className="text-xs font-medium text-amber-800">{cbse}</Text>
+              <View className="rounded-full bg-amber-50 px-3 py-1">
+                <Text className="text-[11px] font-medium text-amber-800">{cbse}</Text>
               </View>
             ) : null}
           </View>
@@ -2648,58 +2770,89 @@ export function FamilySubjects() {
 
 export function FamilyTests() {
   const { data } = useRecord();
+  const { token } = useSession();
+  const toast = useToast();
+  const params = useLocalSearchParams<{ seriesId?: string; view?: string }>();
   const child = data?.child;
   const reports = data?.reports ?? [];
-  const [seriesId, setSeriesId] = useState("");
+  const [seriesId, setSeriesId] = useState(String(params.seriesId || ""));
   const open = reports.find((r) => r.seriesId === seriesId) ?? reports[0] ?? null;
   const student = data?.kind === "STUDENT";
+
+  async function download(query: { seriesId?: string; examId?: string }) {
+    try {
+      await openMarksheetPdf(token, { ...query, studentId: child?.id });
+    } catch (e) {
+      toast.show(e instanceof Error ? e.message : "Could not open the marksheet.");
+    }
+  }
+
   return (
     <View>
       <PageHeader
         kicker="Reports"
-        title={student ? "Examination" : "Examination"}
-        lede="Exam dates, papers, marks, and results in one place."
+        title="Examination"
+        lede={
+          student
+            ? "One report card per exam, after every subject is published."
+            : "One report card per sitting once every subject is published. Drafts never appear here."
+        }
       />
       <ChildSwitch />
       {open && child ? (
         <View className="mb-6">
-          <Text className="mb-3 font-semibold text-ink-900">Marksheet</Text>
-          {reports.length > 1 ? (
-            <View className="mb-3 flex-row flex-wrap gap-2">
-              {reports.map((r) => (
-                <Chip
-                  key={r.seriesId}
-                  label={r.seriesName}
-                  active={(open.seriesId || "") === r.seriesId}
-                  onPress={() => setSeriesId(r.seriesId)}
-                />
-              ))}
-            </View>
-          ) : (
-            <Text className="mb-3 text-sm text-ink-700">{open.seriesName}</Text>
-          )}
-          <ReportCardSheet
-            printLabel="Download marksheet"
-            data={{
-              school: open.school,
-              seriesName: open.seriesName,
-              sessionLabel: open.sessionLabel,
-              classLabel: open.classLabel,
-              student: {
-                id: child.id,
-                name: child.name,
-                admissionNo: child.admissionNo,
-                attendance: child.attendance,
-              },
-              classmates: open.classmates,
-              exams: open.exams,
-              marks: open.marks,
-              policy: open.policy,
-            }}
-          />
+          <Text className="mb-1 text-xs font-medium uppercase tracking-wide text-ink-700">Academic results</Text>
+          <Text className="mb-3 font-semibold text-ink-900">{open.sessionLabel}</Text>
+          <View className="mb-3 flex-row flex-wrap gap-2">
+            {reports.map((r) => (
+              <Chip
+                key={r.seriesId}
+                label={r.seriesName}
+                active={(open.seriesId || "") === r.seriesId}
+                onPress={() => setSeriesId(r.seriesId)}
+              />
+            ))}
+          </View>
+          <View className="mb-4 flex-row flex-wrap gap-2">
+            <Button onPress={() => download({ seriesId: open.seriesId })}>Download report card</Button>
+          </View>
+          {(() => {
+            const rows = open.exams.map((exam) => {
+              const mark = open.marks.find((row) => row.examId === exam.id && row.studentId === child.id);
+              return {
+                subject: exam.subject.name,
+                marks: mark?.absent ? null : mark?.marks ?? null,
+                max: exam.maxMarks,
+                absent: Boolean(mark?.absent),
+              };
+            });
+            const total = rows.reduce((sum, row) => sum + (row.absent || row.marks == null ? 0 : Number(row.marks)), 0);
+            const max = rows.reduce((sum, row) => sum + row.max, 0);
+            const pct = max ? Math.round((total / max) * 1000) / 10 : 0;
+            return (
+              <Card className="overflow-hidden">
+                <View className="px-4 py-4">
+                  <Text className="text-[11px] font-medium uppercase tracking-wide text-ink-700">{open.seriesName}</Text>
+                  <Text className="mt-1 text-sm text-ink-800">{child.name}{child.admissionNo ? ` · ${child.admissionNo}` : ""}</Text>
+                  <Text className="mt-3 text-3xl font-semibold tracking-tight text-ink-900">
+                    {total} / {max}
+                  </Text>
+                  <Text className="mt-0.5 text-sm text-ink-700">{pct}%</Text>
+                </View>
+                {rows.map((row) => (
+                  <View key={row.subject} className="flex-row border-t border-ink-100 px-4 py-2.5">
+                    <Text className="min-w-0 flex-1 text-sm text-ink-900">{row.subject}</Text>
+                    <Text className="text-sm text-ink-900">{row.absent ? "Absent" : row.marks == null ? "—" : `${row.marks}/${row.max}`}</Text>
+                  </View>
+                ))}
+              </Card>
+            );
+          })()}
         </View>
-      ) : null}
-      <Text className="mb-3 font-semibold text-ink-900">Upcoming</Text>
+      ) : (
+        <Empty title="No published results yet" body="When every subject in an exam is published, one report card with all subjects appears here." />
+      )}
+      <Text className="mb-3 mt-2 font-semibold text-ink-900">Examination timetable</Text>
       {!data?.upcoming?.length ? (
         <Text className="mb-6 text-sm text-ink-700">No upcoming tests on the calendar yet.</Text>
       ) : (
@@ -2718,28 +2871,29 @@ export function FamilyTests() {
           ))}
         </View>
       )}
-      <Text className="mb-3 font-semibold text-ink-900">Papers</Text>
-      {!child?.tests.length ? (
-        <Empty title="No results yet" body="When the school publishes a term, it appears here." />
-      ) : (
-        <Card>
-          {child.tests.map((t) => (
-            <View key={t.id} className="border-t border-ink-100 px-4 py-3 first:border-t-0">
-              <Text className="font-medium text-ink-900">{t.title}</Text>
-              <Text className="mt-1 text-sm text-ink-700">
-                {t.subject} · {t.marks}/{t.max} ({t.pct}%)
-              </Text>
-            </View>
-          ))}
-        </Card>
-      )}
     </View>
   );
 }
 
 export function FamilyPapers() {
   const { data } = useRecord();
+  const { token } = useSession();
+  const toast = useToast();
   const child = data?.child;
+
+  async function openPaper(p: NonNullable<typeof child>["papers"][number]) {
+    if (!p.fileUrl) {
+      toast.show("This copy has no file yet.");
+      return;
+    }
+    try {
+      const url = p.fileUrl.replace(/https?:\/\/[^/]+/, webOrigin());
+      await openAuthedFile(url, token);
+    } catch (e) {
+      toast.show(e instanceof Error ? e.message : "Could not open this paper.");
+    }
+  }
+
   return (
     <View>
       <PageHeader
@@ -2747,16 +2901,16 @@ export function FamilyPapers() {
         title={data?.kind === "STUDENT" ? "Papers" : "How the paper was marked"}
         lede={
           data?.kind === "STUDENT"
-            ? "Answer sheets the teacher uploaded. Open them whenever you want."
-            : "Answer sheets and evaluations. You see how the teacher read the child — not only a number."
+            ? "Scanned copies the teacher uploaded."
+            : "Scanned answer copies open with your login. The sitting report card is on Examination."
         }
       />
       <ChildSwitch />
       {!child?.papers.length ? (
-        <Empty title="No papers uploaded" body="When a teacher uploads a mark sheet, it opens here." />
+        <Empty title="No papers uploaded" body="Scanned copies appear here after the teacher uploads them. The report card is on Examination." />
       ) : (
         <View className="gap-3">
-          {child.papers.map((p) => (
+          {(child?.papers ?? []).map((p) => (
             <Card key={p.id} className="p-5">
               <Text className="text-xl font-semibold text-ink-900">{p.title}</Text>
               <View className="mt-2 flex-row flex-wrap gap-2">
@@ -2767,13 +2921,9 @@ export function FamilyPapers() {
               <Text className="mt-2 text-xs text-ink-700">
                 Evaluated by {p.teacher} · {p.date}
               </Text>
-              {p.fileUrl ? (
-                <Pressable className="mt-2" onPress={() => Linking.openURL(p.fileUrl!.replace(/https?:\/\/[^/]+/, webOrigin()))}>
-                  <Text className="text-sm text-clay-600">{p.fileName}</Text>
-                </Pressable>
-              ) : (
-                <Text className="mt-2 text-sm text-clay-600">{p.fileName}</Text>
-              )}
+              <Pressable className="mt-2" onPress={() => openPaper(p)}>
+                <Text className="text-sm font-medium text-clay-600">{p.fileName || "Open PDF"}</Text>
+              </Pressable>
             </Card>
           ))}
         </View>
@@ -2839,7 +2989,37 @@ export function FamilyProfile() {
   const toast = useToast();
   const child = data?.child;
   const student = data?.kind === "STUDENT";
-  const rows = student
+  const parent = data?.kind === "PARENT";
+  const familyKids =
+    parent && (data.children?.length || child)
+      ? (data.children?.length
+          ? data.children
+          : child
+            ? [
+                {
+                  id: child.id,
+                  name: child.name,
+                  classLabel: child.classLabel,
+                  admissionNo: child.admissionNo,
+                  born: child.born,
+                  email: child.email,
+                  interests: child.interests,
+                },
+              ]
+            : [])
+      : [];
+  const parentRows = parent
+    ? [
+        { label: "Name", value: data.parent?.name || user?.name || "—" },
+        { label: "Email", value: data.parent?.email || user?.email || "—" },
+        { label: "Phone", value: data.parent?.phone || child?.parentPhone || "—" },
+        { label: "Address", value: data.parent?.address || "—" },
+        { label: "City", value: data.parent?.city || "—" },
+        { label: "State", value: data.parent?.state || "—" },
+        { label: "Pincode", value: data.parent?.pincode || "—" },
+      ]
+    : [];
+  const studentRows = student
     ? [
         { label: "Name", value: child?.name || user?.name || "—" },
         { label: "Class", value: child?.classLabel || "—" },
@@ -2850,11 +3030,15 @@ export function FamilyProfile() {
         { label: "Parent phone", value: child?.parentPhone || "—" },
         { label: "Parent email", value: child?.parentEmail || "—" },
       ]
-    : [
-        { label: "Name", value: user?.name || "—" },
-        { label: "Role", value: user?.roleName || "—" },
-        { label: "Login", value: user?.email || "—" },
-      ];
+    : [];
+  const otherRows =
+    !parent && !student
+      ? [
+          { label: "Name", value: user?.name || "—" },
+          { label: "Role", value: user?.roleName || "—" },
+          { label: "Login", value: user?.email || "—" },
+        ]
+      : [];
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -2879,6 +3063,22 @@ export function FamilyProfile() {
     }
   }
 
+  function DetailRows({ rows }: { rows: { label: string; value: string }[] }) {
+    return (
+      <>
+        {rows.map((row) => (
+          <View
+            key={row.label}
+            className="mb-3 flex-row items-baseline justify-between gap-3 border-b border-ink-100 pb-3 last:mb-0 last:border-b-0 last:pb-0"
+          >
+            <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">{row.label}</Text>
+            <Text className="flex-1 text-right text-sm text-ink-900">{row.value || "—"}</Text>
+          </View>
+        ))}
+      </>
+    );
+  }
+
   return (
     <View>
       <PageHeader
@@ -2886,7 +3086,9 @@ export function FamilyProfile() {
         lede={
           student
             ? "How the school has you on record. Name, class, and admission number are set by the office."
-            : "Your login. Change the password the office first gave you."
+            : parent
+              ? "Your details as given to the school, and each child linked to this login."
+              : "Your login. Change the password the office first gave you."
         }
       />
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
@@ -2901,31 +3103,57 @@ export function FamilyProfile() {
           onError={(msg) => toast.show(msg)}
         />
       ) : null}
-      <Card className="mb-4 p-5">
-        {rows.map((row) => (
-          <View
-            key={row.label}
-            className="mb-3 flex-row items-baseline justify-between gap-3 border-b border-ink-100 pb-3 last:mb-0 last:border-b-0 last:pb-0"
-          >
-            <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">{row.label}</Text>
-            <Text className="flex-1 text-right text-sm text-ink-900">{row.value}</Text>
-          </View>
-        ))}
-        {student && child?.interests?.length ? (
-          <View className="mt-3 flex-row flex-wrap gap-2">
-            {child.interests.map((i) => (
-              <Badge key={i} tone="clay">
-                {i}
-              </Badge>
-            ))}
-          </View>
-        ) : null}
-        {student ? (
-          <Text className="mt-4 text-xs text-ink-700">
-            Students cannot edit this record. If something is wrong, ask the office or your parent.
-          </Text>
-        ) : null}
-      </Card>
+      {parent ? (
+        <Card className="mb-4 p-5">
+          <Text className="mb-3 text-[13px] font-semibold text-ink-900">Parent</Text>
+          <DetailRows rows={parentRows} />
+        </Card>
+      ) : (
+        <Card className="mb-4 p-5">
+          <DetailRows rows={student ? studentRows : otherRows} />
+          {student && child?.interests?.length ? (
+            <View className="mt-3 flex-row flex-wrap gap-2">
+              {child.interests.map((i) => (
+                <Badge key={i} tone="clay">
+                  {i}
+                </Badge>
+              ))}
+            </View>
+          ) : null}
+          {student ? (
+            <Text className="mt-4 text-xs text-ink-700">
+              Students cannot edit this record. If something is wrong, ask the office or your parent.
+            </Text>
+          ) : null}
+        </Card>
+      )}
+      {parent
+        ? familyKids.map((kid) => (
+            <Card key={kid.id} className="mb-4 p-5">
+              <Text className="mb-3 text-[13px] font-semibold text-ink-900">
+                Child · {kid.name}
+              </Text>
+              <DetailRows
+                rows={[
+                  { label: "Name", value: kid.name },
+                  { label: "Class", value: kid.classLabel },
+                  { label: "Admission no.", value: kid.admissionNo || (kid.id === child?.id ? child.admissionNo : "") || "—" },
+                  { label: "Date of birth", value: kid.born || (kid.id === child?.id ? child.born || "" : "") || "—" },
+                  { label: "Student login", value: kid.email || (kid.id === child?.id ? child.email || "" : "") || "—" },
+                ]}
+              />
+              {(kid.interests?.length || (kid.id === child?.id && child.interests?.length)) ? (
+                <View className="mt-3 flex-row flex-wrap gap-2">
+                  {(kid.interests?.length ? kid.interests : child?.interests || []).map((i) => (
+                    <Badge key={i} tone="clay">
+                      {i}
+                    </Badge>
+                  ))}
+                </View>
+              ) : null}
+            </Card>
+          ))
+        : null}
       <Card className="p-5">
         <Text className="text-sm font-medium text-ink-900">Password</Text>
         <Text className="mt-1 mb-3 text-xs text-ink-700">

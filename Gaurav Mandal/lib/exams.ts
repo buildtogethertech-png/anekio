@@ -116,17 +116,24 @@ export function timetableVisible(exam: {
 }
 
 export function marksVisible(exam: {
+  workflowStatus?: string | null;
+  resultsPublishedAt?: Date | string | null;
   seriesId?: string | null;
   resultOn?: Date | string | null;
   series?: { publishedAt?: Date | string | null } | null;
 }) {
-  if (!exam.seriesId) return true;
-  if (exam.resultOn) return onOrAfter(exam.resultOn);
-  return Boolean(exam.series?.publishedAt);
+  return exam.workflowStatus === "PUBLISHED" || Boolean(exam.resultsPublishedAt);
 }
 
-export function examLocked(exam: { resultOn?: Date | string | null }) {
-  return exam.resultOn ? onOrAfter(exam.resultOn) : false;
+export function examLocked(exam: {
+  workflowStatus?: string | null;
+  resultOn?: Date | string | null;
+}) {
+  const status = exam.workflowStatus || "";
+  if (status === "SUBMITTED" || status === "UNDER_REVIEW" || status === "APPROVED" || status === "PUBLISHED") {
+    return true;
+  }
+  return false;
 }
 
 export function studentSeriesScore(
@@ -203,11 +210,10 @@ export type ExamPlanItem = {
 };
 
 export const DEFAULT_EXAM_PLAN: ExamPlanItem[] = [
-  { id: "unit1", name: "Unit test 1", kind: "unit", weight: 10, maxMarks: 40, expectedPeriod: "July" },
-  { id: "term1", name: "Term 1", kind: "term1", weight: 20, maxMarks: 80, expectedPeriod: "September" },
-  { id: "unit2", name: "Unit test 2", kind: "unit", weight: 10, maxMarks: 40, expectedPeriod: "December" },
-  { id: "term2", name: "Term 2", kind: "term2", weight: 20, maxMarks: 80, expectedPeriod: "January" },
-  { id: "annual", name: "Annual", kind: "annual", weight: 40, maxMarks: 100, expectedPeriod: "March" },
+  { id: "unit1", name: "Unit Test 1", kind: "unit", weight: 10, maxMarks: 40, expectedPeriod: "July" },
+  { id: "term1", name: "Term 1", kind: "term1", weight: 30, maxMarks: 80, expectedPeriod: "September" },
+  { id: "unit2", name: "Unit Test 2", kind: "unit", weight: 10, maxMarks: 40, expectedPeriod: "November" },
+  { id: "term2", name: "Term 2", kind: "term2", weight: 50, maxMarks: 80, expectedPeriod: "March" },
 ];
 
 export function parseExamPlan(raw?: string | null, fallback = true): ExamPlanItem[] {

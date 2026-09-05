@@ -32,6 +32,39 @@ export function copyEmptyDatabase(sourcePath: string, targetPath: string) {
   execFileSync("/usr/bin/sqlite3", [targetPath, emptySql], { stdio: "pipe" });
 }
 
+function isolatedSqliteFile() {
+  const directory = mkdtempSync(join(tmpdir(), "anekio-vitest-"));
+  const databasePath = join(directory, "test.db");
+  const databaseUrl = `file:${databasePath}`;
+  const developmentDatabasePath = resolve(process.cwd(), "prisma", "dev.db");
+  if (resolve(databasePath) === developmentDatabasePath) {
+    throw new Error("Refusing to use prisma/dev.db for tests");
+  }
+  return { directory, databasePath, databaseUrl, developmentDatabasePath };
+}
+
+/**
+ * Creates an empty SQLite database with the current Prisma schema.
+ * Use this on machines that do not have /usr/bin/sqlite3.
+ */
+export function createPushedTestDatabase(): TestDatabase {
+  const { directory, databasePath, databaseUrl } = isolatedSqliteFile();
+  process.env.TEST_DATABASE_URL = databaseUrl;
+  process.env.DATABASE_URL = databaseUrl;
+  execFileSync("npx", ["prisma", "db", "push", "--skip-generate", "--accept-data-loss"], {
+    cwd: process.cwd(),
+    env: { ...process.env, DATABASE_URL: databaseUrl, TEST_DATABASE_URL: databaseUrl },
+    shell: true,
+    stdio: "pipe",
+  });
+  return {
+    databasePath,
+    databaseUrl,
+    directory,
+    cleanup: () => rmSync(directory, { recursive: true, force: true }),
+  };
+}
+
 /**
  * Creates an empty, schema-compatible SQLite database outside the repository.
  *
@@ -42,14 +75,7 @@ export function copyEmptyDatabase(sourcePath: string, targetPath: string) {
  * rows. The source file is never opened for writes.
  */
 export function createTestDatabase(): TestDatabase {
-  const directory = mkdtempSync(join(tmpdir(), "anekio-vitest-"));
-  const databasePath = join(directory, "test.db");
-  const databaseUrl = `file:${databasePath}`;
-  const developmentDatabasePath = resolve(process.cwd(), "prisma", "dev.db");
-
-  if (resolve(databasePath) === developmentDatabasePath) {
-    throw new Error("Refusing to use prisma/dev.db for tests");
-  }
+  const { directory, databasePath, databaseUrl, developmentDatabasePath } = isolatedSqliteFile();
   if (!existsSync(developmentDatabasePath)) {
     throw new Error("prisma/dev.db is required as the read-only SQLite schema template");
   }

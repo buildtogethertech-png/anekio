@@ -18,7 +18,8 @@ import {
 } from "./data";
 import { isCircularNotice } from "./notices";
 import { leaveBundleFor } from "./leave";
-import { gradePolicyFrom, marksVisible, parseExamPlan, timetableVisible, ymd } from "./exams";
+import { gradePolicyFrom, marksVisible, parseExamPlan, timetableVisible, ymd, addDays } from "./exams";
+import { parsePayrollRules } from "./payroll";
 import { feeLineTotal, invoiceBalance, parseFeeLines } from "./fees";
 import { studentLetter } from "./letter";
 import { payFormFromSecrets, paySecretsFromRow } from "./pay-config";
@@ -37,6 +38,43 @@ import { subscriptionLockForUser } from "./anekio-site";
 
 function inDate(value: Date | string) {
   return new Date(value).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+}
+
+function staffLeaveDays(
+  rows: {
+    teacherId: string | null;
+    staffId: string | null;
+    from: string;
+    to: string;
+    reason: string;
+    type: { name: string; paid: boolean };
+  }[],
+  kind: "teacher" | "staff",
+  id: string
+) {
+  const out: { date: string; reason: string; paid: boolean; typeName: string }[] = [];
+  for (const row of rows) {
+    if (kind === "teacher" && row.teacherId !== id) continue;
+    if (kind === "staff" && row.staffId !== id) continue;
+    let cursor = row.from.slice(0, 10);
+    const end = row.to.slice(0, 10);
+    for (let i = 0; i < 62 && cursor && cursor <= end; i += 1) {
+      out.push({
+        date: cursor,
+        reason: row.reason || row.type.name,
+        paid: row.type.paid !== false,
+        typeName: row.type.name,
+      });
+      cursor = addDays(cursor, 1);
+    }
+  }
+  return out;
+}
+
+function staffDepartment(kind: "teacher" | "staff", portal?: string | null) {
+  if (kind === "teacher") return "Academic";
+  if (portal === "OFFICE") return "Administration";
+  return "Support";
 }
 
 function isBellNotice(n: { kind?: string | null; body?: string | null; recipients?: unknown[] }) {
@@ -158,24 +196,33 @@ function serializeChild(
     subjects,
     tests: visible.map((r) => ({
       id: r.id,
+      examId: r.exam.id,
+      seriesId: r.exam.seriesId || r.exam.series?.id || "",
+      seriesName: r.exam.series?.name || r.exam.title,
       title: r.exam.title,
       subject: r.exam.subject.name,
+      date: inDate(r.exam.date),
       marks: r.marks,
       max: r.exam.maxMarks,
       pct: percent(r.marks, r.exam.maxMarks),
       remarks: r.remarks || "",
+      absent: Boolean(r.absent),
     })),
-    papers: child.papers.map((p) => ({
-      id: p.id,
-      title: p.exam.title,
-      type: p.type.replace("_", " ").toLowerCase(),
-      subject: p.exam.subject.name,
-      notes: p.notes || "",
-      teacher: p.teacher.name,
-      date: inDate(p.createdAt),
-      fileName: p.fileName,
-      fileUrl: p.filePath ? `${publicOrigin()}/api/files/${p.filePath}` : "",
-    })),
+    papers: child.papers
+      .filter((p) => marksVisible(p.exam))
+      .map((p) => ({
+        id: p.id,
+        examId: p.exam.id,
+        seriesId: p.exam.seriesId || "",
+        title: p.exam.title,
+        type: p.type.replace("_", " ").toLowerCase(),
+        subject: p.exam.subject.name,
+        notes: p.notes || "",
+        teacher: p.teacher.name,
+        date: inDate(p.createdAt),
+        fileName: p.fileName,
+        fileUrl: p.filePath ? `${publicOrigin()}/api/files/${p.filePath}` : "",
+      })),
     path: child.contestEntries.map((e) => ({
       id: e.id,
       title: e.contest.title,
@@ -217,8 +264,9 @@ function serializeReports(
   const school = schoolFromConfig(config);
   const policy = gradePolicyFrom(config);
   return published.flatMap((series) => {
+    if (!series.exams.length) return [];
     const open = series.exams.filter((e) => marksVisible({ ...e, series: { publishedAt: series.publishedAt } }));
-    if (!open.length) return [];
+    if (open.length !== series.exams.length) return [];
     const exams = open.map((e) => ({
       id: e.id,
       title: e.title,
@@ -335,12 +383,30 @@ async function parentStudentPayload(user: AccessUser, requestedChildId?: string 
     prisma.schoolConfig.findUnique({ where: { id: "school" } }),
   ]);
   const leave = await leaveBundleFor({ portal: "PARENT", studentIds: students.map((s) => s.id) });
+  const parentPhone = parent?.phone || parent?.user.phone || "";
+  const parentAddress = [parent?.address, parent?.city, parent?.state, parent?.pincode].filter(Boolean).join(", ");
   return {
     kind: "PARENT" as const,
+    parent: parent
+      ? {
+          name: parent.user.name,
+          email: parent.user.email,
+          phone: parentPhone,
+          address: parent.address || "",
+          city: parent.city || "",
+          state: parent.state || "",
+          pincode: parent.pincode || "",
+          place: parentAddress,
+        }
+      : null,
     children: students.map((s) => ({
       id: s.id,
       name: s.name,
       classLabel: `${s.class.name}-${s.class.section}`,
+      admissionNo: s.admissionNo,
+      born: inDate(s.dateOfBirth),
+      email: s.user?.email || "",
+      interests: s.interests.map((i) => PATH_LABEL[i.tag] || i.tag),
     })),
     child: child ? serializeChild(child, { timetable, upcoming }) : null,
     upcoming,
@@ -473,6 +539,7 @@ async function teacherPayload(user: AccessUser) {
       return {
         id: s.id,
         name: s.name,
+        admissionNo: s.admissionNo,
         today: todayRow ? todayRow.status.toLowerCase() : "not marked",
         dateOfBirth: ymd(s.dateOfBirth),
         parentName: s.parent.user.name,
@@ -928,7 +995,10 @@ async function officePayload(user: AccessUser) {
           today: today ? today.status : "PRESENT",
           days: staff.days
             .filter((d) => d.teacherId === t.id)
-            .map((d) => ({ date: ymd(d.date), status: d.status })),
+            .map((d) => ({ date: ymd(d.date), status: d.status, remark: d.remark || "" })),
+          leaveDays: staffLeaveDays(staff.leave, "teacher", t.id),
+          salary: t.monthlySalary,
+          department: staffDepartment("teacher"),
           managerId: t.user.managerId || "",
           managerName: t.user.manager?.name || "",
         };
@@ -953,12 +1023,35 @@ async function officePayload(user: AccessUser) {
           today: today ? today.status : "PRESENT",
           days: staff.days
             .filter((d) => d.staffId === s.id)
-            .map((d) => ({ date: ymd(d.date), status: d.status })),
+            .map((d) => ({ date: ymd(d.date), status: d.status, remark: d.remark || "" })),
+          leaveDays: staffLeaveDays(staff.leave, "staff", s.id),
+          salary: s.monthlySalary,
+          department: staffDepartment("staff", s.role?.portal),
           managerId: s.user?.managerId || "",
           managerName: s.user?.manager?.name || "",
         };
       }),
     ],
+    payrollRules: parsePayrollRules(config?.payrollJson),
+    staffPayroll: staff.payrollRuns.map((row) => ({
+      personKey: row.personKey,
+      month: row.month,
+      status: row.status,
+      salary: row.salary,
+      workingDays: row.workingDays,
+      payableDays: row.payableDays,
+      attendanceAdj: row.attendanceAdj,
+      otherAdj: row.otherAdj,
+      finalAmount: row.finalAmount,
+    })),
+    staffAudits: staff.audits.map((row) => ({
+      personKey: row.personKey,
+      date: row.date,
+      fromStatus: row.fromStatus,
+      toStatus: row.toStatus,
+      reason: row.reason,
+      at: row.createdAt.toISOString(),
+    })),
     staffRoles: roles
       .filter((r) => r.portal !== "STUDENT")
       .map((r) => ({ id: r.id, name: r.name, portal: r.portal, slug: r.slug })),
@@ -1080,7 +1173,7 @@ async function officePayload(user: AccessUser) {
       classId: e.classId,
       label: `${e.subject.name} · ${e.class.name}-${e.class.section}`,
     })),
-    examStudents: people.students.map((s) => ({ id: s.id, name: s.name, classId: s.classId })),
+    examStudents: people.students.map((s) => ({ id: s.id, name: s.name, admissionNo: s.admissionNo, classId: s.classId })),
     examPapers: people.classes.flatMap((c) =>
       (c.subjects || []).map((sub) => ({ id: sub.id, name: sub.name, classId: c.id }))
     ),
@@ -1183,7 +1276,7 @@ async function officePayload(user: AccessUser) {
         })),
       })),
     },
-    documentStudio: can(user, "documents.view") || can(user, "school.edit") ? await documentStudioBundle() : null,
+    documentStudio: can(user, "documents.view") || can(user, "documents.issue") || can(user, "school.edit") ? await documentStudioBundle() : null,
     ...(await leaveBundleFor({
       portal: "OFFICE",
       userId: user.id,

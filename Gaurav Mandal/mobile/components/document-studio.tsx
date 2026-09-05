@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Linking, PanResponder, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Dropdown } from "./form";
 import { Badge, Button, Field, Input, Modal, Segmented } from "./ui";
 import { act } from "../lib/mutate";
@@ -445,6 +445,32 @@ export function DocumentStudio({ studio, data }: { studio: Studio; data: RecordP
   );
 }
 
+function issuableTemplates(studio: RecordPayload["documentStudio"] | undefined, allowedTypes: string[]) {
+  const active = (studio?.templates || []).filter((row) => row.status === "ACTIVE" && allowedTypes.includes(row.type));
+  const used = new Set(active.map((row) => row.type));
+  const defaults = (studio?.defaults || []).filter((row) => allowedTypes.includes(row.type) && !used.has(row.type));
+  for (const row of defaults) used.add(row.type);
+  const missing: DocumentTemplateSummary[] = allowedTypes
+    .filter((type) => !used.has(type))
+    .map((type) => ({
+      id: `builtin:${type}`,
+      builtIn: true,
+      type,
+      category: "ACADEMIC",
+      name: type.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase()),
+      description: "",
+      pageSize: "A4",
+      orientation: "PORTRAIT",
+      status: "DEFAULT",
+      activeVersion: null,
+      updatedAt: null,
+      layout: { elements: [] },
+    }));
+  return [...active, ...defaults, ...missing].sort(
+    (a, b) => Number(b.type === "REPORT_CARD") - Number(a.type === "REPORT_CARD") || a.name.localeCompare(b.name)
+  );
+}
+
 export function QuickDocumentButton({
   data,
   subjectType,
@@ -467,13 +493,20 @@ export function QuickDocumentButton({
   const { token, user } = useSession();
   const { reload } = useRecord();
   const studio = data.documentStudio;
-  const templates = (studio?.templates || []).filter((row) => row.status === "ACTIVE" && allowedTypes.includes(row.type));
+  const templates = issuableTemplates(studio, allowedTypes);
   const [open, setOpen] = useState(false);
-  const [templateId, setTemplateId] = useState(templates[0]?.id || "");
+  const [templateId, setTemplateId] = useState("");
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
   const [blocked, setBlocked] = useState<BlockedDocumentStudent[]>([]);
-  const [blockIfPendingMonths, setBlockIfPendingMonths] = useState(allowedTypes.includes("ADMIT_CARD") ? "2" : "");
+  const [blockIfPendingMonths, setBlockIfPendingMonths] = useState("");
+  const selectedTemplate = templates.find((row) => row.id === templateId) || templates[0];
+  const feeGate = selectedTemplate?.type === "ADMIT_CARD";
+  useEffect(() => {
+    if (!open) return;
+    const preferred = templates.find((row) => row.type === "REPORT_CARD") || templates[0];
+    if (preferred && !templates.some((row) => row.id === templateId)) setTemplateId(preferred.id);
+  }, [open, templates, templateId]);
   if (!(can(user, "documents.issue") || can(user, "school.edit"))) return null;
 
   async function issue() {
@@ -540,8 +573,30 @@ export function QuickDocumentButton({
       <Modal open={open} title={`Issue for ${subjectLabel}`} onClose={() => setOpen(false)} footer={<View className="items-end"><Button disabled={pending || !templates.length} onPress={() => void issue()}>{pending ? "Issuing…" : "Issue and open"}</Button></View>}>
         <View className="gap-4">
           {batchSubjects?.length ? <View className="rounded-md border border-blue-200 bg-blue-50 p-3"><Text className="text-sm font-semibold text-blue-900">Class batch · {batchSubjects.length} students</Text><Text className="mt-1 text-xs leading-5 text-blue-900">Anekio will create one immutable issue record per eligible student and open one combined printable file.</Text></View> : null}
-          {templates.length ? <Dropdown label="Document" value={templateId || templates[0].id} options={templates.map((row) => ({ id: row.id, label: `${row.name} · v${row.activeVersion}` }))} onChange={setTemplateId} /> : <View className="rounded-md border border-amber-300 bg-amber-50 p-3"><Text className="text-sm font-semibold text-amber-900">No active template</Text><Text className="mt-1 text-xs leading-5 text-amber-900">Customize and publish one of these document types in Settings → Documents first.</Text></View>}
-          {batchSubjects?.length ? (
+          {templates.length ? (
+            <View className="gap-2">
+              <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">Template</Text>
+              {templates.map((row) => {
+                const selected = (templateId || templates[0]?.id) === row.id;
+                return (
+                  <Pressable
+                    key={row.id}
+                    onPress={() => setTemplateId(row.id)}
+                    className={`rounded-md border px-3 py-2.5 ${selected ? "border-clay-500 bg-blue-50" : "border-ink-200 bg-white"}`}
+                  >
+                    <Text className="text-sm font-semibold text-ink-900">{row.name}</Text>
+                    <Text className="mt-0.5 text-xs text-ink-700">{row.builtIn || row.status === "DEFAULT" ? "School default" : `Active · v${row.activeVersion}`}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : (
+            <View className="rounded-md border border-amber-300 bg-amber-50 p-3">
+              <Text className="text-sm font-semibold text-amber-900">No template available</Text>
+              <Text className="mt-1 text-xs leading-5 text-amber-900">Add a document type in Settings → Documents, then issue it here.</Text>
+            </View>
+          )}
+          {batchSubjects?.length && feeGate ? (
             <Field label="Block if pending months ≥" hint="Example: 2 means students with 2 or more unpaid fee months will not get this document. Clear or enter 0 to issue everyone.">
               <Input keyboardType="number-pad" value={blockIfPendingMonths} onChangeText={setBlockIfPendingMonths} placeholder="2" />
             </Field>

@@ -200,6 +200,7 @@ export const ExamScheduleSheet = forwardRef<
   const [resultDateChanged, setResultDateChanged] = useState(false);
   const [stagger, setStagger] = useState(() => rows.some((row) => row.date !== initialStart));
   const [error, setError] = useState("");
+  const [advanced, setAdvanced] = useState(false);
 
   const reasonFor = useMemo(() => (value: string) => dayClosed(value, calendar), [calendar]);
   const orderedExamDates = rows.map((row) => row.date).filter(Boolean).sort();
@@ -324,6 +325,11 @@ export const ExamScheduleSheet = forwardRef<
       ) : null}
 
       <View>
+        <Pressable onPress={() => setAdvanced((v) => !v)} className="flex-row items-center justify-between py-1">
+          <Text className="text-sm font-medium text-ink-900">Advanced scheduling options {advanced ? "▴" : "▾"}</Text>
+        </Pressable>
+        {advanced ? (
+        <View>
         <Text className="text-sm font-medium text-ink-900">Deadline rules</Text>
         <Text className="mt-0.5 text-xs leading-4 text-ink-700">
           Change a number to update every paper. Individual dates can still be adjusted below.
@@ -359,8 +365,9 @@ export const ExamScheduleSheet = forwardRef<
             />
           </View>
         </View>
+        </View>
+        ) : null}
       </View>
-
       <View className="gap-3">
         <View className="flex-row items-end justify-between gap-3">
           <View className="flex-1">

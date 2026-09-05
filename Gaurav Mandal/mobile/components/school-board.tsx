@@ -62,11 +62,10 @@ const DEFAULT_GRADE_BANDS = [
 ];
 
 const DEFAULT_EXAM_PLAN = [
-  { id: "unit1", name: "Unit test 1", kind: "unit", weight: 10, maxMarks: 40, expectedPeriod: "July" },
-  { id: "term1", name: "Term 1", kind: "term1", weight: 20, maxMarks: 80, expectedPeriod: "September" },
-  { id: "unit2", name: "Unit test 2", kind: "unit", weight: 10, maxMarks: 40, expectedPeriod: "December" },
-  { id: "term2", name: "Term 2", kind: "term2", weight: 20, maxMarks: 80, expectedPeriod: "January" },
-  { id: "annual", name: "Annual", kind: "annual", weight: 40, maxMarks: 100, expectedPeriod: "March" },
+  { id: "unit1", name: "Unit Test 1", kind: "unit", weight: 10, maxMarks: 40, expectedPeriod: "July" },
+  { id: "term1", name: "Term 1", kind: "term1", weight: 30, maxMarks: 80, expectedPeriod: "September" },
+  { id: "unit2", name: "Unit Test 2", kind: "unit", weight: 10, maxMarks: 40, expectedPeriod: "November" },
+  { id: "term2", name: "Term 2", kind: "term2", weight: 50, maxMarks: 80, expectedPeriod: "March" },
 ];
 
 const EXAM_PERIOD_OPTIONS = [

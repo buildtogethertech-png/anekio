@@ -63,6 +63,12 @@ export function placeFields(input: {
   };
 }
 
+export function parseMonthlySalary(raw: unknown, fallback = 30000) {
+  const n = Number(String(raw ?? "").replace(/[₹,\s]/g, ""));
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.round(n);
+}
+
 export function formatJoinedHint(joinedOn?: string | null) {
   const [y, m, d] = String(joinedOn || "")
     .trim()

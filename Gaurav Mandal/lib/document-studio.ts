@@ -583,11 +583,45 @@ export async function previewDocumentTemplateCore(user: AccessUser, input: Recor
   return renderIssuedHtml(layout, data, "https://verify.anekio.example/preview", pageSize, orientation);
 }
 
+async function resolveIssuableTemplate(user: AccessUser, templateId: string) {
+  const include = { versions: { orderBy: { version: "desc" as const }, take: 1 } };
+  if (templateId.startsWith("builtin:")) {
+    const type = templateId.slice("builtin:".length);
+    const active = await prisma.documentTemplate.findFirst({
+      where: { type, status: "ACTIVE" },
+      include,
+    });
+    if (active?.versions[0]) return active;
+    const builtin = builtInTemplates().find((row) => row.type === type || row.id === templateId);
+    if (!builtin) throw new Error("Unknown document type.");
+    const created = await prisma.documentTemplate.create({
+      data: {
+        type: builtin.type,
+        category: builtin.category,
+        name: builtin.name,
+        description: builtin.description,
+        pageSize: builtin.pageSize,
+        orientation: builtin.orientation,
+        scopeJson: "{}",
+        draftJson: JSON.stringify(builtin.layout),
+        createdById: user.id,
+        updatedById: user.id,
+        status: "DRAFT",
+      },
+    });
+    await publishDocumentTemplateCore(user, { id: created.id });
+    return prisma.documentTemplate.findUniqueOrThrow({ where: { id: created.id }, include });
+  }
+  const template = await prisma.documentTemplate.findUnique({ where: { id: templateId }, include });
+  if (!template || template.status !== "ACTIVE" || !template.versions[0]) {
+    throw new Error("Publish an active template before issuing documents.");
+  }
+  return template;
+}
+
 export async function issueDocumentCore(user: AccessUser, input: Record<string, unknown>) {
   need(user, "documents.issue", "school.edit");
-  const templateId = String(input.templateId || "");
-  const template = await prisma.documentTemplate.findUnique({ where: { id: templateId }, include: { versions: { orderBy: { version: "desc" }, take: 1 } } });
-  if (!template || template.status !== "ACTIVE" || !template.versions[0]) throw new Error("Publish an active template before issuing documents.");
+  const template = await resolveIssuableTemplate(user, String(input.templateId || ""));
   const subjectType = String(input.subjectType || "CUSTOM").slice(0, 40);
   const subjectId = String(input.subjectId || "").slice(0, 120);
   if (!subjectId) throw new Error("Choose who or what this document is for.");

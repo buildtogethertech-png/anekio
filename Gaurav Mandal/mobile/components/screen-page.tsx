@@ -13,7 +13,7 @@ export function ScreenPage({ screen }: { screen: string }) {
     screen === "admissions" ||
     (screen === "attendance" && data?.kind === "TEACHER") ||
     screen === "staff" ||
-    (screen === "exams" && data?.kind === "OFFICE" && wide) ||
+    screen === "exams" ||
     (screen === "timetable" && data?.kind === "OFFICE");
 
   return (
@@ -24,7 +24,7 @@ export function ScreenPage({ screen }: { screen: string }) {
     >
       <PhoneTopBar />
       {workspace ? (
-        <View className="min-h-0 flex-1 px-4 py-4 sm:px-10 sm:py-5">
+        <View className="min-h-0 flex-1 px-6 py-6 sm:px-8 sm:py-6">
           <PortalBody screen={screen} />
         </View>
       ) : (

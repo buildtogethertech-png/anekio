@@ -22,3 +22,295 @@ body,
 .anekio-pulse {
   animation: anekio-pulse 1.8s ease-in-out infinite;
 }
+
+@keyframes anekio-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.anekio-enter {
+  animation: anekio-enter 280ms ease-out both;
+}
+.anekio-enter-1 {
+  animation-delay: 40ms;
+}
+.anekio-enter-2 {
+  animation-delay: 80ms;
+}
+.anekio-enter-3 {
+  animation-delay: 120ms;
+}
+.anekio-enter-4 {
+  animation-delay: 160ms;
+}
+.anekio-enter-5 {
+  animation-delay: 200ms;
+}
+
+@keyframes anekio-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.anekio-pop {
+  animation: anekio-pop 160ms ease-out;
+}
+
+@keyframes anekio-dot {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.72);
+  }
+}
+.anekio-dot-pulse {
+  animation: anekio-dot 2.4s ease-in-out infinite;
+}
+
+@keyframes anekio-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+.anekio-skeleton {
+  background-image: linear-gradient(90deg, #eef2f8 0%, #f8fafc 45%, #eef2f8 90%);
+  background-size: 200% 100%;
+  animation: anekio-shimmer 1.6s ease-in-out infinite;
+}
+
+.anekio-nav-item {
+  transition: background-color 180ms ease;
+}
+.anekio-nav-item:hover {
+  background: #EFF6FF;
+}
+.anekio-search {
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+.anekio-search:focus-within {
+  border-color: #2563EB;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+.anekio-icon-btn {
+  transition: background-color 160ms ease, color 160ms ease;
+}
+.anekio-icon-btn:hover {
+  background: #EFF6FF;
+}
+.anekio-desk-tab:hover {
+  background: #EFF6FF;
+  border-color: #2563EB;
+}
+.anekio-row-action {
+  transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+.anekio-row-action:hover {
+  background: #2563EB;
+  border-color: #2563EB;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.16);
+}
+.anekio-row-action:hover span,
+.anekio-paper-row:hover .anekio-row-action {
+  color: #fff;
+}
+.anekio-session-card {
+  transition: transform 200ms ease, box-shadow 200ms ease, border-color 200ms ease, background-color 200ms ease;
+  box-shadow: 0 1px 2px rgba(16, 42, 86, 0.04);
+}
+.anekio-session-card:hover {
+  transform: translateY(-2px);
+  border-color: #BFD3FF;
+  background: #FBFDFF;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.08);
+}
+.anekio-session-card:active {
+  transform: scale(0.99);
+}
+.anekio-session-go {
+  transition: transform 200ms ease, background-color 200ms ease;
+}
+.anekio-session-card:hover .anekio-session-go {
+  transform: translateX(3px);
+  background: #2563EB;
+}
+.anekio-schedule-hint {
+  display: none;
+}
+.anekio-session-unscheduled:hover .anekio-schedule-hint {
+  display: flex;
+}
+.anekio-session-card-on {
+  border-color: #2563EB;
+  background: #EFF6FF;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.1);
+}
+.anekio-session-card-on .anekio-session-go {
+  background: #2563EB;
+}
+.anekio-paper-row {
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+.anekio-paper-row:hover {
+  background: #F8FBFF;
+}
+.anekio-paper-arrow {
+  transition: transform 160ms ease;
+}
+.anekio-paper-row:hover .anekio-paper-arrow {
+  transform: translateX(3px);
+}
+
+.anekio-progress-fill {
+  transition: width 280ms ease;
+}
+
+.anekio-filter-ink {
+  transition: left 180ms ease, width 180ms ease;
+}
+
+.anekio-leave {
+  animation: anekio-enter 220ms ease-in reverse both;
+}
+
+@keyframes anekio-list {
+  from {
+    opacity: 0.35;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.anekio-list-swap {
+  animation: anekio-list 180ms ease-out;
+}
+
+@keyframes anekio-count {
+  0% {
+    transform: translateY(4px);
+    opacity: 0.4;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+.anekio-count {
+  animation: anekio-count 180ms ease-out;
+}
+
+@keyframes anekio-check {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.4;
+  }
+  70% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+.anekio-check {
+  animation: anekio-check 280ms ease-out;
+}
+
+@keyframes anekio-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(40, 85, 246, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(40, 85, 246, 0);
+  }
+}
+.anekio-glow {
+  animation: anekio-glow 2.2s ease-out infinite;
+}
+
+.anekio-btn {
+  transition: transform 160ms ease, box-shadow 160ms ease, background-color 160ms ease, opacity 160ms ease;
+}
+.anekio-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(40, 85, 246, 0.18);
+}
+.anekio-btn:active {
+  transform: translateY(1px);
+  box-shadow: none;
+}
+
+.anekio-chip {
+  transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+.anekio-chip:hover {
+  transform: translateY(-1px);
+}
+
+.anekio-tab {
+  transition: color 160ms ease, background-color 160ms ease;
+  border-radius: 8px 8px 0 0;
+}
+.anekio-tab:hover {
+  background: rgba(40, 85, 246, 0.04);
+}
+
+.anekio-attention-row {
+  transition: background-color 160ms ease;
+}
+.anekio-attention-row:hover {
+  background: rgba(217, 119, 6, 0.08);
+}
+.anekio-attention-row:hover .anekio-paper-arrow {
+  transform: translateX(3px);
+}
+
+.anekio-switch {
+  transition: background-color 180ms ease;
+}
+.anekio-switch-knob {
+  transition: margin-left 180ms ease;
+}
+
+.anekio-modal {
+  animation: anekio-pop 180ms ease-out;
+}
+
+.anekio-pill {
+  transition: background-color 180ms ease, color 180ms ease;
+}
+
+.anekio-filter-pill {
+  transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease;
+}
+.anekio-filter-pill:hover {
+  background: #EFF6FF;
+  border-color: #C7D8F8;
+}
+.anekio-filter-on,
+.anekio-filter-on:hover {
+  background: #2563EB;
+  border-color: #2563EB;
+}
+.anekio-row-action:hover .anekio-row-action-label {
+  color: #fff;
+}

@@ -12,7 +12,7 @@ import {
   invoiceBalance,
   invoiceLateStamp,
   monthFeeTitle,
-  parseFeeLines,
+  parseFeeLines,  
   periodFromDate,
 } from "./fees";
 import { normalizeMobile } from "./phone";
@@ -21,7 +21,32 @@ import { cell, parseClassLabel, parseCsv, parseDob, parsePathTags } from "./shee
 import { ensureSchoolSessions, startNextSchoolSession } from "./school-session";
 import { todayJoinedOn } from "./staff-profile";
 import { feePayUrl } from "./utils";
-import { paperSetterId, ymd } from "./exams";
+import { addDays, paperSetterId, ymd } from "./exams";
+import { validateExamMark } from "./exam-marks";
+import {
+  adminCanPublish,
+  adminCanReview,
+  assertExamTransition,
+  canGrantMarksEntry,
+  grantedEvaluatorIds,
+  teacherCanEditMarks,
+  teacherMayEnterMarks,
+  teacherMayTakeExam,
+  teacherCanTakeExam,
+} from "./exam-workflow";
+import {
+  loadExamNoticeCtx,
+  notifyExamConducted,
+  notifyMarksApproved,
+  notifyMarksCorrection,
+  notifyMarksGranted,
+  notifyMarksReminder,
+  notifyMarksSubmitted,
+  notifyPaperSubmitted,
+  notifyResultsPublished,
+  notifySeriesAssigned,
+} from "./exam-events";
+import { eligibleTeacherIdsForExam, ensureExamEvaluator } from "./exam-evaluators";
 import { isQuestionPaperFile } from "./uploads";
 function need(user: AccessUser, ...keys: string[]) {
   if (!keys.some((k) => can(user, k))) throw new Error("No access.");
@@ -42,7 +67,14 @@ async function needExamClass(user: AccessUser, classId: string, mode: "mark" | "
   const assigned = linked
     ? 1
     : await prisma.exam.count({
-        where: { classId, OR: [{ teacherId: teacher.id }, { setterId: teacher.id }] },
+        where: {
+          classId,
+          OR: [
+            { teacherId: teacher.id },
+            { setterId: teacher.id },
+            { evaluators: { some: { teacherId: teacher.id } } },
+          ],
+        },
       });
   if (!assigned) throw new Error("Not your class");
   if (mode === "run" && teacher.classId !== classId) {
@@ -312,7 +344,7 @@ export async function copyExamSeriesCore(user: AccessUser, input: { seriesId: st
   if (!seriesId || !classIds.length) throw new Error("Pick at least one class");
   const source = await prisma.examSeries.findUnique({
     where: { id: seriesId },
-    include: { exams: { include: { subject: true } } },
+    include: { exams: { include: { subject: true, evaluators: true } } },
   });
   if (!source) throw new Error("Exam not found");
   let copied = 0;
@@ -386,6 +418,11 @@ export async function copyExamSeriesCore(user: AccessUser, input: { seriesId: st
     copied += 1;
   }
   if (!copied) throw new Error(blocked[0] || "Could not copy this timetable");
+  const copies = await prisma.examSeries.findMany({
+    where: { sessionId: source.sessionId, name: source.name, classId: { in: classIds } },
+    select: { id: true },
+  });
+  for (const row of copies) await notifySeriesAssigned(row.id, user.id);
   return { copied };
 }
 
@@ -429,6 +466,24 @@ export async function updateExamSeriesPapersCore(
     })
     .filter((row) => row.subjectId && row.maxMarks && row.date);
   if (!papers.length) throw new Error("Pick at least one subject");
+  const classSubjects = await prisma.subject.findMany({ where: { classId: series.classId } });
+  const lastDate = papers.map((p) => p.date).filter(Boolean).sort().at(-1) || ymd(new Date());
+  let extra = 1;
+  for (const subject of classSubjects) {
+    if (papers.some((p) => p.subjectId === subject.id)) continue;
+    const examDate = addDays(lastDate, extra);
+    extra += 1;
+    papers.push({
+      subjectId: subject.id,
+      teacherId: subject.teacherId,
+      setterId: subject.teacherId,
+      maxMarks: papers[0]?.maxMarks || 80,
+      date: examDate,
+      paperDueOn: addDays(examDate, -7),
+      copiesDueOn: addDays(examDate, 7),
+      resultOn: addDays(examDate, 14),
+    });
+  }
   const keepSubjects = new Set(papers.map((p) => p.subjectId));
   for (const exam of series.exams) {
     if (!keepSubjects.has(exam.subjectId)) {
@@ -470,6 +525,7 @@ export async function updateExamSeriesPapersCore(
       });
     }
   }
+  await notifySeriesAssigned(series.id, user.id);
 }
 
 export async function saveSeriesMarksCore(
@@ -483,7 +539,7 @@ export async function saveSeriesMarksCore(
   if (!seriesId) throw new Error("Series required");
   const series = await prisma.examSeries.findUnique({
     where: { id: seriesId },
-    include: { exams: true },
+    include: { exams: { include: { evaluators: true } } },
   });
   if (!series) throw new Error("Series not found");
   need(user, "marks.enter", "exams.edit");
@@ -493,11 +549,19 @@ export async function saveSeriesMarksCore(
       : null;
   const examIds = new Set(
     series.exams
-      .filter((e) => (teacher ? e.teacherId === teacher.id : can(user, "exams.edit")))
+      .filter((e) => (teacher ? teacherMayEnterMarks(e, teacher.id) : can(user, "exams.edit")))
       .map((e) => e.id)
   );
   if (!examIds.size) throw new Error("Only the evaluation teacher can enter marks for their paper");
+  const locked = new Set(
+    series.exams
+      .filter((e) => examIds.has(e.id) && (teacher ? !teacherCanEditMarks(e.workflowStatus) : e.workflowStatus === "PUBLISHED"))
+      .map((e) => e.id)
+  );
   const rows = Array.isArray(input.marks) ? input.marks : [];
+  if (rows.some((row) => locked.has(String(row.examId || "")))) {
+    throw new Error("Marks are locked for one or more papers.");
+  }
   const maxByExam = new Map(series.exams.map((e) => [e.id, e.maxMarks]));
   const students = await prisma.student.findMany({ where: { classId: series.classId }, select: { id: true } });
   const studentIds = new Set(students.map((s) => s.id));
@@ -523,6 +587,89 @@ export async function saveSeriesMarksCore(
   }
 }
 
+async function writeMarkAudit(input: {
+  examId: string;
+  studentId: string;
+  marks: number;
+  absent: boolean;
+  remarks?: string | null;
+  action: string;
+  actorId: string;
+  note?: string | null;
+}) {
+  await prisma.examResultAudit.create({
+    data: {
+      examId: input.examId,
+      studentId: input.studentId,
+      marks: input.marks,
+      absent: input.absent,
+      remarks: input.remarks || null,
+      action: input.action,
+      actorId: input.actorId,
+      note: input.note || null,
+    },
+  });
+}
+
+async function writeExamMarkRows(
+  exam: { id: string; classId: string; maxMarks: number; workflowStatus?: string | null; correctionNote?: string | null },
+  rows: { studentId?: string; marks?: string | number; absent?: boolean }[],
+  opts?: { actorId?: string; restrictTo?: Set<string>; audit?: string }
+) {
+  const students = await prisma.student.findMany({
+    where: { classId: exam.classId },
+    select: { id: true, name: true },
+  });
+  const studentIds = new Set(students.map((s) => s.id));
+  const names = new Map(students.map((s) => [s.id, s.name]));
+  let saved = 0;
+  for (const row of rows) {
+    const studentId = String(row.studentId || "");
+    if (!studentId) continue;
+    if (!studentIds.has(studentId)) throw new Error("That student is not in this class.");
+    if (opts?.restrictTo && !opts.restrictTo.has(studentId)) {
+      throw new Error("Only the requested student marks can be corrected.");
+    }
+    const absent = Boolean(row.absent);
+    const raw = String(row.marks ?? "").trim();
+    if (!absent && raw === "") {
+      if (exam.workflowStatus === "CORRECTION_REQUIRED") continue;
+      await prisma.examResult.deleteMany({ where: { examId: exam.id, studentId } });
+      continue;
+    }
+    const marks = absent ? 0 : Number(raw);
+    validateExamMark(marks, exam.maxMarks, names.get(studentId) || "Marks");
+    const remarks = null;
+    await prisma.examResult.upsert({
+      where: { examId_studentId: { examId: exam.id, studentId } },
+      update: { marks, absent },
+      create: { examId: exam.id, studentId, marks, absent },
+    });
+    if (opts?.audit && opts.actorId) {
+      await writeMarkAudit({
+        examId: exam.id,
+        studentId,
+        marks,
+        absent,
+        remarks,
+        action: opts.audit,
+        actorId: opts.actorId,
+      });
+    }
+    saved += 1;
+  }
+  return { saved, studentCount: students.length };
+}
+
+async function correctionStudentIds(examId: string, _paperNote?: string | null) {
+  const rows = await prisma.examResult.findMany({
+    where: { examId, correctionRequestedAt: { not: null } },
+    select: { studentId: true },
+  });
+  if (rows.length) return new Set(rows.map((row) => row.studentId));
+  return null;
+}
+
 export async function saveExamMarksCore(
   user: AccessUser,
   input: {
@@ -532,37 +679,338 @@ export async function saveExamMarksCore(
 ) {
   const examId = String(input.examId || "");
   if (!examId) throw new Error("Exam required");
-  const exam = await prisma.exam.findUnique({ where: { id: examId } });
+  const exam = await prisma.exam.findUnique({ where: { id: examId }, include: { evaluators: true } });
   if (!exam) throw new Error("Exam not found");
   await needExamClass(user, exam.classId, "mark");
   if (user.portal === "TEACHER") {
     const teacher = await prisma.teacher.findUnique({ where: { userId: user.id } });
-    if (!teacher || exam.teacherId !== teacher.id) throw new Error("Only the evaluation teacher can enter these marks");
-  }
-  const students = await prisma.student.findMany({ where: { classId: exam.classId }, select: { id: true } });
-  const studentIds = new Set(students.map((s) => s.id));
-  const rows = Array.isArray(input.marks) ? input.marks : [];
-  let saved = 0;
-  for (const row of rows) {
-    const studentId = String(row.studentId || "");
-    if (!studentIds.has(studentId)) continue;
-    const absent = Boolean(row.absent);
-    const raw = String(row.marks ?? "").trim();
-    if (!absent && raw === "") {
-      await prisma.examResult.deleteMany({ where: { examId, studentId } });
-      continue;
+    if (!teacherMayEnterMarks(exam, teacher?.id)) {
+      throw new Error("Office must allow marks entry on this paper first.");
     }
-    const marks = absent ? 0 : Number(raw);
-    if (Number.isNaN(marks) || marks < 0) throw new Error("Marks must be a number");
-    if (marks > exam.maxMarks) throw new Error(`Marks cannot exceed ${exam.maxMarks}`);
-    await prisma.examResult.upsert({
-      where: { examId_studentId: { examId, studentId } },
-      update: { marks, absent },
-      create: { examId, studentId, marks, absent },
-    });
-    saved += 1;
+  } else if (exam.workflowStatus === "PUBLISHED") {
+    throw new Error("Published results cannot be edited. Unpublish first if the school must change them.");
+  } else {
+    need(user, "exams.edit");
   }
-  return { saved };
+  const restrict =
+    user.portal === "TEACHER" && exam.workflowStatus === "CORRECTION_REQUIRED"
+      ? await correctionStudentIds(exam.id, exam.correctionNote)
+      : null;
+  const result = await writeExamMarkRows(exam, Array.isArray(input.marks) ? input.marks : [], {
+    restrictTo: restrict && restrict.size ? restrict : undefined,
+  });
+  if (exam.workflowStatus === "SCHEDULED" || exam.workflowStatus === "IN_PROGRESS") {
+    assertExamTransition(exam.workflowStatus, "MARKS_DRAFT");
+    await prisma.exam.update({
+      where: { id: exam.id },
+      data: { workflowStatus: "MARKS_DRAFT" },
+    });
+  }
+  return result;
+}
+
+export async function takeExamCore(user: AccessUser, input: { examId?: string }) {
+  const examId = String(input.examId || "");
+  if (!examId) throw new Error("Exam required");
+  const exam = await prisma.exam.findUnique({ where: { id: examId }, include: { evaluators: true } });
+  if (!exam) throw new Error("Exam not found");
+  await needExamClass(user, exam.classId, "mark");
+  if (user.portal === "TEACHER") {
+    const teacher = await prisma.teacher.findUnique({ where: { userId: user.id } });
+    if (!teacherMayTakeExam(exam, teacher?.id)) {
+      throw new Error("Set the question paper first, then take the exam.");
+    }
+  }
+  if (!teacherCanTakeExam(exam.workflowStatus)) throw new Error("This exam has already been taken.");
+  assertExamTransition(exam.workflowStatus, "IN_PROGRESS");
+  await prisma.exam.update({
+    where: { id: exam.id },
+    data: { workflowStatus: "IN_PROGRESS", conductedAt: new Date() },
+  });
+  const ctx = await loadExamNoticeCtx(exam.id);
+  if (ctx) await notifyExamConducted(ctx, user.id);
+}
+
+export async function submitExamMarksCore(
+  user: AccessUser,
+  input: {
+    examId?: string;
+    marks?: { studentId?: string; marks?: string | number; absent?: boolean }[];
+  }
+) {
+  const examId = String(input.examId || "");
+  if (!examId) throw new Error("Exam required");
+  const exam = await prisma.exam.findUnique({ where: { id: examId }, include: { evaluators: true } });
+  if (!exam) throw new Error("Exam not found");
+  await needExamClass(user, exam.classId, "mark");
+  if (user.portal === "TEACHER") {
+    const teacher = await prisma.teacher.findUnique({ where: { userId: user.id } });
+    if (!teacherMayEnterMarks(exam, teacher?.id)) {
+      throw new Error("Office must allow marks entry on this paper first.");
+    }
+  } else {
+    need(user, "exams.edit", "marks.enter");
+    if (!teacherCanEditMarks(exam.workflowStatus) && exam.workflowStatus !== "SCHEDULED") {
+      throw new Error("This paper is already submitted.");
+    }
+  }
+  const restrict =
+    user.portal === "TEACHER" && exam.workflowStatus === "CORRECTION_REQUIRED"
+      ? await correctionStudentIds(exam.id, exam.correctionNote)
+      : null;
+  const nextStatus = exam.workflowStatus === "CORRECTION_REQUIRED" ? "RESUBMITTED" : "SUBMITTED";
+  await writeExamMarkRows(exam, Array.isArray(input.marks) ? input.marks : [], {
+    actorId: user.id,
+    restrictTo: restrict && restrict.size ? restrict : undefined,
+    audit: nextStatus,
+  });
+  const students = await prisma.student.findMany({ where: { classId: exam.classId }, select: { id: true } });
+  const results = await prisma.examResult.findMany({ where: { examId: exam.id } });
+  const have = new Set(results.map((row) => row.studentId));
+  const missing = students.filter((s) => !have.has(s.id)).length;
+  if (missing && nextStatus === "SUBMITTED") {
+    throw new Error(`Enter marks or Absent for every student before submitting. ${missing} still missing.`);
+  }
+  assertExamTransition(exam.workflowStatus, nextStatus);
+  await prisma.exam.update({
+    where: { id: exam.id },
+    data: {
+      workflowStatus: nextStatus,
+      submittedAt: new Date(),
+      copiesDoneAt: new Date(),
+      correctionNote: nextStatus === "RESUBMITTED" ? exam.correctionNote : null,
+    },
+  });
+  if (nextStatus === "RESUBMITTED") {
+    await prisma.examResult.updateMany({
+      where: { examId: exam.id, correctionRequestedAt: { not: null } },
+      data: {
+        correctionRequestedAt: null,
+        correctionRequestedById: null,
+        version: { increment: 1 },
+      },
+    });
+  }
+  const ctx = await loadExamNoticeCtx(exam.id);
+  if (ctx) await notifyMarksSubmitted(ctx, nextStatus === "RESUBMITTED", user.id);
+  return { submitted: students.length };
+}
+
+export async function reviewExamMarksCore(user: AccessUser, input: { examId?: string }) {
+  need(user, "exams.edit");
+  const examId = String(input.examId || "");
+  if (!examId) throw new Error("Exam required");
+  const exam = await prisma.exam.findUnique({ where: { id: examId }, include: { evaluators: true } });
+  if (!exam) throw new Error("Exam not found");
+  if (!adminCanReview(exam.workflowStatus)) {
+    throw new Error("This paper is not waiting for review.");
+  }
+  if (exam.workflowStatus === "SUBMITTED") {
+    assertExamTransition(exam.workflowStatus, "UNDER_REVIEW");
+    await prisma.exam.update({
+      where: { id: exam.id },
+      data: { workflowStatus: "UNDER_REVIEW" },
+    });
+  }
+}
+
+export async function returnExamMarksCore(user: AccessUser, input: { examId?: string; note?: string }) {
+  need(user, "exams.edit");
+  const examId = String(input.examId || "");
+  if (!examId) throw new Error("Exam required");
+  const exam = await prisma.exam.findUnique({ where: { id: examId }, include: { evaluators: true } });
+  if (!exam) throw new Error("Exam not found");
+  if (
+    exam.workflowStatus !== "SUBMITTED" &&
+    exam.workflowStatus !== "UNDER_REVIEW" &&
+    exam.workflowStatus !== "RESUBMITTED" &&
+    exam.workflowStatus !== "APPROVED"
+  ) {
+    throw new Error("Only submitted papers can be sent back.");
+  }
+  const note = String(input.note || "").trim();
+  if (!note) throw new Error("Add a correction note so the teacher knows what to fix.");
+  assertExamTransition(exam.workflowStatus, "CORRECTION_REQUIRED");
+  await prisma.exam.update({
+    where: { id: exam.id },
+    data: {
+      workflowStatus: "CORRECTION_REQUIRED",
+      correctionNote: note,
+    },
+  });
+  const ctx = await loadExamNoticeCtx(exam.id);
+  if (ctx) await notifyMarksCorrection(ctx, note, user.id);
+}
+
+export async function requestExamMarkCorrectionCore(
+  user: AccessUser,
+  input: { examId?: string; studentId?: string; note?: string }
+) {
+  need(user, "exams.edit");
+  const examId = String(input.examId || "");
+  const studentId = String(input.studentId || "");
+  const note = String(input.note || "").trim();
+  if (!examId || !studentId) throw new Error("Pick the student and paper.");
+  if (!note) throw new Error("Add a reason so the teacher knows what to verify.");
+  const exam = await prisma.exam.findUnique({
+    where: { id: examId },
+    include: { evaluators: true, results: true },
+  });
+  if (!exam) throw new Error("Exam not found");
+  if (exam.workflowStatus === "PUBLISHED") throw new Error("Unpublish results before requesting a correction.");
+  if (
+    exam.workflowStatus !== "SUBMITTED" &&
+    exam.workflowStatus !== "UNDER_REVIEW" &&
+    exam.workflowStatus !== "RESUBMITTED" &&
+    exam.workflowStatus !== "APPROVED"
+  ) {
+    throw new Error("Request a correction after the teacher has submitted the mark sheet.");
+  }
+  const student = await prisma.student.findUnique({ where: { id: studentId }, select: { id: true, name: true, classId: true } });
+  if (!student || student.classId !== exam.classId) throw new Error("That student is not in this class.");
+  const current = exam.results.find((row) => row.studentId === studentId);
+  if (!current) throw new Error("No mark has been submitted for this student yet.");
+  assertExamTransition(exam.workflowStatus, "CORRECTION_REQUIRED");
+  await prisma.examResult.update({
+    where: { examId_studentId: { examId, studentId } },
+    data: {
+      correctionNote: note,
+      correctionRequestedAt: new Date(),
+      correctionRequestedById: user.id,
+    },
+  });
+  await prisma.exam.update({
+    where: { id: examId },
+    data: { workflowStatus: "CORRECTION_REQUIRED", correctionNote: exam.correctionNote || note },
+  });
+  await writeMarkAudit({
+    examId,
+    studentId,
+    marks: current.marks,
+    absent: current.absent,
+    remarks: current.remarks,
+    action: "CORRECTION_REQUESTED",
+    actorId: user.id,
+    note,
+  });
+  const ctx = await loadExamNoticeCtx(examId);
+  if (ctx) await notifyMarksCorrection(ctx, `${student.name}: ${note}`, user.id);
+}
+
+export async function remindExamMarksCore(user: AccessUser, input: { examId?: string }) {
+  need(user, "exams.edit");
+  const examId = String(input.examId || "");
+  if (!examId) throw new Error("Exam required");
+  const exam = await prisma.exam.findUnique({ where: { id: examId } });
+  if (!exam) throw new Error("Exam not found");
+  await needExamClass(user, exam.classId, "run");
+  if (exam.workflowStatus === "PUBLISHED") throw new Error("Results are already published.");
+  const ctx = await loadExamNoticeCtx(examId);
+  if (!ctx) throw new Error("Exam not found");
+  await notifyMarksReminder(ctx, user.id);
+}
+
+export async function examMarkHistoryCore(user: AccessUser, input: { examId?: string; studentId?: string }) {
+  need(user, "exams.edit", "exams.view");
+  const examId = String(input.examId || "");
+  const studentId = String(input.studentId || "");
+  if (!examId || !studentId) throw new Error("Pick the student and paper.");
+  const rows = await prisma.examResultAudit.findMany({
+    where: { examId, studentId },
+    orderBy: { createdAt: "asc" },
+  });
+  const actors = await prisma.user.findMany({
+    where: { id: { in: [...new Set(rows.map((row) => row.actorId))] } },
+    select: { id: true, name: true },
+  });
+  const names = new Map(actors.map((row) => [row.id, row.name]));
+  return {
+    history: rows.map((row) => ({
+      id: row.id,
+      action: row.action,
+      marks: row.marks,
+      absent: row.absent,
+      note: row.note || "",
+      at: row.createdAt.toISOString(),
+      actorName: names.get(row.actorId) || "Staff",
+    })),
+  };
+}
+
+export async function approveExamMarksCore(user: AccessUser, input: { examId?: string }) {
+  need(user, "exams.edit", "exams.publish");
+  const examId = String(input.examId || "");
+  if (!examId) throw new Error("Exam required");
+  const exam = await prisma.exam.findUnique({ where: { id: examId }, include: { evaluators: true } });
+  if (!exam) throw new Error("Exam not found");
+  if (exam.workflowStatus !== "SUBMITTED" && exam.workflowStatus !== "UNDER_REVIEW" && exam.workflowStatus !== "RESUBMITTED") {
+    throw new Error("Approve after the teacher has submitted the mark sheet.");
+  }
+  assertExamTransition(exam.workflowStatus, "APPROVED");
+  const results = await prisma.examResult.findMany({ where: { examId: exam.id } });
+  for (const row of results) {
+    await writeMarkAudit({
+      examId: exam.id,
+      studentId: row.studentId,
+      marks: row.marks,
+      absent: row.absent,
+      remarks: row.remarks,
+      action: "APPROVED",
+      actorId: user.id,
+    });
+  }
+  await prisma.exam.update({
+    where: { id: exam.id },
+    data: { workflowStatus: "APPROVED", reviewedAt: new Date() },
+  });
+  const ctx = await loadExamNoticeCtx(exam.id);
+  if (ctx) await notifyMarksApproved(ctx, user.id);
+}
+
+export async function publishExamResultsCore(
+  user: AccessUser,
+  input: { examId?: string; seriesId?: string }
+) {
+  need(user, "exams.publish");
+  const examId = String(input.examId || "");
+  const seriesId = String(input.seriesId || "");
+  if (examId) {
+    const exam = await prisma.exam.findUnique({ where: { id: examId }, include: { evaluators: true } });
+    if (!exam) throw new Error("Exam not found");
+    if (!adminCanPublish(exam.workflowStatus)) {
+      throw new Error("Approve the mark sheet before publishing results.");
+    }
+    assertExamTransition(exam.workflowStatus, "PUBLISHED");
+    await prisma.exam.update({
+      where: { id: exam.id },
+      data: { workflowStatus: "PUBLISHED", resultsPublishedAt: new Date() },
+    });
+    const ctx = await loadExamNoticeCtx(exam.id);
+    if (ctx) await notifyResultsPublished({ exam: ctx, authorId: user.id });
+    return { published: 1 };
+  }
+  if (!seriesId) throw new Error("Exam or series required");
+  const series = await prisma.examSeries.findUnique({
+    where: { id: seriesId },
+    include: { exams: true },
+  });
+  if (!series) throw new Error("Series not found");
+  await needExamClass(user, series.classId, "run");
+  const notReady = series.exams.filter(
+    (exam) => exam.workflowStatus !== "APPROVED" && exam.workflowStatus !== "PUBLISHED"
+  );
+  if (notReady.length) {
+    throw new Error(
+      `Results cannot be published yet. ${notReady.map((exam) => exam.title).join(", ")} ${notReady.length === 1 ? "is" : "are"} still awaiting review.`
+    );
+  }
+  const now = new Date();
+  await prisma.exam.updateMany({
+    where: { seriesId, workflowStatus: "APPROVED" },
+    data: { workflowStatus: "PUBLISHED", resultsPublishedAt: now },
+  });
+  await notifyResultsPublished({ seriesId, authorId: user.id });
+  return { published: series.exams.length };
 }
 
 export async function importExamMarksCore(user: AccessUser, input: { examId?: string; csv?: string }) {
@@ -574,12 +1022,16 @@ export async function importExamMarksCore(user: AccessUser, input: { examId?: st
   }
   const rows = parseCsv(csv);
   if (!rows.length) throw new Error("The sheet is empty. Use columns Admission, Name, Marks.");
-  const exam = await prisma.exam.findUnique({ where: { id: examId } });
+  const exam = await prisma.exam.findUnique({ where: { id: examId }, include: { evaluators: true } });
   if (!exam) throw new Error("Exam not found");
   await needExamClass(user, exam.classId, "mark");
   if (user.portal === "TEACHER") {
     const teacher = await prisma.teacher.findUnique({ where: { userId: user.id } });
-    if (!teacher || exam.teacherId !== teacher.id) throw new Error("Only the evaluation teacher can enter these marks");
+    if (!teacherMayEnterMarks(exam, teacher?.id)) {
+      throw new Error("Office must allow marks entry on this paper first.");
+    }
+  } else if (exam.workflowStatus === "PUBLISHED") {
+    throw new Error("Published results cannot be edited.");
   }
   const students = await prisma.student.findMany({
     where: { classId: exam.classId },
@@ -625,20 +1077,24 @@ export async function completeExamWorkCore(
   const examId = String(input.examId || "");
   const kind = String(input.kind || "");
   if (!examId || (kind !== "paper" && kind !== "copies")) throw new Error("Pick a paper task");
-  const exam = await prisma.exam.findUnique({ where: { id: examId } });
+  const exam = await prisma.exam.findUnique({ where: { id: examId }, include: { evaluators: true } });
   if (!exam) throw new Error("Exam not found");
   await needExamClass(user, exam.classId, "mark");
   if (user.portal === "TEACHER") {
     const teacher = await prisma.teacher.findUnique({ where: { userId: user.id } });
     if (!teacher) throw new Error("Not your paper");
     if (kind === "paper" && paperSetterId(exam) !== teacher.id) throw new Error("Only the setter marks the paper done");
-    if (kind === "copies" && exam.teacherId !== teacher.id) throw new Error("Only the evaluation teacher marks copies done");
+    if (kind === "copies" && !grantedEvaluatorIds(exam).includes(teacher.id)) throw new Error("Only a teacher allowed to enter marks can mark copies done");
   }
   const on = input.done !== false && input.done !== "0" && input.done !== 0;
   await prisma.exam.update({
     where: { id: examId },
     data: kind === "paper" ? { paperAt: on ? new Date() : null } : { copiesDoneAt: on ? new Date() : null },
   });
+  if (kind === "paper" && on) {
+    const ctx = await loadExamNoticeCtx(examId);
+    if (ctx) await notifyPaperSubmitted(ctx, user.id);
+  }
 }
 
 export async function uploadPaperCore(
@@ -649,7 +1105,8 @@ export async function uploadPaperCore(
   const examId = String(input.examId || "");
   const studentId = String(input.studentId || "");
   if (!examId || !studentId || !input.filePath) throw new Error("Exam, student and file are required");
-  const type = (input.type === "QUESTION" ? "QUESTION" : "EVALUATED") as PaperType;
+  const allowed: PaperType[] = ["MARK_SHEET", "ANSWER_SHEET", "EVALUATED"];
+  const type = (allowed.includes(input.type as PaperType) ? input.type : "EVALUATED") as PaperType;
   await prisma.examPaper.create({
     data: {
       examId,
@@ -684,6 +1141,50 @@ export async function uploadQuestionPaperCore(
     where: { id: examId },
     data: { paperFileName: input.fileName, paperFilePath: input.filePath, paperAt: new Date() },
   });
+  const ctx = await loadExamNoticeCtx(examId);
+  if (ctx) await notifyPaperSubmitted(ctx, user.id);
+}
+
+export async function grantExamMarksCore(user: AccessUser, input: { examId?: string; teacherId?: string; remove?: boolean | string }) {
+  need(user, "exams.edit");
+  const examId = String(input.examId || "");
+  const teacherId = String(input.teacherId || "");
+  if (!examId || !teacherId) throw new Error("Pick the paper and the teacher who will enter marks.");
+  const exam = await prisma.exam.findUnique({
+    where: { id: examId },
+    include: { evaluators: true, subject: true },
+  });
+  if (!exam) throw new Error("Exam not found");
+  if (exam.workflowStatus === "PUBLISHED") throw new Error("Results are already published.");
+  const teacher = await prisma.teacher.findUnique({ where: { id: teacherId }, include: { user: { select: { id: true } } } });
+  if (!teacher) throw new Error("Teacher not found");
+  const removing = input.remove === true || input.remove === "1" || input.remove === "true";
+  const current = grantedEvaluatorIds(exam);
+  if (removing) {
+    if (!current.includes(teacherId)) throw new Error("That teacher is not allowed to enter marks on this paper.");
+    await prisma.examEvaluator.deleteMany({ where: { examId, teacherId } });
+    const left = await prisma.examEvaluator.count({ where: { examId } });
+    await prisma.exam.update({
+      where: { id: examId },
+      data: { marksGrantedAt: left ? exam.marksGrantedAt : null },
+    });
+    return { removed: true };
+  }
+  const eligible = await eligibleTeacherIdsForExam(examId);
+  if (!canGrantMarksEntry(teacherId, eligible)) {
+    throw new Error("Only a teacher of this subject can be given marks entry. Assign them on Routine first.");
+  }
+  await ensureExamEvaluator(examId, teacherId);
+  await prisma.exam.update({
+    where: { id: examId },
+    data: {
+      teacherId: exam.teacherId || teacherId,
+      marksGrantedAt: new Date(),
+    },
+  });
+  const ctx = await loadExamNoticeCtx(examId);
+  if (ctx) await notifyMarksGranted(ctx, user.id, [teacher.user.id]);
+  return { added: true };
 }
 
 export async function importPeopleSheetCore(user: AccessUser, input: { kind?: string; csv?: string }) {

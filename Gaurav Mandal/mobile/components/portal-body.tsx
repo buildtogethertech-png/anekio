@@ -70,6 +70,7 @@ export function PortalBody({ screen }: { screen: string }) {
   if (error) return <Text className="text-sm text-red-700">{error}</Text>;
   if (!data) return <Text className="text-sm text-ink-700">Loading…</Text>;
   if (data.subscriptionLock) return <SubscriptionLocked lock={data.subscriptionLock} />;
+  if (screen === "profile") return <FamilyProfile />;
 
   const allowed = new Set(nav.map((item) => item.key));
   if (screen !== "more" && screen in PORTAL_PATH && !allowed.has(screen)) {
@@ -110,7 +111,13 @@ export function PortalBody({ screen }: { screen: string }) {
   }
   if (screen === "roles") return <RolesBoard />;
   if (screen === "attendance") {
-    if (data.kind === "TEACHER") return <TeacherAttendanceBoard />;
+    if (data.kind === "TEACHER") {
+      return (
+        <View className="min-h-0 flex-1">
+          <TeacherAttendanceBoard />
+        </View>
+      );
+    }
     return <FamilyAttendance />;
   }
   if (screen === "class") {
@@ -125,7 +132,6 @@ export function PortalBody({ screen }: { screen: string }) {
   if (screen === "tests") return <FamilyTests />;
   if (screen === "papers") return <FamilyPapers />;
   if (screen === "path") return <FamilyPath />;
-  if (screen === "profile") return <FamilyProfile />;
   if (screen === "more") return <MoreBoard />;
   if (screen === "letter") return <FamilyLetter />;
   if (screen === "uploads") return <TeacherExamsBoard uploads />;

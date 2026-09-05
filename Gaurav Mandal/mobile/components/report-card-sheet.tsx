@@ -56,10 +56,12 @@ export function ReportCardSheet({
   data,
   print = true,
   printLabel = "Print / PDF",
+  onPrint,
 }: {
   data: ReportCardData;
   print?: boolean;
   printLabel?: string;
+  onPrint?: () => void;
 }) {
   const score = studentSeriesScore(data.student.id, data.exams, data.marks, data.policy);
   const ranks = data.policy.showRank
@@ -80,6 +82,10 @@ export function ReportCardSheet({
         <View className="mb-4 items-end">
           <Pressable
             onPress={() => {
+              if (onPrint) {
+                onPrint();
+                return;
+              }
               if (typeof window !== "undefined") window.print();
             }}
             className="rounded-md border border-ink-200 px-3 py-2"

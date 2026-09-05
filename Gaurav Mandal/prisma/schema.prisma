@@ -55,6 +55,13 @@ enum AttendanceStatus {
   ABSENT
   LATE
   LEAVE
+  HALF_DAY
+}
+
+enum PayrollStatus {
+  PENDING
+  APPROVED
+  PAID
 }
 
 enum LeaveRequestStatus {
@@ -119,6 +126,18 @@ enum FeeLineKind {
   PERCENT
 }
 
+enum ExamWorkflowStatus {
+  SCHEDULED
+  IN_PROGRESS
+  MARKS_DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  CORRECTION_REQUIRED
+  RESUBMITTED
+  APPROVED
+  PUBLISHED
+}
+
 model Role {
   id           String        @id @default(cuid())
   name         String
@@ -178,6 +197,7 @@ model Teacher {
   city                  String                 @default("")
   state                 String                 @default("")
   pincode               String                 @default("")
+  monthlySalary         Int                    @default(30000)
   qualification         String?
   classId               String?
   class                 Class?                 @relation(fields: [classId], references: [id])
@@ -190,6 +210,7 @@ model Teacher {
   substituteAssignments SubstituteAssignment[] @relation("SubstituteTeacher")
   exams                 Exam[]                 @relation("ExamEvaluator")
   setExams              Exam[]                 @relation("ExamSetter")
+  examGrants            ExamEvaluator[]
 }
 
 model TeacherSkill {
@@ -262,6 +283,7 @@ model Student {
   examResults    ExamResult[]
   papers         ExamPaper[]
   contestEntries ContestEntry[]
+  examAudits     ExamResultAudit[]
   grants         Grant[]
   feeInvoices    FeeInvoice[]
   applications   Application[]
@@ -337,26 +359,66 @@ model Exam {
   resultOn      DateTime?
   paperFileName String       @default("")
   paperFilePath String       @default("")
-  paperAt       DateTime?
-  copiesDoneAt  DateTime?
-  maxMarks      Int
-  results       ExamResult[]
-  papers        ExamPaper[]
+  paperAt              DateTime?
+  marksGrantedAt       DateTime?
+  copiesDoneAt         DateTime?
+  maxMarks             Int
+  workflowStatus       ExamWorkflowStatus @default(SCHEDULED)
+  conductedAt          DateTime?
+  submittedAt          DateTime?
+  reviewedAt           DateTime?
+  resultsPublishedAt   DateTime?
+  correctionNote       String?
+  results              ExamResult[]
+  papers               ExamPaper[]
+  evaluators           ExamEvaluator[]
+  markAudits           ExamResultAudit[]
 
   @@index([paperAt, paperDueOn])
 }
 
-model ExamResult {
-  id        String  @id @default(cuid())
+model ExamEvaluator {
   examId    String
-  exam      Exam    @relation(fields: [examId], references: [id], onDelete: Cascade)
-  studentId String
-  student   Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  marks     Float
-  absent    Boolean @default(false)
-  remarks   String?
+  teacherId String
+  grantedAt DateTime @default(now())
+  exam      Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  teacher   Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+
+  @@id([examId, teacherId])
+}
+
+model ExamResult {
+  id                      String    @id @default(cuid())
+  examId                  String
+  exam                    Exam      @relation(fields: [examId], references: [id], onDelete: Cascade)
+  studentId               String
+  student                 Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  marks                   Float
+  absent                  Boolean   @default(false)
+  remarks                 String?
+  version                 Int       @default(1)
+  correctionNote          String?
+  correctionRequestedAt   DateTime?
+  correctionRequestedById String?
 
   @@unique([examId, studentId])
+}
+
+model ExamResultAudit {
+  id        String   @id @default(cuid())
+  examId    String
+  exam      Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  studentId String
+  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  marks     Float
+  absent    Boolean  @default(false)
+  remarks   String?
+  action    String
+  note      String?
+  actorId   String
+  createdAt DateTime @default(now())
+
+  @@index([examId, studentId])
 }
 
 model ExamPaper {
@@ -566,6 +628,7 @@ model SchoolConfig {
   showRank              Boolean @default(false)
   whatsappCommunityUrl  String  @default("")
   subjectCatalog        String  @default("[\"English\",\"Mathematics\",\"Hindi\",\"Science\",\"Social Science\",\"Computer\"]")
+  payrollJson           String  @default("{\"presentCredit\":1,\"absentCredit\":0,\"paidLeaveCredit\":1,\"unpaidLeaveCredit\":0,\"halfDayCredit\":0.5,\"lateCredit\":1}")
 }
 
 model AdmissionLead {
@@ -731,6 +794,7 @@ model LeaveType {
   eligibilityGender String         @default("ANY")
   noticeDays        Int            @default(0)
   yearlyCap         Int            @default(0)
+  paid              Boolean        @default(true)
   sortOrder         Int            @default(0)
   requests          LeaveRequest[]
 }
@@ -810,6 +874,7 @@ model StaffMember {
   city          String         @default("")
   state         String         @default("")
   pincode       String         @default("")
+  monthlySalary Int            @default(25000)
   kind          StaffKind      @default(SUPPORT)
   roleId        String?
   role          Role?          @relation(fields: [roleId], references: [id], onDelete: SetNull)
@@ -829,9 +894,41 @@ model StaffDay {
   staffId    String?
   staff      StaffMember?     @relation(fields: [staffId], references: [id], onDelete: Cascade)
   markedById String?
+  remark     String           @default("")
 
   @@unique([teacherId, date])
   @@unique([staffId, date])
+}
+
+model StaffAttendanceAudit {
+  id         String   @id @default(cuid())
+  personKey  String
+  date       String
+  fromStatus String
+  toStatus   String
+  reason     String
+  actorId    String
+  createdAt  DateTime @default(now())
+
+  @@index([personKey, date])
+}
+
+model StaffPayrollRun {
+  id            String        @id @default(cuid())
+  personKey     String
+  month         String
+  status        PayrollStatus @default(PENDING)
+  salary        Int           @default(0)
+  workingDays   Int           @default(0)
+  payableDays   Float         @default(0)
+  attendanceAdj Int           @default(0)
+  otherAdj      Int           @default(0)
+  finalAmount   Int           @default(0)
+  snapshotJson  String        @default("{}")
+  approvedAt    DateTime?
+  approvedById  String?
+
+  @@unique([personKey, month])
 }
 
 model Period {
@@ -870,41 +967,133 @@ model TimetableSlot {
 }
 
 model SaasOrg {
-  id                 String           @id @default(cuid())
+  id                 String                @id @default(cuid())
   schoolName         String
   ownerName          String
   ownerEmail         String
-  ownerCountryCode   String           @default("+91")
+  ownerCountryCode   String                @default("+91")
   ownerPhone         String
-  city               String           @default("")
+  city               String                @default("")
   teacherCount       Int?
   studentCount       Int?
-  plan               String           @default("Monthly school")
-  monthlyPrice       Int              @default(1000)
-  paymentStatus      String           @default("PENDING")
-  subscriptionStatus String           @default("LEAD")
-  loginUrl           String           @default("")
-  apiUrl             String           @default("")
-  notes              String           @default("")
-  followUpStatus     String           @default("NEW")
-  assignedOwner      String           @default("")
+  plan               String                @default("Monthly school")
+  monthlyPrice       Int                   @default(1000)
+  paymentStatus      String                @default("PENDING")
+  subscriptionStatus String                @default("LEAD")
+  source             String                @default("MANUAL")
+  pipelineStage      String                @default("NEW")
+  lifecycle          String                @default("LEAD")
+  interestedIn       String                @default("")
+  onboardingStatus   String                @default("NOT_STARTED")
+  customerSince      DateTime?
+  loginUrl           String                @default("")
+  apiUrl             String                @default("")
+  notes              String                @default("")
+  followUpStatus     String                @default("NEW")
+  assignedOwner      String                @default("")
   nextFollowUpOn     DateTime?
-  billingAddress     String           @default("")
-  billingState       String           @default("")
-  billingPincode     String           @default("")
-  gstin              String           @default("")
+  billingAddress     String                @default("")
+  billingState       String                @default("")
+  billingPincode     String                @default("")
+  gstin              String                @default("")
   subscriptionStart  DateTime?
   renewalOn          DateTime?
   razorpayCustomerId String?
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
   payments           SaasPayment[]
   invoices           SaasInvoice[]
   auditEvents        SaasAuditEvent[]
+  subscriptions      SaasSubscription[]
+  demos              SaasDemo[]
+  followUps          SaasFollowUp[]
+  onboardingTasks    SaasOnboardingTask[]
+  supportTickets     SaasSupportTicket[]
 
   @@index([ownerEmail])
   @@index([ownerPhone])
   @@index([subscriptionStatus])
+  @@index([pipelineStage])
+  @@index([lifecycle])
+}
+
+model SaasSubscription {
+  id            String    @id @default(cuid())
+  orgId         String
+  org           SaasOrg   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  plan          String
+  amount        Int
+  cycle         String    @default("YEAR")
+  status        String    @default("TRIAL")
+  paymentStatus String    @default("PENDING")
+  startedAt     DateTime  @default(now())
+  renewsAt      DateTime?
+  cancelledAt   DateTime?
+  history       String    @default("")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([orgId])
+  @@index([status])
+}
+
+model SaasDemo {
+  id          String    @id @default(cuid())
+  orgId       String
+  org         SaasOrg   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  scheduledAt DateTime
+  status      String    @default("SCHEDULED")
+  assignedTo  String    @default("")
+  notes       String    @default("")
+  createdAt   DateTime  @default(now())
+
+  @@index([orgId])
+  @@index([scheduledAt])
+}
+
+model SaasFollowUp {
+  id         String    @id @default(cuid())
+  orgId      String
+  org        SaasOrg   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  dueOn      DateTime
+  title      String
+  nextAction String    @default("")
+  reason     String    @default("")
+  status     String    @default("OPEN")
+  createdAt  DateTime  @default(now())
+  doneAt     DateTime?
+
+  @@index([orgId])
+  @@index([dueOn])
+  @@index([status])
+}
+
+model SaasOnboardingTask {
+  id        String    @id @default(cuid())
+  orgId     String
+  org       SaasOrg   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  key       String
+  label     String
+  sortOrder Int
+  done      Boolean   @default(false)
+  doneAt    DateTime?
+
+  @@unique([orgId, key])
+  @@index([orgId])
+}
+
+model SaasSupportTicket {
+  id        String    @id @default(cuid())
+  orgId     String
+  org       SaasOrg   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  subject   String
+  body      String    @default("")
+  status    String    @default("OPEN")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([orgId])
+  @@index([status])
 }
 
 model SaasPayment {
@@ -969,4 +1158,17 @@ model SaasAuditEvent {
 
   @@index([orgId])
   @@index([createdAt])
+}
+
+model SaasSitePricing {
+  id            String   @id @default("anekio")
+  planName      String   @default("Launch")
+  listPrice     Int      @default(29999)
+  discountOn    Boolean  @default(true)
+  discountType  String   @default("AMOUNT")
+  discountValue Int      @default(15000)
+  offerLabel    String   @default("Early bird")
+  billingPeriod String   @default("year")
+  trialDays     Int      @default(7)
+  updatedAt     DateTime @updatedAt
 }

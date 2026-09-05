@@ -24,7 +24,8 @@ import { prisma } from "../lib/prisma";
 import { verifyCashfreeWebhook, captureCashfreePayment } from "../lib/cashfree";
 import { captureRazorpayPayment, captureRazorpayMonths, verifyWebhookSignature } from "../lib/razorpay";
 import { issueDueFeesCore } from "../lib/fee-run";
-import { runExamPaperDeadlineNotifications } from "../lib/exam-notification-run";
+import { marksheetHtmlForUser } from "../lib/marksheet-html";
+import { runExamCronNotifications } from "../lib/exam-notification-run";
 import { ensureAccessRoles } from "../lib/roles";
 import { scopePolicyFor } from "../lib/permissions";
 import { renderInvoicePage, renderPayPage, renderStudentPayPage } from "./pay-html";
@@ -50,8 +51,10 @@ import {
   createAdminOrganisation,
   issueAdminInvoice,
   recordAdminPayment,
+  runAdminCrmAction,
   updateAdminOrganisation,
 } from "../lib/saas-admin";
+import { updateSitePricing } from "../lib/saas-pricing";
 import {
   ADMIN_OAUTH_COOKIE,
   ADMIN_SESSION_COOKIE,
@@ -227,6 +230,21 @@ app.get("/api/v1/me", async (req, res) => {
   });
 });
 
+app.get("/api/v1/marksheet", async (req, res) => {
+  const user = await requireUser(req, res);
+  if (!user) return;
+  try {
+    const html = await marksheetHtmlForUser(user, {
+      seriesId: String(req.query.seriesId || ""),
+      examId: String(req.query.examId || ""),
+      studentId: String(req.query.studentId || ""),
+    });
+    res.type("html").send(html);
+  } catch (e) {
+    sendError(res, 400, e instanceof Error ? e.message : "Marksheet unavailable");
+  }
+});
+
 app.get("/api/v1/record", async (req, res) => {
   const user = await requireUser(req, res);
   if (!user) return;
@@ -346,6 +364,7 @@ async function renderAdminPage(req: express.Request, res: express.Response) {
       view: typeof req.query.view === "string" ? req.query.view : "dashboard",
       id: typeof req.query.id === "string" ? req.query.id : "",
       q: typeof req.query.q === "string" ? req.query.q.trim() : "",
+      tab: typeof req.query.tab === "string" ? req.query.tab : "",
       flash: typeof req.query.saved === "string" ? req.query.saved : "",
       error: typeof req.query.error === "string" ? req.query.error : "",
     })
@@ -438,11 +457,11 @@ app.get("/", async (req, res, next) => {
     if (html) return res.type("html").send(html);
     return sendError(res, 404, "School website not found");
   }
-  res.type("html").send(marketingHtml());
+  res.type("html").send(await marketingHtml());
 });
 
-app.get(["/features", "/pricing"], (_req, res) => {
-  res.type("html").send(marketingHtml());
+app.get(["/features", "/pricing"], async (_req, res) => {
+  res.type("html").send(await marketingHtml());
 });
 
 app.get("/robots.txt", (_req, res) => {
@@ -453,16 +472,16 @@ app.get("/sitemap.xml", (_req, res) => {
   res.type("application/xml").send(sitemapXml());
 });
 
-app.get("/anekio/enquiry", (_req, res) => {
-  res.type("html").send(marketingHtml());
+app.get("/anekio/enquiry", async (_req, res) => {
+  res.type("html").send(await marketingHtml());
 });
 
 app.post("/anekio/enquiry", async (req, res) => {
   try {
     await createSaasEnquiry(req.body || {});
-    res.type("html").send(marketingHtml("Thanks — enquiry saved. We will follow up with the school owner."));
+    res.type("html").send(await marketingHtml("Thanks — enquiry saved. We will follow up with the school owner."));
   } catch (e) {
-    res.status(400).type("html").send(marketingHtml(e instanceof Error ? e.message : "Could not save enquiry."));
+    res.status(400).type("html").send(await marketingHtml(e instanceof Error ? e.message : "Could not save enquiry."));
   }
 });
 
@@ -561,6 +580,94 @@ app.get(["/invoices/:id/print", "/anekio-admin/invoices/:id/print"], async (req,
   res.type("html").send(html);
 });
 
+app.post(["/settings/pricing", "/anekio-admin/settings/pricing"], async (req, res, next) => {
+  if (!adminRouteRequest(req)) return next();
+  const session = requireAdminAction(req, res);
+  if (!session) return;
+  const basePath = adminBase(req);
+  try {
+    await updateSitePricing(req.body || {}, session.email);
+    res.redirect(303, `${basePath || "/"}?view=pricing&saved=${encodeURIComponent("Landing page pricing published.")}`);
+  } catch (e) {
+    res.redirect(303, `${basePath || "/"}?view=pricing&error=${encodeURIComponent(e instanceof Error ? e.message : "Could not save pricing.")}`);
+  }
+});
+
+function crmBack(req: express.Request, basePath: string, extra: Record<string, string> = {}) {
+  const referer = String(req.get("referer") || "");
+  if (referer) {
+    try {
+      const url = new URL(referer);
+      if (url.hostname === String(req.headers.host || "").split(":")[0] || url.hostname.endsWith("localhost")) {
+        for (const [key, value] of Object.entries(extra)) url.searchParams.set(key, value);
+        return `${url.pathname}${url.search}`;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  const url = new URL(basePath || "/", "http://admin.local");
+  for (const [key, value] of Object.entries(extra)) url.searchParams.set(key, value);
+  return `${url.pathname}${url.search}`;
+}
+
+async function handleCrm(req: express.Request, res: express.Response, kind: string, id: string, extraInput: Record<string, unknown> = {}) {
+  const session = requireAdminAction(req, res);
+  if (!session) return;
+  const basePath = adminBase(req);
+  try {
+    await runAdminCrmAction(kind, id, { ...(req.body || {}), ...extraInput }, session.email);
+    res.redirect(303, crmBack(req, basePath, { saved: "Saved." }));
+  } catch (e) {
+    res.redirect(303, crmBack(req, basePath, { error: e instanceof Error ? e.message : "Could not save." }));
+  }
+}
+
+app.post(["/crm/support", "/anekio-admin/crm/support"], (req, res, next) => {
+  if (!adminRouteRequest(req)) return next();
+  return handleCrm(req, res, "support", String(req.body?.orgId || ""));
+});
+app.post(["/crm/demos/:id/complete", "/anekio-admin/crm/demos/:id/complete"], (req, res, next) => {
+  if (!adminRouteRequest(req)) return next();
+  return handleCrm(req, res, "demo-complete", String(req.params.id || ""));
+});
+app.post(["/crm/followups/:id/done", "/anekio-admin/crm/followups/:id/done"], (req, res, next) => {
+  if (!adminRouteRequest(req)) return next();
+  return handleCrm(req, res, "followup-done", String(req.params.id || ""));
+});
+app.post(["/crm/:id/stage", "/anekio-admin/crm/:id/stage"], (req, res, next) => {
+  if (!adminRouteRequest(req)) return next();
+  return handleCrm(req, res, "stage", String(req.params.id || ""));
+});
+app.post(["/crm/:id/notes", "/anekio-admin/crm/:id/notes"], (req, res, next) => {
+  if (!adminRouteRequest(req)) return next();
+  return handleCrm(req, res, "notes", String(req.params.id || ""));
+});
+app.post(["/crm/:id/demos", "/anekio-admin/crm/:id/demos"], (req, res, next) => {
+  if (!adminRouteRequest(req)) return next();
+  return handleCrm(req, res, "demos", String(req.params.id || ""));
+});
+app.post(["/crm/:id/followups", "/anekio-admin/crm/:id/followups"], (req, res, next) => {
+  if (!adminRouteRequest(req)) return next();
+  return handleCrm(req, res, "followups", String(req.params.id || ""));
+});
+app.post(["/crm/:id/onboarding/start", "/anekio-admin/crm/:id/onboarding/start"], (req, res, next) => {
+  if (!adminRouteRequest(req)) return next();
+  return handleCrm(req, res, "onboarding-start", String(req.params.id || ""));
+});
+app.post(["/crm/:id/onboarding/:key", "/anekio-admin/crm/:id/onboarding/:key"], (req, res, next) => {
+  if (!adminRouteRequest(req)) return next();
+  return handleCrm(req, res, "onboarding-toggle", String(req.params.id || ""), { key: String(req.params.key || "") });
+});
+app.post(["/crm/:id/plan", "/anekio-admin/crm/:id/plan"], (req, res, next) => {
+  if (!adminRouteRequest(req)) return next();
+  return handleCrm(req, res, "plan", String(req.params.id || ""));
+});
+app.post(["/crm/:id/cancel", "/anekio-admin/crm/:id/cancel"], (req, res, next) => {
+  if (!adminRouteRequest(req)) return next();
+  return handleCrm(req, res, "cancel", String(req.params.id || ""));
+});
+
 app.post("/api/saas/enquiry", async (req, res) => {
   try {
     res.json({ ok: true, org: await createSaasEnquiry(req.body || {}) });
@@ -579,7 +686,7 @@ app.post("/api/saas/trial", async (req, res) => {
   } catch (e) {
     const message = e instanceof Error ? e.message : "Could not start trial.";
     if (!String(req.headers.accept || "").includes("application/json")) {
-      return res.status(400).type("html").send(marketingHtml(message));
+      return res.status(400).type("html").send(await marketingHtml(message));
     }
     sendError(res, 400, message);
   }
@@ -600,7 +707,7 @@ async function createSaasPaymentOrder(req: express.Request, res: express.Respons
   } catch (e) {
     const message = e instanceof Error ? e.message : "Could not create payment order.";
     if (!String(req.headers.accept || "").includes("application/json")) {
-      return res.status(400).type("html").send(marketingHtml(message));
+      return res.status(400).type("html").send(await marketingHtml(message));
     }
     sendError(res, 400, message);
   }
@@ -745,7 +852,7 @@ app.post("/api/cron/exams", async (req, res) => {
   if (!secret || req.headers.authorization !== `Bearer ${secret}`) {
     return res.status(401).send("Unauthorized");
   }
-  res.json(await runExamPaperDeadlineNotifications(new Date()));
+  res.json(await runExamCronNotifications(new Date()));
 });
 
 app.get("/pay/s/:token", async (req, res) => {
@@ -803,31 +910,47 @@ app.get("/document-batches/:batchId", async (req, res) => {
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
-const webDir = [argvRoot, path.resolve(serverDir, ".."), process.cwd()]
+const demoDir = [argvRoot, path.resolve(serverDir, ".."), process.cwd()]
   .filter(Boolean)
-  .map((root) => path.join(root, "mobile", "dist"))
-  .find((dir) => existsSync(path.join(dir, "index.html")));
-if (webDir && existsSync(webDir)) {
-  app.get(appShellRoutes, (_req, res) => {
-    res.sendFile(path.join(webDir, "index.html"));
-  });
-  app.use(express.static(webDir));
-  app.use((req, res, next) => {
-    if (req.method !== "GET" && req.method !== "HEAD") return next();
-    if (
-      req.path.startsWith("/api") ||
-      req.path.startsWith("/pay") ||
-      req.path.startsWith("/i") ||
-      req.path.startsWith("/verify") ||
-      req.path.startsWith("/documents") ||
-      req.path.startsWith("/document-batches") ||
-      req.path === "/health"
-    ) {
-      return next();
-    }
-    res.sendFile(path.join(webDir, "index.html"));
-  });
+  .map((root) => path.join(root, "public", "demo"))
+  .find((dir) => existsSync(dir));
+if (demoDir) {
+  app.use("/demo", express.static(demoDir));
 }
+
+function resolveWebDir() {
+  return [argvRoot, path.resolve(serverDir, ".."), process.cwd()]
+    .filter(Boolean)
+    .map((root) => path.join(root, "mobile", "dist"))
+    .find((dir) => existsSync(path.join(dir, "index.html")));
+}
+
+let webDir = resolveWebDir();
+function sendAppShell(_req: express.Request, res: express.Response, next: express.NextFunction) {
+  const dir = webDir || (webDir = resolveWebDir());
+  if (!dir) return next();
+  res.sendFile(path.join(dir, "index.html"));
+}
+app.get(["/", ...appShellRoutes], sendAppShell);
+if (webDir) {
+  app.use(express.static(webDir));
+}
+app.use((req, res, next) => {
+  if (req.method !== "GET" && req.method !== "HEAD") return next();
+  if (
+    req.path.startsWith("/api") ||
+    req.path.startsWith("/pay") ||
+    req.path.startsWith("/i") ||
+    req.path.startsWith("/verify") ||
+    req.path.startsWith("/documents") ||
+    req.path.startsWith("/document-batches") ||
+    req.path.startsWith("/demo") ||
+    req.path === "/health"
+  ) {
+    return next();
+  }
+  sendAppShell(req, res, next);
+});
 
 export default app;
 

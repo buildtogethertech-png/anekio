@@ -1,6 +1,8 @@
 import { Redirect, Slot, Tabs, useRouter } from "expo-router";
 import { ActivityIndicator, Pressable, Text, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { AppSearch } from "../../components/app-search";
 import { AppTabBar } from "../../components/app-tab-bar";
 import { NavMenu } from "../../components/nav-menu";
 import { NoticeBell } from "../../components/notice-bell";
@@ -10,16 +12,27 @@ import { useSession } from "../../lib/session";
 function ProfileChip() {
   const { user } = useSession();
   const router = useRouter();
+  const name = user?.name || "Profile";
+  const initials = name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel="Profile"
       onPress={() => router.push("/profile" as never)}
-      className="h-10 flex-row items-center rounded-full border border-ink-200 bg-white px-3"
+      className="h-10 flex-row items-center gap-2 rounded-full px-1.5"
     >
-      <Text className="text-sm font-medium text-ink-900" numberOfLines={1}>
-        {user?.name?.split(" ")[0] || "Profile"}
+      <View className="h-8 w-8 items-center justify-center rounded-full bg-[#EEF4FF]">
+        <Text className="text-[11px] font-semibold text-clay-500">{initials || "A"}</Text>
+      </View>
+      <Text className="text-[13px] font-medium text-ink-900" numberOfLines={1}>
+        {name}
       </Text>
+      <Ionicons name="chevron-down" size={14} color="#94A3B8" />
     </Pressable>
   );
 }
@@ -73,7 +86,8 @@ export default function AppLayout() {
         <View className="min-h-0 flex-1 flex-row overflow-hidden bg-ink-50">
           <Sidebar />
           <View className="min-h-0 flex-1 overflow-hidden">
-            <View className="h-14 shrink-0 flex-row items-center justify-end gap-2 border-b border-ink-200 bg-white px-5">
+            <View className="h-14 shrink-0 flex-row items-center gap-3 border-b border-ink-200 bg-white px-5">
+              <AppSearch />
               <NoticeBell />
               <ProfileChip />
             </View>

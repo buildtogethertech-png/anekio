@@ -99,7 +99,7 @@ export function Popover({
       </div>
       {open ? (
         <FloatingPortal>
-          <div ref={refs.setFloating} {...getFloatingProps()} style={panelStyle}>
+          <div ref={refs.setFloating} {...getFloatingProps()} className="anekio-pop" style={panelStyle}>
             {panel}
           </div>
         </FloatingPortal>

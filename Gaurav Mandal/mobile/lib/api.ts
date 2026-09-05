@@ -98,6 +98,7 @@ export type Notice = {
   title: string;
   body: string;
   kind?: string;
+  eventKey?: string;
   priority?: string;
   createdAt: string;
   author: string;

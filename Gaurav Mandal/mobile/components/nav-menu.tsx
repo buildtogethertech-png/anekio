@@ -54,15 +54,15 @@ export function NavMenu({ onNavigate }: { onNavigate?: () => void }) {
             <Pressable
               key={item.key}
               onPress={() => go(item.key)}
-              className={`mb-0.5 min-h-[40px] flex-row items-center gap-2.5 rounded-xl px-3 ${on ? "bg-[#EEF2FF]" : ""}`}
+              className={`anekio-nav-item mb-0.5 min-h-[40px] flex-row items-center gap-2.5 rounded-xl px-3 ${on ? "bg-[#EEF4FF]" : ""}`}
             >
-              <Ionicons name={iconForNav(item.key)} size={18} color={on ? "#2855F6" : "#64748B"} />
-              <Text className={`min-w-0 flex-1 text-[14px] ${on ? "font-semibold text-clay-500" : "text-ink-900"}`}>
+              <Ionicons name={iconForNav(item.key)} size={18} color={on ? "#2563EB" : "#64748B"} />
+              <Text className={`min-w-0 flex-1 text-[13px] font-medium ${on ? "text-clay-500" : "text-ink-900"}`}>
                 {navLabel(user?.portal, item)}
               </Text>
               {badge > 0 ? (
-                <View className="min-w-[18px] items-center rounded-full bg-ink-100 px-1.5">
-                  <Text className="text-[10px] font-semibold text-ink-800">{badge > 9 ? "9+" : badge}</Text>
+                <View className="min-w-[18px] items-center rounded-full bg-clay-500 px-1.5">
+                  <Text className="text-[10px] font-semibold text-white">{badge > 9 ? "9+" : badge}</Text>
                 </View>
               ) : null}
             </Pressable>

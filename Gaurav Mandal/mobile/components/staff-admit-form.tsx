@@ -18,6 +18,7 @@ export type StaffAdmitPayload = {
   state: string;
   pincode: string;
   managerId: string;
+  monthlySalary: string;
 };
 
 function todayYmd() {
@@ -53,6 +54,7 @@ function emptyForm(roles: StaffAdmitRole[], managers: ManagerOption[]): StaffAdm
     state: "",
     pincode: "",
     managerId: defaultManagerId(managers),
+    monthlySalary: "30000",
   };
 }
 
@@ -62,7 +64,7 @@ export function StaffAdmitForm({
   user,
   onSubmit,
   initialValues,
-  submitLabel = "Add staff",
+  submitLabel = "Add employee",
   busyLabel = "Adding…",
 }: {
   roles: StaffAdmitRole[];
@@ -132,6 +134,14 @@ export function StaffAdmitForm({
       ) : null}
       <Field label="Joining date">
         <DateField value={form.joinedOn} onChange={(joinedOn) => patch({ joinedOn })} />
+      </Field>
+      <Field label="Monthly salary">
+        <Input
+          keyboardType="number-pad"
+          value={form.monthlySalary}
+          onChangeText={(monthlySalary) => patch({ monthlySalary })}
+          placeholder="30000"
+        />
       </Field>
       <Text className="text-xs text-ink-700">
         They log in with this mobile. First password is set for them — they change it on Profile.
