@@ -34,6 +34,7 @@ export type DocumentTemplateSummary = {
   orientation: string;
   status: string;
   activeVersion: number | null;
+  hasDraft?: boolean;
   updatedAt: string | null;
   layout: DocumentLayout;
 };
@@ -59,7 +60,25 @@ export type RecordPayload = {
     renewUrl: string;
     amount: number;
   };
-  children?: { id: string; name: string; classLabel: string }[];
+  children?: {
+    id: string;
+    name: string;
+    classLabel: string;
+    admissionNo?: string;
+    born?: string;
+    email?: string;
+    interests?: string[];
+  }[];
+  parent?: {
+    name: string;
+    email: string;
+    phone: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    pincode?: string;
+    place?: string;
+  } | null;
   child?: {
     id: string;
     name: string;
@@ -81,9 +100,11 @@ export type RecordPayload = {
       week?: { day: string; period: string; start: string; end: string }[];
       nextTest?: { title: string; date: string } | null;
     }[];
-    tests: { id: string; title: string; subject: string; marks: number; max: number; pct: number; remarks: string }[];
+    tests: { id: string; examId?: string; seriesId?: string; seriesName?: string; title: string; subject: string; date?: string; marks: number; max: number; pct: number; remarks: string; absent?: boolean }[];
     papers: {
       id: string;
+      examId?: string;
+      seriesId?: string;
       title: string;
       type: string;
       subject: string;
@@ -121,7 +142,17 @@ export type RecordPayload = {
       payUrl?: string;
     }[];
   } | null;
-  upcoming?: { id: string; title: string; subject: string; date: string; teacher: string }[];
+  upcoming?: { id: string; title: string; subject: string; date: string; time?: string; resultDate?: string; teacher: string; seriesId?: string; seriesName?: string }[];
+  examTimetable?: { id: string; title: string; subject: string; date: string; time?: string; resultDate?: string; teacher: string; seriesId?: string; seriesName?: string }[];
+  examSessions?: {
+    id: string;
+    name: string;
+    sessionLabel: string;
+    status: "published" | "upcoming" | "held" | "unpublished";
+    examLabel: string;
+    examDate: string;
+    resultDate: string;
+  }[];
   notices?: { id: string; title: string; body: string; createdAt: string; author: string }[];
   reports?: {
     seriesId: string;
@@ -146,8 +177,9 @@ export type RecordPayload = {
     exams: { id: string; title: string; maxMarks: number; date: string; subject: { id?: string; name: string } }[];
     marks: { examId: string; studentId: string; marks: number; absent?: boolean; remarks?: string | null }[];
     classmates: { id: string; name: string }[];
-    policy: { bands: { min: number; grade: string }[]; passPercent: number; showRank: boolean };
+    policy: { bands: { min: number; grade: string }[]; passPercent: number; showRank: boolean; reportCardPaidMonths?: number };
   }[];
+  reportCardHold?: { requiredMonths: number; paidMonths: number } | null;
   timetable?: {
     weekdays: { n: number; label: string }[];
     periods: { id: string; name: string; start: string; end: string; isBreak?: boolean; sortOrder?: number }[];
@@ -202,17 +234,18 @@ export type RecordPayload = {
     hint: string;
     href?: string;
     examId?: string;
-    kind?: "paper" | "copies" | "marks";
+    kind?: "paper" | "copies" | "marks" | "take";
     dueOn?: string;
     urgency?: "overdue" | "soon" | "";
   }[];
   doneWork?: {
     id: string;
     examId: string;
-    kind: "paper" | "marks";
+    kind: "paper" | "take" | "marks";
     title: string;
     hint: string;
     doneAt: string;
+    examDate?: string;
   }[];
   markSheets?: {
     examId: string;
@@ -220,7 +253,13 @@ export type RecordPayload = {
     subject: string;
     maxMarks: number;
     classLabel: string;
-    students: { id: string; name: string; admissionNo: string; marks: number | null; absent: boolean }[];
+    date?: string;
+    seriesName?: string;
+    workflowStatus?: string;
+    correctionNote?: string;
+    entered?: number;
+    canEnterMarks?: boolean;
+    students: { id: string; name: string; admissionNo: string; marks: number | null; absent: boolean; correctionNote?: string; correctionRequested?: boolean }[];
   }[];
   callHome?: { id: string; name: string; days: number; parentName: string; phone: string; wa: string }[];
   weekPapers?: { id: string; title: string; subject: string; date: string; classLabel: string }[];
@@ -230,6 +269,7 @@ export type RecordPayload = {
   roster?: {
     id: string;
     name: string;
+    admissionNo?: string;
     today: string;
     dateOfBirth?: string;
     parentName?: string;
@@ -373,9 +413,39 @@ export type RecordPayload = {
     pincode?: string;
     joinedOn?: string;
     today?: string;
-    days?: { date: string; status: string }[];
+    days?: { date: string; status: string; remark?: string }[];
+    leaveDays?: { date: string; reason: string; paid: boolean; typeName: string }[];
+    salary?: number;
+    department?: string;
     managerId?: string;
     managerName?: string;
+  }[];
+  payrollRules?: {
+    presentCredit: number;
+    absentCredit: number;
+    paidLeaveCredit: number;
+    unpaidLeaveCredit: number;
+    halfDayCredit: number;
+    lateCredit: number;
+  };
+  staffPayroll?: {
+    personKey: string;
+    month: string;
+    status: string;
+    salary: number;
+    workingDays: number;
+    payableDays: number;
+    attendanceAdj: number;
+    otherAdj: number;
+    finalAmount: number;
+  }[];
+  staffAudits?: {
+    personKey: string;
+    date: string;
+    fromStatus: string;
+    toStatus: string;
+    reason: string;
+    at: string;
   }[];
   managers?: { id: string; name: string; role: string; slug?: string; portal?: string }[];
   teamWeek?: boolean;
@@ -454,7 +524,7 @@ export type RecordPayload = {
     subjectCatalog?: string[];
     sessions?: { id: string; label: string; startsOn: string; endsOn: string; current: boolean }[];
     holidays?: { id: string; sessionId?: string; date: string; name: string }[];
-    policy?: { bands: { min: number; grade: string }[]; passPercent: number; showRank: boolean };
+    policy?: { bands: { min: number; grade: string }[]; passPercent: number; showRank: boolean; reportCardPaidMonths?: number };
     plan?: { id: string; name: string; kind: string; weight: number; maxMarks: number; expectedPeriod?: string }[];
     pay?: {
       gateway: string;
@@ -501,7 +571,7 @@ export type RecordPayload = {
       signatory?: string;
       invoiceStyle?: string;
     };
-    policy: { bands: { min: number; grade: string }[]; passPercent: number; showRank: boolean };
+    policy: { bands: { min: number; grade: string }[]; passPercent: number; showRank: boolean; reportCardPaidMonths?: number };
     planBySession: Record<string, { id: string; name: string; kind: string; weight: number; maxMarks: number; expectedPeriod?: string }[]>;
     series: {
       id: string;
@@ -524,13 +594,23 @@ export type RecordPayload = {
         teacherName?: string;
         setterId?: string | null;
         setterName?: string;
+        evaluators?: { id: string; name: string }[];
+        eligibleTeacherIds?: string[];
         subject: { id: string; name: string };
+        workflowStatus?: string;
+        correctionNote?: string;
+        entered?: number;
+        paperAt?: string | null;
+        marksGrantedAt?: string | null;
+        conductedAt?: string | null;
+        paperFileName?: string | null;
+        resultsPublishedAt?: string | null;
       }[];
-      marks: { examId: string; studentId: string; marks: number; absent?: boolean; remarks?: string | null }[];
+      marks: { examId: string; studentId: string; marks: number; absent?: boolean; remarks?: string | null; version?: number; correctionNote?: string; correctionRequested?: boolean }[];
     }[];
   };
   examList?: { id: string; title: string; classId?: string; label?: string }[];
-  examStudents?: { id: string; name: string; classId: string }[];
+  examStudents?: { id: string; name: string; admissionNo?: string; classId: string }[];
   documentStudio?: {
     categories: { id: string; label: string; hint: string }[];
     types: { id: string; label: string; category: string; hint: string; priority?: boolean }[];

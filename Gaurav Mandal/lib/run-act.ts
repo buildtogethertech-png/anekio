@@ -19,6 +19,8 @@ import {
   deleteSchoolSessionCore,
   createParentCore,
   createSchoolSessionCore,
+  correctStaffAttendanceCore,
+  saveStaffPayrollCore,
   createStaffMemberCore,
   createStudentCore,
   createTeacherCore,
@@ -64,18 +66,28 @@ import {
 } from "./core-actions";
 import {
   archiveClassCore,
+  approveExamMarksCore,
   collectAllStudentFeesCore,
   completeExamWorkCore,
   copyExamSeriesCore,
+  examMarkHistoryCore,
+  grantExamMarksCore,
+  remindExamMarksCore,
   createInvoiceCore,
   importExamMarksCore,
   importPeopleSheetCore,
   issueClassFeesCore,
+  publishExamResultsCore,
+  requestExamMarkCorrectionCore,
+  returnExamMarksCore,
+  reviewExamMarksCore,
   saveExamMarksCore,
   saveFeeTemplateCore,
   saveSeriesMarksCore,
   sendFeeRemindersCore,
   startNextSchoolSessionCore,
+  submitExamMarksCore,
+  takeExamCore,
   updateExamSeriesPapersCore,
   uploadPaperCore,
   uploadQuestionPaperCore,
@@ -127,6 +139,12 @@ export async function runAct(
       break;
     case "markStaffAttendance":
       await markStaffAttendanceCore(user, body as never);
+      break;
+    case "correctStaffAttendance":
+      await correctStaffAttendanceCore(user, body as never);
+      break;
+    case "saveStaffPayroll":
+      await saveStaffPayrollCore(user, body as never);
       break;
     case "createStaffMember":
       await createStaffMemberCore(user, body as never);
@@ -300,6 +318,30 @@ export async function runAct(
       break;
     case "saveExamMarks":
       return { ok: true, ...(await saveExamMarksCore(user, body as never)) };
+    case "takeExam":
+      await takeExamCore(user, body as never);
+      break;
+    case "submitExamMarks":
+      return { ok: true, ...(await submitExamMarksCore(user, body as never)) };
+    case "reviewExamMarks":
+      await reviewExamMarksCore(user, body as never);
+      break;
+    case "returnExamMarks":
+      await returnExamMarksCore(user, body as never);
+      break;
+    case "requestExamMarkCorrection":
+      await requestExamMarkCorrectionCore(user, body as never);
+      break;
+    case "examMarkHistory":
+      return { ok: true, ...(await examMarkHistoryCore(user, body as never)) };
+    case "remindExamMarks":
+      await remindExamMarksCore(user, body as never);
+      break;
+    case "approveExamMarks":
+      await approveExamMarksCore(user, body as never);
+      break;
+    case "publishExamResults":
+      return { ok: true, ...(await publishExamResultsCore(user, body as never)) };
     case "importExamMarks":
       return { ok: true, ...(await importExamMarksCore(user, body as never)) };
     case "saveSeriesMarks":
@@ -310,6 +352,9 @@ export async function runAct(
       break;
     case "uploadQuestionPaper":
       await uploadQuestionPaperCore(user, body as never);
+      break;
+    case "grantExamMarks":
+      await grantExamMarksCore(user, body as never);
       break;
     case "importPeopleSheet":
       return { ok: true, ...(await importPeopleSheetCore(user, body as never)) };

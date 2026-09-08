@@ -23,8 +23,29 @@ function postedWhen(value: string) {
 
 export function hrefForNotice(kind: NoticeKind, notice: Notice, navKeys: string[]) {
   const has = (key: string) => navKeys.includes(key);
+  if (kind === "EXAM") {
+    const key = notice.eventKey || "";
+    const examId = key.startsWith("NT-5:") ? key.split(":")[1] : key.startsWith("EXAM:") ? key.split(":")[1] : "";
+    const seriesId = key.startsWith("SERIES:") ? key.split(":")[1] : "";
+    const event = key.startsWith("NT-5:") ? "PAPER_OVERDUE" : key.split(":")[2] || "";
+    if (has("exams")) {
+      if (/PAPER|EXAM_ASSIGNED|EXAM_TODAY|EXAM_TOMORROW/.test(event) && examId) {
+        const view = /PAPER/.test(event) ? "paper" : /EXAM_TODAY|EXAM_TOMORROW/.test(event) ? "take" : "paper";
+        return `/exams?examId=${encodeURIComponent(examId)}&view=${view}`;
+      }
+      if (/MARKS|RESULT_READY|RESULT_PUBLICATION/.test(event) && examId) {
+        const view = /CORRECTION|ENTRY_OPEN|DUE/.test(event) ? "marks" : "review";
+        return `/exams?examId=${encodeURIComponent(examId)}&view=${view}`;
+      }
+      return "/exams";
+    }
+    if (has("tests")) {
+      if (seriesId) return `/tests?seriesId=${encodeURIComponent(seriesId)}`;
+      return event.includes("SCHEDULE") ? "/tests?view=timetable" : "/tests";
+    }
+    return "/";
+  }
   if (kind === "ADMISSION") return has("admissions") ? "/admissions" : "/";
-  if (kind === "EXAM") return has("exams") ? "/exams" : has("tests") ? "/tests" : "/";
   if (kind === "FEES") return has("fees") ? "/fees" : "/";
   if (kind === "ATTENDANCE") {
     const leave = /leave/i.test(`${notice.title} ${notice.body}`);

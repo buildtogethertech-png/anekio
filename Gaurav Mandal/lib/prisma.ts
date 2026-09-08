@@ -8,7 +8,7 @@ const globalForPrisma = globalThis as unknown as {
   prismaStamp?: string;
 };
 
-const stamp = "push-1";
+const stamp = "push-5";
 
 if (globalForPrisma.prisma && globalForPrisma.prismaStamp !== stamp) {
   void globalForPrisma.prisma.$disconnect();

@@ -17,6 +17,7 @@ export type GradePolicy = {
   bands: GradeBand[];
   passPercent: number;
   showRank: boolean;
+  reportCardPaidMonths: number;
 };
 
 export function parseGradeBands(raw?: string | null): GradeBand[] {
@@ -40,11 +41,14 @@ export function gradePolicyFrom(row?: {
   gradeBandsJson?: string | null;
   passPercent?: number | null;
   showRank?: boolean | null;
+  reportCardPaidMonths?: number | null;
 } | null): GradePolicy {
+  const months = Math.floor(Number(row?.reportCardPaidMonths));
   return {
     bands: parseGradeBands(row?.gradeBandsJson),
     passPercent: Math.max(0, Math.min(100, Math.round(Number(row?.passPercent) || 33))),
     showRank: Boolean(row?.showRank),
+    reportCardPaidMonths: Number.isFinite(months) && months > 0 ? Math.min(24, months) : 0,
   };
 }
 
@@ -116,17 +120,24 @@ export function timetableVisible(exam: {
 }
 
 export function marksVisible(exam: {
+  workflowStatus?: string | null;
+  resultsPublishedAt?: Date | string | null;
   seriesId?: string | null;
   resultOn?: Date | string | null;
   series?: { publishedAt?: Date | string | null } | null;
 }) {
-  if (!exam.seriesId) return true;
-  if (exam.resultOn) return onOrAfter(exam.resultOn);
-  return Boolean(exam.series?.publishedAt);
+  return exam.workflowStatus === "PUBLISHED" || Boolean(exam.resultsPublishedAt);
 }
 
-export function examLocked(exam: { resultOn?: Date | string | null }) {
-  return exam.resultOn ? onOrAfter(exam.resultOn) : false;
+export function examLocked(exam: {
+  workflowStatus?: string | null;
+  resultOn?: Date | string | null;
+}) {
+  const status = exam.workflowStatus || "";
+  if (status === "SUBMITTED" || status === "UNDER_REVIEW" || status === "APPROVED" || status === "PUBLISHED") {
+    return true;
+  }
+  return false;
 }
 
 export function studentSeriesScore(
@@ -203,11 +214,10 @@ export type ExamPlanItem = {
 };
 
 export const DEFAULT_EXAM_PLAN: ExamPlanItem[] = [
-  { id: "unit1", name: "Unit test 1", kind: "unit", weight: 10, maxMarks: 40, expectedPeriod: "July" },
-  { id: "term1", name: "Term 1", kind: "term1", weight: 20, maxMarks: 80, expectedPeriod: "September" },
-  { id: "unit2", name: "Unit test 2", kind: "unit", weight: 10, maxMarks: 40, expectedPeriod: "December" },
-  { id: "term2", name: "Term 2", kind: "term2", weight: 20, maxMarks: 80, expectedPeriod: "January" },
-  { id: "annual", name: "Annual", kind: "annual", weight: 40, maxMarks: 100, expectedPeriod: "March" },
+  { id: "unit1", name: "Unit Test 1", kind: "unit", weight: 10, maxMarks: 40, expectedPeriod: "July" },
+  { id: "term1", name: "Term 1", kind: "term1", weight: 30, maxMarks: 80, expectedPeriod: "September" },
+  { id: "unit2", name: "Unit Test 2", kind: "unit", weight: 10, maxMarks: 40, expectedPeriod: "November" },
+  { id: "term2", name: "Term 2", kind: "term2", weight: 50, maxMarks: 80, expectedPeriod: "March" },
 ];
 
 export function parseExamPlan(raw?: string | null, fallback = true): ExamPlanItem[] {

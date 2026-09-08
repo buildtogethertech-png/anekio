@@ -18,7 +18,10 @@ function placePanel(
   fixedHeight?: number
 ) {
   const win = Dimensions.get("window");
-  const width = Math.min(panelWidth ?? Math.max(anchor.width, minWidth), win.width - PAD * 2);
+  if (!win.width || !win.height) {
+    return { left: PAD, top: PAD, width: minWidth, maxHeight };
+  }
+  const width = Math.min(panelWidth ?? Math.max(anchor.width, minWidth), Math.max(minWidth, win.width - PAD * 2));
   let left = align === "end" ? anchor.x + anchor.width - width : anchor.x;
   left = Math.min(Math.max(PAD, left), win.width - width - PAD);
 
@@ -36,7 +39,12 @@ function placePanel(
   const height = Math.min(maxHeight, room);
   const top = placeBelow ? anchor.y + anchor.height + GAP : Math.max(PAD, anchor.y - height - GAP);
 
-  return { left, top, width, maxHeight: height };
+  return {
+    left: Number.isFinite(left) ? left : PAD,
+    top: Number.isFinite(top) ? top : PAD,
+    width: Number.isFinite(width) ? width : minWidth,
+    maxHeight: Number.isFinite(height) ? height : maxHeight,
+  };
 }
 
 export function Popover({
@@ -65,8 +73,8 @@ export function Popover({
 
   const measure = useCallback(() => {
     triggerRef.current?.measureInWindow((x, y, w, h) => {
-      if (!w && !h) return;
-      setAnchor({ x, y, width: w, height: h });
+      if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(w) || w < 1) return;
+      setAnchor({ x, y, width: w, height: h || 40 });
     });
   }, []);
 
@@ -90,7 +98,7 @@ export function Popover({
   return (
     <View ref={triggerRef} collapsable={false}>
       {children}
-      <RnModal visible={open} transparent animationType="none" onRequestClose={onClose}>
+      <RnModal visible={open} transparent animationType="none" onRequestClose={onClose} presentationStyle="overFullScreen" statusBarTranslucent>
         <View className="flex-1">
           <Pressable className="absolute inset-0" onPress={onClose} />
           {box ? (

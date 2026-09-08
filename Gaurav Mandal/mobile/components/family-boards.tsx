@@ -1,6 +1,6 @@
 import { createElement, useEffect, useMemo, useRef, useState } from "react";
-import { Linking, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
-import { useRouter } from "expo-router";
+import { Animated, Dimensions, Linking, Modal as RnModal, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { DateField } from "./date-field";
 import { Badge, Button, Card, Chip, ChipScroller, CloseButton, Empty, Field, Input, Modal, PageHeader, Stat, Toast, useToast } from "./ui";
@@ -10,20 +10,20 @@ import {
   attendanceCbseNote,
   attendanceCountLine,
   attendanceHint,
-  attendanceLetter,
   attendanceSummary,
   lastAttendanceDots,
   todayMark,
   todayMarkLabel,
 } from "../lib/attendance-summary";
-import { addDays, calendarFrom, closedCaption, closedReason, ymd } from "../lib/calendar";
+import { addDays, calendarFrom, closedCaption, closedReason, ymd, type SchoolCalendar } from "../lib/calendar";
 import { AttendanceDots, DayMark, OnLeaveSign } from "./attendance-mark";
 import { useRecord, type RecordPayload } from "../lib/record";
 import { useSession } from "../lib/session";
-import { ExamTodoCard, TeacherMarksModal, examTodoKind, examTodoTone } from "./exam-teacher-work";
-import { ReportCardSheet } from "./report-card-sheet";
+import { openAuthedFile, openMarksheetPdf } from "../lib/print-html";
+import { examTodoKind, examTodoTone } from "./exam-teacher-work";
 import { LeaveApplyCard, LeaveDecideList } from "./leave-apply";
 import { ManagerPicker } from "./manager-picker";
+import { TeacherMonthlyRegister } from "./teacher-monthly-register";
 
 function can(user: { permissions: string[] } | null, key: string) {
   return Boolean(user?.permissions.includes(key));
@@ -32,13 +32,96 @@ function can(user: { permissions: string[] } | null, key: string) {
 function ChildSwitch() {
   const { data, childId, setChildId } = useRecord();
   const kids = data?.children ?? [];
-  if (kids.length < 2) return null;
-  const active = childId || data?.child?.id;
+  const child = data?.child;
+  const triggerRef = useRef<View>(null);
+  const [open, setOpen] = useState(false);
+  const [menu, setMenu] = useState({ x: 0, y: 0, w: 220 });
+  const many = kids.length > 1;
+  const activeId = childId || child?.id;
+
+  function close() {
+    setOpen(false);
+  }
+
+  useEffect(() => {
+    if (!open || Platform.OS !== "web") return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") close();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  if (!child && !kids.length) return null;
+
+  function toggle() {
+    if (!many) return;
+    const node = triggerRef.current;
+    if (!node?.measureInWindow) {
+      setMenu({ x: 24, y: 88, w: 220 });
+      setOpen(true);
+      return;
+    }
+    node.measureInWindow((x, y, w, h) => {
+      const screen = Dimensions.get("window");
+      const width = Math.min(240, Math.max(200, w || 220));
+      const left = Math.min(Math.max(8, x), screen.width - width - 8);
+      const top = Math.min(y + h + 4, screen.height - 180);
+      setMenu({ x: left, y: top, w: width });
+      setOpen(true);
+    });
+  }
+
   return (
-    <View className="mb-4 flex-row flex-wrap gap-2">
-      {kids.map((c) => (
-        <Chip key={c.id} label={c.name} active={active === c.id} onPress={() => setChildId(c.id)} />
-      ))}
+    <View collapsable={false} ref={triggerRef} style={{ width: 220 }}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Switch child"
+        accessibilityState={{ expanded: open }}
+        onPress={toggle}
+        className="h-[42px] flex-row items-center rounded-lg border border-ink-200 bg-white px-3"
+      >
+        <Text className="min-w-0 flex-1 text-[13px] font-medium text-ink-900" numberOfLines={1}>
+          {child ? `${child.name} · Class ${child.classLabel}` : "Select child"}
+        </Text>
+        {many ? <Ionicons name={open ? "chevron-up" : "chevron-down"} size={14} color="#64748B" /> : null}
+      </Pressable>
+      <RnModal visible={open} transparent animationType="fade" onRequestClose={close}>
+        <View className="flex-1">
+          <Pressable className="absolute inset-0" onPress={close} />
+          <View
+            className="absolute overflow-hidden rounded-lg border border-ink-200 bg-white"
+            style={{ top: menu.y, left: menu.x, width: menu.w, maxHeight: 260 }}
+          >
+            <Text className="px-3 pb-1 pt-2.5 text-[10px] font-semibold uppercase tracking-wide text-ink-500">Children</Text>
+            <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 220 }}>
+              {kids.map((c) => {
+                const on = activeId === c.id;
+                const adm = on && child?.id === c.id ? child.admissionNo : "";
+                return (
+                  <Pressable
+                    key={c.id}
+                    onPress={() => {
+                      void setChildId(c.id);
+                      close();
+                    }}
+                    className={`px-3 py-2.5 ${on ? "bg-[#EEF2FF]" : "bg-white"}`}
+                  >
+                    <Text className={`text-[13px] ${on ? "font-semibold text-clay-500" : "font-medium text-ink-900"}`}>
+                      {on ? "✓ " : ""}
+                      {c.name}
+                    </Text>
+                    <Text className="mt-0.5 text-[12px] text-ink-500">
+                      Class {c.classLabel}
+                      {adm ? ` · ${adm}` : ""}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      </RnModal>
     </View>
   );
 }
@@ -841,6 +924,7 @@ export function TeacherAttendanceBoard() {
   const phone = width < 768;
   const roster = data?.roster ?? [];
   const [q, setQ] = useState("");
+  const [monthly, setMonthly] = useState(false);
   const calendar = useMemo(
     () => calendarFrom(data?.calendar?.holidays, data?.calendar?.weekdays ?? data?.timetable?.weekdays),
     [data?.calendar, data?.timetable?.weekdays]
@@ -1015,11 +1099,40 @@ export function TeacherAttendanceBoard() {
 
   return (
     <View className="min-h-0 flex-1">
-      <PageHeader
-        kicker="Class teacher"
-        title="Attendance"
-        lede={data?.classLabel ? `Mark P, A or late · ${data.classLabel}.` : "Mark P, A or late."}
-      />
+      {monthly && roster.length ? (
+        <TeacherMonthlyRegister
+          classLabel={data?.classLabel || ""}
+          roster={roster}
+          people={data?.people}
+          calendar={calendar}
+          token={token}
+          onBack={() => setMonthly(false)}
+          onSaved={async () => {
+            await reload();
+          }}
+        />
+      ) : (
+        <>
+      <View className="mb-3 flex-row flex-wrap items-start justify-between gap-3">
+        <View className="min-w-0 flex-1">
+          <PageHeader
+            kicker="Class teacher"
+            title="Attendance"
+            lede={data?.classLabel ? `Mark P, A or late · ${data.classLabel}.` : "Mark P, A or late."}
+          />
+        </View>
+        {roster.length ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="View Monthly Attendance"
+            onPress={() => setMonthly(true)}
+            className="mt-1 h-10 flex-row items-center gap-2 rounded-md border border-ink-200 bg-white px-3"
+          >
+            <Ionicons name="calendar-outline" size={16} color="#2855F6" />
+            <Text className="text-sm font-medium text-ink-900">View Monthly Attendance</Text>
+          </Pressable>
+        ) : null}
+      </View>
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
       <LeaveDecideList
         rows={data?.pendingLeave ?? []}
@@ -1263,225 +1376,14 @@ export function TeacherAttendanceBoard() {
           </Modal>
         </Card>
       )}
-    </View>
-  );
-}
-
-export function TeacherExamsBoard({ uploads }: { uploads?: boolean }) {
-  const { data, reload } = useRecord();
-  const { token } = useSession();
-  const toast = useToast();
-  const [pending, setPending] = useState("");
-  const [showDone, setShowDone] = useState(false);
-  const [showAdd, setShowAdd] = useState(false);
-  const [host, setHost] = useState({ title: "", subjectId: data?.subjects?.[0]?.id || "", date: "", maxMarks: "40" });
-  const [sheetId, setSheetId] = useState("");
-  const todos = (data?.todos ?? []).filter((t) => examTodoKind(t) !== "skip");
-  const doneWork = data?.doneWork ?? [];
-  const sheets = data?.markSheets ?? [];
-  const openSheet = sheets.find((s) => s.examId === sheetId) || null;
-  const { width, height } = useWindowDimensions();
-  const phone = width < 768;
-  const openWorkMaxHeight = phone ? 420 : Math.max(300, Math.min(520, height - 480));
-  const overdueCount = todos.filter((todo) => examTodoTone(todo) === "overdue").length;
-  const dueSoonCount = todos.filter((todo) => examTodoTone(todo) === "soon").length;
-
-  function openMarks(examId: string) {
-    setSheetId(examId);
-  }
-
-  async function postClassTest() {
-    try {
-      await act(token, "hostExam", { ...host, classId: data?.classId, maxMarks: Number(host.maxMarks) });
-      toast.show("Class test added. The class has a notification.");
-      setShowAdd(false);
-      setHost({ title: "", subjectId: host.subjectId, date: "", maxMarks: "40" });
-      await reload();
-    } catch (e) {
-      toast.show(e instanceof Error ? e.message : "Could not save.");
-    }
-  }
-
-  return (
-    <View>
-      <PageHeader
-        kicker="Reports"
-        title="Exams"
-        lede="Open work first. Finished work is folded away."
-        action={
-          data?.classTeacher && data.classId ? (
-            <Button onPress={() => setShowAdd(true)}>+ Class test</Button>
-          ) : undefined
-        }
-      />
-      {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
-      <View className={`mb-4 gap-3 ${phone ? "" : "flex-row"}`}>
-        {[
-          { label: "Open work", value: todos.length, hint: "Tasks requiring action", color: "text-clay-600" },
-          { label: "Due soon", value: dueSoonCount, hint: "Within five days", color: "text-amber-700" },
-          { label: "Overdue", value: overdueCount, hint: "Needs attention", color: overdueCount ? "text-red-600" : "text-ink-700" },
-          { label: "Completed", value: doneWork.length, hint: "Folded below", color: "text-green-700" },
-        ].map((stat) => (
-          <Card key={stat.label} className="flex-1 p-4">
-            <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">{stat.label}</Text>
-            <Text className={`mt-1 text-2xl font-semibold ${stat.color}`}>{stat.value}</Text>
-            <Text className="mt-0.5 text-xs text-ink-700">{stat.hint}</Text>
-          </Card>
-        ))}
-      </View>
-
-      {todos.length ? (
-        <Card className="mb-4 overflow-hidden">
-          <View className="flex-row items-center justify-between bg-ink-50 px-4 py-3">
-            <View>
-              <Text className="text-sm font-semibold text-ink-900">Open work</Text>
-              <Text className="mt-0.5 text-xs text-ink-700">Complete papers or open mark sheets.</Text>
-            </View>
-            <Badge tone={overdueCount ? "danger" : dueSoonCount ? "warn" : "ink"}>
-              {`${todos.length} ${todos.length === 1 ? "task" : "tasks"}`}
-            </Badge>
-          </View>
-          <ScrollView
-            nestedScrollEnabled
-            showsVerticalScrollIndicator={todos.length > 5}
-            style={{ maxHeight: openWorkMaxHeight }}
-          >
-            {todos.map((t) => (
-              <ExamTodoCard
-                key={t.id}
-                todo={t}
-                embedded
-                pending={pending === t.id}
-                onDone={
-                  examTodoKind(t) === "paper"
-                    ? async () => {
-                        const examId = t.examId || t.id.replace(/^paper-/, "");
-                        setPending(t.id);
-                        try {
-                          await act(token, "completeExamWork", { examId, kind: "paper" });
-                          toast.show("Moved to Done. Undo it there if that was a slip.");
-                          await reload();
-                        } catch (e) {
-                          toast.show(e instanceof Error ? e.message : "Could not save.");
-                        } finally {
-                          setPending("");
-                        }
-                      }
-                    : undefined
-                }
-                onOpenMarks={
-                  examTodoKind(t) === "marks"
-                    ? () => openMarks(t.examId || t.id.replace(/^marks-/, ""))
-                    : undefined
-                }
-              />
-            ))}
-          </ScrollView>
-        </Card>
-      ) : (
-        <Empty title="Nothing waiting" body="A paper or marks task shows from five days before it is due." />
+        </>
       )}
-      <Card className="overflow-hidden">
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={showDone ? "Hide completed work" : "Show completed work"}
-          onPress={() => setShowDone((v) => !v)}
-          className="flex-row items-center justify-between bg-ink-50 px-4 py-3"
-        >
-          <View>
-            <Text className="text-sm font-semibold text-ink-900">Completed work</Text>
-            <Text className="mt-0.5 text-xs text-ink-700">
-              {doneWork.length ? `${doneWork.length} finished` : "Nothing finished yet"}
-            </Text>
-          </View>
-          <Ionicons name={showDone ? "chevron-up" : "chevron-down"} size={18} color="#3d4f66" />
-        </Pressable>
-        {showDone ? (
-          doneWork.length ? (
-            doneWork.map((t) => (
-              <ExamTodoCard
-                key={t.id}
-                todo={{ ...t, kind: t.kind }}
-                done
-                embedded
-                pending={pending === t.id}
-                onUndo={
-                  t.kind === "paper"
-                    ? async () => {
-                        setPending(t.id);
-                        try {
-                          await act(token, "completeExamWork", { examId: t.examId, kind: "paper", done: false });
-                          toast.show("Back on Waiting.");
-                          await reload();
-                        } catch (e) {
-                          toast.show(e instanceof Error ? e.message : "Could not save.");
-                        } finally {
-                          setPending("");
-                        }
-                      }
-                    : undefined
-                }
-                onOpenMarks={t.kind === "marks" ? () => openMarks(t.examId) : undefined}
-              />
-            ))
-          ) : (
-            <Text className="border-t border-ink-100 px-4 py-4 text-sm text-ink-700">Finished tasks will appear here.</Text>
-          )
-        ) : null}
-      </Card>
-      <TeacherMarksModal
-        sheet={openSheet}
-        token={token}
-        onClose={() => setSheetId("")}
-        onSaved={async () => {
-          toast.show("Marks saved.");
-          await reload();
-        }}
-      />
-      <Modal
-        open={showAdd}
-        title="Add class test"
-        onClose={() => setShowAdd(false)}
-        footer={
-          <Button
-            disabled={!host.title.trim() || !host.subjectId || !host.date}
-            onPress={postClassTest}
-          >
-            Post class test
-          </Button>
-        }
-      >
-        <Text className="mb-4 text-sm text-ink-700">
-          Parents, students, and teachers of {data?.classLabel || "this class"} will receive a notification.
-        </Text>
-        <View className="gap-4">
-          <Field label="Test name">
-            <Input
-              value={host.title}
-              onChangeText={(value) => setHost({ ...host, title: value })}
-              placeholder="For example, Unit test 3"
-            />
-          </Field>
-          <Field label="Subject">
-            <View className="flex-row flex-wrap gap-2">
-              {(data?.subjects ?? []).map((subject) => (
-                <Chip
-                  key={subject.id}
-                  label={subject.name}
-                  active={host.subjectId === subject.id}
-                  onPress={() => setHost({ ...host, subjectId: subject.id })}
-                />
-              ))}
-            </View>
-          </Field>
-          <Field label="Test date">
-            <DateField value={host.date} onChange={(date) => setHost({ ...host, date })} />
-          </Field>
-        </View>
-      </Modal>
     </View>
   );
 }
+
+export { TeacherExamsBoard } from "./teacher-exams-workspace";
+
 
 function jsToWeekday(jsDay: number) {
   return jsDay === 0 ? 7 : jsDay;
@@ -1547,11 +1449,48 @@ function remainingPeriods(periods: ReturnType<typeof todaySlots>["periods"], nex
   return periods.slice(i + 1, i + 4);
 }
 
+function periodPhase(period: { start: string; end: string }, nowMins = new Date().getHours() * 60 + new Date().getMinutes()) {
+  const start = hmToMin(period.start);
+  const end = hmToMin(period.end) ?? (start != null ? start + 40 : null);
+  if (end != null && nowMins >= end) return "done" as const;
+  if (start != null && nowMins >= start && (end == null || nowMins < end)) return "now" as const;
+  if (start == null && end != null && nowMins < end) return "now" as const;
+  return "next" as const;
+}
+
+function InProgressDot() {
+  const opacity = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, { toValue: 0.35, duration: 900, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 1, duration: 900, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [opacity]);
+  return (
+    <Animated.View
+      style={{
+        opacity,
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: "#2855F6",
+        marginRight: 5,
+      }}
+    />
+  );
+}
+
 export function FamilyHomeBoard() {
   const { data, reload } = useRecord();
   const { token } = useSession();
   const router = useRouter();
   const toast = useToast();
+  const { width } = useWindowDimensions();
+  const twoCol = width >= 900;
   const child = data?.child;
   const [queryMode, setQueryMode] = useState<"teacher" | "office" | null>(null);
   const [querySubject, setQuerySubject] = useState("");
@@ -1798,186 +1737,206 @@ export function FamilyHomeBoard() {
   return (
     <View>
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
-      <View className="mb-5 flex-row flex-wrap items-start justify-between gap-3 border-b border-ink-200 pb-4">
+      <View className="mb-4 flex-row flex-wrap items-center justify-between gap-3">
         <View className="min-w-0 flex-1">
-          <View className="flex-row flex-wrap items-baseline gap-x-3 gap-y-1">
-            <Text className="text-3xl font-semibold leading-9 text-ink-900">
-              {child?.name || "Parent dashboard"}
+          <Text className="text-[22px] font-semibold leading-7 text-ink-900">{child?.name || "Parent dashboard"}</Text>
+          {child ? (
+            <Text className="mt-0.5 text-[13px] text-ink-500">
+              Class {child.classLabel} · {child.admissionNo}
             </Text>
-            {child ? <Text className="text-sm font-medium text-ink-700">Adm {child.admissionNo}</Text> : null}
-          </View>
-          <Text className="mt-1 text-sm leading-5 text-ink-700">
-            {child ? `Class ${child.classLabel}${child.born ? ` · DOB ${child.born}` : ""}` : "No child linked yet."}
-          </Text>
+          ) : (
+            <Text className="mt-0.5 text-[13px] text-ink-500">No child linked yet.</Text>
+          )}
         </View>
-        <Button disabled={!child} variant="ghost" onPress={() => openParentQuery("office")}>
-          Raise query
-        </Button>
-      </View>
-      <ChildSwitch />
-      <View className="mb-4 flex-row flex-wrap gap-2">
-        {(child?.interests ?? []).map((i) => (
-          <Badge key={i} tone="clay">
-            {i}
-          </Badge>
-        ))}
-        {child ? <Badge>{`Class ${child.classLabel}`}</Badge> : null}
+        <View className="flex-row flex-wrap items-center gap-2">
+          <ChildSwitch />
+          <Button disabled={!child} variant="ghost" className="h-[42px] rounded-lg px-3 py-2" onPress={() => openParentQuery("office")}>
+            Raise query
+          </Button>
+        </View>
       </View>
       {(() => {
         const attRows = child?.attendance ?? [];
         const att = attendanceSummary(attRows);
-        const today = todayMark(attRows);
-        const todayLabel = todayMarkLabel(today);
-        const cbse = attendanceCbseNote(att);
         const unpaid = (child?.fees ?? []).filter((f) => f.display !== "paid" && f.dueNow > 0);
-        const overdue = unpaid.filter((f) => f.display === "overdue");
         const totalDue = unpaid.reduce((sum, f) => sum + f.dueNow, 0);
         const totalDueLabel = totalDue ? `₹${totalDue.toLocaleString("en-IN")}` : "₹0";
-        const avg = child?.subjects.length ? Math.round(child.subjects.reduce((n, s) => n + s.pct, 0) / child.subjects.length) : 0;
         const subjectsWithMarks = (child?.subjects ?? []).filter((s) => s.n > 0);
-        const topSubject = subjectsWithMarks[0];
-        const focusSubject = subjectsWithMarks[subjectsWithMarks.length - 1];
-        const latest = child?.tests[0] ?? null;
+        const avg = subjectsWithMarks.length
+          ? Math.round(subjectsWithMarks.reduce((n, s) => n + s.pct, 0) / subjectsWithMarks.length)
+          : 0;
         const coming = (data?.upcoming ?? []).slice(0, 4);
         const notices = (data?.notices ?? []).slice(0, 3);
-        const reports = data?.reports ?? [];
         const day = data ? todaySlots(data) : { label: "", periods: [] };
-        const next = nextPeriod(day.periods);
+        const attWord = att.pct >= 90 ? "Excellent" : att.pct >= 75 ? "On track" : att.pct ? "Needs attention" : "No data";
+        const lastAtt = attRows[0];
         return (
           <>
+            <Text className="mb-1.5 text-[12px] font-semibold uppercase tracking-[0.12em] text-ink-500">Today</Text>
+            <View className={`mb-4 gap-4 ${twoCol ? "flex-row items-stretch" : ""}`}>
+              <View style={twoCol ? { flex: 11, minWidth: 0 } : { width: "100%" }}>
+                <Card className="px-4 py-4" style={twoCol ? { flex: 1 } : undefined}>
+                  <Text className="mb-3 text-[12px] font-semibold uppercase tracking-[0.1em] text-ink-500">Today's classes</Text>
+                  {day.periods.length ? (
+                    <View>
+                      {day.periods.map((p) => {
+                        const phase = periodPhase(p);
+                        const row =
+                          phase === "now"
+                            ? "rounded-lg border-l-[3px] border-clay-500 bg-[#EEF2FF] px-2 py-2"
+                            : phase === "done"
+                              ? "rounded-lg bg-[#F7FBF8] px-2 py-2"
+                              : "px-2 py-2";
+                        return (
+                          <View key={`${p.period}-${p.start}-${p.subject}`} className={`mb-0.5 flex-row items-start ${row}`}>
+                            <Text className="w-[46px] pt-0.5 text-[12px] tabular-nums text-ink-500">{p.start || p.period}</Text>
+                            <View className="min-w-0 flex-1">
+                              <Text className="text-[14px] font-semibold text-ink-900" numberOfLines={1}>
+                                {p.subject}
+                              </Text>
+                              <Text className="mt-0.5 text-[12px] text-ink-500" numberOfLines={1}>
+                                {p.teacher || p.room || " "}
+                              </Text>
+                            </View>
+                            {phase === "done" ? (
+                              <Text className="ml-2 pt-0.5 text-[11px] font-medium text-[#18794E]">✓ Completed</Text>
+                            ) : phase === "now" ? (
+                              <View className="ml-2 flex-row items-center pt-0.5">
+                                <InProgressDot />
+                                <Text className="text-[11px] font-medium text-clay-500">In progress</Text>
+                              </View>
+                            ) : (
+                              <Text className="ml-2 pt-0.5 text-[11px] text-ink-500">○ Upcoming</Text>
+                            )}
+                          </View>
+                        );
+                      })}
+                    </View>
+                  ) : (
+                    <Text className="text-[13px] text-ink-500">No timetable for today yet.</Text>
+                  )}
+                  <Pressable onPress={() => router.push("/timetable")} className="mt-3 self-start">
+                    <Text className="text-[13px] font-medium text-clay-500">View timetable →</Text>
+                  </Pressable>
+                </Card>
+              </View>
+
+              <View style={twoCol ? { flex: 9, minWidth: 0 } : { width: "100%" }}>
+                <Text className="mb-1.5 text-[12px] font-semibold uppercase tracking-[0.1em] text-ink-500">Needs attention</Text>
+                <View className="gap-2.5" style={twoCol ? { flex: 1, justifyContent: "flex-start" } : undefined}>
+                  <Pressable onPress={() => router.push("/fees")}>
+                    <Card className={`rounded-[10px] px-3.5 py-3.5 ${unpaid.length ? "border-[#F0B4B4] bg-[#FDECEC]" : ""}`}>
+                      <Text className={`text-[11px] font-semibold uppercase tracking-wide ${unpaid.length ? "text-[#B42318]" : "text-ink-500"}`}>
+                        {unpaid.length ? "Fees due" : "Fees"}
+                      </Text>
+                      <Text className="mt-1.5 text-[22px] font-semibold leading-7 text-ink-900">{totalDueLabel}</Text>
+                      <Text className="mt-0.5 text-[12px] text-ink-500">
+                        {unpaid.length
+                          ? `${unpaid.length} month${unpaid.length === 1 ? "" : "s"} pending`
+                          : "Nothing pending"}
+                      </Text>
+                      <Text className={`mt-2.5 text-[13px] font-medium ${unpaid.length ? "text-clay-500" : "text-ink-500"}`}>
+                        {unpaid.length ? "Pay fees →" : "View fees →"}
+                      </Text>
+                    </Card>
+                  </Pressable>
+
+                  <Pressable onPress={() => router.push("/attendance")}>
+                    <Card className="rounded-[10px] px-3.5 py-3">
+                      <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">Attendance</Text>
+                      <View className="mt-1.5 flex-row items-end justify-between">
+                        <Text className="text-[22px] font-semibold leading-7 text-ink-900">{att.pct}%</Text>
+                        <Text className="mb-0.5 text-[12px] font-medium text-[#18794E]">{attWord}</Text>
+                      </View>
+                      <View className="mt-2 h-1.5 overflow-hidden rounded-full bg-ink-100">
+                        <View
+                          className="h-1.5 rounded-full bg-[#2BB673]"
+                          style={{ width: `${Math.max(att.pct ? 4 : 0, Math.min(100, att.pct))}%` }}
+                        />
+                      </View>
+                      <Text className="mt-2 text-[12px] text-ink-500">
+                        {Math.max(0, att.inDays - att.late)} Present · {att.out} Absent · {att.late} Late
+                      </Text>
+                      <Text className="mt-1.5 text-[13px] font-medium text-clay-500">View attendance →</Text>
+                    </Card>
+                  </Pressable>
+
+                  <Pressable onPress={() => router.push("/notices")}>
+                    <Card className="rounded-[10px] px-3.5 py-2.5">
+                      <View className="flex-row items-center gap-1.5">
+                        <Ionicons name="megaphone-outline" size={13} color="#64748B" />
+                        <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">School notice</Text>
+                      </View>
+                      <Text className="mt-1.5 text-[14px] font-semibold leading-5 text-ink-900" numberOfLines={2}>
+                        {notices[0]?.title || "No new notices"}
+                      </Text>
+                      <Text className="mt-0.5 text-[12px] text-ink-500">
+                        {notices[0] ? notices[0].createdAt : "School updates will appear here."}
+                      </Text>
+                      <Text className="mt-1.5 text-[13px] font-medium text-clay-500">Read notice →</Text>
+                    </Card>
+                  </Pressable>
+                </View>
+              </View>
+            </View>
+
+            <Text className="mb-1.5 text-[12px] font-semibold uppercase tracking-[0.12em] text-ink-500">Child overview</Text>
             <View className="mb-4 flex-row flex-wrap gap-3">
-              <Pressable className="min-w-0 flex-1" onPress={() => router.push("/attendance")}>
-                <Stat label="Attendance" value={`${att.pct}%`} hint={attendanceCountLine(att)} />
-              </Pressable>
-              <View className="min-w-0 flex-1">
-                <Stat label="Average" value={avg ? `${avg}%` : "—"} hint={topSubject ? `Best: ${topSubject.name}` : "No marks yet."} />
-              </View>
-              <Pressable className="min-w-0 flex-1" onPress={() => router.push("/fees")}>
-                <Stat label="Fees due" value={totalDueLabel} hint={unpaid.length ? `${unpaid.length} month${unpaid.length === 1 ? "" : "s"} pending` : "Nothing pending."} />
-              </Pressable>
-            </View>
-
-            <View className="mb-4 flex-row flex-wrap gap-4">
-              <Pressable className="min-w-0 flex-1" onPress={() => router.push("/timetable")}>
-                <Card className="p-4">
-                  <View className="flex-row items-center justify-between">
-                    <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">Today</Text>
-                    {todayLabel ? <Badge tone={today === "out" ? "warn" : today === "late" ? "clay" : today === "leave" ? "sky" : "leaf"}>{todayLabel}</Badge> : null}
-                  </View>
-                  {next ? (
-                    <>
-                      <Text className="mt-2 text-2xl font-semibold text-ink-900">{next.subject}</Text>
-                      <Text className="mt-1 text-sm text-ink-700">
-                        {next.period}{next.start ? ` · ${next.start}${next.end ? `–${next.end}` : ""}` : ""}
-                      </Text>
-                      <Text className="mt-1 text-xs text-ink-700">{[next.teacher, next.room].filter(Boolean).join(" · ") || "Open full timetable"}</Text>
-                    </>
-                  ) : (
-                    <>
-                      <Text className="mt-2 text-2xl font-semibold text-ink-900">{day.periods.length ? "Classes done" : "No timetable"}</Text>
-                      <Text className="mt-1 text-sm text-ink-700">{day.periods.length ? "Open timetable for the week." : "Routine will appear here."}</Text>
-                    </>
-                  )}
+              <Pressable className="min-w-[140px] flex-1" onPress={() => router.push("/attendance")}>
+                <Card className="px-4 py-3">
+                  <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">Attendance</Text>
+                  <Text className="mt-1 text-[22px] font-semibold text-ink-900">{att.pct}%</Text>
+                  <Text className="mt-0.5 text-[12px] text-ink-500">{attWord}</Text>
                 </Card>
               </Pressable>
-              <Pressable className="min-w-0 flex-1" onPress={() => router.push(unpaid.length ? "/fees" : "/tests")}>
-                <Card className={`p-4 ${overdue.length ? "border-red-200 bg-red-50" : unpaid.length ? "border-amber-200 bg-amber-50" : ""}`}>
-                  <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">Parent action</Text>
-                  {unpaid.length ? (
-                    <>
-                      <Text className="mt-2 text-2xl font-semibold text-ink-900">Pay pending fees</Text>
-                      <Text className="mt-1 text-sm text-ink-700">{unpaid[0].title} · {unpaid[0].remaining} left</Text>
-                      {overdue.length ? <Text className="mt-1 text-xs text-red-700">Older dues can block admit cards and documents.</Text> : null}
-                    </>
-                  ) : latest ? (
-                    <>
-                      <Text className="mt-2 text-2xl font-semibold text-ink-900">Latest test</Text>
-                      <Text className="mt-1 text-sm text-ink-700">{latest.subject} · {latest.marks}/{latest.max} ({latest.pct}%)</Text>
-                    </>
-                  ) : (
-                    <>
-                      <Text className="mt-2 text-2xl font-semibold text-ink-900">All clear</Text>
-                      <Text className="mt-1 text-sm text-ink-700">No urgent action right now.</Text>
-                    </>
-                  )}
+              <Pressable className="min-w-[140px] flex-1" onPress={() => router.push("/tests")}>
+                <Card className="px-4 py-3">
+                  <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">Academics</Text>
+                  <Text className="mt-1 text-[22px] font-semibold text-ink-900">{avg ? `${avg}%` : "—"}</Text>
+                  <Text className="mt-0.5 text-[12px] text-ink-500">
+                    {subjectsWithMarks.length ? `${subjectsWithMarks.length} subjects marked` : "No marks yet"}
+                  </Text>
+                </Card>
+              </Pressable>
+              <Pressable className="min-w-[140px] flex-1" onPress={() => router.push("/fees")}>
+                <Card className="px-4 py-3">
+                  <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">Fees</Text>
+                  <Text className="mt-1 text-[22px] font-semibold text-ink-900">{totalDueLabel}</Text>
+                  <Text className="mt-0.5 text-[12px] text-ink-500">{unpaid.length ? "Outstanding" : "Clear"}</Text>
                 </Card>
               </Pressable>
             </View>
 
-            <View className="mb-4 flex-row flex-wrap gap-4">
-              <Card className="min-w-0 flex-1">
-                <View className="flex-row items-center justify-between border-b border-ink-100 px-4 py-3">
-                  <Text className="text-sm font-semibold text-ink-900">Upcoming tests</Text>
-                  <Pressable onPress={() => router.push("/tests")}><Text className="text-sm text-clay-600">View all</Text></Pressable>
-                </View>
-                {coming.length ? coming.map((e) => (
-                  <View key={e.id} className="border-t border-ink-100 px-4 py-3">
-                    <Text className="text-sm font-medium text-ink-900">{e.subject}</Text>
-                    <Text className="mt-0.5 text-xs text-ink-700">{e.title} · {e.date}{e.teacher ? ` · ${e.teacher}` : ""}</Text>
-                  </View>
-                )) : <Text className="px-4 py-4 text-sm text-ink-700">No upcoming tests yet.</Text>}
-              </Card>
-
-              <Card className="min-w-0 flex-1">
-                <View className="flex-row items-center justify-between border-b border-ink-100 px-4 py-3">
-                  <Text className="text-sm font-semibold text-ink-900">Notices</Text>
-                  <Pressable onPress={() => router.push("/notices")}><Text className="text-sm text-clay-600">Open</Text></Pressable>
-                </View>
-                {notices.length ? notices.map((n) => (
-                  <View key={n.id} className="border-t border-ink-100 px-4 py-3">
-                    <Text className="text-sm font-medium text-ink-900">{n.title}</Text>
-                    <Text className="mt-0.5 text-xs text-ink-700">{n.createdAt} · {n.author}</Text>
-                  </View>
-                )) : <Text className="px-4 py-4 text-sm text-ink-700">No new notices.</Text>}
-              </Card>
-            </View>
-
-            <Card className="mb-4 p-4">
-              <View className="flex-row items-center justify-between">
-                <Text className="text-sm font-semibold text-ink-900">Subject snapshot</Text>
-              </View>
-              <View className="mt-3 gap-3">
-                {(child?.subjects ?? []).slice(0, 5).map((s) => (
-                  <View key={s.name}>
-                    <View className="flex-row items-center justify-between">
-                      <Text className="text-sm font-medium text-ink-900">{s.name}</Text>
-                      <Text className="text-sm text-ink-700">{s.n ? `${s.pct}%` : "No paper"}</Text>
-                    </View>
-                    <View className="mt-1 h-2 overflow-hidden rounded-full bg-ink-100">
-                      <View className={`${s.pct >= 75 ? "bg-green-600" : s.pct >= 50 ? "bg-amber-500" : "bg-red-500"} h-2 rounded-full`} style={{ width: `${Math.max(4, Math.min(100, s.pct || 4))}%` }} />
-                    </View>
-                    <View className="mt-1 flex-row flex-wrap items-center justify-between gap-2">
-                      <Text className="min-w-0 flex-1 text-xs text-ink-700">
-                        {s.teacher ? `${s.teacher} · ` : ""}{s.hint}
+            <Text className="mb-1.5 text-[12px] font-semibold uppercase tracking-[0.12em] text-ink-500">Upcoming</Text>
+            <View className={`mb-2 gap-3 ${twoCol ? "flex-row" : ""}`}>
+              <Card className={`px-4 py-3 ${twoCol ? "flex-1" : "w-full"}`}>
+                <Text className="text-[14px] font-semibold text-ink-900">Tests & events</Text>
+                {coming.length ? (
+                  coming.map((e) => (
+                    <Pressable key={e.id} onPress={() => router.push("/tests")} className="mt-2">
+                      <Text className="text-[13px] font-medium text-ink-900">{e.subject || e.title}</Text>
+                      <Text className="mt-0.5 text-[12px] text-ink-500">
+                        {e.title} · {e.date}
                       </Text>
-                      {s.teacher ? (
-                        <Pressable
-                          onPress={() => openParentQuery("teacher", { subject: s.name })}
-                          hitSlop={8}
-                        >
-                          <Text className="text-xs font-medium text-clay-600">Ask question</Text>
-                        </Pressable>
-                      ) : null}
-                    </View>
-                  </View>
-                ))}
-              </View>
-            </Card>
-
-            <View className="mb-4 flex-row flex-wrap gap-4">
-              <Card className="min-w-0 flex-1 p-4">
-                <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">Focus</Text>
-                <Text className="mt-2 text-xl font-semibold text-ink-900">{focusSubject?.name || "No focus yet"}</Text>
-                <Text className="mt-1 text-sm text-ink-700">{focusSubject ? `${focusSubject.pct}% · ${focusSubject.hint}` : "Once marks are added, weak areas show here."}</Text>
+                    </Pressable>
+                  ))
+                ) : (
+                  <Text className="mt-2 text-[13px] text-ink-500">No upcoming tests yet.</Text>
+                )}
               </Card>
-              <Card className="min-w-0 flex-1 p-4">
-                <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">Documents</Text>
-                <Text className="mt-2 text-xl font-semibold text-ink-900">{reports.length ? reports[0].seriesName : "No report yet"}</Text>
-                <Text className="mt-1 text-sm text-ink-700">{reports.length ? `${reports[0].sessionLabel} report card available in Tests.` : "Report cards and admit cards will appear after school issues them."}</Text>
+              <Card className={`px-4 py-3 ${twoCol ? "flex-1" : "w-full"}`}>
+                <Text className="text-[14px] font-semibold text-ink-900">Recent activity</Text>
+                {lastAtt ? (
+                  <Text className="mt-2 text-[13px] text-ink-800">
+                    Attendance marked · {lastAtt.status} · {lastAtt.date}
+                  </Text>
+                ) : (
+                  <Text className="mt-2 text-[13px] text-ink-500">No attendance yet this week.</Text>
+                )}
+                {unpaid[0] ? <Text className="mt-1.5 text-[13px] text-ink-800">Fee invoice · {unpaid[0].title}</Text> : null}
+                {notices[0] ? <Text className="mt-1.5 text-[13px] text-ink-800">Notice · {notices[0].title}</Text> : null}
               </Card>
             </View>
-
-            {cbse ? <Text className="text-xs text-amber-800">{cbse}</Text> : null}
           </>
         );
       })()}
@@ -2011,6 +1970,235 @@ export function FamilyHomeBoard() {
         </View>
       </Modal>
     </View>
+  );
+}
+
+type ParentDayKind = "present" | "absent" | "late" | "wo" | "holiday" | "pl" | "nm" | "upcoming";
+
+const PARENT_DAY_STYLE: Record<ParentDayKind, { cell: string; text: string; badge: string; label: string }> = {
+  present: { cell: "bg-[#ECF8F0] border-[#B7E4C7]", text: "text-[#18794E]", badge: "P", label: "Present" },
+  absent: { cell: "bg-[#FDECEC] border-[#F0B4B4]", text: "text-[#B42318]", badge: "A", label: "Absent" },
+  late: { cell: "bg-[#FFF7E8] border-[#F0D19A]", text: "text-[#B45309]", badge: "L", label: "Late" },
+  wo: { cell: "bg-[#F3F4F6] border-[#E5E7EB]", text: "text-[#6B7280]", badge: "WO", label: "Weekly off" },
+  holiday: { cell: "bg-[#F5F0FB] border-[#D8C9F0]", text: "text-[#6D28D9]", badge: "H", label: "Holiday" },
+  pl: { cell: "bg-[#EEF4FF] border-[#C7D7FE]", text: "text-[#1D4ED8]", badge: "PL", label: "Planned leave" },
+  nm: { cell: "bg-[#F7F8FA] border-[#E6EAF0]", text: "text-[#64748B]", badge: "NM", label: "Not marked" },
+  upcoming: { cell: "bg-white border-[#E6EAF0]", text: "text-[#94A3B8]", badge: "", label: "Upcoming" },
+};
+
+function parentDayKind(opts: {
+  key: string;
+  status: string;
+  calendar: SchoolCalendar;
+  planned: Set<string>;
+  todayKey: string;
+}): ParentDayKind {
+  const kind = opts.status.trim().toLowerCase();
+  if (kind === "present" || kind === "in") return "present";
+  if (kind === "absent" || kind === "out") return "absent";
+  if (kind === "late") return "late";
+  if (kind === "leave") return "pl";
+  const closed = closedReason(opts.key, opts.calendar);
+  if (closed && !/\soff$/i.test(closed)) return "holiday";
+  if (closed) return "wo";
+  if (opts.planned.has(opts.key)) return "pl";
+  if (opts.key > opts.todayKey) return "upcoming";
+  return "nm";
+}
+
+function ParentAttendanceCalendar({
+  activeMonth,
+  calendar,
+  childClass,
+  marks,
+  plannedLeaveDates,
+  onMonth,
+  shiftMonth,
+  monthLabel,
+}: {
+  activeMonth: string;
+  calendar: SchoolCalendar;
+  childClass: string;
+  marks: Map<string, string>;
+  plannedLeaveDates: Set<string>;
+  onMonth: (month: string) => void;
+  shiftMonth: (month: string, delta: number) => string;
+  monthLabel: (month: string) => string;
+}) {
+  const { width } = useWindowDimensions();
+  const compact = width < 768;
+  const [mode, setMode] = useState<"calendar" | "list">("calendar");
+  const [picked, setPicked] = useState<string | null>(null);
+  const todayKey = ymd(new Date());
+  const [year, monthNo] = activeMonth.split("-").map(Number);
+  const month = monthNo - 1;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const leading = (new Date(year, month, 1).getDay() + 6) % 7;
+  const days = Array.from({ length: daysInMonth }, (_, index) => {
+    const day = index + 1;
+    const key = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const kind = parentDayKind({
+      key,
+      status: marks.get(key) || "",
+      calendar,
+      planned: plannedLeaveDates,
+      todayKey,
+    });
+    return { key, day, kind, today: key === todayKey };
+  });
+  const blanks = Array.from({ length: leading }, (_, index) => ({ key: `blank-${index}` }));
+  const counts = {
+    present: days.filter((d) => d.kind === "present").length,
+    absent: days.filter((d) => d.kind === "absent").length,
+    late: days.filter((d) => d.kind === "late").length,
+    wo: days.filter((d) => d.kind === "wo").length,
+    holiday: days.filter((d) => d.kind === "holiday").length,
+    pl: days.filter((d) => d.kind === "pl").length,
+    nm: days.filter((d) => d.kind === "nm").length,
+  };
+  const pickedDay = days.find((d) => d.key === picked) || null;
+  const closedNote = pickedDay ? closedReason(pickedDay.key, calendar) : "";
+
+  function DayCell({ day, kind, today, onPress }: { day: number; kind: ParentDayKind; today: boolean; onPress: () => void }) {
+    const style = PARENT_DAY_STYLE[kind];
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${day} ${style.label}`}
+        onPress={onPress}
+        className={`h-[46px] items-center justify-center rounded-lg border ${style.cell} ${today ? "border-clay-500" : ""}`}
+      >
+        <Text className="text-[13px] font-semibold leading-4 text-ink-900">{day}</Text>
+        {style.badge ? <Text className={`mt-0.5 text-[9px] font-semibold leading-3 ${style.text}`}>{style.badge}</Text> : null}
+      </Pressable>
+    );
+  }
+
+  return (
+    <Card className="p-3">
+      <View className="mb-3 flex-row flex-wrap items-center justify-between gap-2">
+        <View className="flex-row items-center gap-2">
+          <Pressable onPress={() => onMonth(shiftMonth(activeMonth, -1))} hitSlop={8} accessibilityLabel="Previous month">
+            <Ionicons name="chevron-back" size={18} color="#2855F6" />
+          </Pressable>
+          <Text className="min-w-[128px] text-center text-[13px] font-semibold uppercase tracking-[0.08em] text-ink-800">
+            {monthLabel(activeMonth)}
+          </Text>
+          <Pressable onPress={() => onMonth(shiftMonth(activeMonth, 1))} hitSlop={8} accessibilityLabel="Next month">
+            <Ionicons name="chevron-forward" size={18} color="#2855F6" />
+          </Pressable>
+          <Pressable
+            onPress={() => onMonth(todayKey.slice(0, 7))}
+            className="h-7 justify-center rounded-md border border-ink-200 bg-white px-2"
+          >
+            <Text className="text-[12px] font-medium text-ink-800">Today</Text>
+          </Pressable>
+        </View>
+        <View className="flex-row overflow-hidden rounded-md border border-ink-200">
+          {(["calendar", "list"] as const).map((id) => (
+            <Pressable
+              key={id}
+              onPress={() => setMode(id)}
+              className={`h-7 px-2.5 ${mode === id ? "bg-[#EEF2FF]" : "bg-white"}`}
+            >
+              <Text className={`text-[12px] font-medium leading-7 ${mode === id ? "text-clay-500" : "text-ink-700"}`}>
+                {id === "calendar" ? "Calendar" : "List"}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+
+      <View className="mb-2.5 flex-row flex-wrap gap-x-3 gap-y-1">
+        {(Object.keys(PARENT_DAY_STYLE) as ParentDayKind[])
+          .filter((k) => k !== "upcoming")
+          .map((k) => {
+            const s = PARENT_DAY_STYLE[k];
+            return (
+              <View key={k} className="flex-row items-center gap-1">
+                <View className={`h-2.5 w-2.5 rounded-sm border ${s.cell}`} />
+                <Text className="text-[11px] text-ink-600">{s.badge ? `${s.badge} ${s.label}` : s.label}</Text>
+              </View>
+            );
+          })}
+      </View>
+
+      {mode === "calendar" ? (
+        <>
+          <View className="mb-1.5 flex-row">
+            {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => (
+              <Text key={day} className="flex-1 text-center text-[11px] font-medium text-ink-500">
+                {compact ? day.slice(0, 1) : day}
+              </Text>
+            ))}
+          </View>
+          <View className="flex-row flex-wrap">
+            {blanks.map((cell) => (
+              <View key={cell.key} className="w-[14.285%] p-[2px]">
+                <View className="h-[46px]" />
+              </View>
+            ))}
+            {days.map((cell) => (
+              <View key={cell.key} className="w-[14.285%] p-[2px]">
+                <DayCell day={cell.day} kind={cell.kind} today={cell.today} onPress={() => setPicked(cell.key)} />
+              </View>
+            ))}
+          </View>
+        </>
+      ) : (
+        <View>
+          {days.map((cell) => {
+            const s = PARENT_DAY_STYLE[cell.kind];
+            return (
+              <Pressable
+                key={cell.key}
+                onPress={() => setPicked(cell.key)}
+                className={`mb-1 flex-row items-center justify-between rounded-lg border px-3 py-1.5 ${s.cell}`}
+              >
+                <Text className="text-[13px] font-semibold text-ink-900">
+                  {cell.day} {monthLabel(activeMonth).split(" ")[0]}
+                </Text>
+                <Text className={`text-[12px] font-medium ${s.text}`}>{s.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
+
+      {pickedDay ? (
+        <View className={`mt-3 rounded-[10px] border px-3 py-2.5 ${PARENT_DAY_STYLE[pickedDay.kind].cell}`}>
+          <Text className="text-[13px] font-semibold text-ink-900">
+            {new Date(`${pickedDay.key}T00:00:00`).toLocaleDateString("en-IN", {
+              weekday: "long",
+              day: "numeric",
+              month: "long",
+              year: "numeric",
+            })}
+          </Text>
+          <Text className={`mt-0.5 text-[13px] ${PARENT_DAY_STYLE[pickedDay.kind].text}`}>
+            {PARENT_DAY_STYLE[pickedDay.kind].label}
+            {closedNote ? ` · ${closedCaption(closedNote)}` : ""}
+            {childClass ? ` · Class ${childClass}` : ""}
+          </Text>
+        </View>
+      ) : null}
+
+      <View className="mt-3 flex-row flex-wrap gap-x-4 gap-y-1 border-t border-ink-100 pt-3">
+        {(
+          [
+            ["Present", counts.present],
+            ["Absent", counts.absent],
+            ["Late", counts.late],
+            ["Leave", counts.pl],
+            ["Off / holiday", counts.wo + counts.holiday],
+          ] as const
+        ).map(([label, value]) => (
+          <Text key={label} className="text-[12px] text-ink-600">
+            <Text className="font-semibold text-ink-900">{value}</Text> {label}
+          </Text>
+        ))}
+      </View>
+    </Card>
   );
 }
 
@@ -2068,23 +2256,6 @@ export function FamilyAttendance() {
     return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
   }
 
-  function parentAttendanceLetter(status: string) {
-    const kind = status.trim().toLowerCase();
-    if (kind === "late") return "Late";
-    if (kind === "leave") return "PL";
-    return attendanceLetter(status);
-  }
-
-  function calendarMarkClass(letter: string) {
-    if (letter === "P") return "border-emerald-200 bg-emerald-50 text-emerald-700";
-    if (letter === "A") return "border-red-200 bg-red-50 text-red-700";
-    if (letter === "Late") return "border-amber-200 bg-amber-50 text-amber-800";
-    if (letter === "PL") return "border-sky-200 bg-sky-50 text-sky-800";
-    if (letter === "WO") return "border-ink-200 bg-ink-50 text-ink-600";
-    if (letter === "Holiday") return "border-violet-200 bg-violet-50 text-violet-700";
-    return "border-transparent bg-white text-ink-600";
-  }
-
   function monthLabel(monthKey: string) {
     const [year, month] = monthKey.split("-").map(Number);
     return new Date(year, month - 1, 1).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
@@ -2098,24 +2269,26 @@ export function FamilyAttendance() {
 
   return (
     <View>
-      <View className="mb-3 flex-row flex-wrap items-center justify-between gap-3 border-b border-ink-200 pb-3">
-        <View>
-          <Text className="text-2xl font-semibold text-ink-900">Attendance</Text>
-          <Text className="mt-0.5 text-sm text-ink-700">
-            {child ? `${child.name.split(" ")[0]}'s month at a glance.` : "Presence, punctuality, and leave."}
+      <View className="mb-4 flex-row flex-wrap items-center justify-between gap-3">
+        <View className="min-w-0 flex-1">
+          <Text className="text-[22px] font-semibold leading-7 text-ink-900">Attendance</Text>
+          <Text className="mt-0.5 text-[13px] text-ink-500">
+            {child ? `${child.name.split(" ")[0]} · Class ${child.classLabel}` : "Presence, punctuality, and leave."}
           </Text>
         </View>
-        {user?.portal === "PARENT" ? (
-          <LeaveApplyCard
-            audience="student"
-            token={token}
-            onDone={async (ok) => { toast.show(ok); await reload(); }}
-            onError={(msg) => toast.show(msg)}
-            triggerOnly
-          />
-        ) : null}
+        <View className="flex-row flex-wrap items-center gap-2">
+          <ChildSwitch />
+          {user?.portal === "PARENT" ? (
+            <LeaveApplyCard
+              audience="student"
+              token={token}
+              onDone={async (ok) => { toast.show(ok); await reload(); }}
+              onError={(msg) => toast.show(msg)}
+              triggerOnly
+            />
+          ) : null}
+        </View>
       </View>
-      <ChildSwitch />
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
       {user?.portal === "PARENT" ? (
         <LeaveDecideList
@@ -2130,156 +2303,65 @@ export function FamilyAttendance() {
         />
       ) : null}
       {!rows.length ? (
-        <View className="gap-4">
-          <Empty title="No days marked yet" body="When the teacher marks the class, it appears here." />
-        </View>
+        <Empty title="No days marked yet" body="When the teacher marks the class, it appears here. Open days still show as weekly off, holiday, upcoming, or not marked." />
       ) : (
-        <View>
-          <View className="mb-4">
-            <View className="overflow-hidden rounded-xl bg-ink-900 p-4">
-              <View className="flex-row items-start justify-between gap-4">
-                <View className="min-w-0 flex-1">
-                  <View className="flex-row items-center gap-2">
-                    <View className={`h-2 w-2 rounded-full ${att.pct >= 75 ? "bg-emerald-400" : "bg-amber-400"}`} />
-                    <Text className="text-xs font-semibold uppercase tracking-[1.5px] text-blue-100">Last {att.marked} marked days</Text>
-                  </View>
-                  <Text className="mt-2 text-4xl font-semibold tracking-tight text-white">{att.pct}%</Text>
-                  <Text className="mt-1 text-base font-medium text-white">{attendanceMessage}</Text>
-                </View>
-                {todayLabel ? (
-                  <View className="flex-row items-center gap-2 rounded-full bg-white/10 px-3 py-2">
-                    <View className={`h-2 w-2 rounded-full ${today === "out" ? "bg-red-400" : today === "late" ? "bg-amber-400" : "bg-emerald-400"}`} />
-                    <Text className="text-xs font-medium text-white">{todayLabel}</Text>
-                  </View>
-                ) : null}
-              </View>
-
-              <View className="mt-4">
-                <View className="h-2 overflow-hidden rounded-full bg-white/15">
-                  <View className={`h-2 rounded-full ${progressTone}`} style={{ width: `${Math.max(2, att.pct)}%` }} />
-                </View>
-                <View className="mt-2 flex-row justify-between">
-                  <Text className="text-xs text-blue-100">Current attendance</Text>
-                  <Text className="text-xs text-blue-100">75% required</Text>
-                </View>
-              </View>
-
-              <View className="mt-4 flex-row overflow-hidden rounded-lg bg-white/10">
-                {[
-                  { label: "Present", value: att.inDays, color: "text-emerald-300" },
-                  { label: "Late", value: att.late, color: "text-amber-300" },
-                  { label: "Absent", value: att.out, color: "text-red-300" },
-                  { label: "This month", value: `${att.thisMonth.inDays}/${att.thisMonth.marked}`, color: "text-white" },
-                ].map((item, index) => (
-                  <View key={item.label} className={`flex-1 px-3 py-3 ${index ? "border-l border-white/10" : ""}`}>
-                    <Text className={`text-xl font-semibold ${item.color}`}>{item.value}</Text>
-                    <Text className="mt-0.5 text-[11px] text-blue-100">{item.label}</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-          </View>
-
-          <View className="mb-3 flex-row items-end justify-between gap-3">
+        <Card className="mb-4 p-4">
+          <View className="flex-row flex-wrap items-end justify-between gap-3">
             <View>
-              <Text className="text-lg font-semibold text-ink-900">Attendance calendar</Text>
-              <Text className="mt-1 text-xs text-ink-700">Present, absent, late, weekly off, holiday, and planned leave are shown separately.</Text>
+              <Text className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-500">
+                Last {att.marked} marked days
+              </Text>
+              <View className="mt-1 flex-row items-baseline gap-2">
+                <Text className="text-3xl font-semibold tracking-tight text-ink-900">{att.pct}%</Text>
+                <Text className="text-[13px] font-medium text-ink-600">{attendanceMessage}</Text>
+              </View>
             </View>
-            {cbse ? (
-              <View className="rounded-full bg-amber-50 px-3 py-1.5">
-                <Text className="text-xs font-medium text-amber-800">{cbse}</Text>
+            {todayLabel ? (
+              <View className="rounded-full bg-[#EEF2FF] px-3 py-1.5">
+                <Text className="text-[12px] font-medium text-clay-500">{todayLabel}</Text>
               </View>
             ) : null}
           </View>
-          {(() => {
-            const [year, monthNo] = activeMonth.split("-").map(Number);
-            const month = monthNo - 1;
-            const daysInMonth = new Date(year, month + 1, 0).getDate();
-            const leading = (new Date(year, month, 1).getDay() + 6) % 7;
-            const marks = new Map(rows.map((row) => [row.rawDate || attendanceDateKey(row.date), row.status]));
-            const cells = [
-              ...Array.from({ length: leading }, (_, index) => ({ key: `blank-${index}`, day: 0, status: "" })),
-              ...Array.from({ length: daysInMonth }, (_, index) => {
-                const day = index + 1;
-                const key = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-                return { key, day, status: marks.get(key) || "" };
-              }),
-            ];
-            return (
-              <Card className="overflow-hidden p-3">
-                <View className="mb-2 flex-row flex-wrap items-center justify-between gap-2">
-                  <View className="flex-row items-center gap-3">
-                    <Pressable
-                      onPress={() => setCalendarMonth((cur) => shiftMonth(cur || latestMonth, -1))}
-                      hitSlop={8}
-                      accessibilityLabel="Previous month"
-                    >
-                      <Ionicons name="chevron-back" size={22} color="#1d4ed8" />
-                    </Pressable>
-                    <Text className="text-sm font-semibold uppercase tracking-[1px] text-ink-700">{monthLabel(activeMonth)}</Text>
-                    <Pressable
-                      onPress={() => setCalendarMonth((cur) => shiftMonth(cur || latestMonth, 1))}
-                      hitSlop={8}
-                      accessibilityLabel="Next month"
-                    >
-                      <Ionicons name="chevron-forward" size={22} color="#1d4ed8" />
-                    </Pressable>
-                  </View>
-                  <View className="flex-row flex-wrap gap-2">
-                    {[
-                      ["P", "Present"],
-                      ["A", "Absent"],
-                      ["Late", "Late"],
-                      ["WO", "Weekly off"],
-                      ["Holiday", "Holiday"],
-                      ["PL", "Planned leave"],
-                    ].map(([letter, label]) => (
-                      <View key={letter} className="flex-row items-center gap-1">
-                        <Text className={`h-5 ${letter.length > 2 ? "w-12" : "w-7"} rounded border text-center text-[11px] font-semibold leading-5 ${calendarMarkClass(letter)}`}>
-                          {letter}
-                        </Text>
-                        <Text className="text-[11px] text-ink-700">{label}</Text>
-                      </View>
-                    ))}
-                  </View>
-                </View>
-                <View className="mb-2 flex-row">
-                  {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => (
-                    <Text key={day} className="flex-1 text-center text-[11px] font-medium text-ink-700">
-                      {day}
-                    </Text>
-                  ))}
-                </View>
-                <View className="flex-row flex-wrap">
-                  {cells.map((cell) => {
-                    const closed = cell.day ? closedReason(cell.key, calendar) : "";
-                    const closedMark = closed ? (/\soff$/i.test(closed) ? "WO" : "Holiday") : "";
-                    const letter = cell.status
-                      ? parentAttendanceLetter(cell.status)
-                      : plannedLeaveDates.has(cell.key)
-                        ? "PL"
-                        : closedMark;
-                    const tone = calendarMarkClass(letter);
-                    const textTone = tone.split(" ").at(-1) || "text-ink-700";
-                    return (
-                          <View key={cell.key} className="w-[14.285%] p-0.5">
-                            {cell.day ? (
-                              <View className={`min-h-10 items-center justify-center rounded-md border ${tone}`}>
-                                <Text className="text-sm font-semibold text-ink-900">{cell.day}</Text>
-                                <Text className={`text-xs font-bold ${textTone}`}>{letter}</Text>
-                              </View>
-                            ) : (
-                              <View className="min-h-10" />
-                            )}
-                      </View>
-                    );
-                  })}
-                </View>
-              </Card>
-            );
-          })()}
-        </View>
+          <View className="mt-3">
+            <View className="h-1.5 overflow-hidden rounded-full bg-ink-100">
+              <View className={`h-1.5 rounded-full ${progressTone}`} style={{ width: `${Math.max(2, att.pct)}%` }} />
+            </View>
+            <Text className="mt-1.5 text-[11px] text-ink-500">75% required for CBSE</Text>
+          </View>
+          <View className="mt-3 flex-row overflow-hidden rounded-lg border border-ink-100">
+            {[
+              { label: "Present", value: String(att.inDays), tone: "text-emerald-700" },
+              { label: "Late", value: String(att.late), tone: "text-amber-700" },
+              { label: "Absent", value: String(att.out), tone: "text-red-700" },
+              { label: "This month", value: `${att.thisMonth.inDays}/${att.thisMonth.marked}`, tone: "text-ink-900" },
+            ].map((item, index) => (
+              <View key={item.label} className={`flex-1 px-3 py-2.5 ${index ? "border-l border-ink-100" : ""}`}>
+                <Text className={`text-lg font-semibold ${item.tone}`}>{item.value}</Text>
+                <Text className="mt-0.5 text-[11px] text-ink-500">{item.label}</Text>
+              </View>
+            ))}
+          </View>
+        </Card>
       )}
+
+          <View className="mb-2 mt-1 flex-row items-end justify-between gap-3">
+            <Text className="text-[15px] font-semibold text-ink-900">Month</Text>
+            {cbse ? (
+              <View className="rounded-full bg-amber-50 px-3 py-1">
+                <Text className="text-[11px] font-medium text-amber-800">{cbse}</Text>
+              </View>
+            ) : null}
+          </View>
+          <ParentAttendanceCalendar
+            activeMonth={activeMonth}
+            calendar={calendar}
+            childClass={child?.classLabel || ""}
+            marks={new Map(rows.map((row) => [row.rawDate || attendanceDateKey(row.date), row.status]))}
+            plannedLeaveDates={plannedLeaveDates}
+            onMonth={(next) => setCalendarMonth(next)}
+            shiftMonth={shiftMonth}
+            monthLabel={monthLabel}
+          />
     </View>
   );
 }
@@ -2368,58 +2450,96 @@ export function FamilySubjects() {
 
 export function FamilyTests() {
   const { data } = useRecord();
+  const { token } = useSession();
+  const toast = useToast();
+  const params = useLocalSearchParams<{ seriesId?: string; view?: string }>();
   const child = data?.child;
   const reports = data?.reports ?? [];
-  const [seriesId, setSeriesId] = useState("");
+  const [seriesId, setSeriesId] = useState(String(params.seriesId || ""));
   const open = reports.find((r) => r.seriesId === seriesId) ?? reports[0] ?? null;
   const student = data?.kind === "STUDENT";
+
+  async function download(query: { seriesId?: string; examId?: string }) {
+    try {
+      await openMarksheetPdf(token, { ...query, studentId: child?.id });
+    } catch (e) {
+      toast.show(e instanceof Error ? e.message : "Could not open the marksheet.");
+    }
+  }
+
   return (
     <View>
       <PageHeader
         kicker="Reports"
-        title={student ? "Examination" : "Examination"}
-        lede="Exam dates, papers, marks, and results in one place."
+        title="Examination"
+        lede={
+          student
+            ? "One report card per exam, after every subject is published."
+            : "One report card per sitting once every subject is published. Only families who have paid the required fee months can open it."
+        }
       />
       <ChildSwitch />
       {open && child ? (
         <View className="mb-6">
-          <Text className="mb-3 font-semibold text-ink-900">Marksheet</Text>
-          {reports.length > 1 ? (
-            <View className="mb-3 flex-row flex-wrap gap-2">
-              {reports.map((r) => (
-                <Chip
-                  key={r.seriesId}
-                  label={r.seriesName}
-                  active={(open.seriesId || "") === r.seriesId}
-                  onPress={() => setSeriesId(r.seriesId)}
-                />
-              ))}
-            </View>
-          ) : (
-            <Text className="mb-3 text-sm text-ink-700">{open.seriesName}</Text>
-          )}
-          <ReportCardSheet
-            printLabel="Download marksheet"
-            data={{
-              school: open.school,
-              seriesName: open.seriesName,
-              sessionLabel: open.sessionLabel,
-              classLabel: open.classLabel,
-              student: {
-                id: child.id,
-                name: child.name,
-                admissionNo: child.admissionNo,
-                attendance: child.attendance,
-              },
-              classmates: open.classmates,
-              exams: open.exams,
-              marks: open.marks,
-              policy: open.policy,
-            }}
-          />
+          <Text className="mb-1 text-xs font-medium uppercase tracking-wide text-ink-700">Academic results</Text>
+          <Text className="mb-3 font-semibold text-ink-900">{open.sessionLabel}</Text>
+          <View className="mb-3 flex-row flex-wrap gap-2">
+            {reports.map((r) => (
+              <Chip
+                key={r.seriesId}
+                label={r.seriesName}
+                active={(open.seriesId || "") === r.seriesId}
+                onPress={() => setSeriesId(r.seriesId)}
+              />
+            ))}
+          </View>
+          <View className="mb-4 flex-row flex-wrap gap-2">
+            <Button onPress={() => download({ seriesId: open.seriesId })}>Download report card</Button>
+          </View>
+          {(() => {
+            const rows = open.exams.map((exam) => {
+              const mark = open.marks.find((row) => row.examId === exam.id && row.studentId === child.id);
+              return {
+                subject: exam.subject.name,
+                marks: mark?.absent ? null : mark?.marks ?? null,
+                max: exam.maxMarks,
+                absent: Boolean(mark?.absent),
+              };
+            });
+            const total = rows.reduce((sum, row) => sum + (row.absent || row.marks == null ? 0 : Number(row.marks)), 0);
+            const max = rows.reduce((sum, row) => sum + row.max, 0);
+            const pct = max ? Math.round((total / max) * 1000) / 10 : 0;
+            return (
+              <Card className="overflow-hidden">
+                <View className="px-4 py-4">
+                  <Text className="text-[11px] font-medium uppercase tracking-wide text-ink-700">{open.seriesName}</Text>
+                  <Text className="mt-1 text-sm text-ink-800">{child.name}{child.admissionNo ? ` · ${child.admissionNo}` : ""}</Text>
+                  <Text className="mt-3 text-3xl font-semibold tracking-tight text-ink-900">
+                    {total} / {max}
+                  </Text>
+                  <Text className="mt-0.5 text-sm text-ink-700">{pct}%</Text>
+                </View>
+                {rows.map((row) => (
+                  <View key={row.subject} className="flex-row border-t border-ink-100 px-4 py-2.5">
+                    <Text className="min-w-0 flex-1 text-sm text-ink-900">{row.subject}</Text>
+                    <Text className="text-sm text-ink-900">{row.absent ? "Absent" : row.marks == null ? "—" : `${row.marks}/${row.max}`}</Text>
+                  </View>
+                ))}
+              </Card>
+            );
+          })()}
         </View>
-      ) : null}
-      <Text className="mb-3 font-semibold text-ink-900">Upcoming</Text>
+      ) : (
+        <Empty
+          title={data?.reportCardHold ? "Report card held for fees" : "No published results yet"}
+          body={
+            data?.reportCardHold
+              ? `This exam is complete. The report card opens after ${data.reportCardHold.requiredMonths} paid fee month${data.reportCardHold.requiredMonths === 1 ? "" : "s"}. Paid so far: ${data.reportCardHold.paidMonths}.`
+              : "When every subject in an exam is published, one report card with all subjects appears here."
+          }
+        />
+      )}
+      <Text className="mb-3 mt-2 font-semibold text-ink-900">Examination timetable</Text>
       {!data?.upcoming?.length ? (
         <Text className="mb-6 text-sm text-ink-700">No upcoming tests on the calendar yet.</Text>
       ) : (
@@ -2438,28 +2558,29 @@ export function FamilyTests() {
           ))}
         </View>
       )}
-      <Text className="mb-3 font-semibold text-ink-900">Papers</Text>
-      {!child?.tests.length ? (
-        <Empty title="No results yet" body="When the school publishes a term, it appears here." />
-      ) : (
-        <Card>
-          {child.tests.map((t) => (
-            <View key={t.id} className="border-t border-ink-100 px-4 py-3 first:border-t-0">
-              <Text className="font-medium text-ink-900">{t.title}</Text>
-              <Text className="mt-1 text-sm text-ink-700">
-                {t.subject} · {t.marks}/{t.max} ({t.pct}%)
-              </Text>
-            </View>
-          ))}
-        </Card>
-      )}
     </View>
   );
 }
 
 export function FamilyPapers() {
   const { data } = useRecord();
+  const { token } = useSession();
+  const toast = useToast();
   const child = data?.child;
+
+  async function openPaper(p: NonNullable<typeof child>["papers"][number]) {
+    if (!p.fileUrl) {
+      toast.show("This copy has no file yet.");
+      return;
+    }
+    try {
+      const url = p.fileUrl.replace(/https?:\/\/[^/]+/, webOrigin());
+      await openAuthedFile(url, token);
+    } catch (e) {
+      toast.show(e instanceof Error ? e.message : "Could not open this paper.");
+    }
+  }
+
   return (
     <View>
       <PageHeader
@@ -2467,16 +2588,16 @@ export function FamilyPapers() {
         title={data?.kind === "STUDENT" ? "Papers" : "How the paper was marked"}
         lede={
           data?.kind === "STUDENT"
-            ? "Answer sheets the teacher uploaded. Open them whenever you want."
-            : "Answer sheets and evaluations. You see how the teacher read the child — not only a number."
+            ? "Scanned copies the teacher uploaded."
+            : "Scanned answer copies open with your login. The sitting report card is on Examination."
         }
       />
       <ChildSwitch />
       {!child?.papers.length ? (
-        <Empty title="No papers uploaded" body="When a teacher uploads a mark sheet, it opens here." />
+        <Empty title="No papers uploaded" body="Scanned copies appear here after the teacher uploads them. The report card is on Examination." />
       ) : (
         <View className="gap-3">
-          {child.papers.map((p) => (
+          {(child?.papers ?? []).map((p) => (
             <Card key={p.id} className="p-5">
               <Text className="text-xl font-semibold text-ink-900">{p.title}</Text>
               <View className="mt-2 flex-row flex-wrap gap-2">
@@ -2487,13 +2608,9 @@ export function FamilyPapers() {
               <Text className="mt-2 text-xs text-ink-700">
                 Evaluated by {p.teacher} · {p.date}
               </Text>
-              {p.fileUrl ? (
-                <Pressable className="mt-2" onPress={() => Linking.openURL(p.fileUrl!.replace(/https?:\/\/[^/]+/, webOrigin()))}>
-                  <Text className="text-sm text-clay-600">{p.fileName}</Text>
-                </Pressable>
-              ) : (
-                <Text className="mt-2 text-sm text-clay-600">{p.fileName}</Text>
-              )}
+              <Pressable className="mt-2" onPress={() => openPaper(p)}>
+                <Text className="text-sm font-medium text-clay-600">{p.fileName || "Open PDF"}</Text>
+              </Pressable>
             </Card>
           ))}
         </View>
@@ -2559,7 +2676,37 @@ export function FamilyProfile() {
   const toast = useToast();
   const child = data?.child;
   const student = data?.kind === "STUDENT";
-  const rows = student
+  const parent = data?.kind === "PARENT";
+  const familyKids =
+    parent && (data.children?.length || child)
+      ? (data.children?.length
+          ? data.children
+          : child
+            ? [
+                {
+                  id: child.id,
+                  name: child.name,
+                  classLabel: child.classLabel,
+                  admissionNo: child.admissionNo,
+                  born: child.born,
+                  email: child.email,
+                  interests: child.interests,
+                },
+              ]
+            : [])
+      : [];
+  const parentRows = parent
+    ? [
+        { label: "Name", value: data.parent?.name || user?.name || "—" },
+        { label: "Email", value: data.parent?.email || user?.email || "—" },
+        { label: "Phone", value: data.parent?.phone || child?.parentPhone || "—" },
+        { label: "Address", value: data.parent?.address || "—" },
+        { label: "City", value: data.parent?.city || "—" },
+        { label: "State", value: data.parent?.state || "—" },
+        { label: "Pincode", value: data.parent?.pincode || "—" },
+      ]
+    : [];
+  const studentRows = student
     ? [
         { label: "Name", value: child?.name || user?.name || "—" },
         { label: "Class", value: child?.classLabel || "—" },
@@ -2570,11 +2717,15 @@ export function FamilyProfile() {
         { label: "Parent phone", value: child?.parentPhone || "—" },
         { label: "Parent email", value: child?.parentEmail || "—" },
       ]
-    : [
-        { label: "Name", value: user?.name || "—" },
-        { label: "Role", value: user?.roleName || "—" },
-        { label: "Login", value: user?.email || "—" },
-      ];
+    : [];
+  const otherRows =
+    !parent && !student
+      ? [
+          { label: "Name", value: user?.name || "—" },
+          { label: "Role", value: user?.roleName || "—" },
+          { label: "Login", value: user?.email || "—" },
+        ]
+      : [];
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -2599,6 +2750,22 @@ export function FamilyProfile() {
     }
   }
 
+  function DetailRows({ rows }: { rows: { label: string; value: string }[] }) {
+    return (
+      <>
+        {rows.map((row) => (
+          <View
+            key={row.label}
+            className="mb-3 flex-row items-baseline justify-between gap-3 border-b border-ink-100 pb-3 last:mb-0 last:border-b-0 last:pb-0"
+          >
+            <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">{row.label}</Text>
+            <Text className="flex-1 text-right text-sm text-ink-900">{row.value || "—"}</Text>
+          </View>
+        ))}
+      </>
+    );
+  }
+
   return (
     <View>
       <PageHeader
@@ -2606,7 +2773,9 @@ export function FamilyProfile() {
         lede={
           student
             ? "How the school has you on record. Name, class, and admission number are set by the office."
-            : "Your login. Change the password the office first gave you."
+            : parent
+              ? "Your details as given to the school, and each child linked to this login."
+              : "Your login. Change the password the office first gave you."
         }
       />
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
@@ -2621,31 +2790,57 @@ export function FamilyProfile() {
           onError={(msg) => toast.show(msg)}
         />
       ) : null}
-      <Card className="mb-4 p-5">
-        {rows.map((row) => (
-          <View
-            key={row.label}
-            className="mb-3 flex-row items-baseline justify-between gap-3 border-b border-ink-100 pb-3 last:mb-0 last:border-b-0 last:pb-0"
-          >
-            <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">{row.label}</Text>
-            <Text className="flex-1 text-right text-sm text-ink-900">{row.value}</Text>
-          </View>
-        ))}
-        {student && child?.interests?.length ? (
-          <View className="mt-3 flex-row flex-wrap gap-2">
-            {child.interests.map((i) => (
-              <Badge key={i} tone="clay">
-                {i}
-              </Badge>
-            ))}
-          </View>
-        ) : null}
-        {student ? (
-          <Text className="mt-4 text-xs text-ink-700">
-            Students cannot edit this record. If something is wrong, ask the office or your parent.
-          </Text>
-        ) : null}
-      </Card>
+      {parent ? (
+        <Card className="mb-4 p-5">
+          <Text className="mb-3 text-[13px] font-semibold text-ink-900">Parent</Text>
+          <DetailRows rows={parentRows} />
+        </Card>
+      ) : (
+        <Card className="mb-4 p-5">
+          <DetailRows rows={student ? studentRows : otherRows} />
+          {student && child?.interests?.length ? (
+            <View className="mt-3 flex-row flex-wrap gap-2">
+              {child.interests.map((i) => (
+                <Badge key={i} tone="clay">
+                  {i}
+                </Badge>
+              ))}
+            </View>
+          ) : null}
+          {student ? (
+            <Text className="mt-4 text-xs text-ink-700">
+              Students cannot edit this record. If something is wrong, ask the office or your parent.
+            </Text>
+          ) : null}
+        </Card>
+      )}
+      {parent
+        ? familyKids.map((kid) => (
+            <Card key={kid.id} className="mb-4 p-5">
+              <Text className="mb-3 text-[13px] font-semibold text-ink-900">
+                Child · {kid.name}
+              </Text>
+              <DetailRows
+                rows={[
+                  { label: "Name", value: kid.name },
+                  { label: "Class", value: kid.classLabel },
+                  { label: "Admission no.", value: kid.admissionNo || (kid.id === child?.id ? child.admissionNo : "") || "—" },
+                  { label: "Date of birth", value: kid.born || (kid.id === child?.id ? child.born || "" : "") || "—" },
+                  { label: "Student login", value: kid.email || (kid.id === child?.id ? child.email || "" : "") || "—" },
+                ]}
+              />
+              {(kid.interests?.length || (kid.id === child?.id && child.interests?.length)) ? (
+                <View className="mt-3 flex-row flex-wrap gap-2">
+                  {(kid.interests?.length ? kid.interests : child?.interests || []).map((i) => (
+                    <Badge key={i} tone="clay">
+                      {i}
+                    </Badge>
+                  ))}
+                </View>
+              ) : null}
+            </Card>
+          ))
+        : null}
       <Card className="p-5">
         <Text className="text-sm font-medium text-ink-900">Password</Text>
         <Text className="mt-1 mb-3 text-xs text-ink-700">
@@ -2942,6 +3137,11 @@ export function FamilyFees() {
         invoiceIds: selectedIds,
       });
       if (!res.path) throw new Error("Could not open pay link");
+      const payUrl = `${res.path}${res.path.includes("?") ? "&" : "?"}embed=1`;
+      if (Platform.OS === "web" && typeof window !== "undefined") {
+        window.location.assign(payUrl);
+        return;
+      }
       router.push(`/pay?path=${encodeURIComponent(res.path)}`);
     } catch (e) {
       toast.show(e instanceof Error ? e.message : "Could not open pay.");

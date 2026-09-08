@@ -1,7 +1,10 @@
 import { prisma } from "./prisma";
 import { buildCollectionSeries, buildDeskPulse, collectionWindow, startOfDay } from "./desk";
 import { classifyStudent } from "./classify";
-import { addDays, afterDay, gradePolicyFrom, paperSetterId, parseExamPlan, ymd } from "./exams";
+import { addDays, gradePolicyFrom, paperSetterId, parseExamPlan, ymd } from "./exams";
+import { packedEvaluators, examEvaluatorIds, grantedEvaluatorIds } from "./exam-evaluators";
+import { teacherAssignedToPaper } from "./exam-marks";
+import { compareExamNearness, eligibleMarksTeacherIds, examWorkStepOrder, teacherMayEnterMarks, teacherMayTakeExam } from "./exam-workflow";
 import { parseWeekdays, weekCapacity } from "./schedule";
 import { schoolFromConfig } from "./school";
 import { ensureSchoolSessions } from "./school-session";
@@ -91,7 +94,7 @@ export async function getClassRoster(classId: string) {
     include: {
       parent: { include: { user: { select: { name: true, phone: true, email: true } } } },
       interests: true,
-      attendance: { orderBy: { date: "desc" }, take: 40 },
+      attendance: { orderBy: { date: "desc" }, take: 400 },
       examResults: { include: { exam: { include: { subject: true, series: true } } } },
       feeInvoices: { include: { payments: true }, orderBy: { dueDate: "desc" } },
       contestEntries: { include: { contest: true } },
@@ -103,7 +106,14 @@ export async function getClassRoster(classId: string) {
 
 export async function getPublishedSeries(classId: string) {
   return prisma.examSeries.findMany({
-    where: { classId, publishedAt: { not: null } },
+    where: {
+      classId,
+      exams: {
+        some: {
+          OR: [{ workflowStatus: "PUBLISHED" }, { resultsPublishedAt: { not: null } }],
+        },
+      },
+    },
     include: {
       session: true,
       exams: {
@@ -111,13 +121,36 @@ export async function getPublishedSeries(classId: string) {
         orderBy: { date: "asc" },
       },
     },
-    orderBy: { publishedAt: "desc" },
+    orderBy: [{ createdAt: "desc" }],
+  });
+}
+
+export async function getClassExamSeries(classId: string) {
+  const { current } = await ensureSchoolSessions();
+  return prisma.examSeries.findMany({
+    where: { classId, sessionId: current.id },
+    include: {
+      session: { select: { label: true } },
+      exams: {
+        select: { date: true, workflowStatus: true, resultsPublishedAt: true },
+        orderBy: { date: "asc" },
+      },
+    },
+    orderBy: [{ createdAt: "asc" }],
   });
 }
 
 export async function getUpcomingExams(classId: string) {
   return prisma.exam.findMany({
     where: { classId, date: { gte: startOfToday() } },
+    include: { subject: true, series: true, teacher: { include: { user: true } } },
+    orderBy: { date: "asc" },
+  });
+}
+
+export async function getClassExamPapers(classId: string) {
+  return prisma.exam.findMany({
+    where: { classId },
     include: { subject: true, series: true, teacher: { include: { user: true } } },
     orderBy: { date: "asc" },
   });
@@ -222,7 +255,7 @@ export async function teacherExamClassIds(userId: string) {
   for (const c of teacher?.classes ?? []) ids.add(c.classId);
   if (teacher) {
     const assigned = await prisma.exam.findMany({
-      where: { OR: [{ teacherId: teacher.id }, { setterId: teacher.id }] },
+      where: { OR: [{ teacherId: teacher.id }, { setterId: teacher.id }, { evaluators: { some: { teacherId: teacher.id } } }] },
       select: { classId: true },
     });
     for (const row of assigned) ids.add(row.classId);
@@ -239,6 +272,7 @@ export async function getTeacherExamWork(userId: string) {
         { teacherId: teacher.id },
         { setterId: teacher.id },
         { classId: teacher.classId || "__none__" },
+        { evaluators: { some: { teacherId: teacher.id } } },
       ],
     },
     include: {
@@ -248,16 +282,12 @@ export async function getTeacherExamWork(userId: string) {
       teacher: { include: { user: true } },
       setter: { include: { user: true } },
       papers: true,
-      results: { select: { studentId: true, marks: true, absent: true } },
+      evaluators: { include: { teacher: { include: { user: { select: { name: true } } } } } },
+      results: { select: { studentId: true, marks: true, absent: true, correctionNote: true, correctionRequestedAt: true } },
       _count: { select: { results: true } },
     },
     orderBy: { date: "asc" },
   });
-}
-
-function dueWithin(when: Date | string | null | undefined, days = 5) {
-  if (!when) return false;
-  return ymd(when) <= addDays(ymd(new Date()), days);
 }
 
 function dueLine(when: Date | string) {
@@ -330,7 +360,7 @@ export async function getTeacherDesk(userId: string) {
     hint: string;
     href: string;
     examId: string;
-    kind: "paper" | "marks";
+    kind: "paper" | "marks" | "take";
     dueOn: string;
     urgency: "overdue" | "soon" | "";
   }[] = [];
@@ -339,7 +369,7 @@ export async function getTeacherDesk(userId: string) {
     const students = countByClass[exam.classId] || 0;
     const href = `/teacher/reports/exams?classId=${exam.classId}&series=${exam.seriesId || ""}`;
     const where = `${exam.title}${label ? ` · ${label}` : ""}`;
-    if (paperSetterId(exam) === teacher.id && !exam.paperAt && dueWithin(exam.paperDueOn || exam.date)) {
+    if (paperSetterId(exam) === teacher.id && !exam.paperAt) {
       const due = exam.paperDueOn || exam.date;
       todos.push({
         id: `paper-${exam.id}`,
@@ -348,42 +378,52 @@ export async function getTeacherDesk(userId: string) {
         title: `Set ${exam.subject.name} paper`,
         hint: `${where} · ${dueLine(due)}`,
         href,
-        dueOn: ymd(due),
+        dueOn: ymd(exam.date),
         urgency: dueUrgency(due),
       });
     }
-    if (exam.teacherId === teacher.id && students && exam._count.results < students && afterDay(exam.date)) {
-      // Older exams may not have resultOn saved. Keep mark entry actionable by
-      // applying the same two-week result deadline used for newly created exams.
-      const due = exam.resultOn || addDays(ymd(exam.date), 14);
+    if (teacherMayTakeExam(exam, teacher.id) && students) {
+      todos.push({
+        id: `take-${exam.id}`,
+        examId: exam.id,
+        kind: "take",
+        title: `Take exam · ${exam.subject.name}`,
+        hint: `${where} · paper set · exam ${ymd(exam.date)}`,
+        href,
+        dueOn: ymd(exam.date),
+        urgency: dueUrgency(exam.date),
+      });
+    }
+    if (teacherMayEnterMarks(exam, teacher.id) && students) {
       todos.push({
         id: `marks-${exam.id}`,
         examId: exam.id,
         kind: "marks",
-        title: `Enter marks · ${exam.subject.name}`,
-        hint: `${exam._count.results}/${students} entered · ${dueLine(due)}`,
+        title: exam.workflowStatus === "CORRECTION_REQUIRED" ? `Correct marks · ${exam.subject.name}` : `Enter marks · ${exam.subject.name}`,
+        hint: `${exam._count.results}/${students} entered · ${where}`,
         href: `${href}&view=register`,
-        dueOn: ymd(due),
-        urgency: dueUrgency(due),
+        dueOn: ymd(exam.date),
+        urgency: exam.workflowStatus === "CORRECTION_REQUIRED" ? "overdue" : dueUrgency(exam.resultOn || exam.copiesDueOn),
       });
     }
   }
-  todos.sort((a, b) => {
-    const rank = (u: string) => (u === "overdue" ? 0 : u === "soon" ? 1 : 2);
-    return rank(a.urgency) - rank(b.urgency) || a.dueOn.localeCompare(b.dueOn);
-  });
+  todos.sort(
+    (a, b) => compareExamNearness(a.dueOn, b.dueOn, today) || examWorkStepOrder(a.kind) - examWorkStepOrder(b.kind)
+  );
   const doneWork: {
     id: string;
     examId: string;
-    kind: "paper" | "marks";
+    kind: "paper" | "take" | "marks";
     title: string;
     hint: string;
     doneAt: string;
+    examDate: string;
   }[] = [];
   for (const exam of work) {
     const label = exam.class ? `${exam.class.name}-${exam.class.section}` : "";
     const where = `${exam.title}${label ? ` · ${label}` : ""}`;
     const students = countByClass[exam.classId] || 0;
+    const examDate = ymd(exam.date);
     if (paperSetterId(exam) === teacher.id && exam.paperAt) {
       doneWork.push({
         id: `done-paper-${exam.id}`,
@@ -392,21 +432,37 @@ export async function getTeacherDesk(userId: string) {
         title: `${exam.subject.name} paper set`,
         hint: where,
         doneAt: ymd(exam.paperAt),
+        examDate,
       });
     }
-    if (exam.teacherId === teacher.id && students && exam._count.results >= students && afterDay(exam.date)) {
+    if ((exam.teacherId === teacher.id || examEvaluatorIds(exam).includes(teacher.id)) && exam.conductedAt) {
+      doneWork.push({
+        id: `done-take-${exam.id}`,
+        examId: exam.id,
+        kind: "take",
+        title: `Exam taken · ${exam.subject.name}`,
+        hint: where,
+        doneAt: ymd(exam.conductedAt),
+        examDate,
+      });
+    }
+    if (grantedEvaluatorIds(exam).includes(teacher.id) && (exam.workflowStatus === "SUBMITTED" || exam.workflowStatus === "UNDER_REVIEW" || exam.workflowStatus === "APPROVED" || exam.workflowStatus === "PUBLISHED")) {
       doneWork.push({
         id: `done-marks-${exam.id}`,
         examId: exam.id,
         kind: "marks",
-        title: `Marks in · ${exam.subject.name}`,
+        title: `Marks sent · ${exam.subject.name}`,
         hint: `${exam._count.results}/${students} entered · ${where}`,
-        doneAt: ymd(exam.resultOn || exam.date),
+        doneAt: ymd(exam.submittedAt || exam.resultOn || exam.date),
+        examDate,
       });
     }
   }
+  doneWork.sort(
+    (a, b) => compareExamNearness(a.examDate, b.examDate, today) || examWorkStepOrder(a.kind) - examWorkStepOrder(b.kind)
+  );
   const markSheets = work
-    .filter((exam) => exam.teacherId === teacher.id && afterDay(exam.date))
+    .filter((exam) => teacherAssignedToPaper(exam, teacher.id))
     .map((exam) => {
       const label = exam.class ? `${exam.class.name}-${exam.class.section}` : "";
       const byStudent = new Map(exam.results.map((r) => [r.studentId, r]));
@@ -416,6 +472,12 @@ export async function getTeacherDesk(userId: string) {
         subject: exam.subject.name,
         maxMarks: exam.maxMarks,
         classLabel: label,
+        date: ymd(exam.date),
+        seriesName: exam.series?.name || exam.title,
+        workflowStatus: exam.workflowStatus,
+        correctionNote: exam.correctionNote || "",
+        entered: exam._count.results,
+        canEnterMarks: teacherMayEnterMarks(exam, teacher.id),
         students: (studentsByClass.get(exam.classId) || []).map((s) => {
           const saved = byStudent.get(s.id);
           return {
@@ -424,6 +486,8 @@ export async function getTeacherDesk(userId: string) {
             admissionNo: s.admissionNo,
             marks: saved && !saved.absent ? saved.marks : null,
             absent: Boolean(saved?.absent),
+            correctionNote: saved?.correctionNote || "",
+            correctionRequested: Boolean(saved?.correctionRequestedAt),
           };
         }),
       };
@@ -442,7 +506,7 @@ export async function getTeacherDesk(userId: string) {
       date: ymd(e.date),
       classLabel: e.class ? `${e.class.name}-${e.class.section}` : "",
       setter: paperSetterId(e) === teacher.id,
-      evaluator: e.teacherId === teacher.id,
+      evaluator: teacherAssignedToPaper(e, teacher.id),
       href: `/teacher/reports/exams?classId=${e.classId}${e.seriesId ? `&series=${e.seriesId}` : ""}`,
     }));
 
@@ -633,7 +697,7 @@ export async function getPeople() {
 }
 
 export async function getPeopleExamPack() {
-  const [config, series] = await Promise.all([
+  const [config, series, skills] = await Promise.all([
     prisma.schoolConfig.findUnique({ where: { id: "school" } }),
     prisma.examSeries.findMany({
       include: {
@@ -644,12 +708,14 @@ export async function getPeopleExamPack() {
             results: true,
             teacher: { include: { user: true } },
             setter: { include: { user: true } },
+            evaluators: { include: { teacher: { include: { user: true } } } },
           },
           orderBy: { date: "asc" },
         },
       },
       orderBy: { createdAt: "desc" },
     }),
+    prisma.teacherSkill.findMany({ select: { teacherId: true, classId: true, subjectName: true } }),
   ]);
   const planBySession: Record<string, ReturnType<typeof parseExamPlan>> = {};
   for (const row of series) {
@@ -682,7 +748,23 @@ export async function getPeopleExamPack() {
         teacherName: e.teacher?.user.name || "",
         setterId: e.setterId,
         setterName: e.setter?.user.name || e.teacher?.user.name || "",
+        evaluators: packedEvaluators(e),
+        eligibleTeacherIds: eligibleMarksTeacherIds({
+          examTeacherId: e.teacherId,
+          subjectTeacherId: e.subject.teacherId,
+          skillTeacherIds: skills
+            .filter((skill) => skill.classId === e.classId && skill.subjectName === e.subject.name)
+            .map((skill) => skill.teacherId),
+        }),
         subject: { id: e.subject.id, name: e.subject.name },
+        workflowStatus: e.workflowStatus,
+        correctionNote: e.correctionNote || "",
+        entered: e.results.length,
+        paperAt: e.paperAt?.toISOString() ?? null,
+        marksGrantedAt: e.marksGrantedAt?.toISOString() ?? null,
+        conductedAt: e.conductedAt?.toISOString() ?? null,
+        paperFileName: e.paperFileName || "",
+        resultsPublishedAt: e.resultsPublishedAt?.toISOString() ?? null,
       })),
       marks: s.exams.flatMap((e) =>
         e.results.map((r) => ({
@@ -691,6 +773,9 @@ export async function getPeopleExamPack() {
           marks: r.marks,
           absent: r.absent,
           remarks: r.remarks,
+          version: r.version,
+          correctionNote: r.correctionNote || "",
+          correctionRequested: Boolean(r.correctionRequestedAt),
         }))
       ),
     })),
@@ -789,8 +874,9 @@ export async function getTeacherTimetable(teacherId: string) {
 
 export async function getStaffRoster(date = startOfDay()) {
   const from = startOfDay(date);
-  from.setDate(from.getDate() - 40);
-  const [teachers, staff, days] = await Promise.all([
+  from.setDate(from.getDate() - 400);
+  const fromStamp = ymd(from);
+  const [teachers, staff, days, leave, payrollRuns, audits] = await Promise.all([
     prisma.teacher.findMany({
       include: { user: { include: { manager: { select: { id: true, name: true } } } }, class: true },
       orderBy: { employeeId: "asc" },
@@ -804,8 +890,25 @@ export async function getStaffRoster(date = startOfDay()) {
       orderBy: { employeeId: "asc" },
     }),
     prisma.staffDay.findMany({ where: { date: { gte: from } }, orderBy: { date: "desc" } }),
+    prisma.leaveRequest.findMany({
+      where: {
+        status: "ACTIVE",
+        to: { gte: fromStamp },
+        OR: [{ teacherId: { not: null } }, { staffId: { not: null } }],
+      },
+      select: {
+        teacherId: true,
+        staffId: true,
+        from: true,
+        to: true,
+        reason: true,
+        type: { select: { name: true, paid: true } },
+      },
+    }),
+    prisma.staffPayrollRun.findMany(),
+    prisma.staffAttendanceAudit.findMany({ orderBy: { createdAt: "desc" }, take: 400 }),
   ]);
-  return { teachers, staff, days, date };
+  return { teachers, staff, days, leave, payrollRuns, audits, date };
 }
 
 export async function getDeskPulse() {

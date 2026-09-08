@@ -82,7 +82,7 @@ export function Button({
       {...props}
       accessibilityRole={props.accessibilityRole || "button"}
       disabled={disabled}
-      className={`items-center rounded-md px-4 py-2.5 ${styles} ${disabled ? "opacity-50" : ""} ${className || ""}`}
+      className={`items-center rounded-md px-4 py-2.5 transition-transform duration-150 active:scale-[0.97] ${styles} ${disabled ? "opacity-50" : ""} ${className || ""}`}
     >
       <Text className={`text-sm font-medium ${text}`}>{children}</Text>
     </Pressable>
@@ -99,7 +99,7 @@ export function Card({
   style?: StyleProp<ViewStyle>;
 }) {
   return (
-    <View className={`rounded-md border border-ink-200 bg-white ${className || ""}`} style={style}>
+    <View className={`rounded-xl border border-ink-200 bg-white ${className || ""}`} style={style}>
       {children}
     </View>
   );

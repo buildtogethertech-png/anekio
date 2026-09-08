@@ -1,5 +1,5 @@
 import bcrypt from "bcryptjs";
-import { AttendanceStatus, PaymentMethod, PathTag, Portal, RoomKind, StaffKind } from "@prisma/client";
+import { AttendanceStatus, PaymentMethod, PathTag, Portal, PayrollStatus, RoomKind, StaffKind } from "@prisma/client";
 import { sendAisensyWhatsApp } from "./aisensy";
 import { getPayShareChannels, type PayShareChannelId } from "./comms";
 import { recordLedgerPayment } from "./fee-ledger";
@@ -23,8 +23,12 @@ import { normalizeMobile, requireMobile } from "./phone";
 import { prisma } from "./prisma";
 import { roleIdBySlug, slugFromName } from "./roles";
 import { closedReason, paperDates, parseHolidayText, snapToSchoolDay, type PaperCadence } from "./calendar";
+import { personKey } from "./payroll";
 import { loadSchoolCalendar } from "./leave";
 import { addDays, examPlanWeight, parseExamPlan, ymd } from "./exams";
+import { teacherCanEditMarks, teacherMayEnterMarks } from "./exam-workflow";
+import { validateExamMark } from "./exam-marks";
+import { notifySchedulePublished, notifySeriesAssigned } from "./exam-events";
 import { isNoticeKind, normalizeWhatsAppGroupUrl } from "./notices";
 import { notifyNoticePublished, notifyNoticeRecipients } from "./push";
 import { PAY_GATEWAYS, type PayGateway } from "./pay-config";
@@ -36,7 +40,7 @@ import {
   setCurrentSchoolSession,
   syncCurrentSessionDates,
 } from "./school-session";
-import { placeFields, requireJoinedOn, STAFF_FIRST_PASSWORD, todayJoinedOn } from "./staff-profile";
+import { placeFields, parseMonthlySalary, requireJoinedOn, STAFF_FIRST_PASSWORD, todayJoinedOn } from "./staff-profile";
 import { assertManagerChoice, defaultManagerIdForRole, managerIdForNewUser, teamClassIds } from "./reports";
 import { admissionFormFields, admissionFormJson, admissionLeadInput } from "./admission-form";
 
@@ -424,6 +428,7 @@ export async function updateTeacherCore(
     qualification?: string;
     password?: string;
     managerId?: string | null;
+    monthlySalary?: number | string;
   }
 ) {
   need(user, "staff.edit", "people.edit");
@@ -476,6 +481,7 @@ export async function updateTeacherCore(
       ...(joinedOn ? { joinedOn } : {}),
       ...place,
       qualification: qualification || null,
+      ...(input.monthlySalary !== undefined ? { monthlySalary: parseMonthlySalary(input.monthlySalary) } : {}),
       user: { update: userPatch },
     },
   });
@@ -495,6 +501,7 @@ export async function updateStaffMemberCore(
     state?: string;
     pincode?: string;
     managerId?: string | null;
+    monthlySalary?: number | string;
   }
 ) {
   need(user, "staff.edit");
@@ -546,6 +553,7 @@ export async function updateStaffMemberCore(
       joinedOn,
       kind,
       ...place,
+      ...(input.monthlySalary !== undefined ? { monthlySalary: parseMonthlySalary(input.monthlySalary) } : {}),
     },
   });
 }
@@ -598,6 +606,7 @@ export async function createTeacherCore(
     qualification?: string[] | string;
     qualificationNotes?: string;
     offers?: { subjectName: string; classId: string }[];
+    monthlySalary?: number | string;
   }
 ) {
   need(user, "staff.edit");
@@ -629,6 +638,7 @@ export async function createTeacherCore(
         create: {
           employeeId,
           joinedOn: todayJoinedOn(),
+          monthlySalary: parseMonthlySalary(input.monthlySalary),
           ...(qualification ? { qualification } : {}),
           ...(classIds[0] ? { classId: classIds[0] } : {}),
           skills: {
@@ -778,6 +788,143 @@ export async function markStaffAttendanceCore(
   }
 }
 
+const STAFF_MARKS = new Set<AttendanceStatus>(["PRESENT", "ABSENT", "LATE", "LEAVE", "HALF_DAY"]);
+
+export async function correctStaffAttendanceCore(
+  user: AccessUser,
+  input: {
+    kind: "teacher" | "staff";
+    id: string;
+    date: string;
+    status: AttendanceStatus;
+    reason: string;
+    unlockApproved?: boolean;
+  }
+) {
+  need(user, "staff.edit");
+  const stamp = String(input.date || "").slice(0, 10);
+  const todayLocal = ymd(new Date());
+  if (stamp > todayLocal) throw new Error("Cannot mark a future date.");
+  const status = STAFF_MARKS.has(input.status) ? input.status : null;
+  if (!status) throw new Error("Pick a valid attendance status.");
+  const reason = String(input.reason || "").trim();
+  const cal = await loadSchoolCalendar();
+  const closed = closedReason(stamp, cal);
+  if (closed) {
+    throw new Error(
+      /off$/i.test(closed) ? `${closed}. Attendance is not marked.` : `${closed} — school closed. Attendance is not marked.`
+    );
+  }
+  const key = personKey(input.kind, input.id);
+  const month = stamp.slice(0, 7);
+  const run = await prisma.staffPayrollRun.findUnique({ where: { personKey_month: { personKey: key, month } } });
+  if (run && run.status !== "PENDING" && !input.unlockApproved) {
+    throw new Error("This month is already approved. Confirm to change attendance.");
+  }
+  const day = new Date(stamp);
+  day.setHours(0, 0, 0, 0);
+  const existing =
+    input.kind === "teacher"
+      ? await prisma.staffDay.findUnique({ where: { teacherId_date: { teacherId: input.id, date: day } } })
+      : await prisma.staffDay.findUnique({ where: { staffId_date: { staffId: input.id, date: day } } });
+  const fromStatus = existing?.status || "";
+  if (fromStatus && fromStatus !== status && !reason) {
+    throw new Error("Add a reason for this attendance correction.");
+  }
+  if (input.kind === "teacher") {
+    await prisma.staffDay.upsert({
+      where: { teacherId_date: { teacherId: input.id, date: day } },
+      update: { status, markedById: user.id, remark: reason || existing?.remark || "" },
+      create: { teacherId: input.id, date: day, status, markedById: user.id, remark: reason },
+    });
+  } else {
+    await prisma.staffDay.upsert({
+      where: { staffId_date: { staffId: input.id, date: day } },
+      update: { status, markedById: user.id, remark: reason || existing?.remark || "" },
+      create: { staffId: input.id, date: day, status, markedById: user.id, remark: reason },
+    });
+  }
+  if (fromStatus !== status) {
+    await prisma.staffAttendanceAudit.create({
+      data: {
+        personKey: key,
+        date: stamp,
+        fromStatus: fromStatus || "UNMARKED",
+        toStatus: status,
+        reason: reason || "Attendance recorded.",
+        actorId: user.id,
+      },
+    });
+  }
+  if (run && run.status !== "PENDING" && input.unlockApproved) {
+    await prisma.staffPayrollRun.update({
+      where: { id: run.id },
+      data: { status: "PENDING", approvedAt: null, approvedById: null },
+    });
+  }
+}
+
+export async function saveStaffPayrollCore(
+  user: AccessUser,
+  input: {
+    kind: "teacher" | "staff";
+    id: string;
+    month: string;
+    status: "PENDING" | "APPROVED" | "PAID";
+    salary: number;
+    workingDays: number;
+    payableDays: number;
+    attendanceAdj: number;
+    otherAdj?: number;
+    finalAmount: number;
+    snapshot?: Record<string, unknown>;
+  }
+) {
+  need(user, "staff.edit");
+  const month = String(input.month || "").slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(month)) throw new Error("Pick a month.");
+  const key = personKey(input.kind, input.id);
+  const nextStatus =
+    input.status === "PAID" ? PayrollStatus.PAID : input.status === "APPROVED" ? PayrollStatus.APPROVED : PayrollStatus.PENDING;
+  const existing = await prisma.staffPayrollRun.findUnique({ where: { personKey_month: { personKey: key, month } } });
+  if (existing && existing.status !== "PENDING" && nextStatus === "PENDING") {
+    // allow saving pending after unlock via attendance correction
+  } else if (existing && existing.status === "APPROVED" && nextStatus === "APPROVED") {
+    throw new Error("This payment is already approved.");
+  } else if (existing && existing.status === "PAID") {
+    throw new Error("This payment is already marked paid.");
+  }
+  await prisma.staffPayrollRun.upsert({
+    where: { personKey_month: { personKey: key, month } },
+    update: {
+      status: nextStatus,
+      salary: Math.round(input.salary),
+      workingDays: Math.round(input.workingDays),
+      payableDays: input.payableDays,
+      attendanceAdj: Math.round(input.attendanceAdj),
+      otherAdj: Math.round(input.otherAdj || 0),
+      finalAmount: Math.round(input.finalAmount),
+      snapshotJson: JSON.stringify(input.snapshot || {}),
+      approvedAt: nextStatus === "PENDING" ? null : existing?.approvedAt || new Date(),
+      approvedById: nextStatus === "PENDING" ? null : user.id,
+    },
+    create: {
+      personKey: key,
+      month,
+      status: nextStatus,
+      salary: Math.round(input.salary),
+      workingDays: Math.round(input.workingDays),
+      payableDays: input.payableDays,
+      attendanceAdj: Math.round(input.attendanceAdj),
+      otherAdj: Math.round(input.otherAdj || 0),
+      finalAmount: Math.round(input.finalAmount),
+      snapshotJson: JSON.stringify(input.snapshot || {}),
+      approvedAt: nextStatus === "PENDING" ? null : new Date(),
+      approvedById: nextStatus === "PENDING" ? null : user.id,
+    },
+  });
+}
+
 export async function createStaffMemberCore(
   user: AccessUser,
   input: {
@@ -792,6 +939,7 @@ export async function createStaffMemberCore(
     state?: string;
     pincode?: string;
     managerId?: string | null;
+    monthlySalary?: number | string;
   }
 ) {
   need(user, "staff.edit");
@@ -817,6 +965,7 @@ export async function createStaffMemberCore(
   if (taken) throw new Error("That email is already in the school");
   const hash = await bcrypt.hash(password, 10);
   const managerId = await managerIdForNewUser(user, role, input.managerId);
+  const monthlySalary = parseMonthlySalary(input.monthlySalary);
   if (role.portal === "TEACHER") {
     const employeeId = await nextEmployeeId("T");
     await prisma.user.create({
@@ -827,7 +976,7 @@ export async function createStaffMemberCore(
         password: hash,
         roleId: role.id,
         managerId,
-        teacher: { create: { employeeId, joinedOn, ...place } },
+        teacher: { create: { employeeId, joinedOn, monthlySalary, ...place } },
       },
     });
   } else if (role.portal === "PARENT") {
@@ -851,7 +1000,7 @@ export async function createStaffMemberCore(
         password: hash,
         roleId: role.id,
         managerId,
-        staffMember: { create: { name, title, phone, kind, employeeId, roleId: role.id, joinedOn, ...place } },
+        staffMember: { create: { name, title, phone, kind, employeeId, roleId: role.id, joinedOn, monthlySalary, ...place } },
       },
     });
   }
@@ -1668,6 +1817,21 @@ export async function enterMarksCore(
 ) {
   need(user, "marks.enter", "exams.edit");
   if (!input.examId || !input.studentId || Number.isNaN(input.marks)) throw new Error("Invalid marks");
+  const exam = await prisma.exam.findUnique({ where: { id: input.examId }, include: { evaluators: true } });
+  if (!exam) throw new Error("Exam not found");
+  if (user.portal === "TEACHER") {
+    const teacher = await prisma.teacher.findUnique({ where: { userId: user.id } });
+    if (!teacherMayEnterMarks(exam, teacher?.id)) {
+      throw new Error("Office must allow marks entry on this paper first.");
+    }
+    if (!teacherCanEditMarks(exam.workflowStatus)) {
+      throw new Error("Marks are locked. Wait for admin to send this paper back if a correction is needed.");
+    }
+  }
+  if (exam.workflowStatus === "PUBLISHED") throw new Error("Published results cannot be edited.");
+  const student = await prisma.student.findUnique({ where: { id: input.studentId }, select: { classId: true, name: true } });
+  if (!student || student.classId !== exam.classId) throw new Error("That student is not in this class.");
+  validateExamMark(Number(input.marks), exam.maxMarks, student.name);
   await prisma.examResult.upsert({
     where: { examId_studentId: { examId: input.examId, studentId: input.studentId } },
     update: { marks: input.marks, remarks: input.remarks || null },
@@ -1704,6 +1868,7 @@ export async function hostExamCore(
       maxMarks: Number(input.maxMarks || 40),
       teacherId: teacher?.id || null,
       setterId: teacher?.id || null,
+      workflowStatus: "SCHEDULED",
     },
   });
   const label = `${klass.name}-${klass.section}`;
@@ -2269,11 +2434,12 @@ export async function importSchoolHolidaysCore(user: AccessUser, input: { sessio
 
 export async function saveGradePolicyCore(
   user: AccessUser,
-  input: { passPercent?: number; showRank?: boolean; bands?: { min?: number; grade?: string }[] }
+  input: { passPercent?: number; showRank?: boolean; bands?: { min?: number; grade?: string }[]; reportCardPaidMonths?: number }
 ) {
   need(user, "exams.edit", "school.edit");
   const passPercent = Math.max(0, Math.min(100, Math.round(Number(input.passPercent || 33))));
   const showRank = Boolean(input.showRank);
+  const reportCardPaidMonths = Math.max(0, Math.min(24, Math.floor(Number(input.reportCardPaidMonths) || 0)));
   const cleaned = (Array.isArray(input.bands) ? input.bands : [])
     .map((b) => ({
       min: Math.max(0, Math.min(100, Math.round(Number(b.min) || 0))),
@@ -2283,8 +2449,8 @@ export async function saveGradePolicyCore(
     .sort((a, b) => b.min - a.min);
   await prisma.schoolConfig.upsert({
     where: { id: "school" },
-    update: { passPercent, showRank, gradeBandsJson: JSON.stringify(cleaned) },
-    create: { id: "school", passPercent, showRank, gradeBandsJson: JSON.stringify(cleaned) },
+    update: { passPercent, showRank, reportCardPaidMonths, gradeBandsJson: JSON.stringify(cleaned) },
+    create: { id: "school", passPercent, showRank, reportCardPaidMonths, gradeBandsJson: JSON.stringify(cleaned) },
   });
 }
 
@@ -2335,7 +2501,14 @@ async function needExamClass(user: AccessUser, classId: string, mode: "mark" | "
   const assigned = linked
     ? 1
     : await prisma.exam.count({
-        where: { classId, OR: [{ teacherId: teacher.id }, { setterId: teacher.id }] },
+        where: {
+          classId,
+          OR: [
+            { teacherId: teacher.id },
+            { setterId: teacher.id },
+            { evaluators: { some: { teacherId: teacher.id } } },
+          ],
+        },
       });
   if (!assigned) throw new Error("Not your class");
   if (mode === "run" && teacher.classId !== classId) {
@@ -2460,6 +2633,24 @@ export async function createExamSeriesCore(
     const teacherId = p.teacherId || subject?.teacherId || null;
     return { ...p, teacherId, setterId: p.setterId || teacherId };
   });
+  const covered = new Set(papers.map((p) => p.subjectId));
+  const lastDate = papers.map((p) => p.date).filter(Boolean).sort().at(-1) || ymd(new Date());
+  let extra = 1;
+  for (const subject of subjects) {
+    if (covered.has(subject.id)) continue;
+    const examDate = addDays(lastDate, extra);
+    extra += 1;
+    papers.push({
+      subjectId: subject.id,
+      teacherId: subject.teacherId,
+      setterId: subject.teacherId,
+      maxMarks: item?.maxMarks ?? papers[0]?.maxMarks ?? 80,
+      date: examDate,
+      paperDueOn: addDays(examDate, -7),
+      copiesDueOn: addDays(examDate, 7),
+      resultOn: addDays(examDate, 14),
+    });
+  }
   if (papers.some((p) => !p.teacherId)) {
     throw new Error("Schedule not saved. Assign a teacher to every subject in Routine first; teachers are needed for checking and entering marks.");
   }
@@ -2497,6 +2688,13 @@ export async function createExamSeriesCore(
       },
     },
   });
+  const created = await prisma.examSeries.findFirst({
+    where: { classId, sessionId, name },
+    select: { id: true },
+  });
+  if (created) {
+    await notifySeriesAssigned(created.id, user.id);
+  }
 }
 
 export async function publishExamSeriesCore(
@@ -2513,6 +2711,7 @@ export async function publishExamSeriesCore(
     where: { id: seriesId },
     data: { publishedAt: on ? new Date() : null },
   });
+  if (on) await notifySchedulePublished(seriesId, user.id);
 }
 
 export async function deleteExamSeriesCore(user: AccessUser, input: { seriesId: string }) {

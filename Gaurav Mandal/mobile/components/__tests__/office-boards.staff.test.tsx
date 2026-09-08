@@ -16,6 +16,9 @@ jest.mock("@expo/vector-icons/Ionicons", () => {
 jest.mock("../../lib/mutate", () => ({ act: jest.fn() }));
 jest.mock("../../lib/record", () => ({ useRecord: jest.fn() }));
 jest.mock("../../lib/session", () => ({ useSession: jest.fn() }));
+jest.mock("../date-field", () => ({
+  DateField: () => null,
+}));
 jest.mock("react-native", () => {
   const actual = jest.requireActual("react-native");
   const useWindowDimensions = jest.fn();
@@ -230,16 +233,16 @@ describe("StaffBoard leave requests", () => {
     mockUseWindowDimensions.mockReturnValue({ width, height: 800, scale: 1, fontScale: 1 });
     render(<StaffBoard />);
 
-    expect(screen.getAllByRole("button", { name: "+ Add staff" })).toHaveLength(1);
-    expect(within(screen.getByTestId(actionRow)).getByRole("button", { name: "+ Add staff" })).toBeTruthy();
-    expect(within(screen.getByTestId(otherRow)).queryByRole("button", { name: "+ Add staff" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "+ Add employee" })).toHaveLength(1);
+    expect(within(screen.getByTestId(actionRow)).getByRole("button", { name: "+ Add employee" })).toBeTruthy();
+    expect(within(screen.getByTestId(otherRow)).queryByRole("button", { name: "+ Add employee" })).toBeNull();
   });
 
   it.each([390, 1200])("opens the existing Add staff modal from the relocated action at %ipx", (width) => {
     mockUseWindowDimensions.mockReturnValue({ width, height: 800, scale: 1, fontScale: 1 });
     render(<StaffBoard />);
 
-    fireEvent.press(screen.getByRole("button", { name: "+ Add staff" }));
+    fireEvent.press(screen.getByRole("button", { name: "+ Add employee" }));
     expect(screen.getByText("Joining date")).toBeTruthy();
 
     fireEvent.press(screen.getByRole("button", { name: "Close" }));
@@ -254,7 +257,7 @@ describe("StaffBoard leave requests", () => {
     } as unknown as ReturnType<typeof useSession>);
     render(<StaffBoard />);
 
-    expect(screen.queryByRole("button", { name: "+ Add staff" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "+ Add employee" })).toBeNull();
     expect(within(screen.getByTestId("staff-toolbar-controls")).getByText("Search")).toBeTruthy();
     expect(within(screen.getByTestId("staff-toolbar-controls")).getByText("Date")).toBeTruthy();
   });
@@ -274,8 +277,17 @@ describe("StaffBoard leave requests", () => {
     expect(screen.queryByText("0 A")).toBeNull();
     expect(within(screen.getByTestId("staff-toolbar-controls")).getByText("Search")).toBeTruthy();
     expect(within(screen.getByTestId("staff-toolbar-controls")).getByText("Date")).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: "+ Add staff" })).toHaveLength(1);
-    expect(within(screen.getByTestId(actionRow)).getByRole("button", { name: "+ Add staff" })).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "+ Add employee" })).toHaveLength(1);
+    expect(within(screen.getByTestId(actionRow)).getByRole("button", { name: "+ Add employee" })).toBeTruthy();
+  });
+
+  it("opens monthly attendance and payment from the employee name", () => {
+    render(<StaffBoard />);
+    fireEvent.press(screen.getByLabelText("Asha Rao monthly attendance"));
+    expect(screen.getByText("Back to Employees")).toBeTruthy();
+    expect(screen.getByText("Monthly Payment")).toBeTruthy();
+    expect(screen.getByText("Asha Rao")).toBeTruthy();
+    expect(screen.queryByText("Save the day")).toBeNull();
   });
 });
 

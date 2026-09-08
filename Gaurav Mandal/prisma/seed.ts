@@ -12,6 +12,7 @@ import { writeFileSync } from "fs";
 import { join } from "path";
 import { DEFAULT_EXAM_PLAN } from "../lib/exams";
 import { defaultGrants, SYSTEM_ROLES } from "../lib/permissions";
+import { seedExamDemo } from "./seed-exams";
 
 const prisma = new PrismaClient();
 const PASSWORD = "12345";
@@ -366,7 +367,7 @@ async function main() {
             admissionNo,
             name: kidName,
             dateOfBirth: born,
-            interests: { create: [{ tag: kidNo % 2 ? PathTag.SCIENCE : PathTag.ARTS }] },
+            interests: { create: [{ tag: kidNo % 2 ? PathTag.ARTS : PathTag.SCIENCE }] },
           },
         });
         logins.push({
@@ -510,9 +511,12 @@ async function main() {
     ],
   });
 
+  await seedExamDemo(prisma);
+
   const { jsonPath, csvPath } = writeLoginSheet(logins);
   console.log("Seeded Anekio. Password for everyone: 12345");
   console.log("  Classes: 1-A, 2-A, 3-A, 4-A, 5-A · 10 students · 5 parents each");
+  console.log("  Exams: 1-A Unit Test 1 is the live sitting; later plan items stay unscheduled until office schedules them.");
   console.log(`  JSON: ${jsonPath}`);
   console.log(`  CSV:  ${csvPath}`);
 }

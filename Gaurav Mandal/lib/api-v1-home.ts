@@ -116,6 +116,7 @@ export function serializeNotice(
     title: n.title,
     body: n.body,
     kind,
+    eventKey: n.eventKey || "",
     createdAt: n.createdAt.toISOString(),
     author: n.author.name,
     studentId: n.studentId,

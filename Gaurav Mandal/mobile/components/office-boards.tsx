@@ -9,6 +9,7 @@ import { Badge, Button, Card, Chip, Empty, Field, Input, Modal, PageHeader, Segm
 import { DateField } from "./date-field";
 import { FilterBar, type FilterConfig, type FilterValues } from "./filter";
 import { StaffAdmitForm, type StaffAdmitPayload } from "./staff-admit-form";
+import { StaffAttendanceDetail } from "./staff-attendance-detail";
 import { StudentAdmitForm, type StudentAdmitPayload } from "./student-admit-form";
 import { ReportCardSheet, type ReportCardData } from "./report-card-sheet";
 import { studentSeriesScore, studentYearScore } from "../lib/exams";
@@ -17,6 +18,7 @@ import { useRecord, type AdmissionFormField } from "../lib/record";
 import { useSession } from "../lib/session";
 import { canChangeManager, ManagerPicker } from "./manager-picker";
 import { AttendanceDots, DayMark, OnLeaveSign } from "./attendance-mark";
+import { inr } from "../lib/payroll";
 import { lastAttendanceDots } from "../lib/attendance-summary";
 import { calendarFrom, closedCaption, closedReason, ymd } from "../lib/calendar";
 import { QuickDocumentButton } from "./document-studio";
@@ -630,7 +632,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   const yearSittings = classSittings.filter((s) => s.sessionId === yearSession);
   const year =
     selected && yearPlan.length
-      ? studentYearScore(selected.id, yearPlan, yearSittings, examPack?.policy ?? { bands: [], passPercent: 33, showRank: false })
+      ? studentYearScore(selected.id, yearPlan, yearSittings, examPack?.policy ?? { bands: [], passPercent: 33, showRank: false, reportCardPaidMonths: 0 })
       : null;
   const classmates = people.filter((s) => s.classId === selected?.classId);
   const studentFilters = useMemo<FilterConfig[]>(() => {
@@ -1153,7 +1155,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                 selected.id,
                 series.exams,
                 series.marks,
-                examPack?.policy ?? { bands: [], passPercent: 33, showRank: false }
+                examPack?.policy ?? { bands: [], passPercent: 33, showRank: false, reportCardPaidMonths: 0 }
               );
               return (
                 <Pressable
@@ -1174,7 +1176,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                       classmates: classmates.map((s) => ({ id: s.id, name: s.name })),
                       exams: series.exams,
                       marks: series.marks,
-                      policy: examPack?.policy ?? { bands: [], passPercent: 33, showRank: false },
+                      policy: examPack?.policy ?? { bands: [], passPercent: 33, showRank: false, reportCardPaidMonths: 0 },
                     })
                   }
                   className={`flex-row items-center justify-between gap-3 px-3 py-3 ${i ? "border-t border-ink-100" : ""}`}
@@ -2387,6 +2389,7 @@ export function StaffBoard() {
   const [addOpen, setAddOpen] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [infoFor, setInfoFor] = useState<(typeof staff)[number] | null>(null);
+  const [detailFor, setDetailFor] = useState<(typeof staff)[number] | null>(null);
   const [editFor, setEditFor] = useState<(typeof staff)[number] | null>(null);
   const pendingLeave = data?.pendingLeave ?? [];
   const calendar = useMemo(
@@ -2459,6 +2462,7 @@ export function StaffBoard() {
         pincode: values.pincode,
         qualification: editFor.qualification || "",
         managerId: values.managerId || null,
+        monthlySalary: values.monthlySalary,
       });
     } else {
       await act(token, "updateStaffMember", {
@@ -2494,6 +2498,7 @@ export function StaffBoard() {
         state: editFor.state || "",
         pincode: editFor.pincode || "",
         managerId: editFor.managerId || "",
+        monthlySalary: String(editFor.salary ?? 30000),
       }
     : undefined;
 
@@ -2535,7 +2540,7 @@ export function StaffBoard() {
           </View>
           {!phone && canMark ? (
             <Button variant="ghost" onPress={() => setAddOpen(true)}>
-              + Add staff
+              + Add employee
             </Button>
           ) : null}
         </View>
@@ -2553,7 +2558,7 @@ export function StaffBoard() {
           )}
           {phone && canMark ? (
             <Button variant="ghost" onPress={() => setAddOpen(true)}>
-              + Add staff
+              + Add employee
             </Button>
           ) : null}
         </View>
@@ -2582,9 +2587,16 @@ export function StaffBoard() {
               <View className={phone ? "min-w-0 flex-1" : "w-56 shrink-0"}>
                 <View className="min-w-0">
                   <View className="flex-row items-center gap-1.5">
-                    <Text className="min-w-0 shrink text-sm font-medium text-ink-900" numberOfLines={1}>
-                      {p.name}
-                    </Text>
+                    <Pressable
+                      onPress={() => setDetailFor(p)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${p.name} monthly attendance`}
+                      hitSlop={4}
+                    >
+                      <Text className="min-w-0 shrink text-sm font-medium text-clay-500 underline" numberOfLines={1}>
+                        {p.name}
+                      </Text>
+                    </Pressable>
                     <Pressable
                       onPress={() => setInfoFor(p)}
                       hitSlop={8}
@@ -2635,6 +2647,25 @@ export function StaffBoard() {
 
   return (
     <View className="min-h-0 flex-1">
+      {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
+      {detailFor ? (
+        <StaffAttendanceDetail
+          person={staff.find((row) => row.id === detailFor.id && row.kind === detailFor.kind) || detailFor}
+          calendar={calendar}
+          rules={data?.payrollRules}
+          payroll={data?.staffPayroll}
+          audits={data?.staffAudits}
+          token={token}
+          onBack={() => setDetailFor(null)}
+          onSaved={reload}
+          onEditSalary={
+            canMark
+              ? () => setEditFor(staff.find((row) => row.id === detailFor.id && row.kind === detailFor.kind) || detailFor)
+              : undefined
+          }
+        />
+      ) : (
+        <>
       <PageHeader
         title="Employees"
         lede="Mark P, A or late. Leave shows on its own."
@@ -2646,7 +2677,6 @@ export function StaffBoard() {
           ) : undefined
         }
       />
-      {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
       {register}
       <Modal open={leaveOpen && Boolean(pendingLeave.length)} title="Leave requests" onClose={() => setLeaveOpen(false)}>
         <View>
@@ -2734,14 +2764,18 @@ export function StaffBoard() {
             {infoFor.qualification ? <FactRow label="Qualification" value={infoFor.qualification} /> : null}
             <FactRow label="Joined" value={infoFor.joinedOn ? joinedHint(infoFor.joinedOn).replace(/^Joined /, "") : "—"} />
             <FactRow label="Reports to" value={infoFor.managerName || "—"} />
+            <FactRow label="Monthly salary" value={inr(infoFor.salary ?? 30000)} />
           </View>
         ) : null}
       </Modal>
-      <Modal open={addOpen} title="Add staff" onClose={() => setAddOpen(false)}>
+        </>
+      )}
+      <Modal open={addOpen} title="Add employee" onClose={() => setAddOpen(false)}>
         <StaffAdmitForm
           roles={data?.staffRoles ?? []}
           managers={data?.managers ?? []}
           user={user}
+          submitLabel="Add employee"
           onSubmit={async (values) => {
             try {
               await addStaff(values);
@@ -2752,14 +2786,14 @@ export function StaffBoard() {
           }}
         />
       </Modal>
-      <Modal open={Boolean(editFor)} title="Edit staff" onClose={() => setEditFor(null)}>
+      <Modal open={Boolean(editFor)} title="Edit employee" onClose={() => setEditFor(null)}>
         {editFor ? (
           <StaffAdmitForm
             roles={editRoleOptions}
             managers={data?.managers ?? []}
             user={user}
             initialValues={editInitial}
-            submitLabel="Save staff"
+            submitLabel="Save employee"
             busyLabel="Saving…"
             onSubmit={async (values) => {
               try {
@@ -2842,7 +2876,7 @@ export function FeesBoard() {
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
       <View className="mb-4 flex-row flex-wrap gap-2">
         <Chip label="Due" active={tab === "due"} onPress={() => setTab("due")} />
-        <Chip label="Templates" active={tab === "templates"} onPress={() => setTab("templates")} />
+        <Chip label="Configure fees" active={tab === "templates"} onPress={() => setTab("templates")} />
       </View>
       <View className="mb-4 flex-row flex-wrap gap-2">
         <Chip
@@ -2875,8 +2909,8 @@ export function FeesBoard() {
       </View>
       {tab === "templates" ? (
         <Card className="mb-6 p-4">
-          <Text className="mb-2 text-sm font-medium text-ink-900">Fee template</Text>
-          <Text className="mb-3 text-sm text-ink-700">Pick a class, then save the monthly lines. One line per part: Tuition,8000</Text>
+          <Text className="mb-2 text-sm font-medium text-ink-900">Configure fees</Text>
+          <Text className="mb-3 text-sm text-ink-700">What to charge for this class and session. Invoice and receipt appearance is designed in School → Document Studio.</Text>
           {classId === "all" ? (
             <Text className="text-sm text-ink-700">Pick a class above first.</Text>
           ) : (
@@ -2920,14 +2954,14 @@ export function FeesBoard() {
                             return { label: (label || "Line").trim(), kind: "FLAT", amount: Number(amount || 0) };
                           }),
                       });
-                      toast.show("Template saved.");
+                      toast.show("Fee charges saved.");
                       await reload();
                     } catch (e) {
                       toast.show(e instanceof Error ? e.message : "Could not save.");
                     }
                   }}
                 >
-                  Save template
+                  Save fee charges
                 </Button>
               ) : null}
               {can(user, "fees.collect") ? (
