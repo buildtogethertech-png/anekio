@@ -1,4 +1,4 @@
-import { officePaperAction, officeSittingProgress, officeSittingStatus } from "../exam-workflow";
+import { officePaperAction, officeExamTimeline, officePaperDots, officeSittingProgress, officeSittingStatus, filterMentionTeachers } from "../exam-workflow";
 
 describe("office exam presentation", () => {
   it("summarises a sitting without exposing backend statuses", () => {
@@ -22,5 +22,72 @@ describe("office exam presentation", () => {
     expect(officePaperAction("SUBMITTED", true)).toBe("Review");
     expect(officePaperAction("APPROVED", true)).toBe("Publish");
     expect(officePaperAction("PUBLISHED", true)).toBe("View result");
+  });
+
+  it("fills every progress dot when the paper is published", () => {
+    expect(
+      officePaperDots({ workflowStatus: "PUBLISHED", paperAt: "2026-09-01" })
+    ).toEqual({ paper: true, exam: true, marks: true, review: true });
+  });
+
+  it("keeps later dots pending while a paper is only scheduled", () => {
+    expect(officePaperDots({ workflowStatus: "SCHEDULED", paperAt: "2026-09-01" })).toEqual({
+      paper: true,
+      exam: false,
+      marks: false,
+      review: false,
+    });
+  });
+
+  it("treats marks draft as past take-exam for the progress row", () => {
+    expect(officePaperDots({ workflowStatus: "MARKS_DRAFT", entered: 4 }).exam).toBe(true);
+    expect(officePaperDots({ workflowStatus: "IN_PROGRESS", conductedAt: "2026-09-08" }).exam).toBe(true);
+  });
+
+  it("follows the office exam timeline in process order", () => {
+    const started = officeExamTimeline({
+      scheduled: true,
+      paper: false,
+      conducted: false,
+      marksGranted: false,
+      marksDone: false,
+      submitted: false,
+      approved: false,
+      published: false,
+    });
+    expect(started.map((row) => row.label)).toEqual([
+      "Exam scheduled",
+      "Question paper",
+      "Exam conducted",
+      "Marks entry allowed",
+      "Marks entered",
+      "Submitted to office",
+      "Approved",
+      "Published to parents",
+    ]);
+    expect(started.find((row) => row.label === "Question paper")?.kind).toBe("now");
+    expect(started.find((row) => row.label === "Exam conducted")?.kind).toBe("wait");
+
+    const ready = officeExamTimeline({
+      scheduled: true,
+      paper: true,
+      conducted: true,
+      marksGranted: true,
+      marksDone: true,
+      submitted: true,
+      approved: true,
+      published: false,
+    });
+    expect(ready.find((row) => row.label === "Published to parents")?.kind).toBe("now");
+  });
+
+  it("filters @ teacher mentions to ungranted names", () => {
+    const people = [
+      { id: "a", name: "Kavita Joshi" },
+      { id: "b", name: "Asha Rao" },
+      { id: "c", name: "Rohan Mehta" },
+    ];
+    expect(filterMentionTeachers("@kav", people, ["b"]).map((row) => row.name)).toEqual(["Kavita Joshi"]);
+    expect(filterMentionTeachers("", people, ["a"]).map((row) => row.id)).toEqual(["b", "c"]);
   });
 });

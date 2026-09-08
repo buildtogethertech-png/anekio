@@ -1,5 +1,7 @@
 import { Prisma, type Portal } from "@prisma/client";
 import { paperSetterId } from "./exams";
+import { parentSeesOfficialSeries } from "./exam-marks";
+import { paidFeeMonthCount, reportCardFeeMonthsRequired, reportCardUnlocked } from "./fees";
 import { prisma } from "./prisma";
 import { notifyNoticePublished, notifyNoticeRecipients } from "./push";
 
@@ -377,26 +379,102 @@ export async function notifyResultsPublished(input: {
   authorId?: string | null;
 }) {
   if (input.exam) {
-    await emitClassExamNotice({
-      eventKey: examEventKey(["EXAM", input.exam.id, "RESULT_PUBLISHED"]),
-      title: `${input.exam.subject.name} result published`,
-      body: `Your ${input.exam.subject.name} ${examSittingName(input.exam)} result is now available.`,
-      classId: input.exam.classId,
-      authorId: input.authorId,
-    });
+    const userIds = evaluatorNoticeUserIds(input.exam);
+    if (userIds.length) {
+      await emitExactExamNotice({
+        eventKey: examEventKey(["EXAM", input.exam.id, "RESULT_PUBLISHED"]),
+        title: `${input.exam.subject.name} result published`,
+        body: `${examSittingName(input.exam)} · ${examClassLabel(input.exam)}\nOffice published this paper. Parents receive the report card only after every subject is published.`,
+        userIds,
+        authorId: input.authorId,
+      });
+    }
+    await notifySittingReportCardsIfReady(input.exam.seriesId, input.authorId);
     return;
   }
   if (!input.seriesId) return;
   const series = await prisma.examSeries.findUnique({
     where: { id: input.seriesId },
-    include: { class: { select: { name: true, section: true } } },
+    include: {
+      exams: {
+        include: {
+          class: { select: { name: true, section: true } },
+          subject: { select: { name: true } },
+          series: { select: { id: true, name: true } },
+          setter: { include: { user: { select: { id: true, managerId: true } } } },
+          teacher: { include: { user: { select: { id: true, managerId: true } } } },
+          evaluators: { include: { teacher: { include: { user: { select: { id: true } } } } } },
+        },
+      },
+    },
   });
   if (!series) return;
-  await emitClassExamNotice({
-    eventKey: examEventKey(["SERIES", series.id, "RESULT_PUBLISHED"]),
-    title: `${series.name} results published`,
-    body: `Your ${series.name} examination results for ${series.class.name}-${series.class.section} are now available.`,
-    classId: series.classId,
-    authorId: input.authorId,
+  for (const exam of series.exams) {
+    const userIds = evaluatorNoticeUserIds(exam);
+    if (!userIds.length) continue;
+    await emitExactExamNotice({
+      eventKey: examEventKey(["EXAM", exam.id, "RESULT_PUBLISHED"]),
+      title: `${exam.subject.name} result published`,
+      body: `${examSittingName(exam)} · ${examClassLabel(exam)}\nOffice published this paper. Parents receive the report card only after every subject is published.`,
+      userIds,
+      authorId: input.authorId,
+    });
+  }
+  await notifySittingReportCardsIfReady(series.id, input.authorId);
+}
+
+export async function notifySittingReportCardsIfReady(seriesId?: string | null, authorId?: string | null) {
+  if (!seriesId) return;
+  const series = await prisma.examSeries.findUnique({
+    where: { id: seriesId },
+    include: {
+      class: { select: { name: true, section: true } },
+      exams: { select: { workflowStatus: true, resultsPublishedAt: true } },
+    },
   });
+  if (!series?.exams.length || !parentSeesOfficialSeries(series)) return;
+  const config = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
+  const required = reportCardFeeMonthsRequired(config);
+  const students = await prisma.student.findMany({
+    where: { classId: series.classId },
+    include: {
+      user: { select: { id: true } },
+      parent: { include: { user: { select: { id: true } } } },
+      feeInvoices: { include: { payments: true } },
+    },
+  });
+  const classLabel = `${series.class.name}-${series.class.section}`;
+  let released = 0;
+  for (const student of students) {
+    const paidMonths = paidFeeMonthCount(student.feeInvoices);
+    if (!reportCardUnlocked(paidMonths, required)) continue;
+    const userIds = [...new Set([student.parent?.user.id, student.user?.id].filter(Boolean))] as string[];
+    if (!userIds.length) continue;
+    const result = await emitExactExamNotice({
+      eventKey: examEventKey(["SERIES", series.id, "REPORT_CARD", student.id]),
+      title: `${series.name} report card`,
+      body: `The ${series.name} report card for ${student.name} (${classLabel}) is now available.`,
+      userIds,
+      authorId,
+      priority: "HIGH",
+    });
+    if (result.created) released += 1;
+  }
+  const office = await prisma.user.findMany({
+    where: { role: { portal: "OFFICE", grants: { some: { permission: "exams.publish" } } } },
+    select: { id: true },
+  });
+  const officeIds = office.map((row) => row.id);
+  if (officeIds.length) {
+    await emitExactExamNotice({
+      eventKey: examEventKey(["SERIES", series.id, "REPORT_CARD_OFFICE"]),
+      title: `${series.name} report cards ready`,
+      body:
+        required > 0
+          ? `Every subject in ${series.name} · ${classLabel} is published. Report cards went to families with at least ${required} paid fee month${required === 1 ? "" : "s"} (${released} sent).`
+          : `Every subject in ${series.name} · ${classLabel} is published. Report cards are available to families (${released} sent).`,
+      userIds: officeIds,
+      authorId,
+    });
+  }
 }

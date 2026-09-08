@@ -1,5 +1,5 @@
-import { createElement, useMemo, useState } from "react";
-import { Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { createElement, useMemo, useState, type ReactNode } from "react";
+import { Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Toast, useToast } from "./ui";
 import { act } from "../lib/mutate";
@@ -18,7 +18,15 @@ type Mark = "PRESENT" | "ABSENT" | "LATE" | "LEAVE" | "";
 type FilterKey = "all" | "present" | "absent" | "leave" | "low";
 
 const WEEKDAYS = ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const COL = { adm: 108, name: 188, day: 42, pct: 96 };
+const PHONE_COL = { adm: 64, name: 92, day: 34, pct: 40 };
+
+function shortName(name: string, max = 12) {
+  const text = name.trim();
+  if (text.length <= max) return text;
+  return `${text.slice(0, max)}.`;
+}
 
 function monthKey(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -33,6 +41,11 @@ function shiftMonth(key: string, delta: number) {
 function monthTitle(key: string) {
   const [y, m] = key.split("-").map(Number);
   return new Date(y, m - 1, 1).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+}
+
+function monthTitleShort(key: string) {
+  const [y, m] = key.split("-").map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString("en-IN", { month: "short", year: "numeric" });
 }
 
 function daysInMonth(key: string) {
@@ -118,20 +131,82 @@ function StatChip({
   icon,
   label,
   value,
+  nowrap,
+  fit,
 }: {
   icon: IoniconName;
   label: string;
   value: string;
+  nowrap?: boolean;
+  fit?: boolean;
 }) {
+  if (fit) {
+    return (
+      <View className="h-[46px] min-w-0 flex-1 items-center justify-center rounded-lg border border-ink-100 bg-[#F8FAFC] px-0.5">
+        <Text className="text-[13px] font-semibold leading-4 text-ink-900" numberOfLines={1}>{value}</Text>
+        <Text className="mt-0.5 text-[8px] font-medium uppercase tracking-wide text-ink-500" numberOfLines={1}>{label}</Text>
+      </View>
+    );
+  }
   return (
-    <View className="min-w-[108px] flex-1 flex-row items-center gap-2 rounded-lg border border-ink-100 bg-[#F8FAFC] px-3 py-2">
-      <View className="h-8 w-8 items-center justify-center rounded-md bg-white">
-        <Ionicons name={icon} size={16} color="#2855F6" />
+    <View className={`${nowrap ? "h-[52px] w-[136px] shrink-0 px-2 py-1.5" : "min-w-[108px] flex-1 px-3 py-2"} flex-row items-center gap-2 rounded-lg border border-ink-100 bg-[#F8FAFC]`}>
+      <View className={`${nowrap ? "h-6 w-6" : "h-8 w-8"} items-center justify-center rounded-md bg-white`}>
+        <Ionicons name={icon} size={nowrap ? 13 : 16} color="#2855F6" />
       </View>
-      <View>
-        <Text className="text-[16px] font-semibold leading-5 text-ink-900">{value}</Text>
-        <Text className="text-[10px] font-medium uppercase tracking-wide text-ink-500">{label}</Text>
+      <View className="min-w-0 flex-1">
+        <Text className={`${nowrap ? "text-[14px] leading-4" : "text-[16px] leading-5"} font-semibold text-ink-900`} numberOfLines={1}>{value}</Text>
+        <Text className={`${nowrap ? "text-[8px]" : "text-[10px]"} font-medium uppercase tracking-wide text-ink-500`} numberOfLines={1}>{label}</Text>
       </View>
+    </View>
+  );
+}
+
+function PhoneStrip({ height, children, flush }: { height: number; children: ReactNode; flush?: boolean }) {
+  const marginBottom = flush ? 0 : 8;
+  if (Platform.OS === "web") {
+    return createElement(
+      "div",
+      {
+        style: {
+          height,
+          maxHeight: height,
+          flexGrow: flush ? 1 : 0,
+          flexShrink: flush ? 1 : 0,
+          flexBasis: flush ? 0 : "auto",
+          minWidth: flush ? 0 : undefined,
+          overflowX: "auto",
+          overflowY: "hidden",
+          WebkitOverflowScrolling: "touch",
+          marginBottom,
+        },
+      },
+      createElement(
+        "div",
+        {
+          style: {
+            display: "flex",
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 8,
+            height,
+            paddingRight: 8,
+          },
+        },
+        children
+      )
+    );
+  }
+  return (
+    <View style={{ height, maxHeight: height, flexGrow: flush ? 1 : 0, flexShrink: flush ? 1 : 0, minWidth: flush ? 0 : undefined, marginBottom }}>
+      <ScrollView
+        horizontal
+        nestedScrollEnabled
+        showsHorizontalScrollIndicator={false}
+        style={{ height, flexGrow: 0, flexShrink: 0 }}
+        contentContainerStyle={{ alignItems: "center", gap: 8, height, paddingRight: 8 }}
+      >
+        {children}
+      </ScrollView>
     </View>
   );
 }
@@ -154,8 +229,12 @@ export function TeacherMonthlyRegister({
   onSaved: () => Promise<void>;
 }) {
   const toast = useToast();
+  const { width } = useWindowDimensions();
+  const phone = width < 768;
   const today = ymd(new Date());
   const [month, setMonth] = useState(today.slice(0, 7));
+  const [monthOpen, setMonthOpen] = useState(false);
+  const [pickerYear, setPickerYear] = useState(() => Number(today.slice(0, 4)));
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<FilterKey>("all");
   const [editing, setEditing] = useState(false);
@@ -348,20 +427,23 @@ export function TeacherMonthlyRegister({
     frame.print();
   }
 
-  const tableWidth = COL.adm + COL.name + meta.length * COL.day + COL.pct;
+  const cols = phone ? PHONE_COL : COL;
+  const tableWidth = cols.adm + cols.name + meta.length * cols.day + cols.pct;
   const stickyHead = Platform.OS === "web" ? ({ position: "sticky", top: 0, zIndex: 5 } as const) : undefined;
   const stickyAdm = Platform.OS === "web" ? ({ position: "sticky", left: 0, zIndex: 3 } as const) : undefined;
-  const stickyName = Platform.OS === "web" ? ({ position: "sticky", left: COL.adm, zIndex: 3 } as const) : undefined;
+  const stickyName = Platform.OS === "web" ? ({ position: "sticky", left: cols.adm, zIndex: 3 } as const) : undefined;
   const stickyPct = Platform.OS === "web" ? ({ position: "sticky", right: 0, zIndex: 3 } as const) : undefined;
+  const pctPad = phone ? "items-center px-0.5" : "items-end px-3";
+  const idPad = phone ? "px-1 py-2" : "px-3 py-2";
 
   const table = (
     <View style={{ minWidth: tableWidth }}>
       <View className="flex-row border-b border-ink-200 bg-[#F8FAFC]" style={stickyHead}>
-        <View className="justify-end border-r border-ink-100 bg-[#F8FAFC] px-3 py-2" style={{ width: COL.adm, ...stickyAdm, ...stickyHead, zIndex: 6 }}>
-          <Text className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">Admission No.</Text>
+        <View className={`justify-end border-r border-ink-100 bg-[#F8FAFC] ${idPad}`} style={{ width: cols.adm, ...stickyAdm, ...stickyHead, zIndex: 6 }}>
+          <Text className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">{phone ? "Adm" : "Admission No."}</Text>
         </View>
-        <View className="justify-end border-r border-ink-100 bg-[#F8FAFC] px-3 py-2" style={{ width: COL.name, ...stickyName, ...stickyHead, zIndex: 6 }}>
-          <Text className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">Student Name</Text>
+        <View className={`justify-end border-r border-ink-100 bg-[#F8FAFC] ${idPad}`} style={{ width: cols.name, ...stickyName, ...stickyHead, zIndex: 6 }}>
+          <Text className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">{phone ? "Name" : "Student Name"}</Text>
         </View>
         {meta.map((day) => (
           <View
@@ -369,7 +451,7 @@ export function TeacherMonthlyRegister({
             className={`items-center justify-end border-r border-ink-50 py-1.5 ${
               day.today ? "bg-[#EEF2FF]" : day.kind === "holiday" ? "bg-violet-50/70" : day.kind === "weekend" ? "bg-ink-50" : "bg-[#F8FAFC]"
             }`}
-            style={{ width: COL.day }}
+            style={{ width: cols.day }}
           >
             <Text className={`text-[12px] font-semibold ${day.today ? "text-clay-500" : "text-ink-900"}`}>
               {String(day.n).padStart(2, "0")}
@@ -378,22 +460,30 @@ export function TeacherMonthlyRegister({
             {day.today ? <Text className="text-[8px] font-semibold uppercase text-clay-500">Today</Text> : null}
           </View>
         ))}
-        <View className="items-end justify-end border-l border-ink-100 bg-[#F8FAFC] px-3 py-2" style={{ width: COL.pct, ...stickyPct, ...stickyHead, zIndex: 6 }}>
-          <Text className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">Attendance %</Text>
+        <View className={`justify-end border-l border-ink-100 bg-[#F8FAFC] py-2 ${pctPad}`} style={{ width: cols.pct, ...stickyPct, ...stickyHead, zIndex: 6 }}>
+          <Text className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">{phone ? "%" : "Attendance %"}</Text>
         </View>
       </View>
       {rows.map((row, index) => (
         <View key={row.student.id} className={`flex-row border-b border-ink-50 ${index % 2 ? "bg-[#FCFDFE]" : "bg-white"}`}>
-          <View className="justify-center border-r border-ink-100 px-3 py-2" style={{ width: COL.adm, backgroundColor: index % 2 ? "#FCFDFE" : "#fff", ...stickyAdm }}>
-            <Text className="text-[11px] text-ink-500">{row.adm}</Text>
+          <View className={`justify-center border-r border-ink-100 ${idPad}`} style={{ width: cols.adm, backgroundColor: index % 2 ? "#FCFDFE" : "#fff", ...stickyAdm }}>
+            <Text className={`${phone ? "text-[10px]" : "text-[11px]"} text-ink-700`}>{row.adm}</Text>
           </View>
-          <View className="flex-row items-center gap-2 border-r border-ink-100 px-3 py-2" style={{ width: COL.name, backgroundColor: index % 2 ? "#FCFDFE" : "#fff", ...stickyName }}>
-            <View className="h-6 w-6 items-center justify-center rounded-full bg-[#EEF2FF]">
-              <Text className="text-[10px] font-semibold text-clay-500">{row.student.name.slice(0, 1)}</Text>
-            </View>
-            <Text className="min-w-0 flex-1 text-[13px] font-semibold text-ink-900" numberOfLines={1}>
-              {row.student.name}
-            </Text>
+          <View className={`justify-center border-r border-ink-100 ${idPad}`} style={{ width: cols.name, backgroundColor: index % 2 ? "#FCFDFE" : "#fff", ...stickyName }}>
+            {phone ? (
+              <Text accessibilityLabel={row.student.name} className="text-[12px] font-semibold text-ink-900">
+                {shortName(row.student.name)}
+              </Text>
+            ) : (
+              <View className="flex-row items-center gap-2">
+                <View className="h-6 w-6 items-center justify-center rounded-full bg-[#EEF2FF]">
+                  <Text className="text-[10px] font-semibold text-clay-500">{row.student.name.slice(0, 1)}</Text>
+                </View>
+                <Text className="min-w-0 flex-1 text-[13px] font-semibold text-ink-900" numberOfLines={1}>
+                  {row.student.name}
+                </Text>
+              </View>
+            )}
           </View>
           {row.marks.map(({ day, letter, mark }) => {
             const editable = editing && day.kind === "working" && !day.future;
@@ -405,7 +495,7 @@ export function TeacherMonthlyRegister({
                 className={`items-center justify-center border-r border-ink-50 ${
                   day.today ? "bg-[#F5F8FF]" : day.kind === "holiday" ? "bg-violet-50/40" : day.kind === "weekend" ? "bg-ink-50/80" : ""
                 }`}
-                style={{ width: COL.day, minHeight: 44 }}
+                style={{ width: cols.day, minHeight: 44 }}
               >
                 <View className={`h-6 min-w-[22px] items-center justify-center rounded-md px-1 ${badgeClass(letter)}`}>
                   <Text className={`text-[11px] font-semibold ${badgeClass(letter)}`}>{letter}</Text>
@@ -415,10 +505,10 @@ export function TeacherMonthlyRegister({
             );
           })}
           <View
-            className="items-end justify-center border-l border-ink-100 px-3"
-            style={{ width: COL.pct, backgroundColor: index % 2 ? "#FCFDFE" : "#fff", ...stickyPct }}
+            className={`justify-center border-l border-ink-100 ${pctPad}`}
+            style={{ width: cols.pct, backgroundColor: index % 2 ? "#FCFDFE" : "#fff", ...stickyPct }}
           >
-            <Text className={`text-[13px] font-semibold ${row.pct && row.pct < 75 ? "text-amber-700" : "text-ink-900"}`}>
+            <Text className={`${phone ? "text-[11px]" : "text-[13px]"} font-semibold ${row.pct && row.pct < 75 ? "text-amber-700" : "text-ink-900"}`}>
               {row.pct ? `${row.pct}%` : "—"}
             </Text>
           </View>
@@ -438,7 +528,7 @@ export function TeacherMonthlyRegister({
           "div",
           {
             className: "min-h-0 flex-1 overflow-auto rounded-xl border border-ink-200 bg-white",
-            style: { WebkitOverflowScrolling: "touch" },
+            style: { WebkitOverflowScrolling: "touch", flex: 1, minHeight: 0, height: "100%" },
           },
           table
         )
@@ -452,8 +542,110 @@ export function TeacherMonthlyRegister({
   const next = shiftMonth(month, 1);
 
   return (
-    <View className="min-h-0 flex-1">
+    <View className="min-h-0 flex-1" style={{ flex: 1, minHeight: 0, flexDirection: "column" }}>
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
+      {phone ? (
+        <View className="shrink-0" style={{ flexGrow: 0, flexShrink: 0, marginBottom: 8 }}>
+          <View className="flex-row items-center gap-1.5">
+            <Pressable
+              onPress={onBack}
+              accessibilityRole="button"
+              accessibilityLabel="Daily register"
+              className="h-9 w-8 items-center justify-center"
+            >
+              <Ionicons name="chevron-back" size={18} color="#2855F6" />
+            </Pressable>
+            <Text className="shrink-0 text-[15px] font-bold text-ink-900" numberOfLines={1}>
+              Class {classLabel || "—"}
+            </Text>
+            <View className="h-9 shrink-0 flex-row overflow-hidden rounded-md border border-ink-200 bg-white">
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Previous month, ${monthTitle(prev)}`}
+                onPress={() => setMonth(prev)}
+                className="h-9 w-7 items-center justify-center"
+              >
+                <Ionicons name="chevron-back" size={14} color="#1D4ED8" />
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Choose month, ${monthTitle(month)}`}
+                onPress={() => {
+                  setPickerYear(Number(month.slice(0, 4)));
+                  setMonthOpen((open) => !open);
+                }}
+                className="h-9 min-w-[86px] flex-row items-center justify-center gap-0.5 bg-[#2563EB] px-1.5"
+              >
+                <Text className="text-[11px] font-bold text-white" numberOfLines={1}>{monthTitleShort(month)}</Text>
+                <Ionicons name={monthOpen ? "chevron-up" : "chevron-down"} size={12} color="#fff" />
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Next month, ${monthTitle(next)}`}
+                onPress={() => setMonth(next)}
+                className="h-9 w-7 items-center justify-center"
+              >
+                <Ionicons name="chevron-forward" size={14} color="#1D4ED8" />
+              </Pressable>
+            </View>
+            <View className="min-w-0 flex-1 flex-row items-center rounded-md border border-ink-200 bg-white px-2">
+              <Ionicons name="search-outline" size={14} color="#64748B" />
+              <TextInput
+                value={query}
+                onChangeText={setQuery}
+                placeholder="Search"
+                placeholderTextColor="#94A3B8"
+                autoCapitalize="none"
+                autoCorrect={false}
+                className="h-9 min-w-0 flex-1 px-1.5 text-[12px] text-ink-900"
+              />
+            </View>
+          </View>
+          {monthOpen ? (
+            <View className="mt-1.5 rounded-lg border border-ink-200 bg-white p-2">
+              <View className="mb-1.5 flex-row items-center justify-between">
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Previous year"
+                  onPress={() => setPickerYear((y) => y - 1)}
+                  className="h-8 w-8 items-center justify-center"
+                >
+                  <Ionicons name="chevron-back" size={16} color="#1D4ED8" />
+                </Pressable>
+                <Text className="text-[13px] font-semibold text-ink-900">{pickerYear}</Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Next year"
+                  onPress={() => setPickerYear((y) => y + 1)}
+                  className="h-8 w-8 items-center justify-center"
+                >
+                  <Ionicons name="chevron-forward" size={16} color="#1D4ED8" />
+                </Pressable>
+              </View>
+              <View className="flex-row flex-wrap">
+                {MONTH_SHORT.map((label, index) => {
+                  const key = `${pickerYear}-${String(index + 1).padStart(2, "0")}`;
+                  const on = key === month;
+                  return (
+                    <Pressable
+                      key={key}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${label} ${pickerYear}`}
+                      onPress={() => {
+                        setMonth(key);
+                        setMonthOpen(false);
+                      }}
+                      className={`mb-1 w-1/4 items-center justify-center rounded-md py-2 ${on ? "bg-[#2563EB]" : ""}`}
+                    >
+                      <Text className={`text-[12px] font-semibold ${on ? "text-white" : "text-ink-800"}`}>{label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          ) : null}
+        </View>
+      ) : (
       <View className="mb-3 flex-row flex-wrap items-start justify-between gap-3">
         <View>
           <Pressable onPress={onBack} className="mb-1 flex-row items-center gap-1">
@@ -494,16 +686,56 @@ export function TeacherMonthlyRegister({
           </Pressable>
         </View>
       </View>
+      )}
 
-      <View className="mb-3 flex-row flex-wrap gap-2">
-        <StatChip icon="people-outline" label="Total students" value={String(summary.students)} />
-        <StatChip icon="calendar-outline" label="Working days" value={String(summary.working)} />
-        <StatChip icon="stats-chart-outline" label="Class attendance" value={`${summary.pct}%`} />
-        <StatChip icon="checkmark-circle-outline" label="Present" value={String(summary.present)} />
-        <StatChip icon="close-circle-outline" label="Absent" value={String(summary.absent)} />
-        <StatChip icon="walk-outline" label="On leave" value={String(summary.leave)} />
-      </View>
+      {phone ? (
+        <View className="mb-2 shrink-0 flex-row gap-1.5" style={{ flexGrow: 0, flexShrink: 0 }}>
+          <StatChip fit icon="people-outline" label="Students" value={String(summary.students)} />
+          <StatChip fit icon="stats-chart-outline" label="Attend %" value={`${summary.pct}%`} />
+          <StatChip fit icon="checkmark-circle-outline" label="Present" value={String(summary.present)} />
+          <StatChip fit icon="close-circle-outline" label="Absent" value={String(summary.absent)} />
+          <StatChip fit icon="walk-outline" label="Leave" value={String(summary.leave)} />
+        </View>
+      ) : (
+        <View className="mb-3 flex-row flex-wrap gap-2">
+          <StatChip icon="people-outline" label="Total students" value={String(summary.students)} />
+          <StatChip icon="calendar-outline" label="Working days" value={String(summary.working)} />
+          <StatChip icon="stats-chart-outline" label="Class attendance" value={`${summary.pct}%`} />
+          <StatChip icon="checkmark-circle-outline" label="Present" value={String(summary.present)} />
+          <StatChip icon="close-circle-outline" label="Absent" value={String(summary.absent)} />
+          <StatChip icon="walk-outline" label="On leave" value={String(summary.leave)} />
+        </View>
+      )}
 
+      {phone ? (
+        <View className="shrink-0" style={{ flexGrow: 0, flexShrink: 0, marginBottom: 8 }}>
+          <View className="flex-row items-center gap-2">
+            <PhoneStrip height={32} flush>
+              <View className="flex-row overflow-hidden rounded-md border border-ink-200">
+                {(
+                  [
+                    ["all", "All"],
+                    ["present", "P"],
+                    ["absent", "A"],
+                    ["leave", "L"],
+                    ["low", "<75%"],
+                  ] as const
+                ).map(([id, label]) => (
+                  <Pressable key={id} onPress={() => setFilter(id)} className={`h-8 px-2.5 ${filter === id ? "bg-[#EEF2FF]" : "bg-white"}`}>
+                    <Text className={`text-[11px] font-medium leading-8 ${filter === id ? "text-clay-500" : "text-ink-700"}`}>{label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </PhoneStrip>
+            <IconBtn
+              label={editing ? (busy ? "Saving…" : "Save") : "Edit"}
+              icon={editing ? "save-outline" : "create-outline"}
+              primary={editing}
+              onPress={() => (editing ? void saveEdits() : setEditing(true))}
+            />
+          </View>
+        </View>
+      ) : (
       <View className="mb-3 flex-row flex-wrap items-center justify-between gap-3">
         <View className="min-w-[220px] flex-1 flex-row items-center rounded-md border border-ink-200 bg-white px-2.5">
           <Ionicons name="search-outline" size={16} color="#64748B" />
@@ -543,17 +775,24 @@ export function TeacherMonthlyRegister({
           <IconBtn label="Print" icon="print-outline" onPress={printRegister} />
         </View>
       </View>
+      )}
 
       {editing ? (
-        <Text className="mb-2 text-[12px] text-ink-500">Tap a working-day cell to cycle P → A → L → Lt. Holidays and future dates stay locked.</Text>
+        <Text className="mb-2 shrink-0 text-[12px] text-ink-500">Tap a working-day cell to cycle P → A → L → Lt. Holidays and future dates stay locked.</Text>
       ) : null}
 
-      {scroller}
+      <View className="min-h-0 flex-1" style={{ flex: 1, minHeight: 0 }}>
+        {scroller}
+      </View>
 
+      {phone ? (
+        <Text className="mt-1 shrink-0 text-[10px] text-ink-500">{rows.length} of {roster.length} students · P A L Lt H</Text>
+      ) : (
       <View className="mt-2 flex-row flex-wrap justify-between gap-2">
         <Text className="text-[11px] text-ink-500">P present · A absent · L leave · Lt late · H holiday · — no attendance</Text>
         <Text className="text-[11px] text-ink-500">{rows.length} of {roster.length} students</Text>
       </View>
+      )}
     </View>
   );
 }

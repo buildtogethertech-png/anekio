@@ -1,5 +1,7 @@
 import {
   getClassRoster,
+  getClassExamPapers,
+  getClassExamSeries,
   getClassTimetable,
   getDeskPulse,
   getParentWithChildren,
@@ -20,7 +22,7 @@ import { isCircularNotice } from "./notices";
 import { leaveBundleFor } from "./leave";
 import { gradePolicyFrom, marksVisible, parseExamPlan, timetableVisible, ymd, addDays } from "./exams";
 import { parsePayrollRules } from "./payroll";
-import { feeLineTotal, invoiceBalance, parseFeeLines } from "./fees";
+import { feeLineTotal, invoiceBalance, paidFeeMonthCount, parseFeeLines, reportCardFeeMonthsRequired, reportCardUnlocked } from "./fees";
 import { studentLetter } from "./letter";
 import { payFormFromSecrets, paySecretsFromRow } from "./pay-config";
 import type { AccessUser } from "./permissions";
@@ -38,6 +40,10 @@ import { subscriptionLockForUser } from "./anekio-site";
 
 function inDate(value: Date | string) {
   return new Date(value).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+}
+
+function inTime(value: Date | string) {
+  return new Date(value).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
 }
 
 function staffLeaveDays(
@@ -256,6 +262,14 @@ function serializeChild(
   };
 }
 
+function sittingReportReady(published: Awaited<ReturnType<typeof getPublishedSeries>>) {
+  return published.some(
+    (series) =>
+      series.exams.length > 0 &&
+      series.exams.every((exam) => marksVisible({ ...exam, series: { publishedAt: series.publishedAt } }))
+  );
+}
+
 function serializeReports(
   child: NonNullable<Awaited<ReturnType<typeof getStudentBundle>>>,
   published: Awaited<ReturnType<typeof getPublishedSeries>>,
@@ -263,6 +277,9 @@ function serializeReports(
 ) {
   const school = schoolFromConfig(config);
   const policy = gradePolicyFrom(config);
+  const required = reportCardFeeMonthsRequired(config);
+  const paidMonths = paidFeeMonthCount(child.feeInvoices);
+  if (!reportCardUnlocked(paidMonths, required)) return [];
   return published.flatMap((series) => {
     if (!series.exams.length) return [];
     const open = series.exams.filter((e) => marksVisible({ ...e, series: { publishedAt: series.publishedAt } }));
@@ -316,22 +333,73 @@ function serializeReports(
   });
 }
 
+function serializeExamSessions(
+  seriesList: Awaited<ReturnType<typeof getClassExamSeries>>,
+  reports: { seriesId: string }[],
+  hold: boolean,
+) {
+  const today = ymd(new Date());
+  const publishedIds = new Set(reports.map((row) => row.seriesId));
+  return seriesList
+    .filter((series) => series.exams.length > 0)
+    .map((series) => {
+      const allPublished = series.exams.every((exam) => marksVisible(exam));
+      const last = series.exams[series.exams.length - 1];
+      const next = series.exams.find((exam) => ymd(exam.date) >= today) || series.exams[0];
+      const completed = Boolean(last && ymd(last.date) < today);
+      let status: "published" | "upcoming" | "held" | "unpublished" = "unpublished";
+      if (allPublished && publishedIds.has(series.id)) status = "published";
+      else if (allPublished && hold) status = "held";
+      else if (series.exams.some((exam) => ymd(exam.date) >= today)) status = "upcoming";
+      return {
+        id: series.id,
+        name: series.name,
+        sessionLabel: series.session.label,
+        status,
+        examLabel: completed || allPublished ? "Exam completed" : "Exam scheduled",
+        examDate: inDate((completed || allPublished ? last : next).date),
+        resultDate: series.publishedAt ? inDate(series.publishedAt) : "—",
+      };
+    });
+}
+
+function serializeUpcoming(rows: Awaited<ReturnType<typeof getUpcomingExams>>) {
+  const sittingResult = new Map<string, Date>();
+  for (const exam of rows) {
+    const id = exam.seriesId || exam.series?.id || "";
+    if (exam.series?.publishedAt) sittingResult.set(id, exam.series.publishedAt);
+  }
+  for (const exam of rows) {
+    const id = exam.seriesId || exam.series?.id || "";
+    if (sittingResult.has(id) || !exam.resultOn) continue;
+    const prev = sittingResult.get(id);
+    if (!prev || exam.resultOn > prev) sittingResult.set(id, exam.resultOn);
+  }
+  return rows.filter((exam) => timetableVisible(exam)).map((exam) => {
+    const id = exam.seriesId || exam.series?.id || "";
+    const resultAt = sittingResult.get(id);
+    return {
+      id: exam.id,
+      title: exam.title,
+      subject: exam.subject.name,
+      date: inDate(exam.date),
+      time: inTime(exam.date),
+      resultDate: resultAt ? inDate(resultAt) : "—",
+      teacher: exam.teacher?.user.name || "",
+      seriesId: id,
+      seriesName: exam.series?.name || "",
+    };
+  });
+}
+
 async function parentStudentPayload(user: AccessUser, requestedChildId?: string | null) {
   if (user.portal === "STUDENT") {
     const me = await getStudentForUser(user.id);
     if (!me) return { kind: "STUDENT" as const, children: [], child: null, upcoming: [], timetable: null, notices: [], reports: [] };
     const child = await getStudentBundle(me.id);
-    const [upcoming, timetable, noticeRows, published, config] = await Promise.all([
+    const [upcoming, timetable, noticeRows, published, config, classSeries] = await Promise.all([
       child
-        ? getUpcomingExams(child.classId).then((rows) =>
-            rows.filter((e) => timetableVisible(e)).map((e) => ({
-              id: e.id,
-              title: e.title,
-              subject: e.subject.name,
-              date: inDate(e.date),
-              teacher: e.teacher?.user.name || "",
-            }))
-          )
+        ? getUpcomingExams(child.classId).then(serializeUpcoming)
         : Promise.resolve([]),
       child ? timetableForClass(child.classId) : Promise.resolve(null),
     noticesForUser(user).then((rows) =>
@@ -342,8 +410,16 @@ async function parentStudentPayload(user: AccessUser, requestedChildId?: string 
     ),
       child ? getPublishedSeries(child.classId) : Promise.resolve([]),
       prisma.schoolConfig.findUnique({ where: { id: "school" } }),
+      child ? getClassExamSeries(child.classId) : Promise.resolve([]),
     ]);
     const leave = await leaveBundleFor({ portal: "STUDENT", studentIds: child ? [child.id] : [] });
+    const reports = child ? serializeReports(child, published, config) : [];
+    const required = reportCardFeeMonthsRequired(config);
+    const paidMonths = child ? paidFeeMonthCount(child.feeInvoices) : 0;
+    const reportCardHold =
+      child && required > 0 && sittingReportReady(published) && !reportCardUnlocked(paidMonths, required)
+        ? { requiredMonths: required, paidMonths }
+        : null;
     return {
       kind: "STUDENT" as const,
       children: child ? [{ id: child.id, name: child.name, classLabel: `${child.class.name}-${child.class.section}` }] : [],
@@ -351,7 +427,9 @@ async function parentStudentPayload(user: AccessUser, requestedChildId?: string 
       upcoming,
       timetable,
       notices: noticeRows,
-      reports: child ? serializeReports(child, published, config) : [],
+      reports,
+      examSessions: serializeExamSessions(classSeries, reports, Boolean(reportCardHold)),
+      reportCardHold,
       ...leave,
     };
   }
@@ -360,17 +438,9 @@ async function parentStudentPayload(user: AccessUser, requestedChildId?: string 
   const students = parent?.students ?? [];
   const childId = students.find((s) => s.id === requestedChildId)?.id ?? students[0]?.id ?? null;
   const child = childId ? await getStudentBundle(childId) : null;
-  const [upcoming, timetable, noticeRows, published, config] = await Promise.all([
+  const [upcoming, timetable, noticeRows, published, config, classSeries, examTimetable] = await Promise.all([
     child
-      ? getUpcomingExams(child.classId).then((rows) =>
-          rows.filter((e) => timetableVisible(e)).map((e) => ({
-            id: e.id,
-            title: e.title,
-            subject: e.subject.name,
-            date: inDate(e.date),
-            teacher: e.teacher?.user.name || "",
-          }))
-        )
+      ? getUpcomingExams(child.classId).then(serializeUpcoming)
       : Promise.resolve([]),
     child ? timetableForClass(child.classId) : Promise.resolve(null),
     noticesForUser(user).then((rows) =>
@@ -381,10 +451,19 @@ async function parentStudentPayload(user: AccessUser, requestedChildId?: string 
     ),
     child ? getPublishedSeries(child.classId) : Promise.resolve([]),
     prisma.schoolConfig.findUnique({ where: { id: "school" } }),
+    child ? getClassExamSeries(child.classId) : Promise.resolve([]),
+    child ? getClassExamPapers(child.classId).then(serializeUpcoming) : Promise.resolve([]),
   ]);
   const leave = await leaveBundleFor({ portal: "PARENT", studentIds: students.map((s) => s.id) });
   const parentPhone = parent?.phone || parent?.user.phone || "";
   const parentAddress = [parent?.address, parent?.city, parent?.state, parent?.pincode].filter(Boolean).join(", ");
+  const reports = child ? serializeReports(child, published, config) : [];
+  const required = reportCardFeeMonthsRequired(config);
+  const paidMonths = child ? paidFeeMonthCount(child.feeInvoices) : 0;
+  const reportCardHold =
+    child && required > 0 && sittingReportReady(published) && !reportCardUnlocked(paidMonths, required)
+      ? { requiredMonths: required, paidMonths }
+      : null;
   return {
     kind: "PARENT" as const,
     parent: parent
@@ -410,9 +489,12 @@ async function parentStudentPayload(user: AccessUser, requestedChildId?: string 
     })),
     child: child ? serializeChild(child, { timetable, upcoming }) : null,
     upcoming,
+    examTimetable,
     timetable,
     notices: noticeRows,
-    reports: child ? serializeReports(child, published, config) : [],
+    reports,
+    examSessions: serializeExamSessions(classSeries, reports, Boolean(reportCardHold)),
+    reportCardHold,
     ...leave,
   };
 }

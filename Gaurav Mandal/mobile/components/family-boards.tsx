@@ -5,7 +5,6 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { DateField } from "./date-field";
 import { Badge, Button, Card, Chip, ChipScroller, CloseButton, Empty, Field, Input, Modal, PageHeader, Stat, Toast, useToast } from "./ui";
 import { act } from "../lib/mutate";
-import { pickFile, uploadFile } from "../lib/upload";
 import { webOrigin } from "../lib/api";
 import {
   attendanceCbseNote,
@@ -21,8 +20,7 @@ import { AttendanceDots, DayMark, OnLeaveSign } from "./attendance-mark";
 import { useRecord, type RecordPayload } from "../lib/record";
 import { useSession } from "../lib/session";
 import { openAuthedFile, openMarksheetPdf } from "../lib/print-html";
-import { ExamTodoCard, TeacherMarksModal, examTodoKind, examTodoTone } from "./exam-teacher-work";
-import { teacherBucket, teacherCanEditMarks } from "../lib/exam-workflow";
+import { examTodoKind, examTodoTone } from "./exam-teacher-work";
 import { LeaveApplyCard, LeaveDecideList } from "./leave-apply";
 import { ManagerPicker } from "./manager-picker";
 import { TeacherMonthlyRegister } from "./teacher-monthly-register";
@@ -1384,326 +1382,8 @@ export function TeacherAttendanceBoard() {
   );
 }
 
-export function TeacherExamsBoard({ uploads }: { uploads?: boolean }) {
-  const { data, reload } = useRecord();
-  const { token } = useSession();
-  const params = useLocalSearchParams<{ examId?: string; view?: string }>();
-  const toast = useToast();
-  const [pending, setPending] = useState("");
-  const [showDone, setShowDone] = useState(true);
-  const [showAdd, setShowAdd] = useState(false);
-  const [host, setHost] = useState({ title: "", subjectId: data?.subjects?.[0]?.id || "", date: "", maxMarks: "40" });
-  const [sheetId, setSheetId] = useState("");
-  const todos = (data?.todos ?? []).filter((t) => examTodoKind(t) !== "skip");
-  const doneWork = data?.doneWork ?? [];
-  const today = ymd(new Date());
-  const sheets = data?.markSheets ?? [];
-  const openSheet = sheets.find((s) => s.examId === sheetId) || null;
-  const submittedExams = sheets.filter((s) => teacherBucket(s.workflowStatus, s.date, today) === "submitted");
-  const paperTodos = todos.filter((t) => examTodoKind(t) === "paper");
-  const takeTodos = todos.filter((t) => examTodoKind(t) === "take");
-  const marksTodos = todos.filter((t) => examTodoKind(t) === "marks");
-  const correctionTodos = todos.filter((t) => (t.title || "").toLowerCase().includes("correct marks"));
-  const { width, height } = useWindowDimensions();
-  const phone = width < 768;
-  const openWorkMaxHeight = phone ? 420 : Math.max(300, Math.min(520, height - 480));
-  const overdueCount = todos.filter((todo) => examTodoTone(todo) === "overdue").length;
-  const dueSoonCount = todos.filter((todo) => examTodoTone(todo) === "soon").length;
+export { TeacherExamsBoard } from "./teacher-exams-workspace";
 
-  function openMarks(examId: string) {
-    setSheetId(examId);
-  }
-
-  useEffect(() => {
-    const examId = String(params.examId || "");
-    if (!examId) return;
-    if (params.view === "marks" || params.view === "review" || params.view === "paper") openMarks(examId);
-  }, [params.examId, params.view]);
-
-  async function uploadQuestion(examId: string) {
-    setPending(examId);
-    try {
-      const file = await pickFile(".pdf,.doc,.docx,application/pdf");
-      if (!file) return;
-      await uploadFile(token, file, { kind: "question", examId });
-      toast.show("Question paper uploaded.");
-      await reload();
-    } catch (e) {
-      toast.show(e instanceof Error ? e.message : "Could not upload.");
-    } finally {
-      setPending("");
-    }
-  }
-
-  async function takeExam(examId: string) {
-    setPending(examId);
-    try {
-      await act(token, "takeExam", { examId });
-      toast.show("Exam taken. Enter marks when office has allowed marks entry.");
-      await reload();
-      setSheetId(examId);
-    } catch (e) {
-      toast.show(e instanceof Error ? e.message : "Could not save.");
-    } finally {
-      setPending("");
-    }
-  }
-
-  async function postClassTest() {
-    try {
-      await act(token, "hostExam", { ...host, classId: data?.classId, maxMarks: Number(host.maxMarks) });
-      toast.show("Class test added. The class has a notification.");
-      setShowAdd(false);
-      setHost({ title: "", subjectId: host.subjectId, date: "", maxMarks: "40" });
-      await reload();
-    } catch (e) {
-      toast.show(e instanceof Error ? e.message : "Could not save.");
-    }
-  }
-
-  return (
-    <View>
-      <PageHeader
-        kicker="Reports"
-        title="Exams"
-        lede="Set the question paper and take the exam when due. Enter marks only after office allows marks entry. Families see scores after office publishes results."
-        action={
-          data?.classTeacher && data.classId ? (
-            <Button onPress={() => setShowAdd(true)}>+ Class test</Button>
-          ) : undefined
-        }
-      />
-      {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
-      <View className={`mb-4 gap-3 ${phone ? "" : "flex-row"}`}>
-        {[
-          { label: "Set paper", value: paperTodos.length, hint: "First step", color: "text-ink-700" },
-          { label: "Take exam", value: takeTodos.length, hint: "After the paper is set", color: "text-clay-600" },
-          { label: "Enter marks", value: marksTodos.length, hint: "After office allows entry", color: "text-amber-700" },
-          { label: "Sent to office", value: submittedExams.length, hint: "Waiting to publish", color: "text-green-700" },
-          { label: "Correction", value: correctionTodos.length, hint: "Admin sent back", color: "text-red-700" },
-        ].map((stat) => (
-          <Card key={stat.label} className="flex-1 p-4">
-            <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">{stat.label}</Text>
-            <Text className={`mt-1 text-2xl font-semibold ${stat.color}`}>{stat.value}</Text>
-            <Text className="mt-0.5 text-xs text-ink-700">{stat.hint}</Text>
-          </Card>
-        ))}
-      </View>
-
-      {sheets.filter((sheet) => teacherCanEditMarks(sheet.workflowStatus) || ["SUBMITTED", "UNDER_REVIEW", "RESUBMITTED", "APPROVED", "PUBLISHED"].includes(sheet.workflowStatus || "")).length ? (
-        <Card className="mb-4 overflow-hidden">
-          <View className="bg-ink-50 px-4 py-3">
-            <Text className="text-sm font-semibold text-ink-900">My mark entries</Text>
-            <Text className="mt-0.5 text-xs text-ink-700">Office must allow marks entry on each paper. Exam date does not unlock scores.</Text>
-          </View>
-          {sheets
-            .filter((sheet) => teacherCanEditMarks(sheet.workflowStatus) || sheet.workflowStatus === "SUBMITTED" || sheet.workflowStatus === "RESUBMITTED" || sheet.workflowStatus === "APPROVED" || sheet.workflowStatus === "PUBLISHED")
-            .map((sheet) => {
-              const entered = sheet.students.filter((row) => row.absent || row.marks != null).length;
-              const pendingCount = sheet.students.length - entered;
-              const submitted = sheet.workflowStatus === "SUBMITTED" || sheet.workflowStatus === "UNDER_REVIEW" || sheet.workflowStatus === "RESUBMITTED" || sheet.workflowStatus === "APPROVED" || sheet.workflowStatus === "PUBLISHED";
-              const correction = sheet.workflowStatus === "CORRECTION_REQUIRED";
-              const locked = submitted && !correction;
-              const waitingGrant = !sheet.canEnterMarks && !locked;
-              return (
-                <View key={sheet.examId} className="flex-row flex-wrap items-center justify-between gap-3 border-t border-ink-100 px-4 py-3">
-                  <View className="min-w-0 flex-1">
-                    <Text className="text-sm font-semibold text-ink-900">
-                      {sheet.seriesName} · {sheet.subject}
-                    </Text>
-                    <Text className="mt-0.5 text-xs text-ink-700">
-                      {sheet.classLabel} · {sheet.students.length} students · {entered}/{sheet.students.length} entered
-                      {pendingCount ? ` · ${pendingCount} pending` : ""}
-                    </Text>
-                    <Text className="mt-1 text-xs font-medium text-ink-800">
-                      {waitingGrant
-                        ? "Waiting for office to allow marks entry"
-                        : correction
-                        ? "↻ Correction required"
-                        : locked
-                          ? "✓ Submitted"
-                          : entered
-                            ? "Marks in progress"
-                            : "Pending"}
-                    </Text>
-                  </View>
-                  {waitingGrant ? (
-                    <Badge>Not allowed yet</Badge>
-                  ) : correction || !locked ? (
-                    <Button onPress={() => openMarks(sheet.examId)}>
-                      {correction ? "Review correction" : entered ? "Continue mark entry" : "Enter marks"}
-                    </Button>
-                  ) : (
-                    <Badge tone="leaf">Submitted</Badge>
-                  )}
-                </View>
-              );
-            })}
-        </Card>
-      ) : null}
-
-      {todos.length ? (
-        <Card className="mb-4 overflow-hidden">
-          <View className="flex-row items-center justify-between bg-ink-50 px-4 py-3">
-            <View>
-              <Text className="text-sm font-semibold text-ink-900">Open work</Text>
-              <Text className="mt-0.5 text-xs text-ink-700">Paper, then take exam, then marks. Nearest papers first.</Text>
-            </View>
-            <Badge tone={overdueCount ? "danger" : dueSoonCount ? "warn" : "ink"}>
-              {`${todos.length} ${todos.length === 1 ? "task" : "tasks"}`}
-            </Badge>
-          </View>
-          <ScrollView
-            nestedScrollEnabled
-            showsVerticalScrollIndicator={todos.length > 5}
-            style={{ maxHeight: openWorkMaxHeight }}
-          >
-            {todos.map((t) => (
-              <ExamTodoCard
-                key={t.id}
-                todo={t}
-                embedded
-                pending={pending === t.id}
-                onDone={
-                  examTodoKind(t) === "paper"
-                    ? async () => {
-                        const examId = t.examId || t.id.replace(/^paper-/, "");
-                        setPending(t.id);
-                        try {
-                          await act(token, "completeExamWork", { examId, kind: "paper" });
-                          toast.show("Moved to Done. Undo it there if that was a slip.");
-                          await reload();
-                        } catch (e) {
-                          toast.show(e instanceof Error ? e.message : "Could not save.");
-                        } finally {
-                          setPending("");
-                        }
-                      }
-                    : undefined
-                }
-                onOpenMarks={
-                  examTodoKind(t) === "marks"
-                    ? () => openMarks(t.examId || t.id.replace(/^marks-/, ""))
-                    : undefined
-                }
-                onTake={
-                  examTodoKind(t) === "take"
-                    ? () => void takeExam(t.examId || t.id.replace(/^take-/, ""))
-                    : undefined
-                }
-                onUpload={
-                  examTodoKind(t) === "paper"
-                    ? () => void uploadQuestion(t.examId || t.id.replace(/^paper-/, ""))
-                    : undefined
-                }
-              />
-            ))}
-          </ScrollView>
-        </Card>
-      ) : (
-        <Empty title="Nothing waiting" body="When office assigns you a paper, set it, take the exam, enter marks, then send them to office." />
-      )}
-      <Card className="overflow-hidden">
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={showDone ? "Hide completed work" : "Show completed work"}
-          onPress={() => setShowDone((v) => !v)}
-          className="flex-row items-center justify-between bg-ink-50 px-4 py-3"
-        >
-          <View>
-            <Text className="text-sm font-semibold text-ink-900">Completed work</Text>
-            <Text className="mt-0.5 text-xs text-ink-700">
-              {doneWork.length ? `${doneWork.length} finished · nearest papers first` : "Nothing finished yet"}
-            </Text>
-          </View>
-          <Ionicons name={showDone ? "chevron-up" : "chevron-down"} size={18} color="#3d4f66" />
-        </Pressable>
-        {showDone ? (
-          doneWork.length ? (
-            doneWork.map((t) => (
-              <ExamTodoCard
-                key={t.id}
-                todo={{ ...t, kind: t.kind }}
-                done
-                embedded
-                pending={pending === t.id}
-                onUndo={
-                  t.kind === "paper"
-                    ? async () => {
-                        setPending(t.id);
-                        try {
-                          await act(token, "completeExamWork", { examId: t.examId, kind: "paper", done: false });
-                          toast.show("Back on Waiting.");
-                          await reload();
-                        } catch (e) {
-                          toast.show(e instanceof Error ? e.message : "Could not save.");
-                        } finally {
-                          setPending("");
-                        }
-                      }
-                    : undefined
-                }
-                onOpenMarks={t.kind === "marks" ? () => openMarks(t.examId) : undefined}
-              />
-            ))
-          ) : (
-            <Text className="border-t border-ink-100 px-4 py-4 text-sm text-ink-700">Finished tasks will appear here.</Text>
-          )
-        ) : null}
-      </Card>
-      <TeacherMarksModal
-        sheet={openSheet}
-        token={token}
-        onClose={() => setSheetId("")}
-        onSaved={async () => {
-          toast.show("Marks saved.");
-          await reload();
-        }}
-      />
-      <Modal
-        open={showAdd}
-        title="Add class test"
-        onClose={() => setShowAdd(false)}
-        footer={
-          <Button
-            disabled={!host.title.trim() || !host.subjectId || !host.date}
-            onPress={postClassTest}
-          >
-            Post class test
-          </Button>
-        }
-      >
-        <Text className="mb-4 text-sm text-ink-700">
-          Parents, students, and teachers of {data?.classLabel || "this class"} will receive a notification.
-        </Text>
-        <View className="gap-4">
-          <Field label="Test name">
-            <Input
-              value={host.title}
-              onChangeText={(value) => setHost({ ...host, title: value })}
-              placeholder="For example, Unit test 3"
-            />
-          </Field>
-          <Field label="Subject">
-            <View className="flex-row flex-wrap gap-2">
-              {(data?.subjects ?? []).map((subject) => (
-                <Chip
-                  key={subject.id}
-                  label={subject.name}
-                  active={host.subjectId === subject.id}
-                  onPress={() => setHost({ ...host, subjectId: subject.id })}
-                />
-              ))}
-            </View>
-          </Field>
-          <Field label="Test date">
-            <DateField value={host.date} onChange={(date) => setHost({ ...host, date })} />
-          </Field>
-        </View>
-      </Modal>
-    </View>
-  );
-}
 
 function jsToWeekday(jsDay: number) {
   return jsDay === 0 ? 7 : jsDay;
@@ -2081,10 +1761,10 @@ export function FamilyHomeBoard() {
         const unpaid = (child?.fees ?? []).filter((f) => f.display !== "paid" && f.dueNow > 0);
         const totalDue = unpaid.reduce((sum, f) => sum + f.dueNow, 0);
         const totalDueLabel = totalDue ? `₹${totalDue.toLocaleString("en-IN")}` : "₹0";
-        const avg = child?.subjects.length
-          ? Math.round(child.subjects.reduce((n, s) => n + s.pct, 0) / child.subjects.length)
-          : 0;
         const subjectsWithMarks = (child?.subjects ?? []).filter((s) => s.n > 0);
+        const avg = subjectsWithMarks.length
+          ? Math.round(subjectsWithMarks.reduce((n, s) => n + s.pct, 0) / subjectsWithMarks.length)
+          : 0;
         const coming = (data?.upcoming ?? []).slice(0, 4);
         const notices = (data?.notices ?? []).slice(0, 3);
         const day = data ? todaySlots(data) : { label: "", periods: [] };
@@ -2795,7 +2475,7 @@ export function FamilyTests() {
         lede={
           student
             ? "One report card per exam, after every subject is published."
-            : "One report card per sitting once every subject is published. Drafts never appear here."
+            : "One report card per sitting once every subject is published. Only families who have paid the required fee months can open it."
         }
       />
       <ChildSwitch />
@@ -2850,7 +2530,14 @@ export function FamilyTests() {
           })()}
         </View>
       ) : (
-        <Empty title="No published results yet" body="When every subject in an exam is published, one report card with all subjects appears here." />
+        <Empty
+          title={data?.reportCardHold ? "Report card held for fees" : "No published results yet"}
+          body={
+            data?.reportCardHold
+              ? `This exam is complete. The report card opens after ${data.reportCardHold.requiredMonths} paid fee month${data.reportCardHold.requiredMonths === 1 ? "" : "s"}. Paid so far: ${data.reportCardHold.paidMonths}.`
+              : "When every subject in an exam is published, one report card with all subjects appears here."
+          }
+        />
       )}
       <Text className="mb-3 mt-2 font-semibold text-ink-900">Examination timetable</Text>
       {!data?.upcoming?.length ? (

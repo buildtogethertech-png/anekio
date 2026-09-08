@@ -17,6 +17,7 @@ export type GradePolicy = {
   bands: GradeBand[];
   passPercent: number;
   showRank: boolean;
+  reportCardPaidMonths: number;
 };
 
 export function parseGradeBands(raw?: string | null): GradeBand[] {
@@ -40,11 +41,14 @@ export function gradePolicyFrom(row?: {
   gradeBandsJson?: string | null;
   passPercent?: number | null;
   showRank?: boolean | null;
+  reportCardPaidMonths?: number | null;
 } | null): GradePolicy {
+  const months = Math.floor(Number(row?.reportCardPaidMonths));
   return {
     bands: parseGradeBands(row?.gradeBandsJson),
     passPercent: Math.max(0, Math.min(100, Math.round(Number(row?.passPercent) || 33))),
     showRank: Boolean(row?.showRank),
+    reportCardPaidMonths: Number.isFinite(months) && months > 0 ? Math.min(24, months) : 0,
   };
 }
 

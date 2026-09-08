@@ -34,6 +34,7 @@ export type DocumentTemplateSummary = {
   orientation: string;
   status: string;
   activeVersion: number | null;
+  hasDraft?: boolean;
   updatedAt: string | null;
   layout: DocumentLayout;
 };
@@ -141,7 +142,17 @@ export type RecordPayload = {
       payUrl?: string;
     }[];
   } | null;
-  upcoming?: { id: string; title: string; subject: string; date: string; teacher: string }[];
+  upcoming?: { id: string; title: string; subject: string; date: string; time?: string; resultDate?: string; teacher: string; seriesId?: string; seriesName?: string }[];
+  examTimetable?: { id: string; title: string; subject: string; date: string; time?: string; resultDate?: string; teacher: string; seriesId?: string; seriesName?: string }[];
+  examSessions?: {
+    id: string;
+    name: string;
+    sessionLabel: string;
+    status: "published" | "upcoming" | "held" | "unpublished";
+    examLabel: string;
+    examDate: string;
+    resultDate: string;
+  }[];
   notices?: { id: string; title: string; body: string; createdAt: string; author: string }[];
   reports?: {
     seriesId: string;
@@ -166,8 +177,9 @@ export type RecordPayload = {
     exams: { id: string; title: string; maxMarks: number; date: string; subject: { id?: string; name: string } }[];
     marks: { examId: string; studentId: string; marks: number; absent?: boolean; remarks?: string | null }[];
     classmates: { id: string; name: string }[];
-    policy: { bands: { min: number; grade: string }[]; passPercent: number; showRank: boolean };
+    policy: { bands: { min: number; grade: string }[]; passPercent: number; showRank: boolean; reportCardPaidMonths?: number };
   }[];
+  reportCardHold?: { requiredMonths: number; paidMonths: number } | null;
   timetable?: {
     weekdays: { n: number; label: string }[];
     periods: { id: string; name: string; start: string; end: string; isBreak?: boolean; sortOrder?: number }[];
@@ -512,7 +524,7 @@ export type RecordPayload = {
     subjectCatalog?: string[];
     sessions?: { id: string; label: string; startsOn: string; endsOn: string; current: boolean }[];
     holidays?: { id: string; sessionId?: string; date: string; name: string }[];
-    policy?: { bands: { min: number; grade: string }[]; passPercent: number; showRank: boolean };
+    policy?: { bands: { min: number; grade: string }[]; passPercent: number; showRank: boolean; reportCardPaidMonths?: number };
     plan?: { id: string; name: string; kind: string; weight: number; maxMarks: number; expectedPeriod?: string }[];
     pay?: {
       gateway: string;
@@ -559,7 +571,7 @@ export type RecordPayload = {
       signatory?: string;
       invoiceStyle?: string;
     };
-    policy: { bands: { min: number; grade: string }[]; passPercent: number; showRank: boolean };
+    policy: { bands: { min: number; grade: string }[]; passPercent: number; showRank: boolean; reportCardPaidMonths?: number };
     planBySession: Record<string, { id: string; name: string; kind: string; weight: number; maxMarks: number; expectedPeriod?: string }[]>;
     series: {
       id: string;
@@ -583,6 +595,7 @@ export type RecordPayload = {
         setterId?: string | null;
         setterName?: string;
         evaluators?: { id: string; name: string }[];
+        eligibleTeacherIds?: string[];
         subject: { id: string; name: string };
         workflowStatus?: string;
         correctionNote?: string;

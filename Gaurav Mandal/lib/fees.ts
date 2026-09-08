@@ -256,6 +256,22 @@ export function invoiceBalance(inv: {
   return { paid, remaining, late, lateDays, dueNow, lateLabel, display };
 }
 
+export function paidFeeMonthCount(
+  invoices: Parameters<typeof invoiceBalance>[0][] | null | undefined
+) {
+  return (invoices || []).filter((invoice) => invoiceBalance(invoice).dueNow <= 0).length;
+}
+
+export function reportCardFeeMonthsRequired(row?: { reportCardPaidMonths?: number | null } | null) {
+  const n = Math.floor(Number(row?.reportCardPaidMonths));
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.min(24, n);
+}
+
+export function reportCardUnlocked(paidMonths: number, requiredMonths: number) {
+  return requiredMonths <= 0 || paidMonths >= requiredMonths;
+}
+
 export function groupStudentFees<
   T extends {
     id: string;

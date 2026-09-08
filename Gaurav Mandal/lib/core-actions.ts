@@ -2434,11 +2434,12 @@ export async function importSchoolHolidaysCore(user: AccessUser, input: { sessio
 
 export async function saveGradePolicyCore(
   user: AccessUser,
-  input: { passPercent?: number; showRank?: boolean; bands?: { min?: number; grade?: string }[] }
+  input: { passPercent?: number; showRank?: boolean; bands?: { min?: number; grade?: string }[]; reportCardPaidMonths?: number }
 ) {
   need(user, "exams.edit", "school.edit");
   const passPercent = Math.max(0, Math.min(100, Math.round(Number(input.passPercent || 33))));
   const showRank = Boolean(input.showRank);
+  const reportCardPaidMonths = Math.max(0, Math.min(24, Math.floor(Number(input.reportCardPaidMonths) || 0)));
   const cleaned = (Array.isArray(input.bands) ? input.bands : [])
     .map((b) => ({
       min: Math.max(0, Math.min(100, Math.round(Number(b.min) || 0))),
@@ -2448,8 +2449,8 @@ export async function saveGradePolicyCore(
     .sort((a, b) => b.min - a.min);
   await prisma.schoolConfig.upsert({
     where: { id: "school" },
-    update: { passPercent, showRank, gradeBandsJson: JSON.stringify(cleaned) },
-    create: { id: "school", passPercent, showRank, gradeBandsJson: JSON.stringify(cleaned) },
+    update: { passPercent, showRank, reportCardPaidMonths, gradeBandsJson: JSON.stringify(cleaned) },
+    create: { id: "school", passPercent, showRank, reportCardPaidMonths, gradeBandsJson: JSON.stringify(cleaned) },
   });
 }
 

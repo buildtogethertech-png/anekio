@@ -632,7 +632,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   const yearSittings = classSittings.filter((s) => s.sessionId === yearSession);
   const year =
     selected && yearPlan.length
-      ? studentYearScore(selected.id, yearPlan, yearSittings, examPack?.policy ?? { bands: [], passPercent: 33, showRank: false })
+      ? studentYearScore(selected.id, yearPlan, yearSittings, examPack?.policy ?? { bands: [], passPercent: 33, showRank: false, reportCardPaidMonths: 0 })
       : null;
   const classmates = people.filter((s) => s.classId === selected?.classId);
   const studentFilters = useMemo<FilterConfig[]>(() => {
@@ -1155,7 +1155,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                 selected.id,
                 series.exams,
                 series.marks,
-                examPack?.policy ?? { bands: [], passPercent: 33, showRank: false }
+                examPack?.policy ?? { bands: [], passPercent: 33, showRank: false, reportCardPaidMonths: 0 }
               );
               return (
                 <Pressable
@@ -1176,7 +1176,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                       classmates: classmates.map((s) => ({ id: s.id, name: s.name })),
                       exams: series.exams,
                       marks: series.marks,
-                      policy: examPack?.policy ?? { bands: [], passPercent: 33, showRank: false },
+                      policy: examPack?.policy ?? { bands: [], passPercent: 33, showRank: false, reportCardPaidMonths: 0 },
                     })
                   }
                   className={`flex-row items-center justify-between gap-3 px-3 py-3 ${i ? "border-t border-ink-100" : ""}`}
@@ -2876,7 +2876,7 @@ export function FeesBoard() {
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
       <View className="mb-4 flex-row flex-wrap gap-2">
         <Chip label="Due" active={tab === "due"} onPress={() => setTab("due")} />
-        <Chip label="Templates" active={tab === "templates"} onPress={() => setTab("templates")} />
+        <Chip label="Configure fees" active={tab === "templates"} onPress={() => setTab("templates")} />
       </View>
       <View className="mb-4 flex-row flex-wrap gap-2">
         <Chip
@@ -2909,8 +2909,8 @@ export function FeesBoard() {
       </View>
       {tab === "templates" ? (
         <Card className="mb-6 p-4">
-          <Text className="mb-2 text-sm font-medium text-ink-900">Fee template</Text>
-          <Text className="mb-3 text-sm text-ink-700">Pick a class, then save the monthly lines. One line per part: Tuition,8000</Text>
+          <Text className="mb-2 text-sm font-medium text-ink-900">Configure fees</Text>
+          <Text className="mb-3 text-sm text-ink-700">What to charge for this class and session. Invoice and receipt appearance is designed in School → Document Studio.</Text>
           {classId === "all" ? (
             <Text className="text-sm text-ink-700">Pick a class above first.</Text>
           ) : (
@@ -2954,14 +2954,14 @@ export function FeesBoard() {
                             return { label: (label || "Line").trim(), kind: "FLAT", amount: Number(amount || 0) };
                           }),
                       });
-                      toast.show("Template saved.");
+                      toast.show("Fee charges saved.");
                       await reload();
                     } catch (e) {
                       toast.show(e instanceof Error ? e.message : "Could not save.");
                     }
                   }}
                 >
-                  Save template
+                  Save fee charges
                 </Button>
               ) : null}
               {can(user, "fees.collect") ? (

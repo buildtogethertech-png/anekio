@@ -29,6 +29,143 @@ function can(user: { permissions: string[] } | null, key: string) {
   return Boolean(user?.permissions.includes(key));
 }
 
+function visualFamily(type: string, category: string) {
+  const admissions = type.startsWith("ADMISSION") || type === "PARENT_CONSENT" || type === "STUDENT_DECLARATION";
+  const certificates = /BONAFIDE|CHARACTER_CERTIFICATE|STUDY_CERTIFICATE|DOB_CERTIFICATE|ATTENDANCE_CERTIFICATE|PROMOTION_CERTIFICATE|TRANSFER_CERTIFICATE|CUSTOM_CERTIFICATE|ACHIEVEMENT_CERTIFICATE|PARTICIPATION_CERTIFICATE|MERIT_CERTIFICATE|NO_DUES|MIGRATION/.test(type);
+  if (type === "REPORT_CARD") return { label: "ACADEMICS", accent: "#7C3AED", accent2: "#2563EB", iconBg: "#EDE9FE", icon: "school-outline" as const, border: "#DDD6FE" };
+  if (type === "GRADE_SHEET" || type === "CONSOLIDATED_REPORT" || type === "PROGRESS_REPORT" || type === "SUBJECT_MARKSHEET" || type === "RESULT_SUMMARY") {
+    return { label: "ACADEMICS", accent: "#2563EB", accent2: "#4F46E5", iconBg: "#DBEAFE", icon: "reader-outline" as const, border: "#BFDBFE" };
+  }
+  if (category === "FEES" || /FEE|RECEIPT|CHALLAN|DUES|REFUND|CONCESSION/.test(type)) {
+    return { label: "FINANCE", accent: "#0F766E", accent2: "#14B8A6", iconBg: "#CCFBF1", icon: "receipt-outline" as const, border: "#99F6E4" };
+  }
+  if (category === "EMPLOYEE") {
+    return { label: "EMPLOYEES", accent: "#E11D48", accent2: "#EA580C", iconBg: "#FFE4E6", icon: "briefcase-outline" as const, border: "#FECDD3" };
+  }
+  if (certificates) {
+    return { label: "CERTIFICATES", accent: "#7C3AED", accent2: "#DB2777", iconBg: "#F3E8FF", icon: "ribbon-outline" as const, border: "#E9D5FF" };
+  }
+  if (admissions) {
+    return { label: "ADMISSIONS", accent: "#EA580C", accent2: "#F59E0B", iconBg: "#FFEDD5", icon: "clipboard-outline" as const, border: "#FED7AA" };
+  }
+  if (category === "ACADEMIC") {
+    return { label: "ACADEMICS", accent: "#4F46E5", accent2: "#2563EB", iconBg: "#E0E7FF", icon: "school-outline" as const, border: "#C7D2FE" };
+  }
+  if (category === "GENERAL") {
+    return { label: "LETTERS", accent: "#4338CA", accent2: "#7C3AED", iconBg: "#E0E7FF", icon: "mail-outline" as const, border: "#C7D2FE" };
+  }
+  if (type === "STUDENT_ID" || type.endsWith("_CARD") || type.endsWith("_PASS")) {
+    return { label: "STUDENTS", accent: "#0284C7", accent2: "#06B6D4", iconBg: "#CFFAFE", icon: "id-card-outline" as const, border: "#A5F3FC" };
+  }
+  return { label: "STUDENTS", accent: "#0284C7", accent2: "#38BDF8", iconBg: "#E0F2FE", icon: "person-outline" as const, border: "#BAE6FD" };
+}
+
+function statusMeta(template: DocumentTemplateSummary) {
+  if (template.builtIn) return { tone: "clay" as const, label: "Default" };
+  if (template.status === "ACTIVE" && template.hasDraft) return { tone: "leaf" as const, label: `Active · v${template.activeVersion} · Draft` };
+  if (template.status === "ACTIVE") return { tone: "leaf" as const, label: `Active · v${template.activeVersion}` };
+  if (template.status === "DRAFT") return { tone: "warn" as const, label: "Draft" };
+  if (template.status === "PUBLISHED") return { tone: "sky" as const, label: "Published" };
+  if (template.status === "ARCHIVED") return { tone: "ink" as const, label: "Archived" };
+  return { tone: "ink" as const, label: template.status };
+}
+
+function MiniDocumentPreview({ template }: { template: DocumentTemplateSummary }) {
+  const card = template.pageSize === "CR80";
+  const landscape = template.orientation === "LANDSCAPE";
+  const width = card ? 108 : landscape ? 118 : 86;
+  const height = card ? 68 : landscape ? 84 : 118;
+  const layers = template.layout.elements.filter((row) => row.type === "SHAPE" || row.type === "LINE" || row.type === "TABLE").slice(0, 36);
+  return (
+    <View className="items-center justify-center rounded-xl px-2 py-3" style={{ backgroundColor: "#F8FAFC" }}>
+      <View className="overflow-hidden rounded-md bg-white shadow-sm" style={{ width, height }}>
+        {layers.map((row) => (
+          <View
+            key={row.id}
+            pointerEvents="none"
+            style={{
+              position: "absolute",
+              left: `${row.x}%`,
+              top: `${row.y}%`,
+              width: `${row.width}%`,
+              height: row.type === "LINE" ? 1 : `${row.height}%`,
+              backgroundColor: row.background || (row.type === "TABLE" ? "#2563EB" : row.borderColor || "#E2E8F0"),
+              opacity: row.type === "TABLE" ? 0.85 : 1,
+            }}
+          />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function TemplateGalleryCard({
+  template,
+  hint,
+  desktop,
+  design,
+  publish,
+  issueAllowed,
+  onEdit,
+  onIssue,
+  onArchive,
+}: {
+  template: DocumentTemplateSummary;
+  hint: string;
+  desktop: boolean;
+  design: boolean;
+  publish: boolean;
+  issueAllowed: boolean;
+  onEdit: () => void;
+  onIssue: () => void;
+  onArchive: () => void;
+}) {
+  const [hover, setHover] = useState(false);
+  const family = visualFamily(template.type, template.category);
+  const status = statusMeta(template);
+  return (
+    <View
+      className="min-h-[360px] min-w-[260px] flex-1 overflow-hidden rounded-2xl border bg-white shadow-sm md:max-w-[48%] xl:max-w-[23%]"
+      style={{
+        borderColor: hover ? family.accent : family.border,
+        transform: [{ translateY: hover ? -3 : 0 }],
+        shadowOpacity: hover ? 0.16 : 0.06,
+        shadowRadius: hover ? 16 : 8,
+        transitionDuration: "220ms",
+      } as never}
+      {...({
+        onMouseEnter: () => setHover(true),
+        onMouseLeave: () => setHover(false),
+      } as object)}
+    >
+      <View className="h-1.5 w-full" style={{ backgroundColor: hover ? family.accent2 : family.accent }} />
+      <View className="h-1 w-full opacity-80" style={{ backgroundColor: family.accent2 }} />
+      <MiniDocumentPreview template={template} />
+      <View className="flex-1 p-4">
+        <View className="flex-row items-start gap-3">
+          <View className="h-11 w-11 items-center justify-center rounded-xl" style={{ backgroundColor: family.iconBg, transform: [{ scale: hover ? 1.06 : 1 }] }}>
+            <Ionicons name={family.icon} size={22} color={family.accent} />
+          </View>
+          <View className="min-w-0 flex-1">
+            <View className="flex-row flex-wrap items-center gap-2">
+              <Text className="text-[15px] font-bold text-ink-900">{template.name}</Text>
+              <Badge tone={status.tone}>{status.label}</Badge>
+            </View>
+            <Text className="mt-1 text-[10px] font-bold uppercase tracking-[0.14em]" style={{ color: family.accent }}>{family.label}</Text>
+          </View>
+        </View>
+        <Text className="mt-3 text-xs leading-5 text-ink-700" numberOfLines={3}>{hint}</Text>
+        <Text className="mt-3 text-[11px] font-medium text-ink-600">{template.pageSize}  ·  {template.orientation === "LANDSCAPE" ? "Landscape" : "Portrait"}  ·  {template.layout.elements.length} elements</Text>
+        <View className="mt-4 flex-row flex-wrap gap-2">
+          {desktop && design ? <Button variant="ghost" onPress={onEdit}>{template.builtIn ? "Design document" : "Edit"}</Button> : null}
+          {template.status === "ACTIVE" && issueAllowed ? <Button onPress={onIssue}>Issue</Button> : null}
+          {!template.builtIn && publish ? <Button variant="danger" onPress={onArchive}>Archive</Button> : null}
+        </View>
+      </View>
+    </View>
+  );
+}
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
@@ -38,6 +175,7 @@ type BlockedDocumentStudent = {
   subjectLabel?: string;
   error: string;
   pendingMonths?: number;
+  paidMonths?: number;
   parentName?: string;
   parentPhone?: string;
   parentEmail?: string;
@@ -49,10 +187,14 @@ function cleanPhone(value?: string) {
   return String(value || "").replace(/[^\d+]/g, "");
 }
 
-function feeBlockMessage(row: BlockedDocumentStudent) {
+function feeBlockMessage(row: BlockedDocumentStudent, reportCard: boolean) {
   const student = row.subjectLabel || "your child";
-  const pending = row.pendingMonths ? `${row.pendingMonths} pending fee month${row.pendingMonths === 1 ? "" : "s"}` : "pending fees";
   const pay = row.payUrl ? `\nPay link: ${row.payUrl}` : "";
+  if (reportCard) {
+    const paid = row.paidMonths != null ? `${row.paidMonths} paid fee month${row.paidMonths === 1 ? "" : "s"}` : "unpaid fees";
+    return `Namaste, ${student}'s report card was not sent because fee months are still pending (${paid}). Please clear the fees so school can share the report card.${pay}`;
+  }
+  const pending = row.pendingMonths ? `${row.pendingMonths} pending fee month${row.pendingMonths === 1 ? "" : "s"}` : "pending fees";
   return `Namaste, ${student}'s admit card could not be generated because ${pending} are due. Please clear the fees so school can issue the admit card.${pay}`;
 }
 
@@ -153,7 +295,8 @@ function NumericProperty({ label, value, onChange }: { label: string; value: num
 }
 
 function TemplateEditor({ template, studio, data, onClose, onSaved }: { template: DocumentTemplateSummary; studio: Studio; data: RecordPayload; onClose: () => void; onSaved: () => Promise<void> }) {
-  const { token } = useSession();
+  const { token, user } = useSession();
+  const canPublish = can(user, "documents.publish") || can(user, "school.edit");
   const [draft, setDraft] = useState(() => ({ ...template, name: template.builtIn ? `${template.name} · School` : template.name, layout: { elements: template.layout.elements.map((row) => ({ ...row })) } }));
   const [selectedId, setSelectedId] = useState(draft.layout.elements[0]?.id || "");
   const [saving, setSaving] = useState(false);
@@ -243,19 +386,48 @@ function TemplateEditor({ template, studio, data, onClose, onSaved }: { template
       const [kind, id] = previewTarget.split(":");
       const student = kind === "student" ? data.people?.find((row) => row.id === id) : undefined;
       const employee = kind === "employee" ? data.staff?.find((row) => row.id === id) : undefined;
-      const sampleStudent = { name: "Aarav Sharma", admissionNo: "STU-1024", classLabel: "10-A", rollNo: "18", born: "14 Aug 2015", dateOfBirth: "2015-08-14", parent: "Meera Sharma", parentPhone: "9800000042" };
+      const sampleStudent = { name: "Aarav Sharma", admissionNo: "ADM-2026-0142", classLabel: "VIII-A", className: "VIII", sectionName: "A", rollNo: "17", id: "STU-0142", born: "12 Apr 2013", dateOfBirth: "2013-04-12", gender: "Boy", parent: "Meera Sharma", parentPhone: "9800000042" };
       const sampleEmployee = { name: "Kavita Joshi", employeeId: "EMP-014", role: "Teacher", department: "Academics", joiningDate: "1 Apr 2022" };
+      const sampleSchool = { name: "Springfield Public School", address: "12, Lake Road, Bengaluru, Karnataka 560001", phone: "080 4000 1200", email: "office@springfield.school", contact: "080 4000 1200 • office@springfield.school", academicYear: "2026–27", sessionTitle: "Academic Session 2026–27", website: "www.springfield.school", ...(data.school || {}) };
       const result = await act<{ ok: true; html: string }>(token, "previewDocumentTemplate", {
         type: draft.type,
         layout: draft.layout,
         pageSize: draft.pageSize,
         orientation: draft.orientation,
         data: {
-          school: { name: "Anekio Public School", address: "MG Road, Indore, Madhya Pradesh", ...(data.school || {}) },
+          school: sampleSchool,
           student: student || sampleStudent,
           employee: employee || sampleEmployee,
-          exam: { name: "Term 1", classLabel: student?.classLabel || "5-A", schedule: [{ subject: "English", date: "11 Sep 2026" }, { subject: "Mathematics", date: "12 Sep 2026" }] },
-          results: { marks: [{ subject: "English", marks: 76, maxMarks: 80, grade: "A1" }, { subject: "Mathematics", marks: 72, maxMarks: 80, grade: "A1" }] },
+          staff: { classTeacherName: "Kavita Joshi", principalName: (data.school as { signatory?: string } | undefined)?.signatory || "Principal" },
+          exam: { name: "Annual Examination", classLabel: student?.classLabel || "VIII-A", schedule: [{ subject: "English", date: "11 Sep 2026" }, { subject: "Mathematics", date: "12 Sep 2026" }] },
+          results: {
+            marks: [
+              { Subject: "Mathematics", "Max Marks": 100, "Marks Obtained": 87, Grade: "A+", "Grade Point": "9.0", Remark: "Excellent" },
+              { Subject: "English", "Max Marks": 100, "Marks Obtained": 82, Grade: "A", "Grade Point": "8.5", Remark: "Very Good" },
+              { Subject: "Science", "Max Marks": 100, "Marks Obtained": 91, Grade: "A+", "Grade Point": "9.5", Remark: "Excellent" },
+              { Subject: "Social Science", "Max Marks": 100, "Marks Obtained": 78, Grade: "B+", "Grade Point": "7.5", Remark: "Good" },
+              { Subject: "Hindi", "Max Marks": 100, "Marks Obtained": 85, Grade: "A", "Grade Point": "8.5", Remark: "Very Good" },
+            ],
+            activities: [
+              { Activity: "Sports", Grade: "A", Remark: "Excellent participation" },
+              { Activity: "Discipline", Grade: "A+", Remark: "Outstanding" },
+              { Activity: "Art & Craft", Grade: "A", Remark: "Very Good" },
+              { Activity: "Communication", Grade: "A", Remark: "Good" },
+            ],
+            totalMarks: 500,
+            marksObtained: 423,
+            percentage: "84.6%",
+            overallGrade: "A",
+            classRank: 6,
+            workingDays: 100,
+            daysPresent: 92,
+            daysAbsent: 8,
+            attendancePercentage: "92%",
+            attendanceBar: 92,
+            teacherRemark: "Excellent performance. Keep working consistently and participate more actively in classroom activities.",
+            promotionStatus: "PROMOTED",
+            nextClass: "Promoted to Class IX",
+          },
           fees: { amount: "₹24,000", paid: "₹18,000", due: "₹6,000", lines: [{ item: "Tuition fee", amount: "₹20,000" }, { item: "Activity fee", amount: "₹4,000" }] },
           document: {},
         },
@@ -276,10 +448,10 @@ function TemplateEditor({ template, studio, data, onClose, onSaved }: { template
   }
 
   return (
-    <Modal open title={`Design · ${draft.name}`} onClose={onClose} studio footer={
+    <Modal open title={`Design document · ${draft.name}`} onClose={onClose} studio footer={
       <View className="flex-row flex-wrap items-center justify-between gap-3">
         <Text className={`text-xs ${/could not|required|add /i.test(message) ? "text-red-700" : "text-green-800"}`}>{message}</Text>
-        <View className="flex-row gap-2"><Button variant="ghost" disabled={previewing} onPress={() => void preview()}>{previewing ? "Preparing…" : "Preview"}</Button><Button variant="ghost" disabled={saving} onPress={() => void save(false)}>Save draft</Button><Button disabled={saving} onPress={() => void save(true)}>Publish template</Button></View>
+        <View className="flex-row gap-2"><Button variant="ghost" disabled={previewing} onPress={() => void preview()}>{previewing ? "Preparing…" : "Preview"}</Button><Button variant="ghost" disabled={saving} onPress={() => void save(false)}>Save draft</Button>{canPublish ? <Button disabled={saving} onPress={() => void save(true)}>Publish template</Button> : null}</View>
       </View>
     }>
       <View className="flex-row items-start gap-4">
@@ -402,26 +574,47 @@ export function DocumentStudio({ studio, data }: { studio: Studio; data: RecordP
   }
 
   return (
-    <View className="gap-4">
+    <View className="gap-5">
       <View className="flex-row flex-wrap items-start justify-between gap-4">
-        <View className="max-w-2xl"><Text className="text-lg font-semibold text-ink-900">Document templates</Text><Text className="mt-1 text-sm leading-5 text-ink-700">Design once here. Generate from Students, Exams, Fees, or Employees using the active version.</Text></View>
-        <View className="w-64"><Segmented value={view} options={[{ id: "templates", label: "Templates" }, { id: "issued", label: `Issued · ${studio.issued.length}` }]} onChange={setView} /></View>
+        <View className="max-w-2xl">
+          <Text className="text-[11px] font-bold uppercase tracking-[0.16em] text-indigo-600">Document Studio</Text>
+          <Text className="mt-1 text-2xl font-bold tracking-tight text-ink-900">Design documents</Text>
+          <Text className="mt-1.5 text-sm leading-6 text-ink-700">Visual PDF and print layouts for IDs, report cards, invoices, and certificates. Fee amounts stay in Fees → Configure fees. WhatsApp campaigns stay in Communication.</Text>
+        </View>
+        <View className="w-72"><Segmented value={view} options={[{ id: "templates", label: "Library" }, { id: "issued", label: `Issued · ${studio.issued.length}` }]} onChange={setView} /></View>
       </View>
-      {!desktop ? <View className="rounded-lg border border-blue-200 bg-blue-50 p-4"><Text className="font-semibold text-blue-900">Design templates on a laptop</Text><Text className="mt-1 text-xs leading-5 text-blue-900">On this device you can select active templates, issue documents, preview, download, print, and share.</Text></View> : null}
+      {!desktop ? <View className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4"><Text className="font-semibold text-indigo-950">Design documents on a laptop</Text><Text className="mt-1 text-xs leading-5 text-indigo-900">On this device you can issue, preview, download, print, and share. Full canvas editing is for larger screens.</Text></View> : null}
       {message ? <Text className="text-sm text-ink-700">{message}</Text> : null}
 
       {view === "templates" ? (
         <>
-          <View className="flex-row flex-wrap items-center gap-2"><Pressable onPress={() => setCategory("ALL")} className={`rounded-full border px-3 py-1.5 ${category === "ALL" ? "border-clay-500 bg-clay-500" : "border-ink-200 bg-white"}`}><Text className={`text-xs ${category === "ALL" ? "text-white" : "text-ink-800"}`}>All · {allTemplates.length}</Text></Pressable>{studio.categories.map((row) => <Pressable key={row.id} onPress={() => setCategory(row.id)} className={`rounded-full border px-3 py-1.5 ${category === row.id ? "border-clay-500 bg-clay-500" : "border-ink-200 bg-white"}`}><Text className={`text-xs ${category === row.id ? "text-white" : "text-ink-800"}`}>{row.label}</Text></Pressable>)}</View>
+          <View className="flex-row flex-wrap items-center gap-2">
+            <Pressable onPress={() => setCategory("ALL")} className={`rounded-full border px-3.5 py-1.5 ${category === "ALL" ? "border-indigo-600 bg-indigo-600" : "border-ink-200 bg-white"}`}>
+              <Text className={`text-xs font-semibold ${category === "ALL" ? "text-white" : "text-ink-800"}`}>All · {allTemplates.length}</Text>
+            </Pressable>
+            {studio.categories.map((row) => (
+              <Pressable key={row.id} onPress={() => setCategory(row.id)} className={`rounded-full border px-3.5 py-1.5 ${category === row.id ? "border-indigo-600 bg-indigo-600" : "border-ink-200 bg-white"}`}>
+                <Text className={`text-xs font-semibold ${category === row.id ? "text-white" : "text-ink-800"}`}>{row.label}</Text>
+              </Pressable>
+            ))}
+          </View>
           <Input value={query} onChangeText={setQuery} placeholder="Search report card, receipt, certificate…" />
-          <View className="flex-row flex-wrap gap-3">
+          <View className="flex-row flex-wrap gap-4">
             {filtered.map((template) => {
               const type = studio.types.find((row) => row.id === template.type);
               return (
-              <View key={template.id} className="min-w-[280px] flex-1 rounded-lg border border-ink-200 bg-white p-4 md:max-w-[48%]">
-                  <View className="flex-row items-start gap-3"><View className="h-16 w-12 items-center justify-center rounded border border-ink-200 bg-ink-50"><Ionicons name={template.pageSize === "CR80" ? "card-outline" : "document-text-outline"} size={24} color="#3d4f66" /></View><View className="min-w-0 flex-1"><View className="flex-row flex-wrap items-center gap-2"><Text className="font-semibold text-ink-900">{template.name}</Text><Badge tone={template.status === "ACTIVE" ? "leaf" : template.builtIn ? "clay" : "ink"}>{template.status === "ACTIVE" ? `Active · v${template.activeVersion}` : template.builtIn ? "Default" : template.status}</Badge></View><Text className="mt-1 text-xs leading-4 text-ink-700">{type?.hint || template.description}</Text><Text className="mt-2 text-[11px] text-ink-700">{template.pageSize} · {template.orientation.toLowerCase()} · {template.layout.elements.length} elements</Text></View></View>
-                  <View className="mt-4 flex-row flex-wrap gap-2">{desktop && design ? <Button variant="ghost" onPress={() => setEditor(template)}>{template.builtIn ? "Customize" : "Edit"}</Button> : null}{template.status === "ACTIVE" && issueAllowed ? <Button onPress={() => setIssue(template)}>Issue</Button> : null}{!template.builtIn && publish ? <Button variant="danger" onPress={() => void archive(template)}>Archive</Button> : null}</View>
-                </View>
+                <TemplateGalleryCard
+                  key={template.id}
+                  template={template}
+                  hint={type?.hint || template.description}
+                  desktop={desktop}
+                  design={design}
+                  publish={publish}
+                  issueAllowed={issueAllowed}
+                  onEdit={() => setEditor(template)}
+                  onIssue={() => setIssue(template)}
+                  onArchive={() => void archive(template)}
+                />
               );
             })}
           </View>
@@ -466,9 +659,10 @@ function issuableTemplates(studio: RecordPayload["documentStudio"] | undefined, 
       updatedAt: null,
       layout: { elements: [] },
     }));
-  return [...active, ...defaults, ...missing].sort(
-    (a, b) => Number(b.type === "REPORT_CARD") - Number(a.type === "REPORT_CARD") || a.name.localeCompare(b.name)
-  );
+  return [...active, ...defaults, ...missing].sort((a, b) => {
+    const rank = (type: string) => type === "REPORT_CARD" ? 2 : type.startsWith("REPORT_CARD") ? 1 : 0;
+    return rank(b.type) - rank(a.type) || a.name.localeCompare(b.name);
+  });
 }
 
 export function QuickDocumentButton({
@@ -480,6 +674,7 @@ export function QuickDocumentButton({
   label = "Documents",
   extraData,
   batchSubjects,
+  resultIssue = false,
 }: {
   data: RecordPayload;
   subjectType: string;
@@ -489,6 +684,7 @@ export function QuickDocumentButton({
   label?: string;
   extraData?: Record<string, unknown>;
   batchSubjects?: { subjectType: string; subjectId: string; subjectLabel: string; data?: Record<string, unknown> }[];
+  resultIssue?: boolean;
 }) {
   const { token, user } = useSession();
   const { reload } = useRecord();
@@ -500,8 +696,20 @@ export function QuickDocumentButton({
   const [message, setMessage] = useState("");
   const [blocked, setBlocked] = useState<BlockedDocumentStudent[]>([]);
   const [blockIfPendingMonths, setBlockIfPendingMonths] = useState("");
+  const [requirePaidMonths, setRequirePaidMonths] = useState(
+    String((data.school?.policy?.reportCardPaidMonths ?? 0) > 0 ? data.school?.policy?.reportCardPaidMonths : "1")
+  );
   const selectedTemplate = templates.find((row) => row.id === templateId) || templates[0];
-  const feeGate = selectedTemplate?.type === "ADMIT_CARD";
+  const feeGate = !resultIssue && selectedTemplate?.type === "ADMIT_CARD";
+  const reportGate = Boolean(
+    resultIssue ||
+      (selectedTemplate?.type &&
+        (selectedTemplate.type === "GRADE_SHEET" ||
+          selectedTemplate.type === "CONSOLIDATED_REPORT" ||
+          selectedTemplate.type === "PROGRESS_REPORT" ||
+          selectedTemplate.type === "REPORT_CARD" ||
+          selectedTemplate.type.startsWith("REPORT_CARD_")))
+  );
   useEffect(() => {
     if (!open) return;
     const preferred = templates.find((row) => row.type === "REPORT_CARD") || templates[0];
@@ -521,7 +729,8 @@ export function QuickDocumentButton({
       if (batchSubjects?.length) {
         const result = await act<{ ok: true; combinedUrl: string; issued: unknown[]; blocked: BlockedDocumentStudent[] }>(token, "issueDocumentBatch", {
           templateId: template.id,
-          blockIfPendingMonths: Number(blockIfPendingMonths) || 0,
+          blockIfPendingMonths: feeGate ? Number(blockIfPendingMonths) || 0 : 0,
+          requirePaidMonths: reportGate ? Number(requirePaidMonths) || 0 : 0,
           subjects: batchSubjects.map((row) => {
             const batchStudent = data.people?.find((person) => person.id === row.subjectId);
             const batchEmployee = data.staff?.find((person) => person.id === row.subjectId);
@@ -535,7 +744,13 @@ export function QuickDocumentButton({
         });
         await reload();
         setBlocked(result.blocked || []);
-        if (result.blocked?.length) setMessage(`${result.issued.length} issued. ${result.blocked.length} blocked because pending fee months were ≥ ${Number(blockIfPendingMonths) || 0}.`);
+        if (result.blocked?.length) {
+          setMessage(
+            reportGate
+              ? `${result.issued.length} report cards sent. ${result.blocked.length} parents skipped — paid fee months below ${Number(requirePaidMonths) || 0}.`
+              : `${result.issued.length} issued. ${result.blocked.length} blocked because pending fee months were ≥ ${Number(blockIfPendingMonths) || 0}.`
+          );
+        }
         if (!result.blocked?.length) setOpen(false);
         if (result.combinedUrl) await Linking.openURL(result.combinedUrl);
         return;
@@ -570,10 +785,31 @@ export function QuickDocumentButton({
   return (
     <>
       <Button variant="ghost" onPress={() => setOpen(true)}>{label}</Button>
-      <Modal open={open} title={`Issue for ${subjectLabel}`} onClose={() => setOpen(false)} footer={<View className="items-end"><Button disabled={pending || !templates.length} onPress={() => void issue()}>{pending ? "Issuing…" : "Issue and open"}</Button></View>}>
+      <Modal open={open} title={resultIssue ? `Issue results for ${subjectLabel}` : `Issue for ${subjectLabel}`} onClose={() => setOpen(false)} footer={<View className="items-end"><Button disabled={pending || !templates.length} onPress={() => void issue()}>{pending ? "Issuing…" : "Issue and open"}</Button></View>}>
         <View className="gap-4">
-          {batchSubjects?.length ? <View className="rounded-md border border-blue-200 bg-blue-50 p-3"><Text className="text-sm font-semibold text-blue-900">Class batch · {batchSubjects.length} students</Text><Text className="mt-1 text-xs leading-5 text-blue-900">Anekio will create one immutable issue record per eligible student and open one combined printable file.</Text></View> : null}
-          {templates.length ? (
+          {batchSubjects?.length ? (
+            <View className="rounded-md border border-blue-200 bg-blue-50 p-3">
+              <Text className="text-sm font-semibold text-blue-900">Class batch · {batchSubjects.length} students</Text>
+              <Text className="mt-1 text-xs leading-5 text-blue-900">
+                {resultIssue || reportGate
+                  ? "This sends the sitting report card only. Set the paid-months rule below. Parents below that number are skipped and notified."
+                  : "Anekio will create one immutable issue record per eligible student and open one combined printable file."}
+              </Text>
+            </View>
+          ) : null}
+          {resultIssue ? (
+            templates.length ? (
+              <View className="rounded-md border border-ink-200 bg-white px-3 py-2.5">
+                <Text className="text-sm font-semibold text-ink-900">Report card</Text>
+                <Text className="mt-0.5 text-xs text-ink-700">Sitting results for this class</Text>
+              </View>
+            ) : (
+              <View className="rounded-md border border-amber-300 bg-amber-50 p-3">
+                <Text className="text-sm font-semibold text-amber-900">No report card template</Text>
+                <Text className="mt-1 text-xs leading-5 text-amber-900">Add a Report card type in Settings → Documents, then issue results here.</Text>
+              </View>
+            )
+          ) : templates.length ? (
             <View className="gap-2">
               <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">Template</Text>
               {templates.map((row) => {
@@ -596,6 +832,11 @@ export function QuickDocumentButton({
               <Text className="mt-1 text-xs leading-5 text-amber-900">Add a document type in Settings → Documents, then issue it here.</Text>
             </View>
           )}
+          {batchSubjects?.length && reportGate ? (
+            <Field label="Send only if paid months ≥" hint="Example: 3 means only parents whose child has paid at least 3 fee months get this report card. Enter 0 to send to everyone.">
+              <Input keyboardType="number-pad" value={requirePaidMonths} onChangeText={setRequirePaidMonths} placeholder="3" />
+            </Field>
+          ) : null}
           {batchSubjects?.length && feeGate ? (
             <Field label="Block if pending months ≥" hint="Example: 2 means students with 2 or more unpaid fee months will not get this document. Clear or enter 0 to issue everyone.">
               <Input keyboardType="number-pad" value={blockIfPendingMonths} onChangeText={setBlockIfPendingMonths} placeholder="2" />
@@ -614,13 +855,13 @@ export function QuickDocumentButton({
               <View className="mt-3 gap-2">
                 {blocked.slice(0, 8).map((row) => {
                   const phone = cleanPhone(row.parentPhone);
-                  const whatsAppUrl = phone ? `https://wa.me/${phone.replace(/^\+/, "")}?text=${encodeURIComponent(feeBlockMessage(row))}` : "";
+                  const whatsAppUrl = phone ? `https://wa.me/${phone.replace(/^\+/, "")}?text=${encodeURIComponent(feeBlockMessage(row, reportGate))}` : "";
                   return (
                     <View key={row.subjectId} className="rounded-md border border-red-100 bg-white p-3">
                       <View className="flex-row items-start justify-between gap-3">
                         <View className="flex-1">
                           <Text className="text-sm font-semibold text-ink-900">{row.subjectLabel || row.error}</Text>
-                          <Text className="mt-0.5 text-xs text-red-800">{row.pendingMonths ? `${row.pendingMonths} pending fee month${row.pendingMonths === 1 ? "" : "s"}` : row.error}</Text>
+                          <Text className="mt-0.5 text-xs text-red-800">{row.error}</Text>
                           {row.parentName || row.parentPhone ? <Text className="mt-1 text-xs text-ink-600">{[row.parentName, row.parentPhone].filter(Boolean).join(" · ")}</Text> : null}
                           {row.noticeSent ? <Text className="mt-1 text-xs font-medium text-green-700">Parent notification sent</Text> : null}
                         </View>

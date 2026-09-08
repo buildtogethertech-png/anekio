@@ -4,6 +4,7 @@ export type GradePolicy = {
   bands: GradeBand[];
   passPercent: number;
   showRank: boolean;
+  reportCardPaidMonths?: number;
 };
 
 export type ExamPlanItem = {

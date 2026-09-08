@@ -38,6 +38,7 @@ import {
   ExamReturnNote,
   ExamSkeleton,
   ExamStatusPill,
+  ExamTeacherMention,
   ExamTimeline,
 } from "./exam-office-chrome";
 
@@ -434,10 +435,11 @@ export function ExamsBoard() {
         subjectLabel={`${series.name} · ${classLabel}`}
         allowedTypes={
           allPublished
-            ? ["REPORT_CARD", "ADMIT_CARD", "EXAM_DATE_SHEET", "SEATING_PLAN", "DESK_SLIP", "INVIGILATOR_DUTY", "GRADE_SHEET", "RESULT_SUMMARY"]
+            ? ["REPORT_CARD"]
             : ["ADMIT_CARD", "EXAM_DATE_SHEET", "SEATING_PLAN", "DESK_SLIP", "INVIGILATOR_DUTY", "SUBJECT_MARKSHEET"]
         }
         label={allPublished ? "Report card" : "Generate documents"}
+        resultIssue={allPublished}
         batchSubjects={(data.people || [])
           .filter((student) => student.classLabel === classLabel)
           .map((student) => ({
@@ -826,14 +828,36 @@ export function ExamsBoard() {
                         {published ? "Visible to parents" : "Hidden from parents"}
                       </Text>
                     </View>
-                    <View className="flex-row items-center gap-2">
+                    <View className="flex-row flex-wrap items-center gap-2">
                       <Text className="text-[12px] text-ink-800">Results</Text>
-                      <View className={`h-5 w-9 justify-center rounded-full ${resultsPublished ? "bg-[#10B981]" : "bg-ink-200"}`}>
-                        <View className={`h-4 w-4 rounded-full bg-white ${resultsPublished ? "ml-4" : "ml-0.5"}`} />
-                      </View>
+                      <Pressable
+                        accessibilityRole="switch"
+                        accessibilityLabel="Publish results to parents"
+                        accessibilityState={{ checked: allPublished, disabled: allPublished || Boolean(pending) }}
+                        disabled={Boolean(pending) || allPublished || !canPublish}
+                        onPress={() => {
+                          if (allApproved) {
+                            setPublishOpen(true);
+                            return;
+                          }
+                          toast.show("Approve every paper first, then publish so parents can see the report card.");
+                        }}
+                        className={`anekio-switch h-5 w-9 justify-center rounded-full ${allPublished ? "bg-[#10B981]" : "bg-ink-200"}`}
+                      >
+                        <View className={`anekio-switch-knob h-4 w-4 rounded-full bg-white ${allPublished ? "ml-4" : "ml-0.5"}`} />
+                      </Pressable>
                       <Text className="text-[11px] text-ink-700">
-                        {resultsPublished ? "Published to parents" : "Not published"}
+                        {allPublished
+                          ? "Visible to parents"
+                          : resultsPublished
+                            ? "Some papers published · full report waits"
+                            : "Hidden from parents"}
                       </Text>
+                      {canPublish && allApproved && !allPublished ? (
+                        <ExamAction busy={pending === "publishExamResults"} onPress={() => setPublishOpen(true)}>
+                          Publish to parents
+                        </ExamAction>
+                      ) : null}
                     </View>
                   </View>
                 </View>
@@ -877,6 +901,7 @@ export function ExamsBoard() {
                         studentCount,
                       });
                       const teacherName = teachers.find((t) => t.id === exam.teacherId)?.name || exam.teacherName || "—";
+                      const extraTeachers = (exam.evaluators || []).filter((person) => person.id !== exam.teacherId);
                       const selectedRow = detailExamId === exam.id;
                       const action = officePaperAction(exam.workflowStatus, marksGranted(exam));
                       return (
@@ -899,12 +924,24 @@ export function ExamsBoard() {
                           {compact ? null : (
                             <>
                               <Text className="w-[92px] text-[12px] text-ink-700">{prettyDay(exam.date)}</Text>
-                              <View className="min-w-0 flex-1 flex-row items-center gap-2">
+                              <Pressable
+                                accessibilityRole="button"
+                                accessibilityLabel={`Teachers for ${exam.subject.name}`}
+                                onPress={(e) => {
+                                  e.stopPropagation?.();
+                                  setDrawerTab("overview");
+                                  setDetailExamId(exam.id);
+                                }}
+                                className="min-w-0 flex-1 flex-row items-center gap-2"
+                              >
                                 <View className="h-7 w-7 items-center justify-center rounded-full bg-[#EEF4FF]">
                                   <Text className="text-[9px] font-semibold text-clay-500">{initials(teacherName)}</Text>
                                 </View>
-                                <Text className="min-w-0 flex-1 text-[12px] text-ink-800" numberOfLines={1}>{teacherName}</Text>
-                              </View>
+                                <Text className="min-w-0 flex-1 text-[12px] text-ink-800" numberOfLines={1}>
+                                  {teacherName}
+                                  {extraTeachers.length ? ` +${extraTeachers.length}` : ""}
+                                </Text>
+                              </Pressable>
                               <View className="w-[72px]">
                                 <ExamPaperDots
                                   paper={dots.paper}
@@ -1085,70 +1122,54 @@ export function ExamsBoard() {
                     <Text className="mt-1 text-sm text-ink-900">{detailExam.maxMarks}</Text>
                   </View>
                 </View>
-                <View className="gap-2">
-                  <Text className="text-[10px] font-semibold uppercase tracking-wide text-ink-700">Teacher</Text>
-                    <View className="flex-row items-center gap-2">
-                      {(() => {
-                        const teacherName =
-                          teachers.find((teacher) => teacher.id === detailExam.teacherId)?.name ||
-                          detailExam.teacherName ||
-                          "—";
-                        return (
-                          <>
-                            <View className="h-8 w-8 items-center justify-center rounded-full bg-[#EEF4FF]">
-                              <Text className="text-[10px] font-semibold text-clay-500">{initials(teacherName)}</Text>
-                            </View>
-                            <View>
-                              <Text className="text-[13px] font-medium text-ink-900">{teacherName}</Text>
-                              <Text className="text-[11px] text-ink-500">Subject Teacher</Text>
-                            </View>
-                          </>
-                        );
-                      })()}
-                    </View>
-                </View>
-                <View className="gap-2">
-                  <Text className="text-[10px] font-semibold uppercase tracking-wide text-ink-700">Marks entry</Text>
-                  <Text className="text-sm text-ink-900">
-                    {marksGranted(detailExam) ? "✓ Enabled" : "⚠ Marks entry not enabled"}
-                  </Text>
-                  {(detailExam.evaluators || []).map((person) => (
-                    <View key={person.id} className="flex-row items-center justify-between">
-                      <Text className="text-sm text-ink-800">{person.name}</Text>
-                      {canRun && detailExam.workflowStatus !== "PUBLISHED" ? (
-                        <Pressable
-                          onPress={() =>
-                            void run(
-                              "grantExamMarks",
-                              { examId: detailExam.id, teacherId: person.id, remove: true },
-                              "Marks entry removed",
-                            )
-                          }
-                        >
-                          <Text className="text-xs text-ink-700">Remove</Text>
-                        </Pressable>
-                      ) : null}
-                    </View>
-                  ))}
-                  {canRun &&
-                  detailExam.workflowStatus !== "PUBLISHED" &&
-                  detailExam.teacherId &&
-                  !(detailExam.evaluators || []).some((person) => person.id === detailExam.teacherId) ? (
-                    <ExamAction
-                      className="w-full"
+                {(() => {
+                  const granted = detailExam.evaluators || [];
+                  const subjectTeacherId = klass?.subjects?.find(
+                    (subject) => subject.name === detailExam.subject.name,
+                  )?.teacherId;
+                  const eligibleIds = new Set(
+                    (detailExam.eligibleTeacherIds?.length
+                      ? detailExam.eligibleTeacherIds
+                      : [detailExam.teacherId, subjectTeacherId]
+                    ).filter(Boolean) as string[],
+                  );
+                  const people = teachers
+                    .filter((teacher) => eligibleIds.has(teacher.id))
+                    .map((teacher) => ({ id: teacher.id, name: teacher.name }));
+                  if (
+                    detailExam.teacherId &&
+                    !people.some((person) => person.id === detailExam.teacherId)
+                  ) {
+                    people.unshift({
+                      id: detailExam.teacherId,
+                      name: detailExam.teacherName || "Subject teacher",
+                    });
+                  }
+                  return (
+                    <ExamTeacherMention
+                      subject={detailExam.subject.name}
+                      people={people}
+                      granted={granted}
+                      primaryId={detailExam.teacherId}
+                      canEdit={canRun && detailExam.workflowStatus !== "PUBLISHED"}
                       busy={pending === "grantExamMarks"}
-                      onPress={() =>
+                      onGrant={(teacherId) =>
                         void run(
                           "grantExamMarks",
-                          { examId: detailExam.id, teacherId: detailExam.teacherId },
-                          "Subject teacher can enter marks",
+                          { examId: detailExam.id, teacherId },
+                          "Marks entry granted",
                         )
                       }
-                    >
-                      Allow marks entry
-                    </ExamAction>
-                  ) : null}
-                </View>
+                      onRemove={(teacherId) =>
+                        void run(
+                          "grantExamMarks",
+                          { examId: detailExam.id, teacherId, remove: true },
+                          "Marks entry removed",
+                        )
+                      }
+                    />
+                  );
+                })()}
                 <View className="gap-2">
                   <Text className="text-[10px] font-semibold uppercase tracking-wide text-ink-700">Exam progress</Text>
                   <ExamTimeline
@@ -1156,11 +1177,14 @@ export function ExamsBoard() {
                     paperHint={detailExam.paperAt ? `Uploaded on ${prettyDay(detailExam.paperAt)}` : undefined}
                     scheduled={Boolean(detailExam.date)}
                     scheduledHint={prettyFull(detailExam.date)}
-                    conducted={
-                      Boolean(detailExam.conductedAt) ||
-                      Boolean(detailExam.workflowStatus && detailExam.workflowStatus !== "SCHEDULED")
-                    }
+                    conducted={Boolean(detailExam.conductedAt)}
                     conductedHint={detailExam.conductedAt ? prettyDay(detailExam.conductedAt) : undefined}
+                    marksGranted={marksGranted(detailExam)}
+                    marksGrantedHint={
+                      marksGranted(detailExam)
+                        ? `${(detailExam.evaluators || []).length || 1} teacher${(detailExam.evaluators || []).length === 1 ? "" : "s"} can enter marks`
+                        : "Office must allow marks entry"
+                    }
                     marksDone={(detailExam.entered ?? 0) >= studentCount && studentCount > 0}
                     marksHint={`${detailExam.entered ?? 0}/${studentCount} entered`}
                     submitted={["SUBMITTED", "UNDER_REVIEW", "RESUBMITTED", "APPROVED", "PUBLISHED"].includes(
@@ -1168,7 +1192,13 @@ export function ExamsBoard() {
                     )}
                     approved={detailExam.workflowStatus === "APPROVED" || detailExam.workflowStatus === "PUBLISHED"}
                     published={detailExam.workflowStatus === "PUBLISHED"}
-                    publishedHint={allPublished ? "Visible to parents" : undefined}
+                    publishedHint={
+                      detailExam.workflowStatus === "PUBLISHED"
+                        ? allPublished
+                          ? "Report card visible to fee-cleared parents"
+                          : "This paper is published. The full report card waits until every subject is published."
+                        : undefined
+                    }
                   />
                 </View>
                 <View className="flex-row flex-wrap gap-2">

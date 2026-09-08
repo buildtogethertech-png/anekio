@@ -47,3 +47,15 @@ export const HIDDEN_TAB_SCREENS = [
 export function pathForNav(key: string) {
   return PORTAL_PATH[key] || "/";
 }
+
+/** Staff exams workspace vs family Examination. Parents use /tests, not /exams. */
+export function examsScreenForKind(kind: string) {
+  if (kind === "OFFICE") return "office" as const;
+  if (kind === "TEACHER") return "teacher" as const;
+  if (kind === "PARENT") return "denied" as const;
+  return "family-tests" as const;
+}
+
+export function testsScreenForKind(kind: string) {
+  return kind === "PARENT" ? ("parent-examination" as const) : ("family-tests" as const);
+}

@@ -926,17 +926,24 @@ function resolveWebDir() {
 }
 
 let webDir = resolveWebDir();
+function webRoot() {
+  return webDir || (webDir = resolveWebDir()) || "";
+}
 function sendAppShell(_req: express.Request, res: express.Response, next: express.NextFunction) {
-  const dir = webDir || (webDir = resolveWebDir());
+  const dir = webRoot();
   if (!dir) return next();
+  res.setHeader("Cache-Control", "no-store");
   res.sendFile(path.join(dir, "index.html"));
 }
+app.use((req, res, next) => {
+  const dir = webRoot();
+  if (!dir) return next();
+  express.static(dir)(req, res, next);
+});
 app.get(["/", ...appShellRoutes], sendAppShell);
-if (webDir) {
-  app.use(express.static(webDir));
-}
 app.use((req, res, next) => {
   if (req.method !== "GET" && req.method !== "HEAD") return next();
+  if (path.extname(req.path)) return next();
   if (
     req.path.startsWith("/api") ||
     req.path.startsWith("/pay") ||

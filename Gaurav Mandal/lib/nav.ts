@@ -36,9 +36,9 @@ const PARENT_NAV: NavItem[] = [
   { key: "inbox", href: "/parent/reports/inbox", label: "Inbox", group: "Reports", permission: "inbox.view" },
   { key: "notices", href: "/parent/reports/notices", label: "Notices", group: "Reports", permission: "children.view" },
   { key: "attendance", href: "/parent/reports/attendance", label: "Attendance", group: "Reports", permission: "children.view" },
-  { key: "tests", href: "/parent/reports/tests", label: "Examination", group: "Reports", permission: "children.view" },
   { key: "timetable", href: "/parent/reports/timetable", label: "Timetable", group: "Reports", permission: "children.view" },
   { key: "fees", href: "/parent/reports/fees", label: "Fees", group: "Reports", permission: "fees.pay" },
+  { key: "tests", href: "/parent/reports/tests", label: "Examination", group: "Reports", permission: "children.view" },
   { key: "profile", href: "/parent/reports/profile", label: "Profile", group: "Reports", permission: "children.view" },
 ];
 

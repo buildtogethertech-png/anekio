@@ -2,7 +2,6 @@ import { Redirect, Slot, Tabs, useRouter } from "expo-router";
 import { ActivityIndicator, Pressable, Text, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { AppSearch } from "../../components/app-search";
 import { AppTabBar } from "../../components/app-tab-bar";
 import { NavMenu } from "../../components/nav-menu";
 import { NoticeBell } from "../../components/notice-bell";
@@ -24,14 +23,19 @@ function ProfileChip() {
       accessibilityRole="button"
       accessibilityLabel="Profile"
       onPress={() => router.push("/profile" as never)}
-      className="h-10 flex-row items-center gap-2 rounded-full px-1.5"
+      className="min-h-10 flex-row items-center gap-2 rounded-full px-1.5 py-1"
     >
       <View className="h-8 w-8 items-center justify-center rounded-full bg-[#EEF4FF]">
         <Text className="text-[11px] font-semibold text-clay-500">{initials || "A"}</Text>
       </View>
-      <Text className="text-[13px] font-medium text-ink-900" numberOfLines={1}>
-        {name}
-      </Text>
+      <View className="min-w-0">
+        <Text className="text-[13px] font-medium text-ink-900" numberOfLines={1}>
+          {name}
+        </Text>
+        <Text className="text-[11px] text-ink-500">
+          {user?.portal === "TEACHER" ? "Teacher" : user?.portal === "OFFICE" ? "Office" : user?.portal === "PARENT" ? "Parent" : "Student"}
+        </Text>
+      </View>
       <Ionicons name="chevron-down" size={14} color="#94A3B8" />
     </Pressable>
   );
@@ -48,7 +52,7 @@ function Sidebar() {
           ? "Office"
           : "Student";
   return (
-    <SafeAreaView className="h-full min-h-0 w-[232px] shrink-0 overflow-hidden border-r border-ink-200 bg-white">
+    <SafeAreaView className="h-full min-h-0 w-[244px] shrink-0 overflow-hidden border-r border-ink-200 bg-white">
       <View className="flex-row items-center gap-2.5 px-4 pb-3 pt-5">
         <View className="h-8 w-8 items-center justify-center rounded-xl bg-[#EEF2FF]">
           <Text className="text-sm font-semibold text-clay-500">A</Text>
@@ -83,11 +87,10 @@ export default function AppLayout() {
   if (wide) {
     return (
       <RecordProvider>
-        <View className="min-h-0 flex-1 flex-row overflow-hidden bg-ink-50">
+        <View className="min-h-0 flex-1 flex-row overflow-hidden bg-[#F7F9FC]">
           <Sidebar />
           <View className="min-h-0 flex-1 overflow-hidden">
-            <View className="h-14 shrink-0 flex-row items-center gap-3 border-b border-ink-200 bg-white px-5">
-              <AppSearch />
+            <View className="h-14 shrink-0 flex-row items-center justify-end gap-2 border-b border-ink-200 bg-white px-5">
               <NoticeBell />
               <ProfileChip />
             </View>

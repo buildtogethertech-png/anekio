@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import {
   Modal as RnModal,
   Platform,
@@ -14,6 +14,8 @@ import {
   officePaperLabel,
   officePaperPulse,
   officePaperTone,
+  officeExamTimeline,
+  filterMentionTeachers,
 } from "../lib/exam-workflow";
 import { Button, CloseButton, Input } from "./ui";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -215,8 +217,8 @@ export function ExamPaperDots({
               ? correction && i === 3
                 ? "bg-amber-500"
                 : "bg-[#10B981]"
-              : i === current
-                ? "bg-clay-500"
+              : i === current && current >= 0
+                ? "border-2 border-[#10B981] bg-white"
                 : "bg-ink-200"
           }`}
         />
@@ -436,7 +438,108 @@ export function ExamReturnNote({
   );
 }
 
-type TimelineKind = "done" | "now" | "wait";
+export function ExamTeacherMention({
+  subject,
+  people,
+  granted,
+  primaryId,
+  canEdit,
+  busy,
+  onGrant,
+  onRemove,
+}: {
+  subject: string;
+  people: { id: string; name: string }[];
+  granted: { id: string; name: string }[];
+  primaryId?: string | null;
+  canEdit: boolean;
+  busy?: boolean;
+  onGrant: (teacherId: string) => void;
+  onRemove: (teacherId: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const matches = useMemo(
+    () => filterMentionTeachers(query, people, granted.map((person) => person.id)),
+    [granted, people, query]
+  );
+  return (
+    <View className="gap-2">
+      <Text className="text-[10px] font-semibold uppercase tracking-wide text-ink-700">Teachers</Text>
+      <Text className="text-[11px] text-ink-500">
+        Subject teacher plus other {subject} teachers who can enter marks.
+      </Text>
+      {granted.length ? (
+        <View className="flex-row flex-wrap gap-1.5">
+          {granted.map((person) => (
+            <View
+              key={person.id}
+              className="h-8 flex-row items-center rounded-full border border-ink-200 bg-white px-2.5"
+            >
+              <Text className="text-[12px] font-semibold text-clay-500">@{person.name}</Text>
+              {person.id === primaryId ? (
+                <Text className="ml-1 text-[10px] text-ink-500">primary</Text>
+              ) : (
+                <Text className="ml-1 text-[10px] text-ink-500">marks</Text>
+              )}
+              {canEdit ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove ${person.name}`}
+                  disabled={busy}
+                  onPress={() => onRemove(person.id)}
+                  className="ml-1"
+                >
+                  <Ionicons name="close" size={12} color="#64748B" />
+                </Pressable>
+              ) : null}
+            </View>
+          ))}
+        </View>
+      ) : (
+        <Text className="text-sm text-ink-700">No teacher has marks entry yet.</Text>
+      )}
+      {canEdit ? (
+        <View>
+          <Input
+            accessibilityLabel={`Add ${subject} teacher`}
+            value={query}
+            onChangeText={(value) => {
+              setQuery(value);
+              setOpen(true);
+            }}
+            onFocus={() => setOpen(true)}
+            placeholder={`@ Add a ${subject} teacher`}
+            editable={!busy}
+          />
+          {open && matches.length ? (
+            <View className="mt-1 overflow-hidden rounded-lg border border-ink-200 bg-white">
+              {matches.map((person) => (
+                <Pressable
+                  key={person.id}
+                  accessibilityRole="button"
+                  onPress={() => {
+                    onGrant(person.id);
+                    setQuery("");
+                    setOpen(false);
+                  }}
+                  className="flex-row items-center border-b border-ink-100 px-3 py-2.5 last:border-b-0"
+                >
+                  <Text className="text-[13px] font-semibold text-clay-500">@{person.name}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+          {open && query && !matches.length ? (
+            <Text className="mt-1 text-[11px] text-ink-500">
+              Only teachers of {subject} can be added. Assign them on Routine first.
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+    </View>
+  );
+}
 
 export function ExamTimeline({
   paper,
@@ -445,6 +548,8 @@ export function ExamTimeline({
   scheduledHint,
   conducted,
   conductedHint,
+  marksGranted,
+  marksGrantedHint,
   marksDone,
   marksHint,
   submitted,
@@ -460,6 +565,8 @@ export function ExamTimeline({
   scheduledHint?: string;
   conducted: boolean;
   conductedHint?: string;
+  marksGranted?: boolean;
+  marksGrantedHint?: string;
   marksDone: boolean;
   marksHint?: string;
   submitted: boolean;
@@ -469,54 +576,26 @@ export function ExamTimeline({
   published: boolean;
   publishedHint?: string;
 }) {
-  const hasSchedule = Boolean(scheduled);
-  const rows: { label: string; hint?: string; kind: TimelineKind }[] = [
-    { label: "Question paper", hint: paperHint, kind: paper ? "done" : "wait" },
-    {
-      label: "Exam scheduled",
-      hint: scheduledHint,
-      kind: hasSchedule ? "done" : "wait",
-    },
-    {
-      label: "Exam conducted",
-      hint: conductedHint,
-      kind: conducted ? "done" : hasSchedule ? "now" : "wait",
-    },
-    {
-      label: "Marks entered",
-      hint: marksHint,
-      kind: marksDone ? "done" : conducted ? "now" : "wait",
-    },
-    {
-      label: "Submitted to office",
-      hint: submittedHint,
-      kind:
-        submitted || approved || published
-          ? "done"
-          : marksDone
-            ? "now"
-            : "wait",
-    },
-    {
-      label: "Approved",
-      hint: approvedHint,
-      kind: approved || published ? "done" : submitted ? "now" : "wait",
-    },
-    {
-      label: "Published to parents",
-      hint: publishedHint,
-      kind: published ? "done" : approved ? "now" : "wait",
-    },
-  ];
-  if (!paper && hasSchedule) {
-    rows[0].kind = "now";
-  }
-  const current = rows.findIndex((row) => row.kind === "now");
-  const steps = rows.map((row, i) =>
-    row.kind === "wait" && current < 0 && i === 0
-      ? { ...row, kind: "now" as const }
-      : row,
-  );
+  const hints: Record<string, string | undefined> = {
+    scheduled: scheduledHint,
+    paper: paperHint,
+    conducted: conductedHint,
+    granted: marksGrantedHint,
+    marks: marksHint,
+    submitted: submittedHint,
+    approved: approvedHint,
+    published: publishedHint,
+  };
+  const steps = officeExamTimeline({
+    scheduled: Boolean(scheduled),
+    paper,
+    conducted,
+    marksGranted: Boolean(marksGranted),
+    marksDone,
+    submitted,
+    approved,
+    published,
+  }).map((row) => ({ ...row, hint: hints[row.key] }));
   return (
     <View>
       {steps.map((row, i) => (
@@ -527,7 +606,7 @@ export function ExamTimeline({
                 row.kind === "done"
                   ? "bg-[#10B981] anekio-check"
                   : row.kind === "now"
-                    ? "bg-clay-500 anekio-dot-pulse anekio-glow"
+                    ? "border-2 border-[#10B981] bg-white anekio-dot-pulse"
                     : "border border-ink-200 bg-white"
               }`}
             >

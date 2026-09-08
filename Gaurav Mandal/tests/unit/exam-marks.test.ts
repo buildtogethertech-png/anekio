@@ -83,7 +83,7 @@ describe("mark workflow visibility", () => {
 });
 
 describe("exam module scenarios (logic)", () => {
-  const policy = { bands: [{ min: 33, grade: "D" }, { min: 0, grade: "E" }], passPercent: 33, showRank: false };
+  const policy = { bands: [{ min: 33, grade: "D" }, { min: 0, grade: "E" }], passPercent: 33, showRank: false, reportCardPaidMonths: 0 };
 
   it("1–2. official plan is Unit Test 1, Term 1, Unit Test 2, Term 2", () => {
     expect(DEFAULT_EXAM_PLAN.map((row) => row.name)).toEqual([

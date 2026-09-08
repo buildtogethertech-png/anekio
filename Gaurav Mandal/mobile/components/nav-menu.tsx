@@ -14,6 +14,10 @@ const OFFICE_SIDEBAR_ORDER = new Map(
   ])
 );
 
+const PARENT_SIDEBAR_ORDER = new Map(
+  ["home", "inbox", "notices", "attendance", "timetable", "fees", "tests"].map((key, index) => [key, index])
+);
+
 function navLabel(portal: string | undefined, item: { key: string; label: string }) {
   if (portal === "OFFICE" && item.key === "school") return "Settings";
   if (portal === "OFFICE" && item.key === "roles") return "Roles & permissions";
@@ -28,9 +32,14 @@ export function NavMenu({ onNavigate }: { onNavigate?: () => void }) {
   const items = nav
     .filter((n) => n.key !== "profile" && n.key !== "uploads")
     .sort((a, b) => {
-      if (user?.portal !== "OFFICE") return 0;
-      return (OFFICE_SIDEBAR_ORDER.get(a.key) ?? Number.MAX_SAFE_INTEGER) -
-        (OFFICE_SIDEBAR_ORDER.get(b.key) ?? Number.MAX_SAFE_INTEGER);
+      const order =
+        user?.portal === "OFFICE"
+          ? OFFICE_SIDEBAR_ORDER
+          : user?.portal === "PARENT"
+            ? PARENT_SIDEBAR_ORDER
+            : null;
+      if (!order) return 0;
+      return (order.get(a.key) ?? Number.MAX_SAFE_INTEGER) - (order.get(b.key) ?? Number.MAX_SAFE_INTEGER);
     });
 
   function active(key: string) {

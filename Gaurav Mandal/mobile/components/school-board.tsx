@@ -23,10 +23,10 @@ const TABS = [
   { id: "leave", label: "Leave", hint: "Planned and sick. Who can use them, and how much notice.", group: "Teaching" },
   { id: "exams", label: "Exams", hint: "Grade scale and this year's sittings. Every class follows this.", group: "Teaching" },
   { id: "collect", label: "Collect", hint: "UPI, bank, gateway", group: "Money" },
-  { id: "documents", label: "Templates", hint: "Design, publish, issue, and verify every school document", group: "Documents" },
+  { id: "documents", label: "Document Studio", hint: "Design printable PDFs. Fee amounts stay in Fees. WhatsApp stays in Communication.", group: "Documents" },
   { id: "invoice", label: "Brand assets", hint: "Logo, authorised signatures, and stamps", group: "Documents" },
   { id: "website", label: "Admissions website", hint: "Public school page, enquiry form, and incoming leads", group: "Reach" },
-  { id: "communication", label: "Communication", hint: "School's own WhatsApp and email", group: "Reach" },
+  { id: "communication", label: "Communication", hint: "Configure campaign: AiSensy API key and campaign name. Message wording stays in Meta / AiSensy.", group: "Reach" },
 ] as const;
 
 type Tab = (typeof TABS)[number]["id"];
@@ -359,6 +359,7 @@ export function SchoolBoard() {
   const [bands, setBands] = useState(s?.policy?.bands?.length ? s.policy.bands : DEFAULT_GRADE_BANDS);
   const [passPercent, setPassPercent] = useState(String(s?.policy?.passPercent ?? 33));
   const [showRank, setShowRank] = useState(Boolean(s?.policy?.showRank));
+  const [reportCardPaidMonths, setReportCardPaidMonths] = useState(String(s?.policy?.reportCardPaidMonths ?? 0));
   const [uploadingAsset, setUploadingAsset] = useState("");
   const [savingYearPlan, setSavingYearPlan] = useState(false);
   const [plan, setPlan] = useState<ExamPlanDraft[]>(normalizeExamPlan(s?.plan));
@@ -387,6 +388,7 @@ export function SchoolBoard() {
     setBands(s.policy?.bands?.length ? s.policy.bands : DEFAULT_GRADE_BANDS);
     setPassPercent(String(s.policy?.passPercent ?? 33));
     setShowRank(Boolean(s.policy?.showRank));
+    setReportCardPaidMonths(String(s.policy?.reportCardPaidMonths ?? 0));
     setPlan(normalizeExamPlan(s.plan));
     setCalendarSessionId((current) => current || s.sessionId || "");
     if (data?.leaveTypes?.length) setLeaveTypes(normalizeLeaveTypes(data.leaveTypes));
@@ -1140,13 +1142,21 @@ export function SchoolBoard() {
                           <Text className="text-xs text-ink-700">%</Text>
                         </View>
                       </Field>
+                      <Field label="Report card if paid months ≥" hint="0 sends every family. 3 means only parents who have paid 3 fee months get the sitting report card.">
+                        <Input
+                          keyboardType="number-pad"
+                          value={reportCardPaidMonths}
+                          onChangeText={setReportCardPaidMonths}
+                          className="w-20"
+                        />
+                      </Field>
                       {examEdit ? (
                         <Button
                           variant="ghost"
                           onPress={() =>
                             run(
                               "saveGradePolicy",
-                              { passPercent: Number(passPercent), showRank, bands },
+                              { passPercent: Number(passPercent), showRank, bands, reportCardPaidMonths: Number(reportCardPaidMonths) || 0 },
                               "Grade scale saved."
                             )
                           }
@@ -1733,9 +1743,9 @@ export function SchoolBoard() {
             {tab === "communication" ? (
               <View className="mt-4 gap-6">
                 <View className="gap-3">
-                  <Text className="text-sm font-medium text-ink-900">WhatsApp</Text>
+                  <Text className="text-sm font-medium text-ink-900">Configure campaign</Text>
                   <Text className="text-sm text-ink-700">
-                    School's own AiSensy account. Anekio does not send from a shared number or buy credits.
+                    School's own AiSensy account. The message body is managed in Meta / AiSensy. Anekio only stores the API key and campaign name, then fills {"{{1}}"}–{"{{4}}"}.
                   </Text>
                   <Field label="School community / whole-school group">
                     <Input

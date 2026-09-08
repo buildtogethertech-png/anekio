@@ -24,12 +24,13 @@ import {
   FamilyTimetable,
   TeacherAttendanceBoard,
   TeacherDeskBoard,
-  TeacherExamsBoard,
   TeacherLeaveBoard,
 } from "./family-boards";
+import { TeacherExamsBoard } from "./teacher-exams-workspace";
 import { Button, Empty, PageHeader } from "./ui";
 import { MoreBoard } from "./nav-menu";
-import { PORTAL_PATH } from "../lib/paths";
+import { ParentExamination, ParentExaminationError, ParentExaminationLoading } from "./parent-examination";
+import { PORTAL_PATH, examsScreenForKind, testsScreenForKind } from "../lib/paths";
 import { useRecord } from "../lib/record";
 import { useSession } from "../lib/session";
 import { webOrigin } from "../lib/api";
@@ -64,11 +65,18 @@ function SubscriptionLocked({ lock }: { lock: NonNullable<ReturnType<typeof useR
 }
 
 export function PortalBody({ screen }: { screen: string }) {
-  const { data, error } = useRecord();
-  const { nav } = useSession();
+  const { data, error, reload } = useRecord();
+  const { nav, user } = useSession();
+  const parentTests = screen === "tests" && user?.portal === "PARENT";
 
-  if (error) return <Text className="text-sm text-red-700">{error}</Text>;
-  if (!data) return <Text className="text-sm text-ink-700">Loading…</Text>;
+  if (error) {
+    if (parentTests) return <ParentExaminationError message={error} onRetry={() => void reload()} />;
+    return <Text className="text-sm text-red-700">{error}</Text>;
+  }
+  if (!data) {
+    if (parentTests) return <ParentExaminationLoading />;
+    return <Text className="text-sm text-ink-700">Loading…</Text>;
+  }
   if (data.subscriptionLock) return <SubscriptionLocked lock={data.subscriptionLock} />;
   if (screen === "profile") return <FamilyProfile />;
 
@@ -105,8 +113,18 @@ export function PortalBody({ screen }: { screen: string }) {
     return <FamilyFees />;
   }
   if (screen === "exams") {
-    if (data.kind === "OFFICE") return <ExamsBoard />;
-    if (data.kind === "TEACHER") return <TeacherExamsBoard />;
+    const examsScreen = examsScreenForKind(data.kind);
+    if (examsScreen === "office") return <ExamsBoard />;
+    if (examsScreen === "teacher") {
+      return (
+        <View className="min-h-0 flex-1">
+          <TeacherExamsBoard />
+        </View>
+      );
+    }
+    if (examsScreen === "denied") {
+      return <Empty title="No access" body="This role cannot open this page." />;
+    }
     return <FamilyTests />;
   }
   if (screen === "roles") return <RolesBoard />;
@@ -129,7 +147,7 @@ export function PortalBody({ screen }: { screen: string }) {
     return <FamilyAttendance />;
   }
   if (screen === "subjects") return <FamilySubjects />;
-  if (screen === "tests") return <FamilyTests />;
+  if (screen === "tests") return testsScreenForKind(data.kind) === "parent-examination" ? <ParentExamination /> : <FamilyTests />;
   if (screen === "papers") return <FamilyPapers />;
   if (screen === "path") return <FamilyPath />;
   if (screen === "more") return <MoreBoard />;

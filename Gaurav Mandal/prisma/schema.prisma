@@ -626,6 +626,7 @@ model SchoolConfig {
   gradeBandsJson        String  @default("[{\"min\":91,\"grade\":\"A1\"},{\"min\":81,\"grade\":\"A2\"},{\"min\":71,\"grade\":\"B1\"},{\"min\":61,\"grade\":\"B2\"},{\"min\":51,\"grade\":\"C1\"},{\"min\":41,\"grade\":\"C2\"},{\"min\":33,\"grade\":\"D\"},{\"min\":0,\"grade\":\"E\"}]")
   passPercent           Int     @default(33)
   showRank              Boolean @default(false)
+  reportCardPaidMonths  Int     @default(0)
   whatsappCommunityUrl  String  @default("")
   subjectCatalog        String  @default("[\"English\",\"Mathematics\",\"Hindi\",\"Science\",\"Social Science\",\"Computer\"]")
   payrollJson           String  @default("{\"presentCredit\":1,\"absentCredit\":0,\"paidLeaveCredit\":1,\"unpaidLeaveCredit\":0,\"halfDayCredit\":0.5,\"lateCredit\":1}")

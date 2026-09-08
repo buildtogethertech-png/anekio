@@ -4,7 +4,7 @@ import { classifyStudent } from "./classify";
 import { addDays, gradePolicyFrom, paperSetterId, parseExamPlan, ymd } from "./exams";
 import { packedEvaluators, examEvaluatorIds, grantedEvaluatorIds } from "./exam-evaluators";
 import { teacherAssignedToPaper } from "./exam-marks";
-import { compareExamNearness, examWorkStepOrder, teacherMayEnterMarks, teacherMayTakeExam } from "./exam-workflow";
+import { compareExamNearness, eligibleMarksTeacherIds, examWorkStepOrder, teacherMayEnterMarks, teacherMayTakeExam } from "./exam-workflow";
 import { parseWeekdays, weekCapacity } from "./schedule";
 import { schoolFromConfig } from "./school";
 import { ensureSchoolSessions } from "./school-session";
@@ -125,9 +125,32 @@ export async function getPublishedSeries(classId: string) {
   });
 }
 
+export async function getClassExamSeries(classId: string) {
+  const { current } = await ensureSchoolSessions();
+  return prisma.examSeries.findMany({
+    where: { classId, sessionId: current.id },
+    include: {
+      session: { select: { label: true } },
+      exams: {
+        select: { date: true, workflowStatus: true, resultsPublishedAt: true },
+        orderBy: { date: "asc" },
+      },
+    },
+    orderBy: [{ createdAt: "asc" }],
+  });
+}
+
 export async function getUpcomingExams(classId: string) {
   return prisma.exam.findMany({
     where: { classId, date: { gte: startOfToday() } },
+    include: { subject: true, series: true, teacher: { include: { user: true } } },
+    orderBy: { date: "asc" },
+  });
+}
+
+export async function getClassExamPapers(classId: string) {
+  return prisma.exam.findMany({
+    where: { classId },
     include: { subject: true, series: true, teacher: { include: { user: true } } },
     orderBy: { date: "asc" },
   });
@@ -674,7 +697,7 @@ export async function getPeople() {
 }
 
 export async function getPeopleExamPack() {
-  const [config, series] = await Promise.all([
+  const [config, series, skills] = await Promise.all([
     prisma.schoolConfig.findUnique({ where: { id: "school" } }),
     prisma.examSeries.findMany({
       include: {
@@ -692,6 +715,7 @@ export async function getPeopleExamPack() {
       },
       orderBy: { createdAt: "desc" },
     }),
+    prisma.teacherSkill.findMany({ select: { teacherId: true, classId: true, subjectName: true } }),
   ]);
   const planBySession: Record<string, ReturnType<typeof parseExamPlan>> = {};
   for (const row of series) {
@@ -725,6 +749,13 @@ export async function getPeopleExamPack() {
         setterId: e.setterId,
         setterName: e.setter?.user.name || e.teacher?.user.name || "",
         evaluators: packedEvaluators(e),
+        eligibleTeacherIds: eligibleMarksTeacherIds({
+          examTeacherId: e.teacherId,
+          subjectTeacherId: e.subject.teacherId,
+          skillTeacherIds: skills
+            .filter((skill) => skill.classId === e.classId && skill.subjectName === e.subject.name)
+            .map((skill) => skill.teacherId),
+        }),
         subject: { id: e.subject.id, name: e.subject.name },
         workflowStatus: e.workflowStatus,
         correctionNote: e.correctionNote || "",

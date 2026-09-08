@@ -263,18 +263,76 @@ export function officePaperDots(exam: {
   entered?: number;
   studentCount?: number;
 }) {
-  const started = Boolean(exam.workflowStatus && exam.workflowStatus !== "SCHEDULED");
+  const status = exam.workflowStatus || "";
+  const reviewed =
+    status === "SUBMITTED" ||
+    status === "UNDER_REVIEW" ||
+    status === "RESUBMITTED" ||
+    status === "APPROVED" ||
+    status === "PUBLISHED";
+  const marked =
+    reviewed ||
+    status === "MARKS_DRAFT" ||
+    status === "CORRECTION_REQUIRED" ||
+    (exam.entered || 0) > 0;
+  const taken = marked || status === "IN_PROGRESS" || Boolean(exam.conductedAt);
+  const paperSet = taken || Boolean(exam.paperAt);
   return {
-    paper: Boolean(exam.paperAt),
-    exam: Boolean(exam.conductedAt) || started,
-    marks: (exam.entered || 0) > 0 || exam.workflowStatus === "MARKS_DRAFT" || started,
-    review:
-      exam.workflowStatus === "SUBMITTED" ||
-      exam.workflowStatus === "UNDER_REVIEW" ||
-      exam.workflowStatus === "RESUBMITTED" ||
-      exam.workflowStatus === "APPROVED" ||
-      exam.workflowStatus === "PUBLISHED",
+    paper: paperSet,
+    exam: taken,
+    marks: marked,
+    review: reviewed,
   };
+}
+
+export function officeExamTimeline(flags: {
+  scheduled: boolean;
+  paper: boolean;
+  conducted: boolean;
+  marksGranted: boolean;
+  marksDone: boolean;
+  submitted: boolean;
+  approved: boolean;
+  published: boolean;
+}) {
+  const items = [
+    { key: "scheduled", label: "Exam scheduled", done: flags.scheduled },
+    { key: "paper", label: "Question paper", done: flags.paper },
+    { key: "conducted", label: "Exam conducted", done: flags.conducted },
+    { key: "granted", label: "Marks entry allowed", done: flags.marksGranted },
+    { key: "marks", label: "Marks entered", done: flags.marksDone },
+    { key: "submitted", label: "Submitted to office", done: flags.submitted },
+    { key: "approved", label: "Approved", done: flags.approved },
+    { key: "published", label: "Published to parents", done: flags.published },
+  ];
+  let sawPending = false;
+  return items.map((item) => {
+    if (item.done) return { ...item, kind: "done" as const };
+    if (!sawPending) {
+      sawPending = true;
+      return { ...item, kind: "now" as const };
+    }
+    return { ...item, kind: "wait" as const };
+  });
+}
+
+export function mentionTeacherQuery(value: string) {
+  return String(value || "")
+    .replace(/^@+/, "")
+    .trim()
+    .toLowerCase();
+}
+
+export function filterMentionTeachers<T extends { id: string; name: string }>(
+  query: string,
+  people: T[],
+  grantedIds: string[]
+) {
+  const granted = new Set(grantedIds);
+  const needle = mentionTeacherQuery(query);
+  return people.filter(
+    (person) => !granted.has(person.id) && (!needle || person.name.toLowerCase().includes(needle))
+  );
 }
 
 export function adminBucket(status?: string | null): "scheduled" | "awaiting" | "review" | "correction" | "published" {
