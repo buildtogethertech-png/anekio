@@ -41,6 +41,7 @@ export function DateField({
   max,
   plain,
   bare,
+  compact,
   placeholder = "Pick a date",
 }: {
   value: string;
@@ -50,6 +51,7 @@ export function DateField({
   max?: string;
   plain?: boolean;
   bare?: boolean;
+  compact?: boolean;
   placeholder?: string;
 }) {
   const { width } = useWindowDimensions();
@@ -168,15 +170,17 @@ export function DateField({
       accessibilityRole="button"
       accessibilityLabel={value ? prettyDay(value, true) : placeholder}
       onPress={toggle}
-      className={`min-h-[44px] w-full flex-row items-center ${bare ? "gap-2 py-1" : "rounded-md border border-ink-200 bg-white px-3 py-2.5"} ${
-        plain ? "gap-2" : ""
-      }`}
+      className={`w-full flex-row items-center ${
+        compact ? "min-h-9 gap-1 rounded-md border border-ink-200 bg-white px-2 py-1.5" : bare ? "min-h-[44px] gap-2 py-1" : "min-h-[44px] rounded-md border border-ink-200 bg-white px-3 py-2.5"
+      } ${plain && !compact ? "gap-2" : ""}`}
     >
       <Text className={`min-w-0 flex-1 text-sm ${value ? "text-ink-900" : "text-ink-700"}`} numberOfLines={1}>
         {value
-          ? plain
-            ? `${WEEKDAY_LONG[selected.getDay()].slice(0, 3)}, ${prettyDay(value, !phone)}`
-            : prettyDay(value, true)
+          ? compact
+            ? prettyDay(value, false)
+            : plain
+              ? `${WEEKDAY_LONG[selected.getDay()].slice(0, 3)}, ${prettyDay(value, !phone)}`
+              : prettyDay(value, true)
           : placeholder}
       </Text>
       {!plain && sideLabel ? (
@@ -187,7 +191,7 @@ export function DateField({
           {sideLabel}
         </Text>
       ) : null}
-      <Ionicons name="calendar-outline" size={18} color="#3d4f66" />
+      <Ionicons name="calendar-outline" size={compact ? 14 : 18} color="#3d4f66" />
     </Pressable>
   );
 

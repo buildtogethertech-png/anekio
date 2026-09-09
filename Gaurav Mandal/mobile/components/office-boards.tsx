@@ -1,4 +1,4 @@
-import { createElement, useMemo, useState, useEffect } from "react";
+import { createElement, useMemo, useState, useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import { Linking, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -13,18 +13,46 @@ import { StaffAttendanceDetail } from "./staff-attendance-detail";
 import { StudentAdmitForm, type StudentAdmitPayload } from "./student-admit-form";
 import { ReportCardSheet, type ReportCardData } from "./report-card-sheet";
 import { studentSeriesScore, studentYearScore } from "../lib/exams";
-import { act } from "../lib/mutate";
+import { act, saveLateTiming } from "../lib/mutate";
 import { useRecord, type AdmissionFormField } from "../lib/record";
 import { useSession } from "../lib/session";
 import { canChangeManager, ManagerPicker } from "./manager-picker";
 import { AttendanceDots, DayMark, OnLeaveSign } from "./attendance-mark";
-import { inr } from "../lib/payroll";
+import { inr, parsePayrollRules, type PayrollRules } from "../lib/payroll";
 import { lastAttendanceDots } from "../lib/attendance-summary";
 import { calendarFrom, closedCaption, closedReason, ymd } from "../lib/calendar";
 import { QuickDocumentButton } from "./document-studio";
+import { StaffHoursForm, type StaffHoursFormHandle } from "./staff-hours-form";
+import { StaffTimesheet } from "./staff-timesheet";
 
 function can(user: { permissions: string[] } | null, key: string) {
   return Boolean(user?.permissions.includes(key));
+}
+
+function dayKey(value?: string) {
+  const raw = String(value || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const dt = new Date(raw);
+  if (Number.isNaN(+dt)) return raw.slice(0, 10);
+  if (dt.getTimezoneOffset() === -330 && dt.getHours() === 18 && dt.getMinutes() === 30 && dt.getSeconds() === 0) {
+    const next = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate() + 1);
+    return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`;
+  }
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(dt);
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+  return year && month && day ? `${year}-${month}-${day}` : raw.slice(0, 10);
+}
+
+function dayOn<T extends { date: string }>(days: T[] | undefined, date: string) {
+  const want = dayKey(date);
+  return days?.find((row) => dayKey(row.date) === want);
 }
 
 function phoneHref(phone?: string) {
@@ -2386,6 +2414,17 @@ export function StaffBoard() {
   const staff = data?.staff ?? [];
   const [q, setQ] = useState("");
   const [marks, setMarks] = useState<Record<string, string>>({});
+  const [times, setTimes] = useState<Record<string, string>>({});
+  const [savedTimes, setSavedTimes] = useState<Record<string, string>>({});
+  const [savedDate, setSavedDate] = useState("");
+  const timesRef = useRef(times);
+  const marksRef = useRef(marks);
+  timesRef.current = times;
+  marksRef.current = marks;
+  const [timesheetOpen, setTimesheetOpen] = useState(false);
+  const [hoursOpen, setHoursOpen] = useState(false);
+  const hoursRef = useRef<StaffHoursFormHandle>(null);
+  const [rulesOverride, setRulesOverride] = useState<PayrollRules | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [infoFor, setInfoFor] = useState<(typeof staff)[number] | null>(null);
@@ -2403,6 +2442,7 @@ export function StaffBoard() {
   const locked = Boolean(dayClosed || dayFuture);
   const lockedNote = dayFuture ? "That day has not come yet." : closedCaption(dayClosed);
   const canMark = can(user, "staff.edit");
+  const canHours = can(user, "school.edit") || canMark;
 
   useEffect(() => {
     if (!pendingLeave.length) setLeaveOpen(false);
@@ -2410,12 +2450,30 @@ export function StaffBoard() {
 
   function statusOf(p: (typeof staff)[number]) {
     const key = `${p.kind}:${p.id}`;
-    const hit = p.days?.find((d) => d.date === date);
-    const saved = (hit?.status || (date === today ? p.today : "") || "").toUpperCase();
-    if (saved === "LEAVE") return "LEAVE";
-    if (marks[key]) return marks[key];
-    return saved || "PRESENT";
+    const hit = dayOn(p.days, date);
+    const onLeave = (p.leaveDays ?? []).some((d) => dayKey(d.date) === date);
+    const saved = (hit?.status || "").toUpperCase();
+    const local = String(marksRef.current[key] ?? marks[key] ?? "").toUpperCase();
+    if (saved === "LEAVE" || onLeave || (date === today && (p.today || "").toUpperCase() === "LEAVE")) return "LEAVE";
+    if (local === "PRESENT" || local === "ABSENT" || local === "LATE") return local;
+    if (saved === "PRESENT" || saved === "ABSENT" || saved === "LATE") return saved;
+    if (!locked) return "PRESENT";
+    return "";
   }
+
+  function arrivalOf(p: (typeof staff)[number]) {
+    return statusOf(p).toUpperCase();
+  }
+
+  function timesOf(p: (typeof staff)[number]) {
+    const key = `${p.kind}:${p.id}`;
+    const local = timesRef.current[key];
+    if (local !== undefined) return local;
+    return dayOn(p.days, date)?.inAt || "";
+  }
+
+  const payrollRules =
+    rulesOverride || parsePayrollRules(data?.payrollRules ? JSON.stringify(data.payrollRules) : null);
 
   async function saveDay() {
     if (locked) {
@@ -2423,15 +2481,39 @@ export function StaffBoard() {
       return;
     }
     try {
-      await act(token, "markStaffAttendance", {
-        date,
-        rows: staff.map((p) => ({
+      const rows = staff.map((p) => {
+        const status = statusOf(p).toUpperCase();
+        const hit = dayOn(p.days, date);
+        if (status === "LEAVE") {
+          return { kind: p.kind || "staff", id: p.id, status: "LEAVE" as const, inAt: "", outAt: "" };
+        }
+        const inAt = status === "ABSENT" ? "" : timesOf(p) || "";
+        return {
           kind: p.kind || "staff",
           id: p.id,
-          status: statusOf(p).toUpperCase(),
-        })),
+          status: (status === "LATE" ? "LATE" : status === "ABSENT" ? "ABSENT" : "PRESENT") as "PRESENT" | "ABSENT" | "LATE",
+          inAt,
+          outAt: hit?.outAt || "",
+        };
       });
+      const saved = await act<{ ok: true; days?: { kind: string; id: string; inAt?: string; status?: string }[] }>(
+        token,
+        "markStaffAttendance",
+        { date, rows }
+      );
+      const frozen: Record<string, string> = {};
+      for (const row of saved.days ?? []) {
+        frozen[`${row.kind}:${row.id}`] = row.inAt || "";
+      }
+      for (const row of rows) {
+        const key = `${row.kind}:${row.id}`;
+        if (frozen[key] === undefined) frozen[key] = row.inAt || "";
+      }
       toast.show("Saved the day.");
+      setTimes(frozen);
+      setSavedTimes(frozen);
+      setSavedDate(date);
+      setMarks({});
       await reload();
     } catch (e) {
       toast.show(e instanceof Error ? e.message : "Could not save.");
@@ -2477,10 +2559,10 @@ export function StaffBoard() {
     await reload();
   }
 
-  const yes = staff.filter((p) => statusOf(p).toUpperCase() === "PRESENT").length;
-  const late = staff.filter((p) => statusOf(p).toUpperCase() === "LATE").length;
-  const no = staff.filter((p) => statusOf(p).toUpperCase() === "ABSENT").length;
-  const onLeave = staff.filter((p) => statusOf(p).toUpperCase() === "LEAVE").length;
+  const yes = staff.filter((p) => arrivalOf(p) === "PRESENT").length;
+  const late = staff.filter((p) => arrivalOf(p) === "LATE").length;
+  const no = staff.filter((p) => arrivalOf(p) === "ABSENT").length;
+  const onLeave = staff.filter((p) => arrivalOf(p) === "LEAVE").length;
   const needle = q.trim().toLowerCase();
   const shown = needle ? staff.filter((p) => p.name.toLowerCase().includes(needle)) : staff;
   const editRoleOptions = editFor?.kind === "teacher"
@@ -2504,10 +2586,79 @@ export function StaffBoard() {
 
   const register = (
     <Card className="min-h-0 flex-1">
-      <View className="gap-3 border-b border-ink-100 px-4 py-4">
+      <View className={phone ? "gap-2 border-b border-ink-100 px-3 py-2" : "gap-3 border-b border-ink-100 px-4 py-4"}>
+        {phone ? (
+          <>
+            <View testID="staff-toolbar-controls" className="flex-row items-center gap-1.5">
+              {pendingLeave.length ? (
+                <Button
+                  variant="ghost"
+                  accessibilityLabel={`Leave requests (${pendingLeave.length})`}
+                  onPress={() => setLeaveOpen(true)}
+                  className="shrink-0 px-2 py-2"
+                >
+                  {`Leave (${pendingLeave.length})`}
+                </Button>
+              ) : null}
+              <View className="min-w-0 flex-1 flex-row items-center rounded-md border border-ink-200 bg-white pl-2">
+                <Ionicons name="search-outline" size={16} color="#3d4f66" />
+                <Input
+                  value={q}
+                  onChangeText={setQ}
+                  placeholder="Name"
+                  accessibilityLabel="Search"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  className="min-w-0 flex-1 border-0 px-2 py-2"
+                />
+              </View>
+              <View testID="staff-date" className="w-[108px] shrink-0">
+                <DateField
+                  compact
+                  plain
+                  value={date}
+                  max={today}
+                  closedReason={(value) => closedReason(value, calendar)}
+                  onChange={(next) => {
+                    setDate(next);
+                    setMarks({});
+                    setTimes({});
+                  }}
+                />
+              </View>
+              {canMark ? (
+                <Button variant="ghost" accessibilityLabel="+ Add employee" onPress={() => setAddOpen(true)} className="shrink-0 px-2 py-2">
+                  + Add
+                </Button>
+              ) : null}
+            </View>
+            <View testID="staff-toolbar-actions" className="flex-row items-center gap-1.5">
+              <Button variant="ghost" accessibilityLabel="Timesheet" onPress={() => setTimesheetOpen(true)} className="shrink-0 px-2 py-2">
+                Timesheet
+              </Button>
+              <Button variant="ghost" accessibilityLabel="Late timing" onPress={() => setHoursOpen(true)} className="shrink-0 px-2 py-2">
+                Late timing
+              </Button>
+            </View>
+            <View testID="staff-toolbar-summary" className="flex-row flex-wrap items-center gap-2">
+              {locked ? (
+                <Text className="text-sm text-amber-800">{lockedNote.replace(/\.$/, "")}.</Text>
+              ) : (
+                <View className="flex-row flex-wrap gap-2">
+                  <Badge tone="leaf">{`${yes} P`}</Badge>
+                  {late ? <Badge tone="warn">{`${late} late`}</Badge> : null}
+                  <Badge tone="danger">{`${no} A`}</Badge>
+                  {onLeave ? <Badge tone="sky">{`${onLeave} on leave`}</Badge> : null}
+                  {needle ? <Badge>{`${shown.length} shown`}</Badge> : null}
+                </View>
+              )}
+            </View>
+          </>
+        ) : (
+          <>
         <View
           testID="staff-toolbar-controls"
-          className={`flex-row gap-2 ${phone ? "items-start" : "items-end"}`}
+          className="flex-row items-end gap-2"
         >
           <View className="min-w-0 flex-1">
             <Field label="Search">
@@ -2524,7 +2675,7 @@ export function StaffBoard() {
               </View>
             </Field>
           </View>
-          <View className={`shrink-0 ${phone ? "w-[158px]" : "w-[220px]"}`}>
+          <View className="w-[220px] shrink-0">
             <Field label="Date">
               <DateField
                 plain
@@ -2534,15 +2685,22 @@ export function StaffBoard() {
                 onChange={(next) => {
                   setDate(next);
                   setMarks({});
+                  setTimes({});
                 }}
               />
             </Field>
           </View>
-          {!phone && canMark ? (
+          {canMark ? (
             <Button variant="ghost" onPress={() => setAddOpen(true)}>
               + Add employee
             </Button>
           ) : null}
+          <Button variant="ghost" accessibilityLabel="Timesheet" onPress={() => setTimesheetOpen(true)}>
+            Timesheet
+          </Button>
+          <Button variant="ghost" accessibilityLabel="Late timing" onPress={() => setHoursOpen(true)}>
+            Late timing
+          </Button>
         </View>
         <View testID="staff-toolbar-summary" className="flex-row flex-wrap items-center justify-between gap-2">
           {locked ? (
@@ -2556,12 +2714,9 @@ export function StaffBoard() {
               {needle ? <Badge>{`${shown.length} shown`}</Badge> : null}
             </View>
           )}
-          {phone && canMark ? (
-            <Button variant="ghost" onPress={() => setAddOpen(true)}>
-              + Add employee
-            </Button>
-          ) : null}
         </View>
+          </>
+        )}
       </View>
       <ScrollView className="min-h-0 flex-1" keyboardShouldPersistTaps="handled">
         {!shown.length ? (
@@ -2571,18 +2726,26 @@ export function StaffBoard() {
         ) : (
           shown.map((p) => {
             const st = statusOf(p).toUpperCase();
-            const dots = lastAttendanceDots(p.days ?? [], date, locked ? undefined : st, 7, calendar);
-            const mark =
-              st === "LEAVE" ? (
-                <OnLeaveSign />
-              ) : (
-                <DayMark
-                  name={p.name}
-                  status={st}
-                  disabled={locked || !canMark}
-                  onChange={(next) => setMarks((m) => ({ ...m, [`${p.kind}:${p.id}`]: next }))}
-                />
-              );
+            const overlay = locked ? undefined : st || undefined;
+            const dots = lastAttendanceDots(p.days ?? [], date, overlay, 7, calendar);
+            const mark = (
+              <View className="shrink-0 items-end gap-1">
+                {st === "LEAVE" ? (
+                  <OnLeaveSign />
+                ) : (
+                  <DayMark
+                    name={p.name}
+                    status={st}
+                    disabled={locked || !canMark}
+                    onChange={(status) => {
+                      const key = `${p.kind}:${p.id}`;
+                      marksRef.current = { ...marksRef.current, [key]: status };
+                      setMarks((m) => ({ ...m, [key]: status }));
+                    }}
+                  />
+                )}
+              </View>
+            );
             const who = (
               <View className={phone ? "min-w-0 flex-1" : "w-56 shrink-0"}>
                 <View className="min-w-0">
@@ -2664,11 +2827,30 @@ export function StaffBoard() {
               : undefined
           }
         />
+      ) : timesheetOpen ? (
+        <StaffTimesheet
+          staff={staff}
+          calendar={calendar}
+          rules={payrollRules}
+          token={token}
+          canEdit={canMark}
+          overlayDate={savedDate}
+          overlayTimes={savedTimes}
+          onBack={() => setTimesheetOpen(false)}
+          onSaved={reload}
+          onStamp={(kind, id, inAt) => {
+            const key = `${kind}:${id}`;
+            setSavedDate(date);
+            setSavedTimes((cur) => ({ ...cur, [key]: inAt }));
+            setTimes((cur) => ({ ...cur, [key]: inAt }));
+          }}
+        />
       ) : (
         <>
+      {phone ? null : (
       <PageHeader
         title="Employees"
-        lede="Mark P, A or late. Leave shows on its own."
+        lede="Mark Present, Late, or Absent, then Save the day. Optional In time lives on Timesheet."
         action={
           pendingLeave.length ? (
             <Button variant="ghost" onPress={() => setLeaveOpen(true)}>
@@ -2677,6 +2859,7 @@ export function StaffBoard() {
           ) : undefined
         }
       />
+      )}
       {register}
       <Modal open={leaveOpen && Boolean(pendingLeave.length)} title="Leave requests" onClose={() => setLeaveOpen(false)}>
         <View>
@@ -2770,6 +2953,49 @@ export function StaffBoard() {
       </Modal>
         </>
       )}
+      <Modal
+        open={hoursOpen}
+        title="Late timing"
+        onClose={() => setHoursOpen(false)}
+        footer={
+          canHours ? (
+            <Button
+              accessibilityLabel="Save late timing"
+              onPress={() => {
+                void hoursRef.current?.save().catch((e) => {
+                  toast.show(e instanceof Error ? e.message : "Could not save.");
+                });
+              }}
+            >
+              Save late timing
+            </Button>
+          ) : undefined
+        }
+      >
+        <Text className="text-sm text-ink-700">
+          Start and grace decide Present vs Late from the saved In time. Change them, save, and every day with an In time is rechecked.
+        </Text>
+        {!canHours ? (
+          <Text className="mt-2 text-xs text-amber-800">You need school.edit or staff.edit to save these times.</Text>
+        ) : null}
+        <View className="mt-1">
+          <StaffHoursForm
+            ref={hoursRef}
+            compact
+            hideButton
+            rules={rulesOverride || data?.payrollRules}
+            canEdit={canHours}
+            onSave={async (payload) => {
+              const saved = await saveLateTiming<{ ok: true; rules?: PayrollRules }>(token, payload);
+              const next = saved.rules || parsePayrollRules(JSON.stringify({ ...payrollRules, ...payload }));
+              setRulesOverride(next);
+              toast.show("Late timing saved. In times were rechecked for Present vs Late.");
+              setHoursOpen(false);
+              await reload();
+            }}
+          />
+        </View>
+      </Modal>
       <Modal open={addOpen} title="Add employee" onClose={() => setAddOpen(false)}>
         <StaffAdmitForm
           roles={data?.staffRoles ?? []}

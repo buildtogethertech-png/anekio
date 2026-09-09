@@ -13,7 +13,14 @@ jest.mock("@expo/vector-icons/Ionicons", () => {
     return null;
   };
 });
-jest.mock("../../lib/mutate", () => ({ act: jest.fn() }));
+jest.mock("../../lib/mutate", () => {
+  const act = jest.fn();
+  return {
+    act,
+    saveLateTiming: (token: string | null, payload: Record<string, unknown>) =>
+      act(token, "saveSchoolPayrollRules", payload),
+  };
+});
 jest.mock("../../lib/record", () => ({ useRecord: jest.fn() }));
 jest.mock("../../lib/session", () => ({ useSession: jest.fn() }));
 jest.mock("../date-field", () => ({
@@ -219,7 +226,7 @@ describe("StaffBoard leave requests", () => {
     await waitFor(() =>
       expect(mockAct).toHaveBeenCalledWith("office-token", "markStaffAttendance", {
         date: expect.any(String),
-        rows: [{ kind: "staff", id: "staff-1", status: "LEAVE" }],
+        rows: [{ kind: "staff", id: "staff-1", status: "LEAVE", inAt: "", outAt: "" }],
       })
     );
   });
@@ -227,8 +234,8 @@ describe("StaffBoard leave requests", () => {
   it.each([
     [1200, "staff-toolbar-controls", "staff-toolbar-summary"],
     [768, "staff-toolbar-controls", "staff-toolbar-summary"],
-    [767, "staff-toolbar-summary", "staff-toolbar-controls"],
-    [390, "staff-toolbar-summary", "staff-toolbar-controls"],
+    [767, "staff-toolbar-controls", "staff-toolbar-summary"],
+    [390, "staff-toolbar-controls", "staff-toolbar-summary"],
   ])("places one Add staff action in the responsive toolbar row at %ipx", (width, actionRow, otherRow) => {
     mockUseWindowDimensions.mockReturnValue({ width, height: 800, scale: 1, fontScale: 1 });
     render(<StaffBoard />);
@@ -258,13 +265,18 @@ describe("StaffBoard leave requests", () => {
     render(<StaffBoard />);
 
     expect(screen.queryByRole("button", { name: "+ Add employee" })).toBeNull();
-    expect(within(screen.getByTestId("staff-toolbar-controls")).getByText("Search")).toBeTruthy();
-    expect(within(screen.getByTestId("staff-toolbar-controls")).getByText("Date")).toBeTruthy();
+    expect(within(screen.getByTestId("staff-toolbar-controls")).getByPlaceholderText("Name")).toBeTruthy();
+    if (width >= 768) {
+      expect(within(screen.getByTestId("staff-toolbar-controls")).getByText("Search")).toBeTruthy();
+      expect(within(screen.getByTestId("staff-toolbar-controls")).getByText("Date")).toBeTruthy();
+    } else {
+      expect(within(screen.getByTestId("staff-toolbar-controls")).getByTestId("staff-date")).toBeTruthy();
+    }
   });
 
   it.each([
     [1200, "staff-toolbar-controls"],
-    [390, "staff-toolbar-summary"],
+    [390, "staff-toolbar-controls"],
   ])("preserves responsive toolbar placement on a closed day at %ipx", (width, actionRow) => {
     jest.useFakeTimers();
     jest.setSystemTime(new Date("2026-08-24T06:00:00.000Z"));
@@ -275,10 +287,113 @@ describe("StaffBoard leave requests", () => {
     expect(screen.getByText("Founder's Day — school closed.")).toBeTruthy();
     expect(screen.queryByText("1 P")).toBeNull();
     expect(screen.queryByText("0 A")).toBeNull();
-    expect(within(screen.getByTestId("staff-toolbar-controls")).getByText("Search")).toBeTruthy();
-    expect(within(screen.getByTestId("staff-toolbar-controls")).getByText("Date")).toBeTruthy();
+    expect(within(screen.getByTestId("staff-toolbar-controls")).getByPlaceholderText("Name")).toBeTruthy();
+    if (width >= 768) {
+      expect(within(screen.getByTestId("staff-toolbar-controls")).getByText("Search")).toBeTruthy();
+      expect(within(screen.getByTestId("staff-toolbar-controls")).getByText("Date")).toBeTruthy();
+    } else {
+      expect(within(screen.getByTestId("staff-toolbar-controls")).getByTestId("staff-date")).toBeTruthy();
+    }
     expect(screen.getAllByRole("button", { name: "+ Add employee" })).toHaveLength(1);
     expect(within(screen.getByTestId(actionRow)).getByRole("button", { name: "+ Add employee" })).toBeTruthy();
+  });
+
+  it("defaults everyone to Present and saves Present, Late, or Absent", async () => {
+    jest.useFakeTimers({ advanceTimers: true });
+    jest.setSystemTime(new Date(2026, 8, 9, 7, 22, 0));
+    render(<StaffBoard />);
+    expect(screen.getByText("1 P")).toBeTruthy();
+    expect(screen.getByLabelText("Asha Rao present").props.accessibilityState.selected).toBe(true);
+    fireEvent.press(screen.getByRole("button", { name: "Save the day" }));
+    await waitFor(() =>
+      expect(mockAct).toHaveBeenCalledWith("office-token", "markStaffAttendance", {
+        date: "2026-09-09",
+        rows: [{ kind: "staff", id: "staff-1", status: "PRESENT", inAt: "", outAt: "" }],
+      })
+    );
+  });
+
+  it("saves Late when Late is tapped", async () => {
+    jest.useFakeTimers({ advanceTimers: true });
+    jest.setSystemTime(new Date(2026, 8, 9, 8, 15, 0));
+    render(<StaffBoard />);
+    fireEvent.press(screen.getByLabelText("Asha Rao late"));
+    expect(screen.getByText("1 late")).toBeTruthy();
+    fireEvent.press(screen.getByRole("button", { name: "Save the day" }));
+    await waitFor(() =>
+      expect(mockAct).toHaveBeenCalledWith("office-token", "markStaffAttendance", {
+        date: "2026-09-09",
+        rows: [{ kind: "staff", id: "staff-1", status: "LATE", inAt: "", outAt: "" }],
+      })
+    );
+  });
+
+  it("saves Absent when Absent is tapped", async () => {
+    jest.useFakeTimers({ advanceTimers: true });
+    jest.setSystemTime(new Date(2026, 8, 9, 8, 15, 0));
+    render(<StaffBoard />);
+    fireEvent.press(screen.getByLabelText("Asha Rao absent"));
+    expect(screen.getByText("1 A")).toBeTruthy();
+    fireEvent.press(screen.getByRole("button", { name: "Save the day" }));
+    await waitFor(() =>
+      expect(mockAct).toHaveBeenCalledWith("office-token", "markStaffAttendance", {
+        date: "2026-09-09",
+        rows: [{ kind: "staff", id: "staff-1", status: "ABSENT", inAt: "", outAt: "" }],
+      })
+    );
+  });
+
+  it("saves a timesheet In edit and shows the new time after reload", async () => {
+    jest.useFakeTimers({ advanceTimers: true });
+    jest.setSystemTime(new Date(2026, 8, 9, 10, 0, 0));
+    const teacher = {
+      id: "teacher-1",
+      kind: "teacher" as const,
+      name: "Sandeep Gill",
+      role: "Teacher",
+      today: "LATE",
+      days: [{ date: "2026-09-09", status: "LATE", inAt: "08:15" }],
+    };
+    currentData = {
+      ...record(),
+      payrollRules: {
+        startTime: "08:00",
+        endTime: "14:00",
+        graceMinutes: 10,
+        freeLateCount: 0,
+        lateDeductionMode: "NONE",
+      },
+      staff: [teacher],
+    };
+    reload.mockImplementation(async () => {
+      currentData = {
+        ...currentData,
+        staff: [{ ...teacher, days: [{ date: "2026-09-09", status: "PRESENT", inAt: "08:05" }] }],
+      };
+    });
+    const view = render(<StaffBoard />);
+    fireEvent.press(screen.getByRole("button", { name: "Timesheet" }));
+    fireEvent.press(screen.getByLabelText("Edit Sandeep Gill in times"));
+    fireEvent.changeText(screen.getByLabelText("In time"), "08:05");
+    fireEvent.press(screen.getByRole("button", { name: "Save In time" }));
+    await waitFor(() =>
+      expect(mockAct).toHaveBeenCalledWith("office-token", "markStaffAttendance", {
+        date: "2026-09-09",
+        rows: [
+          {
+            kind: "teacher",
+            id: "teacher-1",
+            status: "PRESENT",
+            inAt: "08:05",
+            outAt: "",
+            clear: false,
+          },
+        ],
+      })
+    );
+    view.rerender(<StaffBoard />);
+    expect(view.getByText("08:05")).toBeTruthy();
+    expect(view.queryByText("08:15")).toBeNull();
   });
 
   it("opens monthly attendance and payment from the employee name", () => {
@@ -288,6 +403,126 @@ describe("StaffBoard leave requests", () => {
     expect(screen.getByText("Monthly Payment")).toBeTruthy();
     expect(screen.getByText("Asha Rao")).toBeTruthy();
     expect(screen.queryByText("Save the day")).toBeNull();
+  });
+
+  it("opens the staff timesheet with employee names and in times", () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date("2026-09-09T06:00:00.000Z"));
+    currentData = {
+      ...record(),
+      staff: [
+        {
+          id: "staff-1",
+          kind: "teacher",
+          name: "Asha Rao",
+          role: "Accountant",
+          today: "PRESENT",
+          days: [{ date: "2026-09-08", status: "LATE", inAt: "08:15" }],
+        },
+      ],
+    };
+    render(<StaffBoard />);
+    fireEvent.press(screen.getByRole("button", { name: "Timesheet" }));
+    expect(screen.getByText("Timesheet")).toBeTruthy();
+    expect(screen.getByText("Teacher")).toBeTruthy();
+    expect(screen.getByText("Asha Rao")).toBeTruthy();
+    expect(screen.getByText("08:15")).toBeTruthy();
+    expect(screen.queryByText("Save the day")).toBeNull();
+    fireEvent.press(screen.getByLabelText("Back to register"));
+    expect(screen.getByRole("button", { name: "Save the day" })).toBeTruthy();
+  });
+
+  it("opens late timing from Employees", async () => {
+    render(<StaffBoard />);
+    fireEvent.press(screen.getByRole("button", { name: "Late timing" }));
+    expect(screen.getByText("Day starts")).toBeTruthy();
+    expect(screen.getByText("Grace minutes")).toBeTruthy();
+    fireEvent.press(screen.getByRole("button", { name: "Save late timing" }));
+    await waitFor(() =>
+      expect(mockAct).toHaveBeenCalledWith(
+        "office-token",
+        "saveSchoolPayrollRules",
+        expect.objectContaining({ startTime: "08:00", graceMinutes: 10 })
+      )
+    );
+  });
+
+  it("saves 3 lates as one leave day from Late timing", async () => {
+    render(<StaffBoard />);
+    fireEvent.press(screen.getByRole("button", { name: "Late timing" }));
+    fireEvent.press(screen.getByRole("button", { name: "3 = 1 day late leave rule" }));
+    fireEvent.press(screen.getByRole("button", { name: "Save late timing" }));
+    await waitFor(() =>
+      expect(mockAct).toHaveBeenCalledWith(
+        "office-token",
+        "saveSchoolPayrollRules",
+        expect.objectContaining({ latesPerLeaveDay: 3 })
+      )
+    );
+  });
+
+  it("rechecks timesheet Present vs Late from saved In time after late timing changes", async () => {
+    jest.useFakeTimers({ advanceTimers: true });
+    jest.setSystemTime(new Date(2026, 8, 9, 10, 0, 0));
+    currentData = {
+      ...record(),
+      payrollRules: {
+        startTime: "08:00",
+        endTime: "14:00",
+        graceMinutes: 10,
+        freeLateCount: 0,
+        lateDeductionMode: "NONE",
+      },
+      staff: [
+        {
+          id: "teacher-1",
+          kind: "teacher",
+          name: "Sandeep Gill",
+          role: "Teacher",
+          today: "PRESENT",
+          days: [{ date: "2026-09-09", status: "PRESENT", inAt: "08:15" }],
+        },
+      ],
+    };
+    reload.mockImplementation(async () => {
+      currentData = {
+        ...currentData,
+        payrollRules: { ...currentData.payrollRules, graceMinutes: 0 },
+        staff: [
+          {
+            id: "teacher-1",
+            kind: "teacher",
+            name: "Sandeep Gill",
+            role: "Teacher",
+            today: "LATE",
+            days: [{ date: "2026-09-09", status: "LATE", inAt: "08:15" }],
+          },
+        ],
+      };
+    });
+    const view = render(<StaffBoard />);
+    fireEvent.press(screen.getByRole("button", { name: "Late timing" }));
+    fireEvent.changeText(screen.getByLabelText("Grace minutes"), "0");
+    fireEvent.press(screen.getByRole("button", { name: "Save late timing" }));
+    await waitFor(() =>
+      expect(mockAct).toHaveBeenCalledWith(
+        "office-token",
+        "saveSchoolPayrollRules",
+        expect.objectContaining({ startTime: "08:00", graceMinutes: 0 })
+      )
+    );
+    view.rerender(<StaffBoard />);
+    fireEvent.press(view.getByRole("button", { name: "Timesheet" }));
+    expect(view.getByText("08:15")).toBeTruthy();
+    expect(view.getByText("L")).toBeTruthy();
+  });
+
+  it("clears Present when Absent is tapped", () => {
+    render(<StaffBoard />);
+    expect(screen.getByLabelText("Asha Rao present").props.accessibilityState.selected).toBe(true);
+    fireEvent.press(screen.getByLabelText("Asha Rao absent"));
+    expect(screen.getByLabelText("Asha Rao absent").props.accessibilityState.selected).toBe(true);
+    expect(screen.getByLabelText("Asha Rao present").props.accessibilityState.selected).toBe(false);
   });
 });
 

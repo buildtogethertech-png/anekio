@@ -94,8 +94,8 @@ export function DayMark({
   const st = status.toUpperCase();
   const choices = [
     { value: "PRESENT" as const, letter: "P", label: "present", on: "bg-emerald-600" },
-    { value: "ABSENT" as const, letter: "A", label: "absent", on: "bg-red-600" },
     { value: "LATE" as const, letter: "L", label: "late", on: "bg-amber-500" },
+    { value: "ABSENT" as const, letter: "A", label: "absent", on: "bg-red-600" },
   ];
   return (
     <View className="flex-row overflow-hidden rounded-full border border-ink-200">

@@ -23,8 +23,9 @@ import { normalizeMobile, requireMobile } from "./phone";
 import { prisma } from "./prisma";
 import { roleIdBySlug, slugFromName } from "./roles";
 import { closedReason, paperDates, parseHolidayText, snapToSchoolDay, type PaperCadence } from "./calendar";
-import { personKey } from "./payroll";
+import { classifyFromIn, normalizeHHmm, parsePayrollRules, personKey, type PayrollRules } from "./payroll";
 import { loadSchoolCalendar } from "./leave";
+import { staffDayInstant, staffDayWindow, staffDayYmd } from "./staff-day";
 import { addDays, examPlanWeight, parseExamPlan, ymd } from "./exams";
 import { teacherCanEditMarks, teacherMayEnterMarks } from "./exam-workflow";
 import { validateExamMark } from "./exam-marks";
@@ -751,15 +752,76 @@ export async function markAttendanceCore(
   }
 }
 
+async function staffDaysOnStamp(kind: "teacher" | "staff", id: string, stamp: string) {
+  const { from, to } = staffDayWindow(stamp);
+  const rows =
+    kind === "teacher"
+      ? await prisma.staffDay.findMany({ where: { teacherId: id, date: { gte: from, lte: to } } })
+      : await prisma.staffDay.findMany({ where: { staffId: id, date: { gte: from, lte: to } } });
+  return rows.filter((row) => staffDayYmd(row.date) === stamp);
+}
+
+async function findStaffDayOnStamp(kind: "teacher" | "staff", id: string, stamp: string) {
+  const rows = await staffDaysOnStamp(kind, id, stamp);
+  return rows.find((row) => row.inAt) || rows[0] || null;
+}
+
+async function deleteStaffDaysOnStamp(kind: "teacher" | "staff", id: string, stamp: string) {
+  const rows = await staffDaysOnStamp(kind, id, stamp);
+  if (!rows.length) return;
+  await prisma.staffDay.deleteMany({ where: { id: { in: rows.map((row) => row.id) } } });
+}
+
+async function writeStaffDayOnStamp(
+  kind: "teacher" | "staff",
+  id: string,
+  stamp: string,
+  data: {
+    status: AttendanceStatus;
+    markedById: string;
+    inAt: string;
+    outAt: string;
+    startTimeUsed: string;
+    computedStatus: AttendanceStatus | null;
+    remark?: string;
+  }
+) {
+  const instant = staffDayInstant(stamp);
+  const rows = await staffDaysOnStamp(kind, id, stamp);
+  const keep = rows.find((row) => row.inAt) || rows[0];
+  const extras = rows.filter((row) => row.id !== keep?.id).map((row) => row.id);
+  if (extras.length) await prisma.staffDay.deleteMany({ where: { id: { in: extras } } });
+  if (keep) {
+    await prisma.staffDay.update({
+      where: { id: keep.id },
+      data,
+    });
+    return;
+  }
+  if (kind === "teacher") {
+    await prisma.staffDay.create({ data: { teacherId: id, date: instant, ...data } });
+  } else {
+    await prisma.staffDay.create({ data: { staffId: id, date: instant, ...data } });
+  }
+}
+
 export async function markStaffAttendanceCore(
   user: AccessUser,
-  input: { date: string; rows: { kind: "teacher" | "staff"; id: string; status: AttendanceStatus }[] }
+  input: {
+    date: string;
+    rows: {
+      kind: "teacher" | "staff";
+      id: string;
+      status: AttendanceStatus;
+      inAt?: string;
+      outAt?: string;
+      clear?: boolean;
+    }[];
+  }
 ) {
   need(user, "staff.edit");
   const stamp = String(input.date || "").slice(0, 10);
-  const todayLocal = ymd(new Date());
-  const todayUtc = new Date().toISOString().slice(0, 10);
-  if (stamp > todayLocal && stamp > todayUtc) {
+  if (stamp > staffDayYmd(new Date())) {
     throw new Error("Cannot mark a future date.");
   }
   const cal = await loadSchoolCalendar();
@@ -769,23 +831,59 @@ export async function markStaffAttendanceCore(
       /off$/i.test(closed) ? `${closed}. Attendance is not marked.` : `${closed} — school closed. Attendance is not marked.`
     );
   }
-  const day = new Date(input.date);
-  day.setHours(0, 0, 0, 0);
+  const config = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
+  const rules = parsePayrollRules(config?.payrollJson);
+  const written: { kind: "teacher" | "staff"; id: string; date: string; status: AttendanceStatus; inAt: string }[] = [];
   for (const row of input.rows) {
-    if (row.kind === "teacher") {
-      await prisma.staffDay.upsert({
-        where: { teacherId_date: { teacherId: row.id, date: day } },
-        update: { status: row.status, markedById: user.id },
-        create: { teacherId: row.id, date: day, status: row.status, markedById: user.id },
-      });
-    } else {
-      await prisma.staffDay.upsert({
-        where: { staffId_date: { staffId: row.id, date: day } },
-        update: { status: row.status, markedById: user.id },
-        create: { staffId: row.id, date: day, status: row.status, markedById: user.id },
-      });
+    if (row.clear) {
+      await deleteStaffDaysOnStamp(row.kind, row.id, stamp);
+      written.push({ kind: row.kind, id: row.id, date: stamp, status: "ABSENT", inAt: "" });
+      continue;
+    }
+    const next = classifyStaffDay(row.status, row.inAt, row.outAt, rules);
+    await writeStaffDayOnStamp(row.kind, row.id, stamp, {
+      status: next.status,
+      markedById: user.id,
+      inAt: next.inAt,
+      outAt: next.outAt,
+      startTimeUsed: next.startTimeUsed,
+      computedStatus: next.computedStatus,
+    });
+    written.push({ kind: row.kind, id: row.id, date: stamp, status: next.status, inAt: next.inAt });
+  }
+  return { days: written };
+}
+
+function classifyStaffDay(
+  rawStatus: AttendanceStatus,
+  inAtRaw: string | undefined,
+  outAtRaw: string | undefined,
+  rules: PayrollRules
+) {
+  const inAt = normalizeHHmm(inAtRaw || "");
+  const outAt = normalizeHHmm(outAtRaw || "");
+  if (rawStatus === "LEAVE" || rawStatus === "ABSENT") {
+    return { status: rawStatus, inAt, outAt, startTimeUsed: "", computedStatus: null as AttendanceStatus | null };
+  }
+  if (inAt) {
+    const hit = classifyFromIn(inAt, rules.startTime, rules.graceMinutes);
+    if (hit) {
+      return {
+        status: hit.status as AttendanceStatus,
+        inAt,
+        outAt,
+        startTimeUsed: hit.startTimeUsed,
+        computedStatus: hit.status as AttendanceStatus,
+      };
     }
   }
+  return {
+    status: rawStatus,
+    inAt,
+    outAt,
+    startTimeUsed: "",
+    computedStatus: null as AttendanceStatus | null,
+  };
 }
 
 const STAFF_MARKS = new Set<AttendanceStatus>(["PRESENT", "ABSENT", "LATE", "LEAVE", "HALF_DAY"]);
@@ -803,8 +901,7 @@ export async function correctStaffAttendanceCore(
 ) {
   need(user, "staff.edit");
   const stamp = String(input.date || "").slice(0, 10);
-  const todayLocal = ymd(new Date());
-  if (stamp > todayLocal) throw new Error("Cannot mark a future date.");
+  if (stamp > staffDayYmd(new Date())) throw new Error("Cannot mark a future date.");
   const status = STAFF_MARKS.has(input.status) ? input.status : null;
   if (!status) throw new Error("Pick a valid attendance status.");
   const reason = String(input.reason || "").trim();
@@ -821,29 +918,31 @@ export async function correctStaffAttendanceCore(
   if (run && run.status !== "PENDING" && !input.unlockApproved) {
     throw new Error("This month is already approved. Confirm to change attendance.");
   }
-  const day = new Date(stamp);
-  day.setHours(0, 0, 0, 0);
-  const existing =
-    input.kind === "teacher"
-      ? await prisma.staffDay.findUnique({ where: { teacherId_date: { teacherId: input.id, date: day } } })
-      : await prisma.staffDay.findUnique({ where: { staffId_date: { staffId: input.id, date: day } } });
+  const existing = await findStaffDayOnStamp(input.kind, input.id, stamp);
   const fromStatus = existing?.status || "";
   if (fromStatus && fromStatus !== status && !reason) {
     throw new Error("Add a reason for this attendance correction.");
   }
-  if (input.kind === "teacher") {
-    await prisma.staffDay.upsert({
-      where: { teacherId_date: { teacherId: input.id, date: day } },
-      update: { status, markedById: user.id, remark: reason || existing?.remark || "" },
-      create: { teacherId: input.id, date: day, status, markedById: user.id, remark: reason },
-    });
-  } else {
-    await prisma.staffDay.upsert({
-      where: { staffId_date: { staffId: input.id, date: day } },
-      update: { status, markedById: user.id, remark: reason || existing?.remark || "" },
-      create: { staffId: input.id, date: day, status, markedById: user.id, remark: reason },
-    });
-  }
+  const computedStatus =
+    fromStatus === "LATE" && status === "PRESENT"
+      ? AttendanceStatus.LATE
+      : existing?.computedStatus ?? null;
+  const auditReason =
+    fromStatus === "LATE" && status === "PRESENT" && reason
+      ? `LATE→PRESENT: ${reason}`
+      : reason || "Attendance recorded.";
+  const patch = {
+    status,
+    markedById: user.id,
+    remark: reason || existing?.remark || "",
+    computedStatus,
+  };
+  await writeStaffDayOnStamp(input.kind, input.id, stamp, {
+    ...patch,
+    inAt: existing?.inAt || "",
+    outAt: existing?.outAt || "",
+    startTimeUsed: existing?.startTimeUsed || "",
+  });
   if (fromStatus !== status) {
     await prisma.staffAttendanceAudit.create({
       data: {
@@ -851,7 +950,7 @@ export async function correctStaffAttendanceCore(
         date: stamp,
         fromStatus: fromStatus || "UNMARKED",
         toStatus: status,
-        reason: reason || "Attendance recorded.",
+        reason: auditReason,
         actorId: user.id,
       },
     });
@@ -2721,6 +2820,58 @@ export async function deleteExamSeriesCore(user: AccessUser, input: { seriesId: 
   if (!series) throw new Error("Series not found");
   await needExamClass(user, series.classId, "run");
   await prisma.examSeries.delete({ where: { id: seriesId } });
+}
+
+export async function saveSchoolPayrollRulesCore(
+  user: AccessUser,
+  input: {
+    startTime?: string;
+    endTime?: string;
+    graceMinutes?: number;
+    freeLateCount?: number;
+    lateDeductionMode?: string;
+    lateDeductionAmount?: number;
+    lateDayFraction?: number;
+    latesPerLeaveDay?: number;
+  }
+) {
+  need(user, "school.edit", "staff.edit");
+  const existing = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
+  const next = parsePayrollRules(
+    JSON.stringify({
+      ...parsePayrollRules(existing?.payrollJson),
+      startTime: input.startTime,
+      endTime: input.endTime,
+      graceMinutes: input.graceMinutes,
+      freeLateCount: input.freeLateCount,
+      lateDeductionMode: input.lateDeductionMode,
+      lateDeductionAmount: input.lateDeductionAmount,
+      lateDayFraction: input.lateDayFraction,
+      latesPerLeaveDay: input.latesPerLeaveDay,
+    })
+  );
+  await prisma.schoolConfig.upsert({
+    where: { id: "school" },
+    update: { payrollJson: JSON.stringify(next) },
+    create: { id: "school", payrollJson: JSON.stringify(next) },
+  });
+  const days = await prisma.staffDay.findMany({ where: { inAt: { not: "" } } });
+  let updated = 0;
+  for (const row of days) {
+    if (row.status === AttendanceStatus.LEAVE) continue;
+    const hit = classifyFromIn(row.inAt, next.startTime, next.graceMinutes);
+    if (!hit) continue;
+    await prisma.staffDay.update({
+      where: { id: row.id },
+      data: {
+        status: hit.status as AttendanceStatus,
+        startTimeUsed: hit.startTimeUsed,
+        computedStatus: hit.status as AttendanceStatus,
+      },
+    });
+    updated += 1;
+  }
+  return { rules: next, reclassified: updated };
 }
 
 export async function saveLeavePolicyCore(

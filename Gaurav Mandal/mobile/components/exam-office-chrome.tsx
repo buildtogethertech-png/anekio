@@ -554,6 +554,8 @@ export function ExamTimeline({
   marksHint,
   submitted,
   submittedHint,
+  correction,
+  correctionHint,
   approved,
   approvedHint,
   published,
@@ -571,6 +573,8 @@ export function ExamTimeline({
   marksHint?: string;
   submitted: boolean;
   submittedHint?: string;
+  correction?: boolean;
+  correctionHint?: string;
   approved: boolean;
   approvedHint?: string;
   published: boolean;
@@ -583,6 +587,7 @@ export function ExamTimeline({
     granted: marksGrantedHint,
     marks: marksHint,
     submitted: submittedHint,
+    correction: correctionHint,
     approved: approvedHint,
     published: publishedHint,
   };
@@ -593,6 +598,7 @@ export function ExamTimeline({
     marksGranted: Boolean(marksGranted),
     marksDone,
     submitted,
+    correction: Boolean(correction),
     approved,
     published,
   }).map((row) => ({ ...row, hint: hints[row.key] }));

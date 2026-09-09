@@ -887,15 +887,19 @@ model StaffMember {
 }
 
 model StaffDay {
-  id         String           @id @default(cuid())
-  date       DateTime
-  status     AttendanceStatus
-  teacherId  String?
-  teacher    Teacher?         @relation(fields: [teacherId], references: [id], onDelete: Cascade)
-  staffId    String?
-  staff      StaffMember?     @relation(fields: [staffId], references: [id], onDelete: Cascade)
-  markedById String?
-  remark     String           @default("")
+  id             String            @id @default(cuid())
+  date           DateTime
+  status         AttendanceStatus
+  teacherId      String?
+  teacher        Teacher?          @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  staffId        String?
+  staff          StaffMember?      @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  markedById     String?
+  remark         String            @default("")
+  inAt           String            @default("")
+  outAt          String            @default("")
+  startTimeUsed  String            @default("")
+  computedStatus AttendanceStatus?
 
   @@unique([teacherId, date])
   @@unique([staffId, date])

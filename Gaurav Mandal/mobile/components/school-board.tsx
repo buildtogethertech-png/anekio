@@ -5,12 +5,12 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { Dropdown } from "./form";
 import { Badge, Button, Card, Field, Input, Modal, PageHeader, Switch, Toast, useToast } from "./ui";
 import { ClockForm, RoomsForm, SchoolSubjectsForm } from "./school-setup";
+import { StaffHoursForm } from "./staff-hours-form";
 import { webOrigin } from "../lib/api";
-import { act } from "../lib/mutate";
+import { act, saveLateTiming } from "../lib/mutate";
 import { useRecord, type AdmissionFormField, type RecordPayload } from "../lib/record";
 import { useSession } from "../lib/session";
 import { pickFile, uploadFile } from "../lib/upload";
-import { DocumentStudio } from "./document-studio";
 
 const TABS = [
   { id: "identity", label: "Identity", hint: "Name, address, and logo", group: "School" },
@@ -774,6 +774,7 @@ export function SchoolBoard() {
             ) : null}
 
             {tab === "clock" ? (
+              <View className="mt-4 gap-4">
               <ClockForm
                 key={(data?.timetable?.periods ?? []).map((p) => p.id).join(",")}
                 weekdays={(data?.timetable?.weekdays ?? []).map((d) => d.n)}
@@ -788,6 +789,16 @@ export function SchoolBoard() {
                   await run("deletePeriod", { id }, "Period removed.");
                 }}
               />
+              <StaffHoursForm
+                rules={data?.payrollRules}
+                canEdit={edit}
+                onSave={async (payload) => {
+                  await saveLateTiming(token, payload);
+                  toast.show("Attendance hours saved.");
+                  await reload();
+                }}
+              />
+              </View>
             ) : null}
 
             {tab === "rooms" ? (

@@ -20,6 +20,7 @@ import {
   officePaperDots,
   officeSittingProgress,
   officeSittingStatus,
+  officeSubmitted,
 } from "../lib/exam-workflow";
 import { useRecord } from "../lib/record";
 import { useSession } from "../lib/session";
@@ -1174,7 +1175,7 @@ export function ExamsBoard() {
                   <Text className="text-[10px] font-semibold uppercase tracking-wide text-ink-700">Exam progress</Text>
                   <ExamTimeline
                     paper={Boolean(detailExam.paperAt)}
-                    paperHint={detailExam.paperAt ? `Uploaded on ${prettyDay(detailExam.paperAt)}` : undefined}
+                    paperHint={detailExam.paperAt ? `Prepared on ${prettyDay(detailExam.paperAt)}` : undefined}
                     scheduled={Boolean(detailExam.date)}
                     scheduledHint={prettyFull(detailExam.date)}
                     conducted={Boolean(detailExam.conductedAt)}
@@ -1187,9 +1188,13 @@ export function ExamsBoard() {
                     }
                     marksDone={(detailExam.entered ?? 0) >= studentCount && studentCount > 0}
                     marksHint={`${detailExam.entered ?? 0}/${studentCount} entered`}
-                    submitted={["SUBMITTED", "UNDER_REVIEW", "RESUBMITTED", "APPROVED", "PUBLISHED"].includes(
-                      detailExam.workflowStatus || "",
-                    )}
+                    submitted={officeSubmitted(detailExam.workflowStatus)}
+                    correction={detailExam.workflowStatus === "CORRECTION_REQUIRED"}
+                    correctionHint={
+                      detailExam.workflowStatus === "CORRECTION_REQUIRED"
+                        ? detailExam.correctionNote || "Sent back to the teacher"
+                        : undefined
+                    }
                     approved={detailExam.workflowStatus === "APPROVED" || detailExam.workflowStatus === "PUBLISHED"}
                     published={detailExam.workflowStatus === "PUBLISHED"}
                     publishedHint={
@@ -1297,7 +1302,7 @@ export function ExamsBoard() {
                     ? { at: detailExam.date, label: "Marks approved" }
                     : null,
                   detailExam.conductedAt ? { at: detailExam.conductedAt, label: "Exam conducted" } : null,
-                  detailExam.paperAt ? { at: detailExam.paperAt, label: "Question paper uploaded" } : null,
+                  detailExam.paperAt ? { at: detailExam.paperAt, label: "Question paper prepared" } : null,
                   { at: detailExam.date, label: "Exam scheduled" },
                 ]
                   .filter((row): row is { at: string; label: string } => Boolean(row?.at))

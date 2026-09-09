@@ -300,6 +300,17 @@ app.post("/api/v1/act", async (req, res) => {
   }
 });
 
+app.post("/api/v1/late-timing", async (req, res) => {
+  const user = await requireUser(req, res);
+  if (!user) return;
+  if (!(await requireActiveSubscription(user.id, res))) return;
+  try {
+    res.json(await runAct(user, { ...(req.body || {}), op: "saveSchoolPayrollRules" }));
+  } catch (e) {
+    sendError(res, 400, e instanceof Error ? e.message : "Could not save.");
+  }
+});
+
 app.post("/api/files", upload.single("file"), async (req, res) => {
   const user = await requireUser(req, res);
   if (!user) return;

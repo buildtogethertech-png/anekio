@@ -268,6 +268,7 @@ export function officePaperDots(exam: {
     status === "SUBMITTED" ||
     status === "UNDER_REVIEW" ||
     status === "RESUBMITTED" ||
+    status === "CORRECTION_REQUIRED" ||
     status === "APPROVED" ||
     status === "PUBLISHED";
   const marked =
@@ -285,6 +286,17 @@ export function officePaperDots(exam: {
   };
 }
 
+export function officeSubmitted(status?: string | null) {
+  return (
+    status === "SUBMITTED" ||
+    status === "UNDER_REVIEW" ||
+    status === "RESUBMITTED" ||
+    status === "CORRECTION_REQUIRED" ||
+    status === "APPROVED" ||
+    status === "PUBLISHED"
+  );
+}
+
 export function officeExamTimeline(flags: {
   scheduled: boolean;
   paper: boolean;
@@ -294,16 +306,19 @@ export function officeExamTimeline(flags: {
   submitted: boolean;
   approved: boolean;
   published: boolean;
+  correction?: boolean;
 }) {
+  const correction = Boolean(flags.correction);
   const items = [
     { key: "scheduled", label: "Exam scheduled", done: flags.scheduled },
     { key: "paper", label: "Question paper", done: flags.paper },
     { key: "conducted", label: "Exam conducted", done: flags.conducted },
     { key: "granted", label: "Marks entry allowed", done: flags.marksGranted },
     { key: "marks", label: "Marks entered", done: flags.marksDone },
-    { key: "submitted", label: "Submitted to office", done: flags.submitted },
-    { key: "approved", label: "Approved", done: flags.approved },
-    { key: "published", label: "Published to parents", done: flags.published },
+    { key: "submitted", label: "Submitted to office", done: Boolean(flags.submitted) || correction },
+    ...(correction ? [{ key: "correction", label: "Returned for correction", done: false }] : []),
+    { key: "approved", label: "Approved", done: Boolean(flags.approved) && !correction },
+    { key: "published", label: "Published to parents", done: Boolean(flags.published) && !correction },
   ];
   let sawPending = false;
   return items.map((item) => {

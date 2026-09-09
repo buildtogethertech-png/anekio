@@ -121,7 +121,6 @@ export function ExamTodoCard({
   onUndo,
   onOpenMarks,
   onTake,
-  onUpload,
   embedded,
 }: {
   todo: Todo;
@@ -131,7 +130,6 @@ export function ExamTodoCard({
   onUndo?: () => void;
   onOpenMarks?: () => void;
   onTake?: () => void;
-  onUpload?: () => void;
   embedded?: boolean;
 }) {
   const { width } = useWindowDimensions();
@@ -150,19 +148,15 @@ export function ExamTodoCard({
   const marksRow = kind === "marks" && onOpenMarks;
   const takeRow = kind === "take" && onTake;
   const action =
-    kind === "paper" && onUpload && !done ? (
-      <Button variant="ghost" disabled={pending} onPress={onUpload} className="px-3 py-2">
-        Prepare paper
-      </Button>
-    ) : kind === "paper" && onDone && !done ? (
+    kind === "paper" && onDone && !done ? (
       <Button variant="ghost" disabled={pending} onPress={onDone} className="px-3 py-2">
-        Mark done
+        Paper ready
       </Button>
     ) : kind === "paper" && onUndo && done ? (
       <Button variant="ghost" disabled={pending} onPress={onUndo} className="px-3 py-2">
         Undo
       </Button>
-    )     : takeRow ? (
+    ) : takeRow ? (
       <View className="min-w-[92px] items-center rounded-md border border-clay-500 bg-[#EEF2FF] px-3 py-2">
         <Text className="text-sm font-medium text-ink-900">Take exam</Text>
       </View>

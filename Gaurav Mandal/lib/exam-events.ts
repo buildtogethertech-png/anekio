@@ -261,7 +261,7 @@ export async function notifySchedulePublished(seriesId: string, authorId?: strin
 export async function notifyPaperSubmitted(exam: ExamNoticeCtx, authorId?: string | null) {
   await emitExactExamNotice({
     eventKey: examEventKey(["EXAM", exam.id, "PAPER_SUBMITTED"]),
-    title: `Question paper submitted: ${exam.subject.name}`,
+    title: `Question paper prepared: ${exam.subject.name}`,
     body: `${examSittingName(exam)} · ${examClassLabel(exam)}`,
     userIds: await examAdminUserIds(),
     authorId,

@@ -413,7 +413,15 @@ export type RecordPayload = {
     pincode?: string;
     joinedOn?: string;
     today?: string;
-    days?: { date: string; status: string; remark?: string }[];
+    days?: {
+      date: string;
+      status: string;
+      remark?: string;
+      inAt?: string;
+      outAt?: string;
+      startTimeUsed?: string;
+      computedStatus?: string;
+    }[];
     leaveDays?: { date: string; reason: string; paid: boolean; typeName: string }[];
     salary?: number;
     department?: string;
@@ -427,6 +435,14 @@ export type RecordPayload = {
     unpaidLeaveCredit: number;
     halfDayCredit: number;
     lateCredit: number;
+    startTime: string;
+    endTime: string;
+    graceMinutes: number;
+    freeLateCount: number;
+    lateDeductionMode: string;
+    lateDeductionAmount: number;
+    lateDayFraction: number;
+    latesPerLeaveDay: number;
   };
   staffPayroll?: {
     personKey: string;

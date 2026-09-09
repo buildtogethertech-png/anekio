@@ -18,8 +18,10 @@ export function ScreenPage({ screen }: { screen: string }) {
 
   const teacherExams = screen === "exams" && data?.kind === "TEACHER";
   const teacherAttendance = screen === "attendance" && data?.kind === "TEACHER";
+  const officeStaff = screen === "staff" && data?.kind === "OFFICE";
   const parentTests = screen === "tests" && data?.kind === "PARENT";
   const workspacePage = workspace || parentTests;
+  const tightPad = teacherExams || teacherAttendance || officeStaff;
   return (
     <SafeAreaView
       className={`min-h-0 flex-1 overflow-hidden ${screen === "exams" ? "bg-[#F7F9FC]" : "bg-ink-50"}`}
@@ -28,7 +30,7 @@ export function ScreenPage({ screen }: { screen: string }) {
     >
       <PhoneTopBar />
       {workspacePage ? (
-        <View className={`min-h-0 flex-1 ${teacherExams || teacherAttendance ? (wide ? "px-5 py-3" : "px-3 py-2") : parentTests ? "px-4 py-5 sm:px-10 sm:py-8" : "px-6 py-6 sm:px-8 sm:py-6"}`}>
+        <View className={`min-h-0 flex-1 ${tightPad ? (wide ? "px-5 py-3" : "px-3 py-2") : parentTests ? "px-4 py-5 sm:px-10 sm:py-8" : "px-6 py-6 sm:px-8 sm:py-6"}`}>
           <PortalBody screen={screen} />
         </View>
       ) : (

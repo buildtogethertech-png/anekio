@@ -6,7 +6,6 @@ import { DateField } from "./date-field";
 import { Button, Chip, Field, Input, Modal, Toast, useToast } from "./ui";
 import { TeacherMarksModal, examTodoKind, examTodoTone } from "./exam-teacher-work";
 import { act } from "../lib/mutate";
-import { pickFile, uploadFile } from "../lib/upload";
 import { ymd } from "../lib/calendar";
 import { useRecord, type RecordPayload } from "../lib/record";
 import { useSession } from "../lib/session";
@@ -247,14 +246,12 @@ function PaperTaskRow({
   todo,
   pending,
   compact,
-  onPrepare,
   onTake,
   onDone,
 }: {
   todo: Todo;
   pending?: boolean;
   compact?: boolean;
-  onPrepare?: () => void;
   onTake?: () => void;
   onDone?: () => void;
 }) {
@@ -307,22 +304,21 @@ function PaperTaskRow({
         ) : null}
         <View className="flex-row items-center gap-1.5">
           {kind === "paper" && onDone ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Done"
+            <CompactButton
+              label={compact ? "Ready" : "Paper ready"}
+              tone="blue"
               disabled={pending}
               onPress={onDone}
-              className={`h-9 w-9 items-center justify-center rounded-[8px] border border-[#E2E8F0] bg-white ${pending ? "opacity-50" : ""}`}
-            >
-              <Ionicons name="checkmark" size={16} color="#16A34A" />
-            </Pressable>
+            />
           ) : null}
-          <CompactButton
-            label={kind === "take" ? (compact ? "Take" : "Take exam") : compact ? "Prepare" : "Prepare paper"}
-            tone="blue"
-            disabled={pending}
-            onPress={kind === "take" ? onTake || (() => undefined) : onPrepare || (() => undefined)}
-          />
+          {kind === "take" ? (
+            <CompactButton
+              label={compact ? "Take" : "Take exam"}
+              tone="blue"
+              disabled={pending}
+              onPress={onTake || (() => undefined)}
+            />
+          ) : null}
         </View>
       </View>
     </View>
@@ -438,21 +434,6 @@ export function TeacherExamsBoard(_props: { uploads?: boolean }) {
     if (params.view === "marks" || params.view === "review" || params.view === "paper") openMarks(examId);
   }, [params.examId, params.view]);
 
-  async function uploadQuestion(examId: string) {
-    setPending(examId);
-    try {
-      const file = await pickFile(".pdf,.doc,.docx,application/pdf");
-      if (!file) return;
-      await uploadFile(token, file, { kind: "question", examId });
-      toast.show("Question paper uploaded.");
-      await reload();
-    } catch (e) {
-      toast.show(e instanceof Error ? e.message : "Could not upload.");
-    } finally {
-      setPending("");
-    }
-  }
-
   async function takeExam(examId: string) {
     setPending(examId);
     try {
@@ -484,7 +465,7 @@ export function TeacherExamsBoard(_props: { uploads?: boolean }) {
     setPending(todo.id);
     try {
       await act(token, "completeExamWork", { examId, kind: "paper" });
-      toast.show("Moved to Done. Undo it there if that was a slip.");
+      toast.show("Paper marked ready. Office has been told.");
       await reload();
     } catch (e) {
       toast.show(e instanceof Error ? e.message : "Could not save.");
@@ -792,7 +773,6 @@ export function TeacherExamsBoard(_props: { uploads?: boolean }) {
                     todo={t}
                     compact
                     pending={pending === t.id || pending === (t.examId || "")}
-                    onPrepare={examTodoKind(t) === "paper" ? () => void uploadQuestion(t.examId || t.id.replace(/^paper-/, "")) : undefined}
                     onTake={examTodoKind(t) === "take" ? () => void takeExam(t.examId || t.id.replace(/^take-/, "")) : undefined}
                     onDone={examTodoKind(t) === "paper" ? () => void completePaper(t) : undefined}
                   />
@@ -917,7 +897,6 @@ export function TeacherExamsBoard(_props: { uploads?: boolean }) {
                     todo={t}
                     compact={phone}
                     pending={pending === t.id || pending === (t.examId || "")}
-                    onPrepare={examTodoKind(t) === "paper" ? () => void uploadQuestion(t.examId || t.id.replace(/^paper-/, "")) : undefined}
                     onTake={examTodoKind(t) === "take" ? () => void takeExam(t.examId || t.id.replace(/^take-/, "")) : undefined}
                     onDone={examTodoKind(t) === "paper" ? () => void completePaper(t) : undefined}
                   />

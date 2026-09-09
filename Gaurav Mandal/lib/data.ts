@@ -873,7 +873,8 @@ export async function getTeacherTimetable(teacherId: string) {
 }
 
 export async function getStaffRoster(date = startOfDay()) {
-  const from = startOfDay(date);
+  const from = new Date(date);
+  from.setHours(0, 0, 0, 0);
   from.setDate(from.getDate() - 400);
   const fromStamp = ymd(from);
   const [teachers, staff, days, leave, payrollRuns, audits] = await Promise.all([

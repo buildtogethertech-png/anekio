@@ -508,6 +508,43 @@ describe("Express portal API", () => {
     expect(response.body).toEqual({ error: "Sign in again." });
   });
 
+  it("saves late timing and staff In time so a later record load still has them", async () => {
+    const officeSession = await login(fixture.users.office.email);
+    const officeAuth = { Authorization: `Bearer ${officeSession.body.token}` };
+
+    const late = await request(app).post("/api/v1/act").set(officeAuth).send({
+      op: "saveSchoolPayrollRules",
+      startTime: "09:00",
+      endTime: "14:00",
+      graceMinutes: 5,
+      freeLateCount: 0,
+      lateDeductionMode: "NONE",
+      lateDeductionAmount: 0,
+      lateDayFraction: 0,
+    });
+    expect(late.status).toBe(200);
+    expect(late.body.rules).toMatchObject({ startTime: "09:00", graceMinutes: 5 });
+    const config = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
+    expect(JSON.parse(config?.payrollJson || "{}")).toMatchObject({ startTime: "09:00", graceMinutes: 5 });
+
+    const marked = await request(app).post("/api/v1/act").set(officeAuth).send({
+      op: "markStaffAttendance",
+      date: "2026-09-09",
+      rows: [{ kind: "teacher", id: "teacher-tara", status: "PRESENT", inAt: "09:20", outAt: "", clear: false }],
+    });
+    expect(marked.status).toBe(200);
+    expect(marked.body.days?.[0]).toMatchObject({ inAt: "09:20" });
+    expect(await prisma.staffDay.findFirst({ where: { teacherId: "teacher-tara", inAt: "09:20" } })).toBeTruthy();
+
+    const record = await request(app).get("/api/v1/record").set(officeAuth);
+    expect(record.status).toBe(200);
+    expect(record.body.payrollRules).toMatchObject({ startTime: "09:00", graceMinutes: 5 });
+    const teacher = (record.body.staff as { id: string; days?: { date: string; inAt?: string }[] }[]).find(
+      (row) => row.id === "teacher-tara"
+    );
+    expect(teacher?.days?.some((day) => day.date === "2026-09-09" && day.inAt === "09:20")).toBe(true);
+  });
+
   it("notifies a staff member when they are mentioned in an inbox internal note", async () => {
     const parentSession = await login(fixture.users.parent.email);
     const parentAuth = { Authorization: `Bearer ${parentSession.body.token}` };

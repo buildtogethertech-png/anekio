@@ -4,6 +4,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   Dimensions,
   Modal as RnModal,
+  Platform,
   Pressable,
   ScrollView,
   Text,
@@ -280,10 +281,15 @@ export function Modal({
 }) {
   return (
     <RnModal visible={open} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable className="flex-1 items-center justify-center bg-black/40 px-4 py-8" onPress={onClose}>
+      <View className="relative flex-1 items-center justify-center px-4 py-8">
         <Pressable
-          className={`w-full ${studio ? "max-w-[96rem]" : wide ? "max-w-3xl" : "max-w-lg"} max-h-[94%] rounded-md border border-ink-200 bg-white p-5`}
-          onPress={() => {}}
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss"
+          className="absolute inset-0 bg-black/40"
+          onPress={onClose}
+        />
+        <View
+          className={`z-10 w-full ${studio ? "max-w-[96rem]" : wide ? "max-w-3xl" : "max-w-lg"} max-h-[94%] rounded-md border border-ink-200 bg-white p-5`}
         >
           <View className="relative mb-4 min-h-8 flex-row items-center justify-end gap-3">
             <Text
@@ -297,8 +303,8 @@ export function Modal({
             {children}
           </ScrollView>
           {footer ? <View className="mt-4 border-t border-ink-100 pt-4">{footer}</View> : null}
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </RnModal>
   );
 }
@@ -433,6 +439,7 @@ function alertMessage(message: string, ok: boolean) {
 
 export function Toast({ message, onDone }: { message: string; onDone: () => void }) {
   const insets = useSafeAreaInsets();
+  const bottom = Math.max(insets?.bottom ?? 0, 20);
   useEffect(() => {
     const t = setTimeout(onDone, 3000);
     return () => clearTimeout(t);
@@ -443,7 +450,7 @@ export function Toast({ message, onDone }: { message: string; onDone: () => void
   const copy = alertMessage(message, ok);
   return (
     <RnModal visible={Boolean(message)} transparent animationType="fade" onRequestClose={onDone}>
-      <View pointerEvents="box-none" className="flex-1 items-center justify-end px-4" style={{ paddingBottom: Math.max(insets.bottom, 20) }}>
+      <View pointerEvents="box-none" className="flex-1 items-center justify-end px-4" style={{ paddingBottom: bottom }}>
         <View
           accessibilityRole="alert"
           className="w-full max-w-sm flex-row items-center gap-3 rounded-lg border border-ink-100 bg-white px-4 py-3 shadow-lg"

@@ -22,6 +22,7 @@ import { isCircularNotice } from "./notices";
 import { leaveBundleFor } from "./leave";
 import { gradePolicyFrom, marksVisible, parseExamPlan, timetableVisible, ymd, addDays } from "./exams";
 import { parsePayrollRules } from "./payroll";
+import { collapseStaffDaysByDate, staffDayYmd } from "./staff-day";
 import { feeLineTotal, invoiceBalance, paidFeeMonthCount, parseFeeLines, reportCardFeeMonthsRequired, reportCardUnlocked } from "./fees";
 import { studentLetter } from "./letter";
 import { payFormFromSecrets, paySecretsFromRow } from "./pay-config";
@@ -75,6 +76,33 @@ function staffLeaveDays(
     }
   }
   return out;
+}
+
+function mapPersonStaffDays(
+  days: {
+    teacherId: string | null;
+    staffId: string | null;
+    date: Date;
+    status: string;
+    remark: string;
+    inAt: string;
+    outAt: string;
+    startTimeUsed: string;
+    computedStatus: string | null;
+  }[],
+  kind: "teacher" | "staff",
+  id: string
+) {
+  const rows = days.filter((d) => (kind === "teacher" ? d.teacherId === id : d.staffId === id));
+  return [...collapseStaffDaysByDate(rows).entries()].map(([date, d]) => ({
+    date,
+    status: d.status,
+    remark: d.remark || "",
+    inAt: d.inAt || "",
+    outAt: d.outAt || "",
+    startTimeUsed: d.startTimeUsed || "",
+    computedStatus: d.computedStatus || "",
+  }));
 }
 
 function staffDepartment(kind: "teacher" | "staff", portal?: string | null) {
@@ -829,6 +857,7 @@ async function officePayload(user: AccessUser) {
     holeMap.set(hole.classId, row);
   }
   const todayKey = ymd(new Date());
+  const staffToday = staffDayYmd(new Date());
   const coverUntil = new Date();
   coverUntil.setDate(coverUntil.getDate() + 7);
   const today = new Date();
@@ -923,7 +952,7 @@ async function officePayload(user: AccessUser) {
         const marked = attendanceByClass.get(klass.id) ?? { present: 0, absent: 0, marked: 0 };
         const classTeacher = people.teachers.find((teacher) => teacher.classId === klass.id);
         const teacherDay = classTeacher
-          ? staff.days.find((day) => day.teacherId === classTeacher.id && ymd(day.date) === todayKey)
+          ? staff.days.find((day) => day.teacherId === classTeacher.id && staffDayYmd(day.date) === staffToday)
           : null;
         return {
           classId: klass.id,
@@ -1056,7 +1085,7 @@ async function officePayload(user: AccessUser) {
     })),
     staff: [
       ...staff.teachers.map((t) => {
-        const today = staff.days.find((d) => d.teacherId === t.id && ymd(d.date) === todayKey);
+        const today = mapPersonStaffDays(staff.days, "teacher", t.id).find((d) => d.date === staffToday);
         return {
           id: t.id,
           userId: t.userId,
@@ -1074,10 +1103,8 @@ async function officePayload(user: AccessUser) {
           state: t.state || "",
           pincode: t.pincode || "",
           joinedOn: t.joinedOn || "",
-          today: today ? today.status : "PRESENT",
-          days: staff.days
-            .filter((d) => d.teacherId === t.id)
-            .map((d) => ({ date: ymd(d.date), status: d.status, remark: d.remark || "" })),
+          today: today ? today.status : "",
+          days: mapPersonStaffDays(staff.days, "teacher", t.id),
           leaveDays: staffLeaveDays(staff.leave, "teacher", t.id),
           salary: t.monthlySalary,
           department: staffDepartment("teacher"),
@@ -1086,7 +1113,7 @@ async function officePayload(user: AccessUser) {
         };
       }),
       ...staff.staff.map((s) => {
-        const today = staff.days.find((d) => d.staffId === s.id && ymd(d.date) === todayKey);
+        const today = mapPersonStaffDays(staff.days, "staff", s.id).find((d) => d.date === staffToday);
         return {
           id: s.id,
           userId: s.userId || "",
@@ -1102,10 +1129,8 @@ async function officePayload(user: AccessUser) {
           state: s.state || "",
           pincode: s.pincode || "",
           joinedOn: s.joinedOn || "",
-          today: today ? today.status : "PRESENT",
-          days: staff.days
-            .filter((d) => d.staffId === s.id)
-            .map((d) => ({ date: ymd(d.date), status: d.status, remark: d.remark || "" })),
+          today: today ? today.status : "",
+          days: mapPersonStaffDays(staff.days, "staff", s.id),
           leaveDays: staffLeaveDays(staff.leave, "staff", s.id),
           salary: s.monthlySalary,
           department: staffDepartment("staff", s.role?.portal),

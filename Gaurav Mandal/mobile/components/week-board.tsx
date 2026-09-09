@@ -223,19 +223,19 @@ export function WeekBoard() {
 
   return (
     <View className="min-h-0 flex-1">
-      <PageHeader
-        kicker={teamWeek ? "Team" : "Admin · One screen"}
-        title={teamWeek ? "Team routine" : "Routine"}
-        lede={
-          teamWeek
-            ? "Empty periods in your team’s classes. Free teachers are marked — drop one on the hole."
-            : phone
-              ? "Tap a period to assign. Clock, rooms, and subjects live under School settings."
+      {phone ? null : (
+        <PageHeader
+          kicker={teamWeek ? "Team" : "Admin · One screen"}
+          title={teamWeek ? "Team routine" : "Routine"}
+          lede={
+            teamWeek
+              ? "Empty periods in your team’s classes. Free teachers are marked — drop one on the hole."
               : "Pick a class and place teachers. Clock, rooms, and subjects are set once under School settings."
-        }
-      />
+          }
+        />
+      )}
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
-      <View className={split ? "mt-3 min-h-0 flex-1 flex-row gap-6" : "mt-3 min-h-0 flex-1"}>
+      <View className={split ? "mt-3 min-h-0 flex-1 flex-row gap-6" : phone ? "min-h-0 flex-1" : "mt-3 min-h-0 flex-1"}>
         {split ? <View className="min-h-0 w-1/4 max-w-xs shrink-0">{teacherRail}</View> : null}
 
         <View className="min-h-0 min-w-0 flex-1">

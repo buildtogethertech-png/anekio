@@ -49,6 +49,7 @@ import {
   decideLeaveCore,
   assignSubstituteCore,
   saveLeavePolicyCore,
+  saveSchoolPayrollRulesCore,
   sendClassNoteCore,
   submitParentQueryCore,
   saveSchoolClockCore,
@@ -105,11 +106,21 @@ import {
   saveDocumentTemplateCore,
 } from "./document-studio";
 
+export function actOp(body: Record<string, unknown>) {
+  const op = String(body.op || body.action || "").trim();
+  if (op) return op;
+  if (Array.isArray(body.rows) && body.date) return "markStaffAttendance";
+  if (body.startTime != null && body.graceMinutes != null && body.weekdays == null && body.rows == null) {
+    return "saveSchoolPayrollRules";
+  }
+  return "";
+}
+
 export async function runAct(
   user: AccessUser,
   body: Record<string, unknown>
 ): Promise<Record<string, unknown>> {
-  const op = String(body.op || "");
+  const op = actOp(body);
   switch (op) {
     case "createStudent":
       await createStudentCore(user, body as never);
@@ -138,8 +149,7 @@ export async function runAct(
       await markAttendanceCore(user, body as never);
       break;
     case "markStaffAttendance":
-      await markStaffAttendanceCore(user, body as never);
-      break;
+      return { ok: true, ...(await markStaffAttendanceCore(user, body as never)) };
     case "correctStaffAttendance":
       await correctStaffAttendanceCore(user, body as never);
       break;
@@ -237,6 +247,10 @@ export async function runAct(
     case "saveLeavePolicy":
       await saveLeavePolicyCore(user, body as never);
       break;
+    case "saveSchoolPayrollRules":
+    case "saveLateTiming":
+    case "savePayrollRules":
+      return { ok: true, ...(await saveSchoolPayrollRulesCore(user, body as never)) };
     case "applyLeave":
       await applyLeaveCore(user, body as never);
       break;
@@ -410,7 +424,10 @@ export async function runAct(
       await deleteCustomRoleCore(user, body as never);
       break;
     default:
-      throw Object.assign(new Error("Unknown action"), { status: 400 });
+      if (body.startTime != null && body.graceMinutes != null && body.weekdays == null && body.rows == null) {
+        return { ok: true, ...(await saveSchoolPayrollRulesCore(user, body as never)) };
+      }
+      throw Object.assign(new Error(op ? `Unknown action: ${op}` : "Unknown action"), { status: 400 });
   }
   return { ok: true };
 }

@@ -8,6 +8,7 @@ import {
   dayKind,
   daysInMonth,
   inr,
+  minutesLate,
   monthTitle,
   parsePayrollRules,
   personKey,
@@ -25,6 +26,7 @@ type DayKind = "working" | "weekend" | "holiday";
 const WEEKDAYS = ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const EDIT_MARKS: { value: PayrollMark; label: string }[] = [
   { value: "PRESENT", label: "P — Present" },
+  { value: "LATE", label: "Lt — Late" },
   { value: "ABSENT", label: "A — Absent" },
   { value: "LEAVE", label: "L — Leave" },
   { value: "HALF_DAY", label: "HD — Half day" },
@@ -48,13 +50,14 @@ function letterFor(mark: PayrollMark, kind: DayKind, future: boolean) {
   if (mark === "ABSENT") return "A";
   if (mark === "LEAVE") return "L";
   if (mark === "HALF_DAY") return "HD";
-  if (mark === "LATE") return "P";
+  if (mark === "LATE") return "Lt";
   return "—";
 }
 
 function badgeClass(letter: string) {
   if (letter === "P") return "bg-emerald-50 text-emerald-700";
   if (letter === "A") return "bg-red-50 text-red-700";
+  if (letter === "Lt") return "bg-amber-50 text-amber-800";
   if (letter === "L") return "bg-sky-50 text-sky-800";
   if (letter === "HD") return "bg-amber-50 text-amber-800";
   if (letter === "H") return "bg-violet-50 text-violet-700";
@@ -64,6 +67,7 @@ function badgeClass(letter: string) {
 function statusLabel(letter: string) {
   if (letter === "P") return "Present";
   if (letter === "A") return "Absent";
+  if (letter === "Lt") return "Late";
   if (letter === "L") return "Leave";
   if (letter === "HD") return "Half day";
   if (letter === "H") return "Holiday";
@@ -195,8 +199,15 @@ export function StaffAttendanceDetail({
       else if (saved === "LEAVE") remarks = leave.get(date)?.reason || (leave.get(date)?.paid === false ? "Unpaid leave" : "Approved leave");
       else if (saved === "ABSENT") remarks = "Personal absence";
       else if (saved === "HALF_DAY") remarks = "Half day";
-      else if (saved === "LATE") remarks = "Late";
+      else if (saved === "LATE") {
+        const inAt = byDate.get(date)?.inAt || "";
+        const start = byDate.get(date)?.startTimeUsed || payrollRules.startTime;
+        const lateMin = inAt ? minutesLate(inAt, start) : 0;
+        remarks = inAt ? `Late ${lateMin} min · In ${inAt}` : "Late";
+      }
+      else if (saved === "PRESENT" && byDate.get(date)?.computedStatus === "LATE") remarks = byDate.get(date)?.remark || "Late, marked present";
       else if (future) remarks = "—";
+      else if (byDate.get(date)?.inAt) remarks = `In ${byDate.get(date)?.inAt}`;
       return {
         date,
         n: Number(date.slice(8)),
@@ -210,11 +221,11 @@ export function StaffAttendanceDetail({
         paidLeave: leave.get(date)?.paid !== false,
       };
     });
-  }, [calendar, dates, now, person.days, person.leaveDays]);
+  }, [calendar, dates, now, person.days, person.leaveDays, payrollRules.startTime]);
 
   const marks = useMemo(() => new Map(rows.filter((r) => r.mark).map((r) => [r.date, r.mark])), [rows]);
   const paidLeave = useMemo(() => new Map(rows.map((r) => [r.date, r.paidLeave])), [rows]);
-  const summary = useMemo(
+  const live = useMemo(
     () =>
       summarizePayroll({
         dates,
@@ -228,6 +239,7 @@ export function StaffAttendanceDetail({
       }),
     [calendar, dates, marks, now, paidLeave, payrollRules, person.salary, run?.otherAdj]
   );
+  const summary = !run || run.status === "PENDING" ? live : { ...live, attendanceAdj: run.attendanceAdj, finalAmount: run.finalAmount, salary: run.salary, payableDays: run.payableDays, working: run.workingDays, otherAdj: run.otherAdj };
   const weeks = useMemo(() => {
     const lead = rows[0] ? weekdayOfYmd(rows[0].date) - 1 : 0;
     const cells: (typeof rows[number] | null)[] = [...Array(Math.max(0, lead)).fill(null), ...rows];
@@ -447,6 +459,7 @@ export function StaffAttendanceDetail({
         <StatChip icon="checkmark-circle-outline" label="Present" value={String(summary.present)} />
         <StatChip icon="close-circle-outline" label="Absent" value={String(summary.absent)} />
         <StatChip icon="walk-outline" label="Leave" value={String(summary.leave)} />
+        <StatChip icon="time-outline" label="Late" value={String(summary.late)} />
         <StatChip icon="remove-circle-outline" label="Half day" value={String(summary.halfDay)} />
         <StatChip icon="stats-chart-outline" label="Attendance" value={`${summary.attendancePct.toFixed(0)}%`} />
         <StatChip icon="wallet-outline" label="Payable days" value={String(summary.payableDays)} emphasis />
@@ -471,6 +484,7 @@ export function StaffAttendanceDetail({
             {(
               [
                 ["P", "Present", "bg-emerald-500"],
+                ["Lt", "Late", "bg-amber-500"],
                 ["A", "Absent", "bg-red-500"],
                 ["L", "Leave", "bg-sky-500"],
                 ["HD", "Half Day", "bg-amber-500"],
@@ -493,14 +507,22 @@ export function StaffAttendanceDetail({
           <View className="rounded-lg border border-clay-200 bg-[#EEF2FF] px-3 py-2.5">
             <Text className="text-[12px] font-semibold text-ink-900">Payable Days</Text>
             <Text className="mt-0.5 text-[22px] font-semibold text-ink-900">{summary.payableDays} Days</Text>
-            <Text className="mt-0.5 text-[11px] text-ink-500">Calculated according to configured payroll rules</Text>
+            <Text className="mt-0.5 text-[11px] text-ink-500">
+              {payrollRules.latesPerLeaveDay
+                ? `${payrollRules.latesPerLeaveDay} lates = 1 unpaid day`
+                : "Calculated according to configured payroll rules"}
+            </Text>
           </View>
           <Text className="mt-4 text-[15px] font-semibold text-ink-900">Monthly Payment</Text>
           <PayRow label="Monthly Salary" value={inr(summary.salary)} onEdit={onEditSalary} />
           <PayRow label="Working Days" value={String(summary.working)} />
           <PayRow label="Payable Days" value={String(summary.payableDays)} />
+          {live.lateLeaveDays ? (
+            <PayRow label="Late → leave" value={`−${live.lateLeaveDays} day${live.lateLeaveDays === 1 ? "" : "s"}`} />
+          ) : null}
           <PayRow label="Daily Salary" value={inr(summary.dailySalary, 2)} />
           <PayRow label="Attendance Adjustment" value={inr(summary.attendanceAdj)} />
+          {live.extraLateCut ? <PayRow label="Extra late cut" value={inr(live.extraLateCut)} /> : null}
           <PayRow label="Other Adjustments" value={inr(summary.otherAdj)} />
           <View className="mt-3 rounded-lg border border-clay-200 bg-[#EEF2FF] px-3 py-3">
             <Text className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">Final Payable Amount</Text>
@@ -540,6 +562,18 @@ export function StaffAttendanceDetail({
                 {!inspect.remarks || inspect.remarks === "—" ? "No remarks" : inspect.remarks}
               </Text>
             </View>
+            {inspect.kind === "working" && !inspect.future ? (
+              <Button
+                onPress={() => {
+                  setEditDate(inspect.date);
+                  setEditStatus(inspect.mark || "PRESENT");
+                  setEditReason("");
+                  setInspectDate("");
+                }}
+              >
+                Change attendance
+              </Button>
+            ) : null}
           </View>
         ) : null}
       </Modal>
@@ -592,6 +626,9 @@ export function StaffAttendanceDetail({
           <PayRow label="Absent" value={String(summary.absent)} />
           <PayRow label="Leave" value={String(summary.leave)} />
           <PayRow label="Payable Days" value={String(summary.payableDays)} />
+          {live.lateLeaveDays ? (
+            <PayRow label="Late → leave" value={`−${live.lateLeaveDays} day${live.lateLeaveDays === 1 ? "" : "s"}`} />
+          ) : null}
           <PayRow label="Monthly Salary" value={inr(summary.salary)} />
           <PayRow label="Daily Salary" value={inr(summary.dailySalary, 2)} />
           <PayRow label="Final Payable" value={inr(summary.finalAmount)} />
