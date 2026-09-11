@@ -388,7 +388,7 @@ app.get("/api/v1/onboarding/template", async (req, res) => {
   if (!(await requireActiveSubscription(user.id, res))) return;
   try {
     const template = await onboardingTemplate(user, String(req.query.kind || ""));
-    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Type", template.contentType);
     res.setHeader("Content-Disposition", `attachment; filename="${template.fileName}"`);
     res.send(template.buffer);
   } catch (e) {

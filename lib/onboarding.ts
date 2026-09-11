@@ -16,10 +16,10 @@ type ImportRow = Record<string, string> & { _row: string };
 type OnboardingDb = Prisma.TransactionClient;
 
 const TEMPLATE_DETAILS: Record<ImportKind, { sheet: string; file: string; title: string }> = {
-  classes: { sheet: "Classes", file: "anekio-classes.xlsx", title: "Classes and sections" },
-  students: { sheet: "Students", file: "anekio-students.xlsx", title: "Students and parents" },
-  teachers: { sheet: "Teachers", file: "anekio-teachers.xlsx", title: "Teachers" },
-  opening_balances: { sheet: "Opening balances", file: "anekio-opening-balances.xlsx", title: "Opening fee balances" },
+  classes: { sheet: "Classes", file: "anekio-classes.csv", title: "Classes and sections" },
+  students: { sheet: "Students", file: "anekio-students.csv", title: "Students and parents" },
+  teachers: { sheet: "Teachers", file: "anekio-teachers.csv", title: "Teachers" },
+  opening_balances: { sheet: "Opening balances", file: "anekio-opening-balances.csv", title: "Opening fee balances" },
 };
 
 function need(user: AccessUser) {
@@ -83,59 +83,14 @@ function sheetCell(row: ImportRow, ...keys: string[]) {
   return "";
 }
 
-function styleSheet(sheet: ExcelJS.Worksheet, widths: number[]) {
-  sheet.views = [{ state: "frozen", ySplit: 1 }];
-  sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: widths.length } };
-  sheet.getRow(1).height = 28;
-  sheet.getRow(1).eachCell((cell) => {
-    cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF2563EB" } };
-    cell.alignment = { vertical: "middle" };
-  });
-  widths.forEach((width, index) => {
-    sheet.getColumn(index + 1).width = width;
-  });
-  sheet.eachRow((row, rowNumber) => {
-    if (rowNumber === 1) return;
-    row.eachCell((cell) => {
-      cell.alignment = { vertical: "top", wrapText: true };
-      cell.border = { bottom: { style: "hair", color: { argb: "FFDCE5F2" } } };
-    });
-  });
+type CsvCell = string | number;
+
+function csvBuffer(rows: CsvCell[][]) {
+  const encoded = rows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(","));
+  return Buffer.from(`\uFEFF${encoded.join("\r\n")}\r\n`, "utf8");
 }
 
-function instructionSheet(workbook: ExcelJS.Workbook, title: string, lines: string[]) {
-  const sheet = workbook.addWorksheet("Start here");
-  sheet.getColumn(1).width = 110;
-  sheet.addRow([title]);
-  sheet.addRow(["Use this workbook as the source of truth for this onboarding step."]);
-  lines.forEach((line, index) => sheet.addRow([`${index + 1}. ${line}`]));
-  sheet.getCell("A1").font = { bold: true, size: 18, color: { argb: "FF12305A" } };
-  sheet.getCell("A2").font = { italic: true, color: { argb: "FF52657D" } };
-  sheet.eachRow((row) => {
-    row.height = 28;
-    row.getCell(1).alignment = { vertical: "middle", wrapText: true };
-  });
-}
-
-function addClassValidation(sheet: ExcelJS.Worksheet, column: number, lastRow: number, referenceCount: number) {
-  if (!referenceCount) return;
-  for (let row = 2; row <= lastRow; row += 1) {
-    sheet.getCell(row, column).dataValidation = {
-      type: "list",
-      allowBlank: false,
-      formulae: [`'Valid classes'!$A$2:$A$${referenceCount + 1}`],
-      showErrorMessage: true,
-      errorTitle: "Choose a class",
-      error: "Use a class already created in Anekio.",
-    };
-  }
-}
-
-async function workbookFor(kind: ImportKind) {
-  const workbook = new ExcelJS.Workbook();
-  workbook.creator = "Anekio";
-  workbook.created = new Date();
+async function csvRowsFor(kind: ImportKind): Promise<CsvCell[][]> {
   const classes = await prisma.class.findMany({
     where: { archivedAt: null },
     orderBy: [{ name: "asc" }, { section: "asc" }],
@@ -143,96 +98,64 @@ async function workbookFor(kind: ImportKind) {
   const classLabels = classes.map((row) => `${row.name}-${row.section}`);
 
   if (kind === "classes") {
-    instructionSheet(workbook, "Anekio class setup", [
-      "Keep one row per class and section.",
-      "Class name can be 1, 2, Nursery, or any label your school uses.",
-      "Upload this same file in School setup; existing classes are updated, not duplicated.",
-    ]);
-    const sheet = workbook.addWorksheet(TEMPLATE_DETAILS[kind].sheet);
-    sheet.addRow(["Anekio class ID", "Class name", "Section"]);
-    classes.forEach((row) => sheet.addRow([row.id, row.name, row.section]));
-    if (!classes.length) sheet.addRow(["", "", ""]);
-    styleSheet(sheet, [28, 24, 18]);
-    sheet.getColumn(1).hidden = true;
-    return workbook;
+    return [
+      ["Anekio class ID", "Class name", "Section", "Example only"],
+      ["", "1", "A", "YES"],
+      ...classes.map((row) => [row.id, row.name, row.section, ""]),
+    ];
   }
 
-  const references = workbook.addWorksheet("Valid classes");
-  references.addRow(["Class"]);
-  classLabels.forEach((label) => references.addRow([label]));
-  styleSheet(references, [26]);
-
   if (kind === "students") {
-    instructionSheet(workbook, "Anekio student import", [
-      "Create classes first; choose the class from the dropdown.",
-      "Admission number is optional for a new student. Anekio generates it when blank.",
-      "Parent name and a 10-digit mobile are required; parent email is optional.",
-      "Rows with an Anekio student ID update that student safely.",
-    ]);
     const students = await prisma.student.findMany({
       include: { class: true, parent: { include: { user: true } } },
       orderBy: { name: "asc" },
     });
-    const sheet = workbook.addWorksheet(TEMPLATE_DETAILS[kind].sheet);
-    sheet.addRow(["Anekio student ID", "Admission number", "Student name", "Date of birth", "Class", "Parent name", "Parent mobile", "Parent email"]);
-    students.forEach((student) => sheet.addRow([
-      student.id,
-      student.admissionNo,
-      student.name,
-      dateText(student.dateOfBirth),
-      `${student.class.name}-${student.class.section}`,
-      student.parent.user.name,
-      student.parent.phone || student.parent.user.phone || "",
-      student.parent.user.email.endsWith("@local.anekio.invalid") ? "" : student.parent.user.email,
-    ]));
-    if (!students.length) sheet.addRow(["", "", "", "", "", "", "", ""]);
-    styleSheet(sheet, [28, 22, 28, 18, 18, 28, 20, 32]);
-    sheet.getColumn(1).hidden = true;
-    addClassValidation(sheet, 5, Math.max(500, sheet.rowCount), classLabels.length);
-    return workbook;
+    return [
+      ["Anekio student ID", "Admission number", "Student name", "Date of birth", "Class", "Parent name", "Parent mobile", "Parent email", "Example only"],
+      ["", "", "Aarav Sharma (example)", "2015-04-12", classLabels[0] || "1-A", "Neha Sharma", "9876543210", "parent@example.com", "YES"],
+      ...students.map((student) => [
+        student.id,
+        student.admissionNo,
+        student.name,
+        dateText(student.dateOfBirth),
+        `${student.class.name}-${student.class.section}`,
+        student.parent.user.name,
+        student.parent.phone || student.parent.user.phone || "",
+        student.parent.user.email.endsWith("@local.anekio.invalid") ? "" : student.parent.user.email,
+        "",
+      ]),
+    ];
   }
 
   if (kind === "teachers") {
-    instructionSheet(workbook, "Anekio teacher import", [
-      "Teacher name and a 10-digit mobile are required; email and employee ID can be generated.",
-      "Class teacher is optional and must use a class from the dropdown.",
-      "Rows with an Anekio teacher ID update that teacher safely.",
-    ]);
     const teachers = await prisma.teacher.findMany({ include: { user: true, class: true }, orderBy: { user: { name: "asc" } } });
-    const sheet = workbook.addWorksheet(TEMPLATE_DETAILS[kind].sheet);
-    sheet.addRow(["Anekio teacher ID", "Employee ID", "Teacher name", "Mobile", "Email", "Qualification", "Class teacher"]);
-    teachers.forEach((teacher) => sheet.addRow([
-      teacher.id,
-      teacher.employeeId,
-      teacher.user.name,
-      teacher.user.phone || "",
-      teacher.user.email.endsWith("@local.anekio.invalid") ? "" : teacher.user.email,
-      teacher.qualification || "",
-      teacher.class ? `${teacher.class.name}-${teacher.class.section}` : "",
-    ]));
-    if (!teachers.length) sheet.addRow(["", "", "", "", "", "", ""]);
-    styleSheet(sheet, [28, 20, 28, 20, 32, 28, 20]);
-    sheet.getColumn(1).hidden = true;
-    addClassValidation(sheet, 7, Math.max(500, sheet.rowCount), classLabels.length);
-    return workbook;
+    return [
+      ["Anekio teacher ID", "Employee ID", "Teacher name", "Mobile", "Email", "Qualification", "Class teacher", "Example only"],
+      ["", "", "Meera Singh (example)", "9876543211", "teacher@example.com", "B.Ed, Mathematics", classLabels[0] || "1-A", "YES"],
+      ...teachers.map((teacher) => [
+        teacher.id,
+        teacher.employeeId,
+        teacher.user.name,
+        teacher.user.phone || "",
+        teacher.user.email.endsWith("@local.anekio.invalid") ? "" : teacher.user.email,
+        teacher.qualification || "",
+        teacher.class ? `${teacher.class.name}-${teacher.class.section}` : "",
+        "",
+      ]),
+    ];
   }
 
-  instructionSheet(workbook, "Anekio opening fee balances", [
-    "This is one consolidated opening balance per student, not month-by-month history.",
-    "Enter zero when the student has nothing outstanding.",
-    "Generated through is the last month already covered by the old system, in YYYY-MM format.",
-    "Anekio starts recurring invoices from the following month and never duplicates this balance.",
-  ]);
   const students = await prisma.student.findMany({ include: { class: true }, orderBy: { name: "asc" } });
   const opening = await prisma.feeInvoice.findMany({ where: { period: "OPENING" }, include: { payments: true } });
   const openingByStudent = new Map(opening.map((row) => [row.studentId, row]));
   const defaultThrough = monthBefore();
-  const sheet = workbook.addWorksheet(TEMPLATE_DETAILS[kind].sheet);
-  sheet.addRow(["Anekio student ID", "Admission number", "Student name", "Class", "Opening due amount", "Due date", "Generated through"]);
-  students.forEach((student) => {
+  return [
+    ["Anekio student ID", "Admission number", "Student name", "Class", "Opening due amount", "Due date", "Generated through", "Example only"],
+    ["", "", "Aarav Sharma (example)", classLabels[0] || "1-A", 2500, dateText(new Date()), defaultThrough, "YES"],
+    ...students.map((student) => {
     const current = openingByStudent.get(student.id);
     const paid = current?.payments.reduce((total, payment) => total + payment.amount, 0) || 0;
-    sheet.addRow([
+      return [
       student.id,
       student.admissionNo,
       student.name,
@@ -240,27 +163,31 @@ async function workbookFor(kind: ImportKind) {
       current ? Math.max(0, current.amount - paid) : 0,
       current ? dateText(current.dueDate) : dateText(new Date()),
       student.feeGeneratedThrough || current?.generatedThrough || defaultThrough,
-    ]);
-  });
-  styleSheet(sheet, [28, 22, 28, 18, 22, 18, 22]);
-  sheet.getColumn(1).hidden = true;
-  sheet.getColumn(5).numFmt = "₹#,##0";
-  return workbook;
+        "",
+      ];
+    }),
+  ];
 }
 
 export async function onboardingTemplate(user: AccessUser, rawKind: string) {
   need(user);
   const kind = asKind(rawKind);
-  const workbook = await workbookFor(kind);
-  const output = await workbook.xlsx.writeBuffer();
-  return { fileName: TEMPLATE_DETAILS[kind].file, buffer: Buffer.from(output) };
+  return {
+    fileName: TEMPLATE_DETAILS[kind].file,
+    contentType: "text/csv; charset=utf-8",
+    buffer: csvBuffer(await csvRowsFor(kind)),
+  };
+}
+
+function realRows(rows: ImportRow[]) {
+  return rows.filter((row) => !["yes", "true", "sample", "example"].includes(sheetCell(row, "Example only", "Row type").toLowerCase()));
 }
 
 async function rowsFromUpload(kind: ImportKind, uploadPath: string): Promise<ImportRow[]> {
   if (!uploadPath.includes("/onboarding/imports/") || uploadPath.includes("..")) throw new Error("Use a file uploaded from School setup.");
   const { buf, type } = await readUpload(uploadPath);
   if (type === "text/csv" || uploadPath.toLowerCase().endsWith(".csv")) {
-    return parseCsv(buf.toString("utf8")).map((row, index) => ({ ...row, _row: String(index + 2) }));
+    return realRows(parseCsv(buf.toString("utf8")).map((row, index) => ({ ...row, _row: String(index + 2) })));
   }
   const workbook = new ExcelJS.Workbook();
   const arrayBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
@@ -278,7 +205,7 @@ async function rowsFromUpload(kind: ImportKind, uploadPath: string): Promise<Imp
     });
     if (Object.entries(record).some(([key, value]) => key !== "_row" && value.trim())) rows.push(record);
   });
-  return rows;
+  return realRows(rows);
 }
 
 function rowError(row: ImportRow, message: string) {
@@ -359,7 +286,7 @@ export async function previewOnboardingImport(user: AccessUser, input: { kind?: 
   const uploadPath = String(input.uploadPath || "");
   if (!uploadPath) throw new Error("Upload a completed template first.");
   const rows = await rowsFromUpload(kind, uploadPath);
-  if (!rows.length) throw new Error("The data sheet is empty.");
+  if (!rows.length) throw new Error("No data rows found. Add school data below the example row, or copy it and clear Example only.");
   const errors = await validateRows(kind, rows);
   await ensureState();
   const batch = await prisma.schoolOnboardingImport.create({

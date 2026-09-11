@@ -100,7 +100,7 @@ export function OnboardingBoard() {
     setMessage("");
     setPreview(null);
     try {
-      const file = await pickFile(".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv");
+      const file = await pickFile(".csv,text/csv");
       if (!file) return;
       const uploaded = await uploadFile(token, file, { kind: "onboarding", onboardingKind: template.kind });
       const result = await act<Preview & { ok: true }>(token, "previewOnboardingImport", {
@@ -110,7 +110,7 @@ export function OnboardingBoard() {
       });
       setPreview(result);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not review the workbook.");
+      setMessage(error instanceof Error ? error.message : "Could not review the CSV file.");
     } finally {
       setBusy("");
     }
@@ -139,7 +139,7 @@ export function OnboardingBoard() {
       <PageHeader
         kicker="School launch"
         title="Set up this school"
-        lede="Choose only what this school needs. Anekio generates the next workbook from data already imported, so the onboarding team never rebuilds the same sheet twice."
+        lede="Choose only what this school needs. Anekio generates the next CSV from data already imported, so the onboarding team never rebuilds the same file twice."
       />
 
       <Card className="gap-4 p-5">
@@ -196,8 +196,8 @@ export function OnboardingBoard() {
       </View>
 
       <View className="gap-2">
-        <Text className="text-base font-semibold text-ink-900">Generated workbooks</Text>
-        <Text className="text-xs leading-5 text-ink-700">Download, fill or review the prefilled rows, then upload the same workbook. Nothing changes until the review passes and you press Apply.</Text>
+        <Text className="text-base font-semibold text-ink-900">Generated CSV templates</Text>
+        <Text className="text-xs leading-5 text-ink-700">Every CSV includes a realistic example row marked Example only = YES. Add school data below it, or copy it and clear that field. Example rows are always ignored. Nothing changes until review passes and you press Apply.</Text>
         <View className="flex-row flex-wrap gap-3">
           {onboarding.templates.map((template) => (
             <Card key={template.kind} className="min-w-[260px] flex-1 gap-3 p-4">

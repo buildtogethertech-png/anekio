@@ -1,13 +1,22 @@
-import ExcelJS from "exceljs";
 import type { PrismaClient } from "@prisma/client";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AccessUser } from "../../lib/permissions";
+import { parseCsv } from "../../lib/sheet";
 import { seedPortalFixture } from "../support/factories";
 import { createTestDatabase, type TestDatabase } from "../support/test-database";
 
 let database: TestDatabase;
 let prisma: PrismaClient;
 let user: AccessUser;
+
+function csvRow(values: unknown[]) {
+  return values.map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(",");
+}
+
+function csvFromObjects(rows: Record<string, string>[]) {
+  const headers = Object.keys(rows[0] || {});
+  return `\uFEFF${[csvRow(headers), ...rows.map((row) => csvRow(headers.map((header) => row[header] || "")))].join("\r\n")}\r\n`;
+}
 
 describe("school onboarding imports", () => {
   beforeAll(async () => {
@@ -45,55 +54,42 @@ describe("school onboarding imports", () => {
     const { saveUploadPath } = await import("../../lib/uploads");
 
     const studentsTemplate = await onboardingTemplate(user, "students");
-    const studentWorkbook = new ExcelJS.Workbook();
-    const studentSource = studentsTemplate.buffer.buffer.slice(
-      studentsTemplate.buffer.byteOffset,
-      studentsTemplate.buffer.byteOffset + studentsTemplate.buffer.byteLength
-    ) as ArrayBuffer;
-    await studentWorkbook.xlsx.load(studentSource);
-    const studentSheet = studentWorkbook.getWorksheet("Students");
-    studentSheet!.addRow(["", "", "Kabir Student", "2015-04-12", "6-A", "Kavita Parent", "9876540099", ""]);
-    const studentUploadPath = "private/schools/test/onboarding/imports/students.xlsx";
+    expect(studentsTemplate).toMatchObject({ fileName: "anekio-students.csv", contentType: "text/csv; charset=utf-8" });
+    const studentCsv = studentsTemplate.buffer.toString("utf8");
+    expect(studentCsv).toContain("Aarav Sharma (example)");
+    expect(studentCsv).toContain('"YES"');
+    const studentUploadPath = "private/schools/test/onboarding/imports/students.csv";
     await saveUploadPath(
       studentUploadPath,
-      Buffer.from(await studentWorkbook.xlsx.writeBuffer()),
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      Buffer.from(`${studentCsv}${csvRow(["", "", "Kabir Student", "2015-04-12", "6-A", "Kavita Parent", "9876540099", "", ""])}\r\n`),
+      "text/csv"
     );
     const studentPreview = await previewOnboardingImport(user, {
       kind: "students",
       uploadPath: studentUploadPath,
-      fileName: "students.xlsx",
+      fileName: "students.csv",
     });
     expect(studentPreview).toMatchObject({ rowCount: 2, validCount: 2, errors: [] });
     await applyOnboardingImport(user, { batchId: studentPreview.batchId });
     const kabir = await prisma.student.findFirstOrThrow({ where: { name: "Kabir Student" } });
     expect(kabir.admissionNo).toMatch(/^ANE-\d{5}$/);
+    expect(await prisma.student.count({ where: { name: "Aarav Sharma (example)" } })).toBe(0);
 
     const generated = await onboardingTemplate(user, "opening_balances");
-    expect(generated.fileName).toBe("anekio-opening-balances.xlsx");
+    expect(generated.fileName).toBe("anekio-opening-balances.csv");
+    const openingRows = parseCsv(generated.buffer.toString("utf8"));
+    const anayaRow = openingRows.find((row) => row.studentname === "Anaya Student")!;
+    anayaRow.openingdueamount = "12345";
+    anayaRow.duedate = "2026-08-31";
+    anayaRow.generatedthrough = "2026-08";
 
-    const workbook = new ExcelJS.Workbook();
-    const source = generated.buffer.buffer.slice(
-      generated.buffer.byteOffset,
-      generated.buffer.byteOffset + generated.buffer.byteLength
-    ) as ArrayBuffer;
-    await workbook.xlsx.load(source);
-    const sheet = workbook.getWorksheet("Opening balances");
-    expect(sheet).toBeTruthy();
-    const anayaRow = Array.from({ length: sheet!.rowCount - 1 }, (_, index) => index + 2)
-      .find((row) => sheet!.getCell(row, 3).text === "Anaya Student")!;
-    sheet!.getCell(anayaRow, 5).value = 12_345;
-    sheet!.getCell(anayaRow, 6).value = "2026-08-31";
-    sheet!.getCell(anayaRow, 7).value = "2026-08";
-
-    const output = Buffer.from(await workbook.xlsx.writeBuffer());
-    const uploadPath = "private/schools/test/onboarding/imports/opening.xlsx";
-    await saveUploadPath(uploadPath, output, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    const uploadPath = "private/schools/test/onboarding/imports/opening.csv";
+    await saveUploadPath(uploadPath, Buffer.from(csvFromObjects(openingRows)), "text/csv");
 
     const preview = await previewOnboardingImport(user, {
       kind: "opening_balances",
       uploadPath,
-      fileName: "opening.xlsx",
+      fileName: "opening.csv",
     });
     expect(preview).toMatchObject({ rowCount: 2, validCount: 2, errors: [] });
 
