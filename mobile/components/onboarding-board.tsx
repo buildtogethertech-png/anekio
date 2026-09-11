@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Linking, Pressable, Text, View } from "react-native";
 import { apiBase } from "../lib/api";
 import { act } from "../lib/mutate";
@@ -68,10 +68,27 @@ export function OnboardingBoard() {
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);
+  const autoGoogleStarted = useRef(false);
 
   useEffect(() => {
     if (onboarding) setModules(onboarding.modules);
   }, [onboarding]);
+
+  useEffect(() => {
+    if (autoGoogleStarted.current || !onboarding || !token || typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("googleSheets") !== "connected") return;
+    const kind = params.get("googleKind") as Template["kind"] | null;
+    const template = kind ? onboarding.templates.find((item) => item.kind === kind) : null;
+    if (!template) return;
+    autoGoogleStarted.current = true;
+    void openGoogleSheet(template).finally(() => {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("googleSheets");
+      url.searchParams.delete("googleKind");
+      window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+    });
+  }, [onboarding, token]);
 
   if (!onboarding) return <Empty title="School setup is unavailable" body="Ask an administrator for the onboarding permission." />;
 

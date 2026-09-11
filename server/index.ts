@@ -405,12 +405,13 @@ app.get("/api/v1/onboarding/template", async (req, res) => {
 
 app.get("/api/v1/onboarding/google/callback", async (req, res) => {
   try {
-    const returnTo = await finishOnboardingGoogleAuth({
+    const auth = await finishOnboardingGoogleAuth({
       state: String(req.query.state || ""),
       code: String(req.query.code || ""),
     });
-    const url = new URL(returnTo);
+    const url = new URL(auth.returnTo);
     url.searchParams.set("googleSheets", "connected");
+    url.searchParams.set("googleKind", auth.kind);
     res.redirect(url.toString());
   } catch (e) {
     const fallback = new URL(`${requestOrigin(req)}/onboarding`);

@@ -22,6 +22,7 @@ type OAuthState = {
   userId: string;
   verifier: string;
   returnTo: string;
+  kind: ImportKind;
   iat: number;
   exp: number;
 };
@@ -151,10 +152,11 @@ export function googleDriveOnboardingConfigured() {
   return googleConfig().configured;
 }
 
-export async function createOnboardingGoogleAuthUrl(user: AccessUser, input: { returnTo?: string } = {}) {
+export async function createOnboardingGoogleAuthUrl(user: AccessUser, input: { kind?: ImportKind; returnTo?: string } = {}) {
   need(user);
   const config = googleConfig();
   if (!config.configured) throw new Error("Google Sheets is not configured. Add Google OAuth credentials first.");
+  const kind = asKind(input.kind);
   const verifier = randomBytes(48).toString("base64url");
   const challenge = createHash("sha256").update(verifier).digest("base64url");
   const now = Math.floor(Date.now() / 1000);
@@ -162,6 +164,7 @@ export async function createOnboardingGoogleAuthUrl(user: AccessUser, input: { r
     userId: user.id,
     verifier,
     returnTo: safeReturnTo(String(input.returnTo || "")),
+    kind,
     iat: now,
     exp: now + STATE_TTL_SECONDS,
   });
@@ -237,7 +240,7 @@ export async function finishOnboardingGoogleAuth(input: { state: string; code: s
       expiresAt,
     },
   });
-  return safeReturnTo(state.returnTo);
+  return { returnTo: safeReturnTo(state.returnTo), kind: state.kind };
 }
 
 async function accessTokenFor(connection: Connection) {
@@ -262,10 +265,10 @@ async function accessTokenFor(connection: Connection) {
   return accessToken;
 }
 
-async function requireConnection(user: AccessUser, returnTo: string) {
+async function requireConnection(user: AccessUser, kind: ImportKind, returnTo: string) {
   const connection = await prisma.googleDriveConnection.findUnique({ where: { userId: user.id } });
   if (connection) return { connection, missing: null };
-  return { connection: null, missing: await createOnboardingGoogleAuthUrl(user, { returnTo }) };
+  return { connection: null, missing: await createOnboardingGoogleAuthUrl(user, { kind, returnTo }) };
 }
 
 function multipartBody(name: string, contentType: string, file: Buffer) {
@@ -293,7 +296,7 @@ export async function createOnboardingGoogleSheet(user: AccessUser, input: { kin
   const config = googleConfig();
   if (!config.configured) throw new Error("Google Sheets is not configured. Add Google OAuth credentials first.");
   const returnTo = safeReturnTo(String(input.returnTo || ""));
-  const { connection, missing } = await requireConnection(user, returnTo);
+  const { connection, missing } = await requireConnection(user, kind, returnTo);
   if (missing || !connection) return missing!;
   const template = await onboardingSpreadsheetTemplate(user, kind);
   const accessToken = await accessTokenFor(connection);
