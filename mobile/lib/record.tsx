@@ -83,6 +83,15 @@ export type RecordPayload = {
       appliedAt: string;
       errors: string[];
     }[];
+    googleSheets: {
+      id: string;
+      kind: string;
+      name: string;
+      webViewLink: string;
+      createdAt: string;
+      reviewedAt: string;
+      importId: string;
+    }[];
   } | null;
   subscriptionLock?: {
     locked: true;

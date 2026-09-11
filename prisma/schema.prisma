@@ -203,6 +203,8 @@ model User {
   leaveRequests    LeaveRequest[]
   coverAssignments SubstituteAssignment[] @relation("CoverAssignedBy")
   authChallenges   AuthChallenge[]
+  googleDrive       GoogleDriveConnection?
+  onboardingSheets  OnboardingGoogleSheet[]
 }
 
 model AuthChallenge {
@@ -617,6 +619,7 @@ model SchoolOnboardingState {
   startedAt           DateTime                 @default(now())
   updatedAt           DateTime                 @updatedAt
   imports             SchoolOnboardingImport[]
+  googleSheets        OnboardingGoogleSheet[]
 }
 
 model SchoolOnboardingImport {
@@ -635,6 +638,39 @@ model SchoolOnboardingImport {
   appliedAt    DateTime?
 
   @@index([stateId, kind, createdAt])
+}
+
+model GoogleDriveConnection {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  googleEmail           String   @default("")
+  scope                 String   @default("")
+  encryptedAccessToken  String   @default("")
+  encryptedRefreshToken String   @default("")
+  expiresAt             DateTime
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([googleEmail])
+}
+
+model OnboardingGoogleSheet {
+  id          String                @id @default(cuid())
+  stateId     String                @default("school")
+  state       SchoolOnboardingState @relation(fields: [stateId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind        String
+  fileId      String                @unique
+  name        String
+  webViewLink String
+  createdAt   DateTime              @default(now())
+  reviewedAt  DateTime?
+  importId    String?
+
+  @@index([stateId, kind, createdAt])
+  @@index([userId, createdAt])
 }
 
 model Payment {

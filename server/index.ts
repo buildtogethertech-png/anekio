@@ -40,6 +40,7 @@ import { runExamCronNotifications } from "../lib/exam-notification-run";
 import { ensureAccessRoles } from "../lib/roles";
 import { scopePolicyFor } from "../lib/permissions";
 import { onboardingTemplate } from "../lib/onboarding";
+import { finishOnboardingGoogleAuth } from "../lib/onboarding-google";
 import { withPublicRequestOrigin } from "../lib/utils";
 import { hasHostnamePrefix, normalizeHostname, schoolSlugFromHostname } from "../lib/host-routing";
 import { renderInvoicePage, renderPayPage, renderStudentPayPage } from "./pay-html";
@@ -393,6 +394,23 @@ app.get("/api/v1/onboarding/template", async (req, res) => {
     res.send(template.buffer);
   } catch (e) {
     sendError(res, 400, e instanceof Error ? e.message : "Template unavailable");
+  }
+});
+
+app.get("/api/v1/onboarding/google/callback", async (req, res) => {
+  try {
+    const returnTo = await finishOnboardingGoogleAuth({
+      state: String(req.query.state || ""),
+      code: String(req.query.code || ""),
+    });
+    const url = new URL(returnTo);
+    url.searchParams.set("googleSheets", "connected");
+    res.redirect(url.toString());
+  } catch (e) {
+    const fallback = new URL(`${requestOrigin(req)}/onboarding`);
+    fallback.searchParams.set("googleSheets", "error");
+    fallback.searchParams.set("message", e instanceof Error ? e.message : "Google Sheets connection failed.");
+    res.redirect(fallback.toString());
   }
 });
 

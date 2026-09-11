@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Linking, Pressable, Text, View } from "react-native";
 import { apiBase } from "../lib/api";
 import { act } from "../lib/mutate";
 import { downloadAuthedFile } from "../lib/print-html";
@@ -18,6 +18,18 @@ type Preview = {
   validCount: number;
   errors: string[];
   sample: Record<string, string>[];
+};
+type GoogleSheetResult = {
+  ok: true;
+  connected: boolean;
+  authUrl?: string;
+  sheet?: {
+    id: string;
+    kind: Template["kind"];
+    fileId: string;
+    name: string;
+    webViewLink: string;
+  };
 };
 
 const MODULES = [
@@ -90,6 +102,64 @@ export function OnboardingBoard() {
       );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not download the template.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  function onboardingReturnTo() {
+    if (typeof window !== "undefined" && window.location?.origin) return `${window.location.origin}/onboarding`;
+    return `${apiBase()}/onboarding`;
+  }
+
+  async function openGoogleSheet(template: Template) {
+    const existing = onboarding?.googleSheets.find((row) => row.kind === template.kind);
+    if (existing) {
+      await Linking.openURL(existing.webViewLink);
+      return;
+    }
+    setBusy(`google:${template.kind}`);
+    setMessage("");
+    try {
+      const result = await act<GoogleSheetResult>(token, "createOnboardingGoogleSheet", {
+        kind: template.kind,
+        returnTo: onboardingReturnTo(),
+      });
+      if (result.authUrl) {
+        await Linking.openURL(result.authUrl);
+        setMessage("Approve Google Sheets access, then press Open in Google Sheets again.");
+        return;
+      }
+      if (!result.sheet?.webViewLink) throw new Error("Google Sheet was not created.");
+      await Linking.openURL(result.sheet.webViewLink);
+      setMessage("Google Sheet created. Edit it there, then come back and press Review sheet.");
+      await reload();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not open Google Sheets.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function reviewGoogleSheet(template: Template) {
+    if (!onboarding) return;
+    const sheet = onboarding.googleSheets.find((row) => row.kind === template.kind);
+    if (!sheet) {
+      setMessage("Open this template in Google Sheets first.");
+      return;
+    }
+    setBusy(`googleReview:${template.kind}`);
+    setMessage("");
+    setPreview(null);
+    try {
+      const result = await act<Preview & { ok: true; sheetId: string; webViewLink: string }>(token, "previewOnboardingGoogleSheet", {
+        kind: template.kind,
+        sheetId: sheet.id,
+      });
+      setPreview(result);
+      await reload();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not review the Google Sheet.");
     } finally {
       setBusy("");
     }
@@ -201,6 +271,10 @@ export function OnboardingBoard() {
         <View className="flex-row flex-wrap gap-3">
           {onboarding.templates.map((template) => (
             <Card key={template.kind} className="min-w-[260px] flex-1 gap-3 p-4">
+              {(() => {
+                const sheet = onboarding.googleSheets.find((row) => row.kind === template.kind);
+                return (
+                  <>
               <View className="flex-row items-start justify-between gap-2">
                 <View className="min-w-0 flex-1">
                   <Text className="text-sm font-semibold text-ink-900">{template.title}</Text>
@@ -209,24 +283,45 @@ export function OnboardingBoard() {
                 <Ionicons name="grid-outline" size={20} color="#2563eb" />
               </View>
               <Text className="text-[11px] text-ink-500">Needs: {template.prerequisite}</Text>
-              <View className="flex-row gap-2">
+              {sheet ? <Text className="text-[11px] text-ink-600">Google Sheet: {sheet.name}</Text> : null}
+              <View className="flex-row flex-wrap gap-2">
                 <Button
                   variant="ghost"
-                  className="flex-1"
+                  className="min-w-[118px] flex-1"
                   disabled={template.disabled || Boolean(busy)}
                   onPress={() => void download(template)}
                 >
                   {busy === `download:${template.kind}` ? "Preparing…" : "Download"}
                 </Button>
                 <Button
-                  className="flex-1"
+                  variant="ghost"
+                  className="min-w-[150px] flex-1"
+                  disabled={template.disabled || Boolean(busy)}
+                  onPress={() => void openGoogleSheet(template)}
+                >
+                  {busy === `google:${template.kind}` ? "Opening…" : "Open in Google Sheets"}
+                </Button>
+                <Button
+                  className="min-w-[134px] flex-1"
                   disabled={template.disabled || Boolean(busy)}
                   onPress={() => void review(template)}
                 >
                   {busy === `upload:${template.kind}` ? "Reviewing…" : "Upload & review"}
                 </Button>
+                {sheet ? (
+                  <Button
+                    className="min-w-[118px] flex-1"
+                    disabled={template.disabled || Boolean(busy)}
+                    onPress={() => void reviewGoogleSheet(template)}
+                  >
+                    {busy === `googleReview:${template.kind}` ? "Reviewing…" : "Review sheet"}
+                  </Button>
+                ) : null}
               </View>
               {template.disabled ? <Text className="text-[11px] text-amber-800">Finish the prerequisite first.</Text> : null}
+                  </>
+                );
+              })()}
             </Card>
           ))}
         </View>

@@ -105,6 +105,11 @@ import {
   saveOnboardingPlan,
 } from "./onboarding";
 import {
+  createOnboardingGoogleAuthUrl,
+  createOnboardingGoogleSheet,
+  previewOnboardingGoogleSheet,
+} from "./onboarding-google";
+import {
   archiveDocumentTemplateCore,
   changeIssuedDocumentStatusCore,
   issueDocumentCore,
@@ -395,6 +400,12 @@ export async function runAct(
       return { ok: true, ...(await importPeopleSheetCore(user, body as never)) };
     case "saveOnboardingPlan":
       return { ok: true, ...(await saveOnboardingPlan(user, body as never)) };
+    case "connectOnboardingGoogleSheets":
+      return { ok: true, ...(await createOnboardingGoogleAuthUrl(user, body as never)) };
+    case "createOnboardingGoogleSheet":
+      return { ok: true, ...(await createOnboardingGoogleSheet(user, body as never)) };
+    case "previewOnboardingGoogleSheet":
+      return { ok: true, ...(await previewOnboardingGoogleSheet(user, body as never)) };
     case "previewOnboardingImport":
       return { ok: true, ...(await previewOnboardingImport(user, body as never)) };
     case "applyOnboardingImport":

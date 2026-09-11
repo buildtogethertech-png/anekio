@@ -10,8 +10,8 @@ import { parseClassLabel, parseCsv } from "./sheet";
 import { readUpload } from "./uploads";
 
 const ONBOARDING_STATE_ID = "school";
-const IMPORT_KINDS = ["classes", "students", "teachers", "opening_balances"] as const;
-type ImportKind = (typeof IMPORT_KINDS)[number];
+export const IMPORT_KINDS = ["classes", "students", "teachers", "opening_balances"] as const;
+export type ImportKind = (typeof IMPORT_KINDS)[number];
 type ImportRow = Record<string, string> & { _row: string };
 type OnboardingDb = Prisma.TransactionClient;
 
@@ -183,11 +183,15 @@ function realRows(rows: ImportRow[]) {
   return rows.filter((row) => !["yes", "true", "sample", "example"].includes(sheetCell(row, "Example only", "Row type").toLowerCase()));
 }
 
+export function rowsFromCsvContent(csv: string): ImportRow[] {
+  return realRows(parseCsv(csv).map((row, index) => ({ ...row, _row: String(index + 2) })));
+}
+
 async function rowsFromUpload(kind: ImportKind, uploadPath: string): Promise<ImportRow[]> {
   if (!uploadPath.includes("/onboarding/imports/") || uploadPath.includes("..")) throw new Error("Use a file uploaded from School setup.");
   const { buf, type } = await readUpload(uploadPath);
   if (type === "text/csv" || uploadPath.toLowerCase().endsWith(".csv")) {
-    return realRows(parseCsv(buf.toString("utf8")).map((row, index) => ({ ...row, _row: String(index + 2) })));
+    return rowsFromCsvContent(buf.toString("utf8"));
   }
   const workbook = new ExcelJS.Workbook();
   const arrayBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
@@ -286,6 +290,21 @@ export async function previewOnboardingImport(user: AccessUser, input: { kind?: 
   const uploadPath = String(input.uploadPath || "");
   if (!uploadPath) throw new Error("Upload a completed template first.");
   const rows = await rowsFromUpload(kind, uploadPath);
+  return previewOnboardingRows(user, {
+    kind,
+    fileName: String(input.fileName || TEMPLATE_DETAILS[kind].file),
+    uploadPath,
+    rows,
+  });
+}
+
+export async function previewOnboardingRows(
+  user: AccessUser,
+  input: { kind: ImportKind; fileName: string; uploadPath: string; rows: ImportRow[] }
+) {
+  need(user);
+  const kind = asKind(input.kind);
+  const rows = input.rows;
   if (!rows.length) throw new Error("No data rows found. Add school data below the example row, or copy it and clear Example only.");
   const errors = await validateRows(kind, rows);
   await ensureState();
@@ -293,8 +312,8 @@ export async function previewOnboardingImport(user: AccessUser, input: { kind?: 
     data: {
       stateId: ONBOARDING_STATE_ID,
       kind,
-      fileName: String(input.fileName || TEMPLATE_DETAILS[kind].file),
-      uploadPath,
+      fileName: input.fileName || TEMPLATE_DETAILS[kind].file,
+      uploadPath: input.uploadPath,
       rowsJson: JSON.stringify(rows),
       errorsJson: JSON.stringify(errors),
     },
@@ -584,7 +603,7 @@ export async function saveOnboardingPlan(user: AccessUser, input: { modules?: un
 
 export async function onboardingBundle(user: AccessUser) {
   need(user);
-  const [state, school, classCount, studentCount, teacherCount, templateCount, openingCount, latestImports] = await Promise.all([
+  const [state, school, classCount, studentCount, teacherCount, templateCount, openingCount, latestImports, latestSheets] = await Promise.all([
     prisma.schoolOnboardingState.findUnique({ where: { id: ONBOARDING_STATE_ID } }),
     prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { name: true } }),
     prisma.class.count({ where: { archivedAt: null } }),
@@ -593,6 +612,7 @@ export async function onboardingBundle(user: AccessUser) {
     prisma.feeTemplate.count(),
     prisma.feeInvoice.count({ where: { period: "OPENING" } }),
     prisma.schoolOnboardingImport.findMany({ orderBy: { createdAt: "desc" }, take: 8 }),
+    prisma.onboardingGoogleSheet.findMany({ orderBy: { createdAt: "desc" }, take: 8 }),
   ]);
   const modules = state ? JSON.parse(state.selectedModulesJson) as string[] : ["students", "fees"];
   const importDone = new Set(latestImports.filter((row) => row.status === "APPLIED").map((row) => row.kind));
@@ -637,6 +657,15 @@ export async function onboardingBundle(user: AccessUser) {
       createdAt: row.createdAt.toISOString(),
       appliedAt: row.appliedAt?.toISOString() || "",
       errors: JSON.parse(row.errorsJson) as string[],
+    })),
+    googleSheets: latestSheets.map((row) => ({
+      id: row.id,
+      kind: row.kind,
+      name: row.name,
+      webViewLink: row.webViewLink,
+      createdAt: row.createdAt.toISOString(),
+      reviewedAt: row.reviewedAt?.toISOString() || "",
+      importId: row.importId || "",
     })),
   };
 }
