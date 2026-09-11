@@ -288,10 +288,6 @@ export function OnboardingBoard() {
         <View className="flex-row flex-wrap gap-3">
           {onboarding.templates.map((template) => (
             <Card key={template.kind} className="min-w-[260px] flex-1 gap-3 p-4">
-              {(() => {
-                const sheet = onboarding.googleSheets.find((row) => row.kind === template.kind);
-                return (
-                  <>
               <View className="flex-row items-start justify-between gap-2">
                 <View className="min-w-0 flex-1">
                   <Text className="text-sm font-semibold text-ink-900">{template.title}</Text>
@@ -300,7 +296,6 @@ export function OnboardingBoard() {
                 <Ionicons name="grid-outline" size={20} color="#2563eb" />
               </View>
               <Text className="text-[11px] text-ink-500">Needs: {template.prerequisite}</Text>
-              {sheet ? <Text className="text-[11px] text-ink-600">Google Sheet: {sheet.name}</Text> : null}
               <View className="flex-row flex-wrap gap-2">
                 <Button
                   variant="ghost"
@@ -311,34 +306,14 @@ export function OnboardingBoard() {
                   {busy === `download:${template.kind}` ? "Preparing…" : "Download"}
                 </Button>
                 <Button
-                  variant="ghost"
-                  className="min-w-[150px] flex-1"
-                  disabled={template.disabled || Boolean(busy)}
-                  onPress={() => void openGoogleSheet(template)}
-                >
-                  {busy === `google:${template.kind}` ? "Opening…" : "Open in Google Sheets"}
-                </Button>
-                <Button
                   className="min-w-[134px] flex-1"
                   disabled={template.disabled || Boolean(busy)}
                   onPress={() => void review(template)}
                 >
                   {busy === `upload:${template.kind}` ? "Reviewing…" : "Upload & review"}
                 </Button>
-                {sheet ? (
-                  <Button
-                    className="min-w-[118px] flex-1"
-                    disabled={template.disabled || Boolean(busy)}
-                    onPress={() => void reviewGoogleSheet(template)}
-                  >
-                    {busy === `googleReview:${template.kind}` ? "Reviewing…" : "Review sheet"}
-                  </Button>
-                ) : null}
               </View>
               {template.disabled ? <Text className="text-[11px] text-amber-800">Finish the prerequisite first.</Text> : null}
-                  </>
-                );
-              })()}
             </Card>
           ))}
         </View>

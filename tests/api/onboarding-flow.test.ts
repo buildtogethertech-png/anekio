@@ -165,6 +165,16 @@ describe("school onboarding imports", () => {
     ]);
     expect(sheet.getRow(2).getCell(3).value).toBe("7-B");
     expect(sheet.views[0]).toMatchObject({ state: "frozen", ySplit: 1 });
+    const sampleCount = workbook.worksheets.reduce((total, worksheet) => {
+      let count = 0;
+      worksheet.eachRow((row, rowNumber) => {
+        if (rowNumber <= 2) return;
+        if (String(row.getCell(7).value || "").trim()) return;
+        if (String(row.getCell(1).value || "").trim()) count += 1;
+      });
+      return total + count;
+    }, 0);
+    expect(sampleCount).toBeGreaterThanOrEqual(50);
   });
 
   it("generates a staff workbook with role and class dropdowns", async () => {
@@ -198,6 +208,11 @@ describe("school onboarding imports", () => {
     ]);
     expect(sheet.getCell("D2").dataValidation).toMatchObject({ type: "list" });
     expect(sheet.getCell("E2").dataValidation).toMatchObject({ type: "list" });
+    const rows = sheet.getRows(2, sheet.rowCount - 1) || [];
+    const names = rows.map((row) => String(row.getCell(1).value || ""));
+    const roles = rows.map((row) => String(row.getCell(4).value || ""));
+    expect(names).toEqual(expect.arrayContaining(["Meera Singh", "Deepak Joshi", "Vikram Rao", "Ritu Shah"]));
+    expect(roles).toEqual(expect.arrayContaining(["TEACHER", "ADMIN", "FEES", "EXAMS", "ADMISSIONS"]));
   });
 
   it("imports students from workbook tabs named as class sections and creates those classes", async () => {

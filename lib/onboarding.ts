@@ -96,6 +96,123 @@ function csvBuffer(rows: CsvCell[][]) {
   return Buffer.from(`\uFEFF${encoded.join("\r\n")}\r\n`, "utf8");
 }
 
+const SAMPLE_STUDENT_FIRST_NAMES = [
+  "Aarav",
+  "Aanya",
+  "Aditya",
+  "Advait",
+  "Aisha",
+  "Ali",
+  "Ananya",
+  "Anika",
+  "Anvi",
+  "Arjun",
+  "Arnav",
+  "Avni",
+  "Ayaan",
+  "Dev",
+  "Devika",
+  "Diya",
+  "Hana",
+  "Harsh",
+  "Inaaya",
+  "Ira",
+  "Ishaan",
+  "Kabir",
+  "Kiara",
+  "Krish",
+  "Lavanya",
+  "Meera",
+  "Mihir",
+  "Myra",
+  "Navya",
+  "Neel",
+  "Nisha",
+  "Parth",
+  "Prisha",
+  "Raghav",
+  "Reyansh",
+  "Riya",
+  "Ruhi",
+  "Samaira",
+  "Samar",
+  "Sara",
+  "Shaurya",
+  "Siya",
+  "Tara",
+  "Ved",
+  "Vihaan",
+  "Vivaan",
+  "Yash",
+  "Zara",
+  "Zoya",
+  "Aryan",
+];
+
+const SAMPLE_LAST_NAMES = [
+  "Sharma",
+  "Menon",
+  "Nair",
+  "Reddy",
+  "Rao",
+  "Qureshi",
+  "Iyer",
+  "Bose",
+  "Kapoor",
+  "Patil",
+];
+
+function sampleStudentRows(labels: string[]) {
+  const usableLabels = labels.length ? labels : ["1-A", "2-A", "3-A", "4-A", "5-A"];
+  return SAMPLE_STUDENT_FIRST_NAMES.map((first, index) => {
+    const last = SAMPLE_LAST_NAMES[index % SAMPLE_LAST_NAMES.length];
+    const classLabel = usableLabels[index % usableLabels.length];
+    const parentFirst = ["Neha", "Rahul", "Pooja", "Amit", "Farah", "Vikram", "Ritu", "Sanjay", "Kavita", "Imran"][index % 10];
+    return {
+      admissionNo: `TEST-${String(index + 1).padStart(3, "0")}`,
+      name: `${first} ${last}`,
+      dob: `201${index % 7}-${String((index % 12) + 1).padStart(2, "0")}-${String((index % 27) + 1).padStart(2, "0")}`,
+      classLabel,
+      parentName: `${parentFirst} ${last}`,
+      parentMobile: `98765${String(40000 + index).padStart(5, "0")}`,
+      parentEmail: `parent${String(index + 1).padStart(3, "0")}@example.com`,
+    };
+  });
+}
+
+function sampleStaffRows(labels: string[], roles: StaffImportRole[]) {
+  const usableLabels = labels.length ? labels : ["1-A", "2-A", "3-A", "4-A", "5-A"];
+  const roleLabels = new Set(roles.map((role) => roleLabel(role)));
+  const teacherRows = [
+    "Meera Singh",
+    "Rohan Verma",
+    "Nisha Khan",
+    "Amit Das",
+    "Priya Nair",
+    "Farhan Ali",
+    "Sneha Rao",
+    "Karan Mehta",
+    "Pallavi Iyer",
+    "Deepak Joshi",
+  ].map((name, index) => [
+    name,
+    `98766${String(10000 + index).padStart(5, "0")}`,
+    `teacher${String(index + 1).padStart(2, "0")}@example.com`,
+    "TEACHER",
+    usableLabels[index % usableLabels.length],
+    30000 + index * 1000,
+    ["B.Ed", "M.Sc Mathematics", "B.A English", "M.A History", "B.Sc Physics"][index % 5],
+    "",
+  ] as CsvCell[]);
+  const officeRows = [
+    ["Vikram Rao", "9876670001", "admin.import@example.com", "ADMIN", "", 50000, "Principal", ""],
+    ["Ritu Shah", "9876670002", "fees.import@example.com", "FEES", "", 36000, "Accounts", ""],
+    ["Kiran Mehta", "9876670003", "exams.import@example.com", "EXAMS", "", 38000, "Exam controller", ""],
+    ["Asha Gupta", "9876670004", "admissions.import@example.com", "ADMISSIONS", "", 34000, "Admissions", ""],
+  ].filter((row) => roleLabels.has(String(row[3]))) as CsvCell[][];
+  return [...teacherRows, ...officeRows];
+}
+
 async function csvRowsFor(kind: ImportKind): Promise<CsvCell[][]> {
   const classes = await prisma.class.findMany({
     where: { archivedAt: null },
@@ -278,9 +395,13 @@ export async function onboardingSpreadsheetTemplate(user: AccessUser, rawKind: s
   });
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Anekio";
-  const labels = classes.length ? classes.map((row) => `${row.name}-${row.section}`) : ["1-A", "1-B", "1-C"];
+  const labels = classes.length ? classes.map((row) => `${row.name}-${row.section}`) : ["1-A", "2-A", "3-A", "4-A", "5-A"];
   if (kind !== "students") {
     const rows = await csvRowsFor(kind);
+    if (kind === "teachers") {
+      const roles = await staffImportRoles();
+      rows.push(...sampleStaffRows(labels, roles));
+    }
     const sheet = workbook.addWorksheet(TEMPLATE_DETAILS[kind].sheet);
     rows.forEach((row) => sheet.addRow(row));
     applyHeaderStyle(sheet);
@@ -326,10 +447,19 @@ export async function onboardingSpreadsheetTemplate(user: AccessUser, rawKind: s
     };
   }
   const headers = ["Student name", "Date of birth", "Class", "Parent name", "Parent mobile", "Parent email", "Example only"];
+  const samplesByClass = new Map<string, ReturnType<typeof sampleStudentRows>>();
+  sampleStudentRows(labels).forEach((row) => {
+    const rows = samplesByClass.get(row.classLabel) || [];
+    rows.push(row);
+    samplesByClass.set(row.classLabel, rows);
+  });
   labels.forEach((label, index) => {
     const sheet = workbook.addWorksheet(label);
     sheet.addRow(headers);
     sheet.addRow([index === 0 ? "Aarav Sharma (example)" : "", "2015-04-12", label, "Neha Sharma", "9876543210", "parent@example.com", "YES"]);
+    (samplesByClass.get(label) || []).forEach((row) => {
+      sheet.addRow([row.name, row.dob, row.classLabel, row.parentName, row.parentMobile, row.parentEmail, ""]);
+    });
     applyHeaderStyle(sheet);
     sheet.columns = headers.map((header) => ({ header, key: normalizeHeader(header), width: Math.max(18, header.length + 2) }));
   });
