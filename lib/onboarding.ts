@@ -708,7 +708,7 @@ export async function onboardingBundle(user: AccessUser) {
   });
   const steps = [
     step("school", 1, "School identity", "Confirm school name, session, contact details, and branding in Settings.", Boolean(school?.name && school.name !== "School")),
-    step("classes", 2, "Classes and sections", "Create the structure that student and teacher files will reference.", classCount > 0 || importDone.has("classes")),
+    step("classes", 2, "Classes in CRM", "Create classes and sections in School setup first; every onboarding template uses those CRM classes.", classCount > 0),
     step("students", 3, "Students and parents", "Import family records with generated admission numbers when needed.", studentCount > 0 || importDone.has("students"), classCount === 0, !wants("students")),
     step("teachers", 4, "Teachers", "Import staff records first; assignments come from the next generated template.", teacherCount > 0 || importDone.has("teachers"), classCount === 0, !wants("teachers")),
     step("class_teachers", 5, "Class teacher assignments", "Generated after classes and staff exist, so the team only chooses who owns each class.", importDone.has("class_teachers"), classCount === 0 || teacherCount === 0, !wants("teachers")),
@@ -723,12 +723,12 @@ export async function onboardingBundle(user: AccessUser) {
     progress: { completed, total: required.length, percent: required.length ? Math.round((completed / required.length) * 100) : 0 },
     counts: { classes: classCount, students: studentCount, teachers: teacherCount, openingBalances: openingCount, feeTemplates: templateCount },
     steps,
-    templates: IMPORT_KINDS.map((kind) => ({
+    templates: IMPORT_KINDS.filter((kind): kind is Exclude<ImportKind, "classes"> => kind !== "classes").map((kind) => ({
       kind,
       title: TEMPLATE_DETAILS[kind].title,
       fileName: TEMPLATE_DETAILS[kind].file,
-      disabled: (kind !== "classes" && classCount === 0) || (kind === "opening_balances" && studentCount === 0) || (kind === "class_teachers" && teacherCount === 0),
-      prerequisite: kind === "classes" ? "None" : kind === "opening_balances" ? "Students" : kind === "class_teachers" ? "Classes + teachers" : "Classes",
+      disabled: classCount === 0 || (kind === "opening_balances" && studentCount === 0) || (kind === "class_teachers" && teacherCount === 0),
+      prerequisite: kind === "opening_balances" ? "Students" : kind === "class_teachers" ? "Classes + teachers" : "Classes from CRM",
     })),
     imports: latestImports.map((row) => ({
       id: row.id,

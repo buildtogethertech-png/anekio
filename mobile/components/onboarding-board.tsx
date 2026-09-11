@@ -33,13 +33,12 @@ type GoogleSheetResult = {
 };
 
 const MODULES = [
-  { key: "students", title: "Students & parents", body: "Families, classes, and admission numbers" },
+  { key: "students", title: "Students & parents", body: "Families, CRM classes, and admission numbers" },
   { key: "fees", title: "Fees", body: "Opening balances and future monthly rules" },
   { key: "teachers", title: "Teachers", body: "Employees, then generated class-teacher assignment" },
 ];
 
 const TEMPLATE_COPY: Record<Template["kind"], string> = {
-  classes: "Build the class list used by every later template.",
   students: "Prefilled with current students; blank admission numbers are generated.",
   teachers: "Import staff records first, without mixing class ownership.",
   class_teachers: "Generated from imported classes and teachers so each class gets an owner.",
@@ -234,7 +233,7 @@ export function OnboardingBoard() {
         <View className="flex-row items-center justify-between gap-4">
           <View className="min-w-0 flex-1">
             <Text className="text-base font-semibold text-ink-900">Onboarding plan</Text>
-            <Text className="mt-1 text-xs leading-5 text-ink-700">Classes are always the foundation. Select the operational areas being moved now.</Text>
+            <Text className="mt-1 text-xs leading-5 text-ink-700">Create classes in CRM, then select the operational areas being moved now.</Text>
           </View>
           {busy === "plan" ? <ActivityIndicator color="#2563eb" /> : <Badge tone="clay">{`${onboarding.progress.percent}% complete`}</Badge>}
         </View>
@@ -285,7 +284,7 @@ export function OnboardingBoard() {
 
       <View className="gap-2">
         <Text className="text-base font-semibold text-ink-900">Generated onboarding templates</Text>
-        <Text className="text-xs leading-5 text-ink-700">Each template includes realistic example rows marked Example only = YES. Add school data below them, or copy and clear that field. Example rows are ignored. Nothing changes until review passes and you press Apply.</Text>
+        <Text className="text-xs leading-5 text-ink-700">Classes come from CRM (School setup). Each template includes realistic example rows marked Example only = YES. Add school data below them, or copy and clear that field. Example rows are ignored. Nothing changes until review passes and you press Apply.</Text>
         <View className="flex-row flex-wrap gap-3">
           {onboarding.templates.map((template) => (
             <Card key={template.kind} className="min-w-[260px] flex-1 gap-3 p-4">
