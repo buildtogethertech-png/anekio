@@ -3219,7 +3219,9 @@ export function FeesBoard() {
   const selectedClass = data?.classes?.find((c) => c.id === classId);
   const selectedClassStudents = classId === "all" ? [] : people.filter((s) => s.classId === classId);
   const generationStudents = classId === "all" ? people : selectedClassStudents;
-  const generatedPeriods = generationStudents.flatMap((s) => (s.invoices ?? []).map((invoice) => invoice.period || "").filter(Boolean));
+  const generatedPeriods = generationStudents.flatMap((s) =>
+    (s.invoices ?? []).map((invoice) => invoice.period || "").filter((period) => /^\d{4}-\d{2}$/.test(period))
+  );
   const generatedThrough = generatedPeriods.length ? [...generatedPeriods].sort().at(-1) || "" : "";
   const tplTotal = tplLines
     .filter((line) => line.scope !== "ADD_ON")

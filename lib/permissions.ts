@@ -19,6 +19,7 @@ export const PERMISSIONS = [
   { key: "people.view", group: "Students", label: "See students", hint: "Find students and families", portals: ["OFFICE"], see: true },
   { key: "people.edit", group: "Students", label: "Add and edit records", hint: "Students, parents, teachers", portals: ["OFFICE"] },
   { key: "people.import", group: "Students", label: "Import from sheet", hint: "CSV / Excel upload", portals: ["OFFICE"] },
+  { key: "onboarding.manage", group: "Onboarding", label: "Run school onboarding", hint: "Download templates, review imports, and apply opening balances", portals: ["OFFICE"], see: true },
   { key: "inbox.view", group: "Inbox", label: "See inbox", hint: "Parent-school messages, replies, assignments, and closures", portals: ["OFFICE", "TEACHER", "PARENT"], see: true },
   { key: "inbox.manage", group: "Inbox", label: "Reply in inbox", hint: "Respond to messages and update threads", portals: ["OFFICE", "TEACHER", "PARENT"] },
   { key: "admissions.view", group: "Admissions", label: "See admission leads", hint: "Website enquiries, follow-ups, and lead details", portals: ["OFFICE"], see: true },

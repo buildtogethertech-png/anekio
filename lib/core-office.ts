@@ -367,7 +367,7 @@ export async function issueClassFeesCore(
   const months = monthsBetween(startsPeriod, endsPeriod);
   const students = await prisma.student.findMany({
     where: { classId },
-    select: { id: true, feeAddOns: { where: { active: true } } },
+    select: { id: true, feeGeneratedThrough: true, feeAddOns: { where: { active: true } } },
   });
   if (!students.length) throw new Error("This class has no students. Add them on Students, then issue.");
   const already = await prisma.feeInvoice.findMany({
@@ -378,7 +378,7 @@ export async function issueClassFeesCore(
   await prisma.feeInvoice.createMany({
     data: students.flatMap((s) =>
       months
-        .filter((month) => !have.has(`${s.id}:${month.period}`))
+        .filter((month) => month.period > s.feeGeneratedThrough && !have.has(`${s.id}:${month.period}`))
         .map((month) => {
         const lines = [...drafts, ...feeAddOnLines(s.feeAddOns, month.period)];
         const invoiceTotal = feeLineTotal(lines).total;

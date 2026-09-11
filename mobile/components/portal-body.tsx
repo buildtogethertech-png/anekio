@@ -30,6 +30,7 @@ import { TeacherExamsBoard } from "./teacher-exams-workspace";
 import { Button, Empty, PageHeader } from "./ui";
 import { MoreBoard } from "./nav-menu";
 import { ParentExamination, ParentExaminationError, ParentExaminationLoading } from "./parent-examination";
+import { OnboardingBoard } from "./onboarding-board";
 import { PORTAL_PATH, examsScreenForKind, testsScreenForKind } from "../lib/paths";
 import { useRecord } from "../lib/record";
 import { useSession } from "../lib/session";
@@ -99,6 +100,7 @@ export function PortalBody({ screen }: { screen: string }) {
     );
   }
   if (screen === "people") return <PeopleBoard />;
+  if (screen === "onboarding") return <OnboardingBoard />;
   if (screen === "inbox") return <InboxBoard />;
   if (screen === "admissions") return <AdmissionsBoard />;
   if (screen === "staff") return <StaffBoard />;

@@ -92,7 +92,7 @@ export async function issueDueFeesCore(asOf = new Date(), classId?: string, sess
     if (!template.lines.length) continue;
     const students = await prisma.student.findMany({
       where: { classId: template.classId },
-      select: { id: true },
+      select: { id: true, feeGeneratedThrough: true },
     });
     if (!students.length) continue;
 
@@ -113,6 +113,7 @@ export async function issueDueFeesCore(asOf = new Date(), classId?: string, sess
     const rows = [];
     for (const student of students) {
       for (const month of months) {
+        if (month.period <= student.feeGeneratedThrough) continue;
         if (have.has(`${student.id}:${month.period}`)) continue;
         rows.push({
           studentId: student.id,

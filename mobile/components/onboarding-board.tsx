@@ -1,0 +1,277 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { useEffect, useState } from "react";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { apiBase } from "../lib/api";
+import { act } from "../lib/mutate";
+import { downloadAuthedFile } from "../lib/print-html";
+import { useRecord, type RecordPayload } from "../lib/record";
+import { useSession } from "../lib/session";
+import { pickFile, uploadFile } from "../lib/upload";
+import { Badge, Button, Card, Empty, PageHeader } from "./ui";
+
+type Onboarding = NonNullable<RecordPayload["onboarding"]>;
+type Template = Onboarding["templates"][number];
+type Preview = {
+  batchId: string;
+  kind: Template["kind"];
+  rowCount: number;
+  validCount: number;
+  errors: string[];
+  sample: Record<string, string>[];
+};
+
+const MODULES = [
+  { key: "students", title: "Students & parents", body: "Families, classes, and admission numbers" },
+  { key: "fees", title: "Fees", body: "Opening balances and future monthly rules" },
+  { key: "teachers", title: "Teachers", body: "Employees and class-teacher assignment" },
+];
+
+const TEMPLATE_COPY: Record<Template["kind"], string> = {
+  classes: "Build the class list used by every later template.",
+  students: "Prefilled with current students; blank admission numbers are generated.",
+  teachers: "Prefilled with current teachers and valid class choices.",
+  opening_balances: "One row and one consolidated opening balance per student.",
+};
+
+function statusTone(status: Onboarding["steps"][number]["status"]) {
+  if (status === "complete") return "leaf" as const;
+  if (status === "blocked") return "warn" as const;
+  if (status === "optional") return "ink" as const;
+  return "clay" as const;
+}
+
+function statusLabel(status: Onboarding["steps"][number]["status"]) {
+  if (status === "complete") return "Complete";
+  if (status === "blocked") return "Waiting";
+  if (status === "optional") return "Not selected";
+  return "Ready";
+}
+
+export function OnboardingBoard() {
+  const { data, reload } = useRecord();
+  const { token } = useSession();
+  const onboarding = data?.onboarding;
+  const [modules, setModules] = useState<string[]>([]);
+  const [busy, setBusy] = useState("");
+  const [message, setMessage] = useState("");
+  const [preview, setPreview] = useState<Preview | null>(null);
+
+  useEffect(() => {
+    if (onboarding) setModules(onboarding.modules);
+  }, [onboarding]);
+
+  if (!onboarding) return <Empty title="School setup is unavailable" body="Ask an administrator for the onboarding permission." />;
+
+  async function toggleModule(key: string) {
+    const next = modules.includes(key) ? modules.filter((item) => item !== key) : [...modules, key];
+    if (!next.length) return;
+    setModules(next);
+    setBusy("plan");
+    setMessage("");
+    try {
+      await act(token, "saveOnboardingPlan", { modules: next });
+      await reload();
+    } catch (error) {
+      setModules(modules);
+      setMessage(error instanceof Error ? error.message : "Could not save the plan.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function download(template: Template) {
+    setBusy(`download:${template.kind}`);
+    setMessage("");
+    try {
+      await downloadAuthedFile(
+        `${apiBase()}/api/v1/onboarding/template?kind=${encodeURIComponent(template.kind)}`,
+        token,
+        template.fileName
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not download the template.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function review(template: Template) {
+    setBusy(`upload:${template.kind}`);
+    setMessage("");
+    setPreview(null);
+    try {
+      const file = await pickFile(".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv");
+      if (!file) return;
+      const uploaded = await uploadFile(token, file, { kind: "onboarding", onboardingKind: template.kind });
+      const result = await act<Preview & { ok: true }>(token, "previewOnboardingImport", {
+        kind: template.kind,
+        uploadPath: uploaded.path,
+        fileName: uploaded.fileName,
+      });
+      setPreview(result);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not review the workbook.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function applyImport() {
+    if (!preview) return;
+    setBusy("apply");
+    setMessage("");
+    try {
+      const result = await act<{ ok: true; created: number; updated: number }>(token, "applyOnboardingImport", {
+        batchId: preview.batchId,
+      });
+      setMessage(`Applied successfully: ${result.created} created, ${result.updated} updated.`);
+      setPreview(null);
+      await reload();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not apply the import.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  return (
+    <View className="mx-auto w-full max-w-6xl gap-4 pb-10">
+      <PageHeader
+        kicker="School launch"
+        title="Set up this school"
+        lede="Choose only what this school needs. Anekio generates the next workbook from data already imported, so the onboarding team never rebuilds the same sheet twice."
+      />
+
+      <Card className="gap-4 p-5">
+        <View className="flex-row items-center justify-between gap-4">
+          <View className="min-w-0 flex-1">
+            <Text className="text-base font-semibold text-ink-900">Onboarding plan</Text>
+            <Text className="mt-1 text-xs leading-5 text-ink-700">Classes are always the foundation. Select the operational areas being moved now.</Text>
+          </View>
+          {busy === "plan" ? <ActivityIndicator color="#2563eb" /> : <Badge tone="clay">{`${onboarding.progress.percent}% complete`}</Badge>}
+        </View>
+        <View className="h-2 overflow-hidden rounded-full bg-ink-100">
+          <View className="h-2 rounded-full bg-clay-500" style={{ width: `${onboarding.progress.percent}%` }} />
+        </View>
+        <View className="flex-row flex-wrap gap-2">
+          {MODULES.map((module) => {
+            const selected = modules.includes(module.key);
+            return (
+              <Pressable
+                key={module.key}
+                onPress={() => void toggleModule(module.key)}
+                className={`min-w-[210px] flex-1 flex-row items-center gap-3 rounded-lg border p-3 ${selected ? "border-clay-400 bg-clay-50" : "border-ink-200 bg-white"}`}
+              >
+                <Ionicons name={selected ? "checkmark-circle" : "ellipse-outline"} size={22} color={selected ? "#2563eb" : "#94A3B8"} />
+                <View className="min-w-0 flex-1">
+                  <Text className="text-sm font-semibold text-ink-900">{module.title}</Text>
+                  <Text className="mt-0.5 text-[11px] leading-4 text-ink-700">{module.body}</Text>
+                </View>
+              </Pressable>
+            );
+          })}
+        </View>
+      </Card>
+
+      <View className="gap-2">
+        <Text className="text-base font-semibold text-ink-900">The launch path</Text>
+        {onboarding.steps.map((step) => (
+          <Card key={step.key} className={`flex-row items-start gap-3 p-4 ${step.status === "blocked" ? "bg-amber-50" : ""}`}>
+            <View className={`h-8 w-8 items-center justify-center rounded-full ${step.status === "complete" ? "bg-emerald-100" : "bg-clay-50"}`}>
+              {step.status === "complete" ? (
+                <Ionicons name="checkmark" size={18} color="#047857" />
+              ) : (
+                <Text className="text-sm font-semibold text-clay-700">{step.number}</Text>
+              )}
+            </View>
+            <View className="min-w-0 flex-1">
+              <View className="flex-row items-center justify-between gap-2">
+                <Text className="text-sm font-semibold text-ink-900">{step.title}</Text>
+                <Badge tone={statusTone(step.status)}>{statusLabel(step.status)}</Badge>
+              </View>
+              <Text className="mt-1 text-xs leading-5 text-ink-700">{step.body}</Text>
+            </View>
+          </Card>
+        ))}
+      </View>
+
+      <View className="gap-2">
+        <Text className="text-base font-semibold text-ink-900">Generated workbooks</Text>
+        <Text className="text-xs leading-5 text-ink-700">Download, fill or review the prefilled rows, then upload the same workbook. Nothing changes until the review passes and you press Apply.</Text>
+        <View className="flex-row flex-wrap gap-3">
+          {onboarding.templates.map((template) => (
+            <Card key={template.kind} className="min-w-[260px] flex-1 gap-3 p-4">
+              <View className="flex-row items-start justify-between gap-2">
+                <View className="min-w-0 flex-1">
+                  <Text className="text-sm font-semibold text-ink-900">{template.title}</Text>
+                  <Text className="mt-1 text-xs leading-5 text-ink-700">{TEMPLATE_COPY[template.kind]}</Text>
+                </View>
+                <Ionicons name="grid-outline" size={20} color="#2563eb" />
+              </View>
+              <Text className="text-[11px] text-ink-500">Needs: {template.prerequisite}</Text>
+              <View className="flex-row gap-2">
+                <Button
+                  variant="ghost"
+                  className="flex-1"
+                  disabled={template.disabled || Boolean(busy)}
+                  onPress={() => void download(template)}
+                >
+                  {busy === `download:${template.kind}` ? "Preparing…" : "Download"}
+                </Button>
+                <Button
+                  className="flex-1"
+                  disabled={template.disabled || Boolean(busy)}
+                  onPress={() => void review(template)}
+                >
+                  {busy === `upload:${template.kind}` ? "Reviewing…" : "Upload & review"}
+                </Button>
+              </View>
+              {template.disabled ? <Text className="text-[11px] text-amber-800">Finish the prerequisite first.</Text> : null}
+            </Card>
+          ))}
+        </View>
+      </View>
+
+      {preview ? (
+        <Card className={`gap-3 p-5 ${preview.errors.length ? "border-red-200 bg-red-50" : "border-emerald-200 bg-emerald-50"}`}>
+          <View className="flex-row items-center justify-between gap-3">
+            <View>
+              <Text className="text-base font-semibold text-ink-900">Import review</Text>
+              <Text className="mt-1 text-xs text-ink-700">{preview.validCount} of {preview.rowCount} rows are ready.</Text>
+            </View>
+            <Badge tone={preview.errors.length ? "danger" : "leaf"}>{preview.errors.length ? `${preview.errors.length} issues` : "Ready to apply"}</Badge>
+          </View>
+          {preview.errors.slice(0, 12).map((error) => <Text key={error} className="text-xs leading-5 text-red-700">• {error}</Text>)}
+          {preview.errors.length > 12 ? <Text className="text-xs text-red-700">And {preview.errors.length - 12} more issues.</Text> : null}
+          <View className="flex-row justify-end gap-2">
+            <Button variant="ghost" onPress={() => setPreview(null)}>Cancel</Button>
+            <Button disabled={preview.errors.length > 0 || busy === "apply"} onPress={() => void applyImport()}>
+              {busy === "apply" ? "Applying…" : `Apply ${preview.rowCount} rows`}
+            </Button>
+          </View>
+        </Card>
+      ) : null}
+
+      {message ? (
+        <Card className={`p-4 ${message.startsWith("Applied") ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
+          <Text className="text-sm text-ink-800">{message}</Text>
+        </Card>
+      ) : null}
+
+      {onboarding.imports.length ? (
+        <Card className="gap-3 p-5">
+          <Text className="text-base font-semibold text-ink-900">Recent imports</Text>
+          {onboarding.imports.map((item) => (
+            <View key={item.id} className="flex-row items-center justify-between gap-3 border-t border-ink-100 pt-3">
+              <View className="min-w-0 flex-1">
+                <Text className="text-sm font-medium text-ink-900" numberOfLines={1}>{item.fileName}</Text>
+                <Text className="mt-0.5 text-[11px] text-ink-500">{item.kind.replaceAll("_", " ")} · {new Date(item.createdAt).toLocaleString("en-IN")}</Text>
+              </View>
+              <Badge tone={item.status === "APPLIED" ? "leaf" : item.status === "FAILED" ? "danger" : "warn"}>{item.status}</Badge>
+            </View>
+          ))}
+        </Card>
+      ) : null}
+    </View>
+  );
+}

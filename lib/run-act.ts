@@ -100,6 +100,11 @@ import {
 import { issueFeeReceiptCore } from "./fee-register";
 import { savePushTokenCore } from "./push";
 import {
+  applyOnboardingImport,
+  previewOnboardingImport,
+  saveOnboardingPlan,
+} from "./onboarding";
+import {
   archiveDocumentTemplateCore,
   changeIssuedDocumentStatusCore,
   issueDocumentCore,
@@ -388,6 +393,12 @@ export async function runAct(
       break;
     case "importPeopleSheet":
       return { ok: true, ...(await importPeopleSheetCore(user, body as never)) };
+    case "saveOnboardingPlan":
+      return { ok: true, ...(await saveOnboardingPlan(user, body as never)) };
+    case "previewOnboardingImport":
+      return { ok: true, ...(await previewOnboardingImport(user, body as never)) };
+    case "applyOnboardingImport":
+      return { ok: true, ...(await applyOnboardingImport(user, body as never)) };
     case "archiveClass":
       await archiveClassCore(user, body as never);
       break;

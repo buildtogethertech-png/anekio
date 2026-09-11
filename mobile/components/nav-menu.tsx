@@ -8,7 +8,7 @@ import { useSession } from "../lib/session";
 import { PageHeader } from "./ui";
 
 const OFFICE_SIDEBAR_ORDER = new Map(
-  ["home", "inbox", "people", "staff", "timetable", "fees", "exams", "notices", "admissions", "school", "subscription", "roles"].map(
+  ["home", "onboarding", "inbox", "people", "staff", "timetable", "fees", "exams", "notices", "admissions", "school", "subscription", "roles"].map(
     (key, index) => [key, index]
   )
 );

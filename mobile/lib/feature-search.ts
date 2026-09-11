@@ -28,9 +28,13 @@ const FEATURE_SEARCH_INDEX: Record<string, FeatureSearchMeta> = {
     hint: "Students",
     aliases: ["students", "student", "people", "admission no", "class", "roll", "guardian"],
   },
+  onboarding: {
+    hint: "School setup",
+    aliases: ["onboarding", "setup", "import", "excel", "opening balance", "launch school", "migration"],
+  },
   admissions: {
     hint: "Admissions",
-    aliases: ["admissions", "admission", "enquiry", "enquiries", "lead", "leads", "walk in", "follow up", "onboarding"],
+    aliases: ["admissions", "admission", "enquiry", "enquiries", "lead", "leads", "walk in", "follow up"],
   },
   staff: {
     hint: "Employees",

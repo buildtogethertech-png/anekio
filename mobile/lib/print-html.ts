@@ -47,6 +47,27 @@ export async function openAuthedFile(url: string, token: string | null) {
   await Linking.openURL(`data:${type};base64,${b64}`);
 }
 
+export async function downloadAuthedFile(url: string, token: string | null, fileName: string) {
+  const headers = new Headers();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const res = await fetch(url, { headers });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(errorFromBody(text, "Could not download this file."));
+  }
+  const blob = await res.blob();
+  if (Platform.OS === "web" && typeof document !== "undefined" && typeof URL !== "undefined") {
+    const href = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = href;
+    link.download = fileName;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(href), 1000);
+    return;
+  }
+  await openAuthedFile(url, token);
+}
+
 export async function openMarksheetPdf(
   token: string | null,
   query: { seriesId?: string; examId?: string; studentId?: string }

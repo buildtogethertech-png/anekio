@@ -54,6 +54,36 @@ export type AdmissionFormField = {
 
 export type RecordPayload = {
   kind: "PARENT" | "STUDENT" | "TEACHER" | "OFFICE";
+  onboarding?: {
+    modules: string[];
+    progress: { completed: number; total: number; percent: number };
+    counts: { classes: number; students: number; teachers: number; openingBalances: number; feeTemplates: number };
+    steps: {
+      key: string;
+      number: number;
+      title: string;
+      body: string;
+      status: "complete" | "ready" | "blocked" | "optional";
+    }[];
+    templates: {
+      kind: "classes" | "students" | "teachers" | "opening_balances";
+      title: string;
+      fileName: string;
+      disabled: boolean;
+      prerequisite: string;
+    }[];
+    imports: {
+      id: string;
+      kind: string;
+      fileName: string;
+      status: string;
+      created: number;
+      updated: number;
+      createdAt: string;
+      appliedAt: string;
+      errors: string[];
+    }[];
+  } | null;
   subscriptionLock?: {
     locked: true;
     orgId: string;

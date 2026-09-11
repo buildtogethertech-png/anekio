@@ -28,6 +28,7 @@ import { studentLetter } from "./letter";
 import { payFormFromSecrets, paySecretsFromRow } from "./pay-config";
 import type { AccessUser } from "./permissions";
 import { can, PERMISSIONS, scopeFor, scopePolicyFor } from "./permissions";
+import { onboardingBundle } from "./onboarding";
 import { prisma } from "./prisma";
 import { listManagerOptions, reportUserIds, teamClassIds } from "./reports";
 import { placeLines, schoolFromConfig } from "./school";
@@ -922,6 +923,7 @@ async function officePayload(user: AccessUser) {
     : [];
   return {
     kind: "OFFICE" as const,
+    onboarding: can(user, "onboarding.manage") ? await onboardingBundle(user) : null,
     desk: {
       label: pulse.label,
       emptyPeriods: pulse.unassigned.length,

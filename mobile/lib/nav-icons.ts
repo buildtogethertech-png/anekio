@@ -32,6 +32,7 @@ const NAV_ICONS: Record<string, IoniconName> = {
   notices: "megaphone-outline",
   inbox: "mail-unread-outline",
   people: "people-outline",
+  onboarding: "rocket-outline",
   staff: "briefcase-outline",
   school: "school-outline",
   timetable: "calendar-outline",

@@ -39,6 +39,7 @@ import { marksheetHtmlForUser } from "../lib/marksheet-html";
 import { runExamCronNotifications } from "../lib/exam-notification-run";
 import { ensureAccessRoles } from "../lib/roles";
 import { scopePolicyFor } from "../lib/permissions";
+import { onboardingTemplate } from "../lib/onboarding";
 import { withPublicRequestOrigin } from "../lib/utils";
 import { hasHostnamePrefix, normalizeHostname, schoolSlugFromHostname } from "../lib/host-routing";
 import { renderInvoicePage, renderPayPage, renderStudentPayPage } from "./pay-html";
@@ -104,6 +105,7 @@ const appShellRoutes = [
   "/inbox",
   "/more",
   "/people",
+  "/onboarding",
   "/admissions",
   "/staff",
   "/school",
@@ -365,6 +367,7 @@ app.get("/api/v1/record", async (req, res) => {
     "attendance.mark",
     "desk.view",
     "people.view",
+    "onboarding.manage",
     "staff.view",
     "fees.view",
     "exams.view",
@@ -377,6 +380,20 @@ app.get("/api/v1/record", async (req, res) => {
   ]);
   if (!allowed) return sendError(res, 403, "No access.");
   res.json(await recordPayload(user, typeof req.query.childId === "string" ? req.query.childId : null));
+});
+
+app.get("/api/v1/onboarding/template", async (req, res) => {
+  const user = await requireUser(req, res);
+  if (!user) return;
+  if (!(await requireActiveSubscription(user.id, res))) return;
+  try {
+    const template = await onboardingTemplate(user, String(req.query.kind || ""));
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="${template.fileName}"`);
+    res.send(template.buffer);
+  } catch (e) {
+    sendError(res, 400, e instanceof Error ? e.message : "Template unavailable");
+  }
 });
 
 app.get("/api/v1/subscription/invoices/:id/print", async (req, res) => {

@@ -119,6 +119,7 @@ export default function AppLayout() {
           <Tabs.Screen name="inbox" options={{ href: null }} />
           <Tabs.Screen name="more" options={{ href: null }} />
           <Tabs.Screen name="people" options={{ href: null }} />
+          <Tabs.Screen name="onboarding" options={{ href: null }} />
           <Tabs.Screen name="staff" options={{ href: null }} />
           <Tabs.Screen name="school" options={{ href: null }} />
           <Tabs.Screen name="timetable" options={{ href: null }} />

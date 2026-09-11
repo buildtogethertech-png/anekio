@@ -62,6 +62,15 @@ function isReceiptFile(name: string, mime: string) {
   );
 }
 
+function isOnboardingSheet(name: string, mime: string) {
+  return allowedFile(
+    name,
+    mime,
+    [".csv", ".xlsx"],
+    ["text/csv", "application/csv", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"]
+  );
+}
+
 function stringFields(fields: Record<string, unknown>) {
   return Object.fromEntries(
     Object.entries(fields)
@@ -118,6 +127,12 @@ function validateAndFolder(user: AccessUser, file: UploadFile, fields: Record<st
     const folder = folders[fields.asset];
     if (!folder) throw new Error("School asset type required");
     return { kind, folder };
+  }
+
+  if (kind === "onboarding") {
+    if (!can(user, "onboarding.manage") && !can(user, "people.import")) throw new Error("No access.");
+    if (!isOnboardingSheet(file.name, file.mime)) throw new Error("Upload an Anekio Excel or CSV template.");
+    return { kind, folder: `private/${schoolRoot()}/onboarding/imports` };
   }
 
   throw new Error("Unknown upload");

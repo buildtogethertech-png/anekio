@@ -8,6 +8,7 @@ export type NavItem = {
 
 const OFFICE_NAV: NavItem[] = [
   { key: "home", href: "/admin/reports", label: "Dashboard", group: "Reports", permission: "desk.view" },
+  { key: "onboarding", href: "/admin/reports/onboarding", label: "School setup", group: "Reports", permission: "onboarding.manage" },
   { key: "inbox", href: "/admin/reports/inbox", label: "Inbox", group: "Reports", permission: "inbox.view" },
   { key: "people", href: "/admin/reports/people", label: "Students", group: "Reports", permission: "people.view" },
   { key: "admissions", href: "/admin/reports/admissions", label: "Admissions", group: "Reports", permission: "admissions.view" },

@@ -3,6 +3,7 @@ export const PORTAL_PATH: Record<string, string> = {
   notices: "/notices",
   inbox: "/inbox",
   people: "/people",
+  onboarding: "/onboarding",
   admissions: "/admissions",
   staff: "/staff",
   school: "/school",
@@ -25,6 +26,7 @@ export const PORTAL_PATH: Record<string, string> = {
 
 export const HIDDEN_TAB_SCREENS = [
   "people",
+  "onboarding",
   "inbox",
   "admissions",
   "staff",
