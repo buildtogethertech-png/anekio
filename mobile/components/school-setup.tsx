@@ -1,4 +1,5 @@
 import { useState } from "react";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { Pressable, Text, View } from "react-native";
 import { Button, Chip, Field, Input, Modal } from "./ui";
 import { pickFile } from "../lib/upload";
@@ -97,6 +98,19 @@ function SaveFlash({ at, flash }: { at: "catalog" | "class"; flash: { at: "catal
     );
   }
   return <Text className="text-sm text-red-700">{flash.text}</Text>;
+}
+
+function IconButton({ icon, label, onPress }: { icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      className="h-11 w-11 items-center justify-center rounded-md border border-ink-200 bg-white"
+    >
+      <Ionicons name={icon} size={20} color="#1f5feb" />
+    </Pressable>
+  );
 }
 
 export function ClockForm({
@@ -316,6 +330,7 @@ export function SchoolSubjectsForm({
   ];
   const [names, setNames] = useState(initialNames);
   const [custom, setCustom] = useState("");
+  const [addOpen, setAddOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [grid, setGrid] = useState<Record<string, Record<string, string>>>(
     Object.fromEntries(
@@ -359,11 +374,8 @@ export function SchoolSubjectsForm({
 
   function sheetCsv(sample = false) {
     const rows = [
-      ["Subject", ...classes.map((klass) => `${klass.label} periods/week`)],
-      ...(sample && !names.length ? DEFAULT_SUBJECTS.slice(0, 6) : names).map((subject) => [
-        subject,
-        ...classes.map((klass) => sample ? "4" : grid[klass.id]?.[subject] || ""),
-      ]),
+      ["Subject"],
+      ...(sample && !names.length ? DEFAULT_SUBJECTS.slice(0, 6) : names).map((subject) => [subject]),
     ];
     return rows.map((row) => row.map(csvEscape).join(",")).join("\n");
   }
@@ -377,7 +389,7 @@ export function SchoolSubjectsForm({
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = sample ? "anekio-subject-plan-sample.csv" : "anekio-subject-plan.csv";
+    link.download = sample ? "anekio-subjects-sample.csv" : "anekio-subjects.csv";
     link.click();
     URL.revokeObjectURL(url);
   }
@@ -397,24 +409,9 @@ export function SchoolSubjectsForm({
       return;
     }
     const nextNames = [...new Set(importedNames)];
-    const classByColumn = header.slice(1).map((label) => {
-      const compact = label.replace(/periods\/week/i, "").trim();
-      return classes.find((klass) => klass.label === compact)?.id || "";
-    });
-    const nextGrid: Record<string, Record<string, string>> = Object.fromEntries(classes.map((klass) => [klass.id, {}]));
-    rows.forEach((row) => {
-      const subject = row[0];
-      if (!subject) return;
-      classByColumn.forEach((classId, index) => {
-        if (!classId) return;
-        const value = String(row[index + 1] || "").replace(/\D/g, "").slice(0, 2);
-        if (value) nextGrid[classId][subject] = value;
-      });
-    });
     setNames(nextNames);
-    setGrid(nextGrid);
     setImportOpen(false);
-    setFlash({ at: "catalog", kind: "ok", text: "Sheet loaded. Review and save." });
+    setFlash({ at: "catalog", kind: "ok", text: "Subjects loaded. Review and save." });
   }
 
   return (
@@ -429,9 +426,8 @@ export function SchoolSubjectsForm({
             ))}
           </View>
           <View className="flex-row flex-wrap gap-2">
-            <Button variant="ghost" onPress={() => setImportOpen(true)}>
-              Upload
-            </Button>
+            <IconButton icon="add" label="Add subject" onPress={() => setAddOpen(true)} />
+            <IconButton icon="cloud-upload-outline" label="Upload subjects" onPress={() => setImportOpen(true)} />
             <Button
               className="px-5"
               onPress={async () => {
@@ -447,19 +443,6 @@ export function SchoolSubjectsForm({
               Save
             </Button>
           </View>
-        </View>
-        <View className="flex-row flex-wrap items-end gap-2">
-          <View className="min-w-[12rem] flex-1">
-            <Input value={custom} onChangeText={setCustom} placeholder="Other subject, e.g. Sanskrit" />
-          </View>
-          <Button variant="ghost" onPress={() => addSubject(custom)}>
-            Add
-          </Button>
-        </View>
-        <View className="flex-row flex-wrap gap-2">
-          {DEFAULT_SUBJECTS.filter((s) => !names.includes(s)).map((s) => (
-            <Chip key={s} label={`+ ${s}`} onPress={() => addSubject(s)} />
-          ))}
         </View>
         <SaveFlash at="catalog" flash={flash} />
       </View>
@@ -575,16 +558,41 @@ export function SchoolSubjectsForm({
       ) : (
         <Text className="text-sm text-ink-700">Add classes first.</Text>
       )}
+      <Modal open={addOpen} title="Add subject" onClose={() => setAddOpen(false)}>
+        <View className="gap-3">
+          <Field label="Subject name">
+            <Input value={custom} onChangeText={setCustom} placeholder="Sanskrit" />
+          </Field>
+          <View className="flex-row flex-wrap gap-2">
+            <Button
+              onPress={() => {
+                addSubject(custom);
+                setAddOpen(false);
+              }}
+            >
+              Add subject
+            </Button>
+          </View>
+          <View className="border-t border-ink-100 pt-3">
+            <Text className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-700">Defaults</Text>
+            <View className="flex-row flex-wrap gap-2">
+              {DEFAULT_SUBJECTS.filter((s) => !names.includes(s)).map((s) => (
+                <Chip key={s} label={`+ ${s}`} onPress={() => addSubject(s)} />
+              ))}
+            </View>
+          </View>
+        </View>
+      </Modal>
       <Modal open={importOpen} title="Upload subjects" onClose={() => setImportOpen(false)}>
         <View className="gap-3">
           <Text className="text-sm text-ink-700">
-            Use a CSV with Subject in the first column. Class columns hold periods per week.
+            Upload the subjects this school teaches. Class periods stay in the table.
           </Text>
           <View className="rounded-md border border-ink-200 bg-ink-50 px-3 py-2">
             <Text className="text-xs font-medium text-ink-700">Sample format</Text>
-            <Text className="mt-1 text-xs text-ink-700">Subject, 1-A periods/week, 2-A periods/week</Text>
-            <Text className="text-xs text-ink-700">English, 6, 6</Text>
-            <Text className="text-xs text-ink-700">Science, 4, 4</Text>
+            <Text className="mt-1 text-xs text-ink-700">Subject</Text>
+            <Text className="text-xs text-ink-700">English</Text>
+            <Text className="text-xs text-ink-700">Science</Text>
           </View>
           <View className="flex-row flex-wrap gap-2">
             <Button variant="ghost" onPress={() => downloadSheet(true)}>
