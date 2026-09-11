@@ -48,6 +48,34 @@ function inTime(value: Date | string) {
   return new Date(value).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
 }
 
+function serializePeopleFeeInvoice(inv: {
+  id: string;
+  title: string;
+  period?: string | null;
+  dueDate: Date;
+  amount: number;
+  shareToken?: string | null;
+  payments: { amount: number }[];
+}) {
+  const paidAmt = inv.payments.reduce((n, payment) => n + payment.amount, 0);
+  const balance = invoiceBalance({ ...inv, paid: paidAmt });
+  const invoiceUrl = inv.shareToken ? `${publicOrigin()}/i/${inv.shareToken}` : "";
+  return {
+    id: inv.id,
+    title: inv.title,
+    period: inv.period || "",
+    due: inv.dueDate.toLocaleDateString("en-IN"),
+    amount: formatInr(inv.amount),
+    paid: formatInr(paidAmt),
+    remaining: balance.remaining ? formatInr(balance.remaining) : "",
+    dueNow: balance.dueNow,
+    lateLabel: balance.lateLabel,
+    status: balance.display.toLowerCase(),
+    invoiceUrl,
+    receiptUrl: balance.display === "PAID" ? invoiceUrl : "",
+  };
+}
+
 function staffLeaveDays(
   rows: {
     teacherId: string | null;
@@ -618,21 +646,7 @@ async function teacherPayload(user: AccessUser) {
               dueAmount: totals.due,
               overdueCount: totals.overdue,
               invoiceIds: s.feeInvoices.filter((invoice) => invoice.status !== "PAID").map((invoice) => invoice.id),
-              invoices: s.feeInvoices.map((invoice) => {
-                const paidAmt = invoice.payments.reduce((n, payment) => n + payment.amount, 0);
-                const balance = invoiceBalance({ ...invoice, paid: paidAmt });
-                return {
-                  id: invoice.id,
-                  title: invoice.title,
-                  due: invoice.dueDate.toLocaleDateString("en-IN"),
-                  amount: formatInr(invoice.amount),
-                  paid: formatInr(paidAmt),
-                  remaining: balance.remaining ? formatInr(balance.remaining) : "",
-                  dueNow: balance.dueNow,
-                  lateLabel: balance.lateLabel,
-                  status: balance.display.toLowerCase(),
-                };
-              }),
+              invoices: s.feeInvoices.map(serializePeopleFeeInvoice),
             }
           : {}),
       };
@@ -1048,22 +1062,7 @@ async function officePayload(user: AccessUser) {
           endsPeriod: addOn.endsPeriod,
           active: addOn.active,
         })),
-        invoices: s.feeInvoices.map((inv) => {
-          const paidAmt = inv.payments.reduce((n, p) => n + p.amount, 0);
-          const m = invoiceBalance({ ...inv, paid: paidAmt });
-          return {
-            id: inv.id,
-            title: inv.title,
-            period: inv.period,
-            due: inv.dueDate.toLocaleDateString("en-IN"),
-            amount: formatInr(inv.amount),
-            paid: formatInr(paidAmt),
-            remaining: m.remaining ? formatInr(m.remaining) : "",
-            dueNow: m.dueNow,
-            lateLabel: m.lateLabel,
-            status: m.display.toLowerCase(),
-          };
-        }),
+        invoices: s.feeInvoices.map(serializePeopleFeeInvoice),
       };
     }),
     peopleTeachers: people.teachers.map((t) => ({

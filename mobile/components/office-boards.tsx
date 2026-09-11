@@ -14,6 +14,7 @@ import { StudentAdmitForm, type StudentAdmitPayload } from "./student-admit-form
 import { ReportCardSheet, type ReportCardData } from "./report-card-sheet";
 import { studentSeriesScore, studentYearScore } from "../lib/exams";
 import { act, saveLateTiming } from "../lib/mutate";
+import { apiBase } from "../lib/api";
 import { useRecord, type AdmissionFormField } from "../lib/record";
 import { useSession } from "../lib/session";
 import { canChangeManager, ManagerPicker } from "./manager-picker";
@@ -881,6 +882,23 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
     }
   }
 
+  async function openFeeDocument(inv: { id: string; invoiceUrl?: string; receiptUrl?: string }, paid: boolean) {
+    const directUrl = paid ? inv.receiptUrl : inv.invoiceUrl;
+    if (directUrl) {
+      await Linking.openURL(directUrl);
+      return;
+    }
+    try {
+      const result = await act<{ ok: true; token: string }>(token, "ensurePayToken", { invoiceId: inv.id });
+      const shareToken = encodeURIComponent(result.token);
+      const url = paid ? `${apiBase()}/pay/${shareToken}?paid=1` : `${apiBase()}/i/${shareToken}`;
+      await reload();
+      await Linking.openURL(url);
+    } catch (e) {
+      toast.show(e instanceof Error ? e.message : "Could not open fee document.");
+    }
+  }
+
   function StudentPane({ bare }: { bare?: boolean }) {
     if (!selected) {
       return <Empty title="Pick a student" body="Family details and report cards show here." />;
@@ -1195,26 +1213,53 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
           <ScrollView className="min-h-0 flex-1" nestedScrollEnabled>
             <View className="overflow-hidden rounded-md bg-white">
               <View className="flex-row items-center justify-between border-b border-ink-100 px-3 pb-2">
-                <Text className="text-sm font-semibold text-ink-900">Payment history</Text>
-                <Text className="text-xs text-ink-700">{selected.invoices.length} item{selected.invoices.length === 1 ? "" : "s"}</Text>
-              </View>
-              {selected.invoices.map((inv, i) => (
-                <View
-                  key={inv.id}
-                  className={`flex-row items-center justify-between gap-3 px-3 py-3 ${i ? "border-t border-ink-100" : ""}`}
-                >
-                  <View className="flex-1">
-                    <Text className="text-sm font-medium text-ink-900">{inv.title}</Text>
-                    <Text className="mt-1 text-xs text-ink-700">
-                      Due {inv.due} · {inv.amount}
-                      {inv.remaining ? ` · ${inv.remaining} left` : ""}
-                    </Text>
-                  </View>
-                  <Badge tone={inv.status === "paid" ? "leaf" : inv.status === "overdue" ? "warn" : "clay"}>
-                    {inv.status}
-                  </Badge>
+                <View>
+                  <Text className="text-sm font-semibold text-ink-900">Invoices and receipts</Text>
+                  <Text className="mt-0.5 text-xs text-ink-700">Month-wise billing ledger for this student</Text>
                 </View>
-              ))}
+                <Text className="text-xs text-ink-700">{selected.invoices.length} month{selected.invoices.length === 1 ? "" : "s"}</Text>
+              </View>
+              {selected.invoices.map((inv, i) => {
+                const paid = inv.status === "paid";
+                return (
+                  <View
+                    key={inv.id}
+                    className={`flex-row items-center justify-between gap-3 px-3 py-3 ${i ? "border-t border-ink-100" : ""}`}
+                  >
+                    <View className="min-w-0 flex-1">
+                      <Text className="text-sm font-medium text-ink-900">{inv.title}</Text>
+                      <Text className="mt-1 text-xs text-ink-700">
+                        {paid ? `Paid ${inv.paid}` : `Due ${inv.due} · ${inv.amount}`}
+                        {!paid && inv.remaining ? ` · ${inv.remaining} left` : ""}
+                        {!paid && inv.lateLabel ? ` · ${inv.lateLabel}` : ""}
+                      </Text>
+                    </View>
+                    <View className="items-end gap-1.5">
+                      <Badge tone={paid ? "leaf" : inv.status === "overdue" ? "warn" : "clay"}>
+                        {paid ? "paid" : inv.status}
+                      </Badge>
+                      <View className="flex-row flex-wrap justify-end gap-1.5">
+                        <Pressable
+                          onPress={() => void openFeeDocument(inv, false)}
+                          className="flex-row items-center gap-1 rounded-md border border-ink-200 px-2 py-1"
+                        >
+                          <Ionicons name="document-text-outline" size={14} color="#1d4ed8" />
+                          <Text className="text-xs font-medium text-clay-600">Invoice</Text>
+                        </Pressable>
+                        {paid ? (
+                          <Pressable
+                            onPress={() => void openFeeDocument(inv, true)}
+                            className="flex-row items-center gap-1 rounded-md border border-ink-200 px-2 py-1"
+                          >
+                            <Ionicons name="receipt-outline" size={14} color="#15803d" />
+                            <Text className="text-xs font-medium text-green-700">Receipt</Text>
+                          </Pressable>
+                        ) : null}
+                      </View>
+                    </View>
+                  </View>
+                );
+              })}
             </View>
           </ScrollView>
         ) : (
