@@ -8,7 +8,7 @@ import { useSession } from "../lib/session";
 import { PageHeader } from "./ui";
 
 const OFFICE_SIDEBAR_ORDER = new Map(
-  ["home", "onboarding", "inbox", "people", "staff", "timetable", "fees", "exams", "notices", "admissions", "school", "subscription", "roles"].map(
+  ["home", "inbox", "people", "staff", "timetable", "fees", "exams", "notices", "admissions", "school", "subscription", "roles"].map(
     (key, index) => [key, index]
   )
 );
@@ -29,7 +29,7 @@ export function NavMenu({ onNavigate }: { onNavigate?: () => void }) {
   const router = useRouter();
   const inbox = useNoticeInbox();
   const items = nav
-    .filter((n) => n.key !== "profile" && n.key !== "uploads")
+    .filter((n) => n.key !== "profile" && n.key !== "uploads" && n.key !== "onboarding")
     .sort((a, b) => {
       const order =
         user?.portal === "OFFICE"
@@ -112,7 +112,7 @@ export function MoreBoard() {
   const pathname = usePathname();
   const skip = new Set(visibleTabs(user?.portal, nav).filter((key) => key !== "more"));
   const rest = nav.filter(
-    (item) => !skip.has(item.key) && item.key !== "uploads" && item.key !== "profile"
+    (item) => !skip.has(item.key) && item.key !== "uploads" && item.key !== "profile" && item.key !== "onboarding"
   );
 
   function go(key: string) {

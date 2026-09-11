@@ -59,7 +59,7 @@ function statusLabel(status: Onboarding["steps"][number]["status"]) {
   return "Ready";
 }
 
-export function OnboardingBoard() {
+export function OnboardingBoard({ compact = false }: { compact?: boolean } = {}) {
   const { data, reload } = useRecord();
   const { token } = useSession();
   const onboarding = data?.onboarding;
@@ -224,12 +224,14 @@ export function OnboardingBoard() {
   }
 
   return (
-    <View className="mx-auto w-full max-w-6xl gap-4 pb-10">
-      <PageHeader
-        kicker="School launch"
-        title="Set up this school"
-        lede="Choose only what this school needs. Anekio generates the next CSV from data already imported, so the onboarding team never rebuilds the same file twice."
-      />
+    <View className={`mx-auto w-full gap-4 pb-10 ${compact ? "max-w-none" : "max-w-6xl"}`}>
+      {compact ? null : (
+        <PageHeader
+          kicker="School launch"
+          title="Set up this school"
+          lede="Choose only what this school needs. Anekio generates the next CSV from data already imported, so the onboarding team never rebuilds the same file twice."
+        />
+      )}
 
       <Card className="gap-4 p-5">
         <View className="flex-row items-center justify-between gap-4">

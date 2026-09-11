@@ -1,11 +1,13 @@
+import { useState } from "react";
 import { Redirect, Slot, Tabs, useRouter } from "expo-router";
-import { ActivityIndicator, Pressable, Text, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Modal, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { AppTabBar } from "../../components/app-tab-bar";
 import { NavMenu } from "../../components/nav-menu";
 import { NoticeBell } from "../../components/notice-bell";
-import { RecordProvider } from "../../lib/record";
+import { OnboardingBoard } from "../../components/onboarding-board";
+import { RecordProvider, useRecord } from "../../lib/record";
 import { useSession } from "../../lib/session";
 
 function ProfileChip() {
@@ -38,6 +40,65 @@ function ProfileChip() {
       </View>
       <Ionicons name="chevron-down" size={14} color="#94A3B8" />
     </Pressable>
+  );
+}
+
+function LaunchPanelButton() {
+  const { data } = useRecord();
+  const { user } = useSession();
+  const { width, height } = useWindowDimensions();
+  const [open, setOpen] = useState(false);
+  const onboarding = data?.onboarding;
+  const show = user?.portal === "OFFICE" && onboarding && onboarding.progress.percent < 100;
+  if (!show) return null;
+
+  const panelWidth = Math.min(760, Math.max(360, width - 48));
+  return (
+    <>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Open launch setup"
+        accessibilityState={{ expanded: open }}
+        onPress={() => setOpen(true)}
+        className="min-h-10 flex-row items-center gap-2 rounded-full border border-clay-200 bg-clay-50 px-3 py-1.5"
+      >
+        <Ionicons name="rocket-outline" size={18} color="#2563eb" />
+        <View className="min-w-0">
+          <Text className="text-[12px] font-semibold text-clay-700">Launch</Text>
+          <Text className="text-[10px] text-ink-500">{onboarding.progress.percent}%</Text>
+        </View>
+      </Pressable>
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <View className="flex-1">
+          <Pressable accessibilityLabel="Close launch setup" className="absolute inset-0 bg-ink-900/20" onPress={() => setOpen(false)} />
+          <View
+            className="absolute bottom-0 right-0 top-0 overflow-hidden border-l border-ink-200 bg-ink-50 shadow-xl"
+            style={{ width: panelWidth, maxHeight: height }}
+            testID="launch-setup-panel"
+          >
+            <SafeAreaView className="min-h-0 flex-1" edges={["top", "bottom"]}>
+              <View className="h-14 flex-row items-center justify-between border-b border-ink-200 bg-white px-5">
+                <View className="min-w-0 flex-1">
+                  <Text className="text-sm font-semibold text-ink-900">Launch setup</Text>
+                  <Text className="text-[11px] text-ink-500">{onboarding.progress.percent}% complete</Text>
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Close launch setup"
+                  onPress={() => setOpen(false)}
+                  className="h-10 w-10 items-center justify-center rounded-full"
+                >
+                  <Ionicons name="close" size={22} color="#0f2744" />
+                </Pressable>
+              </View>
+              <ScrollView className="min-h-0 flex-1" contentContainerClassName="px-5 py-5">
+                <OnboardingBoard compact />
+              </ScrollView>
+            </SafeAreaView>
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 }
 
@@ -90,6 +151,7 @@ export default function AppLayout() {
           <Sidebar />
           <View className="min-h-0 flex-1 overflow-hidden">
             <View className="h-14 shrink-0 flex-row items-center justify-end gap-2 border-b border-ink-200 bg-white px-5">
+              <LaunchPanelButton />
               <NoticeBell />
               <ProfileChip />
             </View>
