@@ -119,6 +119,44 @@ describe("school onboarding imports", () => {
     expect(periods).toEqual(["2026-04", "2026-09", "OPENING"]);
   });
 
+  it("generates a student workbook with one tab per class section", async () => {
+    const ExcelJS = (await import("exceljs")).default;
+    const { onboardingSpreadsheetTemplate, onboardingBundle } = await import("../../lib/onboarding");
+    await prisma.class.upsert({
+      where: { id: "class-7-b" },
+      update: { name: "7", section: "B", archivedAt: null },
+      create: { id: "class-7-b", name: "7", section: "B" },
+    });
+
+    const bundle = await onboardingBundle(user);
+    const studentTemplate = bundle.templates.find((template) => template.kind === "students");
+    expect(studentTemplate?.fileName).toBe("anekio-students.xlsx");
+
+    const template = await onboardingSpreadsheetTemplate(user, "students");
+    expect(template).toMatchObject({
+      fileName: "anekio-students.xlsx",
+      contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+
+    const workbook = new ExcelJS.Workbook();
+    const arrayBuffer = template.buffer.buffer.slice(template.buffer.byteOffset, template.buffer.byteOffset + template.buffer.byteLength) as ArrayBuffer;
+    await workbook.xlsx.load(arrayBuffer);
+    expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(expect.arrayContaining(["6-A", "7-B"]));
+
+    const sheet = workbook.getWorksheet("7-B")!;
+    expect((sheet.getRow(1).values as unknown[]).slice(1)).toEqual([
+      "Student name",
+      "Date of birth",
+      "Class",
+      "Parent name",
+      "Parent mobile",
+      "Parent email",
+      "Example only",
+    ]);
+    expect(sheet.getRow(2).getCell(3).value).toBe("7-B");
+    expect(sheet.views[0]).toMatchObject({ state: "frozen", ySplit: 1 });
+  });
+
   it("imports students from workbook tabs named as class sections and creates those classes", async () => {
     const ExcelJS = (await import("exceljs")).default;
     const { previewOnboardingImport, applyOnboardingImport } = await import("../../lib/onboarding");

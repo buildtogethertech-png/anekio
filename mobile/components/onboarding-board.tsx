@@ -187,7 +187,7 @@ export function OnboardingBoard() {
     setMessage("");
     setPreview(null);
     try {
-      const file = await pickFile(".csv,text/csv");
+      const file = await pickFile(".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
       if (!file) return;
       const uploaded = await uploadFile(token, file, { kind: "onboarding", onboardingKind: template.kind });
       const result = await act<Preview & { ok: true }>(token, "previewOnboardingImport", {

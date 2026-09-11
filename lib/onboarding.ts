@@ -204,11 +204,11 @@ export async function onboardingSpreadsheetTemplate(user: AccessUser, rawKind: s
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Anekio";
   const labels = classes.length ? classes.map((row) => `${row.name}-${row.section}`) : ["1-A", "1-B", "1-C"];
-  const headers = ["Anekio student ID", "Admission number", "Student name", "Date of birth", "Parent name", "Parent mobile", "Parent email", "Example only"];
+  const headers = ["Student name", "Date of birth", "Class", "Parent name", "Parent mobile", "Parent email", "Example only"];
   labels.forEach((label, index) => {
     const sheet = workbook.addWorksheet(label);
     sheet.addRow(headers);
-    sheet.addRow(["", "", index === 0 ? "Aarav Sharma (example)" : "", "2015-04-12", "Neha Sharma", "9876543210", "parent@example.com", "YES"]);
+    sheet.addRow([index === 0 ? "Aarav Sharma (example)" : "", "2015-04-12", label, "Neha Sharma", "9876543210", "parent@example.com", "YES"]);
     sheet.views = [{ state: "frozen", ySplit: 1 }];
     sheet.columns = headers.map((header) => ({ header, key: normalizeHeader(header), width: Math.max(18, header.length + 2) }));
     sheet.getRow(1).font = { bold: true };
@@ -725,7 +725,7 @@ export async function onboardingBundle(user: AccessUser) {
     templates: IMPORT_KINDS.filter((kind): kind is Exclude<ImportKind, "classes"> => kind !== "classes").map((kind) => ({
       kind,
       title: TEMPLATE_DETAILS[kind].title,
-      fileName: TEMPLATE_DETAILS[kind].file,
+      fileName: kind === "students" ? "anekio-students.xlsx" : TEMPLATE_DETAILS[kind].file,
       disabled: classCount === 0 || (kind === "opening_balances" && studentCount === 0) || (kind === "class_teachers" && teacherCount === 0),
       prerequisite: kind === "opening_balances" ? "Students" : kind === "class_teachers" ? "Classes + teachers" : "Classes from CRM",
     })),

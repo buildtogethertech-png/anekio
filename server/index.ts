@@ -39,7 +39,7 @@ import { marksheetHtmlForUser } from "../lib/marksheet-html";
 import { runExamCronNotifications } from "../lib/exam-notification-run";
 import { ensureAccessRoles } from "../lib/roles";
 import { scopePolicyFor } from "../lib/permissions";
-import { onboardingTemplate } from "../lib/onboarding";
+import { onboardingSpreadsheetTemplate, onboardingTemplate } from "../lib/onboarding";
 import { finishOnboardingGoogleAuth } from "../lib/onboarding-google";
 import { withPublicRequestOrigin } from "../lib/utils";
 import { hasHostnamePrefix, normalizeHostname, schoolSlugFromHostname } from "../lib/host-routing";
@@ -394,7 +394,8 @@ app.get("/api/v1/onboarding/template", async (req, res) => {
   if (!user) return;
   if (!(await requireActiveSubscription(user.id, res))) return;
   try {
-    const template = await onboardingTemplate(user, String(req.query.kind || ""));
+    const kind = String(req.query.kind || "");
+    const template = kind === "students" ? await onboardingSpreadsheetTemplate(user, kind) : await onboardingTemplate(user, kind);
     res.setHeader("Content-Type", template.contentType);
     res.setHeader("Content-Disposition", `attachment; filename="${template.fileName}"`);
     res.send(template.buffer);
