@@ -157,6 +157,40 @@ describe("school onboarding imports", () => {
     expect(sheet.views[0]).toMatchObject({ state: "frozen", ySplit: 1 });
   });
 
+  it("generates a staff workbook with role and class dropdowns", async () => {
+    const ExcelJS = (await import("exceljs")).default;
+    const { onboardingSpreadsheetTemplate, onboardingBundle } = await import("../../lib/onboarding");
+
+    const bundle = await onboardingBundle(user);
+    const staffTemplate = bundle.templates.find((template) => template.kind === "teachers");
+    expect(staffTemplate?.fileName).toBe("anekio-teachers.xlsx");
+
+    const template = await onboardingSpreadsheetTemplate(user, "teachers");
+    expect(template).toMatchObject({
+      fileName: "anekio-teachers.xlsx",
+      contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+
+    const workbook = new ExcelJS.Workbook();
+    const arrayBuffer = template.buffer.buffer.slice(template.buffer.byteOffset, template.buffer.byteOffset + template.buffer.byteLength) as ArrayBuffer;
+    await workbook.xlsx.load(arrayBuffer);
+    const sheet = workbook.getWorksheet("Teachers")!;
+    expect((sheet.getRow(1).values as unknown[]).slice(1)).toEqual([
+      "Anekio teacher ID",
+      "Employee ID",
+      "Name",
+      "Mobile",
+      "Email",
+      "Role",
+      "Class teacher of",
+      "Monthly salary",
+      "Qualification",
+      "Example only",
+    ]);
+    expect(sheet.getCell("F2").dataValidation).toMatchObject({ type: "list" });
+    expect(sheet.getCell("G2").dataValidation).toMatchObject({ type: "list" });
+  });
+
   it("imports students from workbook tabs named as class sections and creates those classes", async () => {
     const ExcelJS = (await import("exceljs")).default;
     const { previewOnboardingImport, applyOnboardingImport } = await import("../../lib/onboarding");
@@ -184,6 +218,42 @@ describe("school onboarding imports", () => {
     const student = await prisma.student.findFirstOrThrow({ where: { name: "Zoya Tab Student" } });
     expect(student.classId).toBe(klass.id);
     expect(student.admissionNo).toMatch(/^ANE-\d{5}$/);
+  });
+
+  it("imports staff roles from the teacher sheet and creates missing class teacher classes", async () => {
+    const ExcelJS = (await import("exceljs")).default;
+    const { previewOnboardingImport, applyOnboardingImport } = await import("../../lib/onboarding");
+    const { saveUploadPath } = await import("../../lib/uploads");
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("Teachers");
+    sheet.addRow(["Anekio teacher ID", "Employee ID", "Name", "Mobile", "Email", "Role", "Class teacher of", "Monthly salary", "Qualification", "Example only"]);
+    sheet.addRow(["", "", "New Sheet Teacher", "9876505678", "", "TEACHER", "9-C", "41000", "M.Sc", ""]);
+    sheet.addRow(["", "", "Sheet Fees Admin", "9876505679", "", "FEES", "", "32000", "Accounts", ""]);
+    const uploadPath = "private/schools/test/onboarding/imports/teachers.xlsx";
+    await saveUploadPath(
+      uploadPath,
+      Buffer.from(await workbook.xlsx.writeBuffer()),
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+
+    const preview = await previewOnboardingImport(user, {
+      kind: "teachers",
+      uploadPath,
+      fileName: "teachers.xlsx",
+    });
+    expect(preview).toMatchObject({ rowCount: 2, validCount: 2, errors: [] });
+
+    await applyOnboardingImport(user, { batchId: preview.batchId });
+    const klass = await prisma.class.findFirstOrThrow({ where: { name: "9", section: "C" } });
+    const teacher = await prisma.teacher.findFirstOrThrow({ where: { user: { name: "New Sheet Teacher" } }, include: { user: { include: { role: true } } } });
+    expect(teacher.user.role.slug).toBe("TEACHER");
+    expect(teacher.classId).toBe(klass.id);
+    expect(teacher.monthlySalary).toBe(41000);
+    await expect(prisma.teacherClass.findUniqueOrThrow({ where: { teacherId_classId: { teacherId: teacher.id, classId: klass.id } } })).resolves.toBeTruthy();
+
+    const staff = await prisma.staffMember.findFirstOrThrow({ where: { name: "Sheet Fees Admin" }, include: { user: { include: { role: true } }, role: true } });
+    expect(staff.role?.slug || staff.user?.role.slug).toBe("FEES");
+    expect(staff.monthlySalary).toBe(32000);
   });
 
   it("assigns class teachers from the generated assignment template", async () => {

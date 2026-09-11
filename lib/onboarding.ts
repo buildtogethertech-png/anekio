@@ -1,11 +1,11 @@
 import bcrypt from "bcryptjs";
 import ExcelJS from "exceljs";
-import { InvoiceStatus, type Prisma } from "@prisma/client";
+import { InvoiceStatus, type Prisma, type Role } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { can, type AccessUser } from "./permissions";
 import { prisma } from "./prisma";
 import { normalizeMobile } from "./phone";
-import { roleIdBySlug } from "./roles";
+import { ensureAccessRoles, roleIdBySlug } from "./roles";
 import { parseClassLabel, parseCsv } from "./sheet";
 import { readUpload } from "./uploads";
 
@@ -85,6 +85,7 @@ function sheetCell(row: ImportRow, ...keys: string[]) {
 }
 
 type CsvCell = string | number;
+type StaffImportRole = Pick<Role, "id" | "name" | "slug" | "portal">;
 
 function csvBuffer(rows: CsvCell[][]) {
   const encoded = rows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(","));
@@ -129,17 +130,36 @@ async function csvRowsFor(kind: ImportKind): Promise<CsvCell[][]> {
   }
 
   if (kind === "teachers") {
-    const teachers = await prisma.teacher.findMany({ include: { user: true }, orderBy: { user: { name: "asc" } } });
+    await ensureAccessRoles();
+    const [teachers, staffMembers] = await Promise.all([
+      prisma.teacher.findMany({ include: { user: { include: { role: true } }, class: true }, orderBy: { user: { name: "asc" } } }),
+      prisma.staffMember.findMany({ include: { user: { include: { role: true } }, role: true }, orderBy: { name: "asc" } }),
+    ]);
     return [
-      ["Anekio teacher ID", "Employee ID", "Teacher name", "Mobile", "Email", "Qualification", "Example only"],
-      ["", "", "Meera Singh (example)", "9876543211", "teacher@example.com", "B.Ed, Mathematics", "YES"],
+      ["Anekio teacher ID", "Employee ID", "Name", "Mobile", "Email", "Role", "Class teacher of", "Monthly salary", "Qualification", "Example only"],
+      ["", "", "Meera Singh (example)", "9876543211", "teacher@example.com", "TEACHER", classLabels[0] || "1-A", 30000, "B.Ed, Mathematics", "YES"],
       ...teachers.map((teacher) => [
         teacher.id,
         teacher.employeeId,
         teacher.user.name,
         teacher.user.phone || "",
         teacher.user.email.endsWith("@local.anekio.invalid") ? "" : teacher.user.email,
+        roleLabel(teacher.user.role),
+        teacher.class ? `${teacher.class.name}-${teacher.class.section}` : "",
+        teacher.monthlySalary,
         teacher.qualification || "",
+        "",
+      ]),
+      ...staffMembers.map((staff) => [
+        "",
+        staff.employeeId,
+        staff.name,
+        staff.phone || staff.user?.phone || "",
+        staff.user?.email && !staff.user.email.endsWith("@local.anekio.invalid") && !staff.user.email.endsWith("@mobile.local") ? staff.user.email : "",
+        staff.role || staff.user?.role ? roleLabel((staff.role || staff.user?.role)!) : "ADMIN",
+        "",
+        staff.monthlySalary,
+        staff.title || "",
         "",
       ]),
     ];
@@ -183,6 +203,60 @@ async function csvRowsFor(kind: ImportKind): Promise<CsvCell[][]> {
   ];
 }
 
+function xlsxFileName(kind: ImportKind) {
+  return TEMPLATE_DETAILS[kind].file.replace(/\.csv$/i, ".xlsx");
+}
+
+function applyHeaderStyle(sheet: ExcelJS.Worksheet) {
+  sheet.views = [{ state: "frozen", ySplit: 1 }];
+  sheet.getRow(1).font = { bold: true };
+}
+
+async function staffImportRoles(db: Pick<typeof prisma, "role"> = prisma): Promise<StaffImportRole[]> {
+  await ensureAccessRoles();
+  return db.role.findMany({
+    where: { portal: { in: ["OFFICE", "TEACHER"] } },
+    select: { id: true, name: true, slug: true, portal: true },
+    orderBy: [{ portal: "asc" }, { isSystem: "desc" }, { name: "asc" }],
+  });
+}
+
+function roleLabel(role: StaffImportRole) {
+  return role.slug === "TEACHER" ? "TEACHER" : role.name.toUpperCase();
+}
+
+function roleLookupKey(value: string) {
+  return normalizeHeader(value);
+}
+
+function resolveStaffImportRole(roles: StaffImportRole[], row: ImportRow) {
+  const raw = sheetCell(row, "Role", "Role ID", "Role slug") || "TEACHER";
+  const key = roleLookupKey(raw);
+  return roles.find((role) => [role.id, role.slug, role.name, roleLabel(role)].some((value) => roleLookupKey(value) === key)) || null;
+}
+
+function monthlySalaryFrom(row: ImportRow, fallback: number) {
+  const raw = sheetCell(row, "Monthly salary", "Salary");
+  if (!raw) return fallback;
+  const value = Number(raw.replace(/[₹,\s]/g, ""));
+  return Number.isFinite(value) && value >= 0 ? Math.round(value) : fallback;
+}
+
+function salaryIsValid(row: ImportRow) {
+  const raw = sheetCell(row, "Monthly salary", "Salary");
+  if (!raw) return true;
+  const value = Number(raw.replace(/[₹,\s]/g, ""));
+  return Number.isFinite(value) && value >= 0;
+}
+
+async function ensureClassForImport(db: OnboardingDb, klass: { name: string; section: string }) {
+  const existing = await db.class.findFirst({ where: { name: klass.name, section: klass.section } });
+  if (existing) return existing.archivedAt
+    ? db.class.update({ where: { id: existing.id }, data: { archivedAt: null } })
+    : existing;
+  return db.class.create({ data: { name: klass.name, section: klass.section } });
+}
+
 export async function onboardingTemplate(user: AccessUser, rawKind: string) {
   need(user);
   const kind = asKind(rawKind);
@@ -196,7 +270,6 @@ export async function onboardingTemplate(user: AccessUser, rawKind: string) {
 export async function onboardingSpreadsheetTemplate(user: AccessUser, rawKind: string) {
   need(user);
   const kind = asKind(rawKind);
-  if (kind !== "students") return onboardingTemplate(user, kind);
   const classes = await prisma.class.findMany({
     where: { archivedAt: null },
     orderBy: [{ name: "asc" }, { section: "asc" }],
@@ -204,14 +277,59 @@ export async function onboardingSpreadsheetTemplate(user: AccessUser, rawKind: s
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Anekio";
   const labels = classes.length ? classes.map((row) => `${row.name}-${row.section}`) : ["1-A", "1-B", "1-C"];
+  if (kind !== "students") {
+    const rows = await csvRowsFor(kind);
+    const sheet = workbook.addWorksheet(TEMPLATE_DETAILS[kind].sheet);
+    rows.forEach((row) => sheet.addRow(row));
+    applyHeaderStyle(sheet);
+    sheet.columns = (rows[0] || []).map((header) => ({ header: String(header), key: normalizeHeader(header), width: Math.max(16, String(header).length + 2) }));
+
+    if (kind === "teachers" || kind === "class_teachers") {
+      const roles = kind === "teachers" ? await staffImportRoles() : [];
+      const lists = workbook.addWorksheet("_Lists");
+      lists.state = "veryHidden";
+      lists.getCell("A1").value = "Roles";
+      lists.getCell("B1").value = "Classes";
+      roles.forEach((role, index) => { lists.getCell(index + 2, 1).value = roleLabel(role); });
+      labels.forEach((label, index) => { lists.getCell(index + 2, 2).value = label; });
+      const roleEnd = Math.max(2, roles.length + 1);
+      const classEnd = Math.max(2, labels.length + 1);
+      const headers = (rows[0] || []).map((header) => normalizeHeader(header));
+      const roleColumn = headers.indexOf("role") + 1;
+      const classColumn = kind === "teachers"
+        ? headers.indexOf(normalizeHeader("Class teacher of")) + 1
+        : headers.indexOf("class") + 1;
+      for (let rowNumber = 2; rowNumber <= 250; rowNumber += 1) {
+        if (roleColumn > 0) {
+          sheet.getCell(rowNumber, roleColumn).dataValidation = {
+            type: "list",
+            allowBlank: true,
+            formulae: [`'_Lists'!$A$2:$A$${roleEnd}`],
+          };
+        }
+        if (classColumn > 0) {
+          sheet.getCell(rowNumber, classColumn).dataValidation = {
+            type: "list",
+            allowBlank: true,
+            formulae: [`'_Lists'!$B$2:$B$${classEnd}`],
+          };
+        }
+      }
+    }
+
+    return {
+      fileName: xlsxFileName(kind),
+      contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
+    };
+  }
   const headers = ["Student name", "Date of birth", "Class", "Parent name", "Parent mobile", "Parent email", "Example only"];
   labels.forEach((label, index) => {
     const sheet = workbook.addWorksheet(label);
     sheet.addRow(headers);
     sheet.addRow([index === 0 ? "Aarav Sharma (example)" : "", "2015-04-12", label, "Neha Sharma", "9876543210", "parent@example.com", "YES"]);
-    sheet.views = [{ state: "frozen", ySplit: 1 }];
+    applyHeaderStyle(sheet);
     sheet.columns = headers.map((header) => ({ header, key: normalizeHeader(header), width: Math.max(18, header.length + 2) }));
-    sheet.getRow(1).font = { bold: true };
   });
   return {
     fileName: "anekio-students.xlsx",
@@ -276,8 +394,7 @@ function rowError(row: ImportRow, message: string) {
 
 async function validateRows(kind: ImportKind, rows: ImportRow[]) {
   const errors: string[] = [];
-  const classes = await prisma.class.findMany({ where: { archivedAt: null } });
-  const classKeys = new Set(classes.map((row) => `${row.name}-${row.section}`.toLowerCase()));
+  const roles = kind === "teachers" ? await staffImportRoles() : [];
   const students = kind === "opening_balances" || kind === "students"
     ? await prisma.student.findMany({ select: { id: true, admissionNo: true } })
     : [];
@@ -310,8 +427,12 @@ async function validateRows(kind: ImportKind, rows: ImportRow[]) {
       return;
     }
     if (kind === "teachers") {
-      if (!sheetCell(row, "Teacher name", "Name")) errors.push(rowError(row, "teacher name is required."));
+      if (!sheetCell(row, "Teacher name", "Name")) errors.push(rowError(row, "name is required."));
       if (!normalizeMobile(sheetCell(row, "Mobile", "Phone"))) errors.push(rowError(row, "mobile must be a 10-digit number."));
+      if (!resolveStaffImportRole(roles, row)) errors.push(rowError(row, "role must be one of the office or teacher roles."));
+      const classText = sheetCell(row, "Class teacher of", "Class teacher", "Class");
+      if (classText && !parseClass(classText)) errors.push(rowError(row, "class teacher value must look like 1-A."));
+      if (!salaryIsValid(row)) errors.push(rowError(row, "monthly salary must be zero or more."));
       return;
     }
     if (kind === "class_teachers") {
@@ -319,7 +440,7 @@ async function validateRows(kind: ImportKind, rows: ImportRow[]) {
       const employeeId = sheetCell(row, "Class teacher employee ID", "Employee ID", "Teacher employee ID");
       const teacherName = sheetCell(row, "Class teacher name", "Teacher name");
       const klass = parseClass(classText);
-      if (!klass || !classKeys.has(`${klass.name}-${klass.section}`.toLowerCase())) errors.push(rowError(row, "class must use an existing class like 1-A."));
+      if (!klass) errors.push(rowError(row, "class must use a value like 1-A."));
       if (!employeeId && !teacherName) errors.push(rowError(row, "teacher employee ID or teacher name is required."));
       return;
     }
@@ -394,6 +515,10 @@ function placeholderEmail(kind: "parent" | "teacher", phone: string) {
   return `${kind}.${phone}@local.anekio.invalid`;
 }
 
+function staffPlaceholderEmail(phone: string) {
+  return `staff.${phone}@local.anekio.invalid`;
+}
+
 async function applyClasses(db: OnboardingDb, rows: ImportRow[]) {
   let created = 0;
   let updated = 0;
@@ -416,15 +541,18 @@ async function applyClasses(db: OnboardingDb, rows: ImportRow[]) {
 }
 
 async function nextCodes() {
-  const [students, teachers] = await Promise.all([
+  const [students, teachers, staffMembers] = await Promise.all([
     prisma.student.findMany({ select: { admissionNo: true } }),
     prisma.teacher.findMany({ select: { employeeId: true } }),
+    prisma.staffMember.findMany({ select: { employeeId: true } }),
   ]);
   const studentNumbers = students.map((row) => Number(row.admissionNo.replace(/\D/g, ""))).filter(Number.isFinite);
   const teacherNumbers = teachers.map((row) => Number(row.employeeId.replace(/\D/g, ""))).filter(Number.isFinite);
+  const staffNumbers = staffMembers.map((row) => Number(row.employeeId.replace(/\D/g, ""))).filter(Number.isFinite);
   return {
     admission: (studentNumbers.length ? Math.max(...studentNumbers) : 0) + 1,
     employee: (teacherNumbers.length ? Math.max(...teacherNumbers) : 100) + 1,
+    staffEmployee: (staffNumbers.length ? Math.max(...staffNumbers) : 200) + 1,
   };
 }
 
@@ -498,51 +626,105 @@ async function applyStudents(
 async function applyTeachers(
   db: OnboardingDb,
   rows: ImportRow[],
-  setup: { roleId: string; password: string; employee: number }
+  setup: { password: string; employee: number; staffEmployee: number; roles: StaffImportRole[] }
 ) {
   let created = 0;
   let updated = 0;
   let nextEmployee = setup.employee;
+  let nextStaffEmployee = setup.staffEmployee;
   for (const row of rows) {
+    const role = resolveStaffImportRole(setup.roles, row);
+    if (!role) throw new Error(rowError(row, "role no longer exists."));
+    const name = sheetCell(row, "Teacher name", "Name");
     const phone = normalizeMobile(sheetCell(row, "Mobile", "Phone"));
-    const email = sheetCell(row, "Email").toLowerCase() || placeholderEmail("teacher", phone);
+    const email = sheetCell(row, "Email").toLowerCase() || (role.portal === "TEACHER" ? placeholderEmail("teacher", phone) : staffPlaceholderEmail(phone));
     const teacherId = sheetCell(row, "Anekio teacher ID");
     let employeeId = sheetCell(row, "Employee ID");
-    const existing = teacherId
-      ? await db.teacher.findUnique({ where: { id: teacherId }, include: { user: true } })
-      : employeeId
-        ? await db.teacher.findUnique({ where: { employeeId }, include: { user: true } })
-        : await db.teacher.findFirst({ where: { user: { OR: [{ email }, { phone }] } }, include: { user: true } });
-    if (!employeeId) {
-      do {
-        employeeId = `T-${nextEmployee}`;
-        nextEmployee += 1;
-      } while (await db.teacher.findUnique({ where: { employeeId }, select: { id: true } }));
-    }
-    if (existing) {
-      await db.user.update({ where: { id: existing.userId }, data: { name: sheetCell(row, "Teacher name", "Name"), email, phone } });
-      await db.teacher.update({
-        where: { id: existing.id },
-        data: { employeeId, qualification: sheetCell(row, "Qualification") || null },
-      });
-      updated += 1;
-    } else {
-      await db.user.create({
-        data: {
-          name: sheetCell(row, "Teacher name", "Name"),
-          email,
-          phone,
-          password: setup.password,
-          roleId: setup.roleId,
-          teacher: {
-            create: {
-              employeeId,
-              qualification: sheetCell(row, "Qualification") || null,
+    const classText = sheetCell(row, "Class teacher of", "Class teacher", "Class");
+    const klass = classText ? parseClass(classText) : null;
+    const classRow = klass ? await ensureClassForImport(db, klass) : null;
+    const salary = monthlySalaryFrom(row, role.portal === "TEACHER" ? 30000 : 25000);
+
+    if (role.portal === "TEACHER") {
+      const existing = teacherId
+        ? await db.teacher.findUnique({ where: { id: teacherId }, include: { user: true } })
+        : employeeId
+          ? await db.teacher.findUnique({ where: { employeeId }, include: { user: true } })
+          : await db.teacher.findFirst({ where: { user: { OR: [{ email }, { phone }] } }, include: { user: true } });
+      if (!employeeId) {
+        do {
+          employeeId = `T-${nextEmployee}`;
+          nextEmployee += 1;
+        } while (await db.teacher.findUnique({ where: { employeeId }, select: { id: true } }));
+      }
+      if (existing) {
+        await db.user.update({ where: { id: existing.userId }, data: { name, email, phone, roleId: role.id } });
+        await db.teacher.update({
+          where: { id: existing.id },
+          data: { employeeId, monthlySalary: salary, qualification: sheetCell(row, "Qualification") || null, ...(classRow ? { classId: classRow.id } : {}) },
+        });
+        if (classRow) {
+          await db.teacherClass.upsert({
+            where: { teacherId_classId: { teacherId: existing.id, classId: classRow.id } },
+            update: {},
+            create: { teacherId: existing.id, classId: classRow.id },
+          });
+        }
+        updated += 1;
+      } else {
+        const createdUser = await db.user.create({
+          data: {
+            name,
+            email,
+            phone,
+            password: setup.password,
+            roleId: role.id,
+            teacher: {
+              create: {
+                employeeId,
+                monthlySalary: salary,
+                qualification: sheetCell(row, "Qualification") || null,
+                ...(classRow ? { classId: classRow.id } : {}),
+              },
             },
           },
-        },
-      });
-      created += 1;
+          include: { teacher: true },
+        });
+        if (classRow && createdUser.teacher) {
+          await db.teacherClass.create({ data: { teacherId: createdUser.teacher.id, classId: classRow.id } });
+        }
+        created += 1;
+      }
+    } else {
+      const existing = employeeId
+        ? await db.staffMember.findUnique({ where: { employeeId }, include: { user: true } })
+        : await db.staffMember.findFirst({ where: { user: { OR: [{ email }, { phone }] } }, include: { user: true } });
+      if (!employeeId) {
+        do {
+          employeeId = `S-${nextStaffEmployee}`;
+          nextStaffEmployee += 1;
+        } while (await db.staffMember.findUnique({ where: { employeeId }, select: { id: true } }));
+      }
+      if (existing) {
+        if (existing.userId) await db.user.update({ where: { id: existing.userId }, data: { name, email, phone, roleId: role.id } });
+        await db.staffMember.update({
+          where: { id: existing.id },
+          data: { name, title: role.name, phone, employeeId, roleId: role.id, monthlySalary: salary, kind: "OFFICE", archivedAt: null },
+        });
+        updated += 1;
+      } else {
+        await db.user.create({
+          data: {
+            name,
+            email,
+            phone,
+            password: setup.password,
+            roleId: role.id,
+            staffMember: { create: { name, title: role.name, phone, employeeId, roleId: role.id, monthlySalary: salary, kind: "OFFICE" } },
+          },
+        });
+        created += 1;
+      }
     }
   }
   return { created, updated };
@@ -552,8 +734,7 @@ async function applyClassTeachers(db: OnboardingDb, rows: ImportRow[]) {
   let updated = 0;
   for (const row of rows) {
     const klass = parseClass(sheetCell(row, "Class"))!;
-    const classRow = await db.class.findFirst({ where: klass });
-    if (!classRow) throw new Error(rowError(row, "class no longer exists."));
+    const classRow = await ensureClassForImport(db, klass);
     const employeeId = sheetCell(row, "Class teacher employee ID", "Employee ID", "Teacher employee ID");
     const teacherName = sheetCell(row, "Class teacher name", "Teacher name");
     const teacher = employeeId
@@ -561,6 +742,11 @@ async function applyClassTeachers(db: OnboardingDb, rows: ImportRow[]) {
       : await db.teacher.findFirst({ where: { user: { name: { equals: teacherName } } }, include: { user: true } });
     if (!teacher) throw new Error(rowError(row, "teacher no longer exists."));
     await db.teacher.update({ where: { id: teacher.id }, data: { classId: classRow.id } });
+    await db.teacherClass.upsert({
+      where: { teacherId_classId: { teacherId: teacher.id, classId: classRow.id } },
+      update: {},
+      create: { teacherId: teacher.id, classId: classRow.id },
+    });
     updated += 1;
   }
   return { created: 0, updated };
@@ -642,14 +828,14 @@ export async function applyOnboardingImport(user: AccessUser, input: { batchId?:
     const peopleSetup = kind === "students"
       ? { roleId: await roleIdBySlug("PARENT"), password: await bcrypt.hash("12345", 10), admission: codes!.admission }
       : kind === "teachers"
-        ? { roleId: await roleIdBySlug("TEACHER"), password: await bcrypt.hash("12345", 10), employee: codes!.employee }
+        ? { password: await bcrypt.hash("12345", 10), employee: codes!.employee, staffEmployee: codes!.staffEmployee, roles: await staffImportRoles() }
         : null;
     const result = await prisma.$transaction(async (db) => kind === "classes"
       ? applyClasses(db, rows)
       : kind === "students"
         ? applyStudents(db, rows, peopleSetup as { roleId: string; password: string; admission: number })
         : kind === "teachers"
-          ? applyTeachers(db, rows, peopleSetup as { roleId: string; password: string; employee: number })
+          ? applyTeachers(db, rows, peopleSetup as { password: string; employee: number; staffEmployee: number; roles: StaffImportRole[] })
           : kind === "class_teachers"
             ? applyClassTeachers(db, rows)
             : applyOpeningBalances(db, rows, user.orgId));
@@ -707,10 +893,10 @@ export async function onboardingBundle(user: AccessUser) {
   });
   const steps = [
     step("school", 1, "School identity", "Confirm school name, session, contact details, and branding in Settings.", Boolean(school?.name && school.name !== "School")),
-    step("classes", 2, "Classes in CRM", "Create classes and sections in School setup first; every onboarding template uses those CRM classes.", classCount > 0),
-    step("students", 3, "Students and parents", "Import family records with generated admission numbers when needed.", studentCount > 0 || importDone.has("students"), classCount === 0, !wants("students")),
-    step("teachers", 4, "Teachers", "Import staff records first; assignments come from the next generated template.", teacherCount > 0 || importDone.has("teachers"), classCount === 0, !wants("teachers")),
-    step("class_teachers", 5, "Class teacher assignments", "Generated after classes and staff exist, so the team only chooses who owns each class.", importDone.has("class_teachers"), classCount === 0 || teacherCount === 0, !wants("teachers")),
+    step("classes", 2, "Classes in CRM", "Create classes in School setup, or let student and staff sheets create valid class labels like 1-A.", classCount > 0),
+    step("students", 3, "Students and parents", "Import family records with generated admission numbers when needed.", studentCount > 0 || importDone.has("students"), false, !wants("students")),
+    step("teachers", 4, "Teachers", "Import staff records with role and class-teacher columns when needed.", teacherCount > 0 || importDone.has("teachers"), false, !wants("teachers")),
+    step("class_teachers", 5, "Class teacher assignments", "Use class labels from the sheet and choose which teacher owns each class.", importDone.has("class_teachers"), teacherCount === 0, !wants("teachers")),
     step("opening_balances", 6, "Opening fee balances", "One consolidated due per student, with the old system's last generated month.", importDone.has("opening_balances") || (studentCount > 0 && openingCount >= studentCount), studentCount === 0, !wants("fees")),
     step("recurring_fees", 7, "Recurring fee rules", "Set class fee ranges. New invoices begin after each student's imported cut-off month.", templateCount > 0, classCount === 0, !wants("fees")),
     step("review", 8, "Review and launch", "Check counts, spot-check families and fees, then hand the workspace to the school.", false, classCount === 0 || (wants("students") && studentCount === 0)),
@@ -725,9 +911,9 @@ export async function onboardingBundle(user: AccessUser) {
     templates: IMPORT_KINDS.filter((kind): kind is Exclude<ImportKind, "classes"> => kind !== "classes").map((kind) => ({
       kind,
       title: TEMPLATE_DETAILS[kind].title,
-      fileName: kind === "students" ? "anekio-students.xlsx" : TEMPLATE_DETAILS[kind].file,
-      disabled: classCount === 0 || (kind === "opening_balances" && studentCount === 0) || (kind === "class_teachers" && teacherCount === 0),
-      prerequisite: kind === "opening_balances" ? "Students" : kind === "class_teachers" ? "Classes + teachers" : "Classes from CRM",
+      fileName: xlsxFileName(kind),
+      disabled: (kind === "opening_balances" && studentCount === 0) || (kind === "class_teachers" && teacherCount === 0),
+      prerequisite: kind === "opening_balances" ? "Students" : kind === "class_teachers" ? "Teacher records" : "Class labels can be created from the sheet",
     })),
     imports: latestImports.map((row) => ({
       id: row.id,
