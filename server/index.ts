@@ -1,4 +1,4 @@
-import "dotenv/config";
+import dotenv from "dotenv";
 import cors from "cors";
 import express from "express";
 import { existsSync } from "fs";
@@ -92,6 +92,9 @@ import {
   secureRequest,
   verifyLocalAdminLogin,
 } from "../lib/saas-admin-auth";
+
+dotenv.config({ path: ".env.local" });
+dotenv.config();
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 12 * 1024 * 1024 } });
