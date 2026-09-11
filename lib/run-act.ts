@@ -103,6 +103,7 @@ import {
   applyOnboardingImport,
   previewOnboardingImport,
   saveOnboardingPlan,
+  toggleOnboardingStep,
 } from "./onboarding";
 import {
   createOnboardingGoogleAuthUrl,
@@ -400,6 +401,8 @@ export async function runAct(
       return { ok: true, ...(await importPeopleSheetCore(user, body as never)) };
     case "saveOnboardingPlan":
       return { ok: true, ...(await saveOnboardingPlan(user, body as never)) };
+    case "toggleOnboardingStep":
+      return { ok: true, ...(await toggleOnboardingStep(user, body as never)) };
     case "connectOnboardingGoogleSheets":
       return { ok: true, ...(await createOnboardingGoogleAuthUrl(user, body as never)) };
     case "createOnboardingGoogleSheet":

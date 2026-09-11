@@ -8,12 +8,25 @@ import { normalizeMobile } from "./phone";
 import { ensureAccessRoles, roleIdBySlug } from "./roles";
 import { parseClassLabel, parseCsv } from "./sheet";
 import { readUpload } from "./uploads";
+import { DOCUMENT_TYPES } from "./document-studio";
 
 const ONBOARDING_STATE_ID = "school";
 export const IMPORT_KINDS = ["classes", "students", "teachers", "class_teachers", "opening_balances"] as const;
 export type ImportKind = (typeof IMPORT_KINDS)[number];
 type ImportRow = Record<string, string> & { _row: string };
 type OnboardingDb = Prisma.TransactionClient;
+type OnboardingSetupArea = "school" | "teaching" | "money" | "documents";
+type OnboardingStepKey =
+  | "school"
+  | "classes"
+  | "students"
+  | "teachers"
+  | "class_teachers"
+  | "opening_balances"
+  | "recurring_fees"
+  | "documents"
+  | "review";
+type OnboardingPlanState = { modules: string[]; manualSteps: string[] };
 
 const TEMPLATE_DETAILS: Record<ImportKind, { sheet: string; file: string; title: string }> = {
   classes: { sheet: "Classes", file: "anekio-classes.csv", title: "Classes and sections" },
@@ -22,6 +35,42 @@ const TEMPLATE_DETAILS: Record<ImportKind, { sheet: string; file: string; title:
   class_teachers: { sheet: "Class teachers", file: "anekio-class-teachers.csv", title: "Class teacher assignments" },
   opening_balances: { sheet: "First time fees", file: "anekio-first-time-fees.csv", title: "First time fee import" },
 };
+const DEFAULT_ONBOARDING_MODULES = ["school", "teaching", "money", "documents"];
+const ONBOARDING_STEP_KEYS = new Set<OnboardingStepKey>([
+  "school",
+  "classes",
+  "students",
+  "teachers",
+  "class_teachers",
+  "opening_balances",
+  "recurring_fees",
+  "documents",
+  "review",
+]);
+
+function parsePlanState(value: string | null | undefined): OnboardingPlanState {
+  try {
+    const parsed = JSON.parse(value || "null") as unknown;
+    if (Array.isArray(parsed)) return { modules: DEFAULT_ONBOARDING_MODULES, manualSteps: [] };
+    if (parsed && typeof parsed === "object") {
+      const row = parsed as Partial<OnboardingPlanState>;
+      return {
+        modules: DEFAULT_ONBOARDING_MODULES,
+        manualSteps: Array.isArray(row.manualSteps) ? row.manualSteps.map(String).filter((key) => ONBOARDING_STEP_KEYS.has(key as OnboardingStepKey)) : [],
+      };
+    }
+  } catch {
+    // Keep onboarding usable if an older or broken state value is present.
+  }
+  return { modules: DEFAULT_ONBOARDING_MODULES, manualSteps: [] };
+}
+
+function serializePlanState(state: OnboardingPlanState) {
+  return JSON.stringify({
+    modules: DEFAULT_ONBOARDING_MODULES,
+    manualSteps: [...new Set(state.manualSteps.filter((key) => ONBOARDING_STEP_KEYS.has(key as OnboardingStepKey)))],
+  });
+}
 
 function need(user: AccessUser) {
   if (!can(user, "onboarding.manage")) throw new Error("No access.");
@@ -1013,20 +1062,40 @@ export async function applyOnboardingImport(user: AccessUser, input: { batchId?:
 export async function saveOnboardingPlan(user: AccessUser, input: { modules?: unknown }) {
   need(user);
   const requested = Array.isArray(input.modules) ? input.modules.map(String) : [];
-  const allowed = ["students", "teachers", "fees"];
-  const modules = [...new Set(requested.filter((item) => allowed.includes(item)))];
-  if (!modules.length) throw new Error("Choose at least one onboarding area.");
-  const state = await prisma.schoolOnboardingState.upsert({
+  const state = await prisma.schoolOnboardingState.findUnique({ where: { id: ONBOARDING_STATE_ID } });
+  const current = parsePlanState(state?.selectedModulesJson);
+  const modules = requested.length ? DEFAULT_ONBOARDING_MODULES : current.modules;
+  const selectedModulesJson = serializePlanState({ modules, manualSteps: current.manualSteps });
+  const saved = await prisma.schoolOnboardingState.upsert({
     where: { id: ONBOARDING_STATE_ID },
-    update: { selectedModulesJson: JSON.stringify(modules) },
-    create: { id: ONBOARDING_STATE_ID, selectedModulesJson: JSON.stringify(modules) },
+    update: { selectedModulesJson },
+    create: { id: ONBOARDING_STATE_ID, selectedModulesJson },
   });
-  return { modules: JSON.parse(state.selectedModulesJson) as string[] };
+  return parsePlanState(saved.selectedModulesJson);
+}
+
+export async function toggleOnboardingStep(user: AccessUser, input: { key?: unknown; complete?: unknown }) {
+  need(user);
+  const key = String(input.key || "") as OnboardingStepKey;
+  if (!ONBOARDING_STEP_KEYS.has(key)) throw new Error("Choose a valid onboarding step.");
+  const state = await prisma.schoolOnboardingState.findUnique({ where: { id: ONBOARDING_STATE_ID } });
+  const current = parsePlanState(state?.selectedModulesJson);
+  const manual = new Set(current.manualSteps);
+  if (input.complete === false) manual.delete(key);
+  else manual.add(key);
+  const saved = await prisma.schoolOnboardingState.upsert({
+    where: { id: ONBOARDING_STATE_ID },
+    update: { selectedModulesJson: serializePlanState({ modules: current.modules, manualSteps: [...manual] }) },
+    create: { id: ONBOARDING_STATE_ID, selectedModulesJson: serializePlanState({ modules: current.modules, manualSteps: [...manual] }) },
+  });
+  return parsePlanState(saved.selectedModulesJson);
 }
 
 export async function onboardingBundle(user: AccessUser) {
   need(user);
-  const [state, school, classCount, studentCount, teacherCount, templateCount, openingCount, latestImports, latestSheets] = await Promise.all([
+  const schoolId = String((user as AccessUser & { schoolId?: string | null }).schoolId || "school");
+  const priorityDocumentTypes = DOCUMENT_TYPES.filter((item) => item.priority).map((item) => item.id);
+  const [state, school, classCount, studentCount, teacherCount, templateCount, openingCount, documentTemplateCount, latestImports, latestSheets] = await Promise.all([
     prisma.schoolOnboardingState.findUnique({ where: { id: ONBOARDING_STATE_ID } }),
     prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { name: true } }),
     prisma.class.count({ where: { archivedAt: null } }),
@@ -1034,37 +1103,53 @@ export async function onboardingBundle(user: AccessUser) {
     prisma.teacher.count(),
     prisma.feeTemplate.count(),
     prisma.feeInvoice.count({ where: { period: "OPENING" } }),
+    prisma.documentTemplate.count({ where: { schoolId, status: "ACTIVE", type: { in: priorityDocumentTypes } } }),
     prisma.schoolOnboardingImport.findMany({ orderBy: { createdAt: "desc" }, take: 8 }),
     prisma.onboardingGoogleSheet.findMany({ orderBy: { createdAt: "desc" }, take: 8 }),
   ]);
-  const modules = state ? JSON.parse(state.selectedModulesJson) as string[] : ["students", "fees"];
+  const planState = parsePlanState(state?.selectedModulesJson);
+  const modules = planState.modules;
+  const manualDone = new Set(planState.manualSteps);
   const importDone = new Set(latestImports.filter((row) => row.status === "APPLIED").map((row) => row.kind));
-  const wants = (module: string) => modules.includes(module);
-  const step = (key: string, number: number, title: string, body: string, complete: boolean, blocked = false, optional = false) => ({
+  const step = (
+    key: OnboardingStepKey,
+    area: OnboardingSetupArea,
+    number: number,
+    title: string,
+    body: string,
+    complete: boolean,
+    blocked = false,
+    missingReason = "",
+  ) => ({
     key,
+    area,
     number,
     title,
     body,
-    status: complete ? "complete" : optional ? "optional" : blocked ? "blocked" : "ready",
+    dataComplete: complete,
+    manualComplete: manualDone.has(key),
+    missingReason,
+    status: complete || manualDone.has(key) ? "complete" : blocked ? "blocked" : "ready",
   });
   const steps = [
-    step("school", 1, "School identity", "Confirm school name, session, contact details, and branding in Settings.", Boolean(school?.name && school.name !== "School")),
-    step("classes", 2, "Classes in CRM", "Create classes in School setup, or let student and staff sheets create valid class labels like 1-A.", classCount > 0),
-    step("students", 3, "Students and parents", "Import family records with generated admission numbers when needed.", studentCount > 0 || importDone.has("students"), false, !wants("students")),
-    step("teachers", 4, "Teachers", "Import staff records with role and class-teacher columns when needed.", teacherCount > 0 || importDone.has("teachers"), false, !wants("teachers")),
-    step("class_teachers", 5, "Class teacher assignments", "Use class labels from the sheet and choose which teacher owns each class.", importDone.has("class_teachers"), teacherCount === 0, !wants("teachers")),
-    step("opening_balances", 6, "First time fee import", "Put any previous-system dues in a backlog invoice and tell Anekio the last month already invoiced.", importDone.has("opening_balances") || (studentCount > 0 && openingCount >= studentCount), studentCount === 0, !wants("fees")),
-    step("recurring_fees", 7, "Recurring fee rules", "Set class fee ranges. New invoices begin after each student's imported cut-off month.", templateCount > 0, classCount === 0, !wants("fees")),
-    step("review", 8, "Review and launch", "Check counts, spot-check families and fees, then hand the workspace to the school.", false, classCount === 0 || (wants("students") && studentCount === 0)),
+    step("school", "school", 1, "School identity", "Confirm school name, session, contact details, and branding in Settings.", Boolean(school?.name && school.name !== "School"), false, "School identity appears on receipts, documents, logins, and parent-facing pages."),
+    step("classes", "school", 2, "Classes in CRM", "Create classes in School setup, or let student and staff sheets create valid class labels like 1-A.", classCount > 0, false, "Classes connect students, teachers, fees, attendance, exams, and document batches."),
+    step("students", "teaching", 3, "Students and parents", "Import family records with generated admission numbers when needed.", studentCount > 0 || importDone.has("students"), false, "Students and parent links are needed for attendance, fees, notices, documents, and parent app access."),
+    step("teachers", "teaching", 4, "Teachers", "Import staff records with role and class-teacher columns when needed.", teacherCount > 0 || importDone.has("teachers"), false, "Teachers are needed for class ownership, timetable, attendance, exams, and staff documents."),
+    step("class_teachers", "teaching", 5, "Class teacher assignments", "Use class labels from the sheet and choose which teacher owns each class.", importDone.has("class_teachers"), teacherCount === 0, "Class teacher assignments decide who manages attendance, class messages, and class-level follow-up."),
+    step("opening_balances", "money", 6, "First time fee import", "Put any previous-system dues in a backlog invoice and tell Anekio the last month already invoiced.", importDone.has("opening_balances") || (studentCount > 0 && openingCount >= studentCount), studentCount === 0, "Opening balances prevent missed old dues and duplicate first invoices."),
+    step("recurring_fees", "money", 7, "Recurring fee rules", "Set class fee ranges. New invoices begin after each student's imported cut-off month.", templateCount > 0, classCount === 0, "Recurring fee rules are needed before monthly billing can run correctly."),
+    step("documents", "documents", 8, "Important documents", "Publish priority templates like ID card, bonafide, transfer certificate, admit card, report card, invoice, and receipt.", documentTemplateCount >= Math.min(priorityDocumentTypes.length, 3), false, "Important documents need published templates before the office can issue IDs, certificates, report cards, invoices, and receipts."),
+    step("review", "documents", 9, "Review and launch", "Check counts, spot-check families, fees, and documents, then hand the workspace to the school.", false, classCount === 0 || studentCount === 0, "Review catches missing setup before the school starts using the workspace live."),
   ];
-  const required = steps.filter((row) => row.status !== "optional");
+  const required = steps;
   const completed = required.filter((row) => row.status === "complete").length;
   return {
     modules,
     progress: { completed, total: required.length, percent: required.length ? Math.round((completed / required.length) * 100) : 0 },
     counts: { classes: classCount, students: studentCount, teachers: teacherCount, openingBalances: openingCount, feeTemplates: templateCount },
     steps,
-    templates: IMPORT_KINDS.filter((kind): kind is Exclude<ImportKind, "classes" | "class_teachers"> => kind !== "classes" && kind !== "class_teachers").map((kind) => ({
+    templates: (IMPORT_KINDS.filter((kind) => kind !== "classes" && kind !== "class_teachers") as ImportKind[]).map((kind) => ({
       kind,
       title: TEMPLATE_DETAILS[kind].title,
       fileName: xlsxFileName(kind),

@@ -57,20 +57,20 @@ function LaunchPanelButton() {
     <>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Open launch setup"
+        accessibilityLabel="Open school setup"
         accessibilityState={{ expanded: open }}
         onPress={() => setOpen(true)}
         className="min-h-10 flex-row items-center gap-2 rounded-full border border-clay-200 bg-clay-50 px-3 py-1.5"
       >
         <Ionicons name="rocket-outline" size={18} color="#2563eb" />
         <View className="min-w-0">
-          <Text className="text-[12px] font-semibold text-clay-700">Launch</Text>
+          <Text className="text-[12px] font-semibold text-clay-700">Setup</Text>
           <Text className="text-[10px] text-ink-500">{onboarding.progress.percent}%</Text>
         </View>
       </Pressable>
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <View className="flex-1">
-          <Pressable accessibilityLabel="Close launch setup" className="absolute inset-0 bg-ink-900/20" onPress={() => setOpen(false)} />
+          <Pressable accessibilityLabel="Close school setup" className="absolute inset-0 bg-ink-900/20" onPress={() => setOpen(false)} />
           <View
             className="absolute bottom-0 right-0 top-0 overflow-hidden border-l border-ink-200 bg-ink-50 shadow-xl"
             style={{ width: panelWidth, maxHeight: height }}
@@ -79,12 +79,12 @@ function LaunchPanelButton() {
             <SafeAreaView className="min-h-0 flex-1" edges={["top", "bottom"]}>
               <View className="h-14 flex-row items-center justify-between border-b border-ink-200 bg-white px-5">
                 <View className="min-w-0 flex-1">
-                  <Text className="text-sm font-semibold text-ink-900">Launch setup</Text>
+                  <Text className="text-sm font-semibold text-ink-900">School setup</Text>
                   <Text className="text-[11px] text-ink-500">{onboarding.progress.percent}% complete</Text>
                 </View>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="Close launch setup"
+                  accessibilityLabel="Close school setup"
                   onPress={() => setOpen(false)}
                   className="h-10 w-10 items-center justify-center rounded-full"
                 >

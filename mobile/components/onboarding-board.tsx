@@ -32,10 +32,11 @@ type GoogleSheetResult = {
   };
 };
 
-const MODULES = [
-  { key: "students", title: "Students & parents", body: "Families, CRM classes, and admission numbers" },
-  { key: "fees", title: "Fees", body: "First-time dues and future monthly rules" },
-  { key: "teachers", title: "Teachers", body: "Employees, then generated class-teacher assignment" },
+const SETUP_AREAS: { key: Onboarding["steps"][number]["area"]; title: string; body: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { key: "school", title: "School", body: "Identity, sessions, classes, and day structure.", icon: "school-outline" },
+  { key: "teaching", title: "Teaching", body: "Students, parents, teachers, and class ownership.", icon: "people-outline" },
+  { key: "money", title: "Money", body: "Opening dues, fee rules, invoices, and collections.", icon: "card-outline" },
+  { key: "documents", title: "Documents", body: "Important templates and final launch review.", icon: "document-text-outline" },
 ];
 
 const TEMPLATE_COPY: Record<Template["kind"], string> = {
@@ -63,15 +64,11 @@ export function OnboardingBoard({ compact = false }: { compact?: boolean } = {})
   const { data, reload } = useRecord();
   const { token } = useSession();
   const onboarding = data?.onboarding;
-  const [modules, setModules] = useState<string[]>([]);
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);
+  const [pendingAck, setPendingAck] = useState("");
   const autoGoogleStarted = useRef(false);
-
-  useEffect(() => {
-    if (onboarding) setModules(onboarding.modules);
-  }, [onboarding]);
 
   useEffect(() => {
     if (autoGoogleStarted.current || !onboarding || !token || typeof window === "undefined") return;
@@ -91,18 +88,15 @@ export function OnboardingBoard({ compact = false }: { compact?: boolean } = {})
 
   if (!onboarding) return <Empty title="School setup is unavailable" body="Ask an administrator for the onboarding permission." />;
 
-  async function toggleModule(key: string) {
-    const next = modules.includes(key) ? modules.filter((item) => item !== key) : [...modules, key];
-    if (!next.length) return;
-    setModules(next);
-    setBusy("plan");
+  async function toggleStep(step: Onboarding["steps"][number], complete: boolean) {
+    setBusy(`step:${step.key}`);
     setMessage("");
     try {
-      await act(token, "saveOnboardingPlan", { modules: next });
+      await act(token, "toggleOnboardingStep", { key: step.key, complete });
+      setPendingAck("");
       await reload();
     } catch (error) {
-      setModules(modules);
-      setMessage(error instanceof Error ? error.message : "Could not save the plan.");
+      setMessage(error instanceof Error ? error.message : "Could not update the setup step.");
     } finally {
       setBusy("");
     }
@@ -236,54 +230,96 @@ export function OnboardingBoard({ compact = false }: { compact?: boolean } = {})
       <Card className="gap-4 p-5">
         <View className="flex-row items-center justify-between gap-4">
           <View className="min-w-0 flex-1">
-            <Text className="text-base font-semibold text-ink-900">Onboarding plan</Text>
-            <Text className="mt-1 text-xs leading-5 text-ink-700">Create classes in CRM, then select the operational areas being moved now.</Text>
+            <Text className="text-base font-semibold text-ink-900">School setup</Text>
+            <Text className="mt-1 text-xs leading-5 text-ink-700">Work through School, Teaching, Money, and Documents. Steps validate live setup data before they can be checked directly.</Text>
           </View>
-          {busy === "plan" ? <ActivityIndicator color="#2563eb" /> : <Badge tone="clay">{`${onboarding.progress.percent}% complete`}</Badge>}
+          <Badge tone="clay">{`${onboarding.progress.percent}% complete`}</Badge>
         </View>
         <View className="h-2 overflow-hidden rounded-full bg-ink-100">
           <View className="h-2 rounded-full bg-clay-500" style={{ width: `${onboarding.progress.percent}%` }} />
         </View>
-        <View className="flex-row flex-wrap gap-2">
-          {MODULES.map((module) => {
-            const selected = modules.includes(module.key);
-            return (
-              <Pressable
-                key={module.key}
-                onPress={() => void toggleModule(module.key)}
-                className={`min-w-[210px] flex-1 flex-row items-center gap-3 rounded-lg border p-3 ${selected ? "border-clay-400 bg-clay-50" : "border-ink-200 bg-white"}`}
-              >
-                <Ionicons name={selected ? "checkmark-circle" : "ellipse-outline"} size={22} color={selected ? "#2563eb" : "#94A3B8"} />
-                <View className="min-w-0 flex-1">
-                  <Text className="text-sm font-semibold text-ink-900">{module.title}</Text>
-                  <Text className="mt-0.5 text-[11px] leading-4 text-ink-700">{module.body}</Text>
-                </View>
-              </Pressable>
-            );
-          })}
-        </View>
       </Card>
 
       <View className="gap-2">
-        <Text className="text-base font-semibold text-ink-900">The launch path</Text>
-        {onboarding.steps.map((step) => (
-          <Card key={step.key} className={`flex-row items-start gap-3 p-4 ${step.status === "blocked" ? "bg-amber-50" : ""}`}>
-            <View className={`h-8 w-8 items-center justify-center rounded-full ${step.status === "complete" ? "bg-emerald-100" : "bg-clay-50"}`}>
-              {step.status === "complete" ? (
-                <Ionicons name="checkmark" size={18} color="#047857" />
-              ) : (
-                <Text className="text-sm font-semibold text-clay-700">{step.number}</Text>
-              )}
-            </View>
-            <View className="min-w-0 flex-1">
-              <View className="flex-row items-center justify-between gap-2">
-                <Text className="text-sm font-semibold text-ink-900">{step.title}</Text>
-                <Badge tone={statusTone(step.status)}>{statusLabel(step.status)}</Badge>
+        {SETUP_AREAS.map((area) => {
+          const steps = onboarding.steps.filter((step) => step.area === area.key);
+          const complete = steps.filter((step) => step.status === "complete").length;
+          return (
+            <Card key={area.key} className="gap-3 p-4">
+              <View className="flex-row items-start justify-between gap-3">
+                <View className="min-w-0 flex-1 flex-row items-start gap-3">
+                  <View className="h-9 w-9 items-center justify-center rounded-lg bg-clay-50">
+                    <Ionicons name={area.icon} size={20} color="#2563eb" />
+                  </View>
+                  <View className="min-w-0 flex-1">
+                    <Text className="text-sm font-semibold text-ink-900">{area.title}</Text>
+                    <Text className="mt-0.5 text-xs leading-5 text-ink-700">{area.body}</Text>
+                  </View>
+                </View>
+                <Badge tone={complete === steps.length ? "leaf" : "clay"}>{`${complete}/${steps.length}`}</Badge>
               </View>
-              <Text className="mt-1 text-xs leading-5 text-ink-700">{step.body}</Text>
-            </View>
-          </Card>
-        ))}
+              <View className="gap-2">
+                {steps.map((step) => {
+                  const canCheckDirectly = step.dataComplete || step.manualComplete;
+                  const showingAck = pendingAck === step.key;
+                  const loading = busy === `step:${step.key}`;
+                  return (
+                    <View key={step.key} className={`rounded-lg border p-3 ${step.status === "blocked" ? "border-amber-200 bg-amber-50" : "border-ink-100 bg-white"}`}>
+                      <View className="flex-row items-start gap-3">
+                        <Pressable
+                          accessibilityRole="checkbox"
+                          accessibilityState={{ checked: step.status === "complete" }}
+                          accessibilityLabel={`${step.title} setup step`}
+                          disabled={loading}
+                          onPress={() => {
+                            if (step.manualComplete) void toggleStep(step, false);
+                            else if (step.dataComplete) void toggleStep(step, true);
+                            else setPendingAck(showingAck ? "" : step.key);
+                          }}
+                          className={`h-7 w-7 items-center justify-center rounded-md border ${step.status === "complete" ? "border-emerald-600 bg-emerald-100" : "border-ink-300 bg-white"}`}
+                        >
+                          {loading ? (
+                            <ActivityIndicator color="#2563eb" size="small" />
+                          ) : step.status === "complete" ? (
+                            <Ionicons name="checkmark" size={17} color="#047857" />
+                          ) : (
+                            <Text className="text-xs font-semibold text-clay-700">{step.number}</Text>
+                          )}
+                        </Pressable>
+                        <View className="min-w-0 flex-1">
+                          <View className="flex-row items-center justify-between gap-2">
+                            <Text className="text-sm font-semibold text-ink-900">{step.title}</Text>
+                            <Badge tone={statusTone(step.status)}>{step.manualComplete && !step.dataComplete ? "Continued" : statusLabel(step.status)}</Badge>
+                          </View>
+                          <Text className="mt-1 text-xs leading-5 text-ink-700">{step.body}</Text>
+                          {step.manualComplete && !step.dataComplete ? (
+                            <Text className="mt-1 text-[11px] leading-4 text-amber-800">Marked continue anyway. Add the missing setup later when the school is ready.</Text>
+                          ) : null}
+                        </View>
+                      </View>
+                      {showingAck && !canCheckDirectly ? (
+                        <View className="mt-3 gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                          <Text className="text-xs font-semibold text-amber-950">This setup is important</Text>
+                          <Text className="text-xs leading-5 text-amber-900">{step.missingReason || "This data is needed by later school workflows."}</Text>
+                          <Pressable
+                            accessibilityRole="checkbox"
+                            accessibilityState={{ checked: false }}
+                            disabled={loading}
+                            onPress={() => void toggleStep(step, true)}
+                            className="flex-row items-center gap-2"
+                          >
+                            <View className="h-5 w-5 items-center justify-center rounded border border-amber-500 bg-white" />
+                            <Text className="text-xs font-semibold text-amber-950">Continue anyway</Text>
+                          </Pressable>
+                        </View>
+                      ) : null}
+                    </View>
+                  );
+                })}
+              </View>
+            </Card>
+          );
+        })}
       </View>
 
       <View className="gap-2">
