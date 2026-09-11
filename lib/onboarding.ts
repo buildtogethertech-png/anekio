@@ -136,11 +136,9 @@ async function csvRowsFor(kind: ImportKind): Promise<CsvCell[][]> {
       prisma.staffMember.findMany({ include: { user: { include: { role: true } }, role: true }, orderBy: { name: "asc" } }),
     ]);
     return [
-      ["Anekio teacher ID", "Employee ID", "Name", "Mobile", "Email", "Role", "Class teacher of", "Monthly salary", "Qualification", "Example only"],
-      ["", "", "Meera Singh (example)", "9876543211", "teacher@example.com", "TEACHER", classLabels[0] || "1-A", 30000, "B.Ed, Mathematics", "YES"],
+      ["Name", "Mobile", "Email", "Role", "Class teacher of", "Monthly salary", "Qualification", "Example only"],
+      ["Meera Singh (example)", "9876543211", "teacher@example.com", "TEACHER", classLabels[0] || "1-A", 30000, "B.Ed, Mathematics", "YES"],
       ...teachers.map((teacher) => [
-        teacher.id,
-        teacher.employeeId,
         teacher.user.name,
         teacher.user.phone || "",
         teacher.user.email.endsWith("@local.anekio.invalid") ? "" : teacher.user.email,
@@ -151,8 +149,6 @@ async function csvRowsFor(kind: ImportKind): Promise<CsvCell[][]> {
         "",
       ]),
       ...staffMembers.map((staff) => [
-        "",
-        staff.employeeId,
         staff.name,
         staff.phone || staff.user?.phone || "",
         staff.user?.email && !staff.user.email.endsWith("@local.anekio.invalid") && !staff.user.email.endsWith("@mobile.local") ? staff.user.email : "",

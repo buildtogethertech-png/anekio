@@ -176,8 +176,6 @@ describe("school onboarding imports", () => {
     await workbook.xlsx.load(arrayBuffer);
     const sheet = workbook.getWorksheet("Teachers")!;
     expect((sheet.getRow(1).values as unknown[]).slice(1)).toEqual([
-      "Anekio teacher ID",
-      "Employee ID",
       "Name",
       "Mobile",
       "Email",
@@ -187,8 +185,8 @@ describe("school onboarding imports", () => {
       "Qualification",
       "Example only",
     ]);
-    expect(sheet.getCell("F2").dataValidation).toMatchObject({ type: "list" });
-    expect(sheet.getCell("G2").dataValidation).toMatchObject({ type: "list" });
+    expect(sheet.getCell("D2").dataValidation).toMatchObject({ type: "list" });
+    expect(sheet.getCell("E2").dataValidation).toMatchObject({ type: "list" });
   });
 
   it("imports students from workbook tabs named as class sections and creates those classes", async () => {
