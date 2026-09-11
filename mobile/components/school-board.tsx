@@ -24,9 +24,8 @@ const TABS = [
   { id: "leave", label: "Leave", hint: "Planned and sick. Who can use them, and how much notice.", group: "Teaching" },
   { id: "exams", label: "Exams", hint: "Grade scale and this year's sittings. Every class follows this.", group: "Teaching" },
   { id: "collect", label: "Collect", hint: "UPI, bank, gateway", group: "Money" },
-  { id: "documents", label: "Document Studio", hint: "Design printable PDFs. Fee amounts stay in Fees. WhatsApp stays in Communication.", group: "Documents" },
+  { id: "documents", label: "Document Studio", hint: "Design printable PDFs. Fee amounts stay in Fees.", group: "Documents" },
   { id: "website", label: "Admissions website", hint: "Public school page, enquiry form, and incoming leads", group: "Reach" },
-  { id: "communication", label: "Communication", hint: "Configure campaign: AiSensy API key and campaign name. Message wording stays in Meta / AiSensy.", group: "Reach" },
 ] as const;
 
 type Tab = (typeof TABS)[number]["id"];
@@ -40,7 +39,7 @@ const DOOR_LEDE: Record<Door, string> = {
   Teaching: "Subjects, holidays, leave, and this year's exams.",
   Money: "How parents pay and how the school collects.",
   Documents: "Design report cards, IDs, receipts, certificates, and letters.",
-  Reach: "School WhatsApp and email.",
+  Reach: "Admissions website and incoming enquiries.",
 };
 
 const PAY_GATEWAYS = [
@@ -84,19 +83,6 @@ const EXAM_PERIOD_OPTIONS = [
 ] as const;
 
 const EXAM_PERIOD_SELECT_OPTIONS = EXAM_PERIOD_OPTIONS.map((month) => ({ id: month, label: month }));
-
-const WHATSAPP_TEMPLATE = `Dear Parent,
-
-This is a reminder that the school fee for *{{1}}* ({{2}}) is pending.
-
-Amount due: *₹{{3}}*
-
-Please complete the payment using this secure link:
-{{4}}
-
-If you have already paid, please ignore this message.
-
-Thank you.`;
 
 const SAMPLE_CSV = "date,name\n2026-08-15,Independence Day\n2026-10-02,Gandhi Jayanti\n2026-10-20,Dussehra\n2026-11-08,Diwali\n2026-12-25,Christmas\n";
 
@@ -521,7 +507,7 @@ export function SchoolBoard() {
   const hint = TABS.find((t) => t.id === tab)?.hint;
   const current = TABS.find((t) => t.id === tab) ?? TABS[0];
   const showSave = tab !== "calendar" && tab !== "exams" && tab !== "clock" && tab !== "subjects" && tab !== "sessions" && tab !== "classes" && tab !== "leave" && tab !== "documents";
-  const showPreview = tab === "identity" || tab === "communication" || tab === "exams" || tab === "website";
+  const showPreview = tab === "identity" || tab === "exams" || tab === "website";
 
   function showSchool(next: { tab?: Tab; group?: Door } = {}) {
     if (next.tab) router.replace(`/school?tab=${next.tab}` as never);
@@ -1749,105 +1735,9 @@ export function SchoolBoard() {
               </View>
             ) : null}
 
-            {tab === "communication" ? (
-              <View className="mt-4 gap-6">
-                <View className="gap-3">
-                  <Text className="text-sm font-medium text-ink-900">Configure campaign</Text>
-                  <Text className="text-sm text-ink-700">
-                    School's own AiSensy account. The message body is managed in Meta / AiSensy. Anekio only stores the API key and campaign name, then fills {"{{1}}"}–{"{{4}}"}.
-                  </Text>
-                  <Field label="School community / whole-school group">
-                    <Input
-                      autoCapitalize="none"
-                      value={form.whatsappCommunityUrl}
-                      placeholder="https://chat.whatsapp.com/…"
-                      onChangeText={(v) => patch("whatsappCommunityUrl", v)}
-                    />
-                  </Field>
-                  <Text className="text-xs text-ink-700">
-                    Optional parents community. Notices go out in the app, not this group.
-                  </Text>
-                  <View className="flex-row flex-wrap gap-3">
-                    <Half>
-                      <Field label="AiSensy API key">
-                        <Input
-                          secureTextEntry
-                          autoCapitalize="none"
-                          value={form.aisensyApiKey}
-                          placeholder={s?.pay?.aisensyKeySet ? "Saved — leave blank to keep" : "Manage → API Key"}
-                          onChangeText={(v) => patch("aisensyApiKey", v)}
-                        />
-                      </Field>
-                    </Half>
-                    <Half>
-                      <Field label="API campaign name">
-                        <Input autoCapitalize="none" value={form.aisensyCampaign} placeholder="fee_reminder" onChangeText={(v) => patch("aisensyCampaign", v)} />
-                      </Field>
-                    </Half>
-                  </View>
-                  <View className="rounded-md border border-ink-200 bg-ink-50 p-3">
-                    <View className="flex-row items-center justify-between gap-2">
-                      <Text className="text-xs font-medium text-ink-900">Copy this into AiSensy (Utility)</Text>
-                      <Linkish
-                        label="Copy"
-                        onPress={async () => {
-                          const clip = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
-                          if (!clip?.writeText) {
-                            toast.show("Copy from the box below.");
-                            return;
-                          }
-                          try {
-                            await clip.writeText(WHATSAPP_TEMPLATE);
-                            toast.show("Copied.");
-                          } catch {
-                            toast.show("Copy from the box below.");
-                          }
-                        }}
-                      />
-                    </View>
-                    <Text className="mt-2 text-[12px] leading-5 text-ink-800">{WHATSAPP_TEMPLATE}</Text>
-                    <Text className="mt-2 text-[11px] text-ink-700">
-                      Category: Utility. Then Campaigns → API Campaign named {form.aisensyCampaign || "fee_reminder"}, set
-                      it Live.
-                    </Text>
-                  </View>
-                </View>
-                <View className="gap-3">
-                  <Text className="text-sm font-medium text-ink-900">Email</Text>
-                  <Text className="text-sm text-ink-700">
-                    School's own Resend account. Messages come from the school's address, not Anekio.
-                  </Text>
-                  <View className="flex-row flex-wrap gap-3">
-                    <Half>
-                      <Field label="Resend API key">
-                        <Input
-                          secureTextEntry
-                          autoCapitalize="none"
-                          value={form.resendApiKey}
-                          placeholder={s?.pay?.resendKeySet ? "Saved — leave blank to keep" : "re_… from API Keys"}
-                          onChangeText={(v) => patch("resendApiKey", v)}
-                        />
-                      </Field>
-                    </Half>
-                    <Half>
-                      <Field label="From email">
-                        <Input
-                          autoCapitalize="none"
-                          keyboardType="email-address"
-                          value={form.resendFromEmail}
-                          placeholder="fees@your-school.edu.in"
-                          onChangeText={(v) => patch("resendFromEmail", v)}
-                        />
-                      </Field>
-                    </Half>
-                  </View>
-                </View>
-              </View>
-            ) : null}
-
             {showSave ? (
               <View className="mt-5 flex-row flex-wrap items-center justify-between gap-3 border-t border-ink-100 pt-4">
-                <Text className="text-[11px] text-ink-700">Saves letterhead, bank, gateway, WhatsApp, and email together.</Text>
+                <Text className="text-[11px] text-ink-700">Saves school settings together.</Text>
                 {edit ? <Button onPress={save}>Save</Button> : null}
               </View>
             ) : null}
@@ -1857,9 +1747,7 @@ export function SchoolBoard() {
           <View className={wide ? "sticky top-6 w-80 shrink-0" : "mt-6"}>
             <View className="rounded-md border border-ink-200 bg-ink-50 p-3">
               <Text className="mb-2 text-xs font-medium text-ink-700">
-                {tab === "communication"
-                  ? "Message preview"
-                  : tab === "exams"
+                {tab === "exams"
                       ? "This year"
                       : tab === "website"
                         ? "Website preview"
@@ -1889,8 +1777,6 @@ export function SchoolBoard() {
                     <Text className="text-sm text-ink-700">No sittings yet. Add the year plan on the left.</Text>
                   )}
                 </View>
-              ) : tab === "communication" ? (
-                <MessagePreview schoolName={form.name} fromEmail={form.resendFromEmail} />
               ) : tab === "identity" ? (
                 <BrandAssetPreview form={form} logoPath={s?.logoPath} signPath={s?.signPath} stampPath={s?.stampPath} />
               ) : tab === "website" ? (
@@ -2218,44 +2104,6 @@ function InvoicePreview({ form, logoPath }: { form: SchoolForm; logoPath?: strin
       <View className="mt-3 border border-ink-200 p-3">
         <Text className="text-[10px] font-medium uppercase tracking-wide text-ink-700">Pay online · Razorpay</Text>
         <Text className="mt-1 text-xs font-medium text-ink-900">https://your-school.com/pay/sample</Text>
-      </View>
-    </View>
-  );
-}
-
-function MessagePreview({ schoolName, fromEmail }: { schoolName: string; fromEmail: string }) {
-  return (
-    <View className="gap-4">
-      <View>
-        <Text className="mb-1.5 text-[11px] font-medium text-ink-700">WhatsApp</Text>
-        <View className="rounded-xl bg-[#e5ddd5] p-3">
-          <View className="rounded-lg bg-white px-3 py-2.5">
-            <Text className="text-[13px] leading-5 text-ink-900">Dear Parent,</Text>
-            <Text className="mt-2 text-[13px] leading-5 text-ink-900">
-              This is a reminder that the school fee for Aarav Sharma (April 2026) is pending.
-            </Text>
-            <Text className="mt-2 text-[13px] leading-5 text-ink-900">Amount due: ₹4500</Text>
-            <Text className="mt-2 text-[13px] leading-5 text-ink-900">Please complete the payment using this secure link:</Text>
-            <Text className="mt-0.5 text-[13px] text-[#027eb5] underline">https://your-school.com/pay/sample</Text>
-            <Text className="mt-2 text-[11px] text-ink-700">{schoolName || "Anekio School"}</Text>
-          </View>
-        </View>
-      </View>
-      <View>
-        <Text className="mb-1.5 text-[11px] font-medium text-ink-700">Email</Text>
-        <View className="rounded-md border border-ink-200 bg-white p-3">
-          <Text className="text-[11px] text-ink-700">
-            From {schoolName || "Anekio School"} &lt;{fromEmail || "fees@your-school.edu.in"}&gt;
-          </Text>
-          <Text className="mt-1 text-[13px] font-medium text-ink-900">Fee reminder · Aarav Sharma · April 2026</Text>
-          <Text className="mt-3 text-[13px] leading-5 text-ink-900">Dear Parent,</Text>
-          <Text className="mt-2 text-[13px] leading-5 text-ink-900">
-            This is a reminder that the school fee for Aarav Sharma (April 2026) is pending.
-          </Text>
-          <View className="mt-3 self-start rounded-md bg-clay-500 px-3 py-1.5">
-            <Text className="text-xs font-medium text-white">Pay now</Text>
-          </View>
-        </View>
       </View>
     </View>
   );
