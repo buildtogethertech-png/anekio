@@ -117,6 +117,7 @@ export async function issueDueFeesCore(asOf = new Date(), classId?: string, sess
         if (have.has(`${student.id}:${month.period}`)) continue;
         rows.push({
           studentId: student.id,
+          orgId: template.orgId ?? null,
           classId: template.classId,
           templateId: template.id,
           period: month.period,

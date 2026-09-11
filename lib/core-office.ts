@@ -196,6 +196,7 @@ export async function saveFeeTemplateCore(
       amount: Math.max(0, Math.round(Number(line.amount) || 0)),
       scope: String(line.scope || "ALL").toUpperCase() === "ADD_ON" ? "ADD_ON" : "ALL",
       sortOrder: i,
+      orgId: user.orgId ?? null,
     })
   );
   const editing = templateId
@@ -217,12 +218,12 @@ export async function saveFeeTemplateCore(
     await prisma.feeLine.deleteMany({ where: { templateId: existing.id } });
     const updated = await prisma.feeTemplate.update({
       where: { id: existing.id },
-      data: { name, startsPeriod, endsPeriod, dueDay, ...lateStamp, lines: { create: lines } },
+      data: { orgId: user.orgId ?? null, name, startsPeriod, endsPeriod, dueDay, ...lateStamp, lines: { create: lines } },
     });
     return { id: updated.id };
   } else {
     const created = await prisma.feeTemplate.create({
-      data: { classId, sessionId, name, startsPeriod, endsPeriod, dueDay, ...lateStamp, lines: { create: lines } },
+      data: { orgId: user.orgId ?? null, classId, sessionId, name, startsPeriod, endsPeriod, dueDay, ...lateStamp, lines: { create: lines } },
     });
     return { id: created.id };
   }
@@ -279,7 +280,7 @@ async function deliverFeeReminder(invoiceId: string) {
   }
   if (!sent.length) throw new Error(errors[0] || "Reminder could not be sent");
   await prisma.feeReminder.create({
-    data: { invoiceId, message: `${message} · ${sent.join(" + ")}` },
+    data: { orgId: invoice.orgId ?? null, invoiceId, message: `${message} · ${sent.join(" + ")}` },
   });
 }
 
@@ -384,6 +385,7 @@ export async function issueClassFeesCore(
         const invoiceTotal = feeLineTotal(lines).total;
         return {
         studentId: s.id,
+        orgId: user.orgId ?? null,
         classId,
         templateId: template.id,
           period: month.period,
@@ -409,6 +411,7 @@ export async function createInvoiceCore(
   const dueDate = new Date(String(input.dueDate || ymd(new Date())));
   await prisma.feeInvoice.create({
     data: {
+      orgId: user.orgId ?? null,
       studentId,
       classId: String(input.classId || "") || null,
       period: periodFromDate(dueDate),
@@ -433,6 +436,7 @@ export async function saveStudentFeeAddOnCore(
   const kind = String(input.kind || "CHARGE").toUpperCase() === "DISCOUNT" ? "DISCOUNT" : String(input.kind || "CHARGE").toUpperCase() === "CONCESSION" ? "CONCESSION" : "CHARGE";
   const cadence = String(input.cadence || "MONTHLY").toUpperCase() === "ONE_TIME" ? "ONE_TIME" : "MONTHLY";
   const data = {
+    orgId: user.orgId ?? null,
     studentId,
     label,
     kind,

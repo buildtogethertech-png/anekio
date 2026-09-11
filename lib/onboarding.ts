@@ -567,7 +567,7 @@ async function applyClassTeachers(db: OnboardingDb, rows: ImportRow[]) {
   return { created: 0, updated };
 }
 
-async function applyOpeningBalances(db: OnboardingDb, rows: ImportRow[]) {
+async function applyOpeningBalances(db: OnboardingDb, rows: ImportRow[], orgId?: string | null) {
   let created = 0;
   let updated = 0;
   for (const row of rows) {
@@ -604,6 +604,7 @@ async function applyOpeningBalances(db: OnboardingDb, rows: ImportRow[]) {
     } else if (amount > 0) {
       await db.feeInvoice.create({
         data: {
+          orgId: orgId ?? null,
           studentId: student.id,
           classId: student.classId,
           period: "OPENING",
@@ -652,7 +653,7 @@ export async function applyOnboardingImport(user: AccessUser, input: { batchId?:
           ? applyTeachers(db, rows, peopleSetup as { roleId: string; password: string; employee: number })
           : kind === "class_teachers"
             ? applyClassTeachers(db, rows)
-            : applyOpeningBalances(db, rows));
+            : applyOpeningBalances(db, rows, user.orgId));
     await prisma.schoolOnboardingImport.update({
       where: { id: batch.id },
       data: { status: "APPLIED", appliedAt: new Date(), createdCount: result.created, updatedCount: result.updated },

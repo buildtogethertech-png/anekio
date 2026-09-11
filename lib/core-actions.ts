@@ -164,7 +164,7 @@ export async function saveAdmissionFeeSetupCore(user: AccessUser, input: { class
   const lines = normalizeAdmissionFeeLines(input.lines);
   await prisma.$transaction([
     prisma.admissionFeeLine.deleteMany({ where: { classId } }),
-    ...lines.map((line) => prisma.admissionFeeLine.create({ data: { classId, ...line } })),
+    ...lines.map((line) => prisma.admissionFeeLine.create({ data: { orgId: user.orgId ?? null, classId, ...line } })),
   ]);
   return { lines };
 }
@@ -290,6 +290,7 @@ export async function admitLeadAsStudentCore(
     if (admissionCharge > 0) {
       await tx.feeInvoice.create({
         data: {
+          orgId: user.orgId ?? null,
           studentId: student.id,
           classId,
           period: `ADMISSION-${student.id}`,
@@ -300,6 +301,7 @@ export async function admitLeadAsStudentCore(
           status: "PAID",
           payments: {
             create: {
+              orgId: user.orgId ?? null,
               amount: admissionCharge,
               method: paymentMethod as PaymentMethod,
               reference: paymentReference || null,
@@ -2231,6 +2233,7 @@ export async function sendStudentPayLinkCore(
   const via = input.channel === "whatsapp" ? "WhatsApp" : "email";
   await prisma.feeReminder.createMany({
     data: picked.map((inv) => ({
+      orgId: user.orgId ?? null,
       invoiceId: inv.id,
       message: `${student.name}: ${inv.title} pay link sent · ${via}`,
     })),

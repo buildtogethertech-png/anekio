@@ -585,6 +585,19 @@ async function main() {
 
   await seedExamDemo(prisma);
 
+  // Keep all fee records attached to the seeded organisation. New organisations
+  // receive their own orgId through the onboarding/auth context.
+  await prisma.schoolConfig.update({ where: { id: "school" }, data: { orgId: saasOrg.id } });
+  await prisma.user.updateMany({ data: { orgId: saasOrg.id } });
+  await prisma.schoolOnboardingState.updateMany({ data: { orgId: saasOrg.id } });
+  await prisma.studentFeeAddOn.updateMany({ data: { orgId: saasOrg.id } });
+  await prisma.admissionFeeLine.updateMany({ data: { orgId: saasOrg.id } });
+  await prisma.feeTemplate.updateMany({ data: { orgId: saasOrg.id } });
+  await prisma.feeLine.updateMany({ data: { orgId: saasOrg.id } });
+  await prisma.feeInvoice.updateMany({ data: { orgId: saasOrg.id } });
+  await prisma.payment.updateMany({ data: { orgId: saasOrg.id } });
+  await prisma.feeReminder.updateMany({ data: { orgId: saasOrg.id } });
+
   const { jsonPath, csvPath } = writeLoginSheet(logins);
   console.log("Seeded Anekio. Password for everyone: 12345");
   console.log("  Classes: 1-A, 2-A, 3-A, 4-A, 5-A · 10 students · 5 parents each");

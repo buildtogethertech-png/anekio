@@ -339,6 +339,8 @@ model Student {
 
 model StudentFeeAddOn {
   id           String   @id @default(cuid())
+  orgId        String?
+  org          SaasOrg? @relation(fields: [orgId], references: [id], onDelete: SetNull)
   studentId    String
   student      Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
   label        String
@@ -353,6 +355,7 @@ model StudentFeeAddOn {
 
   @@index([studentId, active])
   @@index([startsPeriod, endsPeriod])
+  @@index([orgId])
 }
 
 model Subject {
@@ -543,6 +546,8 @@ model Grant {
 
 model AdmissionFeeLine {
   id        String   @id @default(cuid())
+  orgId     String?
+  org       SaasOrg? @relation(fields: [orgId], references: [id], onDelete: SetNull)
   classId   String
   class     Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
   label     String
@@ -553,10 +558,13 @@ model AdmissionFeeLine {
   updatedAt DateTime @updatedAt
 
   @@index([classId, active])
+  @@index([orgId])
 }
 
 model FeeTemplate {
   id            String         @id @default(cuid())
+  orgId         String?
+  org           SaasOrg?       @relation(fields: [orgId], references: [id], onDelete: SetNull)
   classId       String
   class         Class          @relation(fields: [classId], references: [id], onDelete: Cascade)
   sessionId     String?
@@ -575,10 +583,13 @@ model FeeTemplate {
 
   @@index([classId, sessionId])
   @@index([startsPeriod, endsPeriod])
+  @@index([orgId])
 }
 
 model FeeLine {
   id         String      @id @default(cuid())
+  orgId      String?
+  org        SaasOrg?    @relation(fields: [orgId], references: [id], onDelete: SetNull)
   templateId String
   template   FeeTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
   label      String
@@ -586,10 +597,13 @@ model FeeLine {
   amount     Int
   scope      String      @default("ALL")
   sortOrder  Int         @default(0)
+  @@index([orgId])
 }
 
 model FeeInvoice {
   id               String        @id @default(cuid())
+  orgId            String?
+  org              SaasOrg?      @relation(fields: [orgId], references: [id], onDelete: SetNull)
   studentId        String
   student          Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
   classId          String?
@@ -615,6 +629,7 @@ model FeeInvoice {
   reminders        FeeReminder[]
 
   @@unique([studentId, period])
+  @@index([orgId])
 }
 
 model SchoolOnboardingState {
@@ -683,6 +698,8 @@ model OnboardingGoogleSheet {
 
 model Payment {
   id        String        @id @default(cuid())
+  orgId     String?
+  org       SaasOrg?      @relation(fields: [orgId], references: [id], onDelete: SetNull)
   invoiceId String
   invoice   FeeInvoice    @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   amount    Int
@@ -691,14 +708,18 @@ model Payment {
   proofPath String?
   notes     String?
   paidAt    DateTime      @default(now())
+  @@index([orgId])
 }
 
 model FeeReminder {
   id        String     @id @default(cuid())
+  orgId     String?
+  org       SaasOrg?   @relation(fields: [orgId], references: [id], onDelete: SetNull)
   invoiceId String
   invoice   FeeInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   sentAt    DateTime   @default(now())
   message   String
+  @@index([orgId])
 }
 
 model Application {
@@ -1182,6 +1203,13 @@ model SaasOrg {
   users              User[]
   schoolConfigs      SchoolConfig[]
   onboardingStates   SchoolOnboardingState[]
+  studentFeeAddOns   StudentFeeAddOn[]
+  admissionFeeLines  AdmissionFeeLine[]
+  feeTemplates       FeeTemplate[]
+  feeLines           FeeLine[]
+  feeInvoices        FeeInvoice[]
+  feePayments        Payment[]
+  feeReminders       FeeReminder[]
 
   @@index([ownerEmail])
   @@index([ownerPhone])

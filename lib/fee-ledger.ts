@@ -33,6 +33,7 @@ export async function recordLedgerPayment(data: {
   const payment = await prisma.payment.create({
     data: {
       invoiceId: data.invoiceId,
+      orgId: (await prisma.feeInvoice.findUnique({ where: { id: data.invoiceId }, select: { orgId: true } }))?.orgId ?? null,
       amount: data.amount,
       method: data.method,
       reference: data.reference ?? null,
