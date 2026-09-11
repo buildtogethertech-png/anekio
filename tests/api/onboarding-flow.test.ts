@@ -164,6 +164,7 @@ describe("school onboarding imports", () => {
     const bundle = await onboardingBundle(user);
     const staffTemplate = bundle.templates.find((template) => template.kind === "teachers");
     expect(staffTemplate?.fileName).toBe("anekio-teachers.xlsx");
+    expect(bundle.templates.some((template) => template.kind === "class_teachers")).toBe(false);
 
     const template = await onboardingSpreadsheetTemplate(user, "teachers");
     expect(template).toMatchObject({

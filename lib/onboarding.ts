@@ -904,12 +904,12 @@ export async function onboardingBundle(user: AccessUser) {
     progress: { completed, total: required.length, percent: required.length ? Math.round((completed / required.length) * 100) : 0 },
     counts: { classes: classCount, students: studentCount, teachers: teacherCount, openingBalances: openingCount, feeTemplates: templateCount },
     steps,
-    templates: IMPORT_KINDS.filter((kind): kind is Exclude<ImportKind, "classes"> => kind !== "classes").map((kind) => ({
+    templates: IMPORT_KINDS.filter((kind): kind is Exclude<ImportKind, "classes" | "class_teachers"> => kind !== "classes" && kind !== "class_teachers").map((kind) => ({
       kind,
       title: TEMPLATE_DETAILS[kind].title,
       fileName: xlsxFileName(kind),
-      disabled: (kind === "opening_balances" && studentCount === 0) || (kind === "class_teachers" && teacherCount === 0),
-      prerequisite: kind === "opening_balances" ? "Students" : kind === "class_teachers" ? "Teacher records" : "Class labels can be created from the sheet",
+      disabled: kind === "opening_balances" && studentCount === 0,
+      prerequisite: kind === "opening_balances" ? "Students" : "Class labels can be created from the sheet",
     })),
     imports: latestImports.map((row) => ({
       id: row.id,
