@@ -989,21 +989,29 @@ export function SchoolBoard() {
                   </Text>
                 )}
 
-                <Modal open={calendarImportOpen} title="Import holiday CSV" onClose={() => setCalendarImportOpen(false)}>
+                <Modal open={calendarImportOpen} title="Upload holiday CSV" onClose={() => setCalendarImportOpen(false)} wide>
                   <View className="gap-4">
-                    <View className="rounded-md bg-ink-50 p-3">
-                      <Text className="text-sm font-medium text-ink-900">Use columns date and name.</Text>
-                      <Text className="mt-1 text-xs text-ink-700">
-                        Holidays import into {calendarSession?.label || "this session"}. Existing dates are skipped.
+                    <View className="min-h-[250px] items-center justify-center rounded-md border border-dashed border-blue-300 bg-blue-50/40 px-6 py-10">
+                      <Ionicons name="arrow-up-outline" size={34} color="#2855F6" />
+                      <Text className="mt-3 text-base font-semibold text-blue-700">Choose a CSV file</Text>
+                      <Text className="mt-1 text-center text-sm text-ink-700">
+                        Upload holidays for {calendarSession?.label || "this session"}.
                       </Text>
+                      <Button className="mt-4" onPress={() => void uploadHolidayCsv()}>
+                        Browse
+                      </Button>
+                      <Text className="mt-4 text-xs text-ink-600">Supported format: .csv</Text>
                     </View>
-                    <View className="flex-row flex-wrap gap-2">
-                      <Button variant="ghost" onPress={downloadCalendarSampleCsv}>
-                        Download sample
-                      </Button>
-                      <Button onPress={() => void uploadHolidayCsv()}>
-                        Upload CSV
-                      </Button>
+                    <View className="flex-row flex-wrap items-center justify-between gap-3">
+                      <Text className="text-sm font-medium text-ink-800">Required columns: date, name</Text>
+                      <Pressable accessibilityRole="button" onPress={downloadCalendarSampleCsv}>
+                        <Text className="text-sm font-semibold text-blue-700">Download sample file</Text>
+                      </Pressable>
+                    </View>
+                    <View className="rounded-md bg-amber-50 px-3 py-3">
+                      <Text className="text-sm text-amber-900">
+                        No fixed column order needed. Existing holiday dates are skipped during import.
+                      </Text>
                     </View>
                     <Field label="Or paste CSV">
                       <Input
