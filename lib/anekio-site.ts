@@ -1,7 +1,9 @@
 import Razorpay from "razorpay";
+import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
 import { prisma } from "./prisma";
 import { normalizeMobile } from "./phone";
+import { roleIdBySlug } from "./roles";
 import { captureWebsiteLead, createDemo, fulfillPaidSubscription } from "./saas-crm";
 import { getSitePricing } from "./saas-pricing";
 
@@ -246,6 +248,64 @@ function adminUrl() {
     return "/anekio-admin";
   }
   return "/anekio-admin";
+}
+
+function shouldProvisionLocalTrial() {
+  return process.env.NODE_ENV !== "production" && process.env.ANEKIO_PROVISION_TRIAL_WORKSPACE !== "false";
+}
+
+async function provisionLocalTrialWorkspace(org: { id: string; schoolName: string; ownerName: string; ownerEmail: string; ownerPhone: string; city: string; billingState: string; gstin: string }) {
+  if (!shouldProvisionLocalTrial()) return null;
+  const phone = normalizeMobile(org.ownerPhone) || org.ownerPhone;
+  const email = normalEmail(org.ownerEmail);
+  if (!phone || !email) return null;
+  const roleId = await roleIdBySlug("ADMIN");
+  const password = "12345";
+  const hashed = await bcrypt.hash(password, 10);
+  await prisma.schoolConfig.upsert({
+    where: { id: "school" },
+    update: {
+      name: org.schoolName,
+      city: org.city,
+      state: org.billingState,
+      gstin: org.gstin,
+      phone,
+      email,
+    },
+    create: {
+      id: "school",
+      name: org.schoolName,
+      city: org.city,
+      state: org.billingState,
+      gstin: org.gstin,
+      phone,
+      email,
+    },
+  });
+  const existing = await prisma.user.findFirst({
+    where: { OR: [{ email }, { phone }] },
+    include: { role: true },
+  });
+  if (existing) {
+    await prisma.user.update({
+      where: { id: existing.id },
+      data: { name: org.ownerName, email, phone, password: hashed, roleId },
+    });
+  } else {
+    await prisma.user.create({
+      data: { name: org.ownerName, email, phone, password: hashed, roleId },
+    });
+  }
+  await prisma.saasOrg.update({
+    where: { id: org.id },
+    data: {
+      loginUrl: "/login",
+      apiUrl: "/api/v1",
+      onboardingStatus: "IN_PROGRESS",
+      lifecycle: "CUSTOMER",
+    },
+  });
+  return { login: phone, password };
 }
 
 function shell(title: string, description: string, body: string, extraHead = "", bodyClass = "") {
@@ -1157,10 +1217,14 @@ export async function createSaasTrial(input: EnquiryInput) {
     },
   });
   await captureWebsiteLead(trial.id, "TRIAL");
+  await provisionLocalTrialWorkspace(trial);
   return trial;
 }
 
 export function trialStartedHtml(org: Awaited<ReturnType<typeof createSaasTrial>>) {
+  const localLogin = shouldProvisionLocalTrial()
+    ? `<span>Local workspace login: ${escapeHtml(org.ownerPhone)} / 12345.</span>`
+    : "";
   return shell(
     "Free trial started | Anekio",
     "Your Anekio free trial request has been received.",
@@ -1175,6 +1239,7 @@ export function trialStartedHtml(org: Awaited<ReturnType<typeof createSaasTrial>
               <span>No payment is needed for the trial.</span>
               <span>Your school details are saved for setup.</span>
               <span>Our team will contact you on ${escapeHtml(org.ownerPhone)}.</span>
+              ${localLogin}
             </div>
             <a class="btn primary" href="/">Back to Anekio</a>
           </div>
