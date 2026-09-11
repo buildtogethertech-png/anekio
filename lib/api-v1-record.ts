@@ -865,12 +865,36 @@ async function officePayload(user: AccessUser) {
     const paid = i.payments.reduce((s, p) => s + p.amount, 0);
     return sum + Math.max(0, i.amount - paid);
   }, 0);
+  const subjectShortfallByClass = new Map<string, { classId: string; classLabel: string; count: number }>();
+  for (const klass of classes) {
+    const placedBySubject = new Map<string, number>();
+    for (const slot of klass.slots) {
+      if (!slot.subject?.name) continue;
+      placedBySubject.set(slot.subject.name, (placedBySubject.get(slot.subject.name) ?? 0) + 1);
+    }
+    const count = klass.subjects.reduce((sum, subject) => {
+      const need = Math.max(0, subject.weightage || 0);
+      return sum + Math.max(0, need - (placedBySubject.get(subject.name) ?? 0));
+    }, 0);
+    if (count > 0) {
+      subjectShortfallByClass.set(klass.id, {
+        classId: klass.id,
+        classLabel: `${klass.name}-${klass.section}`,
+        count,
+      });
+    }
+  }
   const holeMap = new Map<string, { classId: string; classLabel: string; count: number }>();
   for (const hole of pulse.unassigned) {
     const row = holeMap.get(hole.classId) ?? { classId: hole.classId, classLabel: hole.classLabel, count: 0 };
     row.count += 1;
     holeMap.set(hole.classId, row);
   }
+  for (const shortfall of subjectShortfallByClass.values()) {
+    const row = holeMap.get(shortfall.classId);
+    holeMap.set(shortfall.classId, row ? { ...row, count: Math.max(row.count, shortfall.count) } : shortfall);
+  }
+  const emptyPeriods = [...holeMap.values()].reduce((sum, row) => sum + row.count, 0);
   const todayKey = ymd(new Date());
   const staffToday = staffDayYmd(new Date());
   const coverUntil = new Date();
@@ -940,7 +964,7 @@ async function officePayload(user: AccessUser) {
     onboarding: can(user, "onboarding.manage") ? await onboardingBundle(user) : null,
     desk: {
       label: pulse.label,
-      emptyPeriods: pulse.unassigned.length,
+      emptyPeriods,
       idleStaff: pulse.idleTeachers.length,
       teacherAbsent: pulse.emptyClasses.length,
       unmarked: pulse.unmarked,
