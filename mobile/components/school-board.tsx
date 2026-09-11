@@ -625,39 +625,39 @@ export function SchoolBoard() {
                   </Half>
                 </View>
                 <View className="rounded-md border border-ink-200 p-4">
-                  <View className="flex-row flex-wrap items-center justify-between gap-4">
-                    <View className="flex-row items-center gap-3">
-                      <View className="h-20 w-20 items-center justify-center rounded-md border border-ink-200 bg-white p-2">
-                        {s?.logoPath ? (
-                          <Image source={{ uri: assetUrl(s.logoPath) }} className="h-16 w-16" resizeMode="contain" />
-                        ) : (
-                          <Ionicons name="school-outline" size={30} color="#3d4f66" />
-                        )}
-                      </View>
-                      <View>
-                        <Text className="text-sm font-medium text-ink-900">School logo</Text>
-                        <Text className="mt-0.5 text-xs text-ink-700">
-                          {s?.logoPath ? "Current logo preview." : "Used on report cards and invoices."}
-                        </Text>
-                      </View>
-                    </View>
-                    {edit ? (
-                      <Button
-                        variant="ghost"
-                        disabled={Boolean(uploadingAsset)}
-                        onPress={() => void uploadBrandAsset("logoPath", "Logo")}
-                      >
-                        {uploadingAsset === "logoPath" ? "Uploading…" : s?.logoPath ? "Replace logo" : "Upload logo"}
-                      </Button>
-                    ) : null}
-                  </View>
-                </View>
-                <View className="rounded-md border border-ink-200 p-4">
                   <View className="gap-3">
                     <Text className="text-sm font-medium text-ink-900">Document brand assets</Text>
                     <Text className="text-xs leading-5 text-ink-700">
-                      Signature and stamp appear on report cards, certificates, invoices, and custom documents.
+                      Logo, signature, and stamp appear on report cards, certificates, invoices, and custom documents.
                     </Text>
+                    <View className="rounded-md border border-ink-200 p-4">
+                      <View className="flex-row flex-wrap items-center justify-between gap-4">
+                        <View className="flex-row items-center gap-3">
+                          <View className="h-20 w-20 items-center justify-center rounded-md border border-ink-200 bg-white p-2">
+                            {s?.logoPath ? (
+                              <Image source={{ uri: assetUrl(s.logoPath) }} className="h-16 w-16" resizeMode="contain" />
+                            ) : (
+                              <Ionicons name="school-outline" size={30} color="#3d4f66" />
+                            )}
+                          </View>
+                          <View>
+                            <Text className="text-sm font-medium text-ink-900">School logo</Text>
+                            <Text className="mt-0.5 text-xs text-ink-700">
+                              {s?.logoPath ? "Current logo preview." : "Used on report cards and invoices."}
+                            </Text>
+                          </View>
+                        </View>
+                        {edit ? (
+                          <Button
+                            variant="ghost"
+                            disabled={Boolean(uploadingAsset)}
+                            onPress={() => void uploadBrandAsset("logoPath", "Logo")}
+                          >
+                            {uploadingAsset === "logoPath" ? "Uploading…" : s?.logoPath ? "Replace logo" : "Upload logo"}
+                          </Button>
+                        ) : null}
+                      </View>
+                    </View>
                     <View className="flex-row flex-wrap gap-3">
                       <Half>
                         <Field label="Signatory name">
