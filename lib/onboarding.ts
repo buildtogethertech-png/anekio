@@ -179,6 +179,33 @@ export async function onboardingTemplate(user: AccessUser, rawKind: string) {
   };
 }
 
+export async function onboardingSpreadsheetTemplate(user: AccessUser, rawKind: string) {
+  need(user);
+  const kind = asKind(rawKind);
+  if (kind !== "students") return onboardingTemplate(user, kind);
+  const classes = await prisma.class.findMany({
+    where: { archivedAt: null },
+    orderBy: [{ name: "asc" }, { section: "asc" }],
+  });
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "Anekio";
+  const labels = classes.length ? classes.map((row) => `${row.name}-${row.section}`) : ["1-A", "1-B", "1-C"];
+  const headers = ["Anekio student ID", "Admission number", "Student name", "Date of birth", "Parent name", "Parent mobile", "Parent email", "Example only"];
+  labels.forEach((label, index) => {
+    const sheet = workbook.addWorksheet(label);
+    sheet.addRow(headers);
+    sheet.addRow(["", "", index === 0 ? "Aarav Sharma (example)" : "", "2015-04-12", "Neha Sharma", "9876543210", "parent@example.com", "YES"]);
+    sheet.views = [{ state: "frozen", ySplit: 1 }];
+    sheet.columns = headers.map((header) => ({ header, key: normalizeHeader(header), width: Math.max(18, header.length + 2) }));
+    sheet.getRow(1).font = { bold: true };
+  });
+  return {
+    fileName: "anekio-students.xlsx",
+    contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
+  };
+}
+
 function realRows(rows: ImportRow[]) {
   return rows.filter((row) => !["yes", "true", "sample", "example"].includes(sheetCell(row, "Example only", "Row type").toLowerCase()));
 }
@@ -187,29 +214,46 @@ export function rowsFromCsvContent(csv: string): ImportRow[] {
   return realRows(parseCsv(csv).map((row, index) => ({ ...row, _row: String(index + 2) })));
 }
 
+function rowsFromWorksheet(sheet: ExcelJS.Worksheet, classLabel = "") {
+  const headers = new Map<number, string>();
+  sheet.getRow(1).eachCell((cell, column) => headers.set(column, normalizeHeader(cellText(cell.value))));
+  const rows: ImportRow[] = [];
+  sheet.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return;
+    const record: ImportRow = { _row: classLabel ? `${sheet.name}!${rowNumber}` : String(rowNumber) };
+    headers.forEach((header, column) => {
+      if (header) record[header] = cellText(row.getCell(column).value);
+    });
+    if (classLabel && !sheetCell(record, "Class")) record[normalizeHeader("Class")] = classLabel;
+    if (Object.entries(record).some(([key, value]) => key !== "_row" && value.trim())) rows.push(record);
+  });
+  return rows;
+}
+
+export async function rowsFromWorkbookBuffer(kind: ImportKind, buf: Buffer): Promise<ImportRow[]> {
+  const workbook = new ExcelJS.Workbook();
+  const arrayBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+  await workbook.xlsx.load(arrayBuffer);
+  if (kind === "students") {
+    const studentsSheet = workbook.getWorksheet(TEMPLATE_DETAILS.students.sheet);
+    const sheets = studentsSheet
+      ? [studentsSheet]
+      : workbook.worksheets.filter((sheet) => Boolean(parseClass(sheet.name)));
+    if (!sheets.length) throw new Error("This workbook needs a Students sheet, or tabs named like 1-A, 1-B, 2-C.");
+    return realRows(sheets.flatMap((sheet) => rowsFromWorksheet(sheet, studentsSheet ? "" : sheet.name)));
+  }
+  const sheet = workbook.getWorksheet(TEMPLATE_DETAILS[kind].sheet);
+  if (!sheet) throw new Error(`This workbook has no “${TEMPLATE_DETAILS[kind].sheet}” sheet. Download the current Anekio template.`);
+  return realRows(rowsFromWorksheet(sheet));
+}
+
 async function rowsFromUpload(kind: ImportKind, uploadPath: string): Promise<ImportRow[]> {
   if (!uploadPath.includes("/onboarding/imports/") || uploadPath.includes("..")) throw new Error("Use a file uploaded from School setup.");
   const { buf, type } = await readUpload(uploadPath);
   if (type === "text/csv" || uploadPath.toLowerCase().endsWith(".csv")) {
     return rowsFromCsvContent(buf.toString("utf8"));
   }
-  const workbook = new ExcelJS.Workbook();
-  const arrayBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
-  await workbook.xlsx.load(arrayBuffer);
-  const sheet = workbook.getWorksheet(TEMPLATE_DETAILS[kind].sheet);
-  if (!sheet) throw new Error(`This workbook has no “${TEMPLATE_DETAILS[kind].sheet}” sheet. Download the current Anekio template.`);
-  const headers = new Map<number, string>();
-  sheet.getRow(1).eachCell((cell, column) => headers.set(column, normalizeHeader(cellText(cell.value))));
-  const rows: ImportRow[] = [];
-  sheet.eachRow((row, rowNumber) => {
-    if (rowNumber === 1) return;
-    const record: ImportRow = { _row: String(rowNumber) };
-    headers.forEach((header, column) => {
-      if (header) record[header] = cellText(row.getCell(column).value);
-    });
-    if (Object.entries(record).some(([key, value]) => key !== "_row" && value.trim())) rows.push(record);
-  });
-  return realRows(rows);
+  return rowsFromWorkbookBuffer(kind, buf);
 }
 
 function rowError(row: ImportRow, message: string) {
@@ -242,7 +286,7 @@ async function validateRows(kind: ImportKind, rows: ImportRow[]) {
       const admissionNo = sheetCell(row, "Admission number", "Admission no").toLowerCase();
       if (!name) errors.push(rowError(row, "student name is required."));
       if (!validDate(dob)) errors.push(rowError(row, "date of birth must be YYYY-MM-DD."));
-      if (!klass || !classKeys.has(`${klass.name}-${klass.section}`.toLowerCase())) errors.push(rowError(row, "choose an existing class."));
+      if (!klass) errors.push(rowError(row, "class must be a value like 1-A."));
       if (!sheetCell(row, "Parent name")) errors.push(rowError(row, "parent name is required."));
       if (!phone) errors.push(rowError(row, "parent mobile must be a 10-digit number."));
       if (studentId && !studentIds.has(studentId)) errors.push(rowError(row, "Anekio student ID was not found."));
@@ -376,8 +420,11 @@ async function applyStudents(
   let nextAdmission = setup.admission;
   for (const row of rows) {
     const klass = parseClass(sheetCell(row, "Class"))!;
-    const classRow = await db.class.findUnique({ where: { name_section: { name: klass.name, section: klass.section } } });
-    if (!classRow) throw new Error(rowError(row, "class no longer exists."));
+    const classRow = await db.class.upsert({
+      where: { name_section: { name: klass.name, section: klass.section } },
+      update: { archivedAt: null },
+      create: { name: klass.name, section: klass.section },
+    });
     const phone = normalizeMobile(sheetCell(row, "Parent mobile", "Parent phone"));
     const suppliedEmail = sheetCell(row, "Parent email").toLowerCase();
     const email = suppliedEmail || placeholderEmail("parent", phone);

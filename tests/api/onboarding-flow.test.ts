@@ -118,4 +118,33 @@ describe("school onboarding imports", () => {
     })).map((invoice) => invoice.period);
     expect(periods).toEqual(["2026-04", "2026-09", "OPENING"]);
   });
+
+  it("imports students from workbook tabs named as class sections and creates those classes", async () => {
+    const ExcelJS = (await import("exceljs")).default;
+    const { previewOnboardingImport, applyOnboardingImport } = await import("../../lib/onboarding");
+    const { saveUploadPath } = await import("../../lib/uploads");
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("8-Z");
+    sheet.addRow(["Anekio student ID", "Admission number", "Student name", "Date of birth", "Parent name", "Parent mobile", "Parent email", "Example only"]);
+    sheet.addRow(["", "", "Zoya Tab Student", "2014-02-10", "Zara Parent", "9876501234", "", ""]);
+    const uploadPath = "private/schools/test/onboarding/imports/students-tabs.xlsx";
+    await saveUploadPath(
+      uploadPath,
+      Buffer.from(await workbook.xlsx.writeBuffer()),
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+
+    const preview = await previewOnboardingImport(user, {
+      kind: "students",
+      uploadPath,
+      fileName: "students-tabs.xlsx",
+    });
+    expect(preview).toMatchObject({ rowCount: 1, validCount: 1, errors: [] });
+
+    await applyOnboardingImport(user, { batchId: preview.batchId });
+    const klass = await prisma.class.findUniqueOrThrow({ where: { name_section: { name: "8", section: "Z" } } });
+    const student = await prisma.student.findFirstOrThrow({ where: { name: "Zoya Tab Student" } });
+    expect(student.classId).toBe(klass.id);
+    expect(student.admissionNo).toMatch(/^ANE-\d{5}$/);
+  });
 });

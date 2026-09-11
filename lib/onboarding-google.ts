@@ -4,9 +4,11 @@ import { can, type AccessUser } from "./permissions";
 import { publicOrigin } from "./utils";
 import {
   IMPORT_KINDS,
+  onboardingSpreadsheetTemplate,
   onboardingTemplate,
   previewOnboardingRows,
   rowsFromCsvContent,
+  rowsFromWorkbookBuffer,
   type ImportKind,
 } from "./onboarding";
 
@@ -266,7 +268,7 @@ async function requireConnection(user: AccessUser, returnTo: string) {
   return { connection: null, missing: await createOnboardingGoogleAuthUrl(user, { returnTo }) };
 }
 
-function multipartBody(name: string, csv: Buffer) {
+function multipartBody(name: string, contentType: string, file: Buffer) {
   const boundary = `anekio_${randomBytes(12).toString("hex")}`;
   const delimiter = `\r\n--${boundary}\r\n`;
   const closeDelimiter = `\r\n--${boundary}--`;
@@ -276,13 +278,13 @@ function multipartBody(name: string, csv: Buffer) {
       "Content-Type: application/json; charset=UTF-8\r\n\r\n",
       JSON.stringify({ name, mimeType: SHEETS_MIME }),
       delimiter,
-      "Content-Type: text/csv; charset=UTF-8\r\n",
+      `Content-Type: ${contentType}\r\n`,
       "Content-Transfer-Encoding: binary\r\n\r\n",
     ].join(""),
     "utf8"
   );
   const tail = Buffer.from(closeDelimiter, "utf8");
-  return { boundary, body: Buffer.concat([metadata, csv, tail]) };
+  return { boundary, body: Buffer.concat([metadata, file, tail]) };
 }
 
 export async function createOnboardingGoogleSheet(user: AccessUser, input: { kind?: string; returnTo?: string }) {
@@ -293,10 +295,10 @@ export async function createOnboardingGoogleSheet(user: AccessUser, input: { kin
   const returnTo = safeReturnTo(String(input.returnTo || ""));
   const { connection, missing } = await requireConnection(user, returnTo);
   if (missing || !connection) return missing!;
-  const template = await onboardingTemplate(user, kind);
+  const template = await onboardingSpreadsheetTemplate(user, kind);
   const accessToken = await accessTokenFor(connection);
-  const name = template.fileName.replace(/\.csv$/i, "").replace(/-/g, " ");
-  const multipart = multipartBody(name, template.buffer);
+  const name = template.fileName.replace(/\.(csv|xlsx)$/i, "").replace(/-/g, " ");
+  const multipart = multipartBody(name, template.contentType, template.buffer);
   const response = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,webViewLink", {
     method: "POST",
     headers: {
@@ -357,15 +359,21 @@ export async function previewOnboardingGoogleSheet(user: AccessUser, input: { ki
   const connection = await prisma.googleDriveConnection.findUnique({ where: { userId: user.id } });
   if (!connection) throw new Error("Connect Google Sheets first.");
   const accessToken = await accessTokenFor(connection);
-  const url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(sheet.fileId)}/export?mimeType=${encodeURIComponent("text/csv")}`;
+  const exportMime = kind === "students"
+    ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    : "text/csv";
+  const url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(sheet.fileId)}/export?mimeType=${encodeURIComponent(exportMime)}`;
   const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-  const csv = await response.text();
-  if (!response.ok) throw new Error(csv || "Could not read the Google Sheet.");
+  const body = Buffer.from(await response.arrayBuffer());
+  if (!response.ok) throw new Error(body.toString("utf8") || "Could not read the Google Sheet.");
+  const rows = kind === "students"
+    ? await rowsFromWorkbookBuffer(kind, body)
+    : rowsFromCsvContent(body.toString("utf8"));
   const preview = await previewOnboardingRows(user, {
     kind,
     fileName: `${sheet.name}.csv`,
     uploadPath: `google:${sheet.fileId}`,
-    rows: rowsFromCsvContent(csv),
+    rows,
   });
   await prisma.onboardingGoogleSheet.update({
     where: { id: sheet.id },
