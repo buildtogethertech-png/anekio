@@ -108,14 +108,16 @@ export function OnboardingBoard() {
     }
   }
 
-  async function download(template: Template) {
-    setBusy(`download:${template.kind}`);
+  async function download(template: Template, sampleData = false) {
+    const busyKey = sampleData ? `downloadSample:${template.kind}` : `download:${template.kind}`;
+    setBusy(busyKey);
     setMessage("");
     try {
+      const suffix = sampleData ? "&sampleData=1" : "";
       await downloadAuthedFile(
-        `${apiBase()}/api/v1/onboarding/template?kind=${encodeURIComponent(template.kind)}`,
+        `${apiBase()}/api/v1/onboarding/template?kind=${encodeURIComponent(template.kind)}${suffix}`,
         token,
-        template.fileName
+        sampleData ? `sample-${template.fileName}` : template.fileName
       );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not download the template.");
@@ -304,6 +306,14 @@ export function OnboardingBoard() {
                   onPress={() => void download(template)}
                 >
                   {busy === `download:${template.kind}` ? "Preparing…" : "Download template"}
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="min-w-[130px] flex-1"
+                  disabled={template.disabled || Boolean(busy)}
+                  onPress={() => void download(template, true)}
+                >
+                  {busy === `downloadSample:${template.kind}` ? "Preparing…" : "Download test data"}
                 </Button>
                 <Button
                   className="min-w-[134px] flex-1"

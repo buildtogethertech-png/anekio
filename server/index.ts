@@ -395,7 +395,8 @@ app.get("/api/v1/onboarding/template", async (req, res) => {
   if (!(await requireActiveSubscription(user.id, res))) return;
   try {
     const kind = String(req.query.kind || "");
-    const template = await onboardingSpreadsheetTemplate(user, kind);
+    const sampleData = ["1", "true", "yes"].includes(String(req.query.sampleData || "").toLowerCase());
+    const template = await onboardingSpreadsheetTemplate(user, kind, { sampleData });
     res.setHeader("Content-Type", template.contentType);
     res.setHeader("Content-Disposition", `attachment; filename="${template.fileName}"`);
     res.send(template.buffer);

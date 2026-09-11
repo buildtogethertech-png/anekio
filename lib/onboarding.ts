@@ -213,6 +213,23 @@ function sampleStaffRows(labels: string[], roles: StaffImportRole[]) {
   return [...teacherRows, ...officeRows];
 }
 
+function blankRowsFor(kind: ImportKind, labels: string[]): CsvCell[][] {
+  const firstClass = labels[0] || "1-A";
+  if (kind === "teachers") {
+    return [
+      ["Name", "Mobile", "Email", "Role", "Class teacher of", "Monthly salary", "Qualification", "Example only"],
+      ["Meera Singh (example)", "9876543211", "teacher@example.com", "TEACHER", firstClass, 30000, "B.Ed, Mathematics", "YES"],
+    ];
+  }
+  if (kind === "opening_balances") {
+    return [
+      ["Admission number", "Student name", "Class", "Backlog invoice amount", "Invoice date", "Due date", "Invoices already generated till", "Example only"],
+      ["", "Aarav Sharma (example)", firstClass, 2500, dateText(new Date()), tenthOfMonth(), monthBefore(), "YES"],
+    ];
+  }
+  return [];
+}
+
 async function csvRowsFor(kind: ImportKind): Promise<CsvCell[][]> {
   const classes = await prisma.class.findMany({
     where: { archivedAt: null },
@@ -386,7 +403,7 @@ export async function onboardingTemplate(user: AccessUser, rawKind: string) {
   };
 }
 
-export async function onboardingSpreadsheetTemplate(user: AccessUser, rawKind: string) {
+export async function onboardingSpreadsheetTemplate(user: AccessUser, rawKind: string, options: { sampleData?: boolean } = {}) {
   need(user);
   const kind = asKind(rawKind);
   const classes = await prisma.class.findMany({
@@ -397,10 +414,13 @@ export async function onboardingSpreadsheetTemplate(user: AccessUser, rawKind: s
   workbook.creator = "Anekio";
   const labels = classes.length ? classes.map((row) => `${row.name}-${row.section}`) : ["1-A", "2-A", "3-A", "4-A", "5-A"];
   if (kind !== "students") {
-    const rows = await csvRowsFor(kind);
+    const blankRows = blankRowsFor(kind, labels);
+    const rows = options.sampleData || !blankRows.length ? await csvRowsFor(kind) : blankRows;
     if (kind === "teachers") {
       const roles = await staffImportRoles();
-      rows.push(...sampleStaffRows(labels, roles));
+      if (options.sampleData) {
+        rows.push(...sampleStaffRows(labels, roles));
+      }
     }
     const sheet = workbook.addWorksheet(TEMPLATE_DETAILS[kind].sheet);
     rows.forEach((row) => sheet.addRow(row));
@@ -448,11 +468,13 @@ export async function onboardingSpreadsheetTemplate(user: AccessUser, rawKind: s
   }
   const headers = ["Student name", "Date of birth", "Class", "Parent name", "Parent mobile", "Parent email", "Example only"];
   const samplesByClass = new Map<string, ReturnType<typeof sampleStudentRows>>();
-  sampleStudentRows(labels).forEach((row) => {
-    const rows = samplesByClass.get(row.classLabel) || [];
-    rows.push(row);
-    samplesByClass.set(row.classLabel, rows);
-  });
+  if (options.sampleData) {
+    sampleStudentRows(labels).forEach((row) => {
+      const rows = samplesByClass.get(row.classLabel) || [];
+      rows.push(row);
+      samplesByClass.set(row.classLabel, rows);
+    });
+  }
   labels.forEach((label, index) => {
     const sheet = workbook.addWorksheet(label);
     sheet.addRow(headers);

@@ -165,7 +165,22 @@ describe("school onboarding imports", () => {
     ]);
     expect(sheet.getRow(2).getCell(3).value).toBe("7-B");
     expect(sheet.views[0]).toMatchObject({ state: "frozen", ySplit: 1 });
-    const sampleCount = workbook.worksheets.reduce((total, worksheet) => {
+    const blankCount = workbook.worksheets.reduce((total, worksheet) => {
+      let count = 0;
+      worksheet.eachRow((row, rowNumber) => {
+        if (rowNumber <= 2) return;
+        if (String(row.getCell(7).value || "").trim()) return;
+        if (String(row.getCell(1).value || "").trim()) count += 1;
+      });
+      return total + count;
+    }, 0);
+    expect(blankCount).toBe(0);
+
+    const sampleTemplate = await onboardingSpreadsheetTemplate(user, "students", { sampleData: true });
+    const sampleWorkbook = new ExcelJS.Workbook();
+    const sampleArrayBuffer = sampleTemplate.buffer.buffer.slice(sampleTemplate.buffer.byteOffset, sampleTemplate.buffer.byteOffset + sampleTemplate.buffer.byteLength) as ArrayBuffer;
+    await sampleWorkbook.xlsx.load(sampleArrayBuffer);
+    const sampleCount = sampleWorkbook.worksheets.reduce((total, worksheet) => {
       let count = 0;
       worksheet.eachRow((row, rowNumber) => {
         if (rowNumber <= 2) return;
@@ -208,7 +223,19 @@ describe("school onboarding imports", () => {
     ]);
     expect(sheet.getCell("D2").dataValidation).toMatchObject({ type: "list" });
     expect(sheet.getCell("E2").dataValidation).toMatchObject({ type: "list" });
-    const rows = sheet.getRows(2, sheet.rowCount - 1) || [];
+    const blankRows = sheet.getRows(2, sheet.rowCount - 1) || [];
+    const blankNames = blankRows
+      .filter((row) => !String(row.getCell(8).value || "").trim())
+      .map((row) => String(row.getCell(1).value || ""))
+      .filter(Boolean);
+    expect(blankNames).toEqual([]);
+
+    const sampleTemplate = await onboardingSpreadsheetTemplate(user, "teachers", { sampleData: true });
+    const sampleWorkbook = new ExcelJS.Workbook();
+    const sampleArrayBuffer = sampleTemplate.buffer.buffer.slice(sampleTemplate.buffer.byteOffset, sampleTemplate.buffer.byteOffset + sampleTemplate.buffer.byteLength) as ArrayBuffer;
+    await sampleWorkbook.xlsx.load(sampleArrayBuffer);
+    const sampleSheet = sampleWorkbook.getWorksheet("Teachers")!;
+    const rows = sampleSheet.getRows(2, sampleSheet.rowCount - 1) || [];
     const names = rows.map((row) => String(row.getCell(1).value || ""));
     const roles = rows.map((row) => String(row.getCell(4).value || ""));
     expect(names).toEqual(expect.arrayContaining(["Meera Singh", "Deepak Joshi", "Vikram Rao", "Ritu Shah"]));
