@@ -5,7 +5,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { Dropdown } from "./form";
 import { Badge, Button, Card, Field, Input, Modal, PageHeader, Switch, Toast, useToast } from "./ui";
 import { DocumentStudio } from "./document-studio";
-import { ClockForm, RoomsForm, SchoolSubjectsForm } from "./school-setup";
+import { ClockForm, SchoolSubjectsForm } from "./school-setup";
 import { StaffHoursForm } from "./staff-hours-form";
 import { webOrigin } from "../lib/api";
 import { act, saveLateTiming } from "../lib/mutate";
@@ -18,7 +18,6 @@ const TABS = [
   { id: "sessions", label: "Sessions", hint: "Academic years and current session", group: "School" },
   { id: "classes", label: "Classes", hint: "Sections and class strength", group: "School" },
   { id: "clock", label: "Clock", hint: "School days and bell times. Set once.", group: "School" },
-  { id: "rooms", label: "Rooms", hint: "Classrooms, labs, grounds", group: "School" },
   { id: "subjects", label: "Subjects", hint: "What the school teaches. Add at the start.", group: "Teaching" },
   { id: "calendar", label: "Calendar", hint: "Holidays exam papers skip. Weekly offs are on Clock.", group: "Teaching" },
   { id: "leave", label: "Leave", hint: "Planned and sick. Who can use them, and how much notice.", group: "Teaching" },
@@ -36,7 +35,7 @@ type Level = "doors" | "group" | "page";
 const TAB_GROUPS = ["School", "Teaching", "Money", "Documents", "Reach"] as const;
 
 const DOOR_LEDE: Record<Door, string> = {
-  School: "Name, logo, academic years, classes, days, and rooms.",
+  School: "Name, logo, academic years, classes, and days.",
   Teaching: "Subjects, holidays, leave, and this year's exams.",
   Money: "How parents pay and how the school collects.",
   Documents: "Design report cards, IDs, receipts, certificates, and letters.",
@@ -488,7 +487,7 @@ export function SchoolBoard() {
 
   const hint = TABS.find((t) => t.id === tab)?.hint;
   const current = TABS.find((t) => t.id === tab) ?? TABS[0];
-  const showSave = tab !== "calendar" && tab !== "exams" && tab !== "clock" && tab !== "rooms" && tab !== "subjects" && tab !== "sessions" && tab !== "classes" && tab !== "leave" && tab !== "documents";
+  const showSave = tab !== "calendar" && tab !== "exams" && tab !== "clock" && tab !== "subjects" && tab !== "sessions" && tab !== "classes" && tab !== "leave" && tab !== "documents";
   const showPreview = tab === "identity" || tab === "communication" || tab === "exams" || tab === "website";
 
   function showSchool(next: { tab?: Tab; group?: Door } = {}) {
@@ -847,22 +846,6 @@ export function SchoolBoard() {
                 }}
               />
               </View>
-            ) : null}
-
-            {tab === "rooms" ? (
-              <RoomsForm
-                key={(data?.timetable?.rooms ?? []).map((r) => r.id).join(",")}
-                rooms={data?.timetable?.rooms ?? []}
-                onSave={async (rooms) => {
-                  await run("saveRooms", { rooms }, "Rooms saved.");
-                }}
-                onAdd={async (payload) => {
-                  await run("addRoom", payload, "Room added.");
-                }}
-                onDelete={async (id) => {
-                  await run("deleteRoom", { id }, "Room removed.");
-                }}
-              />
             ) : null}
 
             {tab === "subjects" ? (

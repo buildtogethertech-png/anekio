@@ -230,7 +230,7 @@ export function WeekBoard() {
           lede={
             teamWeek
               ? "Empty periods in your team’s classes. Free teachers are marked — drop one on the hole."
-              : "Pick a class and place teachers. Clock, rooms, and subjects are set once under School settings."
+              : "Pick a class and place teachers. Clock and subjects are set once under School settings."
           }
         />
       )}
