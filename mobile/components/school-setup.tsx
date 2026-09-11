@@ -412,7 +412,7 @@ export function SchoolSubjectsForm({
     const nextNames = [...new Set(importedNames)];
     setNames(nextNames);
     setImportOpen(false);
-    setFlash({ at: "catalog", kind: "ok", text: "Subjects loaded. Review and save." });
+    setFlash({ at: "catalog", kind: "ok", text: "Subjects loaded. Review and save the plan." });
   }
 
   return (
@@ -429,20 +429,6 @@ export function SchoolSubjectsForm({
           <View className="flex-row flex-wrap gap-2">
             <IconButton icon="add" label="Add subject" onPress={() => setAddOpen(true)} />
             <IconButton icon="cloud-upload-outline" label="Upload subjects" onPress={() => setImportOpen(true)} />
-            <Button
-              className="px-5"
-              onPress={async () => {
-                setFlash(null);
-                try {
-                  await onSaveCatalog(names, false);
-                  setFlash({ at: "catalog", kind: "ok", text: "Subjects saved." });
-                } catch (e) {
-                  setFlash({ at: "catalog", kind: "err", text: e instanceof Error ? e.message : "Could not save." });
-                }
-              }}
-            >
-              Save
-            </Button>
           </View>
         </View>
         <SaveFlash at="catalog" flash={flash} />
