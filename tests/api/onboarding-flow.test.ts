@@ -76,12 +76,22 @@ describe("school onboarding imports", () => {
     expect(await prisma.student.count({ where: { name: "Aarav Sharma (example)" } })).toBe(0);
 
     const generated = await onboardingTemplate(user, "opening_balances");
-    expect(generated.fileName).toBe("anekio-opening-balances.csv");
+    expect(generated.fileName).toBe("anekio-first-time-fees.csv");
     const openingRows = parseCsv(generated.buffer.toString("utf8"));
+    expect(Object.keys(openingRows[0])).toEqual([
+      "admissionnumber",
+      "studentname",
+      "class",
+      "backloginvoiceamount",
+      "invoicedate",
+      "duedate",
+      "invoicesalreadygeneratedtill",
+      "exampleonly",
+    ]);
     const anayaRow = openingRows.find((row) => row.studentname === "Anaya Student")!;
-    anayaRow.openingdueamount = "12345";
+    anayaRow.backloginvoiceamount = "12345";
     anayaRow.duedate = "2026-08-31";
-    anayaRow.generatedthrough = "2026-08";
+    anayaRow.invoicesalreadygeneratedtill = "2026-08";
 
     const uploadPath = "private/schools/test/onboarding/imports/opening.csv";
     await saveUploadPath(uploadPath, Buffer.from(csvFromObjects(openingRows)), "text/csv");
@@ -97,7 +107,7 @@ describe("school onboarding imports", () => {
     const opening = await prisma.feeInvoice.findUniqueOrThrow({
       where: { studentId_period: { studentId: "student-anaya", period: "OPENING" } },
     });
-    expect(opening).toMatchObject({ kind: "OPENING", amount: 12_345, generatedThrough: "2026-08" });
+    expect(opening).toMatchObject({ kind: "OPENING", title: "Backlog invoice", amount: 12_345, generatedThrough: "2026-08" });
     expect((await prisma.student.findUniqueOrThrow({ where: { id: "student-anaya" } })).feeGeneratedThrough).toBe("2026-08");
 
     const template = await prisma.feeTemplate.create({

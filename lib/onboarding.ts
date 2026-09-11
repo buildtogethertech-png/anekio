@@ -20,7 +20,7 @@ const TEMPLATE_DETAILS: Record<ImportKind, { sheet: string; file: string; title:
   students: { sheet: "Students", file: "anekio-students.csv", title: "Students and parents" },
   teachers: { sheet: "Teachers", file: "anekio-teachers.csv", title: "Teachers" },
   class_teachers: { sheet: "Class teachers", file: "anekio-class-teachers.csv", title: "Class teacher assignments" },
-  opening_balances: { sheet: "Opening balances", file: "anekio-opening-balances.csv", title: "Opening fee balances" },
+  opening_balances: { sheet: "First time fees", file: "anekio-first-time-fees.csv", title: "First time fee import" },
 };
 
 function need(user: AccessUser) {
@@ -57,6 +57,10 @@ function cellText(value: ExcelJS.CellValue): string {
 
 function monthBefore(date = new Date()) {
   return new Date(date.getFullYear(), date.getMonth(), 0).toISOString().slice(0, 7);
+}
+
+function tenthOfMonth(date = new Date()) {
+  return dateText(new Date(date.getFullYear(), date.getMonth(), 10));
 }
 
 function validPeriod(value: string) {
@@ -179,19 +183,21 @@ async function csvRowsFor(kind: ImportKind): Promise<CsvCell[][]> {
   const opening = await prisma.feeInvoice.findMany({ where: { period: "OPENING" }, include: { payments: true } });
   const openingByStudent = new Map(opening.map((row) => [row.studentId, row]));
   const defaultThrough = monthBefore();
+  const generatedOn = dateText(new Date());
+  const defaultDueDate = tenthOfMonth();
   return [
-    ["Anekio student ID", "Admission number", "Student name", "Class", "Opening due amount", "Due date", "Generated through", "Example only"],
-    ["", "", "Aarav Sharma (example)", classLabels[0] || "1-A", 2500, dateText(new Date()), defaultThrough, "YES"],
+    ["Admission number", "Student name", "Class", "Backlog invoice amount", "Invoice date", "Due date", "Invoices already generated till", "Example only"],
+    ["", "Aarav Sharma (example)", classLabels[0] || "1-A", 2500, generatedOn, defaultDueDate, defaultThrough, "YES"],
     ...students.map((student) => {
     const current = openingByStudent.get(student.id);
     const paid = current?.payments.reduce((total, payment) => total + payment.amount, 0) || 0;
       return [
-      student.id,
       student.admissionNo,
       student.name,
       `${student.class.name}-${student.class.section}`,
       current ? Math.max(0, current.amount - paid) : 0,
-      current ? dateText(current.dueDate) : dateText(new Date()),
+      generatedOn,
+      current ? dateText(current.dueDate) : defaultDueDate,
       student.feeGeneratedThrough || current?.generatedThrough || defaultThrough,
         "",
       ];
@@ -442,15 +448,17 @@ async function validateRows(kind: ImportKind, rows: ImportRow[]) {
     }
     const studentId = sheetCell(row, "Anekio student ID");
     const admissionNo = sheetCell(row, "Admission number", "Admission no").toLowerCase();
-    const amount = Number(sheetCell(row, "Opening due amount", "Due amount", "Amount"));
+    const amount = Number(sheetCell(row, "Backlog invoice amount", "Opening due amount", "Previous system due", "Due amount", "Amount"));
+    const invoiceDate = sheetCell(row, "Invoice date", "Generated date");
     const dueDate = sheetCell(row, "Due date");
-    const through = sheetCell(row, "Generated through", "Last generated month");
+    const through = sheetCell(row, "Invoices already generated till", "Invoices generated till", "Last invoice month", "Generated through", "Last generated month");
     if ((!studentId || !studentIds.has(studentId)) && (!admissionNo || !admissionNos.has(admissionNo))) {
       errors.push(rowError(row, "student ID or admission number was not found."));
     }
-    if (!Number.isFinite(amount) || amount < 0) errors.push(rowError(row, "opening due amount must be zero or more."));
+    if (!Number.isFinite(amount) || amount < 0) errors.push(rowError(row, "backlog invoice amount must be zero or more."));
+    if (invoiceDate && !validDate(invoiceDate)) errors.push(rowError(row, "invoice date must be YYYY-MM-DD."));
     if (!validDate(dueDate)) errors.push(rowError(row, "due date must be YYYY-MM-DD."));
-    if (!validPeriod(through)) errors.push(rowError(row, "generated through must be YYYY-MM."));
+    if (!validPeriod(through)) errors.push(rowError(row, "invoices already generated till must be YYYY-MM."));
   });
   return errors;
 }
@@ -758,24 +766,24 @@ async function applyOpeningBalances(db: OnboardingDb, rows: ImportRow[], orgId?:
       ? await db.student.findUnique({ where: { id: studentId } })
       : await db.student.findUnique({ where: { admissionNo } });
     if (!student) throw new Error(rowError(row, "student no longer exists."));
-    const amount = Math.round(Number(sheetCell(row, "Opening due amount", "Due amount", "Amount")));
-    const generatedThrough = sheetCell(row, "Generated through", "Last generated month");
+    const amount = Math.round(Number(sheetCell(row, "Backlog invoice amount", "Opening due amount", "Previous system due", "Due amount", "Amount")));
+    const generatedThrough = sheetCell(row, "Invoices already generated till", "Invoices generated till", "Last invoice month", "Generated through", "Last generated month");
     const dueDate = new Date(`${sheetCell(row, "Due date")}T00:00:00`);
     const existing = await db.feeInvoice.findUnique({
       where: { studentId_period: { studentId: student.id, period: "OPENING" } },
       include: { payments: true },
     });
     const paid = existing?.payments.reduce((total, payment) => total + payment.amount, 0) || 0;
-    if (amount < paid) throw new Error(rowError(row, `opening balance cannot be below ₹${paid} already collected.`));
+    if (amount < paid) throw new Error(rowError(row, `backlog invoice amount cannot be below ₹${paid} already collected.`));
     if (existing) {
       await db.feeInvoice.update({
         where: { id: existing.id },
         data: {
           kind: "OPENING",
           generatedThrough,
-          title: "Opening balance",
+          title: "Backlog invoice",
           amount,
-          linesJson: JSON.stringify([{ label: "Opening balance", kind: "FLAT", amount }]),
+          linesJson: JSON.stringify([{ label: "Backlog invoice", kind: "FLAT", amount }]),
           dueDate,
           classId: student.classId,
           status: amount <= paid ? InvoiceStatus.PAID : paid ? InvoiceStatus.PARTIAL : InvoiceStatus.DUE,
@@ -791,9 +799,9 @@ async function applyOpeningBalances(db: OnboardingDb, rows: ImportRow[], orgId?:
           period: "OPENING",
           kind: "OPENING",
           generatedThrough,
-          title: "Opening balance",
+          title: "Backlog invoice",
           amount,
-          linesJson: JSON.stringify([{ label: "Opening balance", kind: "FLAT", amount }]),
+          linesJson: JSON.stringify([{ label: "Backlog invoice", kind: "FLAT", amount }]),
           dueDate,
           shareToken: randomUUID(),
           status: InvoiceStatus.DUE,
@@ -893,7 +901,7 @@ export async function onboardingBundle(user: AccessUser) {
     step("students", 3, "Students and parents", "Import family records with generated admission numbers when needed.", studentCount > 0 || importDone.has("students"), false, !wants("students")),
     step("teachers", 4, "Teachers", "Import staff records with role and class-teacher columns when needed.", teacherCount > 0 || importDone.has("teachers"), false, !wants("teachers")),
     step("class_teachers", 5, "Class teacher assignments", "Use class labels from the sheet and choose which teacher owns each class.", importDone.has("class_teachers"), teacherCount === 0, !wants("teachers")),
-    step("opening_balances", 6, "Opening fee balances", "One consolidated due per student, with the old system's last generated month.", importDone.has("opening_balances") || (studentCount > 0 && openingCount >= studentCount), studentCount === 0, !wants("fees")),
+    step("opening_balances", 6, "First time fee import", "Put any previous-system dues in a backlog invoice and tell Anekio the last month already invoiced.", importDone.has("opening_balances") || (studentCount > 0 && openingCount >= studentCount), studentCount === 0, !wants("fees")),
     step("recurring_fees", 7, "Recurring fee rules", "Set class fee ranges. New invoices begin after each student's imported cut-off month.", templateCount > 0, classCount === 0, !wants("fees")),
     step("review", 8, "Review and launch", "Check counts, spot-check families and fees, then hand the workspace to the school.", false, classCount === 0 || (wants("students") && studentCount === 0)),
   ];

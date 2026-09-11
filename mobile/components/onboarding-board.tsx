@@ -34,7 +34,7 @@ type GoogleSheetResult = {
 
 const MODULES = [
   { key: "students", title: "Students & parents", body: "Families, CRM classes, and admission numbers" },
-  { key: "fees", title: "Fees", body: "Opening balances and future monthly rules" },
+  { key: "fees", title: "Fees", body: "First-time dues and future monthly rules" },
   { key: "teachers", title: "Teachers", body: "Employees, then generated class-teacher assignment" },
 ];
 
@@ -42,7 +42,7 @@ const TEMPLATE_COPY: Record<Template["kind"], string> = {
   students: "Prefilled with current students; blank admission numbers are generated.",
   teachers: "Import staff records first, without mixing class ownership.",
   class_teachers: "Generated from imported classes and teachers so each class gets an owner.",
-  opening_balances: "One row and one consolidated opening balance per student.",
+  opening_balances: "Create a one-time backlog invoice, then Anekio starts after the last invoiced month.",
 };
 
 function statusTone(status: Onboarding["steps"][number]["status"]) {
