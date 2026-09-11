@@ -42,11 +42,14 @@ export type DocumentTemplateSummary = {
 export type AdmissionFormField = {
   id: string;
   label: string;
-  type: "text" | "email" | "phone" | "number" | "date" | "textarea" | "select";
+  type: "text" | "email" | "phone" | "number" | "date" | "textarea" | "select" | "radio" | "multi" | "checkbox" | "file";
   required: boolean;
   visible: boolean;
   options: string[];
   builtin: boolean;
+  helpText?: string;
+  fileType?: "image" | "pdf" | "image_pdf";
+  maxFileSizeMb?: number;
 };
 
 export type RecordPayload = {
@@ -60,6 +63,31 @@ export type RecordPayload = {
     renewUrl: string;
     amount: number;
   };
+  subscription?: {
+    orgId: string;
+    schoolName: string;
+    plan: string;
+    status: string;
+    paymentStatus: string;
+    subscriptionStart: string;
+    renewalOn: string;
+    daysLeft: number | null;
+    renewUrl: string;
+    amount: number;
+    invoices: {
+      id: string;
+      number: string;
+      description: string;
+      status: string;
+      issueDate: string;
+      dueDate: string;
+      total: number;
+      paid: number;
+      balance: number;
+      notes: string;
+      printUrl: string;
+    }[];
+  } | null;
   children?: {
     id: string;
     name: string;
@@ -329,8 +357,9 @@ export type RecordPayload = {
     lateKind: string;
     lateGraceDays: number;
     lateAmount: number;
-    lines: { label: string; kind: string; amount: number; scope?: string }[];
+    lines: { label: string; kind: string; amount: number }[];
   }[];
+  admissionFeeLines?: { id: string; classId: string; label: string; amount: number; sortOrder: number }[];
   people?: {
     id: string;
     name: string;
@@ -356,29 +385,31 @@ export type RecordPayload = {
     dateOfBirth?: string;
     dueAmount?: number;
     overdueCount?: number;
-    attendance?: { status: string }[];
-    invoiceIds?: string[];
     feeAddOns?: {
-      id?: string;
+      id: string;
       label: string;
       kind: string;
       amount: number;
-      cadence?: string;
-      startsPeriod?: string;
-      endsPeriod?: string;
-      active?: boolean;
+      cadence: string;
+      startsPeriod: string;
+      endsPeriod: string;
     }[];
+    attendance?: { status: string }[];
+    invoiceIds?: string[];
     invoices?: {
       id: string;
       title: string;
+      period?: string;
       due: string;
       amount: string;
       paid: string;
       remaining: string;
-      period?: string;
       dueNow?: number;
       lateLabel?: string;
       status: string;
+      invoiceUrl?: string;
+      receiptUrl?: string;
+      receiptNumber?: string;
     }[];
   }[];
   peopleTeachers?: {
@@ -516,6 +547,7 @@ export type RecordPayload = {
     website?: {
       enabled: boolean;
       slug: string;
+      domain: string;
       theme: string;
       heroTitle: string;
       heroSubtitle: string;

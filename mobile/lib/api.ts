@@ -107,9 +107,15 @@ export type Notice = {
 };
 
 async function parse(res: Response) {
-  const data = await res.json().catch(() => ({}));
+  const text = await res.text();
+  let data: { error?: string } = {};
+  try {
+    data = text ? (JSON.parse(text) as { error?: string }) : {};
+  } catch {
+    data = {};
+  }
   if (!res.ok) {
-    throw new Error((data as { error?: string }).error || "Request failed.");
+    throw new Error(data.error || `Request failed (${res.status}).`);
   }
   return data;
 }

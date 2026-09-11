@@ -2,7 +2,6 @@ import { Redirect, Slot, Tabs, useRouter } from "expo-router";
 import { ActivityIndicator, Pressable, Text, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { AppSearch } from "../../components/app-search";
 import { AppTabBar } from "../../components/app-tab-bar";
 import { NavMenu } from "../../components/nav-menu";
 import { NoticeBell } from "../../components/notice-bell";
@@ -63,8 +62,7 @@ function Sidebar() {
           <Text className="text-[11px] font-medium text-ink-500">{role}</Text>
         </View>
       </View>
-      <View className="mx-4 mb-3 h-px bg-ink-200" />
-      <View className="min-h-0 flex-1">
+      <View className="mt-3 min-h-0 flex-1">
         <NavMenu />
       </View>
     </SafeAreaView>
@@ -90,15 +88,10 @@ export default function AppLayout() {
       <RecordProvider>
         <View className="min-h-0 flex-1 flex-row overflow-hidden bg-[#F7F9FC]">
           <Sidebar />
-          <View className="min-h-0 flex-1">
-            <View className="z-30 h-16 shrink-0 flex-row items-center justify-between gap-4 border-b border-ink-200 bg-white px-6">
-              <View className="min-w-0 flex-1">
-                <AppSearch />
-              </View>
-              <View className="shrink-0 flex-row items-center gap-3">
-                <NoticeBell />
-                <ProfileChip />
-              </View>
+          <View className="min-h-0 flex-1 overflow-hidden">
+            <View className="h-14 shrink-0 flex-row items-center justify-end gap-2 border-b border-ink-200 bg-white px-5">
+              <NoticeBell />
+              <ProfileChip />
             </View>
             <View className="min-h-0 flex-1 overflow-hidden">
               <Slot />

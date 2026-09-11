@@ -112,8 +112,6 @@ Playwright uses ports 8082 and 4100 so it can run beside the normal Metro `:8081
 - Never commit `.only`; CI also enables Playwright `forbidOnly`.
 - Treat line coverage, responsive visual checks, accessibility scans, and native journeys as separate evidence. One percentage cannot replace the others.
 
-Codex does not currently expose a project write-time interception hook, so the TEA write hook is intentionally not installed. Run `bmad-testarch-test-review` for post-write enforcement of the test-quality criteria.
-
 ## Reports
 
 - Vitest execution: `test-results/vitest/index.html`, `junit.xml`, and `results.json`.
@@ -145,7 +143,3 @@ Give each parallel database job its own `TEST_DATABASE_URL`. Do not shard the SQ
 - **A visual test differs intentionally:** inspect the received/diff images in `test-results/playwright/`, run the headed test, then use `npm run test:visual:update` and review every changed PNG.
 - **Maestro cannot find an element:** confirm the installed build matches the current source and inspect IDs with `npm run maestro:studio`; Expo Go is unsupported for these flows.
 - **Coverage exits non-zero while tests pass:** open both HTML coverage reports. The strict 95% thresholds are working as designed; add meaningful branch and behavior tests rather than excluding production files.
-
-## Knowledge references
-
-The framework follows the repository TEA guidance in `mobile-test-strategy.md`, `maestro-flows.md`, `mobile-ci-device-lab.md`, `test-levels-framework.md`, `test-priorities-matrix.md`, and `test-quality.md`. Use those with the installed `bmad-testarch-framework`, `bmad-testarch-automate`, `bmad-testarch-test-review`, and `bmad-testarch-ci` skills when expanding the suite.

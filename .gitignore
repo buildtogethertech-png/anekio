@@ -1,6 +1,7 @@
 node_modules
 .next
 .env
+.env.production
 mobile/.expo
 mobile/dist
 mobile/ios
@@ -19,6 +20,7 @@ mobile/android
 _bmad/config.user.toml
 _bmad/custom/*.user.toml
 .vercel
+.vercel-prisma
 api/handler.cjs
 
 # Test reports, temporary databases, and local test configuration

@@ -4,7 +4,7 @@ This project uses a Jira-first workflow for code changes.
 
 ## Rule
 
-Do not use BMad for project changes. Use Jira as the source of change documentation.
+Use Jira as the source of change documentation.
 
 ## Before changing code
 

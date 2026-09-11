@@ -85,7 +85,7 @@ function record(
 }
 
 describe("StaffBoard leave requests", () => {
-  let currentData: any;
+  let currentData: ReturnType<typeof record>;
   let reload: jest.MockedFunction<() => Promise<void>>;
 
   beforeEach(() => {

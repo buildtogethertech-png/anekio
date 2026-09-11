@@ -33,7 +33,7 @@ export function AppTabBar() {
       <View className="flex-row">
         {tabs.map((key) => {
           const on = key === "more" ? onMore : pathMatches(key, pathname);
-          const color = on ? "#2855F6" : "#64748B";
+          const color = on ? "#2563eb" : "#64748B";
           const label = tabLabel(key, user?.portal, nav);
           return (
             <Pressable

@@ -4,8 +4,8 @@ import { toBuffer as barcodeBuffer } from "bwip-js/node";
 import type { AccessUser } from "./permissions";
 import { can } from "./permissions";
 import { prisma } from "./prisma";
-import { publicOrigin } from "./utils";
-import { invoiceBalance, paidFeeMonthCount } from "./fees";
+import { formatInr, publicOrigin } from "./utils";
+import { feeLineTotal, invoiceBalance, paidFeeMonthCount, parseFeeLines } from "./fees";
 import { buildStudentMonthPayPath } from "./pay";
 import { notifyNoticePublished } from "./push";
 import {
@@ -17,6 +17,9 @@ import {
 } from "./report-card-fields";
 import { gradePolicyFrom, marksVisible, seriesRanks, studentSeriesScore } from "./exams";
 import { schoolFromConfig } from "./school";
+import { readUploadDataUrl, resolveUploadPath } from "./uploads";
+
+const DEFAULT_DOCUMENT_SCHOOL_ID = "school";
 
 export type DocumentCategory = "STUDENT" | "ACADEMIC" | "FEES" | "EMPLOYEE" | "GENERAL";
 export type DocumentElementType =
@@ -186,8 +189,23 @@ export const DOCUMENT_FIELDS = [
   { group: "Fees", id: "fees.lines", label: "Fee line items" },
   { group: "Fees", id: "fees.amount", label: "Amount" },
   { group: "Fees", id: "fees.paid", label: "Amount paid" },
+  { group: "Fees", id: "fees.due", label: "Amount due" },
+  { group: "Fees", id: "fees.status", label: "Fee status" },
+  { group: "Fees", id: "fees.receiptLabel", label: "Receipt label" },
+  { group: "Fees", id: "fees.receiptNumber", label: "Receipt number" },
+  { group: "Fees", id: "fees.term", label: "Fee term" },
+  { group: "Fees", id: "fees.method", label: "Payment method" },
+  { group: "Fees", id: "fees.reference", label: "Payment reference" },
+  { group: "Fees", id: "fees.receivedBy", label: "Received by" },
+  { group: "Fees", id: "fees.receivedAt", label: "Received at" },
+  { group: "Fees", id: "fees.receivedNote", label: "Payment note" },
+  { group: "Fees", id: "fees.upiId", label: "UPI ID" },
+  { group: "Fees", id: "fees.bankName", label: "Bank name" },
+  { group: "Fees", id: "fees.account", label: "Bank account" },
+  { group: "Fees", id: "fees.paymentUrl", label: "Payment link" },
   { group: "Document", id: "document.number", label: "Document number" },
   { group: "Document", id: "document.issueDate", label: "Issue date" },
+  { group: "Document", id: "document.dueDate", label: "Due date" },
   { group: "Document", id: "document.verifyId", label: "Verify ID" },
 ];
 
@@ -748,11 +766,41 @@ export function defaultLayout(type: string): DocumentLayout {
   const palette = catalogPagePalette(type, meta?.category);
   const tableField = type === "REPORT_CARD" || type.includes("MARK") || type.includes("RESULT") || type.includes("PROGRESS")
     ? "results.marks"
-    : type.includes("FEE") || type.includes("RECEIPT") || type.includes("CHALLAN")
-      ? "fees.lines"
-      : type === "ADMIT_CARD" || type === "EXAM_DATE_SHEET"
-        ? "exam.schedule"
+    : type === "EXAM_DATE_SHEET" || type === "SEATING_PLAN" || type === "INVIGILATOR_DUTY"
+      ? "exam.schedule"
+      : meta?.category === "FEES"
+        ? "fees.lines"
         : "";
+  const title = meta?.label || "School document";
+  const isEmployee = meta?.category === "EMPLOYEE";
+  const isFinance = meta?.category === "FEES";
+  const isAcademic = meta?.category === "ACADEMIC";
+  const subjectField = isEmployee ? "employee.name" : "student.name";
+  const subjectIdField = isEmployee ? "employee.employeeId" : "student.admissionNo";
+  const subjectLabel = isEmployee ? "Employee" : meta?.category === "GENERAL" ? "Reference" : "Student";
+  const subjectIdLabel = isEmployee ? "Employee ID" : "Admission No.";
+  const classField = isEmployee ? "employee.role" : "student.classLabel";
+  const classLabel = isEmployee ? "Role" : "Class";
+  const isCertificate = /CERTIFICATE|BONAFIDE|CLEARANCE|CONFIRMATION|NO_DUES|PARTICIPATION|MERIT|ACHIEVEMENT/.test(type);
+  const isLetter = /LETTER|CIRCULAR|NOTICE|INVITATION|DECLARATION|CONSENT|ACKNOWLEDGEMENT/.test(type) || meta?.category === "GENERAL";
+  const bodyText = isFinance
+    ? "Please find the fee details below. Payments are posted to the student ledger after verification by the school office."
+    : isAcademic
+      ? "This academic document is issued from the official records maintained by the school for the current session."
+      : isEmployee
+        ? "This employee document is issued for the staff record stated below as maintained by the school office."
+        : isCertificate
+          ? "This is to certify that the details recorded below are true as per the official records maintained by the school."
+          : isLetter
+            ? "This document is issued by the school office for formal communication and record purposes."
+            : "This document is issued from the official school records.";
+  const statementText = isCertificate
+    ? "Issued on request, based on the particulars available in the school records on the issue date."
+    : isEmployee
+      ? "The above staff details may be verified with the school office using the document reference and verification code."
+      : isLetter
+        ? "Please use this section for the final communication text before issuing the document."
+        : "The above particulars are recorded for reference and may be verified with the school office.";
   const elements: DocumentElement[] = [
     element("page-bg", "SHAPE", 0, 0, 100, 100, { background: palette.page, locked: true }),
     element("paper", "SHAPE", 4, 3, 92, 94, { background: "#ffffff", borderColor: palette.line, locked: true }),
@@ -782,6 +830,14 @@ export function defaultLayout(type: string): DocumentLayout {
   } else if (!isCard) {
     elements.push(element("body", "TEXT", 10, 58, 80, 15, { value: "This document certifies that the information recorded above is maintained in the official school records.", fontSize: 11, align: "left", color: "#334155" }));
   }
+  elements.push(
+    element("footer-line", "LINE", 8, 88, 84, 0.2, { borderColor: "#d8e1ef", locked: true }),
+    element("prepared-label", "TEXT", 8, 91, 18, 1.4, { value: "Prepared by", fontSize: 10, color: "#64748b" }),
+    element("prepared-by", "TEXT", 8, 93, 32, 1.6, { value: "School Office", fontSize: 12, color: "#16253a" }),
+    element("stamp", "STAMP", 45, 88.8, 11, 7, { field: "school.stampPath", label: "Stamp" }),
+    element("signature", "SIGNATURE", 70, 89, 20, 5, { field: "school.signPath", label: "Signature" }),
+    element("signature-label", "TEXT", 68, 94.8, 24, 1.6, { value: "Authorized Signatory", fontSize: 11, align: "right", color: "#16253a" }),
+  );
   return { elements };
 }
 
@@ -792,6 +848,33 @@ export function parseDocumentLayout(value: string | null | undefined): DocumentL
   } catch {
     return { elements: [] };
   }
+}
+
+function withRequiredOfficialElements(type: string, layout: DocumentLayout): DocumentLayout {
+  let elements = layout.elements;
+  if ((type === "FEE_INVOICE" || type === "PAYMENT_RECEIPT") && !elements.some((item) => item.type === "VERIFY_QR")) {
+    elements = [
+      ...elements,
+      element("verify-qr", "VERIFY_QR", 84, 35.4, 6.5, 6.5, { label: "Verification QR", locked: true }),
+      element("verify-caption", "TEXT", 81.8, 42.1, 11, 1.4, { value: "VERIFY", fontSize: 7, fontWeight: "bold", align: "center", color: "#64748b" }),
+    ];
+  }
+  if (type === "PAYMENT_RECEIPT" && !elements.some((item) => item.field === "fees.method")) {
+    elements = [
+      ...elements,
+      element("audit-method-label", "TEXT", 8, 81.5, 14, 1.4, { value: "Method", fontSize: 9, fontWeight: "bold", color: "#64748b" }),
+      element("audit-method", "FIELD", 8, 83.2, 16, 1.8, { field: "fees.method", label: "Payment method", fontSize: 10, fontWeight: "bold", color: "#16253a" }),
+      element("audit-ref-label", "TEXT", 28, 81.5, 16, 1.4, { value: "Reference", fontSize: 9, fontWeight: "bold", color: "#64748b" }),
+      element("audit-ref", "FIELD", 28, 83.2, 22, 1.8, { field: "fees.reference", label: "Payment reference", fontSize: 10, fontWeight: "bold", color: "#16253a" }),
+      element("audit-by-label", "TEXT", 54, 81.5, 16, 1.4, { value: "Received by", fontSize: 9, fontWeight: "bold", color: "#64748b" }),
+      element("audit-by", "FIELD", 54, 83.2, 17, 1.8, { field: "fees.receivedBy", label: "Received by", fontSize: 10, fontWeight: "bold", color: "#16253a" }),
+      element("audit-at-label", "TEXT", 76, 81.5, 14, 1.4, { value: "Received at", fontSize: 9, fontWeight: "bold", color: "#64748b" }),
+      element("audit-at", "FIELD", 76, 83.2, 16, 1.8, { field: "fees.receivedAt", label: "Received at", fontSize: 10, fontWeight: "bold", color: "#16253a" }),
+      element("audit-note-label", "TEXT", 8, 85.6, 9, 1.4, { value: "Note", fontSize: 9, fontWeight: "bold", color: "#64748b" }),
+      element("audit-note", "FIELD", 17, 85.6, 75, 1.8, { field: "fees.receivedNote", label: "Payment note", fontSize: 9, color: "#334155" }),
+    ];
+  }
+  return { elements };
 }
 
 export function builtInTemplates() {
@@ -812,10 +895,11 @@ export function builtInTemplates() {
   }));
 }
 
-export async function documentStudioBundle() {
+export async function documentStudioBundle(user: AccessUser) {
+  const schoolId = schoolIdFor(user);
   const [templates, issued] = await Promise.all([
-    prisma.documentTemplate.findMany({ include: { versions: { orderBy: { version: "desc" }, take: 1 } }, orderBy: { updatedAt: "desc" } }),
-    prisma.issuedDocument.findMany({ include: { templateVersion: { include: { template: true } } }, orderBy: { issuedAt: "desc" }, take: 100 }),
+    prisma.documentTemplate.findMany({ where: { schoolId }, include: { versions: { orderBy: { version: "desc" }, take: 1 } }, orderBy: { updatedAt: "desc" } }),
+    prisma.issuedDocument.findMany({ where: { schoolId }, include: { templateVersion: { include: { template: true } } }, orderBy: { issuedAt: "desc" }, take: 100 }),
   ]);
   return {
     categories: DOCUMENT_CATEGORIES,
@@ -836,7 +920,7 @@ export async function documentStudioBundle() {
       activeVersion: row.activeVersion,
       hasDraft: Boolean(row.activeVersion && row.versions[0] && row.draftJson !== row.versions[0].layoutJson),
       updatedAt: row.updatedAt.toISOString(),
-      layout: parseDocumentLayout(row.draftJson),
+      layout: withRequiredOfficialElements(row.type, parseDocumentLayout(row.draftJson)),
     })),
     issued: issued.map((row) => ({
       id: row.id,
@@ -867,6 +951,10 @@ function safeObject(value: string) {
 
 function need(user: AccessUser, ...keys: string[]) {
   if (!keys.some((key) => can(user, key))) throw new Error("No access.");
+}
+
+function schoolIdFor(user: AccessUser) {
+  return String((user as AccessUser & { schoolId?: string | null }).schoolId || DEFAULT_DOCUMENT_SCHOOL_ID);
 }
 
 function cleanLayout(input: unknown): DocumentLayout {
@@ -901,14 +989,16 @@ function cleanLayout(input: unknown): DocumentLayout {
 
 export async function saveDocumentTemplateCore(user: AccessUser, input: Record<string, unknown>) {
   need(user, "documents.design", "school.edit");
+  const schoolId = schoolIdFor(user);
   const type = String(input.type || "");
   const meta = DOCUMENT_TYPES.find((row) => row.id === type);
   if (!meta) throw new Error("Choose a supported document type.");
   const name = String(input.name || meta.label).trim().slice(0, 100);
   if (!name) throw new Error("Template name is required.");
-  const layout = cleanLayout(input.layout);
+  const layout = withRequiredOfficialElements(type, cleanLayout(input.layout));
   if (!layout.elements.length) throw new Error("Add at least one element to the template.");
   const data = {
+    schoolId,
     type,
     category: meta.category,
     name,
@@ -922,7 +1012,7 @@ export async function saveDocumentTemplateCore(user: AccessUser, input: Record<s
   const id = String(input.id || "");
   if (id && !id.startsWith("builtin:")) {
     const existing = await prisma.documentTemplate.findUnique({ where: { id } });
-    if (!existing) throw new Error("Template not found.");
+    if (!existing || existing.schoolId !== schoolId) throw new Error("Template not found.");
     return prisma.documentTemplate.update({ where: { id }, data: { ...data, status: existing.status === "ARCHIVED" ? "DRAFT" : existing.status } });
   }
   return prisma.documentTemplate.create({ data: { ...data, createdById: user.id, status: "DRAFT" } });
@@ -930,28 +1020,31 @@ export async function saveDocumentTemplateCore(user: AccessUser, input: Record<s
 
 export async function publishDocumentTemplateCore(user: AccessUser, input: { id?: string }) {
   need(user, "documents.publish", "school.edit");
+  const schoolId = schoolIdFor(user);
   const id = String(input.id || "");
-  const row = await prisma.documentTemplate.findUnique({ where: { id }, include: { versions: { orderBy: { version: "desc" }, take: 1 } } });
+  const row = await prisma.documentTemplate.findFirst({ where: { id, schoolId }, include: { versions: { orderBy: { version: "desc" }, take: 1 } } });
   if (!row) throw new Error("Template not found.");
-  const layout = parseDocumentLayout(row.draftJson);
+  const layout = withRequiredOfficialElements(row.type, parseDocumentLayout(row.draftJson));
   if (!layout.elements.length) throw new Error("Template is empty.");
   if (!layout.elements.some((item) => item.type === "VERIFY_QR")) throw new Error("Verification QR is required before publishing this template.");
   const version = (row.versions[0]?.version || 0) + 1;
+  const layoutJson = JSON.stringify(layout);
   await prisma.$transaction([
     prisma.documentTemplate.updateMany({
-      where: { type: row.type, status: "ACTIVE", id: { not: row.id } },
+      where: { schoolId, type: row.type, status: "ACTIVE", id: { not: row.id } },
       data: { status: "PUBLISHED", updatedById: user.id },
     }),
-    prisma.documentTemplateVersion.create({ data: { templateId: row.id, version, layoutJson: row.draftJson, pageSize: row.pageSize, orientation: row.orientation, scopeJson: row.scopeJson, publishedById: user.id } }),
-    prisma.documentTemplate.update({ where: { id: row.id }, data: { status: "ACTIVE", activeVersion: version, updatedById: user.id } }),
+    prisma.documentTemplateVersion.create({ data: { schoolId, templateId: row.id, version, layoutJson, pageSize: row.pageSize, orientation: row.orientation, scopeJson: row.scopeJson, publishedById: user.id } }),
+    prisma.documentTemplate.update({ where: { id: row.id }, data: { status: "ACTIVE", activeVersion: version, draftJson: layoutJson, updatedById: user.id } }),
   ]);
   return { id: row.id, version };
 }
 
 export async function archiveDocumentTemplateCore(user: AccessUser, input: { id?: string }) {
   need(user, "documents.publish", "school.edit");
+  const schoolId = schoolIdFor(user);
   const id = String(input.id || "");
-  const row = await prisma.documentTemplate.findUnique({ where: { id } });
+  const row = await prisma.documentTemplate.findFirst({ where: { id, schoolId } });
   if (!row) throw new Error("Template not found.");
   await prisma.documentTemplate.update({ where: { id }, data: { status: "ARCHIVED", updatedById: user.id } });
 }
@@ -964,10 +1057,17 @@ function atPath(data: Record<string, unknown>, path: string) {
   return path.split(".").reduce<unknown>((value, key) => value && typeof value === "object" ? (value as Record<string, unknown>)[key] : undefined, data);
 }
 
-function assetSrc(value: unknown) {
+async function assetSrc(value: unknown) {
   const path = String(value || "");
   if (!path) return "";
-  return /^https?:\/\//i.test(path) ? path : `${publicOrigin()}/api/files/${path.replace(/^\/+/, "")}`;
+  if (/^(https?:\/\/|data:)/i.test(path)) return path;
+  const rel = path.replace(/^\/+/, "");
+  if (resolveUploadPath(rel).publicFile) return `${publicOrigin()}/api/files/${rel}`;
+  try {
+    return await readUploadDataUrl(rel);
+  } catch {
+    return "";
+  }
 }
 
 function gradeBadgeHtml(grade: unknown) {
@@ -1036,7 +1136,7 @@ async function renderIssuedHtml(layout: DocumentLayout, data: Record<string, unk
       const isAttendanceQr = item.type === "VERIFY_QR" && studentId && (documentType === "STUDENT_ID" || /attendance/i.test(item.label || ""));
       const url = item.type === "VERIFY_QR"
         ? isAttendanceQr ? `${publicOrigin()}/attendance/scan/${encodeURIComponent(studentId)}` : verifyUrl
-        : String(item.value || "");
+        : String((item.field ? atPath(data, item.field) : "") || item.value || "");
       if (!/^https?:\/\//i.test(url)) return `<div style="${base}border:1px dashed #bcccdc;display:flex;align-items:center;justify-content:center">QR URL missing</div>`;
       const image = await QRCode.toDataURL(url, { errorCorrectionLevel: "Q", margin: 4, width: 320, color: { dark: "#000000", light: "#ffffff" } });
       return `<img alt="${isAttendanceQr ? "Attendance scan QR" : item.type === "VERIFY_QR" ? "Document verification QR" : "QR code"}" src="${image}" style="${base}object-fit:contain">`;
@@ -1258,11 +1358,12 @@ export async function previewDocumentTemplateCore(user: AccessUser, input: Recor
 }
 
 async function resolveIssuableTemplate(user: AccessUser, templateId: string) {
+  const schoolId = schoolIdFor(user);
   const include = { versions: { orderBy: { version: "desc" as const }, take: 1 } };
   if (templateId.startsWith("builtin:")) {
     const type = templateId.slice("builtin:".length);
     const active = await prisma.documentTemplate.findFirst({
-      where: { type, status: "ACTIVE" },
+      where: { schoolId, type, status: "ACTIVE" },
       include,
     });
     if (active?.versions[0]) return active;
@@ -1270,6 +1371,7 @@ async function resolveIssuableTemplate(user: AccessUser, templateId: string) {
     if (!builtin) throw new Error("Unknown document type.");
     const created = await prisma.documentTemplate.create({
       data: {
+        schoolId,
         type: builtin.type,
         category: builtin.category,
         name: builtin.name,
@@ -1286,7 +1388,7 @@ async function resolveIssuableTemplate(user: AccessUser, templateId: string) {
     await publishDocumentTemplateCore(user, { id: created.id });
     return prisma.documentTemplate.findUniqueOrThrow({ where: { id: created.id }, include });
   }
-  const template = await prisma.documentTemplate.findUnique({ where: { id: templateId }, include });
+  const template = await prisma.documentTemplate.findFirst({ where: { id: templateId, schoolId }, include });
   if (!template || template.status !== "ACTIVE" || !template.versions[0]) {
     throw new Error("Publish an active template before issuing documents.");
   }
@@ -1295,13 +1397,14 @@ async function resolveIssuableTemplate(user: AccessUser, templateId: string) {
 
 export async function issueDocumentCore(user: AccessUser, input: Record<string, unknown>) {
   need(user, "documents.issue", "school.edit");
+  const schoolId = schoolIdFor(user);
   const template = await resolveIssuableTemplate(user, String(input.templateId || ""));
   const subjectType = String(input.subjectType || "CUSTOM").slice(0, 40);
   const subjectId = String(input.subjectId || "").slice(0, 120);
   if (!subjectId) throw new Error("Choose who or what this document is for.");
   const now = new Date();
   const year = now.getFullYear();
-  const count = await prisma.issuedDocument.count({ where: { type: template.type, issuedAt: { gte: new Date(year, 0, 1), lt: new Date(year + 1, 0, 1) } } });
+  const count = await prisma.issuedDocument.count({ where: { schoolId, type: template.type, issuedAt: { gte: new Date(year, 0, 1), lt: new Date(year + 1, 0, 1) } } });
   const code = template.type.split("_").map((word) => word[0]).join("").slice(0, 4);
   const documentNumber = `${code}-${year}-${String(count + 1).padStart(6, "0")}`;
   const verifyToken = randomBytes(24).toString("base64url");
@@ -1311,8 +1414,223 @@ export async function issueDocumentCore(user: AccessUser, input: Record<string, 
   data.document = { ...((data.document && typeof data.document === "object") ? data.document : {}), type: template.type, number: documentNumber, issueDate: now.toISOString().slice(0, 10), verifyId: verifyToken.slice(0, 10).toUpperCase() };
   const renderedHtml = await renderIssuedHtml(parseDocumentLayout(template.versions[0].layoutJson), data, verifyUrl, template.versions[0].pageSize, template.versions[0].orientation);
   const fileHash = createHash("sha256").update(renderedHtml).digest("hex");
-  const issued = await prisma.issuedDocument.create({ data: { documentNumber, verifyToken, templateVersionId: template.versions[0].id, type: template.type, subjectType, subjectId, subjectLabel: String(input.subjectLabel || "").slice(0, 200), batchId: String(input.batchId || "").slice(0, 80) || null, supersedesId: String(input.supersedesId || "").slice(0, 120) || null, dataJson: JSON.stringify(data), renderedHtml, fileHash, issuedById: user.id, events: { create: { action: "ISSUED", actorId: user.id, metadataJson: JSON.stringify({ ...(input.batchId ? { batchId: String(input.batchId) } : {}), ...(input.supersedesId ? { supersedesId: String(input.supersedesId) } : {}) }) } } } });
+  const issued = await prisma.issuedDocument.create({ data: { schoolId, documentNumber, verifyToken, templateVersionId: template.versions[0].id, type: template.type, subjectType, subjectId, subjectLabel: String(input.subjectLabel || "").slice(0, 200), batchId: String(input.batchId || "").slice(0, 80) || null, supersedesId: String(input.supersedesId || "").slice(0, 120) || null, dataJson: JSON.stringify(data), renderedHtml, fileHash, issuedById: user.id, events: { create: { action: "ISSUED", actorId: user.id, metadataJson: JSON.stringify({ ...(input.batchId ? { batchId: String(input.batchId) } : {}), ...(input.supersedesId ? { supersedesId: String(input.supersedesId) } : {}) }) } } } });
   return { id: issued.id, documentNumber, verifyUrl, documentUrl: `${publicOrigin()}/documents/${verifyToken}` };
+}
+
+export async function renderActiveFeeInvoiceTemplateHtml(token: string) {
+  const invoice = await prisma.feeInvoice.findUnique({
+    where: { shareToken: token },
+    include: {
+      student: { include: { class: true, parent: { include: { user: true } } } },
+      payments: true,
+    },
+  });
+  if (!invoice) return null;
+  const template = await prisma.documentTemplate.findFirst({
+    where: { schoolId: DEFAULT_DOCUMENT_SCHOOL_ID, type: "FEE_INVOICE", status: "ACTIVE" },
+    include: { versions: { orderBy: { version: "desc" }, take: 1 } },
+  });
+  if (!template?.versions[0]) return null;
+  const config = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
+  const school = schoolFromConfig(config);
+  const balance = invoiceBalance(invoice);
+  const latestPayment = [...invoice.payments].sort((a, b) => +b.paidAt - +a.paidAt)[0];
+  const receiptNumber = balance.paid > 0 ? paymentReceiptNumber(latestPayment?.reference, invoice.id) : "";
+  const lines = feeLineTotal(parseFeeLines(invoice.linesJson)).rows.map((row) => ({
+    item: row.label,
+    amount: formatInr(row.value),
+  }));
+  const payUrl = `${publicOrigin()}/pay/${encodeURIComponent(token)}`;
+  const data = {
+    school,
+    student: {
+      id: invoice.student.id,
+      name: invoice.student.name,
+      admissionNo: invoice.student.admissionNo,
+      classLabel: `${invoice.student.class.name}-${invoice.student.class.section}`,
+      parent: invoice.student.parent.user.name,
+      parentPhone: invoice.student.parent.phone || invoice.student.parent.user.phone || "",
+    },
+    guardian: {
+      name: invoice.student.parent.user.name,
+      phone: invoice.student.parent.phone || invoice.student.parent.user.phone || "",
+      email: invoice.student.parent.user.email,
+    },
+    fees: {
+      lines,
+      amount: formatInr(invoice.amount),
+      paid: formatInr(balance.paid),
+      due: formatInr(balance.dueNow),
+      status: balance.display === "PAID" ? "Paid" : balance.display === "OVERDUE" ? "Overdue" : balance.display === "PARTIAL" ? "Part paid" : "Unpaid",
+      receiptLabel: receiptNumber ? "Receipt No." : "",
+      receiptNumber,
+      term: invoice.title,
+      upiId: school.upiId,
+      bankName: school.bankName,
+      account: [school.bankAccountName, school.bankAccountNumber, school.bankIfsc].filter(Boolean).join(" · "),
+      paymentUrl: payUrl,
+    },
+    document: {
+      type: "FEE_INVOICE",
+      number: invoice.id.slice(-8).toUpperCase(),
+      issueDate: new Date().toISOString().slice(0, 10),
+      dueDate: invoice.dueDate.toISOString().slice(0, 10),
+      verifyId: token.slice(0, 10).toUpperCase(),
+    },
+  };
+  return renderIssuedHtml(
+    parseDocumentLayout(template.versions[0].layoutJson),
+    data,
+    `${publicOrigin()}/i/${encodeURIComponent(token)}`,
+    template.versions[0].pageSize,
+    template.versions[0].orientation
+  );
+}
+
+function paymentReceiptNumber(reference: string | null | undefined, invoiceId: string) {
+  const value = String(reference || "").trim();
+  const base = value ? value.split(":")[0] || value : "";
+  return (base || `RCPT-${invoiceId.slice(-8)}`).toUpperCase();
+}
+
+function paymentReceiptBase(reference: string | null | undefined) {
+  return String(reference || "").trim().split(":")[0] || "";
+}
+
+function receiptTerm(rows: { title: string; period: string }[]) {
+  if (!rows.length) return "";
+  if (rows.length === 1) return rows[0].title;
+  const sorted = [...rows].sort((a, b) => a.period.localeCompare(b.period) || a.title.localeCompare(b.title));
+  const parsed = sorted.map((row) => row.title.split(" · ").map((part) => part.trim()));
+  const commonSuffix = parsed[0]?.[1] && parsed.every((parts) => parts[1] === parsed[0][1]) ? parsed[0][1] : "";
+  if (commonSuffix && parsed.every((parts) => parts[0])) return `${parsed[0][0]} to ${parsed[parsed.length - 1][0]} · ${commonSuffix}`;
+  return `${sorted[0].title} to ${sorted[sorted.length - 1].title}`;
+}
+
+function paymentMethodLabel(method: unknown) {
+  const labels: Record<string, string> = {
+    CASH: "Cash",
+    UPI: "UPI",
+    RAZORPAY: "Razorpay",
+    CASHFREE: "Cashfree",
+    BILLDESK: "BillDesk",
+    BANK: "Bank transfer",
+    CHEQUE: "Cheque",
+  };
+  return labels[String(method || "")] || String(method || "Payment");
+}
+
+function paymentNoteParts(notes: unknown) {
+  const value = String(notes || "").trim();
+  const match = value.match(/^Collected by:\s*([^;]+)(?:;\s*Note:\s*(.+))?$/i);
+  if (!match) return { receivedBy: "", note: value };
+  return { receivedBy: match[1]?.trim() || "", note: match[2]?.trim() || "" };
+}
+
+function paymentReceivedAt(value: Date | string | null | undefined) {
+  const date = value ? new Date(value) : new Date();
+  return `${date.toISOString().slice(0, 10)} ${date.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false })}`;
+}
+
+export async function renderActivePaymentReceiptTemplateHtml(token: string) {
+  const invoice = await prisma.feeInvoice.findUnique({
+    where: { shareToken: token },
+    include: {
+      student: { include: { class: true, parent: { include: { user: true } } } },
+      payments: true,
+    },
+  });
+  if (!invoice) return null;
+  const paidAmount = invoice.payments.reduce((sum, payment) => sum + payment.amount, 0);
+  if (paidAmount <= 0) return null;
+  const template = await prisma.documentTemplate.findFirst({
+    where: { schoolId: DEFAULT_DOCUMENT_SCHOOL_ID, type: "PAYMENT_RECEIPT", status: "ACTIVE" },
+    include: { versions: { orderBy: { version: "desc" }, take: 1 } },
+  });
+  if (!template?.versions[0]) return null;
+  const config = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
+  const school = schoolFromConfig(config);
+  const latestPayment = [...invoice.payments].sort((a, b) => +b.paidAt - +a.paidAt)[0];
+  const receiptNumber = paymentReceiptNumber(latestPayment?.reference, invoice.id);
+  const receiptBase = paymentReceiptBase(latestPayment?.reference);
+  const noteParts = paymentNoteParts(latestPayment?.notes);
+  const manualMethod = latestPayment ? ["CASH", "UPI", "BANK", "CHEQUE"].includes(String(latestPayment.method)) : false;
+  const paidInvoices = receiptBase
+    ? (await prisma.feeInvoice.findMany({
+        where: { studentId: invoice.studentId },
+        include: { payments: true },
+        orderBy: { dueDate: "asc" },
+      }))
+        .map((paidInvoice) => ({
+          invoice: paidInvoice,
+          paid: paidInvoice.payments
+            .filter((payment) => paymentReceiptBase(payment.reference) === receiptBase)
+            .reduce((sum, payment) => sum + payment.amount, 0),
+        }))
+        .filter((row) => row.paid > 0)
+    : [{ invoice, paid: paidAmount }];
+  const receiptRows = paidInvoices.map((row) => ({
+    invoice: row.invoice.id.slice(-8).toUpperCase(),
+    title: row.invoice.title,
+    period: row.invoice.period || row.invoice.id,
+    paid: row.paid,
+  }));
+  const lines = receiptRows.map((row) => ({
+    invoiceNumber: row.invoice,
+    term: row.title,
+    amount: formatInr(row.paid),
+  }));
+  const totalPaid = paidInvoices.reduce((sum, row) => sum + row.paid, 0);
+  const data = {
+    school,
+    student: {
+      id: invoice.student.id,
+      name: invoice.student.name,
+      admissionNo: invoice.student.admissionNo,
+      classLabel: `${invoice.student.class.name}-${invoice.student.class.section}`,
+      parent: invoice.student.parent.user.name,
+      parentPhone: invoice.student.parent.phone || invoice.student.parent.user.phone || "",
+    },
+    guardian: {
+      name: invoice.student.parent.user.name,
+      phone: invoice.student.parent.phone || invoice.student.parent.user.phone || "",
+      email: invoice.student.parent.user.email,
+    },
+    fees: {
+      lines,
+      amount: formatInr(invoice.amount),
+      paid: formatInr(totalPaid),
+      due: formatInr(invoiceBalance(invoice).dueNow),
+      status: "Paid",
+      receiptLabel: "Receipt No.",
+      receiptNumber,
+      term: receiptTerm(receiptRows) || invoice.title,
+      method: paymentMethodLabel(latestPayment?.method),
+      reference: receiptBase || latestPayment?.reference || receiptNumber,
+      receivedBy: noteParts.receivedBy || (manualMethod ? "School office" : "Payment gateway"),
+      receivedAt: paymentReceivedAt(latestPayment?.paidAt),
+      receivedNote: noteParts.note,
+      upiId: school.upiId,
+      bankName: school.bankName,
+      account: [school.bankAccountName, school.bankAccountNumber, school.bankIfsc].filter(Boolean).join(" · "),
+      paymentUrl: "",
+    },
+    document: {
+      type: "PAYMENT_RECEIPT",
+      number: receiptNumber,
+      issueDate: (latestPayment?.paidAt || new Date()).toISOString().slice(0, 10),
+      dueDate: invoice.dueDate.toISOString().slice(0, 10),
+      verifyId: token.slice(0, 10).toUpperCase(),
+    },
+  };
+  return renderIssuedHtml(
+    withRequiredOfficialElements("PAYMENT_RECEIPT", parseDocumentLayout(template.versions[0].layoutJson)),
+    data,
+    `${publicOrigin()}/pay/${encodeURIComponent(token)}?paid=1`,
+    template.versions[0].pageSize,
+    template.versions[0].orientation
+  );
 }
 
 type BlockedDocumentStudent = {
@@ -1489,11 +1807,12 @@ export function batchDocumentsHtml(rows: Awaited<ReturnType<typeof findBatchDocu
 
 export async function resolveStudentIdCardScanCore(user: AccessUser, input: Record<string, unknown>) {
   need(user, "attendance.mark");
+  const schoolId = schoolIdFor(user);
   const raw = String(input.code || "").trim();
   const token = raw.match(/\/verify\/([^/?#]+)/)?.[1] || raw.match(/\/documents\/([^/?#]+)/)?.[1] || "";
   if (!token) throw new Error("Scan a Student ID card QR.");
   const row = await prisma.issuedDocument.findUnique({ where: { verifyToken: token } });
-  if (!row || row.type !== "STUDENT_ID" || row.subjectType !== "STUDENT" || row.status !== "VALID") {
+  if (!row || row.schoolId !== schoolId || row.type !== "STUDENT_ID" || row.subjectType !== "STUDENT" || row.status !== "VALID") {
     throw new Error("This is not a valid Student ID card.");
   }
   return { studentId: row.subjectId, documentNumber: row.documentNumber };
@@ -1501,12 +1820,13 @@ export async function resolveStudentIdCardScanCore(user: AccessUser, input: Reco
 
 export async function changeIssuedDocumentStatusCore(user: AccessUser, input: Record<string, unknown>) {
   need(user, "documents.revoke", "school.edit");
+  const schoolId = schoolIdFor(user);
   const id = String(input.id || "");
   const status = String(input.status || "").toUpperCase();
   if (!['VALID', 'REVOKED', 'SUPERSEDED', 'EXPIRED'].includes(status)) throw new Error("Choose a valid document status.");
   const reason = String(input.reason || "").trim().slice(0, 500);
   if (status !== "VALID" && !reason) throw new Error("Give a reason for this status change.");
-  const row = await prisma.issuedDocument.findUnique({ where: { id } });
+  const row = await prisma.issuedDocument.findFirst({ where: { id, schoolId } });
   if (!row) throw new Error("Issued document not found.");
   await prisma.$transaction([
     prisma.issuedDocument.update({ where: { id }, data: { status, statusReason: reason } }),
@@ -1516,10 +1836,11 @@ export async function changeIssuedDocumentStatusCore(user: AccessUser, input: Re
 
 export async function reissueDocumentCore(user: AccessUser, input: Record<string, unknown>) {
   need(user, "documents.issue", "school.edit");
+  const schoolId = schoolIdFor(user);
   const id = String(input.id || "");
   const reason = String(input.reason || "").trim().slice(0, 500);
   if (!reason) throw new Error("Give a reason for reissuing this document.");
-  const previous = await prisma.issuedDocument.findUnique({ where: { id }, include: { templateVersion: true } });
+  const previous = await prisma.issuedDocument.findFirst({ where: { id, schoolId }, include: { templateVersion: true } });
   if (!previous) throw new Error("Issued document not found.");
   if (previous.status !== "VALID") throw new Error("Only a valid document can be reissued.");
   const next = await issueDocumentCore(user, {

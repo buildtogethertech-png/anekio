@@ -14,14 +14,16 @@ export function ScreenPage({ screen }: { screen: string }) {
     (screen === "attendance" && data?.kind === "TEACHER") ||
     screen === "staff" ||
     screen === "exams" ||
-    (screen === "timetable" && data?.kind === "OFFICE");
+    (screen === "timetable" && data?.kind === "OFFICE") ||
+    (screen === "fees" && data?.kind === "OFFICE");
 
   const teacherExams = screen === "exams" && data?.kind === "TEACHER";
   const teacherAttendance = screen === "attendance" && data?.kind === "TEACHER";
   const officeStaff = screen === "staff" && data?.kind === "OFFICE";
+  const officeFees = screen === "fees" && data?.kind === "OFFICE";
   const parentTests = screen === "tests" && data?.kind === "PARENT";
   const workspacePage = workspace || parentTests;
-  const tightPad = teacherExams || teacherAttendance || officeStaff;
+  const tightPad = teacherExams || teacherAttendance || officeStaff || officeFees;
   return (
     <SafeAreaView
       className={`min-h-0 flex-1 overflow-hidden ${screen === "exams" ? "bg-[#F7F9FC]" : "bg-ink-50"}`}

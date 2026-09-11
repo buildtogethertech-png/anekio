@@ -83,6 +83,8 @@ export async function startNextSchoolSession() {
         create: old.map((t) => ({
           classId: t.classId,
           name: t.name,
+          startsPeriod: t.startsPeriod,
+          endsPeriod: t.endsPeriod,
           dueDay: t.dueDay,
           lateKind: t.lateKind,
           lateGraceDays: t.lateGraceDays,
@@ -157,6 +159,8 @@ export async function createSchoolSession(input: {
         create: old.map((t) => ({
           classId: t.classId,
           name: t.name,
+          startsPeriod: t.startsPeriod,
+          endsPeriod: t.endsPeriod,
           dueDay: t.dueDay,
           lateKind: t.lateKind,
           lateGraceDays: t.lateGraceDays,

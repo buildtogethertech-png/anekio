@@ -34,7 +34,7 @@ export const DEFAULT_PAYROLL_RULES: PayrollRules = {
   lateDeductionMode: "NONE",
   lateDeductionAmount: 0,
   lateDayFraction: 0.25,
-  latesPerLeaveDay: 0,
+  latesPerLeaveDay: 3,
 };
 
 const LATE_MODES = new Set<LateDeductionMode>(["NONE", "FIXED_PER_LATE", "DAY_FRACTION"]);
@@ -162,14 +162,7 @@ export function summarizePayroll(input: {
   const payableDays = roundHalf(Math.max(0, payable - batch.lateLeaveDays));
   const dailySalary = working ? roundMoney(input.salary / working) : 0;
   const earned = !working ? 0 : payableDays === working ? input.salary : roundMoney(dailySalary * payableDays);
-  const deductibleLates = batch.deductibleLates;
-  const mode = input.rules.lateDeductionMode || "NONE";
-  const extraLateCut =
-    mode === "FIXED_PER_LATE"
-      ? roundMoney(batch.leftoverLates * Math.max(0, input.rules.lateDeductionAmount || 0))
-      : mode === "DAY_FRACTION"
-        ? roundMoney(batch.leftoverLates * dailySalary * Math.min(1, Math.max(0, input.rules.lateDayFraction || 0)))
-        : 0;
+  const extraLateCut = 0;
   const finalAmount = roundMoney(earned + otherAdj - extraLateCut);
   const attendanceAdj = roundMoney(finalAmount - input.salary - otherAdj);
   return {
@@ -179,7 +172,7 @@ export function summarizePayroll(input: {
     leave,
     halfDay,
     late: lateDates.length,
-    deductibleLates,
+    deductibleLates: batch.deductibleLates,
     lateLeaveDays: batch.lateLeaveDays,
     extraLateCut,
     payableDays,

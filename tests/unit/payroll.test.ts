@@ -125,7 +125,7 @@ describe("summarizePayroll", () => {
     expect(liveMarkFromIn("ABSENT", "08:15", "08:00", 10)).toBe("LATE");
   });
 
-  it("keeps lateCredit as a payable day and cuts extra rupees only after free lates", () => {
+  it("does not apply a separate rupee late cut", () => {
     const dates = datesOf(22);
     const marks = new Map(dates.map((date, i) => [date, i < 3 ? "LATE" : "PRESENT"] as const));
     const summary = summarizePayroll({
@@ -134,16 +134,13 @@ describe("summarizePayroll", () => {
       calendar,
       marks,
       paidLeave: new Map(),
-      rules: { ...RULES, freeLateCount: 1, lateDeductionMode: "FIXED_PER_LATE", lateDeductionAmount: 50 },
+      rules: { ...RULES, latesPerLeaveDay: 0, lateDeductionMode: "FIXED_PER_LATE", lateDeductionAmount: 50 },
       salary: 22000,
     });
-    expect(summary.present).toBe(22);
     expect(summary.late).toBe(3);
-    expect(summary.deductibleLates).toBe(2);
     expect(summary.payableDays).toBe(22);
-    expect(summary.extraLateCut).toBe(100);
-    expect(summary.finalAmount).toBe(21900);
-    expect(summary.attendanceAdj).toBe(-100);
+    expect(summary.extraLateCut).toBe(0);
+    expect(summary.finalAmount).toBe(22000);
   });
 
   it("converts every 3 or 5 lates into one unpaid payable day", () => {
@@ -162,6 +159,7 @@ describe("summarizePayroll", () => {
     expect(three.lateLeaveDays).toBe(2);
     expect(three.payableDays).toBe(20);
     expect(three.finalAmount).toBe(20000);
+    expect(three.attendanceAdj).toBe(-2000);
 
     const fiveLate = new Map(dates.map((date, i) => [date, i < 5 ? "LATE" : "PRESENT"] as const));
     const five = summarizePayroll({
@@ -188,6 +186,26 @@ describe("summarizePayroll", () => {
     });
     expect(leftover.lateLeaveDays).toBe(1);
     expect(leftover.payableDays).toBe(21);
+  });
+
+  it("cuts one unpaid day of salary when there are exactly 3 lates", () => {
+    const dates = datesOf(22);
+    const marks = new Map(dates.map((date, i) => [date, i < 3 ? "LATE" : "PRESENT"] as const));
+    const summary = summarizePayroll({
+      dates,
+      today: "2026-09-22",
+      calendar,
+      marks,
+      paidLeave: new Map(),
+      rules: { ...RULES, latesPerLeaveDay: 3 },
+      salary: 22000,
+    });
+    expect(summary.late).toBe(3);
+    expect(summary.lateLeaveDays).toBe(1);
+    expect(summary.payableDays).toBe(21);
+    expect(summary.dailySalary).toBe(1000);
+    expect(summary.finalAmount).toBe(21000);
+    expect(summary.attendanceAdj).toBe(-1000);
   });
 
   it("credits half days at half a payable day", () => {

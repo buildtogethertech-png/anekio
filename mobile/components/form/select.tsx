@@ -11,6 +11,10 @@ export type SelectOption = {
   group?: string;
 };
 
+function normalizeSearch(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
 export function Select({
   label,
   value,
@@ -35,9 +39,12 @@ export function Select({
   }, [open]);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return options;
-    return options.filter((o) => (o.searchText || o.label).toLowerCase().includes(q));
+    const terms = normalizeSearch(query).split(" ").filter(Boolean);
+    if (!terms.length) return options;
+    return options.filter((o) => {
+      const haystack = normalizeSearch(`${o.label} ${o.searchText || ""} ${o.id}`);
+      return terms.every((term) => haystack.includes(term));
+    });
   }, [options, query]);
 
   const control = (
@@ -54,6 +61,8 @@ export function Select({
                 placeholder="Search"
                 placeholderTextColor="#3d4f66"
                 autoFocus={Platform.OS === "web"}
+                autoCapitalize="none"
+                autoCorrect={false}
                 className="border-b border-ink-100 px-3 py-2.5 text-sm text-ink-900"
               />
             ) : null}

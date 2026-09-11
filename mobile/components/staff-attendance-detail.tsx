@@ -178,7 +178,7 @@ export function StaffAttendanceDetail({
   const [busy, setBusy] = useState(false);
   const kind = person.kind === "teacher" ? "teacher" : "staff";
   const key = personKey(kind, person.id);
-  const payrollRules = rules || parsePayrollRules(null);
+  const payrollRules = parsePayrollRules(rules ? JSON.stringify(rules) : null);
   const dates = useMemo(() => daysInMonth(month), [month]);
   const run = (payroll ?? []).find((row) => row.personKey === key && row.month === month);
   const lockedPay = run?.status === "APPROVED" || run?.status === "PAID";
@@ -302,11 +302,13 @@ export function StaffAttendanceDetail({
         attendanceAdj: summary.attendanceAdj,
         otherAdj: summary.otherAdj,
         finalAmount: summary.finalAmount,
-        snapshot: {
+          snapshot: {
           present: summary.present,
-          absent: summary.absent,
+          absent: summary.absent + (live.lateLeaveDays || 0),
           leave: summary.leave,
           halfDay: summary.halfDay,
+          late: summary.late,
+          lateLeaveDays: live.lateLeaveDays || 0,
         },
       });
       toast.show(status === "APPROVED" ? "Payment approved." : "Saved as pending review.");
@@ -457,7 +459,7 @@ export function StaffAttendanceDetail({
       <View className="mb-3 flex-row flex-wrap gap-2">
         <StatChip icon="calendar-outline" label="Working days" value={String(summary.working)} />
         <StatChip icon="checkmark-circle-outline" label="Present" value={String(summary.present)} />
-        <StatChip icon="close-circle-outline" label="Absent" value={String(summary.absent)} />
+        <StatChip icon="close-circle-outline" label="Absent" value={String(summary.absent + (live.lateLeaveDays || 0))} />
         <StatChip icon="walk-outline" label="Leave" value={String(summary.leave)} />
         <StatChip icon="time-outline" label="Late" value={String(summary.late)} />
         <StatChip icon="remove-circle-outline" label="Half day" value={String(summary.halfDay)} />
@@ -509,7 +511,7 @@ export function StaffAttendanceDetail({
             <Text className="mt-0.5 text-[22px] font-semibold text-ink-900">{summary.payableDays} Days</Text>
             <Text className="mt-0.5 text-[11px] text-ink-500">
               {payrollRules.latesPerLeaveDay
-                ? `${payrollRules.latesPerLeaveDay} lates = 1 unpaid day`
+                ? `${payrollRules.latesPerLeaveDay} lates = 1 unpaid absent day`
                 : "Calculated according to configured payroll rules"}
             </Text>
           </View>
@@ -518,11 +520,13 @@ export function StaffAttendanceDetail({
           <PayRow label="Working Days" value={String(summary.working)} />
           <PayRow label="Payable Days" value={String(summary.payableDays)} />
           {live.lateLeaveDays ? (
-            <PayRow label="Late → leave" value={`−${live.lateLeaveDays} day${live.lateLeaveDays === 1 ? "" : "s"}`} />
+            <PayRow
+              label="Unpaid from lates"
+              value={`−${live.lateLeaveDays} day${live.lateLeaveDays === 1 ? "" : "s"} (${payrollRules.latesPerLeaveDay} lates = 1 absent)`}
+            />
           ) : null}
           <PayRow label="Daily Salary" value={inr(summary.dailySalary, 2)} />
           <PayRow label="Attendance Adjustment" value={inr(summary.attendanceAdj)} />
-          {live.extraLateCut ? <PayRow label="Extra late cut" value={inr(live.extraLateCut)} /> : null}
           <PayRow label="Other Adjustments" value={inr(summary.otherAdj)} />
           <View className="mt-3 rounded-lg border border-clay-200 bg-[#EEF2FF] px-3 py-3">
             <Text className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">Final Payable Amount</Text>
@@ -623,11 +627,14 @@ export function StaffAttendanceDetail({
           <PayRow label="Month" value={monthTitle(month)} />
           <PayRow label="Working Days" value={String(summary.working)} />
           <PayRow label="Present" value={String(summary.present)} />
-          <PayRow label="Absent" value={String(summary.absent)} />
+          <PayRow label="Absent" value={String(summary.absent + (live.lateLeaveDays || 0))} />
           <PayRow label="Leave" value={String(summary.leave)} />
           <PayRow label="Payable Days" value={String(summary.payableDays)} />
           {live.lateLeaveDays ? (
-            <PayRow label="Late → leave" value={`−${live.lateLeaveDays} day${live.lateLeaveDays === 1 ? "" : "s"}`} />
+            <PayRow
+              label="Unpaid from lates"
+              value={`−${live.lateLeaveDays} day${live.lateLeaveDays === 1 ? "" : "s"} (${payrollRules.latesPerLeaveDay} lates = 1 absent)`}
+            />
           ) : null}
           <PayRow label="Monthly Salary" value={inr(summary.salary)} />
           <PayRow label="Daily Salary" value={inr(summary.dailySalary, 2)} />

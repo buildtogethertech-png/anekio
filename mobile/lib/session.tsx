@@ -10,8 +10,22 @@ type Session = {
   nav: NavItem[];
   refresh: () => Promise<void>;
   signIn: (login: string, password: string) => Promise<void>;
+  requestLoginCode: (login: string) => Promise<AuthCodeResponse>;
+  signInWithCode: (login: string, code: string) => Promise<void>;
+  requestPasswordReset: (login: string) => Promise<AuthCodeResponse>;
+  resetPassword: (login: string, code: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
 };
+
+export type AuthCodeResponse = {
+  ok: true;
+  message: string;
+  destination: string;
+  expiresInSeconds: number;
+  developmentCode?: string;
+};
+
+type LoginResponse = { token: string; user: SessionUser; nav: NavItem[] };
 
 const SessionContext = createContext<Session | null>(null);
 
@@ -26,6 +40,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setTok(next);
     setUser(me.user);
     setNav(me.nav);
+  }
+
+  async function applyLogin(response: LoginResponse) {
+    await setToken(response.token);
+    setTok(response.token);
+    setUser(response.user);
+    setNav(response.nav);
   }
 
   useEffect(() => {
@@ -54,14 +75,36 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         await hydrate(saved);
       },
       async signIn(login, password) {
-        const res = await api<{ token: string; user: SessionUser; nav: NavItem[] }>("/login", null, {
+        const res = await api<LoginResponse>("/login", null, {
           method: "POST",
           body: JSON.stringify({ login, password }),
         });
-        await setToken(res.token);
-        setTok(res.token);
-        setUser(res.user);
-        setNav(res.nav);
+        await applyLogin(res);
+      },
+      async requestLoginCode(login) {
+        return api<AuthCodeResponse>("/login/otp/request", null, {
+          method: "POST",
+          body: JSON.stringify({ login }),
+        });
+      },
+      async signInWithCode(login, code) {
+        const res = await api<LoginResponse>("/login/otp/verify", null, {
+          method: "POST",
+          body: JSON.stringify({ login, code }),
+        });
+        await applyLogin(res);
+      },
+      async requestPasswordReset(login) {
+        return api<AuthCodeResponse>("/login/password/request", null, {
+          method: "POST",
+          body: JSON.stringify({ login }),
+        });
+      },
+      async resetPassword(login, code, password) {
+        await api<{ ok: true }>("/login/password/reset", null, {
+          method: "POST",
+          body: JSON.stringify({ login, code, password }),
+        });
       },
       async signOut() {
         try {

@@ -26,7 +26,7 @@ export async function recordLedgerPayment(data: {
 }) {
   if (data.reference) {
     const dup = await prisma.payment.findFirst({
-      where: { reference: data.reference, method: data.method },
+      where: { invoiceId: data.invoiceId, reference: data.reference, method: data.method },
     });
     if (dup) return dup;
   }

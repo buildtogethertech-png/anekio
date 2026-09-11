@@ -27,6 +27,7 @@ export const PERMISSIONS = [
   { key: "staff.edit", group: "Employees", label: "Add employees and mark attendance", hint: "Teachers, staff, attendance", portals: ["OFFICE"] },
   { key: "leave.decide", group: "Employees", label: "Decide employee leave", hint: "Review leave within the selected access scope", portals: ["OFFICE", "TEACHER"] },
   { key: "school.edit", group: "School settings", label: "Edit school settings", hint: "Letterhead, classes, calendar, sessions, pay, messages", portals: ["OFFICE"], see: true },
+  { key: "subscription.manage", group: "School settings", label: "Manage subscription", hint: "Plan, renewal, and Anekio invoices", portals: ["OFFICE"], see: true },
   { key: "documents.view", group: "Documents", label: "See document templates", hint: "Templates and issued-document register", portals: ["OFFICE"], see: true },
   { key: "documents.design", group: "Documents", label: "Design templates", hint: "Create and edit document layouts", portals: ["OFFICE"] },
   { key: "documents.publish", group: "Documents", label: "Publish templates", hint: "Make a template active for issuing", portals: ["OFFICE"] },

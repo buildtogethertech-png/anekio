@@ -107,10 +107,11 @@ export function GeneratePayment({
   onClose: () => void;
   onDone: (message: string) => Promise<void> | void;
 }) {
-  const { token } = useSession();
+  const { token, user } = useSession();
   const [picked, setPicked] = useState<string[]>([]);
   const [method, setMethod] = useState<Method>("CASH");
   const [reference, setReference] = useState("");
+  const [collectedBy, setCollectedBy] = useState("");
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState<Busy>(null);
   const [copied, setCopied] = useState(false);
@@ -148,11 +149,12 @@ export function GeneratePayment({
     setPicked(months.map((m) => m.id));
     setMethod("CASH");
     setReference("");
+    setCollectedBy(user?.name || "");
     setNotes("");
     setBusy(null);
     setCopied(false);
     setError("");
-  }, [open, lead?.id, months.length]);
+  }, [open, lead?.id, months.length, user?.name]);
 
   function toggle(id: string) {
     setPicked((ids) => (ids.includes(id) ? ids.filter((row) => row !== id) : [...ids, id]));
@@ -177,6 +179,10 @@ export function GeneratePayment({
 
   async function collect() {
     if (!selected.length || method === "RAZORPAY") return;
+    if (!collectedBy.trim()) {
+      setError("Enter who collected or recorded this payment.");
+      return;
+    }
     setBusy("collect");
     setError("");
     try {
@@ -190,6 +196,7 @@ export function GeneratePayment({
           invoiceIds,
           method,
           reference: reference.trim() || undefined,
+          collectedBy: collectedBy.trim() || undefined,
           notes: notes.trim() || undefined,
         });
       }
@@ -275,6 +282,7 @@ export function GeneratePayment({
   const waLabel = busy === "whatsapp" ? "Opening" : "WhatsApp";
   const callLabel = busy === "call" ? "Calling" : "Call";
   const collectLabel = busy === "collect" ? "Collecting…" : `Collect ${selected.length} ${monthWord}`;
+  const manualReady = method === "RAZORPAY" || Boolean(collectedBy.trim());
 
   return (
     <Modal open={open} title={heading} onClose={onClose} wide>
@@ -389,10 +397,15 @@ export function GeneratePayment({
               </Text>
             </View>
           ) : null}
-          {method === "CASH" || method === "CHEQUE" ? (
-            <Field label="Note">
-              <Input value={notes} onChangeText={setNotes} placeholder="Optional" editable={!locked} />
-            </Field>
+          {method !== "RAZORPAY" ? (
+            <View className="gap-3">
+              <Field label="Collected by">
+                <Input value={collectedBy} onChangeText={setCollectedBy} placeholder="Name of staff / counter" editable={!locked} />
+              </Field>
+              <Field label="Note">
+                <Input value={notes} onChangeText={setNotes} placeholder="Optional receipt note" editable={!locked} />
+              </Field>
+            </View>
           ) : null}
 
           {error ? <Text className="text-sm text-red-700">{error}</Text> : null}
@@ -405,9 +418,13 @@ export function GeneratePayment({
               <>
                 <Button
                   variant="ghost"
-                  disabled={!lead || locked}
+                  disabled={!lead || locked || !manualReady}
                   onPress={async () => {
                     if (!lead) return;
+                    if (!collectedBy.trim()) {
+                      setError("Enter who collected or recorded this payment.");
+                      return;
+                    }
                     setBusy("collect");
                     setError("");
                     try {
@@ -415,6 +432,7 @@ export function GeneratePayment({
                         studentId: lead.id,
                         method,
                         reference: reference.trim() || undefined,
+                        collectedBy: collectedBy.trim() || undefined,
                         notes: notes.trim() || "Full payment",
                       });
                       await onDone("Collected all due.");
@@ -427,7 +445,7 @@ export function GeneratePayment({
                 >
                   Collect all due
                 </Button>
-                <Button disabled={!selected.length || locked} onPress={collect}>
+                <Button disabled={!selected.length || locked || !manualReady} onPress={collect}>
                   {collectLabel}
                 </Button>
               </>

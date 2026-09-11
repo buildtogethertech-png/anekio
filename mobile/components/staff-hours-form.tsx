@@ -1,8 +1,7 @@
 import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 import { Platform, Pressable, Text, View } from "react-native";
-import { Dropdown } from "./form";
 import { Button, Field, Input, Toast, useToast } from "./ui";
-import { normalizeHHmm, parsePayrollRules, type LateDeductionMode } from "../lib/payroll";
+import { normalizeHHmm, parsePayrollRules } from "../lib/payroll";
 import type { RecordPayload } from "../lib/record";
 
 export type StaffHoursFormHandle = { save: () => Promise<void> };
@@ -22,9 +21,6 @@ export const StaffHoursForm = forwardRef<
   const [endTime, setEndTime] = useState(parsed.endTime);
   const [graceMinutes, setGraceMinutes] = useState(String(parsed.graceMinutes));
   const [freeLateCount, setFreeLateCount] = useState(String(parsed.freeLateCount));
-  const [lateDeductionMode, setLateDeductionMode] = useState<LateDeductionMode>(parsed.lateDeductionMode);
-  const [lateDeductionAmount, setLateDeductionAmount] = useState(String(parsed.lateDeductionAmount));
-  const [lateDayFraction, setLateDayFraction] = useState(String(parsed.lateDayFraction));
   const [latesPerLeaveDay, setLatesPerLeaveDay] = useState(String(parsed.latesPerLeaveDay));
   const toast = useToast();
   const [busy, setBusy] = useState(false);
@@ -35,9 +31,6 @@ export const StaffHoursForm = forwardRef<
     endTime,
     graceMinutes,
     freeLateCount,
-    lateDeductionMode,
-    lateDeductionAmount,
-    lateDayFraction,
     latesPerLeaveDay,
   });
   draft.current = {
@@ -47,9 +40,6 @@ export const StaffHoursForm = forwardRef<
     endTime,
     graceMinutes,
     freeLateCount,
-    lateDeductionMode,
-    lateDeductionAmount,
-    lateDayFraction,
     latesPerLeaveDay,
   };
 
@@ -69,9 +59,9 @@ export const StaffHoursForm = forwardRef<
         endTime: end,
         graceMinutes: grace,
         freeLateCount: Number(cur.freeLateCount) || 0,
-        lateDeductionMode: cur.lateDeductionMode,
-        lateDeductionAmount: Number(cur.lateDeductionAmount) || 0,
-        lateDayFraction: Number(cur.lateDayFraction) || 0,
+        lateDeductionMode: "NONE",
+        lateDeductionAmount: 0,
+        lateDayFraction: 0,
         latesPerLeaveDay: Number(cur.latesPerLeaveDay) || 0,
       });
     } finally {
@@ -113,9 +103,9 @@ export const StaffHoursForm = forwardRef<
         </Field>
       </View>
       <View className="mt-3">
-        <Text className="text-xs font-medium text-ink-800">Lates that equal 1 leave day</Text>
+        <Text className="text-xs font-medium text-ink-800">Lates that equal 1 unpaid absent day</Text>
         <Text className="mt-0.5 text-[11px] text-ink-500">
-          Example: 3 lates = 1 unpaid day, or 5 lates = 1 unpaid day. Remainder stays as Late.
+          3 lates = 1 day cut from payable salary. 6 lates = 2 days. Remainder stays Late.
         </Text>
         <View className="mt-2 flex-row flex-wrap items-center gap-2">
           {(
@@ -149,32 +139,8 @@ export const StaffHoursForm = forwardRef<
           </Field>
         </View>
       </View>
-      <View className="mt-3 flex-row flex-wrap items-end gap-3">
-        <View className="min-w-[200px] flex-1">
-          <Field label="Extra late cut">
-            <Dropdown
-              value={lateDeductionMode}
-              options={[
-                { id: "NONE", label: "None" },
-                { id: "FIXED_PER_LATE", label: "Fixed rupees per extra late" },
-                { id: "DAY_FRACTION", label: "Fraction of a day's salary" },
-              ]}
-              onChange={(id) => setLateDeductionMode(id as LateDeductionMode)}
-              className="w-full"
-            />
-          </Field>
-        </View>
-        {lateDeductionMode === "FIXED_PER_LATE" ? (
-          <Field label="₹ per extra late">
-            <Input keyboardType="number-pad" value={lateDeductionAmount} onChangeText={setLateDeductionAmount} className="w-28" />
-          </Field>
-        ) : null}
-        {lateDeductionMode === "DAY_FRACTION" ? (
-          <Field label="Day fraction">
-            <Input value={lateDayFraction} onChangeText={setLateDayFraction} placeholder="0.25" className="w-24" />
-          </Field>
-        ) : null}
-        {canEdit && !hideButton ? (
+      {canEdit && !hideButton ? (
+        <View className="mt-3">
           <Button
             disabled={busy}
             onPress={() => {
@@ -182,12 +148,12 @@ export const StaffHoursForm = forwardRef<
                 toast.show(e instanceof Error ? e.message : "Could not save.");
               });
             }}
-            style={Platform.OS === "web" && !busy ? { cursor: "pointer" } : undefined}
+            style={Platform.OS === "web" ? { cursor: busy ? "default" : "pointer" } : undefined}
           >
             {busy ? "Saving…" : "Save late timing"}
           </Button>
-        ) : null}
-      </View>
+        </View>
+      ) : null}
     </View>
   );
 });

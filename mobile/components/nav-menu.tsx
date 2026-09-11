@@ -8,10 +8,13 @@ import { useSession } from "../lib/session";
 import { PageHeader } from "./ui";
 
 const OFFICE_SIDEBAR_ORDER = new Map(
-  ["home", "inbox", "people", "staff", "timetable", "fees", "exams", "notices", "admissions", "school", "roles"].map((key, index) => [
-    key,
-    index,
-  ])
+  ["home", "inbox", "people", "staff", "timetable", "fees", "exams", "notices", "admissions", "school", "subscription", "roles"].map(
+    (key, index) => [key, index]
+  )
+);
+
+const PARENT_SIDEBAR_ORDER = new Map(
+  ["home", "inbox", "notices", "attendance", "timetable", "fees", "tests"].map((key, index) => [key, index])
 );
 
 const PARENT_SIDEBAR_ORDER = new Map(
@@ -55,7 +58,7 @@ export function NavMenu({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <View className="flex-1">
-      <ScrollView className="flex-1 px-2" contentContainerStyle={{ paddingBottom: 8 }}>
+      <ScrollView className="flex-1 px-3" contentContainerStyle={{ paddingBottom: 24 }}>
         {items.map((item) => {
           const on = active(item.key);
           const badge = item.key === "notices" ? inbox?.unread || 0 : 0;
@@ -63,10 +66,14 @@ export function NavMenu({ onNavigate }: { onNavigate?: () => void }) {
             <Pressable
               key={item.key}
               onPress={() => go(item.key)}
-              className={`anekio-nav-item mb-0.5 min-h-[40px] flex-row items-center gap-2.5 rounded-xl px-3 ${on ? "bg-[#EEF4FF]" : ""}`}
+              className={`anekio-nav-item mb-1 min-h-[48px] flex-row items-center gap-3 rounded-lg border px-3 ${
+                on ? "border-clay-200 bg-clay-50" : "border-transparent"
+              }`}
             >
-              <Ionicons name={iconForNav(item.key)} size={18} color={on ? "#2563EB" : "#64748B"} />
-              <Text className={`min-w-0 flex-1 text-[13px] font-medium ${on ? "text-clay-500" : "text-ink-900"}`}>
+              <View className="w-6 items-center">
+                <Ionicons name={iconForNav(item.key)} size={19} color={on ? "#2563eb" : "#1e3a5f"} />
+              </View>
+              <Text className={`min-w-0 flex-1 text-[14px] ${on ? "font-semibold text-clay-700" : "font-medium text-ink-900"}`}>
                 {navLabel(user?.portal, item)}
               </Text>
               {badge > 0 ? (
@@ -78,7 +85,7 @@ export function NavMenu({ onNavigate }: { onNavigate?: () => void }) {
           );
         })}
       </ScrollView>
-      <View className="border-t border-ink-200 px-3 py-3">
+      <View className="border-t border-ink-200 bg-white px-4 pb-5 pt-4">
         <Pressable
           onPress={() => {
             onNavigate?.();

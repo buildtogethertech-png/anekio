@@ -138,6 +138,23 @@ enum ExamWorkflowStatus {
   PUBLISHED
 }
 
+enum SaasEmailEvent {
+  DEMO_BOOKED
+}
+
+enum SaasEmailAudience {
+  INTERNAL
+  CUSTOMER
+}
+
+enum SaasEmailDeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+  BLOCKED
+}
+
 model Role {
   id           String        @id @default(cuid())
   name         String
@@ -185,6 +202,25 @@ model User {
   noticeRecipients NoticeRecipient[]
   leaveRequests    LeaveRequest[]
   coverAssignments SubstituteAssignment[] @relation("CoverAssignedBy")
+  authChallenges   AuthChallenge[]
+}
+
+model AuthChallenge {
+  id             String    @id
+  userId         String?
+  user           User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  identifierHash String
+  destination    String    @default("")
+  purpose        String
+  codeHash       String
+  attempts       Int       @default(0)
+  expiresAt      DateTime
+  consumedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([identifierHash, purpose, createdAt])
+  @@index([userId, purpose, createdAt])
+  @@index([expiresAt])
 }
 
 model Teacher {
@@ -258,6 +294,7 @@ model Class {
   examSeries       ExamSeries[]
   invoices         FeeInvoice[]
   feeTemplates     FeeTemplate[]
+  admissionFeeLines AdmissionFeeLine[]
   slots            TimetableSlot[]
   teacherLinks     TeacherClass[]
   teacherSkills    TeacherSkill[]
@@ -497,6 +534,20 @@ model Grant {
   applications   Application[]
 }
 
+model AdmissionFeeLine {
+  id        String   @id @default(cuid())
+  classId   String
+  class     Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  label     String
+  amount    Int
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([classId, active])
+}
+
 model FeeTemplate {
   id            String         @id @default(cuid())
   classId       String
@@ -526,7 +577,6 @@ model FeeLine {
   label      String
   kind       FeeLineKind @default(FLAT)
   amount     Int
-  scope      String      @default("ALL")
   sortOrder  Int         @default(0)
 }
 
@@ -632,7 +682,7 @@ model SchoolConfig {
   stampPath             String  @default("")
   invoiceStyle          String  @default("classic")
   websiteEnabled        Boolean @default(false)
-  websiteSlug           String  @default("demo")
+  websiteSlug           String? @unique
   websiteTheme          String  @default("blue")
   websiteHeroTitle      String  @default("")
   websiteHeroSubtitle   String  @default("")
@@ -653,6 +703,9 @@ model SchoolConfig {
   whatsappCommunityUrl  String  @default("")
   subjectCatalog        String  @default("[\"English\",\"Mathematics\",\"Hindi\",\"Science\",\"Social Science\",\"Computer\"]")
   payrollJson           String  @default("{\"presentCredit\":1,\"absentCredit\":0,\"paidLeaveCredit\":1,\"unpaidLeaveCredit\":0,\"halfDayCredit\":0.5,\"lateCredit\":1}")
+  documentTemplates     DocumentTemplate[]
+  documentVersions      DocumentTemplateVersion[]
+  issuedDocuments       IssuedDocument[]
 }
 
 model AdmissionLead {
@@ -686,6 +739,8 @@ model AdmissionLeadEvent {
 
 model DocumentTemplate {
   id            String                    @id @default(cuid())
+  schoolId      String                    @default("school")
+  school        SchoolConfig              @relation(fields: [schoolId], references: [id], onDelete: Cascade)
   type          String
   category      String
   name          String
@@ -702,12 +757,15 @@ model DocumentTemplate {
   updatedAt     DateTime                  @updatedAt
   versions      DocumentTemplateVersion[]
 
-  @@index([type, status])
-  @@index([category])
+  @@index([schoolId, type, status])
+  @@index([schoolId, category])
+  @@index([schoolId, updatedAt])
 }
 
 model DocumentTemplateVersion {
   id              String           @id @default(cuid())
+  schoolId        String           @default("school")
+  school          SchoolConfig     @relation(fields: [schoolId], references: [id], onDelete: Cascade)
   templateId      String
   template        DocumentTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
   version         Int
@@ -720,12 +778,15 @@ model DocumentTemplateVersion {
   issuedDocuments IssuedDocument[]
 
   @@unique([templateId, version])
+  @@index([schoolId, templateId, publishedAt])
   @@index([templateId, publishedAt])
 }
 
 model IssuedDocument {
   id                String                  @id @default(cuid())
-  documentNumber    String                  @unique
+  schoolId          String                  @default("school")
+  school            SchoolConfig            @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  documentNumber    String
   verifyToken       String                  @unique
   templateVersionId String
   templateVersion   DocumentTemplateVersion @relation(fields: [templateVersionId], references: [id])
@@ -745,8 +806,10 @@ model IssuedDocument {
   statusReason      String                  @default("")
   events            DocumentEvent[]
 
-  @@index([type, issuedAt])
-  @@index([subjectType, subjectId])
+  @@unique([schoolId, documentNumber])
+  @@index([schoolId, type, issuedAt])
+  @@index([schoolId, issuedAt])
+  @@index([schoolId, subjectType, subjectId])
   @@index([batchId])
   @@index([status])
 }
@@ -1037,6 +1100,7 @@ model SaasOrg {
   followUps          SaasFollowUp[]
   onboardingTasks    SaasOnboardingTask[]
   supportTickets     SaasSupportTicket[]
+  emailDeliveries    SaasEmailDelivery[]
 
   @@index([ownerEmail])
   @@index([ownerPhone])
@@ -1199,4 +1263,71 @@ model SaasSitePricing {
   billingPeriod String   @default("year")
   trialDays     Int      @default(7)
   updatedAt     DateTime @updatedAt
+}
+
+model SaasEmailConfig {
+  id                    String          @id @default("anekio")
+  enabled               Boolean         @default(false)
+  resendApiKey          String          @default("")
+  productionFromName    String          @default("Anekio Support")
+  productionFromEmail   String          @default("support@anekio.com")
+  stagingFromName       String          @default("Anekio Staging")
+  stagingFromEmail      String          @default("support@mail.staging.anekio.com")
+  stagingSafeRecipients String          @default("[\"support@anekio.com\"]")
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+  rules                 SaasEmailRule[]
+}
+
+model SaasEmailRule {
+  id              String              @id @default(cuid())
+  configId        String              @default("anekio")
+  config          SaasEmailConfig     @relation(fields: [configId], references: [id], onDelete: Cascade)
+  event           SaasEmailEvent
+  audience        SaasEmailAudience
+  enabled         Boolean             @default(true)
+  sortOrder       Int                 @default(0)
+  toRecipients    String              @default("[]")
+  ccRecipients    String              @default("[]")
+  bccRecipients   String              @default("[]")
+  replyTo         String              @default("[]")
+  subjectTemplate String              @default("")
+  textTemplate    String              @default("")
+  htmlTemplate    String              @default("")
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  deliveries      SaasEmailDelivery[]
+
+  @@unique([configId, event, audience])
+  @@index([event, audience])
+}
+
+model SaasEmailDelivery {
+  id              String                  @id @default(cuid())
+  orgId           String
+  org             SaasOrg                 @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  ruleId          String?
+  rule            SaasEmailRule?          @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+  event           SaasEmailEvent
+  audience        SaasEmailAudience
+  environment     String                  @default("staging")
+  idempotencyKey  String
+  status          SaasEmailDeliveryStatus @default(PENDING)
+  fromEmail       String                  @default("")
+  toRecipients    String                  @default("[]")
+  ccRecipients    String                  @default("[]")
+  bccRecipients   String                  @default("[]")
+  replyTo         String                  @default("[]")
+  subject         String                  @default("")
+  resendMessageId String                  @default("")
+  errorMessage    String                  @default("")
+  attemptCount    Int                     @default(0)
+  attemptedAt     DateTime?
+  sentAt          DateTime?
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  @@unique([event, idempotencyKey, audience])
+  @@index([orgId, createdAt])
+  @@index([status, createdAt])
 }

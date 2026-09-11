@@ -42,19 +42,54 @@ export async function uploadFile(
   file: PickedFile | File,
   fields: Record<string, string>
 ) {
+  const picked = file as PickedFile;
+  const blob = Platform.OS === "web" && file instanceof File
+    ? file
+    : await fetch(picked.uri).then((response) => response.blob());
+  const fileName = Platform.OS === "web" && file instanceof File ? file.name : picked.name;
+  const fileType = (Platform.OS === "web" && file instanceof File ? file.type : picked.type) || blob.type || "application/octet-stream";
+  const headers = new Headers({ "Content-Type": "application/json" });
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const prepare = await fetch(`${apiBase()}/api/files/presign`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ fileName, fileType, fileSize: blob.size, fields }),
+  });
+  const prepared = await prepare.json().catch(() => ({})) as {
+    direct?: boolean;
+    uploadUrl?: string;
+    completionToken?: string;
+    headers?: Record<string, string>;
+    error?: string;
+  };
+  if (!prepare.ok) throw new Error(prepared.error || "Could not prepare upload.");
+  if (prepared.direct) {
+    const uploaded = await fetch(String(prepared.uploadUrl || ""), {
+      method: "PUT",
+      headers: prepared.headers,
+      body: blob,
+    });
+    if (!uploaded.ok) throw new Error("File could not be sent to storage.");
+    const completed = await fetch(`${apiBase()}/api/files/complete`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ completionToken: prepared.completionToken }),
+    });
+    const result = await completed.json().catch(() => ({}));
+    if (!completed.ok) throw new Error((result as { error?: string }).error || "Could not complete upload.");
+    return result as { ok: true; path: string; fileName: string };
+  }
+
   const body = new FormData();
   for (const [key, value] of Object.entries(fields)) body.append(key, value);
   if (Platform.OS === "web" && file instanceof File) {
     body.append("file", file);
   } else if (Platform.OS === "web" && "uri" in file) {
-    const blob = await fetch(file.uri).then((r) => r.blob());
     body.append("file", blob, file.name);
   } else {
-    const picked = file as PickedFile;
     body.append("file", { uri: picked.uri, name: picked.name, type: picked.type } as unknown as Blob);
   }
-  const headers = new Headers();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
+  headers.delete("Content-Type");
   const url = `${apiBase()}/api/files`;
   const res = await fetch(url, { method: "POST", headers, body });
   const data = await res.json().catch(() => ({}));

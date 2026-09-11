@@ -12,6 +12,7 @@ import { writeFileSync } from "fs";
 import { join } from "path";
 import { DEFAULT_EXAM_PLAN } from "../lib/exams";
 import { defaultGrants, SYSTEM_ROLES } from "../lib/permissions";
+import { seedSaasEmailDefaults } from "../lib/saas-email";
 import { seedExamDemo } from "./seed-exams";
 
 const prisma = new PrismaClient();
@@ -102,6 +103,8 @@ function writeLoginSheet(rows: LoginRow[]) {
 }
 
 async function main() {
+  // Keep platform mail inert in demo/local data: defaults have no Resend key and remain disabled.
+  await seedSaasEmailDefaults(prisma);
   await prisma.timetableSlot.deleteMany();
   await prisma.teacherSkill.deleteMany();
   await prisma.teacherClass.deleteMany();
@@ -199,7 +202,7 @@ async function main() {
   for (const p of periodDefs) periods.push(await prisma.period.create({ data: p }));
   const teaching = periods.filter((p) => !p.isBreak);
 
-  await prisma.schoolConfig.create({
+  const schoolConfig = await prisma.schoolConfig.create({
     data: {
       id: "school",
       weekdays: "[1,2,3,4,5,6]",
@@ -223,6 +226,75 @@ async function main() {
       razorpayKeySecret: process.env.RAZORPAY_KEY_SECRET || "",
     },
   });
+  await prisma.saasInvoice.deleteMany({ where: { number: "ANEKIO-SUB-2026-0001" } });
+  await prisma.saasOrg.deleteMany({
+    where: {
+      OR: [
+        { schoolName: schoolConfig.name },
+        { ownerEmail: schoolConfig.email },
+        { ownerPhone: schoolConfig.phone },
+      ],
+    },
+  });
+  const saasOrg = await prisma.saasOrg.create({
+    data: {
+      schoolName: schoolConfig.name,
+      ownerName: "Vikram Rao",
+      ownerEmail: schoolConfig.email,
+      ownerPhone: schoolConfig.phone,
+      city: schoolConfig.city,
+      plan: "Anekio launch plan",
+      monthlyPrice: 14999,
+      paymentStatus: "PAID",
+      subscriptionStatus: "ACTIVE",
+      loginUrl: "http://localhost:8081",
+      apiUrl: "http://localhost:4000",
+      followUpStatus: "ONBOARDING",
+      assignedOwner: "Anekio support",
+      billingAddress: `${schoolConfig.address}, ${schoolConfig.city}`,
+      billingState: schoolConfig.state,
+      billingPincode: schoolConfig.pincode,
+      gstin: schoolConfig.gstin,
+      subscriptionStart: new Date("2026-04-01T00:00:00.000Z"),
+      renewalOn: new Date("2027-03-31T00:00:00.000Z"),
+      invoices: {
+        create: [
+          {
+            number: "ANEKIO-SUB-2026-0001",
+            status: "PAID",
+            issueDate: new Date("2026-04-01T00:00:00.000Z"),
+            dueDate: new Date("2026-04-10T00:00:00.000Z"),
+            description: "Anekio school ERP subscription",
+            quantity: 1,
+            unitPrice: 12711,
+            taxPercent: 18,
+            subtotal: 12711,
+            taxAmount: 2288,
+            total: 14999,
+            paidAmount: 14999,
+            issuedAt: new Date("2026-04-01T00:00:00.000Z"),
+            notes: "Demo subscription seeded for the school subscription page.",
+          },
+        ],
+      },
+    },
+    include: { invoices: true },
+  });
+  const subscriptionInvoice = saasOrg.invoices[0];
+  if (subscriptionInvoice) {
+    await prisma.saasPayment.create({
+      data: {
+        orgId: saasOrg.id,
+        invoiceId: subscriptionInvoice.id,
+        amount: 14999,
+        provider: "BANK_TRANSFER",
+        paymentId: "DEMO-SUB-2026",
+        status: "PAID",
+        notes: "Demo subscription payment.",
+        paidAt: new Date("2026-04-01T00:00:00.000Z"),
+      },
+    });
+  }
   await prisma.schoolHoliday.createMany({
     data: [
       { date: "2026-08-15", name: "Independence Day", source: "seed" },

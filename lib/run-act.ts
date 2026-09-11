@@ -54,6 +54,8 @@ import {
   submitParentQueryCore,
   saveSchoolClockCore,
   saveSchoolIdentityCore,
+  saveSchoolWebsiteCore,
+  saveAdmissionFeeSetupCore,
   saveSchoolSubjectsCore,
   saveTimetableSlotCore,
   sendStudentPayLinkCore,
@@ -80,10 +82,12 @@ import {
   issueClassFeesCore,
   publishExamResultsCore,
   requestExamMarkCorrectionCore,
+  removeStudentFeeAddOnCore,
   returnExamMarksCore,
   reviewExamMarksCore,
   saveExamMarksCore,
   saveFeeTemplateCore,
+  saveStudentFeeAddOnCore,
   saveSeriesMarksCore,
   sendFeeRemindersCore,
   startNextSchoolSessionCore,
@@ -93,6 +97,7 @@ import {
   uploadPaperCore,
   uploadQuestionPaperCore,
 } from "./core-office";
+import { issueFeeReceiptCore } from "./fee-register";
 import { savePushTokenCore } from "./push";
 import {
   archiveDocumentTemplateCore,
@@ -174,6 +179,8 @@ export async function runAct(
     case "saveSchoolIdentity":
       await saveSchoolIdentityCore(user, body as never);
       break;
+    case "saveSchoolWebsite":
+      return { ok: true, ...(await saveSchoolWebsiteCore(user, body as never)) };
     case "updateAdmissionLead":
       await updateAdmissionLeadCore(user, body as never);
       break;
@@ -303,10 +310,19 @@ export async function runAct(
       await createInvoiceCore(user, body as never);
       break;
     case "saveFeeTemplate":
-      await saveFeeTemplateCore(user, body as never);
+      return { ok: true, ...(await saveFeeTemplateCore(user, body as never)) };
+    case "saveAdmissionFeeSetup":
+      return { ok: true, ...(await saveAdmissionFeeSetupCore(user, body as never)) };
+    case "saveStudentFeeAddOn":
+      await saveStudentFeeAddOnCore(user, body as never);
+      break;
+    case "removeStudentFeeAddOn":
+      await removeStudentFeeAddOnCore(user, body as never);
       break;
     case "sendFeeReminders":
       return { ok: true, ...(await sendFeeRemindersCore(user, body as never)) };
+    case "issueFeeReceipt":
+      return { ok: true, ...(await issueFeeReceiptCore(user, body as never)) };
     case "enterMarks":
       await enterMarksCore(user, body as never);
       break;

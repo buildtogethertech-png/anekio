@@ -1,6 +1,7 @@
 import { prisma } from "./prisma";
 import { googleAdminAuthConfigured, localAdminLoginAvailable, type SaasAdminSession } from "./saas-admin-auth";
 import { PIPELINE_STAGES, firstName, greetingFor, isCustomerOrg } from "./saas-crm";
+import { getSaasEmailSettings, listSaasEmailDeliveryLogs, type SaasEmailDeliveryLogRow } from "./saas-email";
 import { getSitePricing } from "./saas-pricing";
 function escapeHtml(value: unknown) {
   return String(value ?? "")
@@ -37,9 +38,9 @@ function dateTimeLabel(value: Date | string | null | undefined) {
 }
 
 function statusTone(status: string) {
-  if (["ACTIVE", "PAID", "ISSUED", "WON", "COMPLETE", "DONE"].includes(status)) return "positive";
-  if (["OVERDUE", "FAILED", "CANCELLED", "VOID", "LOST"].includes(status)) return "danger";
-  if (["TRIAL", "PARTIALLY_PAID", "PAUSED", "PAYMENT", "IN_PROGRESS", "NOT_STARTED"].includes(status)) return "warning";
+  if (["ACTIVE", "PAID", "ISSUED", "WON", "COMPLETE", "DONE", "SENT"].includes(status)) return "positive";
+  if (["OVERDUE", "FAILED", "CANCELLED", "VOID", "LOST", "BLOCKED"].includes(status)) return "danger";
+  if (["TRIAL", "PARTIALLY_PAID", "PAUSED", "PAYMENT", "IN_PROGRESS", "NOT_STARTED", "PENDING", "SKIPPED", "KEY REQUIRED", "DISABLED"].includes(status)) return "warning";
   return "neutral";
 }
 
@@ -72,6 +73,7 @@ function navKey(view: string) {
   if (["lead", "new-lead"].includes(view)) return "leads";
   if (["org", "edit-org", "new-org"].includes(view)) return "organisations";
   if (["new-invoice", "invoice"].includes(view)) return "invoices";
+  if (view === "email") return "settings";
   return view;
 }
 
@@ -138,6 +140,70 @@ function orgForm(basePath: string, session: SaasAdminSession, org?: any, asLead 
   const value = (key: string) => escapeHtml(org?.[key] ?? "");
   const selected = (key: string, option: string) => (String(org?.[key] || (key === "subscriptionStatus" ? "LEAD" : key === "pipelineStage" ? "NEW" : "LEAD")) === option ? " selected" : "");
   return `<form method="post" action="${action}">${csrfField(session)}<input type="hidden" name="lifecycle" value="${asLead && !org ? "LEAD" : escapeHtml(org?.lifecycle || "LEAD")}"><div class="form-grid"><div class="field"><label>School name *</label><input name="schoolName" required value="${value("schoolName")}"></div><div class="field"><label>City</label><input name="city" value="${value("city")}"></div><div class="field"><label>Primary contact *</label><input name="ownerName" required value="${value("ownerName")}"></div><div class="field"><label>Phone *</label><input name="ownerPhone" required inputmode="tel" value="${value("ownerPhone")}"></div><div class="field"><label>Email *</label><input name="ownerEmail" required type="email" value="${value("ownerEmail")}"></div><div class="field"><label>Account manager</label><input name="assignedOwner" value="${value("assignedOwner")}" placeholder="Who owns this account?"></div><div class="field"><label>Source</label><select name="source">${["MANUAL", "WEBSITE_DEMO", "WEBSITE_TRIAL", "REFERRAL"].map((x) => `<option${selected("source", x)}>${x}</option>`).join("")}</select></div><div class="field"><label>Interested in</label><input name="interestedIn" value="${value("interestedIn")}" placeholder="Full ERP"></div><div class="field"><label>Students</label><input name="studentCount" type="number" min="0" value="${value("studentCount")}"></div><div class="field"><label>Teachers</label><input name="teacherCount" type="number" min="0" value="${value("teacherCount")}"></div><div class="field"><label>Pipeline</label><select name="pipelineStage">${PIPELINE_STAGES.map((x) => `<option${selected("pipelineStage", x)}>${x}</option>`).join("")}</select></div><div class="field"><label>Lifecycle</label><select name="subscriptionStatus">${["LEAD", "TRIAL", "ACTIVE", "PAUSED", "CANCELLED", "CLOSED"].map((x) => `<option${selected("subscriptionStatus", x)}>${x}</option>`).join("")}</select></div><div class="field"><label>Plan</label><input name="plan" value="${value("plan")}" placeholder="Launch"></div><div class="field"><label>Plan amount (₹)</label><input name="monthlyPrice" type="number" min="0" value="${value("monthlyPrice") || "14999"}"></div><div class="field"><label>Renewal date</label><input name="renewalOn" type="date" value="${dateInput(org?.renewalOn)}"></div><div class="field"><label>Next follow-up</label><input name="nextFollowUpOn" type="date" value="${dateInput(org?.nextFollowUpOn)}"></div><div class="field"><label>GSTIN</label><input name="gstin" maxlength="15" value="${value("gstin")}"></div><div class="field"><label>State</label><input name="billingState" value="${value("billingState")}"></div><div class="field full"><label>Billing address</label><textarea name="billingAddress">${value("billingAddress")}</textarea></div><div class="field full"><label>Internal notes</label><textarea name="notes">${value("notes")}</textarea></div></div><div class="form-actions"><a class="btn" href="${baseUrl(basePath, { view: asLead ? "leads" : "organisations" })}">Cancel</a><button class="btn primary" type="submit">${org ? "Save changes" : asLead ? "Add lead" : "Add organisation"}</button></div></form>`;
+}
+
+function commaList(values: unknown) {
+  return Array.isArray(values) ? values.map((value) => String(value || "").trim()).filter(Boolean).join(", ") : "";
+}
+
+function deliveryRoute(delivery: SaasEmailDeliveryLogRow) {
+  const parts = [`To: ${commaList(delivery.to) || "—"}`];
+  if (delivery.cc.length) parts.push(`CC: ${commaList(delivery.cc)}`);
+  if (delivery.bcc.length) parts.push(`BCC: ${commaList(delivery.bcc)}`);
+  if (delivery.replyTo.length) parts.push(`Reply-to: ${commaList(delivery.replyTo)}`);
+  return parts.map(escapeHtml).join("<br>");
+}
+
+function emailDeliveryHistory(deliveries: SaasEmailDeliveryLogRow[]) {
+  const rows = deliveries
+    .map((delivery) => {
+      const isProblem = ["FAILED", "BLOCKED", "SKIPPED"].includes(delivery.status);
+      const attempts = delivery.attemptCount === 1 ? "1 provider attempt" : `${delivery.attemptCount} provider attempts`;
+      return `<tr>
+        <td><strong>${escapeHtml(delivery.schoolName || delivery.orgId)}</strong><div class="muted small">${escapeHtml(delivery.ownerEmail)}</div></td>
+        <td>${badge(delivery.audience)}<div class="muted small">${escapeHtml(delivery.environment)}</div></td>
+        <td>${badge(delivery.status)}<div class="muted small">${attempts}</div></td>
+        <td class="small">${deliveryRoute(delivery)}</td>
+        <td><strong>${escapeHtml(delivery.subject || "No subject")}</strong>${delivery.errorMessage ? `<div class="small ${isProblem ? "due-hot" : "muted"}">${escapeHtml(delivery.errorMessage)}</div>` : ""}${delivery.resendMessageId ? `<div class="muted small">Resend message id saved</div>` : ""}</td>
+        <td>${dateTimeLabel(delivery.createdAt)}<div class="muted small">updated ${dateTimeLabel(delivery.updatedAt)}</div></td>
+      </tr>`;
+    })
+    .join("");
+  return `<section class="panel"><div class="panel-head"><div><h2>Recent delivery attempts</h2><p class="muted small" style="margin:5px 0 0">Saved for every demo email route so failures are visible even when Resend rejects before sending.</p></div></div><div class="table-wrap">${
+    deliveries.length
+      ? `<table><thead><tr><th>Lead</th><th>Route</th><th>Status</th><th>Recipients</th><th>Subject / issue</th><th>Created</th></tr></thead><tbody>${rows}</tbody></table>`
+      : empty("No delivery attempts", "Submit a website demo request to see email delivery results here.")
+  }</div></section>`;
+}
+
+function emailRuleForm(basePath: string, session: SaasAdminSession, rule: any) {
+  const value = (key: string) => escapeHtml(rule?.[key] ?? "");
+  const recipientValue = (key: string) => escapeHtml(commaList(rule?.[key]));
+  const audience = String(rule?.audience || "INTERNAL");
+  const isInternal = audience === "INTERNAL";
+  const label = isInternal ? "Internal alert" : "Customer confirmation";
+  const description = isInternal
+    ? "Send the sales/support team the new demo lead first. Add as many To, CC, BCC, and Reply-to addresses as needed."
+    : "Optionally confirm the request to the school contact after the internal alert has been queued.";
+  return `<section class="panel"><div class="panel-head"><div><h2>${label}</h2><p class="muted small" style="margin:5px 0 0">${description}</p></div>${badge(rule?.enabled ? "ENABLED" : "DISABLED")}</div><div class="panel-body">
+    <form method="post" action="${basePath}/settings/email/rules">${csrfField(session)}
+      <input type="hidden" name="event" value="${escapeHtml(String(rule?.event || "DEMO_BOOKED"))}">
+      <input type="hidden" name="audience" value="${escapeHtml(audience)}">
+      <div class="form-grid">
+        <div class="field"><label>Send this message</label><select name="enabled"><option value="true"${rule?.enabled ? " selected" : ""}>Enabled</option><option value="false"${rule?.enabled ? "" : " selected"}>Disabled</option></select></div>
+        <div class="field"><label>Delivery sequence</label><input readonly value="${isInternal ? "1. Internal alert" : "2. Customer confirmation"}"><span class="muted small">Internal alerts are always queued before customer confirmations.</span></div>
+        <div class="field full"><label>To</label><input name="to" required value="${recipientValue("to")}" placeholder="support@anekio.com"><span class="muted small">Separate multiple addresses with commas.</span></div>
+        <div class="field"><label>CC</label><input name="cc" value="${recipientValue("cc")}" placeholder="sales@anekio.com"></div>
+        <div class="field"><label>BCC</label><input name="bcc" value="${recipientValue("bcc")}" placeholder="archive@anekio.com"></div>
+        <div class="field full"><label>Reply-to</label><input name="replyTo" value="${recipientValue("replyTo")}" placeholder="support@anekio.com"><span class="muted small">Replies to customer messages go to your existing Zoho inbox. Resend receiving stays off.</span></div>
+        <div class="field full"><label>Subject</label><input name="subjectTemplate" required value="${value("subjectTemplate")}" placeholder="New demo request from {{schoolName}}"></div>
+        <div class="field full"><label>Plain-text message</label><textarea name="textTemplate" placeholder="A school has requested a demo.">${value("textTemplate")}</textarea></div>
+        <div class="field full"><label>HTML message</label><textarea name="htmlTemplate" placeholder="&lt;p&gt;A school has requested a demo.&lt;/p&gt;">${value("htmlTemplate")}</textarea><span class="muted small">HTML is stored as entered. Lead values are safely escaped when an email is rendered.</span></div>
+      </div>
+      <p class="muted small" style="margin:18px 0 0"><strong>Available variables:</strong> {{schoolName}}, {{ownerName}}, {{ownerEmail}}, {{ownerPhone}}, {{city}}, {{topic}}, {{demoSlotLabel}}, {{demoScheduledAt}}, {{leadUrl}}</p>
+      <div class="form-actions"><button class="btn primary" type="submit">Save ${label.toLowerCase()}</button></div>
+    </form>
+  </div></section>`;
 }
 
 function pipelineBar(orgs: { pipelineStage: string }[]) {
@@ -388,8 +454,36 @@ export async function adminPortalHtml(input: {
           <div class="form-actions"><button class="btn primary" type="submit">Publish to landing page</button></div>
         </form>
       </div></section>`;
+  } else if (view === "email") {
+    const [settings, deliveries] = await Promise.all([getSaasEmailSettings(), listSaasEmailDeliveryLogs(25)]);
+    const deliveryStatus = settings.enabled && settings.resendApiKeySet ? "ACTIVE" : settings.enabled ? "KEY REQUIRED" : "DISABLED";
+    const rules = [...settings.rules].sort((left, right) => Number(left.audience !== "INTERNAL") - Number(right.audience !== "INTERNAL"));
+    body = `${pageHead("Email delivery", "Configure Resend delivery for public website demo requests. These settings are available only to signed-in Anekio admins.")}
+      <section class="panel"><div class="panel-head"><h2>Resend delivery profile</h2>${badge(deliveryStatus)}</div><div class="panel-body">
+        <div class="form-grid" style="margin-bottom:18px">
+          <div><span class="muted small">Resend API key</span><strong style="display:block;margin-top:5px">${settings.resendApiKeySet ? "Saved securely" : "Not added"}</strong></div>
+          <div><span class="muted small">Production sender</span><strong style="display:block;margin-top:5px">${escapeHtml(settings.productionFromName || "Anekio Support")} &lt;${escapeHtml(settings.productionFromEmail || "support@anekio.com")}&gt;</strong></div>
+          <div><span class="muted small">Staging sender</span><strong style="display:block;margin-top:5px">${escapeHtml(settings.stagingFromName || "Anekio Staging")} &lt;${escapeHtml(settings.stagingFromEmail || "support@mail.staging.anekio.com")}&gt;</strong></div>
+          <div><span class="muted small">Staging allow-list</span><strong style="display:block;margin-top:5px">${settings.stagingSafeRecipients.length ? escapeHtml(commaList(settings.stagingSafeRecipients)) : "Not configured"}</strong></div>
+        </div>
+        <form method="post" action="${input.basePath}/settings/email">${csrfField(input.session)}
+          <div class="form-grid">
+            <div class="field"><label>Demo email delivery</label><select name="enabled"><option value="true"${settings.enabled ? " selected" : ""}>Enabled</option><option value="false"${settings.enabled ? "" : " selected"}>Disabled</option></select><span class="muted small">Disable this to keep saving demo leads without sending any email.</span></div>
+            <div class="field"><label>Resend API key</label><input name="resendApiKey" type="password" autocomplete="new-password" placeholder="${settings.resendApiKeySet ? "Saved — enter a replacement only" : "re_…"}"><span class="muted small">${settings.resendApiKeySet ? "Leave blank to keep the saved key. It is never displayed again." : "Paste the Sending-access key from Resend."}</span></div>
+            <div class="field"><label>Production sender name</label><input name="productionFromName" required value="${escapeHtml(settings.productionFromName)}" placeholder="Anekio Support"></div>
+            <div class="field"><label>Production from address</label><input name="productionFromEmail" required type="email" value="${escapeHtml(settings.productionFromEmail)}" placeholder="support@anekio.com"></div>
+            <div class="field"><label>Staging sender name</label><input name="stagingFromName" required value="${escapeHtml(settings.stagingFromName)}" placeholder="Anekio Staging"></div>
+            <div class="field"><label>Staging from address</label><input name="stagingFromEmail" required type="email" value="${escapeHtml(settings.stagingFromEmail)}" placeholder="support@mail.staging.anekio.com"></div>
+            <div class="field full"><label>Staging safe recipients</label><input name="stagingSafeRecipients" required value="${escapeHtml(commaList(settings.stagingSafeRecipients))}" placeholder="support@anekio.com"><span class="muted small"><strong>Safety rule:</strong> on a staging hostname, every recipient is redirected to this comma-separated allow-list. Never put a real school lead here unless you intend to test with them.</span></div>
+          </div>
+          <div class="form-actions"><button class="btn primary" type="submit">Save delivery profile</button></div>
+        </form>
+      </div></section>
+      ${emailDeliveryHistory(deliveries)}
+      <section class="panel"><div class="panel-head"><h2>Demo booked messages</h2><span class="muted small">Internal alert first, then the optional customer confirmation.</span></div></section>
+      ${rules.map((rule) => emailRuleForm(input.basePath, input.session, rule)).join("")}`;
   } else {
-    body = `${pageHead("Settings", "Security and portal configuration.")}<section class="panel"><div class="panel-body"><h3>Landing pricing</h3><p class="muted">Set list price, discount, and trial length from <a href="${baseUrl(input.basePath, { view: "pricing" })}"><strong>Billing → Pricing</strong></a>. Those values appear on the public website.</p><h3>Access policy</h3><p class="muted">Allowed: exact account <strong>buildtogether.tech@gmail.com</strong>, plus verified accounts at exactly <strong>anekio.com</strong> and <strong>anekio.in</strong>.</p><h3>Signed-in operator</h3><p>${escapeHtml(input.session.email)}</p><h3>Google OAuth</h3><p>${googleAdminAuthConfigured() ? badge("ACTIVE") : `${badge("CONFIGURATION_REQUIRED")} <span class="muted">Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.</span>`}</p></div></section>`;
+    body = `${pageHead("Settings", "Security and portal configuration.")}<section class="panel"><div class="panel-body"><h3>Landing pricing</h3><p class="muted">Set list price, discount, and trial length from <a href="${baseUrl(input.basePath, { view: "pricing" })}"><strong>Billing → Pricing</strong></a>. Those values appear on the public website.</p><h3>Email delivery</h3><p class="muted">Configure the secure Resend sender, staging allow-list, recipients, and templates used when a school books a demo.</p><p><a class="btn" href="${baseUrl(input.basePath, { view: "email" })}">Configure email delivery</a></p><h3>Access policy</h3><p class="muted">Allowed: exact account <strong>buildtogether.tech@gmail.com</strong>, plus verified accounts at exactly <strong>anekio.com</strong> and <strong>anekio.in</strong>.</p><h3>Signed-in operator</h3><p>${escapeHtml(input.session.email)}</p><h3>Google OAuth</h3><p>${googleAdminAuthConfigured() ? badge("ACTIVE") : `${badge("CONFIGURATION_REQUIRED")} <span class="muted">Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.</span>`}</p></div></section>`;
   }
 
   return adminDocument({

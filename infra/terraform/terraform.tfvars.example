@@ -1,0 +1,28 @@
+aws_region              = "ap-south-1"
+aws_profile             = "anekio"
+expected_aws_account_id = "440427555457"
+vercel_team_slug        = "gaurav10997s-projects"
+
+# These are the private buckets already visible in the AWS account. Keep the
+# import flag enabled only for the first apply that adopts them into state.
+staging_private_bucket_name    = "anekio-staging-uploads-440427555457-ap-south-1-an"
+production_private_bucket_name = "anekio-school-uploads-prod-440427555457-ap-south-1-an"
+import_existing_private_buckets = true
+
+# Leave these empty to create names from bucket_prefix, account ID, and region.
+staging_public_bucket_name    = ""
+production_public_bucket_name = ""
+
+vercel_staging_project_name    = "anekio-staging"
+vercel_production_project_name = "cultivate-school"
+
+staging_cors_origins = [
+  "https://staging.anekio.com",
+  "https://app.staging.anekio.com",
+  "https://*.staging.anekio.com",
+]
+
+production_cors_origins = [
+  "https://anekio.com",
+  "https://*.anekio.com",
+]

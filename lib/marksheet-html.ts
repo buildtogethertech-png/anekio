@@ -4,6 +4,7 @@ import { attendancePct, gradePolicyFrom, marksVisible, studentSeriesScore } from
 import { paidFeeMonthCount, reportCardFeeMonthsRequired, reportCardUnlocked } from "./fees";
 import { schoolFromConfig } from "./school";
 import { publicOrigin } from "./utils";
+import { readUploadDataUrl, resolveUploadPath } from "./uploads";
 
 function esc(value: unknown) {
   return String(value ?? "")
@@ -31,9 +32,14 @@ async function childForUser(user: AccessUser, requestedId?: string) {
   return "";
 }
 
-function fileUrl(rel?: string) {
+async function fileUrl(rel?: string) {
   if (!rel) return "";
-  return `${publicOrigin()}/api/files/${rel}`;
+  if (resolveUploadPath(rel).publicFile) return `${publicOrigin()}/api/files/${rel}`;
+  try {
+    return await readUploadDataUrl(rel);
+  } catch {
+    return "";
+  }
 }
 
 export async function marksheetHtmlForUser(
@@ -119,9 +125,11 @@ export async function marksheetHtmlForUser(
   const title = examId ? exams[0]?.title || series.name : series.name;
   const place = [school.address, [school.city, school.state, school.pincode].filter(Boolean).join(" ")].filter(Boolean);
   const att = attendancePct(student.attendance.map((row) => ({ status: row.status })));
-  const logo = fileUrl(school.logoPath);
-  const sign = fileUrl(school.signPath);
-  const stamp = fileUrl(school.stampPath);
+  const [logo, sign, stamp] = await Promise.all([
+    fileUrl(school.logoPath),
+    fileUrl(school.signPath),
+    fileUrl(school.stampPath),
+  ]);
   const rows = score.rows
     .map(
       (row, index) => `<tr class="${index % 2 ? "alt" : ""}">

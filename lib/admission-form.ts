@@ -1,6 +1,8 @@
-export const ADMISSION_FIELD_TYPES = ["text", "email", "phone", "number", "date", "textarea", "select"] as const;
+export const ADMISSION_FIELD_TYPES = ["text", "email", "phone", "number", "date", "textarea", "select", "radio", "multi", "checkbox", "file"] as const;
+export const ADMISSION_FILE_TYPES = ["image", "pdf", "image_pdf"] as const;
 
 export type AdmissionFieldType = (typeof ADMISSION_FIELD_TYPES)[number];
+export type AdmissionFileType = (typeof ADMISSION_FILE_TYPES)[number];
 
 export type AdmissionFormField = {
   id: string;
@@ -10,6 +12,9 @@ export type AdmissionFormField = {
   visible: boolean;
   options: string[];
   builtin: boolean;
+  helpText?: string;
+  fileType?: AdmissionFileType;
+  maxFileSizeMb?: number;
 };
 
 const BUILTIN_IDS = ["studentName", "classWanted", "guardianName", "phone", "email", "message"] as const;
@@ -60,7 +65,7 @@ export function admissionFormFields(value: unknown): AdmissionFormField[] {
     const type = ADMISSION_FIELD_TYPES.includes(String(row?.type || "") as AdmissionFieldType)
       ? (String(row?.type) as AdmissionFieldType)
       : fallback.type;
-    const options = type === "select" ? cleanOptions(row?.options) : [];
+    const options = ["select", "radio", "multi"].includes(type) ? cleanOptions(row?.options) : [];
     return {
       ...fallback,
       label: String(row?.label || fallback.label).trim().slice(0, 80) || fallback.label,
@@ -68,6 +73,7 @@ export function admissionFormFields(value: unknown): AdmissionFormField[] {
       required: row?.required === undefined ? fallback.required : Boolean(row.required),
       visible: row?.visible === undefined ? fallback.visible : Boolean(row.visible),
       options,
+      helpText: String(row?.helpText || "").trim().slice(0, 140) || undefined,
     };
   });
 
@@ -82,14 +88,20 @@ export function admissionFormFields(value: unknown): AdmissionFormField[] {
       const type = ADMISSION_FIELD_TYPES.includes(String(row.type || "") as AdmissionFieldType)
         ? (String(row.type) as AdmissionFieldType)
         : "text";
+      const fileType = ADMISSION_FILE_TYPES.includes(String(row.fileType || "") as AdmissionFileType)
+        ? (String(row.fileType) as AdmissionFileType)
+        : "image_pdf";
+      const maxFileSizeMb = Math.min(12, Math.max(1, Math.round(Number(row.maxFileSizeMb || 5) || 5)));
       return {
         id,
         label: String(row.label || `Custom field ${index + 1}`).trim().slice(0, 80) || `Custom field ${index + 1}`,
         type,
         required: Boolean(row.required),
         visible: row.visible === undefined ? true : Boolean(row.visible),
-        options: type === "select" ? cleanOptions(row.options) : [],
+        options: ["select", "radio", "multi"].includes(type) ? cleanOptions(row.options) : [],
         builtin: false,
+        helpText: String(row.helpText || "").trim().slice(0, 140) || undefined,
+        ...(type === "file" ? { fileType, maxFileSizeMb } : {}),
       } satisfies AdmissionFormField;
     });
 
@@ -99,8 +111,11 @@ export function admissionFormFields(value: unknown): AdmissionFormField[] {
 export function admissionFormJson(value: unknown) {
   const fields = admissionFormFields(value);
   for (const field of fields) {
-    if (field.type === "select" && field.visible && !field.options.length) {
-      throw new Error(`${field.label} needs at least one dropdown option.`);
+    if (["select", "radio", "multi"].includes(field.type) && field.visible && !field.options.length) {
+      throw new Error(`${field.label} needs at least one option.`);
+    }
+    if (field.type === "file" && field.visible && !field.fileType) {
+      throw new Error(`${field.label} needs accepted file types.`);
     }
   }
   return JSON.stringify(fields);
@@ -126,9 +141,15 @@ export function admissionLeadInput(fieldsValue: unknown, input: Record<string, u
   const fields = admissionFormFields(fieldsValue);
   const values: Record<string, string> = {};
   for (const field of fields.filter((row) => row.visible)) {
-    const value = String(input[field.id] ?? "").trim().slice(0, field.type === "textarea" ? 1000 : 180);
+    const inputValue = input[field.id];
+    const raw = Array.isArray(inputValue) ? inputValue.map((item) => String(item || "")).join(", ") : inputValue;
+    const value = String(raw ?? "").trim().slice(0, field.type === "textarea" ? 1000 : field.type === "file" ? 260 : 180);
     if (field.required && !value) throw new Error(`${field.label} is required.`);
-    if (value && field.type === "select" && !field.options.includes(value)) throw new Error(`Choose a valid ${field.label}.`);
+    if (value && ["select", "radio"].includes(field.type) && !field.options.includes(value)) throw new Error(`Choose a valid ${field.label}.`);
+    if (value && field.type === "multi") {
+      const picked = value.split(",").map((row) => row.trim()).filter(Boolean);
+      if (picked.some((option) => !field.options.includes(option))) throw new Error(`Choose valid ${field.label} options.`);
+    }
     if (value && field.type === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) throw new Error(`Enter a valid ${field.label}.`);
     if (value && field.type === "number" && !Number.isFinite(Number(value))) throw new Error(`Enter a valid ${field.label}.`);
     values[field.id] = value;

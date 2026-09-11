@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Platform, Pressable, ScrollView, Text, View } from "react-native";
+import { Platform, Pressable, ScrollView, Text, View, type ViewStyle } from "react-native";
 import { act } from "../lib/mutate";
 import { marksReviewCsv, sheetCellState, sheetRowScore, subjectCompletion } from "../lib/exam-marks";
 import { workflowLabel } from "../lib/exam-workflow";
@@ -51,7 +51,7 @@ function downloadCsv(filename: string, csv: string) {
   URL.revokeObjectURL(url);
 }
 
-const sticky = Platform.OS === "web" ? ({ position: "sticky", zIndex: 2 } as const) : undefined;
+const sticky = Platform.OS === "web" ? ({ position: "sticky", zIndex: 2 } as unknown as ViewStyle) : undefined;
 
 export function ExamMarksReview({
   token,

@@ -1,14 +1,23 @@
 import { clsx, type ClassValue } from "clsx";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { twMerge } from "tailwind-merge";
+
+const publicOriginStore = new AsyncLocalStorage<string>();
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
+}
+
+export function withPublicRequestOrigin<T>(origin: string, fn: () => T) {
+  return publicOriginStore.run(origin.replace(/\/$/, ""), fn);
 }
 
 export function publicOrigin() {
   const vercel = process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL;
   return (
     process.env.PUBLIC_URL?.replace(/\/$/, "") ||
+    process.env.ANEKIO_PUBLIC_URL?.replace(/\/$/, "") ||
+    publicOriginStore.getStore() ||
     process.env.NEXTAUTH_URL?.replace(/\/$/, "") ||
     (vercel ? `https://${vercel.replace(/^https?:\/\//, "")}` : "") ||
     "http://localhost:4000"

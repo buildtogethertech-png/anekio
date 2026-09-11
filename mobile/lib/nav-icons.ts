@@ -40,6 +40,7 @@ const NAV_ICONS: Record<string, IoniconName> = {
   leave: "walk-outline",
   class: "people-outline",
   roles: "shield-checkmark-outline",
+  subscription: "receipt-outline",
   attendance: "checkmark-circle-outline",
   subjects: "book-outline",
   tests: "reader-outline",

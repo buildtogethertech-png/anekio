@@ -35,14 +35,13 @@ describe("exam date does not gate mark entry", () => {
     workflowStatus: "SCHEDULED" as const,
     teacherId: kavita,
     paperAt: null,
-    examDate: "2026-09-10",
     evaluatorIds: [kavita],
   };
 
   it("lets the granted teacher enter marks before, on, and after the exam date", () => {
-    expect(teacherMayEnterMarks({ ...paper, examDate: "2026-09-10" }, kavita)).toBe(true);
-    expect(teacherMayEnterMarks({ ...paper, examDate: "2026-09-04" }, kavita)).toBe(true);
-    expect(teacherMayEnterMarks({ ...paper, examDate: "2026-09-01" }, kavita)).toBe(true);
+    expect(teacherMayEnterMarks(paper, kavita)).toBe(true);
+    expect(teacherMayEnterMarks({ ...paper, paperAt: "2026-09-04" }, kavita)).toBe(true);
+    expect(teacherMayEnterMarks({ ...paper, paperAt: "2026-09-01" }, kavita)).toBe(true);
     expect(teacherCanEditMarks("SCHEDULED")).toBe(true);
   });
 
@@ -97,9 +96,9 @@ describe("exam module scenarios (logic)", () => {
 
   it("3–6. granted teacher may enter marks before, on, and after the exam date; another teacher may not", () => {
     const assigned = { workflowStatus: "SCHEDULED" as const, teacherId: kavita, paperAt: null, evaluatorIds: [kavita] };
-    expect(teacherMayEnterMarks({ ...assigned, examDate: "2026-09-20" } as typeof assigned, kavita)).toBe(true);
-    expect(teacherMayEnterMarks({ ...assigned, examDate: "2026-09-04" } as typeof assigned, kavita)).toBe(true);
-    expect(teacherMayEnterMarks({ ...assigned, examDate: "2026-08-01" } as typeof assigned, kavita)).toBe(true);
+    expect(teacherMayEnterMarks(assigned, kavita)).toBe(true);
+    expect(teacherMayEnterMarks({ ...assigned, paperAt: "2026-09-04" }, kavita)).toBe(true);
+    expect(teacherMayEnterMarks({ ...assigned, paperAt: "2026-08-01" }, kavita)).toBe(true);
     expect(teacherMayEnterMarks(assigned, other)).toBe(false);
     expect(teacherMayEnterMarks({ workflowStatus: "SCHEDULED" as const, teacherId: kavita, paperAt: null }, kavita)).toBe(false);
   });
@@ -196,4 +195,3 @@ describe("master marksheet helpers", () => {
     expect(math.pending).toBe(1);
   });
 });
-

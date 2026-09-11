@@ -1,10 +1,11 @@
 import bcrypt from "bcryptjs";
+import { randomUUID } from "node:crypto";
 import { AttendanceStatus, PaymentMethod, PathTag, Portal, PayrollStatus, RoomKind, StaffKind } from "@prisma/client";
 import { sendAisensyWhatsApp } from "./aisensy";
 import { getPayShareChannels, type PayShareChannelId } from "./comms";
 import { recordLedgerPayment } from "./fee-ledger";
 import { issueDueFeesCore } from "./fee-run";
-import { invoiceBalance, payRangeLabel } from "./fees";
+import { feePeriod, invoiceBalance, payRangeLabel } from "./fees";
 import { buildStudentMonthPayPath } from "./pay";
 import { sendResendEmail } from "./resend";
 import { publicOrigin } from "./utils";
@@ -34,6 +35,8 @@ import { isNoticeKind, normalizeWhatsAppGroupUrl } from "./notices";
 import { notifyNoticePublished, notifyNoticeRecipients } from "./push";
 import { PAY_GATEWAYS, type PayGateway } from "./pay-config";
 import { formatQualification, parseSubjectCatalog, parseWeekdays, weekCapacity } from "./schedule";
+import { validateSchoolWebsiteSlug } from "./host-routing";
+import { ensureVercelSchoolWebsiteDomain } from "./vercel-domains";
 import {
   createSchoolSession,
   deleteSchoolSession,
@@ -52,6 +55,21 @@ function need(user: AccessUser, ...keys: string[]) {
 function needSchoolScope(user: AccessUser, key: string) {
   need(user, key);
   if (scopeFor(user, key) !== "SCHOOL") throw new Error("This setting needs school-wide access.");
+}
+
+function missingAdmissionLeadRequirements(configFieldsValue: unknown, lead: { customFieldsJson?: string | null }) {
+  const customValues = (() => {
+    try {
+      const parsed = JSON.parse(lead.customFieldsJson || "{}");
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+    } catch {
+      return {};
+    }
+  })();
+  return admissionFormFields(configFieldsValue)
+    .filter((field) => field.visible && field.required && !field.builtin)
+    .filter((field) => !String(customValues[field.id] || "").trim())
+    .map((field) => field.label);
 }
 
 export async function changeOwnPasswordCore(
@@ -101,7 +119,6 @@ export async function createStudentCore(
     parentId: string;
     dateOfBirth: string;
     tags?: string[];
-    feeAddOns?: { label?: string; kind?: string; amount?: string | number; cadence?: string; startsPeriod?: string; endsPeriod?: string }[];
   }
 ) {
   need(user, "people.edit");
@@ -119,24 +136,37 @@ export async function createStudentCore(
       parentId: input.parentId,
       dateOfBirth: new Date(input.dateOfBirth),
       interests: { create: tags.map((tag) => ({ tag })) },
-      feeAddOns: { create: normalizeStudentFeeAddOns(input.feeAddOns) },
     },
   });
 }
 
-function normalizeStudentFeeAddOns(
-  rows?: { label?: string; kind?: string; amount?: string | number; cadence?: string; startsPeriod?: string; endsPeriod?: string }[]
-) {
-  return (Array.isArray(rows) ? rows : [])
-    .map((row) => ({
-      label: String(row.label || "").trim(),
-      kind: String(row.kind || "CHARGE").toUpperCase() === "DISCOUNT" ? "DISCOUNT" : "CHARGE",
-      amount: Math.max(0, Math.round(Number(row.amount) || 0)),
-      cadence: String(row.cadence || "MONTHLY").toUpperCase() === "ONE_TIME" ? "ONE_TIME" : "MONTHLY",
-      startsPeriod: String(row.startsPeriod || "").trim(),
-      endsPeriod: String(row.endsPeriod || "").trim(),
-    }))
-    .filter((row) => row.label && row.amount > 0);
+function normalizeAdmissionFeeLines(input: unknown) {
+  const rows = Array.isArray(input) ? input : [];
+  return rows
+    .map((row, index) => {
+      const value = row && typeof row === "object" ? row as Record<string, unknown> : {};
+      return {
+        label: String(value.label || "").trim().slice(0, 80),
+        amount: Math.max(0, Math.round(Number(value.amount || 0))),
+        sortOrder: index,
+      };
+    })
+    .filter((row) => row.label || row.amount > 0)
+    .map((row) => ({ ...row, label: row.label || "Admission fee" }));
+}
+
+export async function saveAdmissionFeeSetupCore(user: AccessUser, input: { classId?: string; lines?: unknown }) {
+  need(user, "fees.configure");
+  const classId = String(input.classId || "").trim();
+  if (!classId) throw new Error("Pick a class first.");
+  const klass = await prisma.class.findUnique({ where: { id: classId }, select: { id: true, archivedAt: true } });
+  if (!klass || klass.archivedAt) throw new Error("Pick a valid class.");
+  const lines = normalizeAdmissionFeeLines(input.lines);
+  await prisma.$transaction([
+    prisma.admissionFeeLine.deleteMany({ where: { classId } }),
+    ...lines.map((line) => prisma.admissionFeeLine.create({ data: { classId, ...line } })),
+  ]);
+  return { lines };
 }
 
 export async function admitLeadAsStudentCore(
@@ -186,13 +216,30 @@ export async function admitLeadAsStudentCore(
     const klass = await tx.class.findUnique({ where: { id: classId } });
     if (!klass || klass.archivedAt) throw new Error("Pick a valid class.");
     const config = await tx.schoolConfig.findUnique({ where: { id: "school" } });
-    const admissionCharge = Math.max(0, config?.admissionCharge || 0);
+    const classAdmissionRows = await tx.admissionFeeLine.findMany({
+      where: { classId, active: true },
+      orderBy: { sortOrder: "asc" },
+    });
+    const configuredAdmissionLines = classAdmissionRows
+      .map((line) => ({ label: line.label, kind: "FLAT" as const, amount: Math.max(0, line.amount) }))
+      .filter((line) => line.label && line.amount > 0);
+    const legacyAdmissionCharge = Math.max(0, config?.admissionCharge || 0);
+    const admissionLines = configuredAdmissionLines.length
+      ? configuredAdmissionLines
+      : legacyAdmissionCharge > 0
+        ? [{ label: "Admission fee", kind: "FLAT" as const, amount: legacyAdmissionCharge }]
+        : [];
+    const admissionCharge = admissionLines.reduce((sum, line) => sum + line.amount, 0);
+    const missingLeadRequirements = missingAdmissionLeadRequirements(config?.admissionFormJson, lead);
+    if (missingLeadRequirements.length) {
+      throw new Error(`Before admitting this student, complete: ${missingLeadRequirements.join(", ")}.`);
+    }
     const allowedPaymentMethods = new Set(["CASH", "UPI", "RAZORPAY", "CASHFREE", "BILLDESK", "BANK", "CHEQUE"]);
     if (admissionCharge > 0 && !allowedPaymentMethods.has(paymentMethod)) {
-      throw new Error("Record the admission charge payment before adding the student.");
+      throw new Error("Record the one-time admission fee payment before adding the student.");
     }
     if (admissionCharge > 0 && paymentMethod !== "CASH" && !paymentReference) {
-      throw new Error("Enter the payment reference for the admission charge.");
+      throw new Error("Enter the payment reference for the one-time admission fee.");
     }
     const existingStudent = await tx.student.findUnique({ where: { admissionNo } });
     if (existingStudent) throw new Error("That admission number is already used.");
@@ -246,8 +293,9 @@ export async function admitLeadAsStudentCore(
           studentId: student.id,
           classId,
           period: `ADMISSION-${student.id}`,
-          title: "Admission charge",
+          title: "One-time admission fee",
           amount: admissionCharge,
+          linesJson: JSON.stringify(admissionLines),
           dueDate: new Date(),
           status: "PAID",
           payments: {
@@ -255,7 +303,7 @@ export async function admitLeadAsStudentCore(
               amount: admissionCharge,
               method: paymentMethod as PaymentMethod,
               reference: paymentReference || null,
-              notes: "Collected during admission",
+              notes: "Collected as a one-time admission fee",
             },
           },
         },
@@ -278,7 +326,7 @@ export async function admitLeadAsStudentCore(
         leadId,
         kind: "ADMITTED",
         title: "Student admitted",
-        body: `Admission no ${admissionNo} · ${klass.name}-${klass.section}${admissionCharge > 0 ? ` · ₹${admissionCharge.toLocaleString("en-IN")} paid by ${paymentMethod}` : ""}`,
+        body: `Admission no ${admissionNo} · ${klass.name}-${klass.section}${admissionCharge > 0 ? ` · one-time admission fee ₹${admissionCharge.toLocaleString("en-IN")} paid by ${paymentMethod}` : ""}`,
         actorName,
       },
     });
@@ -303,7 +351,6 @@ export async function updateStudentCore(
     city?: string;
     state?: string;
     pincode?: string;
-    feeAddOns?: { label?: string; kind?: string; amount?: string | number; cadence?: string; startsPeriod?: string; endsPeriod?: string }[];
   }
 ) {
   need(user, "people.edit");
@@ -356,13 +403,6 @@ export async function updateStudentCore(
   await prisma.studentInterest.deleteMany({ where: { studentId: id } });
   if (tags.length) {
     await prisma.studentInterest.createMany({ data: tags.map((tag) => ({ studentId: id, tag })) });
-  }
-  if (Array.isArray(input.feeAddOns)) {
-    await prisma.studentFeeAddOn.deleteMany({ where: { studentId: id } });
-    const feeAddOns = normalizeStudentFeeAddOns(input.feeAddOns);
-    if (feeAddOns.length) {
-      await prisma.studentFeeAddOn.createMany({ data: feeAddOns.map((addOn) => ({ ...addOn, studentId: id })) });
-    }
   }
   await prisma.parent.update({
     where: { id: parentId },
@@ -1533,6 +1573,17 @@ export async function saveSchoolIdentityCore(
 ) {
   need(user, "admissions.manage");
   const existing = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
+  const schoolName = (input.name || existing?.name || "Anekio School").trim() || "Anekio School";
+  const requestedWebsiteSlug =
+    input.websiteSlug === undefined
+      ? existing?.websiteSlug || dataSafeSchoolSlug(schoolName)
+      : input.websiteSlug;
+  const websiteSlug = validateSchoolWebsiteSlug(requestedWebsiteSlug);
+  const slugOwner = await prisma.schoolConfig.findFirst({
+    where: { websiteSlug, NOT: { id: "school" } },
+    select: { id: true },
+  });
+  if (slugOwner) throw new Error("That website slug is already used by another school.");
   const payGateway = (PAY_GATEWAYS.some((g) => g.id === input.payGateway)
     ? input.payGateway
     : existing?.payGateway || "NONE") as PayGateway;
@@ -1544,7 +1595,7 @@ export async function saveSchoolIdentityCore(
     return value;
   };
   const data = {
-    name: (input.name || "Anekio School").trim() || "Anekio School",
+    name: schoolName,
     address: (input.address || "").trim(),
     city: (input.city || "").trim(),
     state: (input.state || "").trim(),
@@ -1584,7 +1635,7 @@ export async function saveSchoolIdentityCore(
       : existing?.invoiceStyle || "classic",
     whatsappCommunityUrl: community ? normalizeWhatsAppGroupUrl(community) : "",
     websiteEnabled: input.websiteEnabled ?? existing?.websiteEnabled ?? false,
-    websiteSlug: slugify(input.websiteSlug || existing?.websiteSlug || dataSafeSchoolSlug(input.name || existing?.name || "school")),
+    websiteSlug,
     websiteTheme: ["blue", "green", "purple", "orange"].includes(input.websiteTheme || "") ? input.websiteTheme! : existing?.websiteTheme || "blue",
     websiteHeroTitle: (input.websiteHeroTitle || "").trim().slice(0, 120),
     websiteHeroSubtitle: (input.websiteHeroSubtitle || "").trim().slice(0, 260),
@@ -1607,6 +1658,62 @@ export async function saveSchoolIdentityCore(
   if (data.sessionStart && data.sessionEnd) {
     await syncCurrentSessionDates(data.sessionStart, data.sessionEnd);
   }
+  await ensureVercelSchoolWebsiteDomain(data.websiteSlug, { enabled: data.websiteEnabled, logger: console });
+}
+
+export async function saveSchoolWebsiteCore(
+  user: AccessUser,
+  input: {
+    websiteEnabled?: boolean;
+    websiteSlug?: string;
+    websiteTheme?: string;
+    websiteHeroTitle?: string;
+    websiteHeroSubtitle?: string;
+    websiteAbout?: string;
+    websiteHighlights?: string;
+    websiteFacilities?: string;
+    websiteGallery?: string;
+    websiteAdmissionOpen?: boolean;
+    websiteAdmissionNote?: string;
+  }
+) {
+  need(user, "admissions.manage");
+  const existing = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
+  const schoolName = (existing?.name || "Anekio School").trim() || "Anekio School";
+  const requestedWebsiteSlug =
+    input.websiteSlug === undefined
+      ? existing?.websiteSlug || dataSafeSchoolSlug(schoolName)
+      : input.websiteSlug;
+  const websiteSlug = validateSchoolWebsiteSlug(requestedWebsiteSlug);
+  const slugOwner = await prisma.schoolConfig.findFirst({
+    where: { websiteSlug, NOT: { id: "school" } },
+    select: { id: true },
+  });
+  if (slugOwner) throw new Error("That website slug is already used by another school.");
+
+  const data = {
+    websiteEnabled: input.websiteEnabled ?? existing?.websiteEnabled ?? false,
+    websiteSlug,
+    websiteTheme: ["blue", "green", "purple", "orange"].includes(input.websiteTheme || "")
+      ? input.websiteTheme!
+      : existing?.websiteTheme || "blue",
+    websiteHeroTitle: input.websiteHeroTitle === undefined ? existing?.websiteHeroTitle || "" : input.websiteHeroTitle.trim().slice(0, 120),
+    websiteHeroSubtitle: input.websiteHeroSubtitle === undefined ? existing?.websiteHeroSubtitle || "" : input.websiteHeroSubtitle.trim().slice(0, 260),
+    websiteAbout: input.websiteAbout === undefined ? existing?.websiteAbout || "" : input.websiteAbout.trim().slice(0, 1200),
+    websiteHighlights: cleanStringList(input.websiteHighlights, existing?.websiteHighlights, ["CBSE aligned learning", "Safe campus", "Smart parent updates", "Admissions open"]),
+    websiteFacilities: cleanStringList(input.websiteFacilities, existing?.websiteFacilities, ["Digital classrooms", "Library", "Computer lab", "Sports", "Transport"]),
+    websiteGallery: cleanStringList(input.websiteGallery, existing?.websiteGallery, []),
+    websiteAdmissionOpen: input.websiteAdmissionOpen ?? existing?.websiteAdmissionOpen ?? true,
+    websiteAdmissionNote: input.websiteAdmissionNote === undefined ? existing?.websiteAdmissionNote || "" : input.websiteAdmissionNote.trim().slice(0, 300),
+  };
+
+  await prisma.schoolConfig.upsert({
+    where: { id: "school" },
+    update: data,
+    create: { id: "school", name: schoolName, weekdays: "[1,2,3,4,5,6]", ...data },
+  });
+  await ensureVercelSchoolWebsiteDomain(data.websiteSlug, { enabled: data.websiteEnabled, logger: console });
+  return { website: { enabled: data.websiteEnabled, slug: data.websiteSlug } };
 }
 
 export async function saveAdmissionFormCore(user: AccessUser, input: { fields?: unknown }) {
@@ -1852,9 +1959,15 @@ function assertPayRefs(method: PaymentMethod, reference: string | null) {
   }
 }
 
+function paymentAuditNote(user: AccessUser, input: { collectedBy?: string; notes?: string }) {
+  const receivedBy = String(input.collectedBy || user.name || user.email || "School office").trim();
+  const note = String(input.notes || "").trim();
+  return note ? `Collected by: ${receivedBy}; Note: ${note}` : `Collected by: ${receivedBy}`;
+}
+
 export async function collectFeeCore(
   user: AccessUser,
-  input: { invoiceId: string; amount?: number; method?: string; reference?: string; notes?: string; proofPath?: string }
+  input: { invoiceId: string; amount?: number; method?: string; reference?: string; notes?: string; proofPath?: string; collectedBy?: string }
 ) {
   need(user, "fees.collect");
   const invoice = await prisma.feeInvoice.findUnique({
@@ -1866,15 +1979,16 @@ export async function collectFeeCore(
   const amount = Math.round(Number(input.amount || due));
   if (amount <= 0) throw new Error("Invalid payment");
   const method = parsePayMethod(input.method);
-  const reference = String(input.reference || "").trim() || null;
-  assertPayRefs(method, reference);
+  const providedReference = String(input.reference || "").trim() || null;
+  assertPayRefs(method, providedReference);
+  const reference = providedReference || `RCPT-${invoice.id.slice(-8).toUpperCase()}`;
   await recordLedgerPayment({
     invoiceId: invoice.id,
     amount,
     method,
     reference,
     proofPath: String(input.proofPath || "").trim() || null,
-    notes: String(input.notes || "").trim() || "Collected on app",
+    notes: paymentAuditNote(user, input),
   });
 }
 
@@ -1887,6 +2001,7 @@ export async function collectPartialFeesCore(
     reference?: string;
     notes?: string;
     proofPath?: string;
+    collectedBy?: string;
   }
 ) {
   need(user, "fees.collect");
@@ -1899,7 +2014,7 @@ export async function collectPartialFeesCore(
     throw new Error("Use the pay link so the parent can pay themselves");
   }
   const reference = String(input.reference || "").trim() || null;
-  const notes = String(input.notes || "").trim() || "Selected months";
+  const notes = paymentAuditNote(user, input);
   assertPayRefs(method, reference);
   const invoices = await prisma.feeInvoice.findMany({
     where: { studentId, id: { in: invoiceIds } },
@@ -1910,12 +2025,13 @@ export async function collectPartialFeesCore(
     .map((inv) => ({ inv, dueNow: invoiceBalance(inv).dueNow }))
     .filter((row) => row.dueNow > 0);
   if (!open.length) throw new Error("Those months are already paid");
+  const receiptBase = reference || `RCPT-${randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase()}`;
   for (const row of open) {
     await recordLedgerPayment({
       invoiceId: row.inv.id,
       amount: row.dueNow,
       method,
-      reference,
+      reference: `${receiptBase}:${row.inv.id.slice(-8)}`,
       proofPath: String(input.proofPath || "").trim() || null,
       notes,
     });
@@ -1926,11 +2042,17 @@ export async function issueDueFeesCoreApi(user: AccessUser, input: { classId?: s
   need(user, "fees.collect");
   const { current } = await ensureSchoolSessions();
   if (input.classId) {
+    const period = feePeriod(new Date().getFullYear(), new Date().getMonth());
     const template = await prisma.feeTemplate.findFirst({
-      where: { classId: input.classId, sessionId: current.id },
+      where: {
+        classId: input.classId,
+        sessionId: current.id,
+        startsPeriod: { lte: period },
+        endsPeriod: { gte: period },
+      },
       include: { lines: true },
     });
-    if (!template?.lines.length) throw new Error("Save a fee template first");
+    if (!template?.lines.length) throw new Error(`Please create a fee template for ${period} before creating fees.`);
   }
   return issueDueFeesCore(new Date(), input.classId || undefined, current.id);
 }
@@ -2036,7 +2158,7 @@ export async function ensureInvoiceShareTokenCore(user: AccessUser, invoiceId: s
   if (user.portal === "PARENT" && existing.student.parent.userId !== user.id) throw new Error("Invoice missing");
   if (user.portal === "STUDENT" && existing.student.userId !== user.id) throw new Error("Invoice missing");
   if (existing.shareToken) return existing.shareToken;
-  const shareToken = crypto.randomUUID();
+  const shareToken = randomUUID();
   await prisma.feeInvoice.update({ where: { id: invoiceId }, data: { shareToken } });
   return shareToken;
 }
@@ -2869,9 +2991,9 @@ export async function saveSchoolPayrollRulesCore(
       endTime: input.endTime,
       graceMinutes: input.graceMinutes,
       freeLateCount: input.freeLateCount,
-      lateDeductionMode: input.lateDeductionMode,
-      lateDeductionAmount: input.lateDeductionAmount,
-      lateDayFraction: input.lateDayFraction,
+      lateDeductionMode: "NONE",
+      lateDeductionAmount: 0,
+      lateDayFraction: 0,
       latesPerLeaveDay: input.latesPerLeaveDay,
     })
   );
@@ -2880,21 +3002,25 @@ export async function saveSchoolPayrollRulesCore(
     update: { payrollJson: JSON.stringify(next) },
     create: { id: "school", payrollJson: JSON.stringify(next) },
   });
-  const days = await prisma.staffDay.findMany({ where: { inAt: { not: "" } } });
   let updated = 0;
-  for (const row of days) {
-    if (row.status === AttendanceStatus.LEAVE) continue;
-    const hit = classifyFromIn(row.inAt, next.startTime, next.graceMinutes);
-    if (!hit) continue;
-    await prisma.staffDay.update({
-      where: { id: row.id },
-      data: {
-        status: hit.status as AttendanceStatus,
-        startTimeUsed: hit.startTimeUsed,
-        computedStatus: hit.status as AttendanceStatus,
-      },
-    });
-    updated += 1;
+  try {
+    const days = await prisma.staffDay.findMany({ where: { inAt: { not: "" } } });
+    for (const row of days) {
+      if (row.status === AttendanceStatus.LEAVE) continue;
+      const hit = classifyFromIn(row.inAt, next.startTime, next.graceMinutes);
+      if (!hit) continue;
+      await prisma.staffDay.update({
+        where: { id: row.id },
+        data: {
+          status: hit.status as AttendanceStatus,
+          startTimeUsed: hit.startTimeUsed,
+          computedStatus: hit.status as AttendanceStatus,
+        },
+      });
+      updated += 1;
+    }
+  } catch (error) {
+    console.error("late timing saved; in-time recheck skipped", error);
   }
   return { rules: next, reclassified: updated };
 }

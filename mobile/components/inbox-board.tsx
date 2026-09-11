@@ -25,7 +25,7 @@ type InboxGroup = {
 function isInboxNotice(n: Notice, portal?: string | null) {
   if (classifyNotice(n).kind !== "FEEDBACK") return false;
   if (portal === "PARENT") return /^(Reply:|Note ·|Parent (query|consult|reply):)/i.test(n.title);
-  return /^Parent (query|consult|reply):/i.test(n.title);
+  return /^(Parent (query|consult|reply):|Mentioned in |Note ·)/i.test(n.title);
 }
 
 function subjectFor(n: Notice) {
@@ -40,6 +40,13 @@ function isThreadRoot(n: Notice) {
   return /^Parent (query|consult):/i.test(n.title);
 }
 
+function isConversationAnchor(n: Notice, portal?: string | null) {
+  if (statusFor(n) === "CLOSED") return false;
+  if (isThreadRoot(n)) return true;
+  if (portal === "PARENT") return /^(Reply:|Note ·|Parent reply:)/i.test(n.title);
+  return /^(Mentioned in |Note ·|Parent reply:)/i.test(n.title);
+}
+
 function bodyParts(body: string) {
   const [main, ...events] = body.split(/\n--- inbox:/);
   const lines = main.trim().split("\n");
@@ -52,11 +59,12 @@ function bodyParts(body: string) {
     .trim();
   const bits = meta.split("·").map((part) => part.trim()).filter(Boolean);
   const parent = bits.find((part) => /^Parent:/i.test(part))?.replace(/^Parent:\s*/i, "") || "";
+  const from = bits.find((part) => /^From:/i.test(part))?.replace(/^From:\s*/i, "") || "";
   return {
     meta,
     student: bits[0] || "",
     classLabel: bits[1] || "",
-    parent,
+    parent: parent || from,
     directedTo,
     message: message || "No message written.",
     events: events.map((e) => parseEvent(`inbox:${e.trim()}`)),
@@ -130,8 +138,8 @@ function bestTicket(tickets: Notice[]) {
   })[0];
 }
 
-function openTickets(tickets: Notice[]) {
-  return tickets.filter((ticket) => isThreadRoot(ticket) && statusFor(ticket) !== "CLOSED");
+function openTickets(tickets: Notice[], portal?: string | null) {
+  return tickets.filter((ticket) => isConversationAnchor(ticket, portal));
 }
 
 function closedTickets(tickets: Notice[]) {
@@ -221,8 +229,8 @@ export function InboxBoard() {
     return [...map.entries()]
       .map(([key, tickets]): InboxGroup => {
         const ordered = [...tickets].sort(newestFirst);
-        const open = openTickets(ordered);
-        const issueCount = ordered.filter(isThreadRoot).length;
+        const open = openTickets(ordered, user?.portal);
+        const issueCount = ordered.filter((ticket) => isThreadRoot(ticket) || isConversationAnchor(ticket, user?.portal)).length;
         const primary = open.sort((a, b) => latestThreadAt(b) - latestThreadAt(a))[0] || bestTicket(ordered);
         const parts = bodyParts(primary.body);
         return {
@@ -238,17 +246,18 @@ export function InboxBoard() {
         };
       })
       .sort((a, b) => latestThreadAt(b.primary) - latestThreadAt(a.primary));
-  }, [rows]);
+  }, [rows, user?.portal]);
   const groups = allGroups.filter((group) => group.openCount > 0);
   const selectedGroup =
     groups.find((group) => group.key === selectedGroupKey) ||
     groups.find((group) => group.tickets.some((ticket) => ticket.id === selectedId)) ||
     groups[0];
   const selected =
-    selectedGroup?.tickets.find((n) => n.id === selectedId && isThreadRoot(n) && statusFor(n) !== "CLOSED") ||
+    selectedGroup?.tickets.find((n) => n.id === selectedId && isConversationAnchor(n, user?.portal)) ||
     selectedGroup?.primary;
   const selectedParts = selected ? bodyParts(selected.body) : null;
   const selectedStatus = selected ? statusFor(selected) : "OPEN";
+  const selectedIsSchoolReply = parentMode && selected ? /^Reply:/i.test(selected.title) : false;
   const related = selectedGroup ? closedTickets(selectedGroup.tickets).filter((row) => row.id !== selected?.id) : [];
   const oldChats = allGroups.flatMap((group) => closedTickets(group.tickets).map((ticket) => ({ group, ticket })));
 
@@ -457,11 +466,11 @@ export function InboxBoard() {
 
               <ScrollView className="mt-4 rounded-xl bg-ink-50/40" style={{ maxHeight: chatHeight }} contentContainerClassName="gap-3 p-3">
                 <ThreadBubble
-                  label={parentMode ? "You" : "Parent"}
-                  author={selectedParts.parent || selected.author}
+                  label={selectedIsSchoolReply ? "School" : parentMode ? "You" : "Parent"}
+                  author={selectedIsSchoolReply ? selected.author : selectedParts.parent || selected.author}
                   date={longDate(selected.createdAt)}
                   body={selectedParts.message}
-                  mine={parentMode}
+                  mine={parentMode && !selectedIsSchoolReply}
                 />
                 {selectedParts.events.map((event, index) => (
                   <ThreadEvent key={`${event.stamp}-${index}`} event={event} parentName={selectedParts.parent || selected.author} parentMode={parentMode} />

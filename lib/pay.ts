@@ -1,5 +1,6 @@
 import { createBilldeskOrder, captureBilldeskPayment } from "./billdesk";
 import { createCashfreeOrder, captureCashfreePayment } from "./cashfree";
+import { randomUUID } from "node:crypto";
 import { invoiceBalance, unpaidFeeMonths } from "./fees";
 import { gatewayReady, getSchoolPaySecrets } from "./pay-config";
 import {
@@ -67,14 +68,14 @@ export async function buildStudentMonthPayPath(
 
   let payToken = student.payToken;
   if (!payToken) {
-    payToken = crypto.randomUUID();
+    payToken = randomUUID();
     await prisma.student.update({ where: { id: studentId }, data: { payToken } });
   }
   for (const inv of picked) {
     if (!inv.shareToken) {
       await prisma.feeInvoice.update({
         where: { id: inv.id },
-        data: { shareToken: crypto.randomUUID() },
+        data: { shareToken: randomUUID() },
       });
     }
   }

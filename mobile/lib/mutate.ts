@@ -13,6 +13,10 @@ export async function saveLateTiming<T = { ok: true; rules?: unknown }>(
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
     if (!/unknown action/i.test(message)) throw error;
-    return api<T>("/late-timing", token, { method: "POST", body: JSON.stringify(payload) });
+    try {
+      return await api<T>("/late-timing", token, { method: "POST", body: JSON.stringify(payload) });
+    } catch {
+      throw new Error("Late timing could not save. Restart npm run api, then try again.");
+    }
   }
 }

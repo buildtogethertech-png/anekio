@@ -1,5 +1,5 @@
 import { Image, Platform, Pressable, Text, View } from "react-native";
-import { apiBase } from "../lib/api";
+import { publicAssetUrl, useAssetUrl } from "../lib/assets";
 import {
   attendancePct,
   seriesRanks,
@@ -41,11 +41,6 @@ export type ReportCardData = {
   policy: GradePolicy;
 };
 
-function assetUrl(rel?: string) {
-  if (!rel) return "";
-  return `${apiBase()}/api/files/${rel}`;
-}
-
 function schoolLines(school: ReportCardData["school"]) {
   const street = (school.address || "").trim();
   const place = [school.city, school.state, school.pincode].map((p) => (p || "").trim()).filter(Boolean).join(" ");
@@ -70,9 +65,9 @@ export function ReportCardSheet({
   const rank = ranks.get(data.student.id);
   const att = attendancePct(data.student.attendance ?? []);
   const place = schoolLines(data.school);
-  const logo = assetUrl(data.school.logoPath);
-  const sign = assetUrl(data.school.signPath);
-  const stamp = assetUrl(data.school.stampPath);
+  const logo = publicAssetUrl(data.school.logoPath);
+  const sign = useAssetUrl(data.school.signPath);
+  const stamp = useAssetUrl(data.school.stampPath);
   const compact = data.school.invoiceStyle === "compact";
   const formal = data.school.invoiceStyle === "formal";
 

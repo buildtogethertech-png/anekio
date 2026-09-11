@@ -17,6 +17,7 @@ const OFFICE_NAV: NavItem[] = [
   { key: "exams", href: "/admin/reports/exams", label: "Exams", group: "Reports", permission: "exams.view" },
   { key: "notices", href: "/admin/reports/notices", label: "Notices", group: "Reports", permission: "notices.view" },
   { key: "school", href: "/admin/reports/school", label: "Settings", group: "Reports", permission: "school.edit" },
+  { key: "subscription", href: "/admin/reports/subscription", label: "Manage subscription", group: "Reports", permission: "school.edit" },
   { key: "roles", href: "/admin/reports/roles", label: "Roles & permissions", group: "Reports", permission: "roles.manage" },
 ];
 

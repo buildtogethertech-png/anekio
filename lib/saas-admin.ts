@@ -15,6 +15,7 @@ import {
   startOnboarding,
   toggleOnboardingTask,
 } from "./saas-crm";
+import { saveSaasEmailConfig as saveEmailConfig, saveSaasEmailRule as saveEmailRule } from "./saas-email";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -299,6 +300,14 @@ export async function runAdminCrmAction(kind: string, id: string, input: Unknown
   if (kind === "cancel") return cancelSubscription(id, actorEmail);
   if (kind === "support") return createSupportTicket(text(input.orgId) || id, text(input.subject), text(input.body), actorEmail);
   throw new Error("Unknown CRM action.");
+}
+
+export async function saveSaasEmailConfig(input: UnknownRecord, actorEmail: string) {
+  return saveEmailConfig(input, actorEmail);
+}
+
+export async function saveSaasEmailRule(input: UnknownRecord, actorEmail: string) {
+  return saveEmailRule(input, actorEmail);
 }
 
 export { adminInvoicePrintHtml, adminLoginHtml, adminPortalHtml } from "./saas-admin-portal";

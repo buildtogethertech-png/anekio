@@ -1,19 +1,31 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Linking, PanResponder, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { Image, Linking, PanResponder, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { useEffect, useMemo, useState } from "react";
 import { Dropdown } from "./form";
 import { Badge, Button, Field, Input, Modal, Segmented } from "./ui";
+import { useAssetUrl } from "../lib/assets";
 import { act } from "../lib/mutate";
 import { useRecord, type DocumentElement, type DocumentElementType, type DocumentLayout, type DocumentTemplateSummary, type RecordPayload } from "../lib/record";
 import { useSession } from "../lib/session";
 
 type Studio = NonNullable<RecordPayload["documentStudio"]>;
 
-const ELEMENTS: { type: DocumentElementType; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+type ElementAction = {
+  type: DocumentElementType;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  element?: Partial<DocumentElement>;
+};
+
+const COMMON_ELEMENTS: ElementAction[] = [
+  { type: "IMAGE", label: "School logo", icon: "school-outline", element: { field: "school.logoPath", label: "School logo", width: 12, height: 10 } },
   { type: "TEXT", label: "Text", icon: "text-outline" },
   { type: "FIELD", label: "Data field", icon: "code-slash-outline" },
   { type: "TABLE", label: "Table", icon: "grid-outline" },
   { type: "PHOTO", label: "Photo", icon: "person-outline" },
+];
+
+const ADVANCED_ELEMENTS: ElementAction[] = [
   { type: "IMAGE", label: "Image", icon: "image-outline" },
   { type: "SIGNATURE", label: "Signature", icon: "pencil-outline" },
   { type: "STAMP", label: "Stamp", icon: "ribbon-outline" },
@@ -24,6 +36,22 @@ const ELEMENTS: { type: DocumentElementType; label: string; icon: keyof typeof I
   { type: "LINE", label: "Divider", icon: "remove-outline" },
   { type: "PAGE_NUMBER", label: "Page number", icon: "documents-outline" },
 ];
+
+const ELEMENTS = [...COMMON_ELEMENTS, ...ADVANCED_ELEMENTS];
+const MM_TO_CSS_PX = 96 / 25.4;
+const PAGE_MM: Record<string, [number, number]> = {
+  A4: [210, 297],
+  A5: [148, 210],
+  LETTER: [216, 279],
+  CR80: [54, 85.6],
+  CUSTOM: [210, 297],
+};
+const MEDIA_FIELD_LABELS: Record<string, string> = {
+  "school.logoPath": "School logo",
+  "school.signPath": "Principal signature",
+  "school.stampPath": "School stamp",
+  "student.photo": "Student photo",
+};
 
 function can(user: { permissions: string[] } | null, key: string) {
   return Boolean(user?.permissions.includes(key));
@@ -170,6 +198,23 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+function cleanNumberText(text: string) {
+  return text.replace(/[^0-9.-]/g, "");
+}
+
+function formatNumber(value: number) {
+  return String(Math.round(value * 10) / 10);
+}
+
+function pagePixels(pageSize: string, orientation: string) {
+  const [width, height] = PAGE_MM[pageSize] || PAGE_MM.A4;
+  const oriented = orientation === "LANDSCAPE" ? [height, width] : [width, height];
+  return {
+    width: Math.round(oriented[0] * MM_TO_CSS_PX),
+    height: Math.round(oriented[1] * MM_TO_CSS_PX),
+  };
+}
+
 type BlockedDocumentStudent = {
   subjectId: string;
   subjectLabel?: string;
@@ -202,7 +247,10 @@ function newElement(type: DocumentElementType, index: number): DocumentElement {
   const base = { id: `${type.toLowerCase()}-${Date.now()}-${index}`, type, x: 18 + (index % 4) * 3, y: 25 + (index % 8) * 5, width: 36, height: 7, fontSize: 14, color: "#102a43" } as DocumentElement;
   if (type === "VERIFY_QR" || type === "CUSTOM_QR") return { ...base, width: 16, height: 16, label: type === "VERIFY_QR" ? "Verification QR" : "Custom URL" };
   if (type === "BARCODE") return { ...base, width: 32, height: 10, label: "Internal scan code", field: "document.number" };
-  if (type === "PHOTO" || type === "IMAGE" || type === "SIGNATURE" || type === "STAMP") return { ...base, width: 20, height: 16, label: ELEMENTS.find((row) => row.type === type)?.label };
+  if (type === "PHOTO") return { ...base, width: 20, height: 16, label: "Student photo", field: "student.photo" };
+  if (type === "SIGNATURE") return { ...base, width: 20, height: 8, label: "Principal signature", field: "school.signPath" };
+  if (type === "STAMP") return { ...base, width: 14, height: 12, label: "School stamp", field: "school.stampPath" };
+  if (type === "IMAGE") return { ...base, width: 20, height: 16, label: "Image" };
   if (type === "TABLE") return { ...base, width: 70, height: 20, label: "Data table", field: "results.marks" };
   if (type === "LINE") return { ...base, width: 64, height: 1 };
   if (type === "PAGE_NUMBER") return { ...base, width: 18, height: 4, label: "Page 1" };
@@ -211,7 +259,73 @@ function newElement(type: DocumentElementType, index: number): DocumentElement {
   return base;
 }
 
-function ElementPreview({ element }: { element: DocumentElement }) {
+function atPath(source: Record<string, unknown>, path?: string) {
+  if (!path) return "";
+  return path.split(".").reduce<unknown>((value, key) => {
+    if (!value || typeof value !== "object") return "";
+    return (value as Record<string, unknown>)[key] ?? "";
+  }, source);
+}
+
+function previewText(value: unknown) {
+  if (value == null) return "";
+  if (Array.isArray(value)) return value.map((item) => typeof item === "object" && item ? Object.values(item).join(" · ") : String(item)).join("\n");
+  if (typeof value === "object") return Object.values(value).join(" · ");
+  return String(value);
+}
+
+function defaultMediaField(type: DocumentElementType) {
+  if (type === "SIGNATURE") return "school.signPath";
+  if (type === "STAMP") return "school.stampPath";
+  if (type === "PHOTO") return "student.photo";
+  if (type === "IMAGE") return "school.logoPath";
+  return "";
+}
+
+function mediaTypeForField(field?: string): DocumentElementType {
+  if (field === "school.signPath") return "SIGNATURE";
+  if (field === "school.stampPath") return "STAMP";
+  if (field === "student.photo") return "PHOTO";
+  return "IMAGE";
+}
+
+function isMediaField(field?: string) {
+  return Boolean(field && MEDIA_FIELD_LABELS[field]);
+}
+
+function MediaElementPreview({ element, previewData }: { element: DocumentElement; previewData: Record<string, unknown> }) {
+  const field = element.field || defaultMediaField(element.type);
+  const rawValue = atPath(previewData, field);
+  const uri = useAssetUrl(typeof rawValue === "string" ? rawValue : "");
+  const label = element.label || MEDIA_FIELD_LABELS[field] || ELEMENTS.find((row) => row.type === element.type)?.label || "Image";
+  if (uri) {
+    return (
+      <View className="h-full w-full items-center justify-center bg-white">
+        <Image source={{ uri }} className="h-full w-full" resizeMode="contain" />
+      </View>
+    );
+  }
+  return (
+    <View className="h-full w-full items-center justify-center border border-dashed border-ink-300 bg-ink-50">
+      <Ionicons name={element.type === "PHOTO" ? "person-outline" : element.type === "SIGNATURE" ? "pencil-outline" : element.type === "STAMP" ? "ribbon-outline" : "image-outline"} size={20} color="#52667d" />
+      <Text className="mt-1 text-center text-[7px] text-ink-700">{label}</Text>
+    </View>
+  );
+}
+
+function previewTable(value: unknown) {
+  if (!Array.isArray(value) || !value.length) return null;
+  const rows = value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item));
+  if (!rows.length) return null;
+  const columns = Object.keys(rows[0]).slice(0, 4);
+  return { columns, rows: rows.slice(0, 6) };
+}
+
+function tableHeaderLabel(value: string) {
+  return value.replace(/([A-Z])/g, " $1").replace(/^./, (char) => char.toUpperCase());
+}
+
+function ElementPreview({ element, previewData, previewScale }: { element: DocumentElement; previewData: Record<string, unknown>; previewScale: number }) {
   if (element.type === "VERIFY_QR" || element.type === "CUSTOM_QR") {
     return (
       <View className="h-full w-full items-center justify-center border border-ink-300 bg-white">
@@ -227,40 +341,60 @@ function ElementPreview({ element }: { element: DocumentElement }) {
       </View>
     );
   }
-  if (["PHOTO", "IMAGE", "SIGNATURE", "STAMP"].includes(element.type)) {
-    return (
-      <View className="h-full w-full items-center justify-center border border-dashed border-ink-300 bg-ink-50">
-        <Ionicons name={element.type === "PHOTO" ? "person-outline" : element.type === "SIGNATURE" ? "pencil-outline" : element.type === "STAMP" ? "ribbon-outline" : "image-outline"} size={20} color="#52667d" />
-        <Text className="mt-1 text-[7px] text-ink-700">{element.label}</Text>
-      </View>
-    );
-  }
+  if (["PHOTO", "IMAGE", "SIGNATURE", "STAMP"].includes(element.type)) return <MediaElementPreview element={element} previewData={previewData} />;
   if (element.type === "TABLE") {
+    const table = previewTable(atPath(previewData, element.field));
+    if (table) {
+      return (
+        <View className="h-full w-full border border-ink-200 bg-white">
+          <View className="flex-row bg-ink-50">
+            {table.columns.map((column) => (
+              <Text key={column} className="flex-1 border-b border-ink-200 px-2 py-1 font-semibold text-ink-700" numberOfLines={1} style={{ fontSize: 8 * previewScale, lineHeight: 10 * previewScale }}>
+                {tableHeaderLabel(column)}
+              </Text>
+            ))}
+          </View>
+          {table.rows.map((row, index) => (
+            <View key={index} className="flex-row border-b border-ink-100">
+              {table.columns.map((column) => (
+                <Text key={column} className="flex-1 px-2 py-1 text-ink-900" numberOfLines={1} style={{ fontSize: 8 * previewScale, lineHeight: 10 * previewScale }}>
+                  {previewText(row[column])}
+                </Text>
+              ))}
+            </View>
+          ))}
+        </View>
+      );
+    }
     return (
       <View className="h-full w-full border border-ink-300 bg-white">
         {[0, 1, 2, 3].map((row) => <View key={row} className={`flex-1 ${row ? "border-t border-ink-200" : "bg-ink-50"}`} />)}
-        <Text className="absolute inset-0 text-center text-[8px] leading-[34px] text-ink-700">{element.label || "Table"}</Text>
+        <Text className="absolute inset-0 text-center text-[8px] leading-[34px] text-ink-700" numberOfLines={3}>
+          {previewText(atPath(previewData, element.field)) || element.label || "Table"}
+        </Text>
       </View>
     );
   }
   if (element.type === "LINE") return <View className="mt-[2px] h-px w-full bg-ink-600" />;
   if (element.type === "SHAPE") return <View className="h-full w-full border border-ink-400" style={{ backgroundColor: element.background || "#f0f4f8" }} />;
-  const copy = element.type === "FIELD" ? `{{ ${element.field || "field"} }}` : element.value || element.label || element.type;
+  if (element.type === "FIELD" && isMediaField(element.field)) return <MediaElementPreview element={{ ...element, type: mediaTypeForField(element.field) }} previewData={previewData} />;
+  const copy = element.type === "FIELD" ? previewText(atPath(previewData, element.field)) || element.label || "Data" : element.value || element.label || element.type;
   return (
     <Text
-      numberOfLines={3}
-      style={{ fontSize: element.fontSize || 14, fontWeight: element.fontWeight || "normal", color: element.color || "#102a43", textAlign: element.align || "left", backgroundColor: element.background || "transparent" }}
+      style={{ fontSize: (element.fontSize || 14) * previewScale, lineHeight: (element.fontSize || 14) * previewScale * 1.2, fontWeight: element.fontWeight || "normal", color: element.color || "#102a43", textAlign: element.align || "left", backgroundColor: element.background || "transparent" }}
     >
       {copy}
     </Text>
   );
 }
 
-function CanvasItem({ element, selected, canvasWidth, canvasHeight, onSelect, onMoveStart, onMove }: {
+function CanvasItem({ element, selected, canvasWidth, canvasHeight, previewData, previewScale, onSelect, onMoveStart, onMove }: {
   element: DocumentElement;
   selected: boolean;
   canvasWidth: number;
   canvasHeight: number;
+  previewData: Record<string, unknown>;
+  previewScale: number;
   onSelect: () => void;
   onMoveStart: () => void;
   onMove: (x: number, y: number) => void;
@@ -279,18 +413,60 @@ function CanvasItem({ element, selected, canvasWidth, canvasHeight, onSelect, on
       style={{ position: "absolute", left: `${element.x}%`, top: `${element.y}%`, width: `${element.width}%`, height: `${element.height}%` } as never}
       className={`${selected ? "border-2 border-blue-600" : "border border-transparent"} ${element.locked ? "opacity-80" : ""}`}
     >
-      <Pressable className="h-full w-full" onPress={onSelect}><ElementPreview element={element} /></Pressable>
+      <Pressable className="h-full w-full overflow-hidden" onPress={onSelect}><ElementPreview element={element} previewData={previewData} previewScale={previewScale} /></Pressable>
       {selected ? <View className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-blue-600" /> : null}
     </View>
   );
 }
 
 function NumericProperty({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
+  const [text, setText] = useState(formatNumber(value));
+  const [editing, setEditing] = useState(false);
+
+  useEffect(() => {
+    if (!editing) setText(formatNumber(value));
+  }, [editing, value]);
+
+  function commit(nextText = text) {
+    const cleaned = cleanNumberText(nextText);
+    const parsed = Number(cleaned);
+    setEditing(false);
+    if (cleaned && Number.isFinite(parsed)) {
+      onChange(parsed);
+      setText(formatNumber(parsed));
+    } else {
+      setText(formatNumber(value));
+    }
+  }
+
   return (
     <View className="min-w-[44%] flex-1">
       <Text className="mb-1 text-[10px] font-medium uppercase text-ink-700">{label}</Text>
-      <TextInput keyboardType="decimal-pad" value={String(Math.round(value * 10) / 10)} onChangeText={(text) => onChange(Number(text.replace(/[^0-9.-]/g, "")) || 0)} className="rounded-md border border-ink-200 bg-white px-2 py-1.5 text-xs text-ink-900" />
+      <TextInput
+        keyboardType="decimal-pad"
+        value={text}
+        onFocus={() => setEditing(true)}
+        onBlur={() => commit()}
+        onSubmitEditing={() => commit()}
+        onChangeText={(nextText) => {
+          setEditing(true);
+          setText(cleanNumberText(nextText));
+        }}
+        className="rounded-md border border-ink-200 bg-white px-2 py-1.5 text-xs text-ink-900"
+      />
     </View>
+  );
+}
+
+function ElementButton({ item, onPress, compact = false }: { item: ElementAction; onPress: () => void; compact?: boolean }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      className={`${compact ? "flex-row items-center gap-2 px-2 py-2" : "min-w-[46%] flex-1 items-center gap-1.5 px-2 py-3"} rounded-md border border-ink-100 bg-white hover:bg-ink-50`}
+    >
+      <Ionicons name={item.icon} size={compact ? 16 : 20} color="#3d4f66" />
+      <Text className={`${compact ? "text-xs" : "text-[11px] text-center"} font-medium text-ink-900`}>{item.label}</Text>
+    </Pressable>
   );
 }
 
@@ -305,12 +481,71 @@ function TemplateEditor({ template, studio, data, onClose, onSaved }: { template
   const [future, setFuture] = useState<DocumentElement[][]>([]);
   const [previewTarget, setPreviewTarget] = useState("sample");
   const [previewing, setPreviewing] = useState(false);
-  const canvasWidth = draft.orientation === "LANDSCAPE" ? 690 : 520;
-  const canvasHeight = draft.pageSize === "CR80" ? 430 : draft.orientation === "LANDSCAPE" ? 488 : 735;
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [canvasZoom, setCanvasZoom] = useState(1);
+  const [focusMode, setFocusMode] = useState(false);
+  const basePage = pagePixels(draft.pageSize, draft.orientation);
+  const canvasWidth = Math.round(basePage.width * canvasZoom);
+  const canvasHeight = Math.round(basePage.height * canvasZoom);
+  const zoomPct = Math.round(canvasZoom * 100);
   const selected = draft.layout.elements.find((row) => row.id === selectedId);
   const previewPeople = draft.category === "EMPLOYEE"
     ? (data.staff || []).map((row) => ({ id: `employee:${row.id}`, label: `${row.name} · ${row.role || row.employeeId}` }))
     : (data.people || []).map((row) => ({ id: `student:${row.id}`, label: `${row.name} · ${row.classLabel}` }));
+  const sampleStudent = { name: "Aarav Sharma", admissionNo: "ADM-1024", classLabel: "10-A", rollNo: "18", born: "14 Aug 2015", dateOfBirth: "2015-08-14", parent: "Meera Sharma", parentPhone: "9800000042" };
+  const sampleEmployee = { name: "Kavita Joshi", employeeId: "EMP-014", role: "Teacher", department: "Academics", joiningDate: "1 Apr 2022" };
+  const previewSelection = (() => {
+    const [kind, id] = previewTarget.split(":");
+    return {
+      student: kind === "student" ? data.people?.find((row) => row.id === id) : undefined,
+      employee: kind === "employee" ? data.staff?.find((row) => row.id === id) : undefined,
+    };
+  })();
+  const canvasPreviewData = {
+    school: { name: "Anekio Public School", address: "Sector 21, Indiranagar, Bengaluru - 560038", phone: "office@anekioschool.edu.in | +91 80 4567 2100", ...(data.school || {}) },
+    student: previewSelection.student || sampleStudent,
+    guardian: {
+      name: previewSelection.student?.parent || sampleStudent.parent,
+      phone: previewSelection.student?.parentPhone || sampleStudent.parentPhone,
+    },
+    employee: previewSelection.employee || sampleEmployee,
+    exam: { name: "Term 1", classLabel: previewSelection.student?.classLabel || "10-A", rollNo: "18", schedule: [{ subject: "English", date: "11 Sep 2026" }, { subject: "Mathematics", date: "12 Sep 2026" }] },
+    results: { marks: [{ subject: "English", marks: 76, maxMarks: 80, grade: "A1" }, { subject: "Mathematics", marks: 72, maxMarks: 80, grade: "A1" }], attendance: "Present 92%" },
+    fees: {
+      amount: "Rs. 40,850.00",
+      paid: "Rs. 0.00",
+      due: "Rs. 42,850.00",
+      status: "Overdue",
+      receiptLabel: "Receipt No.",
+      receiptNumber: "RCPT-2026-014",
+      term: "Term 1 Fees",
+      method: "Cash",
+      reference: "RCPT-2026-014",
+      receivedBy: "Vikram Rao",
+      receivedAt: "2026-09-01 14:30",
+      receivedNote: "Collected at office counter",
+      upiId: "anekio.publicschool@upi",
+      bankName: "Anekio Education Trust",
+      account: "123456789012 | IFSC ANEK0001234",
+      paymentUrl: "https://pay.anekio.in/DN-2026-00047",
+      lines: [
+        { description: "Tuition Fee", period: "Apr - Jun 2026", amount: "Rs. 24,000.00" },
+        { description: "Transport Fee", period: "Quarter 1", amount: "Rs. 7,200.00" },
+        { description: "Examination Fee", period: "Term 1", amount: "Rs. 3,500.00" },
+        { description: "Activity & Lab Fee", period: "Annual", amount: "Rs. 4,500.00" },
+        { description: "Library & Digital Access", period: "Annual", amount: "Rs. 1,650.00" },
+        { description: "Security Deposit", period: "One time", amount: "Rs. 2,000.00" },
+      ],
+    },
+    document: { number: "DN-2026-00047", issueDate: "1 Apr 2026", dueDate: "DUE: 15 APR 2026", verifyId: "VRFY-00047" },
+  };
+  const selectedField = selected?.field ? studio.fields.find((row) => row.id === selected.field) : null;
+  const selectedPreviewValue = selected?.field
+    ? isMediaField(selected.field) && previewText(atPath(canvasPreviewData, selected.field))
+      ? "Uploaded image"
+      : previewText(atPath(canvasPreviewData, selected.field))
+    : "";
+  const selectedTitle = selectedField?.label || selected?.label || (selected ? ELEMENTS.find((row) => row.type === selected.type)?.label || selected.type : "");
 
   function setElements(elements: DocumentElement[], remember = true) {
     if (remember) {
@@ -329,10 +564,33 @@ function TemplateEditor({ template, studio, data, onClose, onSaved }: { template
     setElements(draft.layout.elements.map((row) => row.id === id ? { ...row, ...patch } : row), remember);
   }
 
-  function add(type: DocumentElementType) {
-    const next = newElement(type, draft.layout.elements.length);
+  function patchElementPosition(id: string, axis: "x" | "y", value: number) {
+    const element = draft.layout.elements.find((row) => row.id === id);
+    if (!element) return;
+    if (axis === "x") patchElement(id, { x: clamp(value, 0, 100 - element.width) });
+    else patchElement(id, { y: clamp(value, 0, 100 - element.height) });
+  }
+
+  function patchElementSize(id: string, axis: "width" | "height", value: number) {
+    const element = draft.layout.elements.find((row) => row.id === id);
+    if (!element) return;
+    if (axis === "width") {
+      const width = clamp(value, 2, 100);
+      patchElement(id, { width, x: clamp(element.x, 0, 100 - width) });
+    } else {
+      const height = clamp(value, 1, 100);
+      patchElement(id, { height, y: clamp(element.y, 0, 100 - height) });
+    }
+  }
+
+  function add(type: DocumentElementType, patch: Partial<DocumentElement> = {}) {
+    const next = { ...newElement(type, draft.layout.elements.length), ...patch };
     setElements([...draft.layout.elements, next]);
     setSelectedId(next.id);
+  }
+
+  function changeZoom(next: number) {
+    setCanvasZoom(clamp(next, 0.7, 1.4));
   }
 
   function undo() {
@@ -454,17 +712,27 @@ function TemplateEditor({ template, studio, data, onClose, onSaved }: { template
         <View className="flex-row gap-2"><Button variant="ghost" disabled={previewing} onPress={() => void preview()}>{previewing ? "Preparing…" : "Preview"}</Button><Button variant="ghost" disabled={saving} onPress={() => void save(false)}>Save draft</Button>{canPublish ? <Button disabled={saving} onPress={() => void save(true)}>Publish template</Button> : null}</View>
       </View>
     }>
-      <View className="flex-row items-start gap-4">
-        <View className="w-44 shrink-0 gap-4">
+      <View className="flex-row items-start gap-3">
+        {!focusMode ? (
+        <View className="w-40 shrink-0 gap-4">
           <View>
-            <Text className="text-xs font-semibold uppercase tracking-wide text-ink-700">Add elements</Text>
-            <View className="mt-2 gap-1">
-              {ELEMENTS.map((item) => (
-                <Pressable key={item.type} onPress={() => add(item.type)} className="flex-row items-center gap-2 rounded-md px-2 py-2 hover:bg-ink-50">
-                  <Ionicons name={item.icon} size={16} color="#3d4f66" /><Text className="text-xs text-ink-900">{item.label}</Text>
-                </Pressable>
+            <Text className="text-xs font-semibold uppercase tracking-wide text-ink-700">Add</Text>
+            <View className="mt-2 flex-row flex-wrap gap-2">
+              {COMMON_ELEMENTS.map((item) => (
+                <ElementButton key={`${item.type}-${item.label}`} item={item} onPress={() => add(item.type, item.element)} />
               ))}
             </View>
+            <Pressable onPress={() => setShowAdvanced((open) => !open)} className="mt-3 flex-row items-center justify-between rounded-md border border-ink-200 bg-white px-3 py-2">
+              <Text className="text-xs font-medium text-ink-900">Advanced</Text>
+              <Ionicons name={showAdvanced ? "chevron-up-outline" : "chevron-down-outline"} size={16} color="#3d4f66" />
+            </Pressable>
+            {showAdvanced ? (
+              <View className="mt-2 gap-1">
+                {ADVANCED_ELEMENTS.map((item) => (
+                  <ElementButton key={`${item.type}-${item.label}`} item={item} compact onPress={() => add(item.type, item.element)} />
+                ))}
+              </View>
+            ) : null}
           </View>
           <View>
             <Text className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-700">Page</Text>
@@ -473,28 +741,51 @@ function TemplateEditor({ template, studio, data, onClose, onSaved }: { template
             <View className="mt-3"><Dropdown label="Preview data" value={previewTarget} options={[{ id: "sample", label: "Sample data" }, ...previewPeople]} onChange={setPreviewTarget} /></View>
           </View>
         </View>
+        ) : null}
 
         <View className="min-w-0 flex-1 gap-2">
-          <View className="flex-row items-center justify-center gap-2"><Button variant="ghost" disabled={!history.length} onPress={undo}>Undo</Button><Button variant="ghost" disabled={!future.length} onPress={redo}>Redo</Button><Text className="text-[11px] text-ink-700">Drag to move · use exact values at right</Text></View>
-          <ScrollView horizontal className="rounded-lg bg-ink-100 p-5" contentContainerStyle={{ minWidth: canvasWidth + 40, justifyContent: "center" }}>
+          <View className="flex-row flex-wrap items-center justify-center gap-2">
+            <Button variant="ghost" disabled={!history.length} onPress={undo}>Undo</Button>
+            <Button variant="ghost" disabled={!future.length} onPress={redo}>Redo</Button>
+            <View className="flex-row items-center overflow-hidden rounded-md border border-ink-200 bg-white">
+              <Pressable accessibilityRole="button" accessibilityLabel="Zoom out" onPress={() => changeZoom(canvasZoom - 0.1)} className="h-10 w-10 items-center justify-center border-r border-ink-200">
+                <Ionicons name="remove-outline" size={18} color="#3d4f66" />
+              </Pressable>
+              <Pressable accessibilityRole="button" accessibilityLabel="Reset zoom" onPress={() => changeZoom(1)} className="h-10 min-w-[64px] items-center justify-center border-r border-ink-200 px-2">
+                <Text className="text-xs font-semibold text-ink-900">{zoomPct}%</Text>
+              </Pressable>
+              <Pressable accessibilityRole="button" accessibilityLabel="Zoom in" onPress={() => changeZoom(canvasZoom + 0.1)} className="h-10 w-10 items-center justify-center">
+                <Ionicons name="add-outline" size={18} color="#3d4f66" />
+              </Pressable>
+            </View>
+            <Button variant="ghost" onPress={() => setFocusMode((on) => !on)}>{focusMode ? "Tools" : "Focus"}</Button>
+            <Text className="text-[11px] text-ink-700">Drag to move · use exact values at right</Text>
+          </View>
+          <ScrollView horizontal className="rounded-lg bg-ink-100 p-4" contentContainerStyle={{ minWidth: canvasWidth + 32, justifyContent: "center" }}>
             <View style={{ width: canvasWidth, height: canvasHeight }} className="relative bg-white shadow-lg">
               <View pointerEvents="none" className="absolute inset-3 border border-dashed border-ink-200" />
               {draft.layout.elements.map((item) => (
-                <CanvasItem key={item.id} element={item} selected={item.id === selectedId} canvasWidth={canvasWidth} canvasHeight={canvasHeight} onSelect={() => setSelectedId(item.id)} onMoveStart={rememberLayout} onMove={(x, y) => patchElement(item.id, { x, y }, false)} />
+                <CanvasItem key={item.id} element={item} selected={item.id === selectedId} canvasWidth={canvasWidth} canvasHeight={canvasHeight} previewData={canvasPreviewData} previewScale={canvasZoom} onSelect={() => setSelectedId(item.id)} onMoveStart={rememberLayout} onMove={(x, y) => patchElement(item.id, { x, y }, false)} />
               ))}
             </View>
           </ScrollView>
         </View>
 
-        <View className="w-64 shrink-0">
+        <View className="w-56 shrink-0">
           <Field label="Template name"><Input value={draft.name} onChangeText={(name) => setDraft((row) => ({ ...row, name }))} /></Field>
           {selected ? (
             <View className="mt-5 gap-3 border-t border-ink-100 pt-4">
-              <View className="flex-row items-center justify-between gap-2"><Text className="text-sm font-semibold text-ink-900">{ELEMENTS.find((row) => row.type === selected.type)?.label || selected.type}</Text><Badge>{selected.locked ? "Locked" : "Selected"}</Badge></View>
+              <View className="flex-row items-center justify-between gap-2"><Text className="min-w-0 flex-1 text-sm font-semibold text-ink-900" numberOfLines={1}>{selectedTitle}</Text><Badge>{selected.locked ? "Locked" : selectedField ? "Dynamic" : "Selected"}</Badge></View>
               {selected.type === "TEXT" ? <Field label="Text"><Input multiline value={selected.value || ""} onChangeText={(value) => patchElement(selected.id, { value })} /></Field> : null}
-              {["FIELD", "TABLE", "BARCODE"].includes(selected.type) ? <Dropdown label="Data" value={selected.field || ""} options={studio.fields.map((field) => ({ id: field.id, label: `${field.group} · ${field.label}`, searchText: `${field.group} ${field.label}` }))} onChange={(field) => patchElement(selected.id, { field, label: studio.fields.find((row) => row.id === field)?.label })} /> : null}
+              {["FIELD", "TABLE", "BARCODE"].includes(selected.type) ? <Dropdown label="Shows" value={selected.field || ""} options={studio.fields.map((field) => ({ id: field.id, label: `${field.group} · ${field.label}`, searchText: `${field.group} ${field.label}` }))} onChange={(field) => patchElement(selected.id, { field, label: studio.fields.find((row) => row.id === field)?.label })} /> : null}
+              {selectedField ? (
+                <View className="rounded-md border border-blue-100 bg-blue-50 p-3">
+                  <Text className="text-[11px] font-semibold text-blue-900">{selectedField.group} data</Text>
+                  <Text className="mt-1 text-xs text-blue-900">{selectedPreviewValue || "No preview value"}</Text>
+                </View>
+              ) : null}
               {selected.type === "CUSTOM_QR" ? <Field label="URL"><Input autoCapitalize="none" value={selected.value || ""} placeholder="https://" onChangeText={(value) => patchElement(selected.id, { value })} /></Field> : null}
-              <View className="flex-row flex-wrap gap-2"><NumericProperty label="X" value={selected.x} onChange={(x) => patchElement(selected.id, { x: clamp(x, 0, 100 - selected.width) })} /><NumericProperty label="Y" value={selected.y} onChange={(y) => patchElement(selected.id, { y: clamp(y, 0, 100 - selected.height) })} /><NumericProperty label="Width" value={selected.width} onChange={(width) => patchElement(selected.id, { width: clamp(width, 2, 100 - selected.x) })} /><NumericProperty label="Height" value={selected.height} onChange={(height) => patchElement(selected.id, { height: clamp(height, 1, 100 - selected.y) })} /></View>
+              <View className="flex-row flex-wrap gap-2"><NumericProperty label="X" value={selected.x} onChange={(x) => patchElementPosition(selected.id, "x", x)} /><NumericProperty label="Y" value={selected.y} onChange={(y) => patchElementPosition(selected.id, "y", y)} /><NumericProperty label="Width" value={selected.width} onChange={(width) => patchElementSize(selected.id, "width", width)} /><NumericProperty label="Height" value={selected.height} onChange={(height) => patchElementSize(selected.id, "height", height)} /></View>
               <View><Text className="mb-1 text-[10px] font-medium uppercase text-ink-700">Align on page</Text><View className="flex-row flex-wrap gap-1"><Button variant="ghost" onPress={() => patchElement(selected.id, { x: 0 })}>Left</Button><Button variant="ghost" onPress={() => patchElement(selected.id, { x: (100 - selected.width) / 2 })}>Center</Button><Button variant="ghost" onPress={() => patchElement(selected.id, { x: 100 - selected.width })}>Right</Button></View></View>
               {["TEXT", "FIELD", "TABLE", "PAGE_NUMBER"].includes(selected.type) ? <NumericProperty label="Font size" value={selected.fontSize || 14} onChange={(fontSize) => patchElement(selected.id, { fontSize: clamp(fontSize, 6, 72) })} /> : null}
               <View><Text className="mb-1 text-[10px] font-medium uppercase text-ink-700">Layer</Text><View className="flex-row gap-1"><Button variant="ghost" onPress={() => moveLayer(selected.id, "front")}>Bring front</Button><Button variant="ghost" onPress={() => moveLayer(selected.id, "back")}>Send back</Button></View></View>

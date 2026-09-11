@@ -7,16 +7,27 @@ import { fileURLToPath } from "url";
 import multer from "multer";
 import bcrypt from "bcryptjs";
 import { signAppToken } from "../lib/app-jwt";
+import {
+  AuthFlowError,
+  consumeAuthCode,
+  requestAuthCode,
+  resetPasswordWithCode,
+} from "../lib/auth-challenges";
 import { hasAny, userFromAuthHeader } from "../lib/http-user";
 import { userForLogin } from "../lib/login";
 import { serializeUser } from "../lib/http-user";
 import { publicNav, navForPortal } from "../lib/nav";
 import { recordPayload } from "../lib/api-v1-record";
+import { queryFeeRegister } from "../lib/fee-register";
 import { homePayload, serializeNotice } from "../lib/api-v1-home";
 import { noticesForUser } from "../lib/data";
 import { runAct } from "../lib/run-act";
-import { handleFileUpload } from "../lib/handle-upload";
-import { readUpload, resolveUploadPath } from "../lib/uploads";
+import {
+  completePresignedFileUpload,
+  handleFileUpload,
+  preparePresignedFileUpload,
+} from "../lib/handle-upload";
+import { presignedReadUrl, readUpload, readUploadDataUrl, resolveUploadPath } from "../lib/uploads";
 import { gatewayReady, getSchoolPaySecrets } from "../lib/pay-config";
 import { createSchoolFeeOrder, verifySchoolPayment, invoicesFromPeriods } from "../lib/pay";
 import { batchDocumentsHtml, findBatchDocuments, findIssuedDocument, verificationHtml } from "../lib/document-studio";
@@ -28,9 +39,16 @@ import { marksheetHtmlForUser } from "../lib/marksheet-html";
 import { runExamCronNotifications } from "../lib/exam-notification-run";
 import { ensureAccessRoles } from "../lib/roles";
 import { scopePolicyFor } from "../lib/permissions";
+import { withPublicRequestOrigin } from "../lib/utils";
+import { hasHostnamePrefix, normalizeHostname, schoolSlugFromHostname } from "../lib/host-routing";
 import { renderInvoicePage, renderPayPage, renderStudentPayPage } from "./pay-html";
-import { createAdmissionLeadFromWebsite, schoolWebsiteHtml } from "../lib/school-website";
 import {
+  createAdmissionLeadFromWebsite,
+  prepareAdmissionFileUpload,
+  schoolWebsiteHtml,
+} from "../lib/school-website";
+import {
+  createSaasDemoEnquiry,
   createSaasEnquiry,
   createSaasRazorpayOrder,
   createSaasTrial,
@@ -40,6 +58,7 @@ import {
   saasCheckoutHtml,
   sitemapXml,
   subscriptionLockForUser,
+  subscriptionOverviewForUser,
   trialStartedHtml,
   verifySaasRazorpayPayment,
 } from "../lib/anekio-site";
@@ -52,8 +71,12 @@ import {
   issueAdminInvoice,
   recordAdminPayment,
   runAdminCrmAction,
+  saveSaasEmailConfig,
+  saveSaasEmailRule,
   updateAdminOrganisation,
 } from "../lib/saas-admin";
+import { adminInvoicePdf } from "../lib/saas-invoice-pdf";
+import { sendSaasEmailEvent } from "../lib/saas-email";
 import { updateSitePricing } from "../lib/saas-pricing";
 import {
   ADMIN_OAUTH_COOKIE,
@@ -111,21 +134,43 @@ app.use("/api/pay/webhook", express.raw({ type: "*/*" }));
 app.use("/api/razorpay/webhook", express.raw({ type: "*/*" }));
 app.use(express.json({ limit: "4mb" }));
 app.use(express.urlencoded({ extended: true }));
+app.use((req, _res, next) => withPublicRequestOrigin(requestOrigin(req), next));
 
 function sendError(res: express.Response, status: number, error: string) {
   res.status(status).json({ error });
 }
 
+const PUBLIC_DEMO_RATE_WINDOW_MS = 10 * 60_000;
+const PUBLIC_DEMO_RATE_MAX = 6;
+const publicDemoAttempts = new Map<string, number[]>();
+
+function publicDemoRequestKey(req: express.Request) {
+  const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+  return forwarded || req.socket.remoteAddress || "unknown";
+}
+
+/** A small process-local backstop; the honeypot and delivery idempotency cover the rest. */
+function allowPublicDemoRequest(req: express.Request) {
+  const now = Date.now();
+  const key = publicDemoRequestKey(req);
+  const recent = (publicDemoAttempts.get(key) || []).filter((attempt) => attempt > now - PUBLIC_DEMO_RATE_WINDOW_MS);
+  if (recent.length >= PUBLIC_DEMO_RATE_MAX) return false;
+  recent.push(now);
+  publicDemoAttempts.set(key, recent);
+  if (publicDemoAttempts.size > 2_000) {
+    for (const [candidate, attempts] of publicDemoAttempts) {
+      if (!attempts.some((attempt) => attempt > now - PUBLIC_DEMO_RATE_WINDOW_MS)) publicDemoAttempts.delete(candidate);
+    }
+  }
+  return true;
+}
+
 function hostName(req: express.Request) {
-  return String(req.headers["x-forwarded-host"] || req.headers.host || "")
-    .split(",")[0]
-    .split(":")[0]
-    .toLowerCase();
+  return normalizeHostname(String(req.headers["x-forwarded-host"] || req.headers.host || ""));
 }
 
 function isAdminHost(req: express.Request) {
-  const host = hostName(req);
-  return host === "admin.localhost" || host.startsWith("admin.");
+  return hasHostnamePrefix(hostName(req), "admin");
 }
 
 function adminBase(req: express.Request) {
@@ -160,21 +205,15 @@ function adminCsrf(req: express.Request, csrf: string) {
 }
 
 function isAppHost(req: express.Request) {
-  const host = hostName(req);
-  return host === "app.localhost" || host.startsWith("app.");
+  return hasHostnamePrefix(hostName(req), "app");
 }
 
 function isConnectHost(req: express.Request) {
-  const host = hostName(req);
-  return host === "connect.localhost" || host.startsWith("connect.");
+  return hasHostnamePrefix(hostName(req), "connect");
 }
 
 function schoolSlugHost(req: express.Request) {
-  const host = hostName(req);
-  if (!host.endsWith(".anekio.com")) return "";
-  const slug = host.slice(0, -".anekio.com".length);
-  if (!slug || ["admin", "app", "connect", "www"].includes(slug)) return "";
-  return slug;
+  return schoolSlugFromHostname(hostName(req));
 }
 
 async function requireUser(req: express.Request, res: express.Response) {
@@ -193,6 +232,36 @@ async function requireActiveSubscription(userId: string, res: express.Response) 
   return false;
 }
 
+type LoginRow = NonNullable<Awaited<ReturnType<typeof userForLogin>>>;
+
+function loginSession(row: LoginRow) {
+  const user = {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    role: row.role.slug,
+    roleName: row.role.name,
+    roleId: row.roleId,
+    portal: row.role.portal,
+    permissions: row.role.grants.map((grant) => grant.permission),
+    scopes: Object.fromEntries(
+      row.role.grants.map((grant) => [grant.permission, grant.scope ?? scopePolicyFor(grant.permission, row.role.portal).defaultScope])
+    ),
+    isSystemRole: row.role.isSystem,
+  };
+  return {
+    token: signAppToken(row.id),
+    user: serializeUser(user),
+    nav: navForPortal(user.portal, user.permissions).map(publicNav),
+  };
+}
+
+function sendAuthFlowError(res: express.Response, error: unknown) {
+  if (error instanceof AuthFlowError) return sendError(res, error.status, error.message);
+  console.error("Authentication flow failed", error);
+  return sendError(res, 500, "Secure sign-in is temporarily unavailable.");
+}
+
 app.post("/api/v1/login", async (req, res) => {
   const login = String(req.body?.login || "").trim();
   const password = String(req.body?.password || "");
@@ -202,23 +271,52 @@ app.post("/api/v1/login", async (req, res) => {
   if (!row?.role) return sendError(res, 401, "Those credentials are not in this school.");
   const ok = await bcrypt.compare(password, row.password);
   if (!ok) return sendError(res, 401, "Those credentials are not in this school.");
-  const user = {
-    id: row.id,
-    name: row.name,
-    email: row.email,
-    role: row.role.slug,
-    roleName: row.role.name,
-    roleId: row.roleId,
-    portal: row.role.portal,
-    permissions: row.role.grants.map((g) => g.permission),
-    scopes: Object.fromEntries(
-      row.role.grants.map((g) => [g.permission, g.scope ?? scopePolicyFor(g.permission, row.role.portal).defaultScope])
-    ),
-    isSystemRole: row.role.isSystem,
-  };
-  const token = signAppToken(row.id);
-  const nav = navForPortal(user.portal, user.permissions).map(publicNav);
-  res.json({ token, user: serializeUser(user), nav });
+  res.json(loginSession(row));
+});
+
+app.post("/api/v1/login/otp/request", async (req, res) => {
+  try {
+    res.json(await requestAuthCode(String(req.body?.login || ""), "LOGIN"));
+  } catch (error) {
+    sendAuthFlowError(res, error);
+  }
+});
+
+app.post("/api/v1/login/otp/verify", async (req, res) => {
+  try {
+    await ensureAccessRoles();
+    const userId = await consumeAuthCode(String(req.body?.login || ""), "LOGIN", String(req.body?.code || ""));
+    const row = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { role: { include: { grants: true } } },
+    });
+    if (!row?.role) return sendError(res, 401, "That code is invalid or has expired.");
+    res.json(loginSession(row));
+  } catch (error) {
+    sendAuthFlowError(res, error);
+  }
+});
+
+app.post("/api/v1/login/password/request", async (req, res) => {
+  try {
+    res.json(await requestAuthCode(String(req.body?.login || ""), "PASSWORD_RESET"));
+  } catch (error) {
+    sendAuthFlowError(res, error);
+  }
+});
+
+app.post("/api/v1/login/password/reset", async (req, res) => {
+  try {
+    res.json(
+      await resetPasswordWithCode(
+        String(req.body?.login || ""),
+        String(req.body?.code || ""),
+        String(req.body?.password || "")
+      )
+    );
+  } catch (error) {
+    sendAuthFlowError(res, error);
+  }
 });
 
 app.get("/api/v1/me", async (req, res) => {
@@ -246,6 +344,18 @@ app.get("/api/v1/marksheet", async (req, res) => {
   }
 });
 
+app.get("/api/v1/fee-register", async (req, res) => {
+  const user = await requireUser(req, res);
+  if (!user) return;
+  if (!(await requireActiveSubscription(user.id, res))) return;
+  if (!hasAny(user, ["fees.view"])) return sendError(res, 403, "No access.");
+  try {
+    res.json(await queryFeeRegister(user, (req.query || {}) as Record<string, unknown>));
+  } catch (e) {
+    sendError(res, 400, e instanceof Error ? e.message : "Fee register unavailable");
+  }
+});
+
 app.get("/api/v1/record", async (req, res) => {
   const user = await requireUser(req, res);
   if (!user) return;
@@ -267,6 +377,20 @@ app.get("/api/v1/record", async (req, res) => {
   ]);
   if (!allowed) return sendError(res, 403, "No access.");
   res.json(await recordPayload(user, typeof req.query.childId === "string" ? req.query.childId : null));
+});
+
+app.get("/api/v1/subscription/invoices/:id/print", async (req, res) => {
+  const user = await requireUser(req, res);
+  if (!user) return;
+  const overview = await subscriptionOverviewForUser(user.id);
+  if (!overview?.invoices.some((invoice) => invoice.id === String(req.params.id || ""))) {
+    return sendError(res, 404, "Invoice not found.");
+  }
+  const pdf = await adminInvoicePdf(String(req.params.id || ""));
+  if (!pdf) return sendError(res, 404, "Invoice not found.");
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `inline; filename="${pdf.filename}"`);
+  res.send(pdf.buffer);
 });
 
 app.get("/api/v1/home", async (req, res) => {
@@ -329,15 +453,64 @@ app.post("/api/files", upload.single("file"), async (req, res) => {
   }
 });
 
+app.post("/api/files/presign", async (req, res) => {
+  const user = await requireUser(req, res);
+  if (!user) return;
+  if (!(await requireActiveSubscription(user.id, res))) return;
+  const body = (req.body || {}) as Record<string, unknown>;
+  const fields = body.fields && typeof body.fields === "object"
+    ? body.fields as Record<string, unknown>
+    : {};
+  try {
+    res.json(await preparePresignedFileUpload(
+      user,
+      {
+        name: String(body.fileName || ""),
+        mime: String(body.fileType || "application/octet-stream"),
+        size: Number(body.fileSize || 0),
+      },
+      fields
+    ));
+  } catch (e) {
+    sendError(res, 400, e instanceof Error ? e.message : "Could not prepare upload");
+  }
+});
+
+app.post("/api/files/complete", async (req, res) => {
+  const user = await requireUser(req, res);
+  if (!user) return;
+  if (!(await requireActiveSubscription(user.id, res))) return;
+  try {
+    res.json({ ok: true, ...await completePresignedFileUpload(user, String(req.body?.completionToken || "")) });
+  } catch (e) {
+    sendError(res, 400, e instanceof Error ? e.message : "Could not complete upload");
+  }
+});
+
+app.post("/api/files/view-url", async (req, res) => {
+  const user = await requireUser(req, res);
+  if (!user) return;
+  const rel = String(req.body?.path || "").replace(/^\/+/, "");
+  try {
+    resolveUploadPath(rel);
+    const directUrl = await presignedReadUrl(rel);
+    res.json({ url: directUrl || await readUploadDataUrl(rel) });
+  } catch (e) {
+    sendError(res, 404, e instanceof Error ? e.message : "File not found");
+  }
+});
+
 app.get("/api/files/*rel", async (req, res) => {
   const param = req.params.rel;
   const rel = decodeURIComponent(Array.isArray(param) ? param.join("/") : String(param || ""));
   try {
-    const { publicSchool } = resolveUploadPath(rel);
-    if (!publicSchool) {
+    const { publicFile } = resolveUploadPath(rel);
+    if (!publicFile) {
       const user = await userFromAuthHeader(req.headers.authorization);
       if (!user) return sendError(res, 401, "Unauthorized");
     }
+    const directUrl = await presignedReadUrl(rel);
+    if (directUrl) return res.redirect(302, directUrl);
     const { buf, type } = await readUpload(rel);
     res.setHeader("Content-Type", type);
     res.send(buf);
@@ -347,15 +520,23 @@ app.get("/api/files/*rel", async (req, res) => {
 });
 
 app.get("/school/:slug", async (req, res) => {
-  const html = await schoolWebsiteHtml(String(req.params.slug || ""));
+  const html = await schoolWebsiteHtml(String(req.params.slug || ""), { preview: req.query.preview === "1" });
   if (!html) return sendError(res, 404, "School website not found");
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.send(html);
 });
 
-app.post("/school/:slug/lead", async (req, res) => {
+app.post("/school/:slug/upload/presign", async (req, res) => {
   try {
-    await createAdmissionLeadFromWebsite(String(req.params.slug || ""), req.body || {});
+    res.json(await prepareAdmissionFileUpload(String(req.params.slug || ""), (req.body || {}) as Record<string, unknown>));
+  } catch (e) {
+    sendError(res, 400, e instanceof Error ? e.message : "Could not prepare admission upload.");
+  }
+});
+
+app.post("/school/:slug/lead", upload.any(), async (req, res) => {
+  try {
+    await createAdmissionLeadFromWebsite(String(req.params.slug || ""), req.body || {}, Array.isArray(req.files) ? req.files : []);
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Enquiry sent</title><style>body{margin:0;background:#f5f8fc;font-family:Arial,sans-serif;color:#102a43}.card{max-width:520px;margin:12vh auto;background:white;border:1px solid #d9e2ec;border-radius:20px;padding:28px;text-align:center}a{display:inline-block;margin-top:16px;color:#1d4ed8;font-weight:700}</style></head><body><main class="card"><h1>Enquiry sent</h1><p>Thank you. The school office will contact you soon.</p><a href="/school/${encodeURIComponent(String(req.params.slug || ""))}">Back to school website</a></main></body></html>`);
   } catch (e) {
@@ -605,6 +786,32 @@ app.post(["/settings/pricing", "/anekio-admin/settings/pricing"], async (req, re
   }
 });
 
+app.post(["/settings/email", "/anekio-admin/settings/email"], async (req, res, next) => {
+  if (!adminRouteRequest(req)) return next();
+  const session = requireAdminAction(req, res);
+  if (!session) return;
+  const basePath = adminBase(req);
+  try {
+    await saveSaasEmailConfig(req.body || {}, session.email);
+    res.redirect(303, `${basePath || "/"}?view=email&saved=${encodeURIComponent("Email delivery profile saved.")}`);
+  } catch (e) {
+    res.redirect(303, `${basePath || "/"}?view=email&error=${encodeURIComponent(e instanceof Error ? e.message : "Could not save email delivery settings.")}`);
+  }
+});
+
+app.post(["/settings/email/rules", "/anekio-admin/settings/email/rules"], async (req, res, next) => {
+  if (!adminRouteRequest(req)) return next();
+  const session = requireAdminAction(req, res);
+  if (!session) return;
+  const basePath = adminBase(req);
+  try {
+    await saveSaasEmailRule(req.body || {}, session.email);
+    res.redirect(303, `${basePath || "/"}?view=email&saved=${encodeURIComponent("Demo email message saved.")}`);
+  } catch (e) {
+    res.redirect(303, `${basePath || "/"}?view=email&error=${encodeURIComponent(e instanceof Error ? e.message : "Could not save demo email message.")}`);
+  }
+});
+
 function crmBack(req: express.Request, basePath: string, extra: Record<string, string> = {}) {
   const referer = String(req.get("referer") || "");
   if (referer) {
@@ -682,7 +889,40 @@ app.post(["/crm/:id/cancel", "/anekio-admin/crm/:id/cancel"], (req, res, next) =
 
 app.post("/api/saas/enquiry", async (req, res) => {
   try {
-    res.json({ ok: true, org: await createSaasEnquiry(req.body || {}) });
+    // The public form has an off-screen honeypot. A successful no-op prevents
+    // bots from learning that they were detected and keeps them out of CRM/mail.
+    if (String(req.body?.website || "").trim()) return res.json({ ok: true });
+    if (!allowPublicDemoRequest(req)) return sendError(res, 429, "Please wait a few minutes before booking another demo.");
+
+    const booking = await createSaasDemoEnquiry(req.body || {});
+    if (!booking) return res.json({ ok: true });
+
+    const leadUrl = `${requestOrigin(req).replace(/\/$/, "")}/anekio-admin?view=lead&id=${encodeURIComponent(booking.org.id)}`;
+    try {
+      await sendSaasEmailEvent({
+        event: "DEMO_BOOKED",
+        orgId: booking.org.id,
+        idempotencyKey: `demo:${booking.org.id}:${booking.demo.scheduledAt.toISOString()}`,
+        host: hostName(req),
+        variables: {
+          schoolName: booking.org.schoolName,
+          ownerName: booking.org.ownerName,
+          ownerEmail: booking.org.ownerEmail,
+          ownerPhone: booking.org.ownerPhone,
+          city: booking.org.city,
+          topic: booking.topic,
+          demoSlotLabel: booking.slotLabel,
+          demoScheduledAt: booking.demo.scheduledAt.toISOString(),
+          leadUrl,
+        },
+      });
+    } catch (error) {
+      // Saving a legitimate lead must not turn into a failed booking if a mail
+      // provider or mail table is temporarily unavailable. Delivery records
+      // retain configuration/provider failures when the email layer is reached.
+      console.error("Demo email delivery setup failed", error instanceof Error ? error.message : error);
+    }
+    res.json({ ok: true, org: booking.org, demo: booking.demo });
   } catch (e) {
     sendError(res, 400, e instanceof Error ? e.message : "Could not save enquiry.");
   }
@@ -868,7 +1108,12 @@ app.post("/api/cron/exams", async (req, res) => {
 });
 
 app.get("/pay/s/:token", async (req, res) => {
-  const html = await renderStudentPayPage(req.params.token, String(req.query.m || ""), req.query.embed === "1", req.query.paid === "1");
+  const html = await renderStudentPayPage(
+    req.params.token,
+    String(req.query.m || ""),
+    req.query.embed === "1",
+    req.query.paid === "1"
+  );
   if (!html) return res.status(404).send("Not found");
   res.type("html").send(html);
 });

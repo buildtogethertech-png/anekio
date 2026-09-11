@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import { randomUUID } from "node:crypto";
 import { FeeLineKind, InvoiceStatus, PaperType, PathTag } from "@prisma/client";
 import { sendAisensyWhatsApp, getAisensyConfig } from "./aisensy";
 import { can, type AccessUser } from "./permissions";
@@ -50,6 +51,15 @@ import { eligibleTeacherIdsForExam, ensureExamEvaluator } from "./exam-evaluator
 import { isQuestionPaperFile } from "./uploads";
 function need(user: AccessUser, ...keys: string[]) {
   if (!keys.some((k) => can(user, k))) throw new Error("No access.");
+}
+
+function normalizeFeeAddOnKind(value?: string) {
+  const kind = String(value || "CHARGE").toUpperCase();
+  return kind === "DISCOUNT" || kind === "CONCESSION" ? kind : "CHARGE";
+}
+
+function normalizeFeeAddOnCadence(value?: string) {
+  return String(value || "MONTHLY").toUpperCase() === "ONE_TIME" ? "ONE_TIME" : "MONTHLY";
 }
 
 function normalizeFeePeriod(value: unknown) {
@@ -164,7 +174,7 @@ export async function saveFeeTemplateCore(
     lateKind?: string;
     lateGraceDays?: number;
     lateAmount?: number;
-    lines?: { label?: string; kind?: string; amount?: number; scope?: string }[];
+    lines?: { label?: string; kind?: string; amount?: number }[];
   }
 ) {
   need(user, "fees.configure");
@@ -194,7 +204,6 @@ export async function saveFeeTemplateCore(
       label: String(line.label || "").trim() || "Line",
       kind: (line.kind === "PERCENT" ? "PERCENT" : "FLAT") as FeeLineKind,
       amount: Math.max(0, Math.round(Number(line.amount) || 0)),
-      scope: String(line.scope || "ALL").toUpperCase() === "ADD_ON" ? "ADD_ON" : "ALL",
       sortOrder: i,
     })
   );
@@ -228,6 +237,58 @@ export async function saveFeeTemplateCore(
   }
 }
 
+export async function saveStudentFeeAddOnCore(
+  user: AccessUser,
+  input: {
+    id?: string;
+    studentId: string;
+    label?: string;
+    kind?: string;
+    amount?: number;
+    cadence?: string;
+    startsPeriod?: string;
+    endsPeriod?: string;
+  }
+) {
+  need(user, "fees.configure", "fees.collect", "people.edit");
+  const studentId = String(input.studentId || "");
+  if (!studentId) throw new Error("Student required");
+  const student = await prisma.student.findUnique({ where: { id: studentId }, select: { id: true } });
+  if (!student) throw new Error("Student missing");
+  const label = String(input.label || "").trim().slice(0, 80);
+  if (!label) throw new Error("Fee label required");
+  const kind = normalizeFeeAddOnKind(input.kind);
+  const cadence = normalizeFeeAddOnCadence(input.cadence);
+  const amount = Math.max(0, Math.round(Number(input.amount) || 0));
+  if (!amount) throw new Error("Amount required");
+  const currentPeriod = feePeriod(new Date().getFullYear(), new Date().getMonth());
+  const startsPeriod = String(input.startsPeriod || currentPeriod).trim().slice(0, 20);
+  const endsPeriod = String(input.endsPeriod || "").trim().slice(0, 20);
+  if (endsPeriod && endsPeriod < startsPeriod) throw new Error("End month cannot be before start month");
+  const id = String(input.id || "");
+  if (id) {
+    const existing = await prisma.studentFeeAddOn.findUnique({ where: { id } });
+    if (!existing || existing.studentId !== studentId) throw new Error("Fee add-on missing");
+    await prisma.studentFeeAddOn.update({
+      where: { id },
+      data: { label, kind, amount, cadence, startsPeriod, endsPeriod },
+    });
+    return;
+  }
+  await prisma.studentFeeAddOn.create({
+    data: { studentId, label, kind, amount, cadence, startsPeriod, endsPeriod },
+  });
+}
+
+export async function removeStudentFeeAddOnCore(user: AccessUser, input: { id?: string; studentId?: string }) {
+  need(user, "fees.configure", "fees.collect", "people.edit");
+  const id = String(input.id || "");
+  if (!id) throw new Error("Fee add-on required");
+  const row = await prisma.studentFeeAddOn.findUnique({ where: { id } });
+  if (!row || (input.studentId && row.studentId !== String(input.studentId))) throw new Error("Fee add-on missing");
+  await prisma.studentFeeAddOn.update({ where: { id }, data: { active: false } });
+}
+
 async function deliverFeeReminder(invoiceId: string) {
   const invoice = await prisma.feeInvoice.findUnique({
     where: { id: invoiceId },
@@ -241,7 +302,7 @@ async function deliverFeeReminder(invoiceId: string) {
   if (dueNow <= 0) throw new Error("This month is already paid. Nudge another open bill.");
   let token = invoice.shareToken;
   if (!token) {
-    token = crypto.randomUUID();
+    token = randomUUID();
     await prisma.feeInvoice.update({ where: { id: invoice.id }, data: { shareToken: token } });
   }
   const payUrl = feePayUrl(token);
@@ -302,7 +363,7 @@ export async function sendFeeRemindersCore(user: AccessUser, input: { invoiceIds
 
 export async function collectAllStudentFeesCore(
   user: AccessUser,
-  input: { studentId: string; method?: string; reference?: string; notes?: string; proofPath?: string }
+  input: { studentId: string; method?: string; reference?: string; notes?: string; proofPath?: string; collectedBy?: string }
 ) {
   need(user, "fees.collect");
   const studentId = String(input.studentId || "");
@@ -324,7 +385,9 @@ export async function collectAllStudentFeesCore(
   if (!open.length) throw new Error("Nothing due for this student");
   const { recordLedgerPayment } = await import("./fee-ledger");
   const proofPath = String(input.proofPath || "").trim() || null;
-  const notes = String(input.notes || "").trim() || "Full payment";
+  const receivedBy = String(input.collectedBy || user.name || user.email || "School office").trim();
+  const note = String(input.notes || "").trim();
+  const notes = note ? `Collected by: ${receivedBy}; Note: ${note}` : `Collected by: ${receivedBy}`;
   for (const inv of open) {
     await recordLedgerPayment({
       invoiceId: inv.id,
@@ -357,11 +420,8 @@ export async function issueClassFeesCore(
   });
   if (template && template.classId !== classId) throw new Error("Template does not belong to this class");
   if (!template || !template.lines.length) throw new Error("Save a fee template first");
-  const drafts = template.lines
-    .filter((l) => l.scope !== "ADD_ON")
-    .map((l) => ({ label: l.label, kind: l.kind, amount: l.amount }));
-  const fallbackPeriod = feePeriod(Number(input.year || new Date().getFullYear()), Number(input.month ?? new Date().getMonth()));
-  const startsPeriod = template.startsPeriod || normalizeFeePeriod(input.startsPeriod) || fallbackPeriod;
+  const drafts = template.lines.map((l) => ({ label: l.label, kind: l.kind, amount: l.amount }));
+  const startsPeriod = template.startsPeriod || normalizeFeePeriod(input.startsPeriod) || current.startsOn.slice(0, 7);
   const endsPeriod = template.endsPeriod || normalizeFeePeriod(input.endsPeriod) || startsPeriod;
   if (startsPeriod > endsPeriod) throw new Error("Start month must be before end month");
   const months = monthsBetween(startsPeriod, endsPeriod);
@@ -383,17 +443,17 @@ export async function issueClassFeesCore(
         const lines = [...drafts, ...feeAddOnLines(s.feeAddOns, month.period)];
         const invoiceTotal = feeLineTotal(lines).total;
         return {
-        studentId: s.id,
-        classId,
-        templateId: template.id,
+          studentId: s.id,
+          classId,
+          templateId: template.id,
           period: month.period,
           title: monthFeeTitle(month.year, month.monthIndex, template.name),
           amount: invoiceTotal,
           linesJson: JSON.stringify(lines),
           dueDate: dueDateForMonth(month.year, month.monthIndex, template.dueDay),
-        ...invoiceLateStamp(template),
-        shareToken: crypto.randomUUID(),
-        status: InvoiceStatus.DUE,
+          ...invoiceLateStamp(template),
+          shareToken: randomUUID(),
+          status: InvoiceStatus.DUE,
         };
       })),
   });
@@ -417,7 +477,7 @@ export async function createInvoiceCore(
       dueDate,
       lateFeePerDay: Number(input.lateFeePerDay || 50),
       status: InvoiceStatus.DUE,
-      shareToken: crypto.randomUUID(),
+      shareToken: randomUUID(),
     },
   });
 }

@@ -55,10 +55,31 @@ is built in for the exact `buildtogether.tech@gmail.com` account and exact
 `anekio.com` / `anekio.in` domains; optional additive allowlists are documented
 in `.env.example`.
 
+## Staging
+
+The isolated Vercel staging project is `anekio-staging`. Its hostname mapping is:
+
+```text
+https://staging.anekio.com                   Anekio marketing page
+https://app.staging.anekio.com               ERP app shell
+https://admin.staging.anekio.com             admin portal
+https://<school>.staging.anekio.com          school website
+```
+
+Deploy the current checkout to that project with:
+
+```bash
+npm run deploy-staging
+```
+
+The staging deploy script only runs from the `staging` branch and always targets
+the isolated `anekio-staging` Vercel project. `npm run deploy:staging` remains
+as a compatibility alias.
+
 Every demo login uses password `12345`. See `Anekio-demo-logins.json`.
 
 ## Project changes
 
 Use the Jira-first workflow in [`docs/jira-change-workflow.md`](docs/jira-change-workflow.md).
 
-Do not use BMad for this project. For every code change, create or identify a Jira ticket first, document the plan there, make the change, update the ticket with verification notes, then commit with the Jira ticket key in the commit message.
+For every code change, create or identify a Jira ticket first, document the plan there, make the change, update the ticket with verification notes, then commit with the Jira ticket key in the commit message.

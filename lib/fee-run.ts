@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { InvoiceStatus } from "@prisma/client";
 import { prisma } from "./prisma";
 import {
@@ -29,6 +30,28 @@ function coveredPeriods(rows: { studentId: string; period: string }[]) {
     have.add(`${row.studentId}:${row.period.slice(0, 7)}`);
   }
   return have;
+}
+
+function feeAddOnApplies(
+  addOn: { startsPeriod: string; endsPeriod: string; cadence: string; active: boolean },
+  period: string
+) {
+  if (!addOn.active) return false;
+  if (addOn.startsPeriod && addOn.startsPeriod > period) return false;
+  if (addOn.endsPeriod && addOn.endsPeriod < period) return false;
+  if (addOn.cadence === "ONE_TIME") return addOn.startsPeriod === period;
+  return true;
+}
+
+function feeAddOnLines(
+  addOns: { label: string; kind: string; amount: number; startsPeriod: string; endsPeriod: string; cadence: string; active: boolean }[],
+  period: string
+) {
+  return addOns.filter((addOn) => feeAddOnApplies(addOn, period)).map((addOn) => ({
+    label: addOn.label,
+    kind: "FLAT" as const,
+    amount: addOn.kind === "DISCOUNT" || addOn.kind === "CONCESSION" ? -Math.abs(addOn.amount) : Math.abs(addOn.amount),
+  }));
 }
 
 export async function backfillInvoicePeriods() {
@@ -90,9 +113,15 @@ export async function issueDueFeesCore(asOf = new Date(), classId?: string, sess
 
   for (const template of templates) {
     if (!template.lines.length) continue;
+    const activeMonths = months.filter((month) => {
+      if (template.startsPeriod && template.startsPeriod > month.period) return false;
+      if (template.endsPeriod && template.endsPeriod < month.period) return false;
+      return true;
+    });
+    if (!activeMonths.length) continue;
     const students = await prisma.student.findMany({
       where: { classId: template.classId },
-      select: { id: true },
+      select: { id: true, feeAddOns: { where: { active: true } } },
     });
     if (!students.length) continue;
 
@@ -101,9 +130,6 @@ export async function issueDueFeesCore(asOf = new Date(), classId?: string, sess
       kind: l.kind,
       amount: l.amount,
     }));
-    const { total } = feeLineTotal(drafts);
-    const linesJson = JSON.stringify(drafts);
-
     const existing = await prisma.feeInvoice.findMany({
       where: { studentId: { in: students.map((s) => s.id) } },
       select: { studentId: true, period: true },
@@ -112,19 +138,20 @@ export async function issueDueFeesCore(asOf = new Date(), classId?: string, sess
 
     const rows = [];
     for (const student of students) {
-      for (const month of months) {
+      for (const month of activeMonths) {
         if (have.has(`${student.id}:${month.period}`)) continue;
+        const lines = [...drafts, ...feeAddOnLines(student.feeAddOns, month.period)];
         rows.push({
           studentId: student.id,
           classId: template.classId,
           templateId: template.id,
           period: month.period,
           title: monthFeeTitle(month.year, month.monthIndex, template.name),
-          amount: total,
-          linesJson,
+          amount: feeLineTotal(lines).total,
+          linesJson: JSON.stringify(lines),
           dueDate: dueDateForMonth(month.year, month.monthIndex, template.dueDay),
           ...invoiceLateStamp(template),
-          shareToken: crypto.randomUUID(),
+          shareToken: randomUUID(),
           status: InvoiceStatus.DUE,
         });
         added.push(month.period);

@@ -168,9 +168,11 @@ describe("Express portal API", () => {
     database?.cleanup();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.restoreAllMocks();
     process.env.CRON_SECRET = "fixture-cron-secret";
+    await prisma.payment.deleteMany({ where: { reference: { startsWith: "pay_KAN45" } } });
+    await prisma.feeInvoice.deleteMany({ where: { id: "invoice-anaya-may-k45" } });
   });
 
   it("uses an isolated SQLite file outside prisma/dev.db", () => {
@@ -184,6 +186,114 @@ describe("Express portal API", () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ ok: true });
+  });
+
+  it("validates, reserves, and saves school website slugs", async () => {
+    const original = await prisma.schoolConfig.findUniqueOrThrow({ where: { id: "school" } });
+    const { id: _id, ...originalData } = original;
+    const originalPublicUrl = process.env.PUBLIC_URL;
+    const session = await login(fixture.users.office.email);
+    const auth = { Authorization: `Bearer ${session.body.token}` };
+
+    try {
+      process.env.PUBLIC_URL = "https://staging.anekio.com";
+      const reserved = await request(app)
+        .post("/api/v1/act")
+        .set(auth)
+        .send({ op: "saveSchoolIdentity", websiteSlug: "admin" });
+      expect(reserved.status).toBe(400);
+      expect(reserved.body.error).toContain("reserved by Anekio");
+
+      await prisma.schoolConfig.create({
+        data: { id: "other-school", name: "Other School", websiteSlug: "taken-school" },
+      });
+      const taken = await request(app)
+        .post("/api/v1/act")
+        .set(auth)
+        .send({ op: "saveSchoolIdentity", websiteSlug: "taken-school" });
+      expect(taken.status).toBe(400);
+      expect(taken.body).toEqual({ error: "That website slug is already used by another school." });
+
+      const saved = await request(app)
+        .post("/api/v1/act")
+        .set(auth)
+        .send({ op: "saveSchoolIdentity", websiteSlug: "Green Valley Academy" });
+      expect(saved.status).toBe(200);
+      expect((await prisma.schoolConfig.findUniqueOrThrow({ where: { id: "school" } })).websiteSlug).toBe("green-valley-academy");
+
+      const record = await request(app)
+        .get("/api/v1/record")
+        .set(auth)
+        .set("X-Forwarded-Host", "app.staging.anekio.com");
+      expect(record.body.school.website).toMatchObject({
+        slug: "green-valley-academy",
+        domain: "staging.anekio.com",
+      });
+    } finally {
+      if (originalPublicUrl === undefined) delete process.env.PUBLIC_URL;
+      else process.env.PUBLIC_URL = originalPublicUrl;
+      await prisma.schoolConfig.deleteMany({ where: { id: "other-school" } });
+      await prisma.schoolConfig.update({ where: { id: "school" }, data: originalData });
+    }
+  });
+
+  it("releases changed school website slugs and resolves the current owner by slug", async () => {
+    const original = await prisma.schoolConfig.findUniqueOrThrow({ where: { id: "school" } });
+    const { id: _id, ...originalData } = original;
+    const session = await login(fixture.users.office.email);
+    const auth = { Authorization: `Bearer ${session.body.token}` };
+
+    try {
+      await prisma.schoolConfig.update({
+        where: { id: "school" },
+        data: {
+          name: "Original Campus",
+          websiteEnabled: true,
+          websiteSlug: "old-campus",
+          websiteHeroTitle: "Original Campus admissions",
+        },
+      });
+
+      const oldBeforeChange = await request(app).get("/").set("Host", "old-campus.anekio.com");
+      expect(oldBeforeChange.status).toBe(200);
+      expect(oldBeforeChange.text).toContain("Original Campus admissions");
+
+      const changed = await request(app)
+        .post("/api/v1/act")
+        .set(auth)
+        .send({
+          op: "saveSchoolWebsite",
+          websiteEnabled: true,
+          websiteSlug: "new-campus",
+          websiteHeroTitle: "New Campus admissions",
+        });
+      expect(changed.status).toBe(200);
+
+      const oldAfterChange = await request(app).get("/").set("Host", "old-campus.anekio.com");
+      expect(oldAfterChange.status).toBe(404);
+      expect(oldAfterChange.body).toEqual({ error: "School website not found" });
+
+      const newAfterChange = await request(app).get("/").set("Host", "new-campus.anekio.com");
+      expect(newAfterChange.status).toBe(200);
+      expect(newAfterChange.text).toContain("New Campus admissions");
+
+      await prisma.schoolConfig.create({
+        data: {
+          id: "other-school",
+          name: "Other Campus",
+          websiteEnabled: true,
+          websiteSlug: "old-campus",
+          websiteHeroTitle: "Other Campus admissions",
+        },
+      });
+
+      const oldReused = await request(app).get("/").set("Host", "old-campus.anekio.com");
+      expect(oldReused.status).toBe(200);
+      expect(oldReused.text).toContain("Other Campus admissions");
+    } finally {
+      await prisma.schoolConfig.deleteMany({ where: { id: "other-school" } });
+      await prisma.schoolConfig.update({ where: { id: "school" }, data: originalData });
+    }
   });
 
   it("protects the SaaS admin and completes the organisation, invoice, and payment workflow", async () => {
@@ -458,6 +568,48 @@ describe("Express portal API", () => {
     await prisma.examSeries.delete({ where: { id: "series-unit-1" } });
   });
 
+  it("shows one consolidated receipt for selected paid fee invoices", async () => {
+    await prisma.feeInvoice.create({
+      data: {
+        id: "invoice-anaya-may-k45",
+        studentId: fixture.studentId,
+        classId: fixture.classId,
+        period: "2026-05",
+        title: "May fees",
+        amount: 250000,
+        dueDate: new Date("2027-05-10T00:00:00.000Z"),
+        shareToken: "invoice-anaya-may-k45",
+      },
+    });
+    await prisma.payment.createMany({
+      data: [
+        {
+          invoiceId: "invoice-anaya-april",
+          amount: 250000,
+          method: "RAZORPAY",
+          reference: "pay_KAN45:ya-april",
+          notes: "order order_KAN45",
+        },
+        {
+          invoiceId: "invoice-anaya-may-k45",
+          amount: 250000,
+          method: "RAZORPAY",
+          reference: "pay_KAN45:may-k45",
+          notes: "order order_KAN45",
+        },
+      ],
+    });
+
+    const response = await request(app).get("/pay/s/pay-anaya-fixture?m=2026-04,2026-05&paid=1");
+
+    expect(response.status).toBe(200);
+    expect(response.text).toContain("Receipt");
+    expect(response.text).toContain("pay_KAN45");
+    expect(response.text).toContain("April fees");
+    expect(response.text).toContain("May fees");
+    expect(response.text).toContain("Selected invoices are paid.");
+  });
+
   it("keeps teacher leave waiting until office approval", async () => {
     const teacherSession = await login(fixture.users.teacher.email);
     const teacherAuth = { Authorization: `Bearer ${teacherSession.body.token}` };
@@ -506,6 +658,28 @@ describe("Express portal API", () => {
 
     expect(response.status).toBe(401);
     expect(response.body).toEqual({ error: "Sign in again." });
+  });
+
+  it("lets office read the fee register from existing invoices", async () => {
+    const denied = await request(app).get("/api/v1/fee-register");
+    expect(denied.status).toBe(401);
+    const officeSession = await login(fixture.users.office.email);
+    const officeAuth = { Authorization: `Bearer ${officeSession.body.token}` };
+    const register = await request(app).get("/api/v1/fee-register").set(officeAuth);
+    expect(register.status).toBe(200);
+    expect(register.body.rows.length).toBeGreaterThan(0);
+    expect(register.body.rows[0]).toEqual(
+      expect.objectContaining({
+        studentId: fixture.studentId,
+        admissionNo: "ADM-FIX-1",
+        total: 250000,
+      })
+    );
+    const parentSession = await login(fixture.users.parent.email);
+    const parent = await request(app)
+      .get("/api/v1/fee-register")
+      .set({ Authorization: `Bearer ${parentSession.body.token}` });
+    expect(parent.status).toBe(403);
   });
 
   it("saves late timing and staff In time so a later record load still has them", async () => {
