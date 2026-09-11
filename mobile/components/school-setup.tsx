@@ -40,7 +40,8 @@ function periodsDraft(value?: number) {
 
 function parsePeriods(value: string) {
   const n = Number(value);
-  return Number.isFinite(n) && n >= 1 ? Math.trunc(n) : null;
+  if (!value.trim()) return 0;
+  return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : null;
 }
 
 function SaveFlash({ at, flash }: { at: "catalog" | "class"; flash: { at: "catalog" | "class"; kind: "ok" | "err"; text: string } | null }) {
@@ -263,146 +264,238 @@ export function SchoolSubjectsForm({
   onSaveCatalog: (names: string[], applyToAllClasses: boolean) => Promise<void>;
   onSaveClass: (classId: string, subjects: { name: string; weightage: number }[]) => Promise<void>;
 }) {
-  const [names, setNames] = useState(catalog);
+  const initialNames = [
+    ...new Set([
+      ...catalog,
+      ...classes.flatMap((c) => c.subjects.map((s) => s.name)),
+      ...DEFAULT_SUBJECTS.slice(0, 6),
+    ].map((s) => s.trim()).filter(Boolean)),
+  ];
+  const [names, setNames] = useState(initialNames);
   const [custom, setCustom] = useState("");
-  const [classId, setClassId] = useState(classes[0]?.id || "");
-  const klass = classes.find((c) => c.id === classId) || classes[0];
-  const [rows, setRows] = useState(
-    (klass?.subjects ?? []).map((s) => ({ name: s.name, weightage: periodsDraft(s.weightage) }))
+  const [grid, setGrid] = useState<Record<string, Record<string, string>>>(
+    Object.fromEntries(
+      classes.map((klass) => [
+        klass.id,
+        Object.fromEntries(klass.subjects.map((subject) => [subject.name, periodsDraft(subject.weightage)])),
+      ])
+    )
   );
   const [flash, setFlash] = useState<{ at: "catalog" | "class"; kind: "ok" | "err"; text: string } | null>(null);
 
-  function pickClass(id: string) {
-    const next = classes.find((c) => c.id === id);
-    setClassId(id);
-    setFlash(null);
-    setRows((next?.subjects ?? []).map((s) => ({ name: s.name, weightage: periodsDraft(s.weightage) })));
+  function addSubject(raw: string) {
+    const name = raw.trim();
+    if (!name || names.includes(name)) return;
+    setNames([...names, name]);
+    setCustom("");
+  }
+
+  function removeSubject(name: string) {
+    setNames(names.filter((n) => n !== name));
+    setGrid(
+      Object.fromEntries(
+        Object.entries(grid).map(([classId, cells]) => {
+          const next = { ...cells };
+          delete next[name];
+          return [classId, next];
+        })
+      )
+    );
+  }
+
+  function setCell(classId: string, subject: string, value: string) {
+    setGrid({
+      ...grid,
+      [classId]: {
+        ...(grid[classId] ?? {}),
+        [subject]: value.replace(/\D/g, "").slice(0, 2),
+      },
+    });
+  }
+
+  function downloadSheet() {
+    const rows = [
+      ["Subject", ...classes.map((klass) => `${klass.label} periods/week`)],
+      ...names.map((subject) => [
+        subject,
+        ...classes.map((klass) => grid[klass.id]?.[subject] || ""),
+      ]),
+    ];
+    const csv = rows
+      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+    if (typeof document === "undefined") {
+      setFlash({ at: "catalog", kind: "err", text: "Download is available on web." });
+      return;
+    }
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "anekio-subject-plan.csv";
+    link.click();
+    URL.revokeObjectURL(url);
   }
 
   return (
-    <View className="mt-4 gap-5">
-      <View className="gap-2">
-        <Text className="text-xs font-medium text-ink-700">School subjects</Text>
-        <Text className="text-sm text-ink-700">
-          Set once at the start. New classes get this list. Add a name only when the school starts teaching it.
-        </Text>
-        <View className="flex-row flex-wrap gap-1.5">
-          {names.map((s) => (
-            <Chip key={s} label={s} active onPress={() => setNames(names.filter((n) => n !== s))} />
-          ))}
+    <View className="mt-4 gap-4">
+      <View className="gap-3 border-b border-ink-100 pb-4">
+        <View className="flex-row flex-wrap items-start justify-between gap-3">
+          <View>
+            <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">School subjects</Text>
+            <Text className="mt-1 text-2xl font-semibold text-ink-900">{names.length} subjects</Text>
+          </View>
+          <View className="flex-row flex-wrap gap-2">
+            <Button variant="ghost" onPress={downloadSheet}>
+              Download sheet
+            </Button>
+            <Button
+              onPress={async () => {
+                setFlash(null);
+                try {
+                  await onSaveCatalog(names, false);
+                  setFlash({ at: "catalog", kind: "ok", text: "Subjects saved." });
+                } catch (e) {
+                  setFlash({ at: "catalog", kind: "err", text: e instanceof Error ? e.message : "Could not save." });
+                }
+              }}
+            >
+              Save subjects
+            </Button>
+          </View>
         </View>
         <View className="flex-row flex-wrap gap-1.5">
-          {DEFAULT_SUBJECTS.filter((s) => !names.includes(s)).map((s) => (
-            <Chip key={s} label={`+ ${s}`} onPress={() => setNames([...names, s])} />
+          {names.map((s) => (
+            <Chip key={s} label={s} active onPress={() => removeSubject(s)} />
           ))}
         </View>
         <View className="flex-row flex-wrap items-end gap-2">
-          <View className="min-w-[10rem] flex-1">
-            <Field label="Or type a subject">
+          <View className="min-w-[12rem] flex-1">
+            <Field label="Other subject">
               <Input value={custom} onChangeText={setCustom} placeholder="Sanskrit" />
             </Field>
           </View>
-          <Button
-            variant="ghost"
-            onPress={() => {
-              const name = custom.trim();
-              if (!name || names.includes(name)) return;
-              setNames([...names, name]);
-              setCustom("");
-            }}
-          >
+          <Button variant="ghost" onPress={() => addSubject(custom)}>
             Add
           </Button>
         </View>
-        <SaveFlash at="catalog" flash={flash} />
         <View className="flex-row flex-wrap gap-2">
-          <Button
-            onPress={async () => {
-              setFlash(null);
-              try {
-                await onSaveCatalog(names, false);
-                setFlash({ at: "catalog", kind: "ok", text: "Saved successfully." });
-              } catch (e) {
-                setFlash({ at: "catalog", kind: "err", text: e instanceof Error ? e.message : "Could not save." });
-              }
-            }}
-          >
-            Save subjects
-          </Button>
-          <Button
-            variant="ghost"
-            onPress={async () => {
-              setFlash(null);
-              try {
-                await onSaveCatalog(names, true);
-                setFlash({ at: "catalog", kind: "ok", text: "Saved successfully." });
-              } catch (e) {
-                setFlash({ at: "catalog", kind: "err", text: e instanceof Error ? e.message : "Could not save." });
-              }
-            }}
-          >
-            Put on every class
-          </Button>
+          {DEFAULT_SUBJECTS.filter((s) => !names.includes(s)).map((s) => (
+            <Chip key={s} label={`+ ${s}`} onPress={() => addSubject(s)} />
+          ))}
         </View>
+        <SaveFlash at="catalog" flash={flash} />
       </View>
 
-      {klass ? (
-        <View className="gap-2 border-t border-ink-100 pt-4">
-          <Text className="text-xs font-medium text-ink-700">This class</Text>
-          <View className="flex-row flex-wrap gap-1.5">
-            {classes.map((c) => (
-              <Chip key={c.id} label={c.label} active={klass.id === c.id} onPress={() => pickClass(c.id)} />
+      {classes.length ? (
+        <View className="gap-3">
+          <View className="flex-row flex-wrap items-center justify-between gap-3">
+            <View>
+              <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">Class plan</Text>
+              <Text className="mt-1 text-sm text-ink-700">Blank cells are not taught.</Text>
+            </View>
+            <Button
+              onPress={async () => {
+                setFlash(null);
+                for (const klass of classes) {
+                  const subjects = names
+                    .map((name) => ({ name, weightage: parsePeriods(grid[klass.id]?.[name] || "") }))
+                    .filter((row): row is { name: string; weightage: number } => row.weightage != null && row.weightage > 0);
+                  if (!subjects.length) {
+                    setFlash({ at: "class", kind: "err", text: `${klass.label} needs at least one subject.` });
+                    return;
+                  }
+                  const bad = names.find((name) => parsePeriods(grid[klass.id]?.[name] || "") == null);
+                  if (bad) {
+                    setFlash({ at: "class", kind: "err", text: `${klass.label} ${bad} needs a number or blank.` });
+                    return;
+                  }
+                }
+                try {
+                  await onSaveCatalog(names, false);
+                  for (const klass of classes) {
+                    await onSaveClass(
+                      klass.id,
+                      names
+                        .map((name) => ({ name, weightage: parsePeriods(grid[klass.id]?.[name] || "") }))
+                        .filter((row): row is { name: string; weightage: number } => row.weightage != null && row.weightage > 0)
+                    );
+                  }
+                  setFlash({ at: "class", kind: "ok", text: "Class plan saved." });
+                } catch (e) {
+                  setFlash({ at: "class", kind: "err", text: e instanceof Error ? e.message : "Could not save." });
+                }
+              }}
+            >
+              Save class plan
+            </Button>
+          </View>
+          <View className="overflow-hidden rounded-md border border-ink-200">
+            <View className="flex-row bg-ink-50">
+              <View className="w-24 border-r border-ink-100 px-3 py-2">
+                <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">Class</Text>
+              </View>
+              {names.map((subject) => (
+                <View key={subject} className="min-w-[7.25rem] flex-1 border-r border-ink-100 px-2 py-2 last:border-r-0">
+                  <Text className="text-center text-xs font-medium text-ink-800">{subject}</Text>
+                </View>
+              ))}
+            </View>
+            {classes.map((klass) => (
+              <View key={klass.id} className="flex-row border-t border-ink-100">
+                <View className="w-24 justify-center border-r border-ink-100 px-3 py-2">
+                  <Text className="text-sm font-semibold text-ink-900">{klass.label}</Text>
+                </View>
+                {names.map((subject) => (
+                  <View key={subject} className="min-w-[7.25rem] flex-1 border-r border-ink-100 px-2 py-1.5 last:border-r-0">
+                    <Input
+                      keyboardType="number-pad"
+                      className="py-1 text-center"
+                      value={grid[klass.id]?.[subject] || ""}
+                      onChangeText={(value) => setCell(klass.id, subject, value)}
+                      placeholder="–"
+                    />
+                  </View>
+                ))}
+              </View>
             ))}
           </View>
-          {rows.map((row) => (
-            <View key={row.name} className="flex-row items-center gap-3 rounded-md border border-ink-200 px-3 py-2">
-              <Text className="flex-1 text-sm font-medium text-ink-900">{row.name}</Text>
-              <Text className="text-xs text-ink-700">Periods / week</Text>
-              <Input
-                keyboardType="number-pad"
-                className="w-16 py-1"
-                value={row.weightage}
-                onChangeText={(v) =>
-                  setRows(rows.map((r) => (r.name === row.name ? { ...r, weightage: v.replace(/\D/g, "").slice(0, 2) } : r)))
-                }
-              />
-              <Pressable onPress={() => setRows(rows.filter((r) => r.name !== row.name))}>
-                <Text className="text-xs text-ink-700">Remove</Text>
-              </Pressable>
-            </View>
-          ))}
-          <View className="flex-row flex-wrap gap-1.5">
-            {names
-              .filter((s) => !rows.some((r) => r.name === s))
-              .map((s) => (
-                <Chip key={s} label={`+ ${s}`} onPress={() => setRows([...rows, { name: s, weightage: "4" }])} />
-              ))}
+          <View className="flex-row flex-wrap gap-2">
+            <Button
+              variant="ghost"
+              onPress={() =>
+                setGrid(
+                  Object.fromEntries(
+                    classes.map((klass) => [
+                      klass.id,
+                      Object.fromEntries(names.map((name) => [name, grid[klass.id]?.[name] || "4"])),
+                    ])
+                  )
+                )
+              }
+            >
+              Fill blanks with 4
+            </Button>
+            <Button
+              variant="ghost"
+              onPress={() =>
+                setGrid(
+                  Object.fromEntries(
+                    classes.map((klass) => [
+                      klass.id,
+                      Object.fromEntries(names.map((name) => [name, grid[klass.id]?.[name] || ""])),
+                    ])
+                  )
+                )
+              }
+            >
+              Clear blanks
+            </Button>
           </View>
           <SaveFlash at="class" flash={flash} />
-          <Button
-            onPress={async () => {
-              setFlash(null);
-              const missing = rows.find((r) => parsePeriods(r.weightage) == null);
-              if (missing) {
-                setFlash({ at: "class", kind: "err", text: `${missing.name} needs periods / week — a number from 1.` });
-                return;
-              }
-              try {
-                await onSaveClass(
-                  klass.id,
-                  rows.map((r) => ({ name: r.name, weightage: parsePeriods(r.weightage) as number }))
-                );
-                setFlash({ at: "class", kind: "ok", text: "Saved successfully." });
-              } catch (e) {
-                setFlash({ at: "class", kind: "err", text: e instanceof Error ? e.message : "Could not save." });
-              }
-            }}
-          >
-            Save {klass.label}
-          </Button>
         </View>
       ) : (
-        <Text className="text-sm text-ink-700">Add a class under Identity first.</Text>
+        <Text className="text-sm text-ink-700">Add classes first.</Text>
       )}
     </View>
   );
