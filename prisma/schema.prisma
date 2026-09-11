@@ -213,6 +213,7 @@ model User {
 
 model AuthChallenge {
   id             String    @id
+  orgId          String?
   userId         String?
   user           User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
   identifierHash String
@@ -231,6 +232,7 @@ model AuthChallenge {
 
 model Teacher {
   id                    String                 @id @default(cuid())
+  orgId                 String?
   userId                String                 @unique
   user                  User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
   employeeId            String                 @unique
@@ -257,6 +259,7 @@ model Teacher {
 
 model TeacherSkill {
   id          String  @id @default(cuid())
+  orgId       String?
   teacherId   String
   teacher     Teacher @relation(fields: [teacherId], references: [id], onDelete: Cascade)
   subjectName String
@@ -268,6 +271,7 @@ model TeacherSkill {
 
 model TeacherClass {
   id        String  @id @default(cuid())
+  orgId     String?
   teacherId String
   teacher   Teacher @relation(fields: [teacherId], references: [id], onDelete: Cascade)
   classId   String
@@ -278,6 +282,7 @@ model TeacherClass {
 
 model Parent {
   id       String    @id @default(cuid())
+  orgId    String?
   userId   String    @unique
   user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   phone    String?
@@ -290,6 +295,7 @@ model Parent {
 
 model Class {
   id                String             @id @default(cuid())
+  orgId             String?
   name              String
   section           String
   archivedAt        DateTime?
@@ -312,6 +318,7 @@ model Class {
 
 model Student {
   id                  String            @id @default(cuid())
+  orgId               String?
   userId              String?           @unique
   user                User?             @relation(fields: [userId], references: [id])
   parentId            String
@@ -360,6 +367,7 @@ model StudentFeeAddOn {
 
 model Subject {
   id        String          @id @default(cuid())
+  orgId     String?
   name      String
   classId   String
   class     Class           @relation(fields: [classId], references: [id])
@@ -372,6 +380,7 @@ model Subject {
 
 model StudentInterest {
   id        String  @id @default(cuid())
+  orgId     String?
   studentId String
   student   Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
   tag       PathTag
@@ -381,6 +390,7 @@ model StudentInterest {
 
 model Attendance {
   id         String           @id @default(cuid())
+  orgId      String?
   studentId  String
   student    Student          @relation(fields: [studentId], references: [id], onDelete: Cascade)
   date       DateTime
@@ -393,6 +403,7 @@ model Attendance {
 
 model ExamSeries {
   id          String        @id @default(cuid())
+  orgId       String?
   classId     String
   class       Class         @relation(fields: [classId], references: [id], onDelete: Cascade)
   sessionId   String
@@ -408,6 +419,7 @@ model ExamSeries {
 
 model Exam {
   id                 String             @id @default(cuid())
+  orgId              String?
   title              String
   subjectId          String
   subject            Subject            @relation(fields: [subjectId], references: [id])
@@ -445,6 +457,7 @@ model Exam {
 
 model ExamEvaluator {
   examId    String
+  orgId     String?
   teacherId String
   grantedAt DateTime @default(now())
   exam      Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
@@ -455,6 +468,7 @@ model ExamEvaluator {
 
 model ExamResult {
   id                      String    @id @default(cuid())
+  orgId                   String?
   examId                  String
   exam                    Exam      @relation(fields: [examId], references: [id], onDelete: Cascade)
   studentId               String
@@ -472,6 +486,7 @@ model ExamResult {
 
 model ExamResultAudit {
   id        String   @id @default(cuid())
+  orgId     String?
   examId    String
   exam      Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
   studentId String
@@ -489,6 +504,7 @@ model ExamResultAudit {
 
 model ExamPaper {
   id        String    @id @default(cuid())
+  orgId     String?
   examId    String
   exam      Exam      @relation(fields: [examId], references: [id], onDelete: Cascade)
   studentId String
@@ -504,6 +520,7 @@ model ExamPaper {
 
 model Contest {
   id           String         @id @default(cuid())
+  orgId        String?
   title        String
   type         ContestType
   level        ContestLevel
@@ -516,6 +533,7 @@ model Contest {
 
 model ContestEntry {
   id        String  @id @default(cuid())
+  orgId     String?
   contestId String
   contest   Contest @relation(fields: [contestId], references: [id], onDelete: Cascade)
   studentId String
@@ -530,6 +548,7 @@ model ContestEntry {
 
 model Grant {
   id             String        @id @default(cuid())
+  orgId          String?
   studentId      String
   student        Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
   contestEntryId String?
@@ -647,6 +666,7 @@ model SchoolOnboardingState {
 
 model SchoolOnboardingImport {
   id           String                @id @default(cuid())
+  orgId        String?
   stateId      String                @default("school")
   state        SchoolOnboardingState @relation(fields: [stateId], references: [id], onDelete: Cascade)
   kind         String
@@ -665,6 +685,7 @@ model SchoolOnboardingImport {
 
 model GoogleDriveConnection {
   id                    String   @id @default(cuid())
+  orgId                 String?
   userId                String   @unique
   user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   googleEmail           String   @default("")
@@ -680,6 +701,7 @@ model GoogleDriveConnection {
 
 model OnboardingGoogleSheet {
   id          String                @id @default(cuid())
+  orgId       String?
   stateId     String                @default("school")
   state       SchoolOnboardingState @relation(fields: [stateId], references: [id], onDelete: Cascade)
   userId      String
@@ -724,6 +746,7 @@ model FeeReminder {
 
 model Application {
   id          String            @id @default(cuid())
+  orgId       String?
   type        ApplicationType
   status      ApplicationStatus @default(PENDING)
   requesterId String
@@ -809,6 +832,7 @@ model SchoolConfig {
 
 model AdmissionLead {
   id               String               @id @default(cuid())
+  orgId            String?
   studentName      String
   guardianName     String
   phone            String
@@ -827,6 +851,7 @@ model AdmissionLead {
 
 model AdmissionLeadEvent {
   id        String        @id @default(cuid())
+  orgId     String?
   leadId    String
   kind      String
   title     String
@@ -838,6 +863,7 @@ model AdmissionLeadEvent {
 
 model DocumentTemplate {
   id            String                    @id @default(cuid())
+  orgId         String?
   schoolId      String                    @default("school")
   school        SchoolConfig              @relation(fields: [schoolId], references: [id], onDelete: Cascade)
   type          String
@@ -863,6 +889,7 @@ model DocumentTemplate {
 
 model DocumentTemplateVersion {
   id              String           @id @default(cuid())
+  orgId           String?
   schoolId        String           @default("school")
   school          SchoolConfig     @relation(fields: [schoolId], references: [id], onDelete: Cascade)
   templateId      String
@@ -883,6 +910,7 @@ model DocumentTemplateVersion {
 
 model IssuedDocument {
   id                String                  @id @default(cuid())
+  orgId             String?
   schoolId          String                  @default("school")
   school            SchoolConfig            @relation(fields: [schoolId], references: [id], onDelete: Cascade)
   documentNumber    String
@@ -915,6 +943,7 @@ model IssuedDocument {
 
 model DocumentEvent {
   id               String         @id @default(cuid())
+  orgId            String?
   issuedDocumentId String
   issuedDocument   IssuedDocument @relation(fields: [issuedDocumentId], references: [id], onDelete: Cascade)
   action           String
@@ -929,6 +958,7 @@ model DocumentEvent {
 
 model Notice {
   id         String            @id @default(cuid())
+  orgId      String?
   eventKey   String?           @unique
   title      String
   body       String
@@ -946,6 +976,7 @@ model Notice {
 
 model NoticeRecipient {
   noticeId String
+  orgId    String?
   notice   Notice @relation(fields: [noticeId], references: [id], onDelete: Cascade)
   userId   String
   user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -956,6 +987,7 @@ model NoticeRecipient {
 
 model NoticeAudience {
   noticeId String
+  orgId    String?
   notice   Notice @relation(fields: [noticeId], references: [id], onDelete: Cascade)
   portal   Portal
 
@@ -964,6 +996,7 @@ model NoticeAudience {
 
 model NoticeClass {
   noticeId String
+  orgId    String?
   notice   Notice @relation(fields: [noticeId], references: [id], onDelete: Cascade)
   classId  String
   class    Class  @relation(fields: [classId], references: [id], onDelete: Cascade)
@@ -973,6 +1006,7 @@ model NoticeClass {
 
 model LeaveType {
   id                String         @id @default(cuid())
+  orgId             String?
   name              String
   forTeacher        Boolean        @default(true)
   forStaff          Boolean        @default(true)
@@ -987,6 +1021,7 @@ model LeaveType {
 
 model LeaveRequest {
   id               String                 @id @default(cuid())
+  orgId            String?
   typeId           String
   type             LeaveType              @relation(fields: [typeId], references: [id], onDelete: Cascade)
   from             String
@@ -1009,6 +1044,7 @@ model LeaveRequest {
 
 model SubstituteAssignment {
   id             String        @id @default(cuid())
+  orgId          String?
   leaveRequestId String
   leaveRequest   LeaveRequest  @relation(fields: [leaveRequestId], references: [id], onDelete: Cascade)
   date           String
@@ -1027,6 +1063,7 @@ model SubstituteAssignment {
 
 model SchoolHoliday {
   id        String         @id @default(cuid())
+  orgId     String?
   sessionId String?
   session   SchoolSession? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   date      String
@@ -1039,6 +1076,7 @@ model SchoolHoliday {
 
 model SchoolSession {
   id           String          @id @default(cuid())
+  orgId        String?
   label        String
   startsOn     String
   endsOn       String
@@ -1051,6 +1089,7 @@ model SchoolSession {
 
 model StaffMember {
   id            String         @id @default(cuid())
+  orgId         String?
   name          String
   title         String
   phone         String         @default("")
@@ -1073,6 +1112,7 @@ model StaffMember {
 
 model StaffDay {
   id             String            @id @default(cuid())
+  orgId          String?
   date           DateTime
   status         AttendanceStatus
   teacherId      String?
@@ -1092,6 +1132,7 @@ model StaffDay {
 
 model StaffAttendanceAudit {
   id         String   @id @default(cuid())
+  orgId      String?
   personKey  String
   date       String
   fromStatus String
@@ -1105,6 +1146,7 @@ model StaffAttendanceAudit {
 
 model StaffPayrollRun {
   id            String        @id @default(cuid())
+  orgId         String?
   personKey     String
   month         String
   status        PayrollStatus @default(PENDING)
@@ -1123,6 +1165,7 @@ model StaffPayrollRun {
 
 model Period {
   id        String          @id @default(cuid())
+  orgId     String?
   name      String
   startsAt  String
   endsAt    String
@@ -1133,6 +1176,7 @@ model Period {
 
 model Room {
   id    String          @id @default(cuid())
+  orgId String?
   name  String          @unique
   kind  RoomKind        @default(CLASSROOM)
   slots TimetableSlot[]
@@ -1140,6 +1184,7 @@ model Room {
 
 model TimetableSlot {
   id                    String                 @id @default(cuid())
+  orgId                 String?
   classId               String
   class                 Class                  @relation(fields: [classId], references: [id], onDelete: Cascade)
   periodId              String
