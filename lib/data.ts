@@ -674,6 +674,7 @@ export async function getPeople() {
         interests: true,
         parent: { include: { user: true } },
         user: true,
+        feeAddOns: true,
         feeInvoices: { include: { payments: true }, orderBy: { dueDate: "desc" } },
         attendance: { select: { status: true } },
       },

@@ -323,11 +323,13 @@ export type RecordPayload = {
     classId: string;
     sessionId: string;
     name: string;
+    startsPeriod?: string;
+    endsPeriod?: string;
     dueDay: number;
     lateKind: string;
     lateGraceDays: number;
     lateAmount: number;
-    lines: { label: string; kind: string; amount: number }[];
+    lines: { label: string; kind: string; amount: number; scope?: string }[];
   }[];
   people?: {
     id: string;
@@ -356,6 +358,16 @@ export type RecordPayload = {
     overdueCount?: number;
     attendance?: { status: string }[];
     invoiceIds?: string[];
+    feeAddOns?: {
+      id?: string;
+      label: string;
+      kind: string;
+      amount: number;
+      cadence?: string;
+      startsPeriod?: string;
+      endsPeriod?: string;
+      active?: boolean;
+    }[];
     invoices?: {
       id: string;
       title: string;
@@ -363,6 +375,7 @@ export type RecordPayload = {
       amount: string;
       paid: string;
       remaining: string;
+      period?: string;
       dueNow?: number;
       lateLabel?: string;
       status: string;

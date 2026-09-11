@@ -182,7 +182,7 @@ export const StaffHoursForm = forwardRef<
                 toast.show(e instanceof Error ? e.message : "Could not save.");
               });
             }}
-            style={Platform.OS === "web" ? { cursor: busy ? "default" : "pointer" } : undefined}
+            style={Platform.OS === "web" && !busy ? { cursor: "pointer" } : undefined}
           >
             {busy ? "Saving…" : "Save late timing"}
           </Button>

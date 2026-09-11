@@ -5,6 +5,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { Dropdown } from "./form";
 import { Badge, Button, Card, Field, Input, Modal, PageHeader, Switch, Toast, useToast } from "./ui";
 import { ClockForm, RoomsForm, SchoolSubjectsForm } from "./school-setup";
+import { DocumentStudio } from "./document-studio";
 import { StaffHoursForm } from "./staff-hours-form";
 import { webOrigin } from "../lib/api";
 import { act, saveLateTiming } from "../lib/mutate";

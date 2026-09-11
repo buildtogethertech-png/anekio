@@ -5,6 +5,7 @@ export type FeeLineDraft = {
   label: string;
   kind: "FLAT" | "PERCENT";
   amount: number;
+  scope?: string;
 };
 
 export type FeePart = FeeLineDraft & { hint: string };

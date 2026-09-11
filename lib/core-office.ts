@@ -52,6 +52,51 @@ function need(user: AccessUser, ...keys: string[]) {
   if (!keys.some((k) => can(user, k))) throw new Error("No access.");
 }
 
+function normalizeFeePeriod(value: unknown) {
+  const text = String(value || "").trim();
+  return /^\d{4}-(0[1-9]|1[0-2])$/.test(text) ? text : "";
+}
+
+function monthsBetween(startsPeriod: string, endsPeriod: string) {
+  const [startYear, startMonth] = startsPeriod.split("-").map(Number);
+  const [endYear, endMonth] = endsPeriod.split("-").map(Number);
+  const months: { period: string; year: number; monthIndex: number }[] = [];
+  let year = startYear;
+  let monthIndex = startMonth - 1;
+  const end = endYear * 12 + (endMonth - 1);
+  while (year * 12 + monthIndex <= end) {
+    months.push({ period: feePeriod(year, monthIndex), year, monthIndex });
+    monthIndex += 1;
+    if (monthIndex > 11) {
+      monthIndex = 0;
+      year += 1;
+    }
+  }
+  return months;
+}
+
+function feeAddOnApplies(
+  addOn: { startsPeriod: string; endsPeriod: string; cadence: string; active: boolean },
+  period: string
+) {
+  if (!addOn.active) return false;
+  if (addOn.startsPeriod && addOn.startsPeriod > period) return false;
+  if (addOn.endsPeriod && addOn.endsPeriod < period) return false;
+  if (addOn.cadence === "ONE_TIME") return addOn.startsPeriod === period;
+  return true;
+}
+
+function feeAddOnLines(
+  addOns: { label: string; kind: string; amount: number; startsPeriod: string; endsPeriod: string; cadence: string; active: boolean }[],
+  period: string
+) {
+  return addOns.filter((addOn) => feeAddOnApplies(addOn, period)).map((addOn) => ({
+    label: addOn.label,
+    kind: "FLAT" as const,
+    amount: addOn.kind === "DISCOUNT" || addOn.kind === "CONCESSION" ? -Math.abs(addOn.amount) : Math.abs(addOn.amount),
+  }));
+}
+
 async function needExamClass(user: AccessUser, classId: string, mode: "mark" | "run" = "mark") {
   need(user, "exams.edit", "marks.enter", "exams.teach");
   if (user.portal === "OFFICE" && can(user, "exams.edit")) return;
@@ -109,22 +154,29 @@ export async function startNextSchoolSessionCore(user: AccessUser) {
 export async function saveFeeTemplateCore(
   user: AccessUser,
   input: {
+    templateId?: string;
     classId: string;
     sessionId?: string;
     name?: string;
+    startsPeriod?: string;
+    endsPeriod?: string;
     dueDay?: number;
     lateKind?: string;
     lateGraceDays?: number;
     lateAmount?: number;
-    lines?: { label?: string; kind?: string; amount?: number }[];
+    lines?: { label?: string; kind?: string; amount?: number; scope?: string }[];
   }
 ) {
   need(user, "fees.configure");
   const classId = String(input.classId || "");
   if (!classId) throw new Error("Class required");
+  const templateId = String(input.templateId || "");
   const { current } = await ensureSchoolSessions();
   const sessionId = String(input.sessionId || current.id);
   const name = String(input.name || "Monthly fee").trim() || "Monthly fee";
+  const startsPeriod = normalizeFeePeriod(input.startsPeriod) || current.startsOn.slice(0, 7);
+  const endsPeriod = normalizeFeePeriod(input.endsPeriod) || current.endsOn.slice(0, 7);
+  if (startsPeriod > endsPeriod) throw new Error("Start month must be before end month");
   const dueDay = Math.min(28, Math.max(1, Number(input.dueDay || 10)));
   const rawKind = String(input.lateKind || "NONE").toUpperCase();
   const lateKind = rawKind === "STATIC" || rawKind === "DAILY" ? rawKind : "NONE";
@@ -142,20 +194,37 @@ export async function saveFeeTemplateCore(
       label: String(line.label || "").trim() || "Line",
       kind: (line.kind === "PERCENT" ? "PERCENT" : "FLAT") as FeeLineKind,
       amount: Math.max(0, Math.round(Number(line.amount) || 0)),
+      scope: String(line.scope || "ALL").toUpperCase() === "ADD_ON" ? "ADD_ON" : "ALL",
       sortOrder: i,
     })
   );
-  const existing = await prisma.feeTemplate.findFirst({ where: { classId, sessionId } });
+  const editing = templateId
+    ? await prisma.feeTemplate.findUnique({ where: { id: templateId } })
+    : null;
+  if (editing && (editing.classId !== classId || editing.sessionId !== sessionId)) throw new Error("Template does not belong to this class");
+  const existing = editing || await prisma.feeTemplate.findFirst({ where: { classId, sessionId, startsPeriod, endsPeriod } });
+  const overlap = await prisma.feeTemplate.findFirst({
+    where: {
+      classId,
+      sessionId,
+      ...(existing ? { NOT: { id: existing.id } } : {}),
+      startsPeriod: { lte: endsPeriod },
+      endsPeriod: { gte: startsPeriod },
+    },
+  });
+  if (overlap) throw new Error(`This range overlaps ${overlap.startsPeriod || "an earlier setup"} to ${overlap.endsPeriod || "an earlier setup"}.`);
   if (existing) {
     await prisma.feeLine.deleteMany({ where: { templateId: existing.id } });
-    await prisma.feeTemplate.update({
+    const updated = await prisma.feeTemplate.update({
       where: { id: existing.id },
-      data: { name, dueDay, ...lateStamp, lines: { create: lines } },
+      data: { name, startsPeriod, endsPeriod, dueDay, ...lateStamp, lines: { create: lines } },
     });
+    return { id: updated.id };
   } else {
-    await prisma.feeTemplate.create({
-      data: { classId, sessionId, name, dueDay, ...lateStamp, lines: { create: lines } },
+    const created = await prisma.feeTemplate.create({
+      data: { classId, sessionId, name, startsPeriod, endsPeriod, dueDay, ...lateStamp, lines: { create: lines } },
     });
+    return { id: created.id };
   }
 }
 
@@ -270,46 +339,62 @@ export async function collectAllStudentFeesCore(
 
 export async function issueClassFeesCore(
   user: AccessUser,
-  input: { classId: string; year?: number; month?: number }
+  input: { classId: string; templateId?: string; year?: number; month?: number; startsPeriod?: string; endsPeriod?: string }
 ) {
   need(user, "fees.collect");
   const classId = String(input.classId || "");
-  const year = Number(input.year || new Date().getFullYear());
-  const monthIndex = Number(input.month ?? new Date().getMonth());
   const { current } = await ensureSchoolSessions();
-  const template = await prisma.feeTemplate.findFirst({
-    where: { classId, sessionId: current.id },
+  const template = input.templateId ? await prisma.feeTemplate.findUnique({
+    where: { id: String(input.templateId) },
+    include: { lines: { orderBy: { sortOrder: "asc" } } },
+  }) : await prisma.feeTemplate.findFirst({
+    where: {
+      classId,
+      sessionId: current.id,
+      ...(input.startsPeriod && input.endsPeriod ? { startsPeriod: String(input.startsPeriod), endsPeriod: String(input.endsPeriod) } : {}),
+    },
     include: { lines: { orderBy: { sortOrder: "asc" } } },
   });
+  if (template && template.classId !== classId) throw new Error("Template does not belong to this class");
   if (!template || !template.lines.length) throw new Error("Save a fee template first");
-  const drafts = template.lines.map((l) => ({ label: l.label, kind: l.kind, amount: l.amount }));
-  const { total } = feeLineTotal(drafts);
-  const title = monthFeeTitle(year, monthIndex, template.name);
-  const dueDate = dueDateForMonth(year, monthIndex, template.dueDay);
-  const period = feePeriod(year, monthIndex);
-  const students = await prisma.student.findMany({ where: { classId }, select: { id: true } });
+  const drafts = template.lines
+    .filter((l) => l.scope !== "ADD_ON")
+    .map((l) => ({ label: l.label, kind: l.kind, amount: l.amount }));
+  const fallbackPeriod = feePeriod(Number(input.year || new Date().getFullYear()), Number(input.month ?? new Date().getMonth()));
+  const startsPeriod = template.startsPeriod || normalizeFeePeriod(input.startsPeriod) || fallbackPeriod;
+  const endsPeriod = template.endsPeriod || normalizeFeePeriod(input.endsPeriod) || startsPeriod;
+  if (startsPeriod > endsPeriod) throw new Error("Start month must be before end month");
+  const months = monthsBetween(startsPeriod, endsPeriod);
+  const students = await prisma.student.findMany({
+    where: { classId },
+    select: { id: true, feeAddOns: { where: { active: true } } },
+  });
   if (!students.length) throw new Error("This class has no students. Add them on Students, then issue.");
   const already = await prisma.feeInvoice.findMany({
-    where: { classId, period },
-    select: { studentId: true },
+    where: { classId, period: { in: months.map((month) => month.period) } },
+    select: { studentId: true, period: true },
   });
-  const have = new Set(already.map((i) => i.studentId));
-  const linesJson = JSON.stringify(drafts);
+  const have = new Set(already.map((i) => `${i.studentId}:${i.period}`));
   await prisma.feeInvoice.createMany({
-    data: students
-      .filter((s) => !have.has(s.id))
-      .map((s) => ({
+    data: students.flatMap((s) =>
+      months
+        .filter((month) => !have.has(`${s.id}:${month.period}`))
+        .map((month) => {
+        const lines = [...drafts, ...feeAddOnLines(s.feeAddOns, month.period)];
+        const invoiceTotal = feeLineTotal(lines).total;
+        return {
         studentId: s.id,
         classId,
         templateId: template.id,
-        period,
-        title,
-        amount: total,
-        linesJson,
-        dueDate,
+          period: month.period,
+          title: monthFeeTitle(month.year, month.monthIndex, template.name),
+          amount: invoiceTotal,
+          linesJson: JSON.stringify(lines),
+          dueDate: dueDateForMonth(month.year, month.monthIndex, template.dueDay),
         ...invoiceLateStamp(template),
         shareToken: crypto.randomUUID(),
         status: InvoiceStatus.DUE,
+        };
       })),
   });
 }
@@ -750,7 +835,7 @@ export async function submitExamMarksCore(
     }
   } else {
     need(user, "exams.edit", "marks.enter");
-    if (!teacherCanEditMarks(exam.workflowStatus) && exam.workflowStatus !== "SCHEDULED") {
+    if (!teacherCanEditMarks(exam.workflowStatus)) {
       throw new Error("This paper is already submitted.");
     }
   }

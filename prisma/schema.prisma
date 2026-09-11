@@ -286,10 +286,29 @@ model Student {
   examAudits     ExamResultAudit[]
   grants         Grant[]
   feeInvoices    FeeInvoice[]
+  feeAddOns       StudentFeeAddOn[]
   applications   Application[]
   leaveRequests  LeaveRequest[]
   notices        Notice[]
   payToken       String?           @unique
+}
+
+model StudentFeeAddOn {
+  id           String   @id @default(cuid())
+  studentId    String
+  student      Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  label        String
+  kind         String   @default("CHARGE")
+  amount       Int
+  cadence      String   @default("MONTHLY")
+  startsPeriod String   @default("")
+  endsPeriod   String   @default("")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([studentId, active])
+  @@index([startsPeriod, endsPeriod])
 }
 
 model Subject {
@@ -485,6 +504,8 @@ model FeeTemplate {
   sessionId     String?
   session       SchoolSession? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   name          String         @default("Monthly fee")
+  startsPeriod  String         @default("")
+  endsPeriod    String         @default("")
   dueDay        Int            @default(10)
   lateGraceDays Int            @default(0)
   lateKind      String         @default("")
@@ -494,7 +515,8 @@ model FeeTemplate {
   lines         FeeLine[]
   invoices      FeeInvoice[]
 
-  @@unique([classId, sessionId])
+  @@index([classId, sessionId])
+  @@index([startsPeriod, endsPeriod])
 }
 
 model FeeLine {
@@ -504,6 +526,7 @@ model FeeLine {
   label      String
   kind       FeeLineKind @default(FLAT)
   amount     Int
+  scope      String      @default("ALL")
   sortOrder  Int         @default(0)
 }
 

@@ -988,11 +988,13 @@ async function officePayload(user: AccessUser) {
       classId: t.classId,
       sessionId: t.sessionId || "",
       name: t.name,
+      startsPeriod: t.startsPeriod,
+      endsPeriod: t.endsPeriod,
       dueDay: t.dueDay,
       lateKind: t.lateKind,
       lateGraceDays: t.lateGraceDays,
       lateAmount: t.lateAmount,
-      lines: t.lines.map((l) => ({ label: l.label, kind: l.kind, amount: l.amount })),
+      lines: t.lines.map((l) => ({ label: l.label, kind: l.kind, amount: l.amount, scope: l.scope || "ALL" })),
     })),
     people: people.students.map((s) => {
       const totals = s.feeInvoices.reduce(
@@ -1034,12 +1036,23 @@ async function officePayload(user: AccessUser) {
         overdueCount: totals.overdue,
         attendance: s.attendance.map((a) => ({ status: a.status })),
         invoiceIds: s.feeInvoices.filter((inv) => inv.status !== "PAID").map((inv) => inv.id),
+        feeAddOns: s.feeAddOns.map((addOn) => ({
+          id: addOn.id,
+          label: addOn.label,
+          kind: addOn.kind,
+          amount: addOn.amount,
+          cadence: addOn.cadence,
+          startsPeriod: addOn.startsPeriod,
+          endsPeriod: addOn.endsPeriod,
+          active: addOn.active,
+        })),
         invoices: s.feeInvoices.map((inv) => {
           const paidAmt = inv.payments.reduce((n, p) => n + p.amount, 0);
           const m = invoiceBalance({ ...inv, paid: paidAmt });
           return {
             id: inv.id,
             title: inv.title,
+            period: inv.period,
             due: inv.dueDate.toLocaleDateString("en-IN"),
             amount: formatInr(inv.amount),
             paid: formatInr(paidAmt),

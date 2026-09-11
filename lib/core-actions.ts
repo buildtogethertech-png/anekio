@@ -101,6 +101,7 @@ export async function createStudentCore(
     parentId: string;
     dateOfBirth: string;
     tags?: string[];
+    feeAddOns?: { label?: string; kind?: string; amount?: string | number; cadence?: string; startsPeriod?: string; endsPeriod?: string }[];
   }
 ) {
   need(user, "people.edit");
@@ -118,8 +119,24 @@ export async function createStudentCore(
       parentId: input.parentId,
       dateOfBirth: new Date(input.dateOfBirth),
       interests: { create: tags.map((tag) => ({ tag })) },
+      feeAddOns: { create: normalizeStudentFeeAddOns(input.feeAddOns) },
     },
   });
+}
+
+function normalizeStudentFeeAddOns(
+  rows?: { label?: string; kind?: string; amount?: string | number; cadence?: string; startsPeriod?: string; endsPeriod?: string }[]
+) {
+  return (Array.isArray(rows) ? rows : [])
+    .map((row) => ({
+      label: String(row.label || "").trim(),
+      kind: String(row.kind || "CHARGE").toUpperCase() === "DISCOUNT" ? "DISCOUNT" : "CHARGE",
+      amount: Math.max(0, Math.round(Number(row.amount) || 0)),
+      cadence: String(row.cadence || "MONTHLY").toUpperCase() === "ONE_TIME" ? "ONE_TIME" : "MONTHLY",
+      startsPeriod: String(row.startsPeriod || "").trim(),
+      endsPeriod: String(row.endsPeriod || "").trim(),
+    }))
+    .filter((row) => row.label && row.amount > 0);
 }
 
 export async function admitLeadAsStudentCore(
@@ -286,6 +303,7 @@ export async function updateStudentCore(
     city?: string;
     state?: string;
     pincode?: string;
+    feeAddOns?: { label?: string; kind?: string; amount?: string | number; cadence?: string; startsPeriod?: string; endsPeriod?: string }[];
   }
 ) {
   need(user, "people.edit");
@@ -338,6 +356,13 @@ export async function updateStudentCore(
   await prisma.studentInterest.deleteMany({ where: { studentId: id } });
   if (tags.length) {
     await prisma.studentInterest.createMany({ data: tags.map((tag) => ({ studentId: id, tag })) });
+  }
+  if (Array.isArray(input.feeAddOns)) {
+    await prisma.studentFeeAddOn.deleteMany({ where: { studentId: id } });
+    const feeAddOns = normalizeStudentFeeAddOns(input.feeAddOns);
+    if (feeAddOns.length) {
+      await prisma.studentFeeAddOn.createMany({ data: feeAddOns.map((addOn) => ({ ...addOn, studentId: id })) });
+    }
   }
   await prisma.parent.update({
     where: { id: parentId },

@@ -581,7 +581,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   const [fileTab, setFileTab] = useState<StudentTab>("overview");
   const [fileEdit, setFileEdit] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
-  const [edit, setEdit] = useState<Record<string, string>>({});
+  const [edit, setEdit] = useState<Record<string, any>>({});
   const [editTags, setEditTags] = useState<string[]>([]);
   const [idCardPending, setIdCardPending] = useState(false);
   const people = data?.people ?? [];
@@ -663,6 +663,19 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       ? studentYearScore(selected.id, yearPlan, yearSittings, examPack?.policy ?? { bands: [], passPercent: 33, showRank: false, reportCardPaidMonths: 0 })
       : null;
   const classmates = people.filter((s) => s.classId === selected?.classId);
+  const feeAddOnOptions = (data?.feeTemplates ?? []).flatMap((template) =>
+    template.lines
+      .filter((line) => line.scope === "ADD_ON")
+      .map((line) => ({
+        id: `${template.id}:${line.label}`,
+        classId: template.classId,
+        label: line.label,
+        kind: "CHARGE",
+        amount: line.amount,
+        startsPeriod: template.startsPeriod || "",
+        endsPeriod: template.endsPeriod || "",
+      }))
+  );
   const studentFilters = useMemo<FilterConfig[]>(() => {
     const filters: FilterConfig[] = [
       {
@@ -803,6 +816,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
           city: edit.city || selected.parentCity,
           state: edit.state || selected.parentState,
           pincode: edit.pincode || selected.parentPincode,
+          feeAddOns: edit.feeAddOns ?? selected.feeAddOns ?? [],
         });
       } else if (kind === "parent" && selectedParent) {
         await act(token, "updateParent", {
@@ -916,6 +930,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                     city: selected.parentCity || "",
                     state: selected.parentState || "",
                     pincode: selected.parentPincode || "",
+                    feeAddOns: (selected.feeAddOns ?? []).map((addOn) => ({ ...addOn, amount: String(addOn.amount) })),
                   });
                   setEditTags(pathIds(selected.path));
                   setFileTab("overview");
@@ -1002,6 +1017,79 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
             ))}
           </View>
         </Field>
+        {showFees ? (
+          <Field label="Student add-ons">
+            <View className="gap-2">
+              {feeAddOnOptions.length ? (
+                <View className="flex-row flex-wrap gap-1.5">
+                  {feeAddOnOptions
+                    .filter((option) => !option.classId || option.classId === (edit.classId || selected.classId))
+                    .map((option) => {
+                      const rows = (edit.feeAddOns ?? selected.feeAddOns ?? []) as NonNullable<typeof selected.feeAddOns>;
+                      const active = rows.some((row) => row.label.toLowerCase() === option.label.toLowerCase());
+                      return (
+                        <Chip
+                          key={`${option.classId}-${option.label}`}
+                          label={option.label}
+                          active={active}
+                          onPress={() =>
+                            setEdit((prev) => {
+                              const current = (prev.feeAddOns ?? selected.feeAddOns ?? []) as NonNullable<typeof selected.feeAddOns>;
+                              return {
+                                ...prev,
+                                feeAddOns: active
+                                  ? current.filter((row) => row.label.toLowerCase() !== option.label.toLowerCase())
+                                  : [
+                                      ...current,
+                                      {
+                                        label: option.label,
+                                        kind: option.kind,
+                                        amount: option.amount,
+                                        cadence: "MONTHLY",
+                                        startsPeriod: option.startsPeriod,
+                                        endsPeriod: option.endsPeriod,
+                                      },
+                                    ],
+                              };
+                            })
+                          }
+                        />
+                      );
+                    })}
+                </View>
+              ) : (
+                <Text className="text-xs text-ink-700">No add-ons configured for this class yet.</Text>
+              )}
+              {((edit.feeAddOns ?? selected.feeAddOns ?? []) as NonNullable<typeof selected.feeAddOns>).length ? (
+                <View className="gap-2 rounded-md border border-ink-100 bg-ink-50 p-2">
+                  {((edit.feeAddOns ?? selected.feeAddOns ?? []) as NonNullable<typeof selected.feeAddOns>).map((addOn) => (
+                    <View key={addOn.label} className="flex-row items-end gap-2">
+                      <View className="min-w-0 flex-1">
+                        <Text className="text-xs font-medium text-ink-800">{addOn.label}</Text>
+                        <Text className="text-[11px] text-ink-600">{addOn.kind === "DISCOUNT" ? "Monthly discount" : "Monthly add-on"}</Text>
+                      </View>
+                      <View className="w-32">
+                        <Input
+                          keyboardType="number-pad"
+                          value={String(addOn.amount)}
+                          onChangeText={(amount) =>
+                            setEdit((prev) => {
+                              const current = (prev.feeAddOns ?? selected.feeAddOns ?? []) as NonNullable<typeof selected.feeAddOns>;
+                              return {
+                                ...prev,
+                                feeAddOns: current.map((row) => (row.label === addOn.label ? { ...row, amount: Number(amount) || 0 } : row)),
+                              };
+                            })
+                          }
+                        />
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+            </View>
+          </Field>
+        ) : null}
         <View className="flex-row justify-end gap-2">
           <Button variant="ghost" onPress={() => setFileEdit(false)}>
             Cancel
@@ -1724,6 +1812,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
             <StudentAdmitForm
               classes={data?.classes ?? []}
               parents={data?.peopleParents ?? []}
+              feeAddOnOptions={feeAddOnOptions}
               onSubmit={addStudent}
             />
           ) : null}
@@ -2815,7 +2904,7 @@ export function StaffBoard() {
         <StaffAttendanceDetail
           person={staff.find((row) => row.id === detailFor.id && row.kind === detailFor.kind) || detailFor}
           calendar={calendar}
-          rules={data?.payrollRules}
+          rules={payrollRules}
           payroll={data?.staffPayroll}
           audits={data?.staffAudits}
           token={token}
@@ -2983,7 +3072,7 @@ export function StaffBoard() {
             ref={hoursRef}
             compact
             hideButton
-            rules={rulesOverride || data?.payrollRules}
+            rules={payrollRules}
             canEdit={canHours}
             onSave={async (payload) => {
               const saved = await saveLateTiming<{ ok: true; rules?: PayrollRules }>(token, payload);
@@ -3038,6 +3127,48 @@ export function StaffBoard() {
 
 export { SchoolBoard } from "./school-board";
 
+type FeeLineDraft = { id: string; label: string; amount: string; scope: "ALL" | "ADD_ON" };
+
+function newFeeLine(label = "", amount = "", scope: "ALL" | "ADD_ON" = "ALL"): FeeLineDraft {
+  return { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, label, amount, scope };
+}
+
+function currentFeePeriod() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function periodLabel(period?: string) {
+  if (!period || !/^\d{4}-\d{2}$/.test(period)) return "Not generated";
+  const [year, month] = period.split("-").map(Number);
+  return new Date(year, month - 1, 1).toLocaleString("en-IN", { month: "long", year: "numeric" });
+}
+
+function MonthInput({ value, onChangeText }: { value: string; onChangeText: (value: string) => void }) {
+  if (Platform.OS === "web") {
+    return (
+      <View className="h-[46px] justify-center rounded-md border border-ink-200 bg-white px-3">
+        {createElement("input", {
+          "aria-label": "Fee month",
+          type: "month",
+          value,
+          onChange: (event: { currentTarget: { value: string } }) => onChangeText(event.currentTarget.value),
+          style: {
+            width: "100%",
+            border: 0,
+            outline: "none",
+            background: "transparent",
+            color: "#12233d",
+            font: "inherit",
+            fontSize: 16,
+          },
+        })}
+      </View>
+    );
+  }
+  return <Input value={value} onChangeText={onChangeText} placeholder="2026-07" />;
+}
+
 export function FeesBoard() {
   const { data, reload } = useRecord();
   const { token, user } = useSession();
@@ -3046,14 +3177,18 @@ export function FeesBoard() {
   const [classId, setClassId] = useState("all");
   const [filter, setFilter] = useState<"all" | "overdue">("all");
   const [tab, setTab] = useState<"due" | "templates">("due");
+  const [feeEditorOpen, setFeeEditorOpen] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [tplName, setTplName] = useState("Monthly fee");
   const [tplDue, setTplDue] = useState("10");
+  const [tplStart, setTplStart] = useState(currentFeePeriod());
+  const [tplEnd, setTplEnd] = useState(currentFeePeriod());
   const [tplLate, setTplLate] = useState("NONE");
   const [tplAmount, setTplAmount] = useState("0");
-  const [tplLines, setTplLines] = useState("Tuition,8000");
-  const [invoiceTitle, setInvoiceTitle] = useState("Fee");
-  const [invoiceAmount, setInvoiceAmount] = useState("");
-  const [invoiceStudent, setInvoiceStudent] = useState("");
+  const [tplLines, setTplLines] = useState<FeeLineDraft[]>([
+    newFeeLine("Tuition", "8000"),
+    newFeeLine("Laboratory fee", "0"),
+  ]);
   const people = data?.people ?? [];
   const dueStudents = people.filter((s) => (s.dueAmount || 0) > 0);
   const overdueStudents = dueStudents.filter((s) => (s.overdueCount || 0) > 0);
@@ -3072,18 +3207,58 @@ export function FeesBoard() {
 
   const templates = data?.feeTemplates ?? [];
   const currentSession = data?.school?.sessions?.find((s) => s.current) ?? data?.school?.sessions?.[0];
-  const classTemplate = templates.find(
-    (t) => t.classId === classId && (!currentSession || t.sessionId === currentSession.id || !t.sessionId)
+  const classTemplates = useMemo(
+    () => templates
+      .filter((t) => t.classId === classId && (!currentSession || t.sessionId === currentSession.id || !t.sessionId))
+      .sort((a, b) => (b.startsPeriod || "").localeCompare(a.startsPeriod || "") || (b.endsPeriod || "").localeCompare(a.endsPeriod || "")),
+    [templates, classId, currentSession?.id]
   );
+  const classTemplate = selectedTemplateId === "new"
+    ? null
+    : classTemplates.find((t) => t.id === selectedTemplateId) || classTemplates[0] || null;
+  const selectedClass = data?.classes?.find((c) => c.id === classId);
+  const selectedClassStudents = classId === "all" ? [] : people.filter((s) => s.classId === classId);
+  const generationStudents = classId === "all" ? people : selectedClassStudents;
+  const generatedPeriods = generationStudents.flatMap((s) => (s.invoices ?? []).map((invoice) => invoice.period || "").filter(Boolean));
+  const generatedThrough = generatedPeriods.length ? [...generatedPeriods].sort().at(-1) || "" : "";
+  const tplTotal = tplLines
+    .filter((line) => line.scope !== "ADD_ON")
+    .reduce((sum, line) => sum + Math.max(0, Math.round(Number(line.amount) || 0)), 0);
+  const defaultStartPeriod = currentSession?.startsOn?.slice(0, 7) || currentFeePeriod();
+  const defaultEndPeriod = currentSession?.endsOn?.slice(0, 7) || defaultStartPeriod;
 
-  async function runFees() {
-    try {
-      await act(token, "issueDueFees", { classId: classId === "all" ? undefined : classId });
-      toast.show("Fees issued.");
-      await reload();
-    } catch (e) {
-      toast.show(e instanceof Error ? e.message : "Could not run fees.");
-    }
+  useEffect(() => {
+    if (classId === "all") return;
+    setSelectedTemplateId((current) => (current && (current === "new" || classTemplates.some((t) => t.id === current)) ? current : classTemplates[0]?.id || "new"));
+  }, [classId, classTemplates]);
+
+  useEffect(() => {
+    if (classId === "all") return;
+    setTplName(classTemplate?.name || "Monthly fee");
+    setTplDue(String(classTemplate?.dueDay || 10));
+    setTplStart(classTemplate?.startsPeriod || defaultStartPeriod);
+    setTplEnd(classTemplate?.endsPeriod || defaultEndPeriod);
+    setTplLate(classTemplate?.lateKind || "NONE");
+    setTplAmount(String(classTemplate?.lateAmount || 0));
+    setTplLines(
+      classTemplate?.lines?.length
+        ? classTemplate.lines.map((line) => newFeeLine(line.label, String(line.amount), line.scope === "ADD_ON" ? "ADD_ON" : "ALL"))
+        : [newFeeLine("Tuition", "8000"), newFeeLine("Laboratory fee", "0"), newFeeLine("Books", "0")]
+    );
+  }, [classId, selectedTemplateId, classTemplate?.id, classTemplate?.name, classTemplate?.startsPeriod, classTemplate?.endsPeriod, classTemplate?.dueDay, classTemplate?.lateKind, classTemplate?.lateAmount, classTemplate?.lines, defaultStartPeriod, defaultEndPeriod]);
+
+  function feeTemplateTotal(template: (typeof templates)[number]) {
+    return template.lines
+      .filter((line) => line.scope !== "ADD_ON")
+      .reduce((sum, line) => sum + Math.max(0, Math.round(Number(line.amount) || 0)), 0);
+  }
+
+  function patchTplLine(id: string, patch: Partial<FeeLineDraft>) {
+    setTplLines((rows) => rows.map((row) => row.id === id ? { ...row, ...patch } : row));
+  }
+
+  function removeTplLine(id: string) {
+    setTplLines((rows) => rows.length > 1 ? rows.filter((row) => row.id !== id) : rows);
   }
 
   async function remindOverdue() {
@@ -3096,223 +3271,455 @@ export function FeesBoard() {
     }
   }
 
+  async function issueFeeTemplate(templateId?: string) {
+    if (!templateId || classId === "all") {
+      toast.show("Select a saved fee range first.");
+      return;
+    }
+    try {
+      await act(token, "issueClassFees", { classId, templateId });
+      toast.show("Fee range issued.");
+      await reload();
+    } catch (e) {
+      toast.show(e instanceof Error ? e.message : "Could not issue.");
+    }
+  }
+
+  async function saveFeeTemplate() {
+    try {
+      const lines = tplLines
+        .map((line) => ({
+          label: line.label.trim(),
+          kind: "FLAT",
+          amount: Math.max(0, Math.round(Number(line.amount) || 0)),
+          scope: line.scope,
+        }))
+        .filter((line) => line.label || line.amount > 0);
+      lines.forEach((line) => {
+        if (!line.label) line.label = "Line";
+      });
+      if (!lines.length) {
+        toast.show("Add at least one fee line.");
+        return;
+      }
+      const saved = await act<{ ok: true; id: string }>(token, "saveFeeTemplate", {
+        templateId: classTemplate?.id,
+        classId,
+        sessionId: currentSession?.id,
+        name: tplName,
+        startsPeriod: tplStart,
+        endsPeriod: tplEnd,
+        dueDay: Number(tplDue),
+        lateKind: tplLate,
+        lateAmount: Number(tplAmount),
+        lines,
+      });
+      setSelectedTemplateId(saved.id);
+      setFeeEditorOpen(false);
+      toast.show("Template saved.");
+      await reload();
+    } catch (e) {
+      toast.show(e instanceof Error ? e.message : "Could not save.");
+    }
+  }
+
+  function startNewFeeRange() {
+    setSelectedTemplateId("new");
+    setTplName("Monthly fee");
+    setTplDue("10");
+    setTplStart(defaultStartPeriod);
+    setTplEnd(defaultEndPeriod);
+    setTplLate("NONE");
+    setTplAmount("0");
+    setTplLines([newFeeLine("Tuition", "8000"), newFeeLine("Laboratory fee", "0"), newFeeLine("Books", "0")]);
+    setFeeEditorOpen(true);
+  }
+
   return (
     <View>
-      <PageHeader kicker="Admin · Reports" title="Fees" lede="One line per student. Open them on Students to collect." />
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
-      <View className="mb-4 flex-row flex-wrap gap-2">
-        <Chip label="Due" active={tab === "due"} onPress={() => setTab("due")} />
-        <Chip label="Configure fees" active={tab === "templates"} onPress={() => setTab("templates")} />
-      </View>
-      <View className="mb-4 flex-row flex-wrap gap-2">
-        <Chip
-          label={dueStudents.length ? `Due · ${dueStudents.length}` : "Due"}
-          active={classId === "all" && filter === "all"}
-          onPress={() => {
-            setClassId("all");
-            setFilter("all");
-          }}
-        />
-        <Chip
-          label={overdueStudents.length ? `Overdue · ${overdueStudents.length}` : "Overdue"}
-          active={filter === "overdue" && classId === "all"}
-          onPress={() => {
-            setClassId("all");
-            setFilter("overdue");
-          }}
-        />
-        {(data?.classes ?? []).map((c) => (
-          <Chip
-            key={c.id}
-            label={c.label}
-            active={classId === c.id && filter === "all"}
+      <View className="mb-3 gap-1.5 rounded-md border border-ink-100 bg-white p-1.5">
+        <View className="flex-row flex-wrap items-stretch gap-1.5">
+          <Pressable
+            accessibilityRole="button"
             onPress={() => {
-              setClassId(c.id);
+              setTab("due");
+              setClassId("all");
               setFilter("all");
             }}
+            className={`min-w-[110px] flex-1 flex-row items-center gap-2 rounded-md px-3 py-1.5 ${tab === "due" && classId === "all" && filter === "all" ? "bg-clay-500" : "bg-ink-50"}`}
+          >
+            <Text className={`text-[11px] font-semibold uppercase tracking-wide ${tab === "due" && classId === "all" && filter === "all" ? "text-white" : "text-ink-700"}`}>Due</Text>
+            <Text className={`text-base font-semibold ${tab === "due" && classId === "all" && filter === "all" ? "text-white" : "text-ink-900"}`}>{dueStudents.length}</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              setTab("due");
+              setClassId("all");
+              setFilter("overdue");
+            }}
+            className={`min-w-[125px] flex-1 flex-row items-center gap-2 rounded-md px-3 py-1.5 ${tab === "due" && classId === "all" && filter === "overdue" ? "bg-clay-500" : "bg-ink-50"}`}
+          >
+            <Text className={`text-[11px] font-semibold uppercase tracking-wide ${tab === "due" && classId === "all" && filter === "overdue" ? "text-white" : "text-ink-700"}`}>Overdue</Text>
+            <Text className={`text-base font-semibold ${tab === "due" && classId === "all" && filter === "overdue" ? "text-white" : "text-ink-900"}`}>{overdueStudents.length}</Text>
+          </Pressable>
+          <View className="min-w-[210px] flex-1 flex-row items-center gap-2 rounded-md bg-ink-50 px-3 py-1.5">
+            <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-700">Generated through</Text>
+            <Text className="text-base font-semibold text-ink-900">{periodLabel(generatedThrough)}</Text>
+          </View>
+          <View className="flex-row rounded-md border border-ink-200 bg-white p-0.5">
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setTab("due")}
+              className={`min-w-[76px] items-center rounded-md px-3 py-1.5 ${tab === "due" ? "bg-clay-500" : "bg-white"}`}
+            >
+              <Text className={`text-sm font-semibold ${tab === "due" ? "text-white" : "text-ink-800"}`}>Collect</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setTab("templates")}
+              className={`min-w-[76px] items-center rounded-md px-3 py-1.5 ${tab === "templates" ? "bg-clay-500" : "bg-white"}`}
+            >
+              <Text className={`text-sm font-semibold ${tab === "templates" ? "text-white" : "text-ink-800"}`}>Setup</Text>
+            </Pressable>
+          </View>
+        </View>
+        <View className="flex-row flex-wrap gap-1.5">
+          <Chip
+            label="All classes"
+            active={classId === "all"}
+            onPress={() => {
+              setClassId("all");
+            }}
           />
-        ))}
+          {(data?.classes ?? []).map((c) => (
+            <Chip
+              key={c.id}
+              label={c.label}
+              active={classId === c.id && filter === "all"}
+              onPress={() => {
+                setClassId(c.id);
+                setFilter("all");
+              }}
+            />
+          ))}
+        </View>
       </View>
       {tab === "templates" ? (
         <Card className="mb-6 p-4">
-          <Text className="mb-2 text-sm font-medium text-ink-900">Configure fees</Text>
-          <Text className="mb-3 text-sm text-ink-700">What to charge for this class and session. Invoice and receipt appearance is designed in School → Document Studio.</Text>
-          {classId === "all" ? (
-            <Text className="text-sm text-ink-700">Pick a class above first.</Text>
-          ) : (
-            <View className="gap-3">
-              <Field label="Name">
-                <Input value={tplName} onChangeText={setTplName} placeholder={classTemplate?.name || "Monthly fee"} />
-              </Field>
-              <Field label="Due day">
-                <Input keyboardType="number-pad" value={tplDue} onChangeText={setTplDue} />
-              </Field>
-              <View className="flex-row flex-wrap gap-2">
-                {["NONE", "STATIC", "DAILY"].map((id) => (
-                  <Chip key={id} label={id === "NONE" ? "No late" : id === "STATIC" ? "One-time late" : "Daily late"} active={tplLate === id} onPress={() => setTplLate(id)} />
-                ))}
+          <View className="mb-4 flex-row flex-wrap items-start justify-between gap-3">
+            <View className="max-w-2xl">
+              <Text className="text-base font-semibold text-ink-900">Class fee setup</Text>
+              <Text className="mt-1 text-sm leading-5 text-ink-700">
+                Build fees for a month range. When fees change later, create the next range with the new amount.
+              </Text>
+            </View>
+            {selectedClass ? (
+              <View className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2">
+                <Text className="text-[11px] font-semibold uppercase tracking-wide text-blue-900">Selected class</Text>
+                <Text className="text-sm font-semibold text-blue-950">{selectedClass.label}</Text>
               </View>
-              {tplLate !== "NONE" ? (
-                <Field label="Late amount">
-                  <Input keyboardType="number-pad" value={tplAmount} onChangeText={setTplAmount} />
-                </Field>
-              ) : null}
-              <Field label="Lines">
-                <Input value={tplLines} onChangeText={setTplLines} multiline placeholder={"Tuition,8000\nBooks,800"} />
-              </Field>
-              {can(user, "fees.configure") ? (
-                <Button
-                  onPress={async () => {
-                    try {
-                      await act(token, "saveFeeTemplate", {
-                        classId,
-                        sessionId: currentSession?.id,
-                        name: tplName,
-                        dueDay: Number(tplDue),
-                        lateKind: tplLate,
-                        lateAmount: Number(tplAmount),
-                        lines: tplLines
-                          .split("\n")
-                          .map((row) => row.trim())
-                          .filter(Boolean)
-                          .map((row) => {
-                            const [label, amount] = row.split(",");
-                            return { label: (label || "Line").trim(), kind: "FLAT", amount: Number(amount || 0) };
-                          }),
-                      });
-                      toast.show("Fee charges saved.");
-                      await reload();
-                    } catch (e) {
-                      toast.show(e instanceof Error ? e.message : "Could not save.");
-                    }
-                  }}
-                >
-                  Save fee charges
-                </Button>
-              ) : null}
-              {can(user, "fees.collect") ? (
-                <Button
-                  variant="ghost"
-                  onPress={async () => {
-                    try {
-                      await act(token, "issueClassFees", {
-                        classId,
-                        year: new Date().getFullYear(),
-                        month: new Date().getMonth(),
-                      });
-                      toast.show("This month issued.");
-                      await reload();
-                    } catch (e) {
-                      toast.show(e instanceof Error ? e.message : "Could not issue.");
-                    }
-                  }}
-                >
-                  Issue this month
-                </Button>
-              ) : null}
+            ) : null}
+          </View>
+          {classId === "all" ? (
+            <View className="rounded-md border border-amber-200 bg-amber-50 p-4">
+              <Text className="text-sm font-semibold text-amber-900">Pick one class first</Text>
+              <Text className="mt-1 text-xs leading-5 text-amber-900">Choose 1-A, 2-A, or another class above to configure its fee rows.</Text>
+            </View>
+          ) : (
+            <View className="gap-4">
+              <View className="gap-3 rounded-md border border-ink-100 bg-white p-3">
+                <View className="flex-row flex-wrap items-start justify-between gap-3">
+                  <View className="min-w-0 flex-1">
+                    <Text className="text-sm font-semibold text-ink-900">Fee setup history</Text>
+                    <Text className="mt-0.5 text-xs leading-5 text-ink-700">Select an old, current, or future range to inspect and edit its fee lines.</Text>
+                  </View>
+                  <Button
+                    variant="ghost"
+                    onPress={startNewFeeRange}
+                  >
+                    New range
+                  </Button>
+                </View>
+                {classTemplates.length ? (
+                  <View className="flex-row flex-wrap gap-2">
+                    {classTemplates.map((template) => {
+                      const active = classTemplate?.id === template.id;
+                      return (
+                        <View
+                          key={template.id}
+                          className={`min-w-[210px] flex-1 rounded-md border px-3 py-2 ${active ? "border-blue-300 bg-blue-50" : "border-ink-100 bg-ink-50"}`}
+                        >
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={`Edit fee setup ${template.startsPeriod || "start"} to ${template.endsPeriod || "end"}`}
+                            onPress={() => {
+                              setSelectedTemplateId(template.id);
+                              setFeeEditorOpen(true);
+                            }}
+                          >
+                            <Text className={`text-xs font-semibold uppercase tracking-wide ${active ? "text-blue-900" : "text-ink-700"}`}>
+                              {template.startsPeriod || "Not set"} to {template.endsPeriod || "Not set"}
+                            </Text>
+                            <Text className="mt-1 text-sm font-semibold text-ink-900">{template.name}</Text>
+                            <Text className="mt-0.5 text-xs text-ink-700">
+                              ₹{feeTemplateTotal(template).toLocaleString("en-IN")} monthly · due day {template.dueDay}
+                            </Text>
+                          </Pressable>
+                          <View className="mt-3 flex-row flex-wrap gap-2">
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel={`Edit fee setup ${template.startsPeriod || "start"} to ${template.endsPeriod || "end"}`}
+                              onPress={() => {
+                                setSelectedTemplateId(template.id);
+                                setFeeEditorOpen(true);
+                              }}
+                              className="flex-1 flex-row items-center justify-center gap-1 rounded-md border border-ink-200 bg-white px-3 py-2"
+                            >
+                              <Ionicons name="create-outline" size={15} color="#334155" />
+                              <Text className="text-xs font-semibold text-ink-800">Edit setup</Text>
+                            </Pressable>
+                          {can(user, "fees.collect") ? (
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel={`Generate invoices for ${template.startsPeriod || "start"} to ${template.endsPeriod || "end"}`}
+                              onPress={() => {
+                                setSelectedTemplateId(template.id);
+                                void issueFeeTemplate(template.id);
+                              }}
+                              className="flex-1 flex-row items-center justify-center gap-1 rounded-md border border-ink-200 bg-white px-3 py-2"
+                            >
+                              <Ionicons name="receipt-outline" size={15} color="#1d4ed8" />
+                              <Text className="text-xs font-semibold text-blue-700">Generate invoices</Text>
+                            </Pressable>
+                          ) : null}
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                ) : (
+                  <Text className="rounded-md border border-dashed border-ink-200 px-3 py-2 text-xs text-ink-700">
+                    No fee setup history yet. Create the first range for this class.
+                  </Text>
+                )}
+              </View>
             </View>
           )}
-          {can(user, "fees.collect") ? (
-            <View className="mt-6 gap-3 border-t border-ink-100 pt-4">
-              <Text className="text-sm font-medium text-ink-900">One-off invoice</Text>
-              <View className="flex-row flex-wrap gap-2">
-                {people.slice(0, 20).map((s) => (
-                  <Chip key={s.id} label={s.name} active={invoiceStudent === s.id} onPress={() => setInvoiceStudent(s.id)} />
-                ))}
-              </View>
-              <Field label="Title">
-                <Input value={invoiceTitle} onChangeText={setInvoiceTitle} />
-              </Field>
-              <Field label="Amount">
-                <Input keyboardType="number-pad" value={invoiceAmount} onChangeText={setInvoiceAmount} />
-              </Field>
-              <Button
-                onPress={async () => {
-                  const student = people.find((s) => s.id === invoiceStudent);
-                  if (!student) {
-                    toast.show("Pick a student.");
-                    return;
-                  }
-                  try {
-                    await act(token, "createInvoice", {
-                      studentId: student.id,
-                      classId: student.classId,
-                      title: invoiceTitle,
-                      amount: Number(invoiceAmount),
-                      dueDate: new Date().toISOString().slice(0, 10),
-                    });
-                    toast.show("Invoice added.");
-                    await reload();
-                  } catch (e) {
-                    toast.show(e instanceof Error ? e.message : "Could not add.");
-                  }
-                }}
-              >
-                Add invoice
-              </Button>
-            </View>
-          ) : null}
         </Card>
       ) : null}
-      {tab === "due" && filter === "overdue" ? (
-        <View className="mb-4 gap-2">
-          <Text className="text-sm text-ink-700">Students with at least one month past the due date.</Text>
-          {can(user, "fees.remind") && overdueStudents.length ? (
-            <Button onPress={remindOverdue}>Remind overdue</Button>
-          ) : null}
+      <Modal
+        open={feeEditorOpen}
+        wide
+        title={selectedTemplateId === "new" ? "New fee range" : "Edit fee range"}
+        onClose={() => setFeeEditorOpen(false)}
+        footer={
+          <View className="flex-row flex-wrap justify-end gap-2">
+            {can(user, "fees.collect") ? (
+              <Button
+                variant="ghost"
+                disabled={!classTemplate}
+                onPress={() => void issueFeeTemplate(classTemplate?.id)}
+              >
+                Generate invoices
+              </Button>
+            ) : null}
+            {can(user, "fees.configure") ? (
+              <Button onPress={() => void saveFeeTemplate()}>Save setup</Button>
+            ) : null}
+          </View>
+        }
+      >
+        <View className="gap-4">
+          <View className="flex-row flex-wrap gap-3">
+            <View className="min-w-[260px] flex-1">
+              <Field label="Template name" hint="Shown on generated student invoices.">
+                <Input value={tplName} onChangeText={setTplName} placeholder={classTemplate?.name || "Monthly fee"} />
+              </Field>
+            </View>
+            <View className="w-36">
+              <Field label="Due day" hint="Day of month">
+                <Input keyboardType="number-pad" value={tplDue} onChangeText={setTplDue} />
+              </Field>
+            </View>
+          </View>
+          <View className="rounded-md border border-ink-100 bg-white p-3">
+            <View className="mb-3 flex-row flex-wrap items-start justify-between gap-3">
+              <View className="min-w-0 flex-1">
+                <Text className="text-sm font-semibold text-ink-900">Fee applies for</Text>
+                <Text className="mt-0.5 text-xs leading-5 text-ink-700">Use a new range when this class fee increases or decreases.</Text>
+              </View>
+              <Badge tone="clay">{tplStart && tplEnd ? `${tplStart} to ${tplEnd}` : "Set range"}</Badge>
+            </View>
+            <View className="flex-row flex-wrap gap-3">
+              <View className="min-w-[180px] flex-1">
+                <Field label="From month">
+                  <MonthInput value={tplStart} onChangeText={setTplStart} />
+                </Field>
+              </View>
+              <View className="min-w-[180px] flex-1">
+                <Field label="To month">
+                  <MonthInput value={tplEnd} onChangeText={setTplEnd} />
+                </Field>
+              </View>
+            </View>
+          </View>
+          <View className="gap-2 rounded-md border border-ink-100 bg-ink-50 p-3">
+            <View className="flex-row flex-wrap items-center justify-between gap-2">
+              <View>
+                <Text className="text-sm font-semibold text-ink-900">Fee line items</Text>
+                <Text className="mt-0.5 text-xs text-ink-700">Use separate rows for base fee, laboratory, books, transport, or any other charge.</Text>
+              </View>
+              <View className="items-end">
+                <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-700">Monthly total</Text>
+                <Text className="text-lg font-semibold text-ink-900">₹{tplTotal.toLocaleString("en-IN")}</Text>
+              </View>
+            </View>
+            <View className="gap-2">
+              {tplLines.map((line, index) => (
+                <View key={line.id} className="flex-row flex-wrap items-end gap-2 rounded-md border border-ink-100 bg-white p-2">
+                  <View className="min-w-[220px] flex-1">
+                    <Field label={index === 0 ? "Component" : " "}>
+                      <Input value={line.label} onChangeText={(label) => patchTplLine(line.id, { label })} placeholder="Tuition / Laboratory fee / Books" />
+                    </Field>
+                  </View>
+                  <View className="w-40">
+                    <Field label={index === 0 ? "Amount" : " "}>
+                      <Input keyboardType="number-pad" value={line.amount} onChangeText={(amount) => patchTplLine(line.id, { amount })} placeholder="0" />
+                    </Field>
+                  </View>
+                  <View className="w-48">
+                    <Text className="mb-1 text-xs font-medium text-ink-700">{index === 0 ? "Applies to" : " "}</Text>
+                    <View className="flex-row rounded-md border border-ink-200 bg-white p-0.5">
+                      {(["ALL", "ADD_ON"] as const).map((scope) => (
+                        <Pressable
+                          key={scope}
+                          accessibilityRole="button"
+                          accessibilityLabel={`${line.label || "Fee line"} applies to ${scope === "ALL" ? "all students" : "selected add-on students"}`}
+                          onPress={() => patchTplLine(line.id, { scope })}
+                          className={`flex-1 items-center rounded px-2 py-2 ${line.scope === scope ? "bg-ink-900" : "bg-white"}`}
+                        >
+                          <Text className={`text-xs font-semibold ${line.scope === scope ? "text-white" : "text-ink-700"}`}>
+                            {scope === "ALL" ? "All" : "Add-on"}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  </View>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove fee line ${index + 1}`}
+                    disabled={tplLines.length <= 1}
+                    onPress={() => removeTplLine(line.id)}
+                    className={`h-10 w-10 items-center justify-center rounded-md border border-ink-200 ${tplLines.length <= 1 ? "opacity-40" : ""}`}
+                  >
+                    <Ionicons name="trash-outline" size={17} color="#b42318" />
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+            <View className="flex-row flex-wrap gap-2">
+              {[
+                ["Tuition", "8000", "ALL"],
+                ["Laboratory fee", "500", "ALL"],
+                ["Other fee", "0", "ALL"],
+                ["Transport add-on", "1200", "ADD_ON"],
+                ["Hostel add-on", "2000", "ADD_ON"],
+                ["Coaching add-on", "1000", "ADD_ON"],
+              ].map(([label, amount, scope]) => (
+                <Pressable key={label} onPress={() => setTplLines((rows) => [...rows, newFeeLine(label, amount, scope as "ALL" | "ADD_ON")])} className="rounded-md border border-ink-200 bg-white px-3 py-2">
+                  <Text className="text-xs font-medium text-clay-700">+ {label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+          <View className="flex-row flex-wrap items-center justify-between gap-3 rounded-md border border-ink-100 bg-white p-3">
+            <View className="min-w-0 flex-1">
+              <Text className="text-sm font-semibold text-ink-900">Student add-ons</Text>
+              <Text className="mt-1 text-xs leading-5 text-ink-700">
+                Mark optional services above as Add-on, then assign them only to students who take them. Discounts stay separate on the student profile.
+              </Text>
+            </View>
+            <Button variant="ghost" onPress={() => router.push("/people" as never)}>Manage students</Button>
+          </View>
+          <View className="gap-3 rounded-md border border-ink-100 bg-white p-3">
+            <Text className="text-sm font-semibold text-ink-900">Late fee rule</Text>
+            <View className="flex-row flex-wrap gap-2">
+              {["NONE", "STATIC", "DAILY"].map((id) => (
+                <Chip key={id} label={id === "NONE" ? "No late" : id === "STATIC" ? "One-time late" : "Daily late"} active={tplLate === id} onPress={() => setTplLate(id)} />
+              ))}
+            </View>
+            {tplLate !== "NONE" ? (
+              <Field label="Late amount">
+                <Input keyboardType="number-pad" value={tplAmount} onChangeText={setTplAmount} />
+              </Field>
+            ) : null}
+          </View>
         </View>
-      ) : tab === "due" && classId === "all" ? (
-        <Text className="mb-4 text-sm text-ink-700">
-          Totals only. Pick a class to run missing months. Open a student on Students to collect.
-        </Text>
-      ) : tab === "due" && can(user, "fees.collect") ? (
-        <View className="mb-4">
-          <Button onPress={runFees}>Run fees now</Button>
+      </Modal>
+      {tab === "due" ? (
+        <View className="rounded-md border border-ink-100 bg-white p-3">
+          <View className="mb-3 flex-row items-center justify-between gap-3">
+            <Text className="font-semibold text-ink-900">Pending invoices</Text>
+            <View className="flex-row items-center gap-2">
+              {filter === "overdue" && can(user, "fees.remind") && overdueStudents.length ? (
+                <Button className="px-3 py-1.5" onPress={remindOverdue}>Remind</Button>
+              ) : null}
+              <Text className="text-xs font-medium text-ink-700">{students.length} students</Text>
+            </View>
+          </View>
+          {!students.length ? (
+            <View className="h-[300px] items-center justify-center rounded-md bg-ink-50 px-4">
+              <Text className="text-base font-semibold text-ink-900">
+                {filter === "overdue" ? "Nothing overdue" : "Nothing pending"}
+              </Text>
+              <Text className="mt-1 max-w-lg text-center text-sm leading-5 text-ink-700">
+                {filter === "overdue"
+                  ? "No unpaid invoice has crossed its due date."
+                  : classId === "all"
+                    ? "Pick a class to review its fee generation status."
+                    : "Open Setup, create a saved fee range, then generate invoices from that range."}
+              </Text>
+            </View>
+          ) : (
+            <ScrollView
+              nestedScrollEnabled
+              keyboardShouldPersistTaps="handled"
+              style={{ maxHeight: 500 }}
+              contentContainerClassName="gap-3 pb-1"
+            >
+              {students.map((s) => {
+                const months = monthsOf(s);
+                const overdue = s.overdueCount || 0;
+                return (
+                  <Pressable
+                    key={s.id}
+                    onPress={() => router.push({ pathname: "/people", params: { student: s.id } } as never)}
+                  >
+                    <View className="rounded-md border border-ink-100 bg-white p-4">
+                      <View className="flex-row items-start justify-between gap-3">
+                        <View className="flex-1">
+                          <Text className="font-semibold text-ink-900">
+                            {s.name}
+                            {s.classLabel ? ` · ${s.classLabel}` : ""}
+                          </Text>
+                          <Text className="mt-1 text-sm text-ink-700">
+                            {s.dueNow} due · {months} {months === 1 ? "month" : "months"}
+                            {overdue ? ` · ${overdue} overdue` : ""}
+                          </Text>
+                          {oldestOf(s) ? <Text className="mt-1 text-xs text-ink-700">Oldest {oldestOf(s)}</Text> : null}
+                        </View>
+                        <Badge tone={overdue ? "warn" : "clay"}>{overdue ? "overdue" : "due"}</Badge>
+                      </View>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          )}
         </View>
       ) : null}
-      {tab === "due" ? <Text className="mb-3 font-semibold text-ink-900">Pending</Text> : null}
-      {tab !== "due" ? null : !students.length ? (
-        <Empty
-          title="Nothing pending"
-          body={
-            filter === "overdue"
-              ? "Nothing overdue."
-              : classId === "all"
-                ? "Nothing pending. Pick a class and run fees now."
-                : "No bills for this class yet. Run fees now."
-          }
-        />
-      ) : (
-        <View className="gap-3">
-          {students.map((s) => {
-            const months = monthsOf(s);
-            const overdue = s.overdueCount || 0;
-            return (
-              <Pressable
-                key={s.id}
-                onPress={() => router.push({ pathname: "/people", params: { student: s.id } } as never)}
-              >
-                <Card className="p-5">
-                  <View className="flex-row items-start justify-between gap-3">
-                    <View className="flex-1">
-                      <Text className="font-semibold text-ink-900">
-                        {s.name}
-                        {s.classLabel ? ` · ${s.classLabel}` : ""}
-                      </Text>
-                      <Text className="mt-1 text-sm text-ink-700">
-                        {s.dueNow} due · {months} {months === 1 ? "month" : "months"}
-                        {overdue ? ` · ${overdue} overdue` : ""}
-                      </Text>
-                      {oldestOf(s) ? <Text className="mt-1 text-xs text-ink-700">Oldest {oldestOf(s)}</Text> : null}
-                    </View>
-                    <Badge tone={overdue ? "warn" : "clay"}>{overdue ? "overdue" : "due"}</Badge>
-                  </View>
-                </Card>
-              </Pressable>
-            );
-          })}
-        </View>
-      )}
     </View>
   );
 }
