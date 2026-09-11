@@ -497,6 +497,7 @@ export async function updateTeacherCore(
     password?: string;
     managerId?: string | null;
     monthlySalary?: number | string;
+    classId?: string | null;
   }
 ) {
   need(user, "staff.edit", "people.edit");
@@ -532,6 +533,17 @@ export async function updateTeacherCore(
     if (taken) throw new Error("That employee id is already used");
   }
   await assertPhoneFree(mobile, teacher.userId);
+  let classId: string | null | undefined;
+  if (input.classId !== undefined) {
+    const pickedClassId = String(input.classId || "").trim();
+    if (pickedClassId) {
+      const klass = await prisma.class.findFirst({ where: { id: pickedClassId, archivedAt: null }, select: { id: true } });
+      if (!klass) throw new Error("Class missing");
+      classId = klass.id;
+    } else {
+      classId = null;
+    }
+  }
   const userPatch: { name: string; email: string; phone: string; password?: string; managerId?: string | null } = {
     name,
     email,
@@ -549,10 +561,18 @@ export async function updateTeacherCore(
       ...(joinedOn ? { joinedOn } : {}),
       ...place,
       qualification: qualification || null,
+      ...(classId !== undefined ? { class: classId ? { connect: { id: classId } } : { disconnect: true } } : {}),
       ...(input.monthlySalary !== undefined ? { monthlySalary: parseMonthlySalary(input.monthlySalary) } : {}),
       user: { update: userPatch },
     },
   });
+  if (classId) {
+    await prisma.teacherClass.upsert({
+      where: { teacherId_classId: { teacherId: id, classId } },
+      update: {},
+      create: { teacherId: id, classId },
+    });
+  }
 }
 
 export async function updateStaffMemberCore(
@@ -1105,6 +1125,7 @@ export async function createStaffMemberCore(
     pincode?: string;
     managerId?: string | null;
     monthlySalary?: number | string;
+    classId?: string | null;
   }
 ) {
   need(user, "staff.edit");
@@ -1132,8 +1153,13 @@ export async function createStaffMemberCore(
   const managerId = await managerIdForNewUser(user, role, input.managerId);
   const monthlySalary = parseMonthlySalary(input.monthlySalary);
   if (role.portal === "TEACHER") {
+    const classId = String(input.classId || "").trim();
+    if (classId) {
+      const klass = await prisma.class.findFirst({ where: { id: classId, archivedAt: null }, select: { id: true } });
+      if (!klass) throw new Error("Class missing");
+    }
     const employeeId = await nextEmployeeId("T");
-    await prisma.user.create({
+    const created = await prisma.user.create({
       data: {
         name,
         email: loginEmail,
@@ -1141,9 +1167,13 @@ export async function createStaffMemberCore(
         password: hash,
         roleId: role.id,
         managerId,
-        teacher: { create: { employeeId, joinedOn, monthlySalary, ...place } },
+        teacher: { create: { employeeId, joinedOn, monthlySalary, ...(classId ? { classId } : {}), ...place } },
       },
+      include: { teacher: true },
     });
+    if (classId && created.teacher) {
+      await prisma.teacherClass.create({ data: { teacherId: created.teacher.id, classId } });
+    }
   } else if (role.portal === "PARENT") {
     await prisma.user.create({
       data: {

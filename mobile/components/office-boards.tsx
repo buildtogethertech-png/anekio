@@ -8,7 +8,7 @@ import { Dropdown } from "./form";
 import { Badge, Button, Card, Chip, Empty, Field, Input, Modal, PageHeader, Segmented, Sheet, Stat, Switch, Toast, useToast } from "./ui";
 import { DateField } from "./date-field";
 import { FilterBar, type FilterConfig, type FilterValues } from "./filter";
-import { StaffAdmitForm, type StaffAdmitPayload } from "./staff-admit-form";
+import { StaffAdmitForm, type StaffAdmitClass, type StaffAdmitPayload, type StaffAdmitRole } from "./staff-admit-form";
 import { StaffAttendanceDetail } from "./staff-attendance-detail";
 import { StudentAdmitForm, type StudentAdmitPayload } from "./student-admit-form";
 import { ReportCardSheet, type ReportCardData } from "./report-card-sheet";
@@ -2539,6 +2539,112 @@ export function AdmissionsBoard() {
   );
 }
 
+function todayStaffYmd() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function parseStaffBulkRows(raw: string, roleId: string, classId: string): StaffAdmitPayload[] {
+  return raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const parts = line.split(/\t|,/).map((part) => part.trim());
+      return {
+        name: parts[0] || "",
+        phone: parts[1] || "",
+        email: parts[2] || "",
+        monthlySalary: parts[3] || "30000",
+        roleId,
+        classId,
+        joinedOn: todayStaffYmd(),
+        address: "",
+        city: "",
+        state: "",
+        pincode: "",
+        managerId: "",
+      };
+    });
+}
+
+function StaffBulkAdmitForm({
+  roles,
+  classes,
+  onSubmit,
+}: {
+  roles: StaffAdmitRole[];
+  classes: StaffAdmitClass[];
+  onSubmit: (rows: StaffAdmitPayload[]) => Promise<void>;
+}) {
+  const defaultRole = roles.find((r) => r.portal === "TEACHER")?.id || roles[0]?.id || "";
+  const [roleId, setRoleId] = useState(defaultRole);
+  const [classId, setClassId] = useState("");
+  const [raw, setRaw] = useState("");
+  const [busy, setBusy] = useState(false);
+  const picked = roles.find((r) => r.id === roleId);
+  const showClassTeacher = picked?.portal === "TEACHER";
+  const rows = parseStaffBulkRows(raw, roleId, showClassTeacher ? classId : "").filter((row) => row.name || row.phone);
+
+  useEffect(() => {
+    if (!roleId && defaultRole) setRoleId(defaultRole);
+  }, [defaultRole, roleId]);
+
+  async function save() {
+    if (busy || !rows.length) return;
+    setBusy(true);
+    try {
+      await onSubmit(rows);
+      setRaw("");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <View className="gap-4">
+      <View className="gap-3 sm:flex-row">
+        <View className="flex-1">
+          <Dropdown
+            label="Role"
+            value={roleId}
+            options={roles.map((r) => ({ id: r.id, label: r.name, group: r.portal || "Role" }))}
+            onChange={(next) => {
+              setRoleId(next);
+              if (roles.find((r) => r.id === next)?.portal !== "TEACHER") setClassId("");
+            }}
+            placeholder="Pick a role"
+          />
+        </View>
+        {showClassTeacher ? (
+          <View className="flex-1">
+            <Dropdown
+              label="Class teacher of"
+              value={classId}
+              options={[{ id: "", label: "Not a class teacher" }, ...classes.map((c) => ({ id: c.id, label: c.label }))]}
+              onChange={setClassId}
+              placeholder="Choose class"
+            />
+          </View>
+        ) : null}
+      </View>
+      <Field label="Rows">
+        <Input
+          multiline
+          value={raw}
+          onChangeText={setRaw}
+          placeholder={"Name, Mobile, Email, Salary\nAnita Sharma, 9876543210, anita@school.in, 30000"}
+          className="min-h-[180px] align-top"
+        />
+      </Field>
+      <View className="flex-row items-center justify-between gap-3">
+        <Text className="text-xs text-ink-700">{rows.length ? `${rows.length} ready` : "No rows"}</Text>
+        <Button disabled={!rows.length || busy} onPress={save}>{busy ? "Adding..." : "Add employees"}</Button>
+      </View>
+    </View>
+  );
+}
+
 export function StaffBoard() {
   const { data, reload } = useRecord();
   const { token, user } = useSession();
@@ -2560,6 +2666,7 @@ export function StaffBoard() {
   const hoursRef = useRef<StaffHoursFormHandle>(null);
   const [rulesOverride, setRulesOverride] = useState<PayrollRules | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [infoFor, setInfoFor] = useState<(typeof staff)[number] | null>(null);
   const [detailFor, setDetailFor] = useState<(typeof staff)[number] | null>(null);
@@ -2661,6 +2768,17 @@ export function StaffBoard() {
     await reload();
   }
 
+  async function addBulkStaff(rows: StaffAdmitPayload[]) {
+    let count = 0;
+    for (const row of rows) {
+      await act(token, "createStaffMember", row);
+      count += 1;
+    }
+    setBulkOpen(false);
+    toast.show(`Added ${count} ${count === 1 ? "employee" : "employees"}.`);
+    await reload();
+  }
+
   async function editStaff(values: StaffAdmitPayload) {
     if (!editFor) return;
     if (editFor.kind === "teacher") {
@@ -2679,6 +2797,7 @@ export function StaffBoard() {
         qualification: editFor.qualification || "",
         managerId: values.managerId || null,
         monthlySalary: values.monthlySalary,
+        classId: values.classId || null,
       });
     } else {
       await act(token, "updateStaffMember", {
@@ -2707,6 +2826,7 @@ export function StaffBoard() {
         name: editFor.name,
         phone: editFor.phone || "",
         roleId: editFor.roleId || editRoleOptions[0]?.id || "",
+        classId: editFor.classId || "",
         joinedOn: editFor.joinedOn || today,
         email: editFor.email || "",
         address: editFor.address || "",
@@ -2763,6 +2883,11 @@ export function StaffBoard() {
               {canMark ? (
                 <Button variant="ghost" accessibilityLabel="+ Add employee" onPress={() => setAddOpen(true)} className="shrink-0 px-2 py-2">
                   + Add
+                </Button>
+              ) : null}
+              {canMark ? (
+                <Button variant="ghost" accessibilityLabel="Bulk upload employees" onPress={() => setBulkOpen(true)} className="shrink-0 px-2 py-2">
+                  Bulk
                 </Button>
               ) : null}
             </View>
@@ -2827,6 +2952,11 @@ export function StaffBoard() {
           {canMark ? (
             <Button variant="ghost" onPress={() => setAddOpen(true)}>
               + Add employee
+            </Button>
+          ) : null}
+          {canMark ? (
+            <Button variant="ghost" accessibilityLabel="Bulk upload employees" onPress={() => setBulkOpen(true)}>
+              Bulk upload
             </Button>
           ) : null}
           <Button variant="ghost" accessibilityLabel="Timesheet" onPress={() => setTimesheetOpen(true)}>
@@ -3134,6 +3264,7 @@ export function StaffBoard() {
         <StaffAdmitForm
           roles={data?.staffRoles ?? []}
           managers={data?.managers ?? []}
+          classes={data?.classes ?? []}
           user={user}
           submitLabel="Add employee"
           onSubmit={async (values) => {
@@ -3146,11 +3277,26 @@ export function StaffBoard() {
           }}
         />
       </Modal>
+      <Modal open={bulkOpen} title="Bulk upload employees" onClose={() => setBulkOpen(false)} wide>
+        <StaffBulkAdmitForm
+          roles={data?.staffRoles ?? []}
+          classes={data?.classes ?? []}
+          onSubmit={async (rows) => {
+            try {
+              await addBulkStaff(rows);
+            } catch (e) {
+              toast.show(e instanceof Error ? e.message : "Could not upload.");
+              throw e;
+            }
+          }}
+        />
+      </Modal>
       <Modal open={Boolean(editFor)} title="Edit employee" onClose={() => setEditFor(null)}>
         {editFor ? (
           <StaffAdmitForm
             roles={editRoleOptions}
             managers={data?.managers ?? []}
+            classes={data?.classes ?? []}
             user={user}
             initialValues={editInitial}
             submitLabel="Save employee"

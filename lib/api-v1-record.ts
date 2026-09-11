@@ -1135,6 +1135,7 @@ async function officePayload(user: AccessUser) {
           role: t.class ? `Class teacher ${t.class.name}-${t.class.section}` : "Teacher",
           phone: t.user.phone || "",
           qualification: t.qualification || "",
+          classId: t.classId || "",
           classLabel: t.class ? `${t.class.name}-${t.class.section}` : "",
           address: t.address || "",
           city: t.city || "",
@@ -1199,7 +1200,7 @@ async function officePayload(user: AccessUser) {
     })),
     staffRoles: roles
       .filter((r) => r.portal !== "STUDENT")
-      .map((r) => ({ id: r.id, name: r.name, portal: r.portal, slug: r.slug })),
+      .map((r) => ({ id: r.id, name: r.name, portal: r.portal, slug: r.slug, isSystem: r.isSystem })),
     school: {
       name: config?.name || "School",
       phone: config?.phone || "",

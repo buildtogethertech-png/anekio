@@ -489,6 +489,7 @@ export type RecordPayload = {
     role: string;
     phone: string;
     qualification?: string;
+    classId?: string;
     classLabel?: string;
     address?: string;
     city?: string;
@@ -554,7 +555,7 @@ export type RecordPayload = {
     holes: { classId: string; classLabel: string; count: number }[];
     people: { userId: string; name: string; role: string; teacherId: string }[];
   };
-  staffRoles?: { id: string; name: string; portal: string; slug?: string }[];
+  staffRoles?: { id: string; name: string; portal: string; slug?: string; isSystem?: boolean }[];
   school?: {
     name: string;
     phone: string;
