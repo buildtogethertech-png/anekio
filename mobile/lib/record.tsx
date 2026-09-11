@@ -357,7 +357,7 @@ export type RecordPayload = {
     lateKind: string;
     lateGraceDays: number;
     lateAmount: number;
-    lines: { label: string; kind: string; amount: number }[];
+    lines: { label: string; kind: string; amount: number; scope?: string }[];
   }[];
   admissionFeeLines?: { id: string; classId: string; label: string; amount: number; sortOrder: number }[];
   people?: {

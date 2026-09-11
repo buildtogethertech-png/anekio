@@ -4,6 +4,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Dropdown } from "./form";
 import { Badge, Button, Card, Field, Input, Modal, PageHeader, Switch, Toast, useToast } from "./ui";
+import { DocumentStudio } from "./document-studio";
 import { ClockForm, RoomsForm, SchoolSubjectsForm } from "./school-setup";
 import { StaffHoursForm } from "./staff-hours-form";
 import { webOrigin } from "../lib/api";

@@ -64,7 +64,7 @@ function record(
   pendingLeave = [] as ReturnType<typeof leave>[],
   today = "PRESENT",
   holidays = [] as { date: string; name: string }[]
-) {
+): any {
   return {
     pendingLeave,
     school: { holidays, sessions: [] },
@@ -85,7 +85,7 @@ function record(
 }
 
 describe("StaffBoard leave requests", () => {
-  let currentData: ReturnType<typeof record>;
+  let currentData: any;
   let reload: jest.MockedFunction<() => Promise<void>>;
 
   beforeEach(() => {

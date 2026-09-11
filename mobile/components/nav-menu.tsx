@@ -17,10 +17,6 @@ const PARENT_SIDEBAR_ORDER = new Map(
   ["home", "inbox", "notices", "attendance", "timetable", "fees", "tests"].map((key, index) => [key, index])
 );
 
-const PARENT_SIDEBAR_ORDER = new Map(
-  ["home", "inbox", "notices", "attendance", "timetable", "fees", "tests"].map((key, index) => [key, index])
-);
-
 function navLabel(portal: string | undefined, item: { key: string; label: string }) {
   if (portal === "OFFICE" && item.key === "school") return "Settings";
   if (portal === "OFFICE" && item.key === "roles") return "Roles & permissions";

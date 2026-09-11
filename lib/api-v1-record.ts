@@ -37,8 +37,7 @@ import { ensureSchoolSessions } from "./school-session";
 import { documentStudioBundle } from "./document-studio";
 import { CONTEST_TYPE_LABEL, daysLate, formatInr, LEVEL_LABEL, PATH_LABEL, percent, publicOrigin } from "./utils";
 import { admissionCustomValues, admissionFormFields } from "./admission-form";
-import { subscriptionLockForUser, subscriptionOverviewForUser } from "./anekio-site";
-import { schoolWebsiteDomain } from "./host-routing";
+import { subscriptionLockForUser } from "./anekio-site";
 
 function inDate(value: Date | string) {
   return new Date(value).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
@@ -114,39 +113,6 @@ function staffDepartment(kind: "teacher" | "staff", portal?: string | null) {
 
 function isBellNotice(n: { kind?: string | null; body?: string | null; recipients?: unknown[] }) {
   return isCircularNotice(n) || Boolean(n.recipients?.length);
-}
-
-function serializePeopleFeeInvoice(inv: {
-  id: string;
-  title: string;
-  dueDate: Date;
-  amount: number;
-  shareToken?: string | null;
-  payments: { amount: number; reference?: string | null; paidAt?: Date }[];
-  period?: string | null;
-}) {
-  const paidAmt = inv.payments.reduce((n, payment) => n + payment.amount, 0);
-  const balance = invoiceBalance({ ...inv, paid: paidAmt });
-  const invoiceUrl = inv.shareToken ? `${publicOrigin()}/i/${inv.shareToken}` : "";
-  const receiptUrl = inv.shareToken ? `${publicOrigin()}/pay/${inv.shareToken}?paid=1` : "";
-  const latestPayment = [...inv.payments].sort((a, b) => +(b.paidAt || 0) - +(a.paidAt || 0))[0];
-  const receiptBase = String(latestPayment?.reference || "").trim().split(":")[0] || "";
-  const receiptNumber = paidAmt > 0 ? (receiptBase || `RCPT-${inv.id.slice(-8)}`).toUpperCase() : "";
-  return {
-    id: inv.id,
-    title: inv.title,
-    period: inv.period || "",
-    due: inv.dueDate.toLocaleDateString("en-IN"),
-    amount: formatInr(inv.amount),
-    paid: formatInr(paidAmt),
-    remaining: balance.remaining ? formatInr(balance.remaining) : "",
-    dueNow: balance.dueNow,
-    lateLabel: balance.lateLabel,
-    status: balance.display.toLowerCase(),
-    invoiceUrl,
-    receiptUrl: balance.display === "PAID" ? receiptUrl : "",
-    receiptNumber: balance.display === "PAID" ? receiptNumber : "",
-  };
 }
 
 function noticeSummary(n: { id: string; title: string; body: string; createdAt: Date; author: { name: string } }) {
@@ -651,7 +617,21 @@ async function teacherPayload(user: AccessUser) {
               dueAmount: totals.due,
               overdueCount: totals.overdue,
               invoiceIds: s.feeInvoices.filter((invoice) => invoice.status !== "PAID").map((invoice) => invoice.id),
-              invoices: s.feeInvoices.map(serializePeopleFeeInvoice),
+              invoices: s.feeInvoices.map((invoice) => {
+                const paidAmt = invoice.payments.reduce((n, payment) => n + payment.amount, 0);
+                const balance = invoiceBalance({ ...invoice, paid: paidAmt });
+                return {
+                  id: invoice.id,
+                  title: invoice.title,
+                  due: invoice.dueDate.toLocaleDateString("en-IN"),
+                  amount: formatInr(invoice.amount),
+                  paid: formatInr(paidAmt),
+                  remaining: balance.remaining ? formatInr(balance.remaining) : "",
+                  dueNow: balance.dueNow,
+                  lateLabel: balance.lateLabel,
+                  status: balance.display.toLowerCase(),
+                };
+              }),
             }
           : {}),
       };
@@ -940,13 +920,8 @@ async function officePayload(user: AccessUser) {
         include: { events: { orderBy: { createdAt: "desc" } } },
       })
     : [];
-  const subscription =
-    can(user, "subscription.manage") || can(user, "school.edit") || can(user, "roles.manage")
-      ? await subscriptionOverviewForUser(user.id)
-      : null;
   return {
     kind: "OFFICE" as const,
-    subscription,
     desk: {
       label: pulse.label,
       emptyPeriods: pulse.unassigned.length,
@@ -1019,19 +994,7 @@ async function officePayload(user: AccessUser) {
       lateKind: t.lateKind,
       lateGraceDays: t.lateGraceDays,
       lateAmount: t.lateAmount,
-      lines: t.lines.map((l) => ({ label: l.label, kind: l.kind, amount: l.amount })),
-    })),
-    admissionFeeLines: (
-      await prisma.admissionFeeLine.findMany({
-        where: { active: true },
-        orderBy: [{ classId: "asc" }, { sortOrder: "asc" }],
-      })
-    ).map((line) => ({
-      id: line.id,
-      classId: line.classId,
-      label: line.label,
-      amount: line.amount,
-      sortOrder: line.sortOrder,
+      lines: t.lines.map((l) => ({ label: l.label, kind: l.kind, amount: l.amount, scope: l.scope || "ALL" })),
     })),
     people: people.students.map((s) => {
       const totals = s.feeInvoices.reduce(
@@ -1071,18 +1034,34 @@ async function officePayload(user: AccessUser) {
         dueNow: formatInr(totals.due),
         dueAmount: totals.due,
         overdueCount: totals.overdue,
-        feeAddOns: s.feeAddOns.map((row) => ({
-          id: row.id,
-          label: row.label,
-          kind: row.kind,
-          amount: row.amount,
-          cadence: row.cadence,
-          startsPeriod: row.startsPeriod,
-          endsPeriod: row.endsPeriod,
-        })),
         attendance: s.attendance.map((a) => ({ status: a.status })),
         invoiceIds: s.feeInvoices.filter((inv) => inv.status !== "PAID").map((inv) => inv.id),
-        invoices: s.feeInvoices.map(serializePeopleFeeInvoice),
+        feeAddOns: s.feeAddOns.map((addOn) => ({
+          id: addOn.id,
+          label: addOn.label,
+          kind: addOn.kind,
+          amount: addOn.amount,
+          cadence: addOn.cadence,
+          startsPeriod: addOn.startsPeriod,
+          endsPeriod: addOn.endsPeriod,
+          active: addOn.active,
+        })),
+        invoices: s.feeInvoices.map((inv) => {
+          const paidAmt = inv.payments.reduce((n, p) => n + p.amount, 0);
+          const m = invoiceBalance({ ...inv, paid: paidAmt });
+          return {
+            id: inv.id,
+            title: inv.title,
+            period: inv.period,
+            due: inv.dueDate.toLocaleDateString("en-IN"),
+            amount: formatInr(inv.amount),
+            paid: formatInr(paidAmt),
+            remaining: m.remaining ? formatInr(m.remaining) : "",
+            dueNow: m.dueNow,
+            lateLabel: m.lateLabel,
+            status: m.display.toLowerCase(),
+          };
+        }),
       };
     }),
     peopleTeachers: people.teachers.map((t) => ({
@@ -1226,8 +1205,7 @@ async function officePayload(user: AccessUser) {
       whatsappCommunityUrl: config?.whatsappCommunityUrl || "",
       website: {
         enabled: config?.websiteEnabled || false,
-        slug: config?.websiteSlug || "",
-        domain: schoolWebsiteDomain(publicOrigin()),
+        slug: config?.websiteSlug || "demo",
         theme: config?.websiteTheme || "blue",
         heroTitle: config?.websiteHeroTitle || "",
         heroSubtitle: config?.websiteHeroSubtitle || "",

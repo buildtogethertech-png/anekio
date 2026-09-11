@@ -577,6 +577,7 @@ model FeeLine {
   label      String
   kind       FeeLineKind @default(FLAT)
   amount     Int
+  scope      String      @default("ALL")
   sortOrder  Int         @default(0)
 }
 

@@ -5,6 +5,7 @@ export type FeeLineDraft = {
   label: string;
   kind: "FLAT" | "PERCENT";
   amount: number;
+  scope?: string;
 };
 
 export type FeePart = FeeLineDraft & { hint: string };
@@ -39,12 +40,12 @@ export function feeLineTotal(lines: FeeLineDraft[]) {
       total += value;
       return { ...line, value };
     }
-    const value = Math.round(line.amount);
-    taxable += Math.max(0, value);
+    const value = Math.max(0, Math.round(line.amount));
+    taxable += value;
     total += value;
     return { ...line, value };
   });
-  return { rows, taxable, total: Math.max(0, total) };
+  return { rows, taxable, total };
 }
 
 export function lateFromSlabs(days: number, policy: {
