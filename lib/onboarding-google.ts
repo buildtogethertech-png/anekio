@@ -30,6 +30,7 @@ type TokenBody = {
   expires_in?: number;
   scope?: string;
   token_type?: string;
+  error?: string;
   error_description?: string;
 };
 
@@ -108,6 +109,29 @@ function asKind(value: unknown): ImportKind {
   return kind;
 }
 
+function parseGoogleJson<T>(text: string): T | null {
+  try {
+    return text ? JSON.parse(text) as T : null;
+  } catch {
+    return null;
+  }
+}
+
+function googleErrorMessage(text: string, fallback: string) {
+  const data = parseGoogleJson<{
+    error?: string | { message?: string };
+    error_description?: string;
+    message?: string;
+  }>(text);
+  if (data?.error_description) return data.error_description;
+  if (typeof data?.error === "string" && data.error) return data.error;
+  if (data?.error && typeof data.error === "object" && data.error.message) return data.error.message;
+  if (data?.message) return data.message;
+  const plain = text.trim();
+  if (plain) return plain.slice(0, 500);
+  return fallback;
+}
+
 function safeReturnTo(value: string) {
   const fallback = `${publicOrigin()}/onboarding`;
   try {
@@ -158,9 +182,10 @@ async function tokenRequest(body: URLSearchParams) {
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
   });
-  const data = (await response.json()) as TokenBody;
-  if (!response.ok || !data.access_token) {
-    throw new Error(data.error_description || "Google Sheets connection failed.");
+  const text = await response.text();
+  const data = parseGoogleJson<TokenBody>(text);
+  if (!response.ok || !data?.access_token) {
+    throw new Error(googleErrorMessage(text, "Google Sheets connection failed."));
   }
   return data;
 }
@@ -170,8 +195,8 @@ async function googleEmail(accessToken: string) {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!response.ok) return "";
-  const data = (await response.json()) as { email?: string };
-  return String(data.email || "").trim().toLowerCase();
+  const data = parseGoogleJson<{ email?: string }>(await response.text());
+  return String(data?.email || "").trim().toLowerCase();
 }
 
 export async function finishOnboardingGoogleAuth(input: { state: string; code: string }) {
@@ -279,9 +304,10 @@ export async function createOnboardingGoogleSheet(user: AccessUser, input: { kin
     },
     body: multipart.body as never,
   });
-  const data = (await response.json()) as { id?: string; name?: string; webViewLink?: string; error?: { message?: string } };
-  if (!response.ok || !data.id || !data.webViewLink) {
-    throw new Error(data.error?.message || "Could not create the Google Sheet.");
+  const text = await response.text();
+  const data = parseGoogleJson<{ id?: string; name?: string; webViewLink?: string; error?: { message?: string } }>(text);
+  if (!response.ok || !data?.id || !data.webViewLink) {
+    throw new Error(googleErrorMessage(text, "Could not create the Google Sheet."));
   }
   await prisma.schoolOnboardingState.upsert({
     where: { id: "school" },
