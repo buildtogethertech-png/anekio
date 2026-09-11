@@ -10,7 +10,7 @@ import { parseClassLabel, parseCsv } from "./sheet";
 import { readUpload } from "./uploads";
 
 const ONBOARDING_STATE_ID = "school";
-export const IMPORT_KINDS = ["classes", "students", "teachers", "opening_balances"] as const;
+export const IMPORT_KINDS = ["classes", "students", "teachers", "class_teachers", "opening_balances"] as const;
 export type ImportKind = (typeof IMPORT_KINDS)[number];
 type ImportRow = Record<string, string> & { _row: string };
 type OnboardingDb = Prisma.TransactionClient;
@@ -19,6 +19,7 @@ const TEMPLATE_DETAILS: Record<ImportKind, { sheet: string; file: string; title:
   classes: { sheet: "Classes", file: "anekio-classes.csv", title: "Classes and sections" },
   students: { sheet: "Students", file: "anekio-students.csv", title: "Students and parents" },
   teachers: { sheet: "Teachers", file: "anekio-teachers.csv", title: "Teachers" },
+  class_teachers: { sheet: "Class teachers", file: "anekio-class-teachers.csv", title: "Class teacher assignments" },
   opening_balances: { sheet: "Opening balances", file: "anekio-opening-balances.csv", title: "Opening fee balances" },
 };
 
@@ -128,10 +129,10 @@ async function csvRowsFor(kind: ImportKind): Promise<CsvCell[][]> {
   }
 
   if (kind === "teachers") {
-    const teachers = await prisma.teacher.findMany({ include: { user: true, class: true }, orderBy: { user: { name: "asc" } } });
+    const teachers = await prisma.teacher.findMany({ include: { user: true }, orderBy: { user: { name: "asc" } } });
     return [
-      ["Anekio teacher ID", "Employee ID", "Teacher name", "Mobile", "Email", "Qualification", "Class teacher", "Example only"],
-      ["", "", "Meera Singh (example)", "9876543211", "teacher@example.com", "B.Ed, Mathematics", classLabels[0] || "1-A", "YES"],
+      ["Anekio teacher ID", "Employee ID", "Teacher name", "Mobile", "Email", "Qualification", "Example only"],
+      ["", "", "Meera Singh (example)", "9876543211", "teacher@example.com", "B.Ed, Mathematics", "YES"],
       ...teachers.map((teacher) => [
         teacher.id,
         teacher.employeeId,
@@ -139,9 +140,22 @@ async function csvRowsFor(kind: ImportKind): Promise<CsvCell[][]> {
         teacher.user.phone || "",
         teacher.user.email.endsWith("@local.anekio.invalid") ? "" : teacher.user.email,
         teacher.qualification || "",
-        teacher.class ? `${teacher.class.name}-${teacher.class.section}` : "",
         "",
       ]),
+    ];
+  }
+
+  if (kind === "class_teachers") {
+    const teachers = await prisma.teacher.findMany({ include: { user: true }, orderBy: { user: { name: "asc" } } });
+    const teacherLabels = teachers.map((teacher) => `${teacher.employeeId} · ${teacher.user.name}`);
+    return [
+      ["Class", "Class teacher employee ID", "Class teacher name", "Example only"],
+      [classLabels[0] || "1-A", teachers[0]?.employeeId || "T-101", teachers[0]?.user.name || "Meera Singh (example)", "YES"],
+      ...classes.map((klass, index) => {
+        const teacher = teachers[index] || null;
+        return [`${klass.name}-${klass.section}`, teacher?.employeeId || "", teacher?.user.name || "", ""];
+      }),
+      ...(teacherLabels.length ? [["Available teachers", teacherLabels.join("; "), "", "YES"] as CsvCell[]] : []),
     ];
   }
 
@@ -298,11 +312,15 @@ async function validateRows(kind: ImportKind, rows: ImportRow[]) {
     if (kind === "teachers") {
       if (!sheetCell(row, "Teacher name", "Name")) errors.push(rowError(row, "teacher name is required."));
       if (!normalizeMobile(sheetCell(row, "Mobile", "Phone"))) errors.push(rowError(row, "mobile must be a 10-digit number."));
-      const classText = sheetCell(row, "Class teacher", "Class");
-      if (classText) {
-        const klass = parseClass(classText);
-        if (!klass || !classKeys.has(`${klass.name}-${klass.section}`.toLowerCase())) errors.push(rowError(row, "class teacher must use an existing class."));
-      }
+      return;
+    }
+    if (kind === "class_teachers") {
+      const classText = sheetCell(row, "Class");
+      const employeeId = sheetCell(row, "Class teacher employee ID", "Employee ID", "Teacher employee ID");
+      const teacherName = sheetCell(row, "Class teacher name", "Teacher name");
+      const klass = parseClass(classText);
+      if (!klass || !classKeys.has(`${klass.name}-${klass.section}`.toLowerCase())) errors.push(rowError(row, "class must use an existing class like 1-A."));
+      if (!employeeId && !teacherName) errors.push(rowError(row, "teacher employee ID or teacher name is required."));
       return;
     }
     const studentId = sheetCell(row, "Anekio student ID");
@@ -489,9 +507,6 @@ async function applyTeachers(
   for (const row of rows) {
     const phone = normalizeMobile(sheetCell(row, "Mobile", "Phone"));
     const email = sheetCell(row, "Email").toLowerCase() || placeholderEmail("teacher", phone);
-    const classText = sheetCell(row, "Class teacher", "Class");
-    const klass = classText ? parseClass(classText) : null;
-    const classRow = klass ? await db.class.findUnique({ where: { name_section: klass } }) : null;
     const teacherId = sheetCell(row, "Anekio teacher ID");
     let employeeId = sheetCell(row, "Employee ID");
     const existing = teacherId
@@ -509,7 +524,7 @@ async function applyTeachers(
       await db.user.update({ where: { id: existing.userId }, data: { name: sheetCell(row, "Teacher name", "Name"), email, phone } });
       await db.teacher.update({
         where: { id: existing.id },
-        data: { employeeId, qualification: sheetCell(row, "Qualification") || null, classId: classRow?.id || null },
+        data: { employeeId, qualification: sheetCell(row, "Qualification") || null },
       });
       updated += 1;
     } else {
@@ -524,7 +539,6 @@ async function applyTeachers(
             create: {
               employeeId,
               qualification: sheetCell(row, "Qualification") || null,
-              classId: classRow?.id || null,
             },
           },
         },
@@ -533,6 +547,24 @@ async function applyTeachers(
     }
   }
   return { created, updated };
+}
+
+async function applyClassTeachers(db: OnboardingDb, rows: ImportRow[]) {
+  let updated = 0;
+  for (const row of rows) {
+    const klass = parseClass(sheetCell(row, "Class"))!;
+    const classRow = await db.class.findUnique({ where: { name_section: klass } });
+    if (!classRow) throw new Error(rowError(row, "class no longer exists."));
+    const employeeId = sheetCell(row, "Class teacher employee ID", "Employee ID", "Teacher employee ID");
+    const teacherName = sheetCell(row, "Class teacher name", "Teacher name");
+    const teacher = employeeId
+      ? await db.teacher.findUnique({ where: { employeeId }, include: { user: true } })
+      : await db.teacher.findFirst({ where: { user: { name: { equals: teacherName } } }, include: { user: true } });
+    if (!teacher) throw new Error(rowError(row, "teacher no longer exists."));
+    await db.teacher.update({ where: { id: teacher.id }, data: { classId: classRow.id } });
+    updated += 1;
+  }
+  return { created: 0, updated };
 }
 
 async function applyOpeningBalances(db: OnboardingDb, rows: ImportRow[]) {
@@ -618,7 +650,9 @@ export async function applyOnboardingImport(user: AccessUser, input: { batchId?:
         ? applyStudents(db, rows, peopleSetup as { roleId: string; password: string; admission: number })
         : kind === "teachers"
           ? applyTeachers(db, rows, peopleSetup as { roleId: string; password: string; employee: number })
-          : applyOpeningBalances(db, rows));
+          : kind === "class_teachers"
+            ? applyClassTeachers(db, rows)
+            : applyOpeningBalances(db, rows));
     await prisma.schoolOnboardingImport.update({
       where: { id: batch.id },
       data: { status: "APPLIED", appliedAt: new Date(), createdCount: result.created, updatedCount: result.updated },
@@ -675,10 +709,11 @@ export async function onboardingBundle(user: AccessUser) {
     step("school", 1, "School identity", "Confirm school name, session, contact details, and branding in Settings.", Boolean(school?.name && school.name !== "School")),
     step("classes", 2, "Classes and sections", "Create the structure that student and teacher files will reference.", classCount > 0 || importDone.has("classes")),
     step("students", 3, "Students and parents", "Import family records with generated admission numbers when needed.", studentCount > 0 || importDone.has("students"), classCount === 0, !wants("students")),
-    step("teachers", 4, "Teachers", "Import employees and optional class-teacher assignments.", teacherCount > 0 || importDone.has("teachers"), classCount === 0, !wants("teachers")),
-    step("opening_balances", 5, "Opening fee balances", "One consolidated due per student, with the old system's last generated month.", importDone.has("opening_balances") || (studentCount > 0 && openingCount >= studentCount), studentCount === 0, !wants("fees")),
-    step("recurring_fees", 6, "Recurring fee rules", "Set class fee ranges. New invoices begin after each student's imported cut-off month.", templateCount > 0, classCount === 0, !wants("fees")),
-    step("review", 7, "Review and launch", "Check counts, spot-check families and fees, then hand the workspace to the school.", false, classCount === 0 || (wants("students") && studentCount === 0)),
+    step("teachers", 4, "Teachers", "Import staff records first; assignments come from the next generated template.", teacherCount > 0 || importDone.has("teachers"), classCount === 0, !wants("teachers")),
+    step("class_teachers", 5, "Class teacher assignments", "Generated after classes and staff exist, so the team only chooses who owns each class.", importDone.has("class_teachers"), classCount === 0 || teacherCount === 0, !wants("teachers")),
+    step("opening_balances", 6, "Opening fee balances", "One consolidated due per student, with the old system's last generated month.", importDone.has("opening_balances") || (studentCount > 0 && openingCount >= studentCount), studentCount === 0, !wants("fees")),
+    step("recurring_fees", 7, "Recurring fee rules", "Set class fee ranges. New invoices begin after each student's imported cut-off month.", templateCount > 0, classCount === 0, !wants("fees")),
+    step("review", 8, "Review and launch", "Check counts, spot-check families and fees, then hand the workspace to the school.", false, classCount === 0 || (wants("students") && studentCount === 0)),
   ];
   const required = steps.filter((row) => row.status !== "optional");
   const completed = required.filter((row) => row.status === "complete").length;
@@ -691,8 +726,8 @@ export async function onboardingBundle(user: AccessUser) {
       kind,
       title: TEMPLATE_DETAILS[kind].title,
       fileName: TEMPLATE_DETAILS[kind].file,
-      disabled: (kind !== "classes" && classCount === 0) || (kind === "opening_balances" && studentCount === 0),
-      prerequisite: kind === "classes" ? "None" : kind === "opening_balances" ? "Students" : "Classes",
+      disabled: (kind !== "classes" && classCount === 0) || (kind === "opening_balances" && studentCount === 0) || (kind === "class_teachers" && teacherCount === 0),
+      prerequisite: kind === "classes" ? "None" : kind === "opening_balances" ? "Students" : kind === "class_teachers" ? "Classes + teachers" : "Classes",
     })),
     imports: latestImports.map((row) => ({
       id: row.id,

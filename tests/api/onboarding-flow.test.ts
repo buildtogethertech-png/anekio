@@ -147,4 +147,30 @@ describe("school onboarding imports", () => {
     expect(student.classId).toBe(klass.id);
     expect(student.admissionNo).toMatch(/^ANE-\d{5}$/);
   });
+
+  it("assigns class teachers from the generated assignment template", async () => {
+    const { onboardingTemplate, previewOnboardingImport, applyOnboardingImport } = await import("../../lib/onboarding");
+    const { saveUploadPath } = await import("../../lib/uploads");
+    const existingTeacher = await prisma.teacher.findFirstOrThrow({ include: { user: true }, orderBy: { employeeId: "asc" } });
+    const template = await onboardingTemplate(user, "class_teachers");
+    expect(template).toMatchObject({ fileName: "anekio-class-teachers.csv", contentType: "text/csv; charset=utf-8" });
+    const rows = parseCsv(template.buffer.toString("utf8"));
+    const assignment = rows.find((row) => row.class === "6-A")!;
+    assignment.classteacheremployeeid = existingTeacher.employeeId;
+    assignment.classteachername = "";
+    assignment.exampleonly = "";
+    const uploadPath = "private/schools/test/onboarding/imports/class-teachers.csv";
+    await saveUploadPath(uploadPath, Buffer.from(csvFromObjects([assignment])), "text/csv");
+
+    const preview = await previewOnboardingImport(user, {
+      kind: "class_teachers",
+      uploadPath,
+      fileName: "class-teachers.csv",
+    });
+    expect(preview).toMatchObject({ rowCount: 1, validCount: 1, errors: [] });
+
+    await applyOnboardingImport(user, { batchId: preview.batchId });
+    const teacher = await prisma.teacher.findUniqueOrThrow({ where: { employeeId: existingTeacher.employeeId } });
+    expect(teacher.classId).toBe("class-6-a");
+  });
 });

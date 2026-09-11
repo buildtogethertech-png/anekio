@@ -35,13 +35,14 @@ type GoogleSheetResult = {
 const MODULES = [
   { key: "students", title: "Students & parents", body: "Families, classes, and admission numbers" },
   { key: "fees", title: "Fees", body: "Opening balances and future monthly rules" },
-  { key: "teachers", title: "Teachers", body: "Employees and class-teacher assignment" },
+  { key: "teachers", title: "Teachers", body: "Employees, then generated class-teacher assignment" },
 ];
 
 const TEMPLATE_COPY: Record<Template["kind"], string> = {
   classes: "Build the class list used by every later template.",
   students: "Prefilled with current students; blank admission numbers are generated.",
-  teachers: "Prefilled with current teachers and valid class choices.",
+  teachers: "Import staff records first, without mixing class ownership.",
+  class_teachers: "Generated from imported classes and teachers so each class gets an owner.",
   opening_balances: "One row and one consolidated opening balance per student.",
 };
 
@@ -266,8 +267,8 @@ export function OnboardingBoard() {
       </View>
 
       <View className="gap-2">
-        <Text className="text-base font-semibold text-ink-900">Generated CSV templates</Text>
-        <Text className="text-xs leading-5 text-ink-700">Every CSV includes a realistic example row marked Example only = YES. Add school data below it, or copy it and clear that field. Example rows are always ignored. Nothing changes until review passes and you press Apply.</Text>
+        <Text className="text-base font-semibold text-ink-900">Generated onboarding templates</Text>
+        <Text className="text-xs leading-5 text-ink-700">Each template includes realistic example rows marked Example only = YES. Add school data below them, or copy and clear that field. Example rows are ignored. Nothing changes until review passes and you press Apply.</Text>
         <View className="flex-row flex-wrap gap-3">
           {onboarding.templates.map((template) => (
             <Card key={template.kind} className="min-w-[260px] flex-1 gap-3 p-4">
