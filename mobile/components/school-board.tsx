@@ -349,7 +349,6 @@ export function SchoolBoard() {
   const [level, setLevel] = useState<Level>(linked ? "page" : linkedGroup ? "group" : "doors");
   const [form, setForm] = useState<SchoolForm>(blankForm(s));
   const [holiday, setHoliday] = useState({ date: "", name: "" });
-  const [pasted, setPasted] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const [classOpen, setClassOpen] = useState(false);
   const [calendarImportOpen, setCalendarImportOpen] = useState(false);
@@ -501,7 +500,6 @@ export function SchoolBoard() {
 
   async function importHolidayCsv(csv: string) {
     await run("importSchoolHolidays", { pasted: csv, sessionId: activeCalendarSessionId }, "Holiday calendar imported.");
-    setPasted("");
     setCalendarImportOpen(false);
   }
 
@@ -1012,24 +1010,6 @@ export function SchoolBoard() {
                       <Text className="text-sm text-amber-900">
                         No fixed column order needed. Existing holiday dates are skipped during import.
                       </Text>
-                    </View>
-                    <Field label="Or paste CSV">
-                      <Input
-                        multiline
-                        numberOfLines={4}
-                        value={pasted}
-                        placeholder={"date,name\n2026-10-02,Gandhi Jayanti"}
-                        onChangeText={setPasted}
-                        className="min-h-[96px]"
-                      />
-                    </Field>
-                    <View className="flex-row justify-end gap-2">
-                      <Button variant="ghost" onPress={() => setPasted(SAMPLE_CSV)}>
-                        Fill sample
-                      </Button>
-                      <Button disabled={!pasted.trim()} onPress={() => void importHolidayCsv(pasted)}>
-                        Import
-                      </Button>
                     </View>
                   </View>
                 </Modal>
