@@ -268,20 +268,21 @@ async function requireConnection(user: AccessUser, returnTo: string) {
 
 function multipartBody(name: string, csv: Buffer) {
   const boundary = `anekio_${randomBytes(12).toString("hex")}`;
-  const head = Buffer.from(
+  const delimiter = `\r\n--${boundary}\r\n`;
+  const closeDelimiter = `\r\n--${boundary}--`;
+  const metadata = Buffer.from(
     [
-      `--${boundary}`,
-      "Content-Type: application/json; charset=UTF-8",
-      "",
+      delimiter,
+      "Content-Type: application/json; charset=UTF-8\r\n\r\n",
       JSON.stringify({ name, mimeType: SHEETS_MIME }),
-      `--${boundary}`,
-      "Content-Type: text/csv; charset=UTF-8",
-      "",
-    ].join("\r\n"),
+      delimiter,
+      "Content-Type: text/csv; charset=UTF-8\r\n",
+      "Content-Transfer-Encoding: binary\r\n\r\n",
+    ].join(""),
     "utf8"
   );
-  const tail = Buffer.from(`\r\n--${boundary}--\r\n`, "utf8");
-  return { boundary, body: Buffer.concat([head, csv, tail]) };
+  const tail = Buffer.from(closeDelimiter, "utf8");
+  return { boundary, body: Buffer.concat([metadata, csv, tail]) };
 }
 
 export async function createOnboardingGoogleSheet(user: AccessUser, input: { kind?: string; returnTo?: string }) {
@@ -301,8 +302,9 @@ export async function createOnboardingGoogleSheet(user: AccessUser, input: { kin
     headers: {
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": `multipart/related; boundary=${multipart.boundary}`,
+      "Content-Length": String(multipart.body.length),
     },
-    body: multipart.body as never,
+    body: new Uint8Array(multipart.body),
   });
   const text = await response.text();
   const data = parseGoogleJson<{ id?: string; name?: string; webViewLink?: string; error?: { message?: string } }>(text);
