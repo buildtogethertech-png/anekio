@@ -14,7 +14,7 @@ import { useSession } from "../lib/session";
 import { pickFile, uploadFile } from "../lib/upload";
 
 const TABS = [
-  { id: "identity", label: "Identity", hint: "Name, address, and logo", group: "School" },
+  { id: "identity", label: "Identity & brand assets", hint: "Name, address, logo, signatures, and stamps", group: "School" },
   { id: "sessions", label: "Sessions", hint: "Academic years and current session", group: "School" },
   { id: "classes", label: "Classes", hint: "Sections and class strength", group: "School" },
   { id: "clock", label: "Clock", hint: "School days and bell times. Set once.", group: "School" },
@@ -25,7 +25,6 @@ const TABS = [
   { id: "exams", label: "Exams", hint: "Grade scale and this year's sittings. Every class follows this.", group: "Teaching" },
   { id: "collect", label: "Collect", hint: "UPI, bank, gateway", group: "Money" },
   { id: "documents", label: "Document Studio", hint: "Design printable PDFs. Fee amounts stay in Fees. WhatsApp stays in Communication.", group: "Documents" },
-  { id: "invoice", label: "Brand assets", hint: "Logo, authorised signatures, and stamps", group: "Documents" },
   { id: "website", label: "Admissions website", hint: "Public school page, enquiry form, and incoming leads", group: "Reach" },
   { id: "communication", label: "Communication", hint: "Configure campaign: AiSensy API key and campaign name. Message wording stays in Meta / AiSensy.", group: "Reach" },
 ] as const;
@@ -200,6 +199,7 @@ function SchoolGroupList({ group, onPick }: { group: Door; onPick: (id: Tab) => 
 }
 
 function tabFromParam(tabParam?: string) {
+  if (tabParam === "invoice") return TABS.find((item) => item.id === "identity");
   return TABS.find((item) => item.id === tabParam);
 }
 
@@ -489,7 +489,7 @@ export function SchoolBoard() {
   const hint = TABS.find((t) => t.id === tab)?.hint;
   const current = TABS.find((t) => t.id === tab) ?? TABS[0];
   const showSave = tab !== "calendar" && tab !== "exams" && tab !== "clock" && tab !== "rooms" && tab !== "subjects" && tab !== "sessions" && tab !== "classes" && tab !== "leave" && tab !== "documents";
-  const showPreview = tab === "invoice" || tab === "communication" || tab === "exams" || tab === "website";
+  const showPreview = tab === "identity" || tab === "communication" || tab === "exams" || tab === "website";
 
   function showSchool(next: { tab?: Tab; group?: Door } = {}) {
     if (next.tab) router.replace(`/school?tab=${next.tab}` as never);
@@ -650,6 +650,53 @@ export function SchoolBoard() {
                         {uploadingAsset === "logoPath" ? "Uploading…" : s?.logoPath ? "Replace logo" : "Upload logo"}
                       </Button>
                     ) : null}
+                  </View>
+                </View>
+                <View className="rounded-md border border-ink-200 p-4">
+                  <View className="gap-3">
+                    <Text className="text-sm font-medium text-ink-900">Document brand assets</Text>
+                    <Text className="text-xs leading-5 text-ink-700">
+                      Signature and stamp appear on report cards, certificates, invoices, and custom documents.
+                    </Text>
+                    <View className="flex-row flex-wrap gap-3">
+                      <Half>
+                        <Field label="Signatory name">
+                          <Input value={form.signatory} placeholder="Principal" onChangeText={(v) => patch("signatory", v)} />
+                        </Field>
+                      </Half>
+                    </View>
+                    <View className="flex-row flex-wrap gap-3">
+                      <View className="min-w-[45%] flex-1 rounded-md border border-ink-200 p-4">
+                        <Text className="text-sm font-medium text-ink-900">Principal signature</Text>
+                        <Text className="mt-1 text-xs text-ink-700">Transparent PNG works best.</Text>
+                        {s?.signPath ? <Image source={{ uri: assetUrl(s.signPath) }} className="my-3 h-14 w-full" resizeMode="contain" /> : null}
+                        {edit ? (
+                          <Button
+                            variant="ghost"
+                            disabled={Boolean(uploadingAsset)}
+                            onPress={() => void uploadBrandAsset("signPath", "Signature")}
+                            className="mt-3"
+                          >
+                            {uploadingAsset === "signPath" ? "Uploading…" : s?.signPath ? "Replace signature" : "Upload signature"}
+                          </Button>
+                        ) : null}
+                      </View>
+                      <View className="min-w-[45%] flex-1 rounded-md border border-ink-200 p-4">
+                        <Text className="text-sm font-medium text-ink-900">School stamp</Text>
+                        <Text className="mt-1 text-xs text-ink-700">Optional, shown on formal documents.</Text>
+                        {s?.stampPath ? <Image source={{ uri: assetUrl(s.stampPath) }} className="my-3 h-14 w-full" resizeMode="contain" /> : null}
+                        {edit ? (
+                          <Button
+                            variant="ghost"
+                            disabled={Boolean(uploadingAsset)}
+                            onPress={() => void uploadBrandAsset("stampPath", "Stamp")}
+                            className="mt-3"
+                          >
+                            {uploadingAsset === "stampPath" ? "Uploading…" : s?.stampPath ? "Replace stamp" : "Upload stamp"}
+                          </Button>
+                        ) : null}
+                      </View>
+                    </View>
                   </View>
                 </View>
               </View>
@@ -1528,50 +1575,6 @@ export function SchoolBoard() {
               </View>
             ) : null}
 
-            {tab === "invoice" ? (
-              <View className="mt-4 gap-4">
-                <View className="flex-row flex-wrap gap-3">
-                  <Half>
-                    <Field label="Signatory name">
-                      <Input value={form.signatory} placeholder="Principal" onChangeText={(v) => patch("signatory", v)} />
-                    </Field>
-                  </Half>
-                </View>
-                <View className="flex-row flex-wrap gap-3">
-                  <View className="min-w-[45%] flex-1 rounded-md border border-ink-200 p-4">
-                    <Text className="text-sm font-medium text-ink-900">Principal signature</Text>
-                    <Text className="mt-1 text-xs text-ink-700">Transparent PNG works best.</Text>
-                    {s?.signPath ? <Image source={{ uri: assetUrl(s.signPath) }} className="my-3 h-14 w-full" resizeMode="contain" /> : null}
-                    {edit ? (
-                      <Button
-                        variant="ghost"
-                        disabled={Boolean(uploadingAsset)}
-                        onPress={() => void uploadBrandAsset("signPath", "Signature")}
-                        className="mt-3"
-                      >
-                        {uploadingAsset === "signPath" ? "Uploading…" : s?.signPath ? "Replace signature" : "Upload signature"}
-                      </Button>
-                    ) : null}
-                  </View>
-                  <View className="min-w-[45%] flex-1 rounded-md border border-ink-200 p-4">
-                    <Text className="text-sm font-medium text-ink-900">School stamp</Text>
-                    <Text className="mt-1 text-xs text-ink-700">Optional, shown on formal documents.</Text>
-                    {s?.stampPath ? <Image source={{ uri: assetUrl(s.stampPath) }} className="my-3 h-14 w-full" resizeMode="contain" /> : null}
-                    {edit ? (
-                      <Button
-                        variant="ghost"
-                        disabled={Boolean(uploadingAsset)}
-                        onPress={() => void uploadBrandAsset("stampPath", "Stamp")}
-                        className="mt-3"
-                      >
-                        {uploadingAsset === "stampPath" ? "Uploading…" : s?.stampPath ? "Replace stamp" : "Upload stamp"}
-                      </Button>
-                    ) : null}
-                  </View>
-                </View>
-              </View>
-            ) : null}
-
             {tab === "website" ? (
               <View className="gap-4">
                 <View className="rounded-xl border border-blue-200 bg-blue-50 p-4">
@@ -1894,7 +1897,7 @@ export function SchoolBoard() {
                 </View>
               ) : tab === "communication" ? (
                 <MessagePreview schoolName={form.name} fromEmail={form.resendFromEmail} />
-              ) : tab === "invoice" ? (
+              ) : tab === "identity" ? (
                 <BrandAssetPreview form={form} logoPath={s?.logoPath} signPath={s?.signPath} stampPath={s?.stampPath} />
               ) : tab === "website" ? (
                 <WebsiteMiniPreview form={form} logoPath={s?.logoPath} />
