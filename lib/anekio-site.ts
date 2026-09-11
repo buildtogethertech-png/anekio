@@ -262,8 +262,13 @@ async function provisionLocalTrialWorkspace(org: { id: string; schoolName: strin
   const roleId = await roleIdBySlug("ADMIN");
   const password = "12345";
   const hashed = await bcrypt.hash(password, 10);
+  // A fresh local/test fixture may still contain the legacy singleton config.
+  // Claim that unowned row for the first trial; once it belongs to an org,
+  // every later trial receives its own config key.
+  const legacyConfig = await prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { orgId: true } });
+  const configId = legacyConfig && !legacyConfig.orgId ? "school" : `school:${org.id}`;
   await prisma.schoolConfig.upsert({
-    where: { id: "school" },
+    where: { id: configId },
     update: {
       orgId: org.id,
       name: org.schoolName,
@@ -274,7 +279,7 @@ async function provisionLocalTrialWorkspace(org: { id: string; schoolName: strin
       email,
     },
     create: {
-      id: "school",
+      id: configId,
       orgId: org.id,
       name: org.schoolName,
       city: org.city,

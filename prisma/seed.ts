@@ -587,7 +587,10 @@ async function main() {
 
   // Keep all fee records attached to the seeded organisation. New organisations
   // receive their own orgId through the onboarding/auth context.
-  await prisma.schoolConfig.update({ where: { id: "school" }, data: { orgId: saasOrg.id } });
+  await prisma.schoolConfig.update({
+    where: { id: "school" },
+    data: { id: `school:${saasOrg.id}`, orgId: saasOrg.id },
+  });
   await prisma.user.updateMany({ data: { orgId: saasOrg.id } });
   await prisma.authChallenge.updateMany({ data: { orgId: saasOrg.id } });
   await prisma.teacher.updateMany({ data: { orgId: saasOrg.id } });

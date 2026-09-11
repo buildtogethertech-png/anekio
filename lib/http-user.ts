@@ -1,6 +1,7 @@
 import { verifyAppToken } from "./app-jwt";
 import { can, type AccessUser } from "./permissions";
 import { loadAccess } from "./roles";
+import { setTenantOrg } from "./tenant-context";
 
 export function readBearer(header?: string | null) {
   const [scheme, token] = String(header || "").split(" ");
@@ -18,7 +19,9 @@ export async function userFromAuthHeader(header?: string | null): Promise<Access
     userId = null;
   }
   if (!userId) return null;
-  return loadAccess(userId);
+  const user = await loadAccess(userId);
+  if (user?.orgId) setTenantOrg(user.orgId);
+  return user;
 }
 
 export function hasAny(user: AccessUser, keys: string[]) {

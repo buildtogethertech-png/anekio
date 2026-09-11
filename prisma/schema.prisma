@@ -763,8 +763,8 @@ model Application {
 }
 
 model SchoolConfig {
-  id                    String                    @id @default("school")
-  orgId                 String?
+  id                    String                    @id @default(cuid())
+  orgId                 String?                   @unique
   org                   SaasOrg?                  @relation(fields: [orgId], references: [id], onDelete: SetNull)
   weekdays              String                    @default("[1,2,3,4,5,6]")
   name                  String                    @default("Anekio School")

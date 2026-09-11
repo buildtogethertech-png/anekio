@@ -43,6 +43,7 @@ import { onboardingTemplate } from "../lib/onboarding";
 import { finishOnboardingGoogleAuth } from "../lib/onboarding-google";
 import { withPublicRequestOrigin } from "../lib/utils";
 import { hasHostnamePrefix, normalizeHostname, schoolSlugFromHostname } from "../lib/host-routing";
+import { runWithoutTenant, setTenantOrg } from "../lib/tenant-context";
 import { renderInvoicePage, renderPayPage, renderStudentPayPage } from "./pay-html";
 import {
   createAdmissionLeadFromWebsite,
@@ -140,6 +141,7 @@ app.use("/api/pay/webhook", express.raw({ type: "*/*" }));
 app.use("/api/razorpay/webhook", express.raw({ type: "*/*" }));
 app.use(express.json({ limit: "4mb" }));
 app.use(express.urlencoded({ extended: true }));
+app.use((_req, _res, next) => runWithoutTenant(() => next()));
 app.use((req, _res, next) => withPublicRequestOrigin(requestOrigin(req), next));
 
 function sendError(res: express.Response, status: number, error: string) {
@@ -228,6 +230,7 @@ async function requireUser(req: express.Request, res: express.Response) {
     sendError(res, 401, "Sign in again.");
     return null;
   }
+  setTenantOrg(user.orgId);
   return user;
 }
 
