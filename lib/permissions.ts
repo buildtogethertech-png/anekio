@@ -65,6 +65,7 @@ export const LOCKED_KEYS = ["roles.manage"] as const;
 
 export type AccessUser = {
   id: string;
+  orgId?: string | null;
   name?: string | null;
   email?: string | null;
   role: string;

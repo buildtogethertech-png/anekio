@@ -265,6 +265,7 @@ async function provisionLocalTrialWorkspace(org: { id: string; schoolName: strin
   await prisma.schoolConfig.upsert({
     where: { id: "school" },
     update: {
+      orgId: org.id,
       name: org.schoolName,
       city: org.city,
       state: org.billingState,
@@ -274,6 +275,7 @@ async function provisionLocalTrialWorkspace(org: { id: string; schoolName: strin
     },
     create: {
       id: "school",
+      orgId: org.id,
       name: org.schoolName,
       city: org.city,
       state: org.billingState,
@@ -289,11 +291,11 @@ async function provisionLocalTrialWorkspace(org: { id: string; schoolName: strin
   if (existing) {
     await prisma.user.update({
       where: { id: existing.id },
-      data: { name: org.ownerName, email, phone, password: hashed, roleId },
+      data: { name: org.ownerName, email, phone, password: hashed, roleId, orgId: org.id },
     });
   } else {
     await prisma.user.create({
-      data: { name: org.ownerName, email, phone, password: hashed, roleId },
+      data: { name: org.ownerName, email, phone, password: hashed, roleId, orgId: org.id },
     });
   }
   await prisma.saasOrg.update({

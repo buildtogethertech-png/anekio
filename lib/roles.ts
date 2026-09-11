@@ -107,6 +107,7 @@ export async function loadAccess(userId: string): Promise<AccessUser | null> {
 
 function toAccess(user: {
   id: string;
+  orgId?: string | null;
   name: string;
   email: string;
   roleId: string;
@@ -120,6 +121,7 @@ function toAccess(user: {
 }): AccessUser {
   return {
     id: user.id,
+    orgId: user.orgId,
     name: user.name,
     email: user.email,
     role: user.role.slug,
