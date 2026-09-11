@@ -2,6 +2,7 @@ import { useState } from "react";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Pressable, Text, View } from "react-native";
 import { Button, Chip, Field, Input, Modal } from "./ui";
+import { UploadCsvPanel } from "./upload-csv-panel";
 import { pickFile } from "../lib/upload";
 
 export const DEFAULT_SUBJECTS = [
@@ -583,26 +584,14 @@ export function SchoolSubjectsForm({
           </View>
         </View>
       </Modal>
-      <Modal open={importOpen} title="Upload subjects" onClose={() => setImportOpen(false)}>
-        <View className="gap-3">
-          <Text className="text-sm text-ink-700">
-            Upload the subjects this school teaches. Class periods stay in the table.
-          </Text>
-          <View className="rounded-md border border-ink-200 bg-ink-50 px-3 py-2">
-            <Text className="text-xs font-medium text-ink-700">Sample format</Text>
-            <Text className="mt-1 text-xs text-ink-700">Subject</Text>
-            <Text className="text-xs text-ink-700">English</Text>
-            <Text className="text-xs text-ink-700">Science</Text>
-          </View>
-          <View className="flex-row flex-wrap gap-2">
-            <Button variant="ghost" onPress={() => downloadSheet(true)}>
-              Download sample
-            </Button>
-            <Button onPress={uploadSheet}>
-              Upload CSV
-            </Button>
-          </View>
-        </View>
+      <Modal open={importOpen} title="Upload subjects" onClose={() => setImportOpen(false)} wide>
+        <UploadCsvPanel
+          description="Upload the subjects this school teaches. Class periods stay in the table."
+          requiredColumns="Subject"
+          note="Use one subject per row. Existing subjects are replaced after you review and save."
+          onBrowse={() => void uploadSheet()}
+          onDownloadSample={() => downloadSheet(true)}
+        />
       </Modal>
     </View>
   );
