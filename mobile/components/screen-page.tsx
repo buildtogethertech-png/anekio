@@ -24,6 +24,7 @@ export function ScreenPage({ screen }: { screen: string }) {
   const parentTests = screen === "tests" && data?.kind === "PARENT";
   const workspacePage = workspace || parentTests;
   const tightPad = teacherExams || teacherAttendance || officeStaff || officeFees;
+  const settingsPage = screen === "school";
   return (
     <SafeAreaView
       className={`min-h-0 flex-1 overflow-hidden ${screen === "exams" ? "bg-[#F7F9FC]" : "bg-ink-50"}`}
@@ -38,7 +39,7 @@ export function ScreenPage({ screen }: { screen: string }) {
       ) : (
         <ScrollView
           className="min-h-0 flex-1"
-          contentContainerClassName="px-4 py-5 sm:px-10 sm:py-8"
+          contentContainerClassName={settingsPage ? "px-4 py-3 sm:px-7 sm:py-4" : "px-4 py-5 sm:px-10 sm:py-8"}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => reload()} />}
         >
           <PortalBody screen={screen} />

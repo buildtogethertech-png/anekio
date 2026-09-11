@@ -578,12 +578,12 @@ export function SchoolBoard() {
   return (
     <View>
       {level !== "doors" ? (
-        <Pressable onPress={goBack} className="mb-2 min-h-[44px] flex-row items-center gap-1">
-          <Ionicons name="chevron-back" size={20} color="#1d4ed8" />
+        <Pressable onPress={goBack} className="mb-1 min-h-[32px] flex-row items-center gap-1">
+          <Ionicons name="chevron-back" size={19} color="#1d4ed8" />
           <Text className="text-sm font-medium text-clay-600">{level === "page" ? door : "School"}</Text>
         </Pressable>
       ) : null}
-      <PageHeader title={title} lede={lede} />
+      <PageHeader title={title} lede={lede} compact />
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
       {level === "doors" ? (
         <SchoolDoors onOpen={openDoor} />

@@ -243,17 +243,19 @@ export function PageHeader({
   title,
   lede,
   action,
+  compact,
 }: {
   kicker?: string;
   title: string;
   lede?: string;
   action?: ReactNode;
+  compact?: boolean;
 }) {
   return (
-    <View className="mb-3 flex-col gap-1.5 border-b border-ink-200 pb-3 sm:mb-4 sm:flex-row sm:items-end sm:justify-between sm:gap-3 sm:pb-3">
+    <View className={`${compact ? "mb-2 gap-1 pb-2 sm:mb-3 sm:pb-2" : "mb-3 gap-1.5 pb-3 sm:mb-4 sm:pb-3"} flex-col border-b border-ink-200 sm:flex-row sm:items-end sm:justify-between sm:gap-3`}>
       <View className="max-w-2xl">
         <Text className="text-xl font-semibold text-ink-900">{title}</Text>
-        {lede ? <Text className="mt-1 text-xs leading-4 text-ink-700">{lede}</Text> : null}
+        {lede ? <Text className={`${compact ? "mt-0.5" : "mt-1"} text-xs leading-4 text-ink-700`}>{lede}</Text> : null}
       </View>
       {action}
     </View>
