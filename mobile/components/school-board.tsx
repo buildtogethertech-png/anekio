@@ -485,6 +485,40 @@ export function SchoolBoard() {
     }
   }
 
+  function downloadCalendarSampleCsv() {
+    if (typeof document === "undefined") {
+      toast.show("Download is available on web.");
+      return;
+    }
+    const blob = new Blob([SAMPLE_CSV], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "anekio-holiday-calendar-sample.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function importHolidayCsv(csv: string) {
+    await run("importSchoolHolidays", { pasted: csv, sessionId: activeCalendarSessionId }, "Holiday calendar imported.");
+    setPasted("");
+    setCalendarImportOpen(false);
+  }
+
+  async function uploadHolidayCsv() {
+    try {
+      const file = await pickFile(".csv,text/csv,text/plain");
+      if (!file) return;
+      const text = await fetch(file.uri).then((response) => response.text());
+      if (file.name.toLowerCase().endsWith(".xlsx") || file.name.toLowerCase().endsWith(".xls") || text.startsWith("PK")) {
+        throw new Error("Save the Excel file as CSV, then upload that.");
+      }
+      await importHolidayCsv(text);
+    } catch (e) {
+      toast.show(e instanceof Error ? e.message : "Could not import calendar.");
+    }
+  }
+
   const hint = TABS.find((t) => t.id === tab)?.hint;
   const current = TABS.find((t) => t.id === tab) ?? TABS[0];
   const showSave = tab !== "calendar" && tab !== "exams" && tab !== "clock" && tab !== "subjects" && tab !== "sessions" && tab !== "classes" && tab !== "leave" && tab !== "documents";
@@ -891,8 +925,8 @@ export function SchoolBoard() {
                       />
                     </View>
                     {edit ? (
-                      <Button variant="ghost" onPress={() => setCalendarImportOpen((open) => !open)}>
-                        {calendarImportOpen ? "Hide import" : "Import CSV"}
+                      <Button variant="ghost" onPress={() => setCalendarImportOpen(true)}>
+                        Import CSV
                       </Button>
                     ) : null}
                   </View>
@@ -922,38 +956,6 @@ export function SchoolBoard() {
                     ) : null}
                   </View>
                 </View>
-
-                {calendarImportOpen ? (
-                  <View className="rounded-md border border-dashed border-ink-200 bg-ink-50 p-3">
-                    <Field label="Paste CSV or calendar text">
-                      <Input
-                        multiline
-                        numberOfLines={3}
-                        value={pasted}
-                        placeholder={"date,name\n2026-10-02,Gandhi Jayanti"}
-                        onChangeText={setPasted}
-                        className="min-h-[72px]"
-                      />
-                    </Field>
-                    {edit ? (
-                      <View className="mt-3 flex-row flex-wrap gap-2">
-                        <Button variant="ghost" onPress={() => setPasted(SAMPLE_CSV)}>
-                          Sample CSV
-                        </Button>
-                        <Button
-                          disabled={!pasted.trim()}
-                          onPress={async () => {
-                            await run("importSchoolHolidays", { pasted, sessionId: activeCalendarSessionId }, "Holiday calendar imported.");
-                            setPasted("");
-                            setCalendarImportOpen(false);
-                          }}
-                        >
-                          Import
-                        </Button>
-                      </View>
-                    ) : null}
-                  </View>
-                ) : null}
 
                 {inSession.length ? (
                   <View className="overflow-hidden rounded-md border border-ink-200">
@@ -986,6 +988,43 @@ export function SchoolBoard() {
                     No holidays yet. Import a calendar so Annual and Term papers jump over those days.
                   </Text>
                 )}
+
+                <Modal open={calendarImportOpen} title="Import holiday CSV" onClose={() => setCalendarImportOpen(false)}>
+                  <View className="gap-4">
+                    <View className="rounded-md bg-ink-50 p-3">
+                      <Text className="text-sm font-medium text-ink-900">Use columns date and name.</Text>
+                      <Text className="mt-1 text-xs text-ink-700">
+                        Holidays import into {calendarSession?.label || "this session"}. Existing dates are skipped.
+                      </Text>
+                    </View>
+                    <View className="flex-row flex-wrap gap-2">
+                      <Button variant="ghost" onPress={downloadCalendarSampleCsv}>
+                        Download sample
+                      </Button>
+                      <Button onPress={() => void uploadHolidayCsv()}>
+                        Upload CSV
+                      </Button>
+                    </View>
+                    <Field label="Or paste CSV">
+                      <Input
+                        multiline
+                        numberOfLines={4}
+                        value={pasted}
+                        placeholder={"date,name\n2026-10-02,Gandhi Jayanti"}
+                        onChangeText={setPasted}
+                        className="min-h-[96px]"
+                      />
+                    </Field>
+                    <View className="flex-row justify-end gap-2">
+                      <Button variant="ghost" onPress={() => setPasted(SAMPLE_CSV)}>
+                        Fill sample
+                      </Button>
+                      <Button disabled={!pasted.trim()} onPress={() => void importHolidayCsv(pasted)}>
+                        Import
+                      </Button>
+                    </View>
+                  </View>
+                </Modal>
               </View>
             ) : null}
 
