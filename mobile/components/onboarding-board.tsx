@@ -303,7 +303,7 @@ export function OnboardingBoard() {
                   disabled={template.disabled || Boolean(busy)}
                   onPress={() => void download(template)}
                 >
-                  {busy === `download:${template.kind}` ? "Preparing…" : "Download with data"}
+                  {busy === `download:${template.kind}` ? "Preparing…" : "Download template"}
                 </Button>
                 <Button
                   className="min-w-[134px] flex-1"
