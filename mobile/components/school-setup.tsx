@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import { Button, Chip, Field, Input } from "./ui";
+import { Button, Chip, Field, Input, Modal } from "./ui";
+import { pickFile } from "../lib/upload";
 
 export const DEFAULT_SUBJECTS = [
   "English",
@@ -42,6 +43,48 @@ function parsePeriods(value: string) {
   const n = Number(value);
   if (!value.trim()) return 0;
   return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : null;
+}
+
+function csvEscape(value: string | number) {
+  return `"${String(value).replace(/"/g, '""')}"`;
+}
+
+function parseCsv(text: string) {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let quoted = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    const next = text[i + 1];
+    if (quoted) {
+      if (ch === '"' && next === '"') {
+        cell += '"';
+        i += 1;
+      } else if (ch === '"') {
+        quoted = false;
+      } else {
+        cell += ch;
+      }
+    } else if (ch === '"') {
+      quoted = true;
+    } else if (ch === ",") {
+      row.push(cell.trim());
+      cell = "";
+    } else if (ch === "\n") {
+      row.push(cell.trim());
+      rows.push(row);
+      row = [];
+      cell = "";
+    } else if (ch !== "\r") {
+      cell += ch;
+    }
+  }
+  if (cell || row.length) {
+    row.push(cell.trim());
+    rows.push(row);
+  }
+  return rows.filter((items) => items.some(Boolean));
 }
 
 function SaveFlash({ at, flash }: { at: "catalog" | "class"; flash: { at: "catalog" | "class"; kind: "ok" | "err"; text: string } | null }) {
@@ -273,6 +316,7 @@ export function SchoolSubjectsForm({
   ];
   const [names, setNames] = useState(initialNames);
   const [custom, setCustom] = useState("");
+  const [importOpen, setImportOpen] = useState(false);
   const [grid, setGrid] = useState<Record<string, Record<string, string>>>(
     Object.fromEntries(
       classes.map((klass) => [
@@ -313,43 +357,83 @@ export function SchoolSubjectsForm({
     });
   }
 
-  function downloadSheet() {
+  function sheetCsv(sample = false) {
     const rows = [
       ["Subject", ...classes.map((klass) => `${klass.label} periods/week`)],
-      ...names.map((subject) => [
+      ...(sample && !names.length ? DEFAULT_SUBJECTS.slice(0, 6) : names).map((subject) => [
         subject,
-        ...classes.map((klass) => grid[klass.id]?.[subject] || ""),
+        ...classes.map((klass) => sample ? "4" : grid[klass.id]?.[subject] || ""),
       ]),
     ];
-    const csv = rows
-      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
-      .join("\n");
+    return rows.map((row) => row.map(csvEscape).join(",")).join("\n");
+  }
+
+  function downloadSheet(sample = false) {
     if (typeof document === "undefined") {
       setFlash({ at: "catalog", kind: "err", text: "Download is available on web." });
       return;
     }
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const blob = new Blob([sheetCsv(sample)], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "anekio-subject-plan.csv";
+    link.download = sample ? "anekio-subject-plan-sample.csv" : "anekio-subject-plan.csv";
     link.click();
     URL.revokeObjectURL(url);
   }
 
+  async function uploadSheet() {
+    const file = await pickFile(".csv,text/csv");
+    if (!file) return;
+    const text = await fetch(file.uri).then((response) => response.text());
+    const [header, ...rows] = parseCsv(text);
+    if (!header?.length || !String(header[0] || "").toLowerCase().includes("subject")) {
+      setFlash({ at: "catalog", kind: "err", text: "Use a CSV with Subject as the first column." });
+      return;
+    }
+    const importedNames = rows.map((row) => row[0]).filter(Boolean);
+    if (!importedNames.length) {
+      setFlash({ at: "catalog", kind: "err", text: "No subjects found in the sheet." });
+      return;
+    }
+    const nextNames = [...new Set(importedNames)];
+    const classByColumn = header.slice(1).map((label) => {
+      const compact = label.replace(/periods\/week/i, "").trim();
+      return classes.find((klass) => klass.label === compact)?.id || "";
+    });
+    const nextGrid: Record<string, Record<string, string>> = Object.fromEntries(classes.map((klass) => [klass.id, {}]));
+    rows.forEach((row) => {
+      const subject = row[0];
+      if (!subject) return;
+      classByColumn.forEach((classId, index) => {
+        if (!classId) return;
+        const value = String(row[index + 1] || "").replace(/\D/g, "").slice(0, 2);
+        if (value) nextGrid[classId][subject] = value;
+      });
+    });
+    setNames(nextNames);
+    setGrid(nextGrid);
+    setImportOpen(false);
+    setFlash({ at: "catalog", kind: "ok", text: "Sheet loaded. Review and save." });
+  }
+
   return (
-    <View className="mt-4 gap-4">
-      <View className="gap-3 border-b border-ink-100 pb-4">
-        <View className="flex-row flex-wrap items-start justify-between gap-3">
-          <View>
-            <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">School subjects</Text>
-            <Text className="mt-1 text-2xl font-semibold text-ink-900">{names.length} subjects</Text>
+    <View className="mt-3 gap-3">
+      <View className="gap-2 border-b border-ink-100 pb-3">
+        <View className="flex-row flex-wrap items-center justify-between gap-2">
+          <View className="min-w-[12rem] flex-1 flex-row flex-wrap items-center gap-2">
+            <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">Subjects</Text>
+            <Text className="text-lg font-semibold text-ink-900">{names.length}</Text>
+            {names.map((s) => (
+              <Chip key={s} label={s} active onPress={() => removeSubject(s)} className="px-2 py-1" />
+            ))}
           </View>
           <View className="flex-row flex-wrap gap-2">
-            <Button variant="ghost" onPress={downloadSheet}>
-              Download sheet
+            <Button variant="ghost" onPress={() => setImportOpen(true)}>
+              Upload
             </Button>
             <Button
+              className="px-5"
               onPress={async () => {
                 setFlash(null);
                 try {
@@ -360,20 +444,13 @@ export function SchoolSubjectsForm({
                 }
               }}
             >
-              Save subjects
+              Save
             </Button>
           </View>
         </View>
-        <View className="flex-row flex-wrap gap-1.5">
-          {names.map((s) => (
-            <Chip key={s} label={s} active onPress={() => removeSubject(s)} />
-          ))}
-        </View>
         <View className="flex-row flex-wrap items-end gap-2">
           <View className="min-w-[12rem] flex-1">
-            <Field label="Other subject">
-              <Input value={custom} onChangeText={setCustom} placeholder="Sanskrit" />
-            </Field>
+            <Input value={custom} onChangeText={setCustom} placeholder="Other subject, e.g. Sanskrit" />
           </View>
           <Button variant="ghost" onPress={() => addSubject(custom)}>
             Add
@@ -388,13 +465,14 @@ export function SchoolSubjectsForm({
       </View>
 
       {classes.length ? (
-        <View className="gap-3">
-          <View className="flex-row flex-wrap items-center justify-between gap-3">
-            <View>
+        <View className="gap-2">
+          <View className="flex-row flex-wrap items-center justify-between gap-2">
+            <View className="flex-row items-center gap-2">
               <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">Class plan</Text>
-              <Text className="mt-1 text-sm text-ink-700">Blank cells are not taught.</Text>
+              <Text className="text-xs text-ink-700">Blank = not taught</Text>
             </View>
             <Button
+              className="px-5"
               onPress={async () => {
                 setFlash(null);
                 for (const klass of classes) {
@@ -427,7 +505,7 @@ export function SchoolSubjectsForm({
                 }
               }}
             >
-              Save class plan
+              Save plan
             </Button>
           </View>
           <View className="overflow-hidden rounded-md border border-ink-200">
@@ -497,6 +575,27 @@ export function SchoolSubjectsForm({
       ) : (
         <Text className="text-sm text-ink-700">Add classes first.</Text>
       )}
+      <Modal open={importOpen} title="Upload subjects" onClose={() => setImportOpen(false)}>
+        <View className="gap-3">
+          <Text className="text-sm text-ink-700">
+            Use a CSV with Subject in the first column. Class columns hold periods per week.
+          </Text>
+          <View className="rounded-md border border-ink-200 bg-ink-50 px-3 py-2">
+            <Text className="text-xs font-medium text-ink-700">Sample format</Text>
+            <Text className="mt-1 text-xs text-ink-700">Subject, 1-A periods/week, 2-A periods/week</Text>
+            <Text className="text-xs text-ink-700">English, 6, 6</Text>
+            <Text className="text-xs text-ink-700">Science, 4, 4</Text>
+          </View>
+          <View className="flex-row flex-wrap gap-2">
+            <Button variant="ghost" onPress={() => downloadSheet(true)}>
+              Download sample
+            </Button>
+            <Button onPress={uploadSheet}>
+              Upload CSV
+            </Button>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
