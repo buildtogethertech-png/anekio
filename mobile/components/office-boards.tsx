@@ -3365,6 +3365,7 @@ export function FeesBoard() {
   const { token, user } = useSession();
   const router = useRouter();
   const toast = useToast();
+  const didInitialRefresh = useRef(false);
   const [classId, setClassId] = useState("all");
   const [filter, setFilter] = useState<"all" | "overdue">("all");
   const [tab, setTab] = useState<"due" | "templates">("due");
@@ -3419,6 +3420,21 @@ export function FeesBoard() {
     .reduce((sum, line) => sum + Math.max(0, Math.round(Number(line.amount) || 0)), 0);
   const defaultStartPeriod = currentSession?.startsOn?.slice(0, 7) || currentFeePeriod();
   const defaultEndPeriod = currentSession?.endsOn?.slice(0, 7) || defaultStartPeriod;
+
+  useEffect(() => {
+    if (didInitialRefresh.current) return;
+    didInitialRefresh.current = true;
+    void reload();
+  }, [reload]);
+
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof window === "undefined") return;
+    const refreshOnFocus = () => {
+      void reload();
+    };
+    window.addEventListener("focus", refreshOnFocus);
+    return () => window.removeEventListener("focus", refreshOnFocus);
+  }, [reload]);
 
   useEffect(() => {
     if (classId === "all") return;
