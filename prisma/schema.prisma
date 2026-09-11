@@ -313,7 +313,8 @@ model Class {
   whatsappGroupUrl  String             @default("")
   noticeLinks       NoticeClass[]
 
-  @@unique([name, section])
+  @@unique([orgId, name, section])
+  @@index([orgId])
 }
 
 model Student {

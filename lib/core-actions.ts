@@ -763,11 +763,10 @@ export async function createClassCore(
     weights = catalog.map((name) => ({ name, weightage: each }));
   }
   if (weights.length) await assertWeightsFitWeek(weights).catch(() => undefined);
-  const klass = await prisma.class.upsert({
-    where: { name_section: { name, section } },
-    update: { archivedAt: null },
-    create: { name, section },
-  });
+  const existingClass = await prisma.class.findFirst({ where: { name, section } });
+  const klass = existingClass
+    ? await prisma.class.update({ where: { id: existingClass.id }, data: { archivedAt: null } })
+    : await prisma.class.create({ data: { name, section } });
   const teacherId = (input.teacherId || "").trim();
   if (teacherId) {
     const teacher = await prisma.teacher.findUnique({ where: { id: teacherId }, select: { id: true } });

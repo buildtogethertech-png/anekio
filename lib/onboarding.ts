@@ -403,7 +403,7 @@ async function applyClasses(db: OnboardingDb, rows: ImportRow[]) {
     const section = sheetCell(row, "Section").toUpperCase();
     const existing = id
       ? await db.class.findUnique({ where: { id } })
-      : await db.class.findUnique({ where: { name_section: { name, section } } });
+      : await db.class.findFirst({ where: { name, section } });
     if (existing) {
       await db.class.update({ where: { id: existing.id }, data: { name, section, archivedAt: null } });
       updated += 1;
@@ -438,11 +438,10 @@ async function applyStudents(
   let nextAdmission = setup.admission;
   for (const row of rows) {
     const klass = parseClass(sheetCell(row, "Class"))!;
-    const classRow = await db.class.upsert({
-      where: { name_section: { name: klass.name, section: klass.section } },
-      update: { archivedAt: null },
-      create: { name: klass.name, section: klass.section },
-    });
+    const existingClass = await db.class.findFirst({ where: { name: klass.name, section: klass.section } });
+    const classRow = existingClass
+      ? await db.class.update({ where: { id: existingClass.id }, data: { archivedAt: null } })
+      : await db.class.create({ data: { name: klass.name, section: klass.section } });
     const phone = normalizeMobile(sheetCell(row, "Parent mobile", "Parent phone"));
     const suppliedEmail = sheetCell(row, "Parent email").toLowerCase();
     const email = suppliedEmail || placeholderEmail("parent", phone);
@@ -553,7 +552,7 @@ async function applyClassTeachers(db: OnboardingDb, rows: ImportRow[]) {
   let updated = 0;
   for (const row of rows) {
     const klass = parseClass(sheetCell(row, "Class"))!;
-    const classRow = await db.class.findUnique({ where: { name_section: klass } });
+    const classRow = await db.class.findFirst({ where: klass });
     if (!classRow) throw new Error(rowError(row, "class no longer exists."));
     const employeeId = sheetCell(row, "Class teacher employee ID", "Employee ID", "Teacher employee ID");
     const teacherName = sheetCell(row, "Class teacher name", "Teacher name");

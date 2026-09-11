@@ -142,7 +142,7 @@ describe("school onboarding imports", () => {
     expect(preview).toMatchObject({ rowCount: 1, validCount: 1, errors: [] });
 
     await applyOnboardingImport(user, { batchId: preview.batchId });
-    const klass = await prisma.class.findUniqueOrThrow({ where: { name_section: { name: "8", section: "Z" } } });
+    const klass = await prisma.class.findFirstOrThrow({ where: { name: "8", section: "Z" } });
     const student = await prisma.student.findFirstOrThrow({ where: { name: "Zoya Tab Student" } });
     expect(student.classId).toBe(klass.id);
     expect(student.admissionNo).toMatch(/^ANE-\d{5}$/);
@@ -172,5 +172,23 @@ describe("school onboarding imports", () => {
     await applyOnboardingImport(user, { batchId: preview.batchId });
     const teacher = await prisma.teacher.findUniqueOrThrow({ where: { employeeId: existingTeacher.employeeId } });
     expect(teacher.classId).toBe("class-6-a");
+  });
+
+  it("creates the same class-section label in a different tenant", async () => {
+    const { createClassCore } = await import("../../lib/core-actions");
+    const { runWithoutTenant, setTenantOrg } = await import("../../lib/tenant-context");
+
+    await prisma.class.create({ data: { name: "1", section: "A", orgId: "org-existing" } });
+    await runWithoutTenant(async () => {
+      setTenantOrg("org-new");
+      await createClassCore({ ...user, orgId: "org-new" }, { name: "1", section: "A", subjects: [] });
+    });
+
+    const rows = await prisma.class.findMany({
+      where: { name: "1", section: "A" },
+      select: { orgId: true },
+      orderBy: { orgId: "asc" },
+    });
+    expect(rows).toEqual([{ orgId: "org-existing" }, { orgId: "org-new" }]);
   });
 });
