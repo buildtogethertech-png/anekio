@@ -233,6 +233,7 @@ export function OnboardingBoard({
         kind: template.kind,
         sheetId: sheet.id,
       });
+      setMessage("");
       setPreview(result);
       await reload();
     } catch (error) {
@@ -255,6 +256,7 @@ export function OnboardingBoard({
         uploadPath: uploaded.path,
         fileName: uploaded.fileName,
       });
+      setMessage("");
       setPreview(result);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not review the CSV file.");
@@ -439,7 +441,7 @@ export function OnboardingBoard({
         </Card>
       ) : null}
 
-      {message ? (
+      {message && !preview ? (
         <Card className={`p-4 ${message.startsWith("Applied") ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
           <Text className="text-sm text-ink-800">{message}</Text>
         </Card>
