@@ -460,7 +460,7 @@ export function SchoolBoard() {
       const file = await pickFile("image/png,image/jpeg,image/webp");
       if (!file) return;
       setUploadingAsset(field);
-      const uploaded = await uploadFile(token, file, { kind: "school" });
+      const uploaded = await uploadFile(token, file, { kind: "school", asset: field });
       await act(token, "saveSchoolIdentity", { ...form, [field]: uploaded.path });
       toast.show(`${label} saved.`);
       await reload();
