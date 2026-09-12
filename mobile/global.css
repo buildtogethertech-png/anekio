@@ -2,12 +2,27 @@
 @tailwind components;
 @tailwind utilities;
 
+*,
+::before,
+::after {
+  box-sizing: border-box;
+  border-width: 0;
+  border-style: solid;
+  border-color: #E5EAF2;
+}
+
+* {
+  font-family: sans-serif;
+}
+
 /* App chrome stays put; screens scroll inside their own panes. */
 html,
 body,
 #root {
   height: 100%;
+  margin: 0;
   overflow: hidden;
+  line-height: 1.5;
 }
 
 @keyframes anekio-pulse {
