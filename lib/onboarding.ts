@@ -1604,6 +1604,25 @@ async function applyExamMarks(db: OnboardingDb, rows: ImportRow[], user: AccessU
   return { created, updated };
 }
 
+function onboardingApplyErrorMessage(error: unknown) {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    if (error.code === "P2025" || error.code === "P2003") {
+      return "Import could not be applied because one of the linked records changed after review. Download the latest template, review it again, and apply.";
+    }
+    if (error.code === "P2028") {
+      return "Import took too long to apply. Try again, or split the file into smaller date ranges if it still fails.";
+    }
+  }
+  const message = error instanceof Error ? error.message : "";
+  if (/Record not found/i.test(message)) {
+    return "Import could not be applied because one of the linked records changed after review. Download the latest template, review it again, and apply.";
+  }
+  if (/Transaction.*not found|closed transaction|timed out/i.test(message)) {
+    return "Import took too long to apply. Try again, or split the file into smaller date ranges if it still fails.";
+  }
+  return message || "Import failed.";
+}
+
 export async function applyOnboardingImport(user: AccessUser, input: { batchId?: string }) {
   need(user);
   const batchId = String(input.batchId || "");
@@ -1643,12 +1662,12 @@ export async function applyOnboardingImport(user: AccessUser, input: { batchId?:
     });
     return { ...result, batchId: batch.id };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Import failed.";
+    const message = onboardingApplyErrorMessage(error);
     await prisma.schoolOnboardingImport.update({
       where: { id: batch.id },
       data: { status: "FAILED", errorsJson: JSON.stringify([message]) },
     });
-    throw error;
+    throw new Error(message);
   }
 }
 
