@@ -284,6 +284,26 @@ export function isReportCardType(type: string) {
 
 export const REPORT_CARD_TEMPLATE_TYPES = ["REPORT_CARD", "GRADE_SHEET", "PROGRESS_REPORT", "CONSOLIDATED_REPORT"] as const;
 
+export const DOCUMENT_ZONE_BY_TYPE: Record<string, string> = {
+  STUDENT_ID: "People · student ID cards",
+  EMPLOYEE_ID: "People · staff ID cards",
+  ADMIT_CARD: "Exams · admit cards",
+  FEE_INVOICE: "Fees invoices and parent pay links",
+  PAYMENT_RECEIPT: "Fees payment receipts",
+  REPORT_CARD: "Examination downloads and Exams",
+  GRADE_SHEET: "Examination downloads and Exams",
+  PROGRESS_REPORT: "Examination downloads and Exams",
+  CONSOLIDATED_REPORT: "Examination downloads and Exams",
+  ADMISSION_CONFIRMATION: "Admissions confirmations",
+  EXAM_DATE_SHEET: "Exams · date sheets",
+  SALARY_SLIP: "Staff payroll salary slips",
+};
+
+export function attachedZoneForDocumentType(type: string) {
+  if (isReportCardType(type)) return DOCUMENT_ZONE_BY_TYPE.REPORT_CARD;
+  return DOCUMENT_ZONE_BY_TYPE[type] || "this school’s documents";
+}
+
 export function pickAttachedReportCardType(
   publishedTypes: string[],
   kind: "sitting" | "paper" | "consolidated" = "sitting"
@@ -1884,10 +1904,7 @@ export async function renderActiveFeeInvoiceTemplateHtml(token: string) {
     },
   });
   if (!invoice) return null;
-  const template = await prisma.documentTemplate.findFirst({
-    where: { schoolId: DEFAULT_DOCUMENT_SCHOOL_ID, type: "FEE_INVOICE", status: "ACTIVE" },
-    include: { versions: { orderBy: { version: "desc" }, take: 1 } },
-  });
+  const template = await findActiveTemplateByTypes(["FEE_INVOICE"]);
   if (!template?.versions[0]) return null;
   const config = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
   const school = schoolFromConfig(config);
@@ -2001,10 +2018,7 @@ export async function renderActivePaymentReceiptTemplateHtml(token: string) {
   if (!invoice) return null;
   const paidAmount = invoice.payments.reduce((sum, payment) => sum + payment.amount, 0);
   if (paidAmount <= 0) return null;
-  const template = await prisma.documentTemplate.findFirst({
-    where: { schoolId: DEFAULT_DOCUMENT_SCHOOL_ID, type: "PAYMENT_RECEIPT", status: "ACTIVE" },
-    include: { versions: { orderBy: { version: "desc" }, take: 1 } },
-  });
+  const template = await findActiveTemplateByTypes(["PAYMENT_RECEIPT", "CONSOLIDATED_RECEIPT"]);
   if (!template?.versions[0]) return null;
   const config = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
   const school = schoolFromConfig(config);

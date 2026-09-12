@@ -6,6 +6,7 @@ import {
   libraryDocumentCategories,
   libraryDocumentTypes,
   pickAttachedReportCardType,
+  attachedZoneForDocumentType,
 } from "../../lib/document-studio";
 
 describe("document studio library", () => {
@@ -153,6 +154,15 @@ describe("document studio library", () => {
     expect(layout.elements.find((item) => item.id === "title-bg")?.background).toBe("#1B365D");
     expect(layout.elements.find((item) => item.id === "acad-head")?.background).toBe("#1B365D");
     expect(layout.elements.find((item) => item.id === "sum-grade")?.background).toBe("#1B365D");
+  });
+
+  it("attaches each published library template to its live zone", () => {
+    expect(attachedZoneForDocumentType("FEE_INVOICE")).toBe("Fees invoices and parent pay links");
+    expect(attachedZoneForDocumentType("PAYMENT_RECEIPT")).toBe("Fees payment receipts");
+    expect(attachedZoneForDocumentType("STUDENT_ID")).toBe("People · student ID cards");
+    expect(attachedZoneForDocumentType("SALARY_SLIP")).toBe("Staff payroll salary slips");
+    expect(attachedZoneForDocumentType("ADMIT_CARD")).toBe("Exams · admit cards");
+    expect(attachedZoneForDocumentType("REPORT_CARD")).toBe("Examination downloads and Exams");
   });
 
   it("attaches the published report-card family template to sitting and paper downloads", () => {

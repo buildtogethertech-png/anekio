@@ -573,8 +573,9 @@ export async function issueFeeReceiptCore(user: AccessUser, input: { invoiceId?:
     }
   }
   const published = await prisma.documentTemplate.findFirst({
-    where: { type: "PAYMENT_RECEIPT", status: "ACTIVE" },
-    select: { id: true },
+    where: { type: { in: ["PAYMENT_RECEIPT", "CONSOLIDATED_RECEIPT"] }, status: "ACTIVE" },
+    orderBy: { updatedAt: "desc" },
+    select: { id: true, type: true },
   });
   const config = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
   const payload = receiptIssuePayload(invoice);

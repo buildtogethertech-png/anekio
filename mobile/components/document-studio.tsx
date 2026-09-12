@@ -11,6 +11,32 @@ import { useSession } from "../lib/session";
 
 type Studio = NonNullable<RecordPayload["documentStudio"]>;
 
+function attachedZoneForType(type: string) {
+  if (type === "FEE_INVOICE" || type === "FEE_CHALLAN" || type === "FEE_STATEMENT" || type === "DUES_NOTICE" || type === "LATE_FEE_NOTICE") return "Fees invoices and parent pay links";
+  if (type === "PAYMENT_RECEIPT" || type === "CONSOLIDATED_RECEIPT" || type === "FEE_CLEARANCE") return "Fees payment receipts";
+  if (type === "STUDENT_ID") return "People · student ID cards";
+  if (type === "EMPLOYEE_ID") return "People · staff ID cards";
+  if (type === "SALARY_SLIP") return "Staff payroll salary slips";
+  if (type === "ADMIT_CARD") return "Exams · admit cards";
+  if (type === "EXAM_DATE_SHEET") return "Exams · date sheets";
+  if (type === "ADMISSION_CONFIRMATION") return "Admissions confirmations";
+  if (type === "REPORT_CARD" || type === "GRADE_SHEET" || type === "CONSOLIDATED_REPORT" || type === "PROGRESS_REPORT") return "Examination downloads and Exams";
+  return "this document’s zone";
+}
+
+function attachedLibraryTemplates(studio: Studio): DocumentTemplateSummary[] {
+  const libraryTypes = new Set(studio.types.map((row) => row.id));
+  return studio.defaults.filter((row) => libraryTypes.has(row.type)).map((builtin) => {
+    const saved = (studio.templates || [])
+      .filter((row) => row.type === builtin.type && row.status !== "ARCHIVED")
+      .sort((a, b) => {
+        const rank = (status: string) => (status === "ACTIVE" ? 3 : status === "DRAFT" ? 2 : status === "PUBLISHED" ? 1 : 0);
+        return rank(b.status) - rank(a.status) || String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""));
+      })[0];
+    return saved || builtin;
+  });
+}
+
 type ElementAction = {
   type: DocumentElementType;
   label: string;
@@ -199,13 +225,11 @@ function TemplateGalleryCard({
           </View>
         </View>
         <Text className="mt-3 text-xs leading-5 text-ink-700" numberOfLines={3}>{hint}</Text>
-        {template.type === "REPORT_CARD" || template.type === "GRADE_SHEET" || template.type === "CONSOLIDATED_REPORT" || template.type === "PROGRESS_REPORT" ? (
-          template.status === "ACTIVE" ? (
-            <Text className="mt-2 text-[11px] font-semibold text-violet-800">Attached to report card downloads and Exams</Text>
-          ) : (
-            <Text className="mt-2 text-[11px] font-medium text-ink-600">Publish to attach this design to report cards</Text>
-          )
-        ) : null}
+        {template.status === "ACTIVE" ? (
+          <Text className="mt-2 text-[11px] font-semibold text-violet-800">Attached to {attachedZoneForType(template.type)}</Text>
+        ) : (
+          <Text className="mt-2 text-[11px] font-medium text-ink-600">Publish to attach this design to {attachedZoneForType(template.type)}</Text>
+        )}
         <Text className="mt-3 text-[11px] font-medium text-ink-600">{template.pageSize}  ·  {template.orientation === "LANDSCAPE" ? "Landscape" : "Portrait"}  ·  {template.layout.elements.length} elements</Text>
         <View className="mt-4 flex-row flex-wrap gap-2">
           {desktop && design ? <Button variant="ghost" onPress={onEdit}>{template.builtIn ? "Design document" : "Edit"}</Button> : null}
@@ -680,8 +704,7 @@ function TemplateEditor({ template, studio, data, onClose, onSaved }: { template
       const result = await act<{ ok: true; template: { id: string } }>(token, "saveDocumentTemplate", { id: draft.builtIn ? "" : draft.id, type: draft.type, name: draft.name, description: draft.description, pageSize: draft.pageSize, orientation: draft.orientation, layout: draft.layout });
       setDraft((current) => ({ ...current, id: result.template.id, builtIn: false }));
       if (publish) await act(token, "publishDocumentTemplate", { id: result.template.id });
-      const reportType = draft.type === "REPORT_CARD" || draft.type === "GRADE_SHEET" || draft.type === "CONSOLIDATED_REPORT" || draft.type === "PROGRESS_REPORT";
-      setMessage(publish ? (reportType ? "Published. This design is now attached to report card downloads and Exams." : "Published and active.") : "Draft saved.");
+      setMessage(publish ? `Published. This design is now attached to ${attachedZoneForType(draft.type)}.` : "Draft saved.");
       await onSaved();
       if (publish) onClose();
     } catch (error) {
@@ -941,8 +964,7 @@ export function DocumentStudio({ studio, data }: { studio: Studio; data: RecordP
   const publish = can(user, "documents.publish") || can(user, "school.edit");
   const issueAllowed = can(user, "documents.issue") || can(user, "school.edit");
   const revokeAllowed = can(user, "documents.revoke") || can(user, "school.edit");
-  const libraryTypes = new Set(studio.types.map((row) => row.id));
-  const allTemplates = studio.defaults.filter((row) => libraryTypes.has(row.type));
+  const allTemplates = attachedLibraryTemplates(studio);
   const filtered = allTemplates.filter((row) => (category === "ALL" || row.category === category) && (!query.trim() || `${row.name} ${row.description}`.toLowerCase().includes(query.trim().toLowerCase())));
 
   useEffect(() => {
@@ -967,7 +989,7 @@ export function DocumentStudio({ studio, data }: { studio: Studio; data: RecordP
         <View className="max-w-2xl">
           <Text className="text-[11px] font-bold uppercase tracking-[0.16em] text-indigo-600">Document Studio</Text>
           <Text className="mt-1 text-2xl font-bold tracking-tight text-ink-900">Design documents</Text>
-          <Text className="mt-1.5 text-sm leading-6 text-ink-700">Ten print layouts: student and staff IDs, admit card, invoice, receipt, report cards, admission confirmation, exam date sheet, and salary slip. Fee amounts stay in Fees.</Text>
+          <Text className="mt-1.5 text-sm leading-6 text-ink-700">Publish a layout to attach it to its live zone: invoices and receipts in Fees, report cards in Exams, ID cards in People, and salary slips in Staff.</Text>
         </View>
         <View className="w-72"><Segmented value={view} options={[{ id: "templates", label: "Library" }, { id: "issued", label: `Issued · ${studio.issued.length}` }]} onChange={setView} /></View>
       </View>

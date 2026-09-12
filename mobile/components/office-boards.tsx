@@ -1493,7 +1493,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
             </Text>
           </View>
           <View className="flex-row flex-wrap gap-2">
-            {data ? <QuickDocumentButton data={data} subjectType="EMPLOYEE" subjectId={selectedTeacher.id} subjectLabel={selectedTeacher.name} allowedTypes={["EMPLOYEE_ID", "OFFER_LETTER", "APPOINTMENT_LETTER", "CONFIRMATION_LETTER", "EXPERIENCE_CERTIFICATE", "RELIEVING_LETTER", "SERVICE_CERTIFICATE", "LEAVE_APPROVAL", "DISCIPLINARY_LETTER", "CUSTOM_LETTER"]} /> : null}
+            {data ? <QuickDocumentButton data={data} subjectType="EMPLOYEE" subjectId={selectedTeacher.id} subjectLabel={selectedTeacher.name} allowedTypes={["EMPLOYEE_ID", "SALARY_SLIP", "OFFER_LETTER", "APPOINTMENT_LETTER", "CONFIRMATION_LETTER", "EXPERIENCE_CERTIFICATE", "RELIEVING_LETTER", "SERVICE_CERTIFICATE", "LEAVE_APPROVAL", "DISCIPLINARY_LETTER", "CUSTOM_LETTER"]} /> : null}
             {can(user, "people.edit") || can(user, "staff.edit") ? (
               <Pencil
                 onPress={() => {
