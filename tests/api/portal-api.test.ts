@@ -649,6 +649,42 @@ describe("Express portal API", () => {
     }
   });
 
+  it("uses one configured gateway for migrated public pay links without org ids", async () => {
+    await prisma.saasOrg.create({
+      data: {
+        id: "org-migrated-public-pay",
+        schoolName: "Migrated Gateway School",
+        ownerName: "Gateway Owner",
+        ownerEmail: "migrated.gateway@school.test",
+        ownerPhone: "9876540098",
+      },
+    });
+    await prisma.schoolConfig.create({
+      data: {
+        id: "school:org-migrated-public-pay",
+        orgId: "org-migrated-public-pay",
+        name: "Migrated Gateway School",
+        payGateway: "RAZORPAY",
+        razorpayKeyId: "rzp_test_migrated",
+        razorpayKeySecret: "fixture-secret",
+      },
+    });
+
+    try {
+      const response = await request(app).get("/pay/s/pay-anaya-fixture?m=2026-04&embed=1");
+
+      expect(response.status).toBe(200);
+      expect(response.text).toContain("Migrated Gateway School");
+      expect(response.text).toContain("Pay ₹2,50,000 securely");
+      expect(response.text).toContain("Powered by Razorpay");
+      expect(response.text).not.toContain("Pay at the school desk");
+      expect(response.text).not.toContain("Payment opens through None");
+    } finally {
+      await prisma.schoolConfig.delete({ where: { id: "school:org-migrated-public-pay" } });
+      await prisma.saasOrg.delete({ where: { id: "org-migrated-public-pay" } });
+    }
+  });
+
   it("keeps teacher leave waiting until office approval", async () => {
     const teacherSession = await login(fixture.users.teacher.email);
     const teacherAuth = { Authorization: `Bearer ${teacherSession.body.token}` };

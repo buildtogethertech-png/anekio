@@ -1,11 +1,36 @@
 import { prisma } from "./prisma";
+import { gatewayReady, paySecretsFromRow } from "./pay-config";
+
+type SchoolConfigRow = NonNullable<Awaited<ReturnType<typeof prisma.schoolConfig.findUnique>>>;
+
+function configGatewayReady(row: SchoolConfigRow) {
+  return gatewayReady(paySecretsFromRow({
+    payGateway: row.payGateway,
+    testMode: row.payTestMode,
+    razorpayKeyId: row.razorpayKeyId,
+    razorpayKeySecret: row.razorpayKeySecret,
+    cashfreeAppId: row.cashfreeAppId,
+    cashfreeSecretKey: row.cashfreeSecretKey,
+    billdeskMerchantId: row.billdeskMerchantId,
+    billdeskClientId: row.billdeskClientId,
+    billdeskSecret: row.billdeskSecret,
+  } as Parameters<typeof paySecretsFromRow>[0]));
+}
+
+async function singleReadySchoolConfig() {
+  const rows = await prisma.schoolConfig.findMany({ where: { payGateway: { not: "NONE" } } });
+  const ready = rows.filter(configGatewayReady);
+  return ready.length === 1 ? ready[0] : null;
+}
 
 async function schoolConfigForOrg(orgId?: string | null) {
   if (orgId) {
     const scoped = await prisma.schoolConfig.findFirst({ where: { orgId } });
     if (scoped) return scoped;
   }
-  return prisma.schoolConfig.findUnique({ where: { id: "school" } });
+  const legacy = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
+  if (legacy && configGatewayReady(legacy)) return legacy;
+  return await singleReadySchoolConfig() || legacy;
 }
 
 export async function getSharedInvoice(token: string) {

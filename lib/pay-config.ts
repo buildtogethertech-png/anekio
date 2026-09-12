@@ -119,9 +119,41 @@ export function gatewayLabel(gateway: PayGateway) {
   return PAY_GATEWAYS.find((g) => g.id === gateway)?.label || "Online";
 }
 
+async function singleReadyGatewayConfig() {
+  const rows = await prisma.schoolConfig.findMany({
+    where: { payGateway: { not: "NONE" } },
+  });
+  const ready = rows.filter((row) =>
+    gatewayReady(paySecretsFromRow({
+      gateway: asGateway(row.payGateway),
+      testMode: row.payTestMode,
+      razorpayKeyId: row.razorpayKeyId,
+      razorpayKeySecret: row.razorpayKeySecret,
+      cashfreeAppId: row.cashfreeAppId,
+      cashfreeSecretKey: row.cashfreeSecretKey,
+      billdeskMerchantId: row.billdeskMerchantId,
+      billdeskClientId: row.billdeskClientId,
+      billdeskSecret: row.billdeskSecret,
+    }))
+  );
+  return ready.length === 1 ? ready[0] : null;
+}
+
 export async function getSchoolPaySecrets(orgId?: string | null): Promise<SchoolPaySecrets> {
   const scoped = orgId ? await prisma.schoolConfig.findFirst({ where: { orgId } }) : null;
-  const row = scoped || await prisma.schoolConfig.findUnique({ where: { id: "school" } });
+  const legacy = scoped ? null : await prisma.schoolConfig.findUnique({ where: { id: "school" } });
+  const fallback = !scoped && (!legacy || !gatewayReady(paySecretsFromRow({
+    gateway: asGateway(legacy.payGateway),
+    testMode: legacy.payTestMode,
+    razorpayKeyId: legacy.razorpayKeyId,
+    razorpayKeySecret: legacy.razorpayKeySecret,
+    cashfreeAppId: legacy.cashfreeAppId,
+    cashfreeSecretKey: legacy.cashfreeSecretKey,
+    billdeskMerchantId: legacy.billdeskMerchantId,
+    billdeskClientId: legacy.billdeskClientId,
+    billdeskSecret: legacy.billdeskSecret,
+  }))) ? await singleReadyGatewayConfig() : null;
+  const row = scoped || fallback || legacy;
   const secrets = row
     ? paySecretsFromRow({
         gateway: asGateway(row.payGateway),
