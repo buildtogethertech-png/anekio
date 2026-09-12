@@ -205,6 +205,7 @@ type StaffAttendancePerson = { kind: "teacher" | "staff"; id: string; employeeId
 type ExamMarkColumn = { key: string; examId: string; classId: string; classLabel: string; maxMarks: number; label: string };
 type OpeningBalanceStudent = Prisma.StudentGetPayload<{ include: { class: true } }>;
 type OpeningBalanceInvoice = Prisma.FeeInvoiceGetPayload<{ include: { payments: true } }>;
+const OPENING_BALANCE_HEADERS = ["Admission number", "Student name", "Class", "Backlog invoice amount", "Invoice date", "Due date", "Invoices already generated till", "Example only"];
 
 function csvBuffer(rows: CsvCell[][]) {
   const encoded = rows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(","));
@@ -337,16 +338,16 @@ function openingBalanceRows(
   students: OpeningBalanceStudent[],
   openingByStudent: Map<string, OpeningBalanceInvoice>,
   classLabels: string[],
-  options: { sampleData?: boolean } = {}
+  options: { sampleData?: boolean; includeExampleOnEmpty?: boolean } = {}
 ): CsvCell[][] {
   const defaultThrough = monthBefore();
   const generatedOn = dateText(new Date());
   const defaultDueDate = tenthOfMonth();
   const rows: CsvCell[][] = [
-    ["Admission number", "Student name", "Class", "Backlog invoice amount", "Invoice date", "Due date", "Invoices already generated till", "Example only"],
+    OPENING_BALANCE_HEADERS,
   ];
 
-  if (!students.length) {
+  if (!students.length && options.includeExampleOnEmpty !== false) {
     rows.push(["", "Aarav Sharma (example)", classLabels[0] || "1-A", 2500, generatedOn, defaultDueDate, defaultThrough, "YES"]);
     return rows;
   }
@@ -370,7 +371,30 @@ function openingBalanceRows(
 async function openingBalanceRowsForTemplate(classLabels: string[], options: { sampleData?: boolean } = {}) {
   const students = await prisma.student.findMany({ include: { class: true }, orderBy: { name: "asc" } });
   const opening = await prisma.feeInvoice.findMany({ where: { period: "OPENING" }, include: { payments: true } });
-  return openingBalanceRows(students, new Map(opening.map((row) => [row.studentId, row])), classLabels, options);
+  return openingBalanceRows(students, new Map(opening.map((row) => [row.studentId, row])), classLabels, { includeExampleOnEmpty: true, ...options });
+}
+
+async function openingBalanceTemplateWorkbook(classLabels: string[], options: { sampleData?: boolean } = {}) {
+  const [students, opening] = await Promise.all([
+    prisma.student.findMany({ include: { class: true }, orderBy: [{ class: { name: "asc" } }, { class: { section: "asc" } }, { name: "asc" }] }),
+    prisma.feeInvoice.findMany({ where: { period: "OPENING" }, include: { payments: true } }),
+  ]);
+  const openingByStudent = new Map(opening.map((row) => [row.studentId, row]));
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "Anekio";
+  workbook.subject = "First time fee import";
+  const labels = classLabels.length ? classLabels : ["1-A"];
+
+  labels.forEach((label) => {
+    const sheet = workbook.addWorksheet(label);
+    const classStudents = students.filter((student) => `${student.class.name}-${student.class.section}` === label);
+    const rows = openingBalanceRows(classStudents, openingByStudent, labels, { ...options, includeExampleOnEmpty: students.length === 0 });
+    rows.forEach((row) => sheet.addRow(row));
+    applyHeaderStyle(sheet);
+    sheet.columns = OPENING_BALANCE_HEADERS.map((header) => ({ header, key: normalizeHeader(header), width: Math.max(16, header.length + 2) }));
+  });
+
+  return workbook;
 }
 
 function blankRowsFor(kind: ImportKind, labels: string[]): CsvCell[][] {
@@ -383,7 +407,7 @@ function blankRowsFor(kind: ImportKind, labels: string[]): CsvCell[][] {
   }
   if (kind === "opening_balances") {
     return [
-      ["Admission number", "Student name", "Class", "Backlog invoice amount", "Invoice date", "Due date", "Invoices already generated till", "Example only"],
+      OPENING_BALANCE_HEADERS,
       ["", "Aarav Sharma (example)", firstClass, 2500, dateText(new Date()), tenthOfMonth(), monthBefore(), "YES"],
     ];
   }
@@ -782,12 +806,18 @@ export async function onboardingSpreadsheetTemplate(user: AccessUser, rawKind: s
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Anekio";
   const labels = classes.length ? [...new Set(classes.map((row) => `${row.name}-${row.section}`))] : ["1-A", "2-A", "3-A", "4-A", "5-A"];
+  if (kind === "opening_balances") {
+    const openingWorkbook = await openingBalanceTemplateWorkbook(labels, options);
+    return {
+      fileName: xlsxFileName(kind),
+      contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      buffer: Buffer.from(await openingWorkbook.xlsx.writeBuffer()),
+    };
+  }
   if (kind !== "students") {
     const blankRows = blankRowsFor(kind, labels);
     const rows = options.sampleData && kind === "teachers"
       ? blankRows
-      : options.sampleData && kind === "opening_balances"
-        ? await openingBalanceRowsForTemplate(labels, { sampleData: true })
       : options.sampleData || !blankRows.length
         ? await csvRowsFor(kind)
         : blankRows;
@@ -895,13 +925,15 @@ export async function rowsFromWorkbookBuffer(kind: ImportKind, buf: Buffer): Pro
   const workbook = new ExcelJS.Workbook();
   const arrayBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
   await workbook.xlsx.load(arrayBuffer);
-  if (kind === "students" || kind === "attendance" || kind === "exam_marks") {
+  if (kind === "students" || kind === "attendance" || kind === "exam_marks" || kind === "opening_balances") {
     const studentsSheet = kind === "students" ? workbook.getWorksheet(TEMPLATE_DETAILS.students.sheet) : undefined;
-    const sheets = studentsSheet
-      ? [studentsSheet]
-      : workbook.worksheets.filter((sheet) => Boolean(parseClass(sheet.name)));
-    if (!sheets.length) throw new Error(kind === "attendance" || kind === "exam_marks" ? "This workbook needs class tabs named like 1-A, 1-B, 2-C." : "This workbook needs a Students sheet, or tabs named like 1-A, 1-B, 2-C.");
-    return realRows(sheets.flatMap((sheet) => rowsFromWorksheet(sheet, studentsSheet ? "" : sheet.name)));
+    const openingSheet = kind === "opening_balances" ? workbook.getWorksheet(TEMPLATE_DETAILS.opening_balances.sheet) : undefined;
+    const namedSheet = studentsSheet || openingSheet;
+    const sheets = namedSheet ? [namedSheet] : workbook.worksheets.filter((sheet) => Boolean(parseClass(sheet.name)));
+    if (!sheets.length) {
+      throw new Error(kind === "students" ? "This workbook needs a Students sheet, or tabs named like 1-A, 1-B, 2-C." : "This workbook needs class tabs named like 1-A, 1-B, 2-C.");
+    }
+    return realRows(sheets.flatMap((sheet) => rowsFromWorksheet(sheet, namedSheet ? "" : sheet.name)));
   }
   const sheet = workbook.getWorksheet(TEMPLATE_DETAILS[kind].sheet);
   if (!sheet) throw new Error(`This workbook has no “${TEMPLATE_DETAILS[kind].sheet}” sheet. Download the current Anekio template.`);
