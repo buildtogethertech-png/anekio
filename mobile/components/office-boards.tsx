@@ -3563,15 +3563,24 @@ export function FeesBoard() {
   }
 
   const dueStudentPanel = selectedDueStudent ? (
-    <View className="min-h-0 flex-1 bg-slate-50 p-4">
-      <View className="flex-row flex-wrap items-start justify-between gap-3 border-b border-ink-100 pb-3">
-        <View className="min-w-0 flex-1">
-          <Text className="text-lg font-semibold text-ink-900">{selectedDueStudent.name}</Text>
-          <Text className="mt-0.5 text-xs text-ink-700">
-            {selectedDueStudent.classLabel || "No class"} · {selectedDueStudent.admissionNo}
-          </Text>
+    <View className="min-h-0 flex-1 bg-[#F5F8FC] p-4">
+      <View className="overflow-hidden rounded-md border border-blue-100 bg-white">
+        <View className="bg-blue-600 px-4 py-3">
+          <View className="flex-row flex-wrap items-center justify-between gap-2">
+            <View className="min-w-0 flex-1">
+              <Text className="text-[11px] font-semibold uppercase tracking-wide text-blue-100">Collection profile</Text>
+              <Text className="mt-1 text-xl font-semibold text-white">{selectedDueStudent.name}</Text>
+              <Text className="mt-0.5 text-xs font-medium text-blue-100">
+                {selectedDueStudent.classLabel || "No class"} · {selectedDueStudent.admissionNo}
+              </Text>
+            </View>
+            <View className="rounded-md bg-white/15 px-3 py-2">
+              <Text className="text-[11px] font-semibold uppercase tracking-wide text-blue-100">Open balance</Text>
+              <Text className="mt-0.5 text-lg font-semibold text-white">{selectedDueStudent.dueNow}</Text>
+            </View>
+          </View>
         </View>
-        <View className="flex-row flex-wrap justify-end gap-2">
+        <View className="flex-row flex-wrap justify-end gap-2 border-b border-ink-100 px-4 py-3">
           {can(user, "fees.collect") ? (
             <Button className="px-3 py-1.5" onPress={() => setPayDueStudentId(selectedDueStudent.id)}>Collect</Button>
           ) : null}
@@ -3583,57 +3592,55 @@ export function FeesBoard() {
             View student
           </Button>
         </View>
-      </View>
-      <View className="mt-3 gap-2">
-        <View className="flex-row gap-2">
-          <View className="min-w-0 flex-1 rounded-md bg-white px-3 py-2">
-            <Text className="text-[11px] font-medium text-ink-500">Outstanding</Text>
-            <Text className="mt-1 text-base font-semibold text-amber-900">{selectedDueStudent.dueNow}</Text>
-          </View>
-          <View className="min-w-0 flex-1 rounded-md bg-white px-3 py-2">
-            <Text className="text-[11px] font-medium text-ink-500">Paid</Text>
-            <Text className="mt-1 text-base font-semibold text-green-800">{selectedDueStudent.paid || "₹0"}</Text>
-          </View>
-        </View>
-        <View className="flex-row gap-2">
-          <View className="min-w-0 flex-1 rounded-md bg-white px-3 py-2">
-            <Text className="text-[11px] font-medium text-ink-500">Invoices</Text>
-            <Text className="mt-1 text-sm font-semibold text-ink-900">{selectedDueStudent.invoices?.length || 0}</Text>
-          </View>
-          <View className="min-w-0 flex-1 rounded-md bg-white px-3 py-2">
-            <Text className="text-[11px] font-medium text-ink-500">Overdue</Text>
-            <Text className="mt-1 text-sm font-semibold text-ink-900">{selectedDueStudent.overdueCount || 0}</Text>
-          </View>
+        <View className="flex-row flex-wrap gap-2 p-3">
+          {[
+            ["Outstanding", selectedDueStudent.dueNow, "text-amber-900"],
+            ["Paid", selectedDueStudent.paid || "₹0", "text-green-800"],
+            ["Invoices", String(selectedDueStudent.invoices?.length || 0), "text-ink-900"],
+            ["Overdue", String(selectedDueStudent.overdueCount || 0), "text-red-700"],
+          ].map(([label, value, tone]) => (
+            <View key={label} className="min-w-[46%] flex-1 rounded-md border border-ink-100 bg-ink-50/70 px-3 py-2">
+              <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">{label}</Text>
+              <Text className={`mt-1 text-base font-semibold ${tone}`}>{value}</Text>
+            </View>
+          ))}
         </View>
       </View>
-      <ScrollView nestedScrollEnabled style={{ maxHeight: compactFees ? 420 : height - 260 }} contentContainerClassName="mt-4 gap-2 pb-1">
+      <ScrollView nestedScrollEnabled style={{ maxHeight: compactFees ? 420 : height - 330 }} contentContainerClassName="mt-4 gap-3 pb-1">
         {studentFeeTimeline(selectedDueStudent).map((inv) => {
           const paidInvoice = inv.status === "paid";
           const payments = inv.payments ?? [];
           return (
-            <View key={inv.id} className="rounded-md border border-ink-100 bg-white p-3">
+            <View key={inv.id} className={`rounded-md border bg-white p-3 ${paidInvoice ? "border-green-100" : inv.status === "overdue" ? "border-amber-200" : "border-ink-100"}`}>
               <View className="flex-row items-start justify-between gap-3">
                 <View className="min-w-0 flex-1">
-                  <Text className="text-sm font-semibold text-ink-900">{inv.title}</Text>
-                  <Text className="mt-0.5 text-xs text-ink-600">Due {inv.due}</Text>
-                  {inv.lateLabel && !paidInvoice ? <Text className="mt-0.5 text-xs text-amber-800">{inv.lateLabel}</Text> : null}
+                  <View className="flex-row flex-wrap items-center gap-2">
+                    <View className={`h-8 w-8 items-center justify-center rounded-md ${paidInvoice ? "bg-green-50" : inv.status === "overdue" ? "bg-amber-50" : "bg-blue-50"}`}>
+                      <Ionicons name={paidInvoice ? "checkmark-circle-outline" : inv.status === "overdue" ? "time-outline" : "document-text-outline"} size={17} color={paidInvoice ? "#15803d" : inv.status === "overdue" ? "#b45309" : "#1d4ed8"} />
+                    </View>
+                    <View className="min-w-0 flex-1">
+                      <Text className="text-sm font-semibold text-ink-900">{inv.title}</Text>
+                      <Text className="mt-0.5 text-xs text-ink-600">Due {inv.due}</Text>
+                    </View>
+                  </View>
+                  {inv.lateLabel && !paidInvoice ? <Text className="mt-2 text-xs font-medium text-amber-800">{inv.lateLabel}</Text> : null}
                 </View>
                 <View className="items-end gap-1">
                   <Badge tone={paidInvoice ? "leaf" : inv.status === "overdue" ? "warn" : "clay"}>{paidInvoice ? "paid" : inv.status}</Badge>
                   <Text className="text-xs font-semibold text-ink-900">{inv.remaining || inv.amount}</Text>
                 </View>
               </View>
-              <View className="mt-3 flex-row flex-wrap justify-between gap-2 rounded-md bg-ink-50 px-3 py-2">
-                <Text className="text-[11px] text-ink-600">Bill {inv.amount}</Text>
-                <Text className="text-[11px] text-green-800">Paid {inv.paid}</Text>
-                <Text className="text-[11px] text-amber-900">Balance {inv.remaining || "₹0"}</Text>
+              <View className="mt-3 flex-row flex-wrap justify-between gap-2 rounded-md border border-ink-100 bg-ink-50 px-3 py-2">
+                <Text className="text-[11px] font-medium text-ink-700">Bill {inv.amount}</Text>
+                <Text className="text-[11px] font-medium text-green-800">Paid {inv.paid}</Text>
+                <Text className="text-[11px] font-semibold text-amber-900">Balance {inv.remaining || "₹0"}</Text>
               </View>
               <View className="mt-3 flex-row flex-wrap gap-2">
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={`Open invoice for ${inv.title}`}
                   onPress={() => void openDueFeeDocument(inv, false)}
-                  className="flex-row items-center gap-1 rounded-md border border-ink-200 bg-white px-2.5 py-1.5"
+                  className="flex-row items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5"
                 >
                   <Ionicons name="document-text-outline" size={14} color="#1d4ed8" />
                   <Text className="text-xs font-semibold text-blue-700">Invoice</Text>
@@ -3643,7 +3650,7 @@ export function FeesBoard() {
                     accessibilityRole="button"
                     accessibilityLabel={`Open receipt for ${inv.title}`}
                     onPress={() => void openDueFeeDocument(inv, true)}
-                    className="flex-row items-center gap-1 rounded-md border border-ink-200 bg-white px-2.5 py-1.5"
+                    className="flex-row items-center gap-1 rounded-md border border-green-200 bg-green-50 px-2.5 py-1.5"
                   >
                     <Ionicons name="receipt-outline" size={14} color="#15803d" />
                     <Text className="text-xs font-semibold text-green-700">Receipt</Text>
