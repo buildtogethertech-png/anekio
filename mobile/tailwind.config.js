@@ -31,5 +31,17 @@ module.exports = {
       },
     },
   },
+  corePlugins: {
+    // Tailwind preflight emits a Firefox `box-shadow: none` reset that still
+    // passes through the native CSS parser.
+    preflight: false,
+    // react-native-css-interop 0.1.22 crashes while parsing Tailwind's
+    // `aspect-ratio: auto` utility for native bundles. The app does not use
+    // aspect-* classes, so keep the native CSS output free of that rule.
+    aspectRatio: false,
+    // css-interop 0.1.22 falls through after parsing box-shadow and crashes
+    // native bundles. Existing native shadow styles are declared inline.
+    boxShadow: false,
+  },
   plugins: [],
 };
