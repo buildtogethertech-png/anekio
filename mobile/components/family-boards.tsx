@@ -3109,16 +3109,13 @@ export function FamilyFees() {
   const toast = useToast();
   const child = data?.child;
   const children = data?.children ?? [];
-  const familyChildren = children.filter((kid) => (kid.fees ?? []).length);
-  const canCombineFamily = data?.kind === "PARENT" && familyChildren.length > 1;
-  const [combineFamily, setCombineFamily] = useState(canCombineFamily);
-
-  useEffect(() => {
-    setCombineFamily(canCombineFamily);
-  }, [canCombineFamily]);
+  const familyChildren = useMemo(() => children.filter((kid) => (kid.fees ?? []).length), [children]);
+  const familyMode = data?.kind === "PARENT" && familyChildren.length > 1;
+  const [tab, setTab] = useState<"overdue" | "paid">("overdue");
+  const [picked, setPicked] = useState<string[]>([]);
 
   const allFees = useMemo<StatementFee[]>(() => {
-    if (combineFamily && canCombineFamily) {
+    if (familyMode) {
       return familyChildren.flatMap((kid) =>
         (kid.fees ?? []).map((fee) => ({
           ...fee,
@@ -3135,23 +3132,29 @@ export function FamilyFees() {
       childName: child.name,
       classLabel: child.classLabel,
     }));
-  }, [canCombineFamily, child?.classLabel, child?.fees, child?.id, child?.name, combineFamily, familyChildren]);
+  }, [child?.classLabel, child?.fees, child?.id, child?.name, familyChildren, familyMode]);
   const openInvoices = useMemo(() => allFees.filter((inv) => dueOf(inv) > 0), [allFees]);
+  const paidInvoices = useMemo(() => allFees.filter((inv) => dueOf(inv) <= 0), [allFees]);
+
+  useEffect(() => {
+    setPicked(openInvoices.map((inv) => inv.id));
+  }, [openInvoices]);
+
+  const selectedInvoices = openInvoices.filter((inv) => picked.includes(inv.id));
   const totalDue = openInvoices.reduce((sum, inv) => sum + dueOf(inv), 0);
+  const selectedDue = selectedInvoices.reduce((sum, inv) => sum + dueOf(inv), 0);
+  const overdueCount = openInvoices.filter((inv) => inv.display === "overdue").length;
   const overdueDue = openInvoices
     .filter((inv) => inv.display === "overdue")
     .reduce((sum, inv) => sum + dueOf(inv), 0);
   const nextDue = openInvoices
     .slice()
     .sort((a, b) => Date.parse(a.dueAt || "") - Date.parse(b.dueAt || ""))[0];
-  const statementRows = allFees
-    .slice()
-    .sort((a, b) => Date.parse(a.dueAt || "") - Date.parse(b.dueAt || "") || a.title.localeCompare(b.title));
   const [busy, setBusy] = useState(false);
 
-  const selectedIds = openInvoices.map((inv) => inv.id);
+  const selectedIds = selectedInvoices.map((inv) => inv.id);
   const payKind = data?.kind === "STUDENT" ? " with Razorpay" : "";
-  const payLabel = totalDue > 0 ? `Pay ${rupees(totalDue)}${payKind}` : "No dues";
+  const payLabel = selectedDue > 0 ? `Pay ${rupees(selectedDue)}${payKind}` : "Pick dues";
 
   async function pay() {
     if (!child?.id || !selectedIds.length) return;
@@ -3160,7 +3163,7 @@ export function FamilyFees() {
       const res = await act<{ ok: true; path: string }>(token, "ensurePayLink", {
         studentId: child.id,
         invoiceIds: selectedIds,
-        combineFamily: combineFamily && canCombineFamily,
+        combineFamily: familyMode,
       });
       if (!res.path) throw new Error("Could not open pay link");
       const payUrl = `${res.path}${res.path.includes("?") ? "&" : "?"}embed=1`;
@@ -3181,6 +3184,12 @@ export function FamilyFees() {
     void Linking.openURL(url);
   }
 
+  function toggleInvoice(id: string) {
+    setPicked((ids) => (ids.includes(id) ? ids.filter((row) => row !== id) : [...ids, id]));
+  }
+
+  const visibleRows = tab === "paid" ? paidInvoices : openInvoices;
+
   return (
     <View>
       <PageHeader
@@ -3188,22 +3197,10 @@ export function FamilyFees() {
         title="Fees"
         lede={
           child
-            ? `${combineFamily && canCombineFamily ? "Family" : `${child.name} · ${child.classLabel}`}. Pay dues and keep invoices and receipts in one place.`
+            ? `${familyMode ? "Family" : `${child.name} · ${child.classLabel}`}. Pay dues and keep invoices and receipts in one place.`
             : "Dues and collection."
         }
       />
-      <ChildSwitch />
-      {canCombineFamily ? (
-        <Pressable
-          accessibilityRole="checkbox"
-          accessibilityState={{ checked: combineFamily }}
-          onPress={() => setCombineFamily((value) => !value)}
-          className="mb-3 mt-1 flex-row items-center gap-2 self-start"
-        >
-          <Ionicons name={combineFamily ? "checkbox-outline" : "square-outline"} size={15} color="#3d4f66" />
-          <Text className="text-xs font-medium text-ink-700">Pay all children together</Text>
-        </Pressable>
-      ) : null}
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
       {!allFees.length ? (
         <Empty title="No fee invoices yet" body="When the office raises a bill, it is here." />
@@ -3212,9 +3209,9 @@ export function FamilyFees() {
           <Card className="overflow-hidden">
             <View className="gap-4 border-b border-ink-100 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
               <View className="min-w-0 flex-1">
-                <Text className="text-xs font-semibold uppercase tracking-wide text-ink-500">Selected child</Text>
+                <Text className="text-xs font-semibold uppercase tracking-wide text-ink-500">{familyMode ? "Family dues" : "Selected child"}</Text>
                 <Text className="mt-1 text-lg font-semibold text-ink-900">
-                  {combineFamily && canCombineFamily ? `${familyChildren.length} children` : `${child?.name} · ${child?.classLabel}`}
+                  {familyMode ? `${familyChildren.length} children` : `${child?.name} · ${child?.classLabel}`}
                 </Text>
                 <Text className="mt-1 text-xs leading-5 text-ink-700">
                   This statement includes older dues first, so payment records stay in order.
@@ -3242,27 +3239,55 @@ export function FamilyFees() {
             </View>
           </Card>
           <Card className="overflow-hidden">
-            <View className="border-b border-ink-100 px-4 py-3">
-              <Text className="text-sm font-semibold text-ink-900">Fee statement</Text>
-              <Text className="mt-0.5 text-xs text-ink-700">Invoices and receipts are kept with each fee row.</Text>
+            <View className="flex-row border-b border-ink-100 px-3 pt-3">
+              {([
+                { id: "overdue", label: `${overdueCount ? "Overdue" : "Due"} ${openInvoices.length}` },
+                { id: "paid", label: `Paid ${paidInvoices.length}` },
+              ] as const).map((item) => {
+                const on = tab === item.id;
+                return (
+                  <Pressable
+                    key={item.id}
+                    accessibilityRole="button"
+                    onPress={() => setTab(item.id)}
+                    className={`mr-2 rounded-t-md border border-b-0 px-3 py-2 ${on ? "border-ink-200 bg-white" : "border-transparent bg-transparent"}`}
+                  >
+                    <Text className={`text-xs font-semibold ${on ? "text-ink-900" : "text-ink-600"}`}>{item.label}</Text>
+                  </Pressable>
+                );
+              })}
             </View>
-            {statementRows.map((inv, index) => {
+            {visibleRows.map((inv, index) => {
               const status = feeStatus(inv);
+              const selected = picked.includes(inv.id);
               return (
                 <View key={inv.id} className={`px-4 py-3 ${index ? "border-t border-ink-100" : ""}`}>
-                  <View className="gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <View className="min-w-0 flex-1">
-                      <View className="flex-row flex-wrap items-center gap-2">
+                  <View className="gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <View className="min-w-0 flex-1 flex-row items-start gap-2">
+                      {tab === "overdue" ? (
+                        <Pressable
+                          accessibilityRole="checkbox"
+                          accessibilityState={{ checked: selected }}
+                          onPress={() => toggleInvoice(inv.id)}
+                          hitSlop={8}
+                          className={`mt-0.5 h-3.5 w-3.5 items-center justify-center rounded border ${
+                            selected ? "border-clay-500 bg-clay-500" : "border-ink-300 bg-white"
+                          }`}
+                        >
+                          {selected ? <Ionicons name="checkmark" size={10} color="#ffffff" /> : null}
+                        </Pressable>
+                      ) : null}
+                      <View className="min-w-0 flex-1">
                         <Text className="text-sm font-semibold text-ink-900">
-                          {combineFamily && canCombineFamily ? `${inv.childName} · ${inv.title}` : inv.title}
+                          {familyMode ? `${inv.childName} · ${inv.title}` : inv.title}
                         </Text>
-                        <Badge tone={feeTone(status)}>{status}</Badge>
+                        <Text className="mt-1 text-xs text-ink-700">
+                          {familyMode ? `${inv.classLabel} · ` : ""}Due {inv.due} · Amount <Text className="font-semibold text-ink-900">{inv.amount}</Text> · Paid <Text className="font-semibold text-ink-900">{inv.paid}</Text> · Remaining <Text className="font-semibold text-ink-900">{inv.remaining}</Text>
+                        </Text>
                       </View>
-                      <Text className="mt-1 text-xs text-ink-700">
-                        {combineFamily && canCombineFamily ? `${inv.classLabel} · ` : ""}Due {inv.due}
-                      </Text>
                     </View>
-                    <View className="flex-row flex-wrap gap-x-4 gap-y-1">
+                    <View className="flex-row flex-wrap items-center gap-x-4 gap-y-1">
+                      <Badge tone={feeTone(status)}>{status}</Badge>
                       {inv.invoiceUrl ? (
                         <Pressable onPress={() => openDocument(inv.invoiceUrl)} hitSlop={8}>
                           <View className="flex-row items-center gap-1">
@@ -3281,20 +3306,20 @@ export function FamilyFees() {
                       ) : null}
                     </View>
                   </View>
-                  <View className="mt-3 gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <View className="flex-row flex-wrap gap-x-5 gap-y-1">
-                      <Text className="text-xs text-ink-700">Amount <Text className="font-semibold text-ink-900">{inv.amount}</Text></Text>
-                      <Text className="text-xs text-ink-700">Paid <Text className="font-semibold text-ink-900">{inv.paid}</Text></Text>
-                      <Text className="text-xs text-ink-700">Remaining <Text className="font-semibold text-ink-900">{inv.remaining}</Text></Text>
-                    </View>
+                  <View className="mt-2 flex-row flex-wrap justify-between gap-x-4 gap-y-1">
+                    {inv.lines.length ? (
+                      <Text className="text-xs leading-5 text-ink-700">{inv.lines.join(" · ")}</Text>
+                    ) : <Text />}
                     {inv.lateLabel ? <Text className="text-xs font-medium text-red-700">{inv.lateLabel}</Text> : null}
                   </View>
-                  {inv.lines.length ? (
-                    <Text className="mt-2 text-xs leading-5 text-ink-700">{inv.lines.join(" · ")}</Text>
-                  ) : null}
                 </View>
               );
             })}
+            {!visibleRows.length ? (
+              <Text className="px-4 py-6 text-center text-sm text-ink-700">
+                {tab === "paid" ? "No paid invoices yet." : "No overdue dues."}
+              </Text>
+            ) : null}
           </Card>
         </View>
       )}
