@@ -3610,7 +3610,15 @@ export function FeesBoard() {
               </View>
               <View className="flex-row flex-wrap justify-end gap-2">
                 {can(user, "fees.collect") ? (
-                  <FeePanelAction icon="cash-outline" label="Collect" primary onPress={() => setPayDueStudentId(selectedDueStudent.id)} />
+                  <FeePanelAction
+                    icon="cash-outline"
+                    label="Collect"
+                    primary
+                    onPress={() => {
+                      setPayDueStudentId(selectedDueStudent.id);
+                      setSelectedDueStudentId("");
+                    }}
+                  />
                 ) : null}
                 <FeePanelAction
                   icon="person-outline"
@@ -4470,7 +4478,7 @@ export function FeesBoard() {
           )}
         </View>
       ) : null}
-      {Platform.OS === "web" && selectedDueStudent ? (
+      {Platform.OS === "web" && selectedDueStudent && !payDueStudent ? (
         <RnModal visible transparent animationType="fade" onRequestClose={() => setSelectedDueStudentId("")}>
           <View className="flex-1 flex-row justify-end">
             <Pressable
@@ -4492,7 +4500,7 @@ export function FeesBoard() {
         </RnModal>
       ) : null}
       {Platform.OS !== "web" ? (
-        <Sheet open={Boolean(selectedDueStudent)} onClose={() => setSelectedDueStudentId("")}>
+        <Sheet open={Boolean(selectedDueStudent && !payDueStudent)} onClose={() => setSelectedDueStudentId("")}>
           {dueStudentPanel}
         </Sheet>
       ) : null}
