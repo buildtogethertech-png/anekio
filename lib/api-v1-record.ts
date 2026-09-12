@@ -832,7 +832,7 @@ async function teacherTeamExtras(
 async function officePayload(user: AccessUser) {
   const sessionPack = await ensureSchoolSessions();
   const { sessions, current } = sessionPack;
-  const [{ pulse, invoices, collection }, people, staff, config, roles, { config: sched, periods, rooms, teachers: weekTeachers }, classes, recentExams, holidays, examPack] =
+  const [{ pulse, invoices, collection }, people, staff, config, roles, { config: sched, periods, rooms, teachers: weekTeachers }, classes, recentExams, holidays, examPack, activeFeeDocuments] =
     await Promise.all([
       getDeskPulse(),
       getPeople(),
@@ -857,7 +857,12 @@ async function officePayload(user: AccessUser) {
       }),
       prisma.schoolHoliday.findMany({ where: { sessionId: { in: sessions.map((s) => s.id) } }, orderBy: { date: "asc" } }),
       getPeopleExamPack(),
+      prisma.documentTemplate.findMany({
+        where: { schoolId: "school", status: "ACTIVE", type: { in: ["FEE_INVOICE", "PAYMENT_RECEIPT"] } },
+        select: { type: true },
+      }),
     ]);
+  const activeFeeDocumentTypes = new Set(activeFeeDocuments.map((row) => row.type));
   const weekdays = parseWeekdays(sched?.weekdays);
   const openBills = invoices.filter((i) => i.status !== "PAID");
   const overdue = openBills.filter((i) => daysLate(i.dueDate) > 0);
@@ -1278,6 +1283,10 @@ async function officePayload(user: AccessUser) {
       policy: gradePolicyFrom(config),
       plan: parseExamPlan(current.examPlanJson),
       pay: payFormFromSecrets(paySecretsFromRow(config)),
+      documentsReady: {
+        feeInvoice: activeFeeDocumentTypes.has("FEE_INVOICE"),
+        paymentReceipt: activeFeeDocumentTypes.has("PAYMENT_RECEIPT"),
+      },
     },
     fees: people.students
       .flatMap((s) =>

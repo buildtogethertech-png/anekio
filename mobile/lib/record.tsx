@@ -633,6 +633,10 @@ export type RecordPayload = {
     holidays?: { id: string; sessionId?: string; date: string; name: string }[];
     policy?: { bands: { min: number; grade: string }[]; passPercent: number; showRank: boolean; reportCardPaidMonths?: number };
     plan?: { id: string; name: string; kind: string; weight: number; maxMarks: number; expectedPeriod?: string }[];
+    documentsReady?: {
+      feeInvoice: boolean;
+      paymentReceipt: boolean;
+    };
     pay?: {
       gateway: string;
       testMode: boolean;

@@ -1,6 +1,6 @@
 import { createElement, useMemo, useState, useEffect, useRef } from "react";
 import type { ReactNode } from "react";
-import { Linking, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { Alert, Linking, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { GeneratePayment } from "./generate-payment";
@@ -971,6 +971,12 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   }
 
   async function openFeeDocument(inv: { id: string; invoiceUrl?: string; receiptUrl?: string }, paid: boolean) {
+    const feeDocs = data?.school?.documentsReady;
+    const approved = paid ? feeDocs?.paymentReceipt : feeDocs?.feeInvoice;
+    if (!approved) {
+      Alert.alert("Template not approved", paid ? "Payment receipt template is not approved." : "Fee invoice template is not approved.");
+      return;
+    }
     const directUrl = paid ? inv.receiptUrl : inv.invoiceUrl;
     if (directUrl) {
       await Linking.openURL(directUrl);
