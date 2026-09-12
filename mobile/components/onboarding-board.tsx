@@ -160,12 +160,8 @@ export function OnboardingBoard({
   }
 
   function openStepTarget(step: Onboarding["steps"][number]) {
-    if (step.key === "students" || step.key === "teachers") {
-      setStepImportKind(step.key);
-      return;
-    }
-    if (step.key === "attendance") {
-      setStepImportKind("attendance");
+    if (step.key === "students" || step.key === "teachers" || step.key === "attendance" || step.key === "staff_attendance") {
+      setStepImportKind(step.key as Template["kind"]);
       return;
     }
     onNavigate?.();
@@ -500,11 +496,19 @@ export function OnboardingBoard({
 
       <Modal
         open={Boolean(stepImportKind)}
-        title={stepImportKind === "teachers" ? "Import staff" : stepImportKind === "attendance" ? "Import attendance history" : "Import students and parents"}
+        title={
+          stepImportKind === "teachers"
+            ? "Import staff"
+            : stepImportKind === "attendance"
+              ? "Import student attendance history"
+              : stepImportKind === "staff_attendance"
+                ? "Import staff attendance history"
+                : "Import students and parents"
+        }
         onClose={() => setStepImportKind(null)}
         wide
       >
-        {stepImportKind ? <OnboardingBoard compact focusKinds={stepImportKind === "attendance" ? ["attendance", "staff_attendance"] : [stepImportKind]} /> : null}
+        {stepImportKind ? <OnboardingBoard compact focusKinds={[stepImportKind]} /> : null}
       </Modal>
 
       {imports.length ? (
