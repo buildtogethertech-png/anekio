@@ -555,10 +555,28 @@ async function staffAttendanceTemplateWorkbook(options: { sampleData?: boolean }
   sheet.addRow(headers);
   sheet.addRow(["", "teacher", "T-101", "Meera Singh (example)", "Teacher", ...dates.map(markForDate), "YES"]);
   if (options.sampleData) {
-    [
-      ["", "teacher", "TEST-T-001", "Meera Singh", "Teacher"],
-      ["", "staff", "TEST-S-001", "Ritu Shah", "Accounts"],
-    ].forEach((row) => sheet.addRow([...row, ...dates.map(markForDate), ""]));
+    teachers.slice(0, 2).forEach((teacher) => {
+      sheet.addRow([
+        teacher.id,
+        "teacher",
+        teacher.employeeId,
+        teacher.user.name,
+        teacher.class ? `Class teacher ${teacher.class.name}-${teacher.class.section}` : roleLabel(teacher.user.role),
+        ...dates.map(markForDate),
+        "",
+      ]);
+    });
+    staffMembers.slice(0, Math.max(0, 2 - Math.min(2, teachers.length))).forEach((staff) => {
+      sheet.addRow([
+        staff.id,
+        "staff",
+        staff.employeeId,
+        staff.name,
+        staff.role ? roleLabel(staff.role) : staff.user?.role ? roleLabel(staff.user.role) : staff.title || "Staff",
+        ...dates.map(markForDate),
+        "",
+      ]);
+    });
   } else {
     teachers.forEach((teacher) => {
       sheet.addRow([
