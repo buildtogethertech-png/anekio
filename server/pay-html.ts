@@ -241,7 +241,7 @@ function contactLine(school: { phone: string; email: string }) {
 function onlinePaymentHelp(testMode: boolean) {
   return `<p class="small">You will return here after payment verification.</p>${
     testMode
-      ? `<p class="small">Test card: <strong>4111 1111 1111 1111</strong> · any future expiry · CVV 123 · OTP 123456</p>`
+      ? `<p class="small">Test mode: use card <strong>5267 3181 8797 5449</strong> · future expiry · CVV 123 · OTP 123456, or UPI <strong>success@razorpay</strong>.</p>`
       : ""
   }`;
 }

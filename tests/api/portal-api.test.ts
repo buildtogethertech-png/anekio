@@ -686,8 +686,10 @@ describe("Express portal API", () => {
       expect(response.status).toBe(200);
       expect(response.text).toContain("Gateway Fixture School");
       expect(response.text).toContain("Pay ₹2,50,000 securely");
-      expect(response.text).toContain("Test card:");
-      expect(response.text).toContain("4111 1111 1111 1111");
+      expect(response.text).toContain("Test mode:");
+      expect(response.text).toContain("5267 3181 8797 5449");
+      expect(response.text).toContain("success@razorpay");
+      expect(response.text).not.toContain("4111 1111 1111 1111");
       expect(response.text).not.toContain("Powered by Razorpay");
       expect(response.text).not.toContain("Pay at the school desk");
     } finally {
@@ -725,8 +727,10 @@ describe("Express portal API", () => {
       expect(response.status).toBe(200);
       expect(response.text).toContain("Migrated Gateway School");
       expect(response.text).toContain("Pay ₹2,50,000 securely");
-      expect(response.text).toContain("Test card:");
-      expect(response.text).toContain("4111 1111 1111 1111");
+      expect(response.text).toContain("Test mode:");
+      expect(response.text).toContain("5267 3181 8797 5449");
+      expect(response.text).toContain("success@razorpay");
+      expect(response.text).not.toContain("4111 1111 1111 1111");
       expect(response.text).not.toContain("Powered by Razorpay");
       expect(response.text).not.toContain("Pay at the school desk");
       expect(response.text).not.toContain("Payment opens through None");
