@@ -19,7 +19,7 @@ describe("ERP authentication flows", () => {
     vi.resetModules();
     prisma = (await import("../../lib/prisma")).prisma;
     await prisma.$executeRawUnsafe(`
-      CREATE TABLE "AuthChallenge" (
+      CREATE TABLE IF NOT EXISTS "AuthChallenge" (
         "id" TEXT NOT NULL PRIMARY KEY,
         "userId" TEXT,
         "identifierHash" TEXT NOT NULL,
@@ -33,9 +33,9 @@ describe("ERP authentication flows", () => {
         CONSTRAINT "AuthChallenge_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
       )
     `);
-    await prisma.$executeRawUnsafe('CREATE INDEX "AuthChallenge_identifierHash_purpose_createdAt_idx" ON "AuthChallenge"("identifierHash", "purpose", "createdAt")');
-    await prisma.$executeRawUnsafe('CREATE INDEX "AuthChallenge_userId_purpose_createdAt_idx" ON "AuthChallenge"("userId", "purpose", "createdAt")');
-    await prisma.$executeRawUnsafe('CREATE INDEX "AuthChallenge_expiresAt_idx" ON "AuthChallenge"("expiresAt")');
+    await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "AuthChallenge_identifierHash_purpose_createdAt_idx" ON "AuthChallenge"("identifierHash", "purpose", "createdAt")');
+    await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "AuthChallenge_userId_purpose_createdAt_idx" ON "AuthChallenge"("userId", "purpose", "createdAt")');
+    await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "AuthChallenge_expiresAt_idx" ON "AuthChallenge"("expiresAt")');
     fixture = await seedPortalFixture(prisma);
     app = (await import("../../server/index")).default;
   }, 30_000);
@@ -105,5 +105,44 @@ describe("ERP authentication flows", () => {
       .send({ login: fixture.users.parent.email, code: "123456", password: "short" });
     expect(response.status).toBe(400);
     expect(response.body.error).toContain("at least 8 characters");
+  });
+
+  it("asks for the school when the same parent contact has multiple accounts", async () => {
+    const parent = await prisma.user.findUniqueOrThrow({ where: { id: fixture.users.parent.id } });
+    await prisma.saasOrg.createMany({
+      data: [
+        { id: "org-choice-a", schoolName: "North Campus", ownerName: "Owner A", ownerEmail: "a@example.test", ownerPhone: "9876500101" },
+        { id: "org-choice-b", schoolName: "South Campus", ownerName: "Owner B", ownerEmail: "b@example.test", ownerPhone: "9876500102" },
+      ],
+    });
+    await prisma.user.update({ where: { id: parent.id }, data: { orgId: "org-choice-a" } });
+    await prisma.user.create({
+      data: {
+        id: "user-parent-choice-b",
+        orgId: "org-choice-b",
+        email: parent.email,
+        phone: parent.phone,
+        password: parent.password,
+        name: "Pari Parent South",
+        roleId: parent.roleId,
+        parent: { create: { orgId: "org-choice-b", phone: parent.phone } },
+      },
+    });
+
+    const ambiguous = await request(app)
+      .post("/api/v1/login")
+      .send({ login: parent.phone, password: fixture.password });
+    expect(ambiguous.status).toBe(200);
+    expect(ambiguous.body.accountChoices).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: fixture.users.parent.id, schoolName: "North Campus" }),
+      expect.objectContaining({ id: "user-parent-choice-b", schoolName: "South Campus" }),
+    ]));
+
+    const selected = await request(app)
+      .post("/api/v1/login")
+      .send({ login: parent.phone, password: fixture.password, accountId: "user-parent-choice-b" });
+    expect(selected.status).toBe(200);
+    expect(selected.body.user).toMatchObject({ id: "user-parent-choice-b", portal: "PARENT" });
+    expect(selected.body.token).toEqual(expect.any(String));
   });
 });

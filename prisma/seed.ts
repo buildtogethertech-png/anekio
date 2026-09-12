@@ -175,7 +175,7 @@ async function main() {
     logins.push({ role: "Office", name: row.name, email: row.email, password: PASSWORD, phone, detail: row.detail });
   }
 
-  const adminUser = await prisma.user.findUniqueOrThrow({ where: { email: "admin@school.test" } });
+  const adminUser = await prisma.user.findFirstOrThrow({ where: { email: "admin@school.test" } });
 
   const session = await prisma.schoolSession.create({
     data: {

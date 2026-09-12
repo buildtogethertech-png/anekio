@@ -1269,7 +1269,7 @@ async function applyStudents(
     const phone = normalizeMobile(sheetCell(row, "Parent mobile", "Parent phone"));
     const suppliedEmail = sheetCell(row, "Parent email").toLowerCase();
     const email = suppliedEmail || placeholderEmail("parent", phone);
-    const user = await db.user.findFirst({ where: { OR: [{ email }, { phone }] }, include: { parent: true } });
+    const user = await db.user.findFirst({ where: { orgId: setup.orgId, OR: [{ email }, { phone }] }, include: { parent: true } });
     let parentId = user?.parent?.id || "";
     if (user && !parentId) throw new Error(rowError(row, `${user.email} is already used by a non-parent account.`));
     if (!parentId) {
@@ -1292,7 +1292,7 @@ async function applyStudents(
       }
       parentId = parentUser.parent!.id;
     } else if (user) {
-      await db.user.update({ where: { id: user.id }, data: { orgId: setup.orgId, name: sheetCell(row, "Parent name") || user.name } });
+      await db.user.update({ where: { id: user.id }, data: { name: sheetCell(row, "Parent name") || user.name } });
     }
     const studentId = sheetCell(row, "Anekio student ID");
     let admissionNo = sheetCell(row, "Admission number", "Admission no");

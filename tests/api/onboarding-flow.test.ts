@@ -281,6 +281,66 @@ describe("school onboarding imports", () => {
     expect(student.admissionNo).toMatch(/^ANE-\d{5}$/);
   });
 
+  it("allows a parent contact already used in another organisation", async () => {
+    const { previewOnboardingImport, applyOnboardingImport } = await import("../../lib/onboarding");
+    const { saveUploadPath } = await import("../../lib/uploads");
+    const parentRole = await prisma.role.findUniqueOrThrow({ where: { slug: "PARENT" } });
+    await prisma.saasOrg.create({
+      data: {
+        id: "org-other-parent-contact",
+        schoolName: "Other Contact School",
+        ownerName: "Other Owner",
+        ownerEmail: "other-owner@example.test",
+        ownerPhone: "9876508888",
+      },
+    });
+    await prisma.user.create({
+      data: {
+        orgId: "org-other-parent-contact",
+        email: "shared.parent@example.test",
+        phone: "9876509999",
+        password: "unused",
+        name: "Shared Parent Elsewhere",
+        roleId: parentRole.id,
+        parent: { create: { orgId: "org-other-parent-contact", phone: "9876509999" } },
+      },
+    });
+    const uploadPath = "private/schools/test/onboarding/imports/shared-parent.csv";
+    await saveUploadPath(
+      uploadPath,
+      Buffer.from(csvFromObjects([
+        {
+          "Student name": "Shared Contact Student",
+          "Date of birth": "2015-05-11",
+          Class: "10-D",
+          "Parent name": "Shared Parent Here",
+          "Parent mobile": "9876509999",
+          "Parent email": "shared.parent@example.test",
+          "Example only": "",
+        },
+      ])),
+      "text/csv"
+    );
+
+    const preview = await previewOnboardingImport(user, {
+      kind: "students",
+      uploadPath,
+      fileName: "shared-parent.csv",
+    });
+    expect(preview).toMatchObject({ rowCount: 1, validCount: 1, errors: [] });
+    await applyOnboardingImport(user, { batchId: preview.batchId });
+
+    const users = await prisma.user.findMany({
+      where: { email: "shared.parent@example.test", phone: "9876509999" },
+      select: { orgId: true, parent: { select: { id: true } } },
+      orderBy: { orgId: "asc" },
+    });
+    expect(users).toEqual([
+      { orgId: "org-onboarding-fixture", parent: expect.objectContaining({ id: expect.any(String) }) },
+      { orgId: "org-other-parent-contact", parent: expect.objectContaining({ id: expect.any(String) }) },
+    ]);
+  });
+
   it("imports staff roles from the teacher sheet and creates missing class teacher classes", async () => {
     const ExcelJS = (await import("exceljs")).default;
     const { previewOnboardingImport, applyOnboardingImport } = await import("../../lib/onboarding");

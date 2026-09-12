@@ -9,12 +9,20 @@ type Session = {
   user: SessionUser | null;
   nav: NavItem[];
   refresh: () => Promise<void>;
-  signIn: (login: string, password: string) => Promise<void>;
+  signIn: (login: string, password: string, accountId?: string) => Promise<AuthAccountChoice[] | null>;
   requestLoginCode: (login: string) => Promise<AuthCodeResponse>;
   signInWithCode: (login: string, code: string) => Promise<void>;
   requestPasswordReset: (login: string) => Promise<AuthCodeResponse>;
   resetPassword: (login: string, code: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
+};
+
+export type AuthAccountChoice = {
+  id: string;
+  name: string;
+  schoolName: string;
+  portal: string;
+  roleName: string;
 };
 
 export type AuthCodeResponse = {
@@ -25,7 +33,12 @@ export type AuthCodeResponse = {
   developmentCode?: string;
 };
 
-type LoginResponse = { token: string; user: SessionUser; nav: NavItem[] };
+type LoginSessionResponse = { token: string; user: SessionUser; nav: NavItem[] };
+type LoginResponse = LoginSessionResponse | { accountChoices: AuthAccountChoice[] };
+
+function hasAccountChoices(response: LoginResponse): response is { accountChoices: AuthAccountChoice[] } {
+  return "accountChoices" in response;
+}
 
 const SessionContext = createContext<Session | null>(null);
 
@@ -42,7 +55,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setNav(me.nav);
   }
 
-  async function applyLogin(response: LoginResponse) {
+  async function applyLogin(response: LoginSessionResponse) {
     await setToken(response.token);
     setTok(response.token);
     setUser(response.user);
@@ -74,12 +87,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         if (!saved) return;
         await hydrate(saved);
       },
-      async signIn(login, password) {
+      async signIn(login, password, accountId) {
         const res = await api<LoginResponse>("/login", null, {
           method: "POST",
-          body: JSON.stringify({ login, password }),
+          body: JSON.stringify({ login, password, ...(accountId ? { accountId } : {}) }),
         });
+        if (hasAccountChoices(res)) return res.accountChoices;
         await applyLogin(res);
+        return null;
       },
       async requestLoginCode(login) {
         return api<AuthCodeResponse>("/login/otp/request", null, {
@@ -88,7 +103,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         });
       },
       async signInWithCode(login, code) {
-        const res = await api<LoginResponse>("/login/otp/verify", null, {
+        const res = await api<LoginSessionResponse>("/login/otp/verify", null, {
           method: "POST",
           body: JSON.stringify({ login, code }),
         });

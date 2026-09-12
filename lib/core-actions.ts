@@ -244,8 +244,8 @@ export async function admitLeadAsStudentCore(
     const existingStudent = await tx.student.findUnique({ where: { admissionNo } });
     if (existingStudent) throw new Error("That admission number is already used.");
 
-    const emailOwner = await tx.user.findUnique({ where: { email: parentEmail }, include: { parent: true } });
-    const phoneOwner = await tx.user.findUnique({ where: { phone: parentPhone }, include: { parent: true } });
+    const emailOwner = await tx.user.findFirst({ where: { email: parentEmail }, include: { parent: true } });
+    const phoneOwner = await tx.user.findFirst({ where: { phone: parentPhone }, include: { parent: true } });
     if (emailOwner && phoneOwner && emailOwner.id !== phoneOwner.id) {
       throw new Error("Email and phone belong to different parent logins.");
     }
@@ -386,7 +386,7 @@ export async function updateStudentCore(
   });
   if (!parent) throw new Error("Parent missing");
   if (parentEmail && parentEmail !== parent.user.email) {
-    const taken = await prisma.user.findUnique({ where: { email: parentEmail } });
+    const taken = await prisma.user.findFirst({ where: { email: parentEmail } });
     if (taken && taken.id !== parent.userId) {
       throw new Error("That email is already on another profile");
     }
@@ -453,7 +453,7 @@ export async function updateParentCore(
   const parent = await prisma.parent.findUnique({ where: { id }, include: { user: true } });
   if (!parent) throw new Error("Parent missing");
   if (email !== parent.user.email) {
-    const taken = await prisma.user.findUnique({ where: { email } });
+    const taken = await prisma.user.findFirst({ where: { email } });
     if (taken && taken.id !== parent.userId) {
       throw new Error("That email is already on another profile");
     }
@@ -520,7 +520,7 @@ export async function updateTeacherCore(
     roleId = role.id;
   }
   if (email !== teacher.user.email) {
-    const taken = await prisma.user.findUnique({ where: { email } });
+    const taken = await prisma.user.findFirst({ where: { email } });
     if (taken && taken.id !== teacher.userId) {
       throw new Error("That email is already on another profile");
     }
@@ -610,7 +610,7 @@ export async function updateStaffMemberCore(
   if (staff.userId) await assertPhoneFree(phone, staff.userId);
   else await assertPhoneFree(phone);
   if (email && staff.userId && email !== staff.user?.email) {
-    const taken = await prisma.user.findUnique({ where: { email } });
+    const taken = await prisma.user.findFirst({ where: { email } });
     if (taken && taken.id !== staff.userId) throw new Error("That email is already in the school");
   }
   const title = role.name;
@@ -1147,7 +1147,7 @@ export async function createStaffMemberCore(
   const kind: StaffKind = role.portal === "OFFICE" ? "OFFICE" : role.portal === "TEACHER" ? "OTHER" : "SUPPORT";
   await assertPhoneFree(phone);
   const loginEmail = email || `${phone}@mobile.local`;
-  const taken = await prisma.user.findUnique({ where: { email: loginEmail } });
+  const taken = await prisma.user.findFirst({ where: { email: loginEmail } });
   if (taken) throw new Error("That email is already in the school");
   const hash = await bcrypt.hash(password, 10);
   const managerId = await managerIdForNewUser(user, role, input.managerId);
@@ -2427,7 +2427,7 @@ export async function createOfficeUserCore(
   if (!name || !email || !input.roleId) throw new Error("Name, email, and role are required");
   const role = await prisma.role.findUnique({ where: { id: input.roleId } });
   if (!role || role.portal !== "OFFICE") throw new Error("Pick an office role");
-  const exists = await prisma.user.findUnique({ where: { email } });
+  const exists = await prisma.user.findFirst({ where: { email } });
   if (exists) throw new Error("That email is already in the school");
   await prisma.user.create({
     data: {
