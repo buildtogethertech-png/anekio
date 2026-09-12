@@ -293,24 +293,24 @@ export function OnboardingBoard({ compact = false, onNavigate }: { compact?: boo
                             <Text className="text-xs font-semibold text-clay-700">{step.number}</Text>
                           )}
                         </Pressable>
-                        <View className="min-w-0 flex-1">
-                          <View className="flex-row items-center justify-between gap-2">
-                            <Text className="text-sm font-semibold text-ink-900">{step.title}</Text>
-                            <Badge tone={statusTone(step.status)}>{step.manualComplete && !step.dataComplete ? "Continued" : statusLabel(step.status)}</Badge>
-                          </View>
-                          <Text className="mt-1 text-xs leading-5 text-ink-700">{step.body}</Text>
-                          {step.manualComplete && !step.dataComplete ? (
-                            <Text className="mt-1 text-[11px] leading-4 text-amber-800">Marked continue anyway. Add the missing setup later when the school is ready.</Text>
-                          ) : null}
-                          <Pressable
-                            accessibilityRole="link"
-                            onPress={() => openStepTarget(step)}
-                            className="mt-2 flex-row items-center gap-1 self-start"
-                          >
-                            <Text className="text-xs font-semibold text-clay-700">{step.target?.label || "Open setup"}</Text>
-                            <Ionicons name="arrow-forward" size={13} color="#1d4ed8" />
-                          </Pressable>
-                        </View>
+	                        <View className="min-w-0 flex-1">
+	                          <View className="flex-row items-center justify-between gap-2">
+	                            <Pressable
+	                              accessibilityRole="link"
+	                              accessibilityLabel={`${step.title} setup`}
+	                              onPress={() => openStepTarget(step)}
+	                              className="min-w-0 flex-1 flex-row items-center gap-1"
+	                            >
+	                              <Text className="min-w-0 text-sm font-semibold text-clay-700 underline" numberOfLines={1}>{step.title}</Text>
+	                              <Ionicons name="arrow-forward" size={13} color="#1d4ed8" />
+	                            </Pressable>
+	                            <Badge tone={statusTone(step.status)}>{step.manualComplete && !step.dataComplete ? "Continued" : statusLabel(step.status)}</Badge>
+	                          </View>
+	                          <Text className="mt-1 text-xs leading-5 text-ink-700">{step.body}</Text>
+	                          {step.manualComplete && !step.dataComplete ? (
+	                            <Text className="mt-1 text-[11px] leading-4 text-amber-800">Marked continue anyway. Add the missing setup later when the school is ready.</Text>
+	                          ) : null}
+	                        </View>
                       </View>
                       {showingAck && !canCheckDirectly ? (
                         <View className="mt-3 gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
