@@ -1103,9 +1103,10 @@ export async function ensureOnboardingState(user: AccessUser) {
 
 async function onboardingOrgId(user: AccessUser) {
   const orgId = user.orgId || "";
-  if (!orgId) return null;
+  if (!orgId) throw new Error("Your login is not linked to a school organisation. Sign in again with a school admin account.");
   const org = await prisma.saasOrg.findUnique({ where: { id: orgId }, select: { id: true } });
-  return org?.id || null;
+  if (!org) throw new Error("Your login is linked to an organisation that was not found. Sign in again or repair this user's organisation.");
+  return org.id;
 }
 
 export async function previewOnboardingImport(user: AccessUser, input: { kind?: string; uploadPath?: string; fileName?: string }) {
@@ -1613,10 +1614,10 @@ export async function saveOnboardingPlan(user: AccessUser, input: { modules?: un
   need(user);
   const requested = Array.isArray(input.modules) ? input.modules.map(String) : [];
   const state = await ensureOnboardingState(user);
-  const orgId = await onboardingOrgId(user);
   const current = parsePlanState(state.selectedModulesJson);
   const modules = requested.length ? DEFAULT_ONBOARDING_MODULES : current.modules;
   const selectedModulesJson = serializePlanState({ modules, manualSteps: current.manualSteps });
+  const orgId = await onboardingOrgId(user);
   const saved = await prisma.schoolOnboardingState.upsert({
     where: { id: ONBOARDING_STATE_ID },
     update: { orgId, selectedModulesJson },
