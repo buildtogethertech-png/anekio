@@ -286,6 +286,7 @@ function sampleStudentRows(labels: string[]) {
 
 function sampleStaffRows(labels: string[], roles: StaffImportRole[]) {
   const usableLabels = labels.length ? labels : ["1-A", "2-A", "3-A", "4-A", "5-A"];
+  const classTeacherLabels = usableLabels.slice(1);
   const roleLabels = new Set(roles.map((role) => roleLabel(role)));
   const teacherRows = [
     "Meera Singh",
@@ -303,7 +304,7 @@ function sampleStaffRows(labels: string[], roles: StaffImportRole[]) {
     `98766${String(10000 + index).padStart(5, "0")}`,
     `teacher${String(index + 1).padStart(2, "0")}@example.com`,
     "TEACHER",
-    usableLabels[index % usableLabels.length],
+    classTeacherLabels[index] || "",
     30000 + index * 1000,
     ["B.Ed", "M.Sc Mathematics", "B.A English", "M.A History", "B.Sc Physics"][index % 5],
     "",
@@ -339,7 +340,7 @@ async function csvRowsFor(kind: ImportKind): Promise<CsvCell[][]> {
     where: { archivedAt: null },
     orderBy: [{ name: "asc" }, { section: "asc" }],
   });
-  const classLabels = classes.map((row) => `${row.name}-${row.section}`);
+  const classLabels = [...new Set(classes.map((row) => `${row.name}-${row.section}`))];
 
   if (kind === "classes") {
     return [
@@ -730,10 +731,14 @@ export async function onboardingSpreadsheetTemplate(user: AccessUser, rawKind: s
   });
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Anekio";
-  const labels = classes.length ? classes.map((row) => `${row.name}-${row.section}`) : ["1-A", "2-A", "3-A", "4-A", "5-A"];
+  const labels = classes.length ? [...new Set(classes.map((row) => `${row.name}-${row.section}`))] : ["1-A", "2-A", "3-A", "4-A", "5-A"];
   if (kind !== "students") {
     const blankRows = blankRowsFor(kind, labels);
-    const rows = options.sampleData || !blankRows.length ? await csvRowsFor(kind) : blankRows;
+    const rows = options.sampleData && kind === "teachers"
+      ? blankRows
+      : options.sampleData || !blankRows.length
+        ? await csvRowsFor(kind)
+        : blankRows;
     if (kind === "teachers") {
       const roles = await staffImportRoles();
       if (options.sampleData) {
@@ -980,6 +985,7 @@ async function validateRows(kind: ImportKind, rows: ImportRow[]) {
   const admissionNos = new Set(students.map((row) => row.admissionNo.toLowerCase()));
   const examStudentsById = new Map(examStudents.map((row) => [row.id, row]));
   const examStudentsByAdmission = new Map(examStudents.map((row) => [row.admissionNo.toLowerCase(), row]));
+  const classTeacherRows = new Map<string, string>();
 
   rows.forEach((row) => {
     if (kind === "classes") {
@@ -1062,7 +1068,14 @@ async function validateRows(kind: ImportKind, rows: ImportRow[]) {
       if (!normalizeMobile(sheetCell(row, "Mobile", "Phone"))) errors.push(rowError(row, "mobile must be a 10-digit number."));
       if (!resolveStaffImportRole(roles, row)) errors.push(rowError(row, "role must be one of the office or teacher roles."));
       const classText = sheetCell(row, "Class teacher of", "Class teacher", "Class");
-      if (classText && !parseClass(classText)) errors.push(rowError(row, "class teacher value must look like 1-A."));
+      const klass = classText ? parseClass(classText) : null;
+      if (classText && !klass) errors.push(rowError(row, "class teacher value must look like 1-A."));
+      if (klass) {
+        const classKey = `${klass.name}-${klass.section}`;
+        const firstRow = classTeacherRows.get(classKey);
+        if (firstRow) errors.push(rowError(row, `${classKey} already has a class teacher in row ${firstRow}.`));
+        else classTeacherRows.set(classKey, row._row);
+      }
       if (!salaryIsValid(row)) errors.push(rowError(row, "monthly salary must be zero or more."));
       return;
     }
