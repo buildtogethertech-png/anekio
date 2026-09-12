@@ -192,6 +192,15 @@ async function findSaasOrgByContact(input: { ownerEmail?: unknown; ownerPhone?: 
   });
 }
 
+export class ExistingTrialSignupError extends Error {
+  status = 409;
+  loginUrl = "/login";
+
+  constructor() {
+    super("This email or phone is already registered with Anekio. Please log in to continue.");
+  }
+}
+
 function demoBookingTime(value: unknown) {
   const source = text(value);
   // The public form sends a timezone-aware ISO value. Requiring it keeps a browser's
@@ -1208,6 +1217,8 @@ export async function createSaasDemoEnquiry(input: DemoEnquiryInput) {
 
 export async function createSaasTrial(input: EnquiryInput) {
   const pricing = await getSitePricing();
+  const existing = await findSaasOrgByContact(input);
+  if (existing) throw new ExistingTrialSignupError();
   const org = await createSaasEnquiry({
     ...input,
     notes: [`${pricing.trialDays}-day free trial requested`, text(input.notes)].filter(Boolean).join(" · "),

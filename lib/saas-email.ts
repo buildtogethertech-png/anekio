@@ -4,7 +4,7 @@ import { prisma } from "./prisma";
 /** The single platform-wide email configuration row. */
 export const SAAS_EMAIL_CONFIG_ID = "anekio";
 
-export const SAAS_EMAIL_EVENTS = ["DEMO_BOOKED"] as const;
+export const SAAS_EMAIL_EVENTS = ["DEMO_BOOKED", "TRIAL_STARTED"] as const;
 export type SaasEmailEvent = (typeof SAAS_EMAIL_EVENTS)[number];
 
 export const SAAS_EMAIL_AUDIENCES = ["INTERNAL", "CUSTOMER"] as const;
@@ -22,6 +22,8 @@ export const SAAS_EMAIL_TEMPLATE_VARIABLES = [
   "topic",
   "demoSlotLabel",
   "demoScheduledAt",
+  "trialDays",
+  "loginUrl",
   "leadUrl",
 ] as const;
 
@@ -242,6 +244,65 @@ Anekio Support`,
 <p>Thanks for booking an Anekio demo for <strong>{{schoolName}}</strong>.</p>
 <p><strong>Your selected time:</strong> {{demoSlotLabel}}</p>
 <p>We will show you how Anekio can support your school. If you need to change the time, reply to this email.</p>
+<p>Regards,<br>Anekio Support</p>
+</div>`,
+  },
+  {
+    event: "TRIAL_STARTED",
+    audience: "INTERNAL",
+    enabled: true,
+    sortOrder: 30,
+    toRecipients: JSON.stringify(["support@anekio.com"]),
+    ccRecipients: "[]",
+    bccRecipients: "[]",
+    replyTo: JSON.stringify(["support@anekio.com"]),
+    subjectTemplate: "New Anekio trial started · {{schoolName}}",
+    textTemplate: `A new Anekio trial has started.
+
+School: {{schoolName}}
+Contact: {{ownerName}}
+Email: {{ownerEmail}}
+Phone: {{ownerPhone}}
+City: {{city}}
+Trial: {{trialDays}} days
+Login: {{loginUrl}}
+CRM lead: {{leadUrl}}`,
+    htmlTemplate: `<div style="font-family:Arial,sans-serif;color:#172033;line-height:1.55">
+<h1 style="font-size:20px">New Anekio trial started</h1>
+<p><strong>School:</strong> {{schoolName}}</p>
+<p><strong>Contact:</strong> {{ownerName}}<br><strong>Email:</strong> {{ownerEmail}}<br><strong>Phone:</strong> {{ownerPhone}}<br><strong>City:</strong> {{city}}</p>
+<p><strong>Trial:</strong> {{trialDays}} days<br><strong>Login:</strong> {{loginUrl}}</p>
+<p><a href="{{leadUrl}}">Open CRM lead</a></p>
+</div>`,
+  },
+  {
+    event: "TRIAL_STARTED",
+    audience: "CUSTOMER",
+    enabled: true,
+    sortOrder: 40,
+    toRecipients: JSON.stringify(["{{ownerEmail}}"]),
+    ccRecipients: "[]",
+    bccRecipients: "[]",
+    replyTo: JSON.stringify(["support@anekio.com"]),
+    subjectTemplate: "Your Anekio trial is ready",
+    textTemplate: `Hi {{ownerName}},
+
+Your {{trialDays}}-day Anekio trial for {{schoolName}} is ready.
+
+Login: {{loginUrl}}
+Use your registered phone or email to sign in.
+
+Start with School setup, then import students, staff, fees, and documents from the onboarding area.
+
+Reply to this email if you want help setting up the workspace.
+
+Anekio Support`,
+    htmlTemplate: `<div style="font-family:Arial,sans-serif;color:#172033;line-height:1.55;max-width:640px">
+<p>Hi {{ownerName}},</p>
+<p>Your <strong>{{trialDays}}-day Anekio trial</strong> for <strong>{{schoolName}}</strong> is ready.</p>
+<p><strong>Login:</strong> <a href="{{loginUrl}}">{{loginUrl}}</a></p>
+<p>Use your registered phone or email to sign in. Start with School setup, then import students, staff, fees, and documents from the onboarding area.</p>
+<p>Reply to this email if you want help setting up the workspace.</p>
 <p>Regards,<br>Anekio Support</p>
 </div>`,
   },

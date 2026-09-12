@@ -54,6 +54,7 @@ import {
   createSaasEnquiry,
   createSaasRazorpayOrder,
   createSaasTrial,
+  ExistingTrialSignupError,
   marketingHtml,
   robotsTxt,
   saasRenewalHtml,
@@ -999,16 +1000,41 @@ app.post("/api/saas/enquiry", async (req, res) => {
 app.post("/api/saas/trial", async (req, res) => {
   try {
     const org = await createSaasTrial(req.body || {});
+    const leadUrl = `${requestOrigin(req).replace(/\/$/, "")}/anekio-admin?view=lead&id=${encodeURIComponent(org.id)}`;
+    try {
+      await sendSaasEmailEvent({
+        event: "TRIAL_STARTED",
+        orgId: org.id,
+        idempotencyKey: `trial:${org.id}`,
+        host: hostName(req),
+        variables: {
+          schoolName: org.schoolName,
+          ownerName: org.ownerName,
+          ownerEmail: org.ownerEmail,
+          ownerPhone: org.ownerPhone,
+          city: org.city,
+          trialDays: String(org.plan.match(/\d+/)?.[0] || "7"),
+          loginUrl: `${requestOrigin(req).replace(/\/$/, "")}${org.loginUrl || "/login"}`,
+          leadUrl,
+        },
+      });
+    } catch (error) {
+      console.error("Trial onboarding email delivery setup failed", error instanceof Error ? error.message : error);
+    }
     if (!String(req.headers.accept || "").includes("application/json")) {
       return res.type("html").send(trialStartedHtml(org));
     }
     res.json({ ok: true, org });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Could not start trial.";
+    const status = e instanceof ExistingTrialSignupError ? e.status : 400;
     if (!String(req.headers.accept || "").includes("application/json")) {
-      return res.status(400).type("html").send(await marketingHtml(message));
+      return res.status(status).type("html").send(await marketingHtml(message));
     }
-    sendError(res, 400, message);
+    res.status(status).json({
+      error: message,
+      loginUrl: e instanceof ExistingTrialSignupError ? e.loginUrl : undefined,
+    });
   }
 });
 

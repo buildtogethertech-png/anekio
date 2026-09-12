@@ -140,6 +140,7 @@ enum ExamWorkflowStatus {
 
 enum SaasEmailEvent {
   DEMO_BOOKED
+  TRIAL_STARTED
 }
 
 enum SaasEmailAudience {

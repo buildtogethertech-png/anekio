@@ -183,7 +183,7 @@ function emailRuleForm(basePath: string, session: SaasAdminSession, rule: any) {
   const isInternal = audience === "INTERNAL";
   const label = isInternal ? "Internal alert" : "Customer confirmation";
   const description = isInternal
-    ? "Send the sales/support team the new demo lead first. Add as many To, CC, BCC, and Reply-to addresses as needed."
+    ? "Send the sales/support team the new lead first. Add as many To, CC, BCC, and Reply-to addresses as needed."
     : "Optionally confirm the request to the school contact after the internal alert has been queued.";
   return `<section class="panel"><div class="panel-head"><div><h2>${label}</h2><p class="muted small" style="margin:5px 0 0">${description}</p></div>${badge(rule?.enabled ? "ENABLED" : "DISABLED")}</div><div class="panel-body">
     <form method="post" action="${basePath}/settings/email/rules">${csrfField(session)}
@@ -200,7 +200,7 @@ function emailRuleForm(basePath: string, session: SaasAdminSession, rule: any) {
         <div class="field full"><label>Plain-text message</label><textarea name="textTemplate" placeholder="A school has requested a demo.">${value("textTemplate")}</textarea></div>
         <div class="field full"><label>HTML message</label><textarea name="htmlTemplate" placeholder="&lt;p&gt;A school has requested a demo.&lt;/p&gt;">${value("htmlTemplate")}</textarea><span class="muted small">HTML is stored as entered. Lead values are safely escaped when an email is rendered.</span></div>
       </div>
-      <p class="muted small" style="margin:18px 0 0"><strong>Available variables:</strong> {{schoolName}}, {{ownerName}}, {{ownerEmail}}, {{ownerPhone}}, {{city}}, {{topic}}, {{demoSlotLabel}}, {{demoScheduledAt}}, {{leadUrl}}</p>
+      <p class="muted small" style="margin:18px 0 0"><strong>Available variables:</strong> {{schoolName}}, {{ownerName}}, {{ownerEmail}}, {{ownerPhone}}, {{city}}, {{topic}}, {{demoSlotLabel}}, {{demoScheduledAt}}, {{trialDays}}, {{loginUrl}}, {{leadUrl}}</p>
       <div class="form-actions"><button class="btn primary" type="submit">Save ${label.toLowerCase()}</button></div>
     </form>
   </div></section>`;
@@ -458,7 +458,7 @@ export async function adminPortalHtml(input: {
     const [settings, deliveries] = await Promise.all([getSaasEmailSettings(), listSaasEmailDeliveryLogs(25)]);
     const deliveryStatus = settings.enabled && settings.resendApiKeySet ? "ACTIVE" : settings.enabled ? "KEY REQUIRED" : "DISABLED";
     const rules = [...settings.rules].sort((left, right) => Number(left.audience !== "INTERNAL") - Number(right.audience !== "INTERNAL"));
-    body = `${pageHead("Email delivery", "Configure Resend delivery for public website demo requests. These settings are available only to signed-in Anekio admins.")}
+    body = `${pageHead("Email delivery", "Configure Resend delivery for public demo bookings and trial onboarding. These settings are available only to signed-in Anekio admins.")}
       <section class="panel"><div class="panel-head"><h2>Resend delivery profile</h2>${badge(deliveryStatus)}</div><div class="panel-body">
         <div class="form-grid" style="margin-bottom:18px">
           <div><span class="muted small">Resend API key</span><strong style="display:block;margin-top:5px">${settings.resendApiKeySet ? "Saved securely" : "Not added"}</strong></div>
@@ -468,7 +468,7 @@ export async function adminPortalHtml(input: {
         </div>
         <form method="post" action="${input.basePath}/settings/email">${csrfField(input.session)}
           <div class="form-grid">
-            <div class="field"><label>Demo email delivery</label><select name="enabled"><option value="true"${settings.enabled ? " selected" : ""}>Enabled</option><option value="false"${settings.enabled ? "" : " selected"}>Disabled</option></select><span class="muted small">Disable this to keep saving demo leads without sending any email.</span></div>
+            <div class="field"><label>Public email delivery</label><select name="enabled"><option value="true"${settings.enabled ? " selected" : ""}>Enabled</option><option value="false"${settings.enabled ? "" : " selected"}>Disabled</option></select><span class="muted small">Disable this to keep saving leads and trials without sending any email.</span></div>
             <div class="field"><label>Resend API key</label><input name="resendApiKey" type="password" autocomplete="new-password" placeholder="${settings.resendApiKeySet ? "Saved — enter a replacement only" : "re_…"}"><span class="muted small">${settings.resendApiKeySet ? "Leave blank to keep the saved key. It is never displayed again." : "Paste the Sending-access key from Resend."}</span></div>
             <div class="field"><label>Production sender name</label><input name="productionFromName" required value="${escapeHtml(settings.productionFromName)}" placeholder="Anekio Support"></div>
             <div class="field"><label>Production from address</label><input name="productionFromEmail" required type="email" value="${escapeHtml(settings.productionFromEmail)}" placeholder="support@anekio.com"></div>
@@ -480,10 +480,10 @@ export async function adminPortalHtml(input: {
         </form>
       </div></section>
       ${emailDeliveryHistory(deliveries)}
-      <section class="panel"><div class="panel-head"><h2>Demo booked messages</h2><span class="muted small">Internal alert first, then the optional customer confirmation.</span></div></section>
+      <section class="panel"><div class="panel-head"><h2>Lead and trial messages</h2><span class="muted small">Each event has an internal alert first, then the optional customer confirmation.</span></div></section>
       ${rules.map((rule) => emailRuleForm(input.basePath, input.session, rule)).join("")}`;
   } else {
-    body = `${pageHead("Settings", "Security and portal configuration.")}<section class="panel"><div class="panel-body"><h3>Landing pricing</h3><p class="muted">Set list price, discount, and trial length from <a href="${baseUrl(input.basePath, { view: "pricing" })}"><strong>Billing → Pricing</strong></a>. Those values appear on the public website.</p><h3>Email delivery</h3><p class="muted">Configure the secure Resend sender, staging allow-list, recipients, and templates used when a school books a demo.</p><p><a class="btn" href="${baseUrl(input.basePath, { view: "email" })}">Configure email delivery</a></p><h3>Access policy</h3><p class="muted">Allowed: exact account <strong>buildtogether.tech@gmail.com</strong>, plus verified accounts at exactly <strong>anekio.com</strong> and <strong>anekio.in</strong>.</p><h3>Signed-in operator</h3><p>${escapeHtml(input.session.email)}</p><h3>Google OAuth</h3><p>${googleAdminAuthConfigured() ? badge("ACTIVE") : `${badge("CONFIGURATION_REQUIRED")} <span class="muted">Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.</span>`}</p></div></section>`;
+    body = `${pageHead("Settings", "Security and portal configuration.")}<section class="panel"><div class="panel-body"><h3>Landing pricing</h3><p class="muted">Set list price, discount, and trial length from <a href="${baseUrl(input.basePath, { view: "pricing" })}"><strong>Billing → Pricing</strong></a>. Those values appear on the public website.</p><h3>Email delivery</h3><p class="muted">Configure the secure Resend sender, staging allow-list, recipients, and templates used when a school books a demo or starts a trial.</p><p><a class="btn" href="${baseUrl(input.basePath, { view: "email" })}">Configure email delivery</a></p><h3>Access policy</h3><p class="muted">Allowed: exact account <strong>buildtogether.tech@gmail.com</strong>, plus verified accounts at exactly <strong>anekio.com</strong> and <strong>anekio.in</strong>.</p><h3>Signed-in operator</h3><p>${escapeHtml(input.session.email)}</p><h3>Google OAuth</h3><p>${googleAdminAuthConfigured() ? badge("ACTIVE") : `${badge("CONFIGURATION_REQUIRED")} <span class="muted">Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.</span>`}</p></div></section>`;
   }
 
   return adminDocument({
