@@ -92,7 +92,7 @@ function LaunchPanelButton() {
                 </Pressable>
               </View>
               <ScrollView className="min-h-0 flex-1" contentContainerClassName="px-5 py-5">
-                <OnboardingBoard compact />
+                <OnboardingBoard compact onNavigate={() => setOpen(false)} />
               </ScrollView>
             </SafeAreaView>
           </View>

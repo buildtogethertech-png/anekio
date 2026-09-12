@@ -27,6 +27,7 @@ type OnboardingStepKey =
   | "documents"
   | "review";
 type OnboardingPlanState = { modules: string[]; manualSteps: string[] };
+type OnboardingTarget = { href: string; label: string };
 
 const TEMPLATE_DETAILS: Record<ImportKind, { sheet: string; file: string; title: string }> = {
   classes: { sheet: "Classes", file: "anekio-classes.csv", title: "Classes and sections" },
@@ -1120,27 +1121,29 @@ export async function onboardingBundle(user: AccessUser) {
     complete: boolean,
     blocked = false,
     missingReason = "",
+    target: OnboardingTarget = { href: "/school", label: "Open setup" },
   ) => ({
     key,
     area,
     number,
     title,
     body,
+    target,
     dataComplete: complete,
     manualComplete: manualDone.has(key),
     missingReason,
     status: complete || manualDone.has(key) ? "complete" : blocked ? "blocked" : "ready",
   });
   const steps = [
-    step("school", "school", 1, "School identity", "Confirm school name, session, contact details, and branding in Settings.", Boolean(school?.name && school.name !== "School"), false, "School identity appears on receipts, documents, logins, and parent-facing pages."),
-    step("classes", "school", 2, "Classes in CRM", "Create classes in School setup, or let student and staff sheets create valid class labels like 1-A.", classCount > 0, false, "Classes connect students, teachers, fees, attendance, exams, and document batches."),
-    step("students", "teaching", 3, "Students and parents", "Import family records with generated admission numbers when needed.", studentCount > 0 || importDone.has("students"), false, "Students and parent links are needed for attendance, fees, notices, documents, and parent app access."),
-    step("teachers", "teaching", 4, "Teachers", "Import staff records with role and class-teacher columns when needed.", teacherCount > 0 || importDone.has("teachers"), false, "Teachers are needed for class ownership, timetable, attendance, exams, and staff documents."),
-    step("class_teachers", "teaching", 5, "Class teacher assignments", "Use class labels from the sheet and choose which teacher owns each class.", importDone.has("class_teachers"), teacherCount === 0, "Class teacher assignments decide who manages attendance, class messages, and class-level follow-up."),
-    step("opening_balances", "money", 6, "First time fee import", "Put any previous-system dues in a backlog invoice and tell Anekio the last month already invoiced.", importDone.has("opening_balances") || (studentCount > 0 && openingCount >= studentCount), studentCount === 0, "Opening balances prevent missed old dues and duplicate first invoices."),
-    step("recurring_fees", "money", 7, "Recurring fee rules", "Set class fee ranges. New invoices begin after each student's imported cut-off month.", templateCount > 0, classCount === 0, "Recurring fee rules are needed before monthly billing can run correctly."),
-    step("documents", "documents", 8, "Important documents", "Publish priority templates like ID card, bonafide, transfer certificate, admit card, report card, invoice, and receipt.", documentTemplateCount >= Math.min(priorityDocumentTypes.length, 3), false, "Important documents need published templates before the office can issue IDs, certificates, report cards, invoices, and receipts."),
-    step("review", "documents", 9, "Review and launch", "Check counts, spot-check families, fees, and documents, then hand the workspace to the school.", false, classCount === 0 || studentCount === 0, "Review catches missing setup before the school starts using the workspace live."),
+    step("school", "school", 1, "School identity", "Confirm school name, session, contact details, and branding in Settings.", Boolean(school?.name && school.name !== "School"), false, "School identity appears on receipts, documents, logins, and parent-facing pages.", { href: "/school?tab=identity", label: "Open identity" }),
+    step("classes", "school", 2, "Classes in CRM", "Create classes in School setup, or let student and staff sheets create valid class labels like 1-A.", classCount > 0, false, "Classes connect students, teachers, fees, attendance, exams, and document batches.", { href: "/school?tab=classes", label: "Open classes" }),
+    step("students", "teaching", 3, "Students and parents", "Import family records with generated admission numbers when needed.", studentCount > 0 || importDone.has("students"), false, "Students and parent links are needed for attendance, fees, notices, documents, and parent app access.", { href: "/people", label: "Open students" }),
+    step("teachers", "teaching", 4, "Teachers", "Import staff records with role and class-teacher columns when needed.", teacherCount > 0 || importDone.has("teachers"), false, "Teachers are needed for class ownership, timetable, attendance, exams, and staff documents.", { href: "/staff", label: "Open staff" }),
+    step("class_teachers", "teaching", 5, "Class teacher assignments", "Use class labels from the sheet and choose which teacher owns each class.", importDone.has("class_teachers"), teacherCount === 0, "Class teacher assignments decide who manages attendance, class messages, and class-level follow-up.", { href: "/school?tab=classes", label: "Open classes" }),
+    step("opening_balances", "money", 6, "First time fee import", "Put any previous-system dues in a backlog invoice and tell Anekio the last month already invoiced.", importDone.has("opening_balances") || (studentCount > 0 && openingCount >= studentCount), studentCount === 0, "Opening balances prevent missed old dues and duplicate first invoices.", { href: "/fees", label: "Open fees" }),
+    step("recurring_fees", "money", 7, "Recurring fee rules", "Set class fee ranges. New invoices begin after each student's imported cut-off month.", templateCount > 0, classCount === 0, "Recurring fee rules are needed before monthly billing can run correctly.", { href: "/fees", label: "Open fees" }),
+    step("documents", "documents", 8, "Important documents", "Publish priority templates like ID card, bonafide, transfer certificate, admit card, report card, invoice, and receipt.", documentTemplateCount >= Math.min(priorityDocumentTypes.length, 3), false, "Important documents need published templates before the office can issue IDs, certificates, report cards, invoices, and receipts.", { href: "/school?tab=documents", label: "Open documents" }),
+    step("review", "documents", 9, "Review and launch", "Check counts, spot-check families, fees, and documents, then hand the workspace to the school.", false, classCount === 0 || studentCount === 0, "Review catches missing setup before the school starts using the workspace live.", { href: "/school", label: "Open school setup" }),
   ];
   const required = steps;
   const completed = required.filter((row) => row.status === "complete").length;

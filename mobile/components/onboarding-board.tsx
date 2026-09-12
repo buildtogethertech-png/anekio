@@ -1,4 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Linking, Pressable, Text, View } from "react-native";
 import { apiBase } from "../lib/api";
@@ -55,12 +56,13 @@ function statusTone(status: Onboarding["steps"][number]["status"]) {
 
 function statusLabel(status: Onboarding["steps"][number]["status"]) {
   if (status === "complete") return "Complete";
-  if (status === "blocked") return "Waiting";
+  if (status === "blocked") return "Important";
   if (status === "optional") return "Not selected";
-  return "Ready";
+  return "Important";
 }
 
-export function OnboardingBoard({ compact = false }: { compact?: boolean } = {}) {
+export function OnboardingBoard({ compact = false, onNavigate }: { compact?: boolean; onNavigate?: () => void } = {}) {
+  const router = useRouter();
   const { data, reload } = useRecord();
   const { token } = useSession();
   const onboarding = data?.onboarding;
@@ -100,6 +102,11 @@ export function OnboardingBoard({ compact = false }: { compact?: boolean } = {})
     } finally {
       setBusy("");
     }
+  }
+
+  function openStepTarget(step: Onboarding["steps"][number]) {
+    onNavigate?.();
+    router.push((step.target?.href || "/school") as never);
   }
 
   async function download(template: Template, sampleData = false) {
@@ -295,6 +302,14 @@ export function OnboardingBoard({ compact = false }: { compact?: boolean } = {})
                           {step.manualComplete && !step.dataComplete ? (
                             <Text className="mt-1 text-[11px] leading-4 text-amber-800">Marked continue anyway. Add the missing setup later when the school is ready.</Text>
                           ) : null}
+                          <Pressable
+                            accessibilityRole="link"
+                            onPress={() => openStepTarget(step)}
+                            className="mt-2 flex-row items-center gap-1 self-start"
+                          >
+                            <Text className="text-xs font-semibold text-clay-700">{step.target?.label || "Open setup"}</Text>
+                            <Ionicons name="arrow-forward" size={13} color="#1d4ed8" />
+                          </Pressable>
                         </View>
                       </View>
                       {showingAck && !canCheckDirectly ? (

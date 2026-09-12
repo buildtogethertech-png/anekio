@@ -64,6 +64,7 @@ export type RecordPayload = {
       number: number;
       title: string;
       body: string;
+      target: { href: string; label: string };
       dataComplete: boolean;
       manualComplete: boolean;
       missingReason: string;
