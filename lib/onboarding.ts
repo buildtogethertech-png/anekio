@@ -1,6 +1,6 @@
 import bcrypt from "bcryptjs";
 import ExcelJS from "exceljs";
-import { AttendanceStatus, ExamWorkflowStatus, InvoiceStatus, type Prisma, type Role } from "@prisma/client";
+import { AttendanceStatus, ExamWorkflowStatus, InvoiceStatus, Prisma, type Role } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { can, type AccessUser } from "./permissions";
 import { prisma } from "./prisma";
@@ -10,6 +10,7 @@ import { parseClassLabel, parseCsv } from "./sheet";
 import { readUpload } from "./uploads";
 import { parseWeekdays } from "./schedule";
 import { examPlanWeight, parseExamPlan } from "./exams";
+import { runWithoutTenant } from "./tenant-context";
 
 const ONBOARDING_STATE_ID = "school";
 export const IMPORT_KINDS = ["classes", "students", "teachers", "class_teachers", "attendance", "staff_attendance", "exam_marks", "opening_balances"] as const;
@@ -869,6 +870,14 @@ function rowError(row: ImportRow, message: string) {
   return `Row ${row._row}: ${message}`;
 }
 
+function onboardingImportWriteError(row: ImportRow, error: unknown) {
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+    const target = Array.isArray(error.meta?.target) ? error.meta.target.map(String).join(", ") : "email or mobile";
+    return new Error(rowError(row, `${target} is already used by another account. Use the existing ID or change the duplicate contact detail.`));
+  }
+  return error;
+}
+
 function attendanceDateFromHeader(header: string) {
   if (/^\d{8}$/.test(header)) return `${header.slice(0, 4)}-${header.slice(4, 6)}-${header.slice(6, 8)}`;
   return "";
@@ -1198,11 +1207,11 @@ async function applyClasses(db: OnboardingDb, rows: ImportRow[]) {
 }
 
 async function nextCodes() {
-  const [students, teachers, staffMembers] = await Promise.all([
+  const [students, teachers, staffMembers] = await runWithoutTenant(() => Promise.all([
     prisma.student.findMany({ select: { admissionNo: true } }),
     prisma.teacher.findMany({ select: { employeeId: true } }),
     prisma.staffMember.findMany({ select: { employeeId: true } }),
-  ]);
+  ]));
   const studentNumbers = students.map((row) => Number(row.admissionNo.replace(/\D/g, ""))).filter(Number.isFinite);
   const teacherNumbers = teachers.map((row) => Number(row.employeeId.replace(/\D/g, ""))).filter(Number.isFinite);
   const staffNumbers = staffMembers.map((row) => Number(row.employeeId.replace(/\D/g, ""))).filter(Number.isFinite);
@@ -1216,7 +1225,7 @@ async function nextCodes() {
 async function applyStudents(
   db: OnboardingDb,
   rows: ImportRow[],
-  setup: { roleId: string; password: string; admission: number }
+  setup: { orgId: string; roleId: string; password: string; admission: number }
 ) {
   let created = 0;
   let updated = 0;
@@ -1234,20 +1243,26 @@ async function applyStudents(
     let parentId = user?.parent?.id || "";
     if (user && !parentId) throw new Error(rowError(row, `${user.email} is already used by a non-parent account.`));
     if (!parentId) {
-      const parentUser = await db.user.create({
-        data: {
-          name: sheetCell(row, "Parent name"),
-          email,
-          phone,
-          password: setup.password,
-          roleId: setup.roleId,
-          parent: { create: { phone } },
-        },
-        include: { parent: true },
-      });
+      let parentUser: { parent: { id: string } | null };
+      try {
+        parentUser = await db.user.create({
+          data: {
+            orgId: setup.orgId,
+            name: sheetCell(row, "Parent name"),
+            email,
+            phone,
+            password: setup.password,
+            roleId: setup.roleId,
+            parent: { create: { orgId: setup.orgId, phone } },
+          },
+          include: { parent: true },
+        });
+      } catch (error) {
+        throw onboardingImportWriteError(row, error);
+      }
       parentId = parentUser.parent!.id;
     } else if (user) {
-      await db.user.update({ where: { id: user.id }, data: { name: sheetCell(row, "Parent name") || user.name } });
+      await db.user.update({ where: { id: user.id }, data: { orgId: setup.orgId, name: sheetCell(row, "Parent name") || user.name } });
     }
     const studentId = sheetCell(row, "Anekio student ID");
     let admissionNo = sheetCell(row, "Admission number", "Admission no");
@@ -1263,6 +1278,7 @@ async function applyStudents(
       } while (await db.student.findUnique({ where: { admissionNo }, select: { id: true } }));
     }
     const data = {
+      orgId: setup.orgId,
       name: sheetCell(row, "Student name", "Name"),
       admissionNo,
       dateOfBirth: new Date(`${sheetCell(row, "Date of birth", "DOB")}T00:00:00`),
@@ -1283,7 +1299,7 @@ async function applyStudents(
 async function applyTeachers(
   db: OnboardingDb,
   rows: ImportRow[],
-  setup: { password: string; employee: number; staffEmployee: number; roles: StaffImportRole[] }
+  setup: { orgId: string; password: string; employee: number; staffEmployee: number; roles: StaffImportRole[] }
 ) {
   let created = 0;
   let updated = 0;
@@ -1315,10 +1331,10 @@ async function applyTeachers(
         } while (await db.teacher.findUnique({ where: { employeeId }, select: { id: true } }));
       }
       if (existing) {
-        await db.user.update({ where: { id: existing.userId }, data: { name, email, phone, roleId: role.id } });
+        await db.user.update({ where: { id: existing.userId }, data: { orgId: setup.orgId, name, email, phone, roleId: role.id } });
         await db.teacher.update({
           where: { id: existing.id },
-          data: { employeeId, monthlySalary: salary, qualification: sheetCell(row, "Qualification") || null, ...(classRow ? { classId: classRow.id } : {}) },
+          data: { orgId: setup.orgId, employeeId, monthlySalary: salary, qualification: sheetCell(row, "Qualification") || null, ...(classRow ? { classId: classRow.id } : {}) },
         });
         if (classRow) {
           await db.teacherClass.upsert({
@@ -1329,24 +1345,31 @@ async function applyTeachers(
         }
         updated += 1;
       } else {
-        const createdUser = await db.user.create({
-          data: {
-            name,
-            email,
-            phone,
-            password: setup.password,
-            roleId: role.id,
-            teacher: {
-              create: {
-                employeeId,
-                monthlySalary: salary,
-                qualification: sheetCell(row, "Qualification") || null,
-                ...(classRow ? { classId: classRow.id } : {}),
+        let createdUser: { teacher: { id: string } | null };
+        try {
+          createdUser = await db.user.create({
+            data: {
+              orgId: setup.orgId,
+              name,
+              email,
+              phone,
+              password: setup.password,
+              roleId: role.id,
+              teacher: {
+                create: {
+                  orgId: setup.orgId,
+                  employeeId,
+                  monthlySalary: salary,
+                  qualification: sheetCell(row, "Qualification") || null,
+                  ...(classRow ? { classId: classRow.id } : {}),
+                },
               },
             },
-          },
-          include: { teacher: true },
-        });
+            include: { teacher: true },
+          });
+        } catch (error) {
+          throw onboardingImportWriteError(row, error);
+        }
         if (classRow && createdUser.teacher) {
           await db.teacherClass.create({ data: { teacherId: createdUser.teacher.id, classId: classRow.id } });
         }
@@ -1363,23 +1386,28 @@ async function applyTeachers(
         } while (await db.staffMember.findUnique({ where: { employeeId }, select: { id: true } }));
       }
       if (existing) {
-        if (existing.userId) await db.user.update({ where: { id: existing.userId }, data: { name, email, phone, roleId: role.id } });
+        if (existing.userId) await db.user.update({ where: { id: existing.userId }, data: { orgId: setup.orgId, name, email, phone, roleId: role.id } });
         await db.staffMember.update({
           where: { id: existing.id },
-          data: { name, title: role.name, phone, employeeId, roleId: role.id, monthlySalary: salary, kind: "OFFICE", archivedAt: null },
+          data: { orgId: setup.orgId, name, title: role.name, phone, employeeId, roleId: role.id, monthlySalary: salary, kind: "OFFICE", archivedAt: null },
         });
         updated += 1;
       } else {
-        await db.user.create({
-          data: {
-            name,
-            email,
-            phone,
-            password: setup.password,
-            roleId: role.id,
-            staffMember: { create: { name, title: role.name, phone, employeeId, roleId: role.id, monthlySalary: salary, kind: "OFFICE" } },
-          },
-        });
+        try {
+          await db.user.create({
+            data: {
+              orgId: setup.orgId,
+              name,
+              email,
+              phone,
+              password: setup.password,
+              roleId: role.id,
+              staffMember: { create: { orgId: setup.orgId, name, title: role.name, phone, employeeId, roleId: role.id, monthlySalary: salary, kind: "OFFICE" } },
+            },
+          });
+        } catch (error) {
+          throw onboardingImportWriteError(row, error);
+        }
         created += 1;
       }
     }
@@ -1586,19 +1614,20 @@ export async function applyOnboardingImport(user: AccessUser, input: { batchId?:
   if (errors.length) throw new Error("Fix the review errors and upload the template again.");
   const kind = asKind(batch.kind);
   const rows = JSON.parse(batch.rowsJson) as ImportRow[];
+  const orgId = await onboardingOrgId(user);
   try {
     const codes = kind === "students" || kind === "teachers" ? await nextCodes() : null;
     const peopleSetup = kind === "students"
-      ? { roleId: await roleIdBySlug("PARENT"), password: await bcrypt.hash("12345", 10), admission: codes!.admission }
+      ? { orgId, roleId: await roleIdBySlug("PARENT"), password: await bcrypt.hash("12345", 10), admission: codes!.admission }
       : kind === "teachers"
-        ? { password: await bcrypt.hash("12345", 10), employee: codes!.employee, staffEmployee: codes!.staffEmployee, roles: await staffImportRoles() }
+        ? { orgId, password: await bcrypt.hash("12345", 10), employee: codes!.employee, staffEmployee: codes!.staffEmployee, roles: await staffImportRoles() }
         : null;
     const result = await prisma.$transaction(async (db) => kind === "classes"
       ? applyClasses(db, rows)
       : kind === "students"
-        ? applyStudents(db, rows, peopleSetup as { roleId: string; password: string; admission: number })
+        ? applyStudents(db, rows, peopleSetup as { orgId: string; roleId: string; password: string; admission: number })
         : kind === "teachers"
-          ? applyTeachers(db, rows, peopleSetup as { password: string; employee: number; staffEmployee: number; roles: StaffImportRole[] })
+          ? applyTeachers(db, rows, peopleSetup as { orgId: string; password: string; employee: number; staffEmployee: number; roles: StaffImportRole[] })
           : kind === "attendance"
             ? applyAttendance(db, rows, user)
             : kind === "staff_attendance"
@@ -1607,7 +1636,7 @@ export async function applyOnboardingImport(user: AccessUser, input: { batchId?:
                 ? applyExamMarks(db, rows, user)
           : kind === "class_teachers"
             ? applyClassTeachers(db, rows)
-            : applyOpeningBalances(db, rows, user.orgId));
+            : applyOpeningBalances(db, rows, orgId));
     await prisma.schoolOnboardingImport.update({
       where: { id: batch.id },
       data: { status: "APPLIED", appliedAt: new Date(), createdCount: result.created, updatedCount: result.updated },
