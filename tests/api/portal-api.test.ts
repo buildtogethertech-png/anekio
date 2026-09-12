@@ -973,6 +973,72 @@ describe("Express portal API", () => {
     expect(await prisma.documentEvent.count({ where: { issuedDocumentId: issued.body.id } })).toBe(2);
   });
 
+  it("issues opaque student ID QRs and keeps attendance behind attendance.mark", async () => {
+    const session = await login(fixture.users.office.email);
+    const auth = { Authorization: `Bearer ${session.body.token}` };
+    const saved = await request(app)
+      .post("/api/v1/act")
+      .set(auth)
+      .send({
+        op: "saveDocumentTemplate",
+        type: "STUDENT_ID",
+        name: "Fixture student ID",
+        pageSize: "CR80",
+        orientation: "LANDSCAPE",
+        layout: {
+          elements: [
+            { id: "name", type: "FIELD", x: 10, y: 20, width: 50, height: 10, field: "student.name" },
+            { id: "verify", type: "VERIFY_QR", x: 70, y: 50, width: 20, height: 30, label: "Verification QR" },
+          ],
+        },
+      });
+    expect(saved.status).toBe(200);
+    const published = await request(app).post("/api/v1/act").set(auth).send({ op: "publishDocumentTemplate", id: saved.body.template.id });
+    expect(published.status).toBe(200);
+
+    const first = await request(app).post("/api/v1/act").set(auth).send({
+      op: "issueDocument",
+      templateId: saved.body.template.id,
+      subjectType: "STUDENT",
+      subjectId: fixture.studentId,
+      subjectLabel: "Anaya Student",
+      data: { school: { name: "Fixture Academy" }, student: { id: fixture.studentId, name: "Anaya Student", admissionNo: "ADM-001", classLabel: "6-A" } },
+    });
+    expect(first.status).toBe(200);
+    const card = await prisma.issuedDocument.findUnique({ where: { id: first.body.id } });
+    expect(card?.verifyToken).toBeTruthy();
+    expect(card?.renderedHtml).toContain(`/attendance/scan/${card?.verifyToken}`);
+    expect(card?.renderedHtml).not.toContain(`/attendance/scan/${fixture.studentId}`);
+
+    const scan = await request(app).get(`/attendance/scan/${card?.verifyToken}`);
+    expect(scan.status).toBe(200);
+    expect(scan.text).toContain("Anaya Student");
+    expect(scan.text).toContain("Student verified");
+    expect(scan.text).not.toContain("markAttendance");
+
+    const missing = await request(app).get("/attendance/scan/not-a-real-token");
+    expect(missing.status).toBe(404);
+
+    const resolved = await request(app).post("/api/v1/act").set(auth).send({ op: "resolveStudentIdCardScan", code: `http://localhost:4000/attendance/scan/${card?.verifyToken}` });
+    expect(resolved.status).toBe(200);
+    expect(resolved.body.studentId).toBe(fixture.studentId);
+
+    const parentSession = await login(fixture.users.parent.email);
+    const denied = await request(app)
+      .post("/api/v1/act")
+      .set({ Authorization: `Bearer ${parentSession.body.token}` })
+      .send({ op: "resolveStudentIdCardScan", code: first.body.verifyUrl });
+    expect(denied.status).toBe(400);
+
+    await request(app).post("/api/v1/act").set(auth).send({ op: "changeIssuedDocumentStatus", id: first.body.id, status: "REVOKED", reason: "Lost card" });
+    const afterRevoke = await request(app).post("/api/v1/act").set(auth).send({ op: "resolveStudentIdCardScan", code: `http://localhost:4000/attendance/scan/${card?.verifyToken}` });
+    expect(afterRevoke.status).toBe(400);
+
+    const blocked = await request(app).post("/api/v1/act").set(auth).send({ op: "issueDocument", templateId: "builtin:REPORT_CARD", subjectType: "STUDENT", subjectId: fixture.studentId, subjectLabel: "Anaya Student" });
+    expect(blocked.status).toBe(400);
+    expect(blocked.body.error).toMatch(/Report card template required/i);
+  });
+
   it("persists valid scopes, rejects invalid scopes, and enforces report boundaries", async () => {
     const session = await login(fixture.users.office.email);
     const auth = { Authorization: `Bearer ${session.body.token}` };

@@ -14,6 +14,7 @@ import { StudentAdmitForm, type StudentAdmitPayload } from "./student-admit-form
 import { ReportCardSheet, type ReportCardData } from "./report-card-sheet";
 import { studentSeriesScore, studentYearScore } from "../lib/exams";
 import { act, saveLateTiming } from "../lib/mutate";
+import { openMarksheetPdf } from "../lib/print-html";
 import { apiBase } from "../lib/api";
 import { useRecord, type AdmissionFormField } from "../lib/record";
 import { useSession } from "../lib/session";
@@ -1408,7 +1409,13 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
               return (
                 <Pressable
                   key={series.id}
-                  onPress={() =>
+                  onPress={() => {
+                    if (series.published) {
+                      void openMarksheetPdf(token, { seriesId: series.id, studentId: selected.id }).catch((error) => {
+                        toast.show(error instanceof Error ? error.message : "Could not open the report card.");
+                      });
+                      return;
+                    }
                     setOpenCard({
                       school: examPack?.school ?? data?.school ?? {},
                       seriesName: series.name,
@@ -1425,8 +1432,8 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                       exams: series.exams,
                       marks: series.marks,
                       policy: examPack?.policy ?? { bands: [], passPercent: 33, showRank: false, reportCardPaidMonths: 0 },
-                    })
-                  }
+                    });
+                  }}
                   className={`flex-row items-center justify-between gap-3 px-3 py-3 ${i ? "border-t border-ink-100" : ""}`}
                 >
                   <View className="flex-1">
@@ -1574,7 +1581,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
             </Text>
           </View>
           <View className="flex-row flex-wrap gap-2">
-            {data ? <QuickDocumentButton data={data} subjectType="EMPLOYEE" subjectId={selectedTeacher.id} subjectLabel={selectedTeacher.name} allowedTypes={["EMPLOYEE_ID", "OFFER_LETTER", "APPOINTMENT_LETTER", "CONFIRMATION_LETTER", "EXPERIENCE_CERTIFICATE", "RELIEVING_LETTER", "SERVICE_CERTIFICATE", "LEAVE_APPROVAL", "DISCIPLINARY_LETTER", "CUSTOM_LETTER"]} /> : null}
+            {data ? <QuickDocumentButton data={data} subjectType="EMPLOYEE" subjectId={selectedTeacher.id} subjectLabel={selectedTeacher.name} allowedTypes={["EMPLOYEE_ID", "SALARY_SLIP", "OFFER_LETTER", "APPOINTMENT_LETTER", "CONFIRMATION_LETTER", "EXPERIENCE_CERTIFICATE", "RELIEVING_LETTER", "SERVICE_CERTIFICATE", "LEAVE_APPROVAL", "DISCIPLINARY_LETTER", "CUSTOM_LETTER"]} /> : null}
             {can(user, "people.edit") || can(user, "staff.edit") ? (
               <Pencil
                 onPress={() => {

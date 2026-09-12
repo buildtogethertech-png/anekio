@@ -11,7 +11,7 @@ const steps = [
 
 function run(label, command, args) {
   console.log(`\n==> ${label}`);
-  const result = spawnSync(command, args, { stdio: "inherit", shell: false });
+  const result = spawnSync(command, args, { stdio: "inherit", shell: process.platform === "win32" });
   if (result.status !== 0) {
     const code = result.status ?? 1;
     console.error(`\nSetup stopped at: ${label}`);

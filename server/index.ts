@@ -30,7 +30,7 @@ import {
 import { presignedReadUrl, readUpload, readUploadDataUrl, resolveUploadPath } from "../lib/uploads";
 import { gatewayReady, getSchoolPaySecrets } from "../lib/pay-config";
 import { createSchoolFeeOrder, verifySchoolPayment, invoicesFromPeriods } from "../lib/pay";
-import { batchDocumentsHtml, findBatchDocuments, findIssuedDocument, verificationHtml } from "../lib/document-studio";
+import { batchDocumentsHtml, findBatchDocuments, findIssuedDocument, identityScanHtml, missingIssuedScanHtml, verificationHtml } from "../lib/document-studio";
 import { prisma } from "../lib/prisma";
 import { verifyCashfreeWebhook, captureCashfreePayment } from "../lib/cashfree";
 import { captureRazorpayPayment, captureRazorpayMonths, verifyWebhookSignature } from "../lib/razorpay";
@@ -1215,11 +1215,21 @@ app.get("/i/:token", async (req, res) => {
 app.get("/verify/:token", async (req, res) => {
   const row = await findIssuedDocument(req.params.token);
   if (!row) {
-    return res.status(404).type("html").send(
-      '<!doctype html><html><head><meta name="viewport" content="width=device-width"><title>Document not found</title></head><body style="font-family:Arial,sans-serif;background:#f4f7fb;color:#102a43"><main style="max-width:560px;margin:10vh auto;background:white;padding:28px;border:1px solid #d9e2ec;border-radius:14px"><h1>Document not found</h1><p>This verification code is invalid or unavailable. Check the printed code with the issuing school.</p></main></body></html>'
-    );
+    return res.status(404).type("html").send(missingIssuedScanHtml());
   }
   res.type("html").send(verificationHtml(row));
+});
+
+app.get("/attendance/scan/:token", async (req, res) => {
+  const row = await findIssuedDocument(req.params.token);
+  if (!row || row.type !== "STUDENT_ID") return res.status(404).type("html").send(missingIssuedScanHtml());
+  res.type("html").send(identityScanHtml(row, "STUDENT_ID"));
+});
+
+app.get("/staff/scan/:token", async (req, res) => {
+  const row = await findIssuedDocument(req.params.token);
+  if (!row || row.type !== "EMPLOYEE_ID") return res.status(404).type("html").send(missingIssuedScanHtml());
+  res.type("html").send(identityScanHtml(row, "EMPLOYEE_ID"));
 });
 
 app.get("/documents/:token", async (req, res) => {
@@ -1275,6 +1285,8 @@ app.use((req, res, next) => {
     req.path.startsWith("/pay") ||
     req.path.startsWith("/i") ||
     req.path.startsWith("/verify") ||
+    req.path.startsWith("/attendance/scan") ||
+    req.path.startsWith("/staff/scan") ||
     req.path.startsWith("/documents") ||
     req.path.startsWith("/document-batches") ||
     req.path.startsWith("/demo") ||

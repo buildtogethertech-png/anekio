@@ -3,6 +3,7 @@ import { prisma } from "./prisma";
 import { attendancePct, gradePolicyFrom, marksVisible, studentSeriesScore } from "./exams";
 import { paidFeeMonthCount, reportCardFeeMonthsRequired, reportCardUnlocked } from "./fees";
 import { schoolFromConfig } from "./school";
+import { renderActiveReportCardTemplateHtml } from "./document-studio";
 import { publicOrigin } from "./utils";
 import { readUploadDataUrl, resolveUploadPath } from "./uploads";
 
@@ -99,6 +100,13 @@ export async function marksheetHtmlForUser(
   });
   if (!exams.length) throw new Error("This result is not published yet.");
 
+  const studioHtml = await renderActiveReportCardTemplateHtml({
+    studentId: student.id,
+    seriesId: series.id,
+    examId: examId || undefined,
+  });
+  if (studioHtml) return studioHtml;
+
   const config = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
   const school = schoolFromConfig(config);
   const policy = gradePolicyFrom(config);
@@ -166,7 +174,7 @@ export async function marksheetHtmlForUser(
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800&display=swap" rel="stylesheet">
   <style>
     :root { --blue:#2563EB; --purple:#7C3AED; --cyan:#06B6D4; --ink:#0F172A; --muted:#64748B; --line:#E2E8F0; --paper:#F8FAFC; }
-    * { box-sizing: border-box; }
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
     body { margin:0; background:#eef2f7; color:var(--ink); font-family: Inter, system-ui, sans-serif; }
     .toolbar { padding:14px; text-align:center; }
     .toolbar button { border:1px solid #c5d0dc; background:#fff; padding:8px 16px; border-radius:8px; font:600 13px/1.2 Inter,system-ui,sans-serif; cursor:pointer; }
@@ -226,7 +234,7 @@ export async function marksheetHtmlForUser(
     .signs img.sign { max-height:40px; max-width:100%; display:block; margin:0 auto 6px; }
     .line { border-top:1px solid #94A3B8; padding-top:6px; font-weight:700; color:var(--ink); }
     .foot { display:flex; justify-content:space-between; margin:8px 22px 16px; font-size:8px; color:#94A3B8; }
-    @media print { body { background:#fff; } .toolbar { display:none; } .sheet { box-shadow:none; margin:0; width:auto; } }
+    @media print { * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; } body { background:#fff; } .toolbar { display:none; } .sheet { box-shadow:none; margin:0; width:auto; } }
   </style>
 </head>
 <body>

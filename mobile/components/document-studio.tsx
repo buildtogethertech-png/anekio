@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Image, Linking, PanResponder, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Dropdown } from "./form";
 import { Badge, Button, Field, Input, Modal, Segmented } from "./ui";
@@ -10,6 +10,32 @@ import { useRecord, type DocumentElement, type DocumentElementType, type Documen
 import { useSession } from "../lib/session";
 
 type Studio = NonNullable<RecordPayload["documentStudio"]>;
+
+function attachedZoneForType(type: string) {
+  if (type === "FEE_INVOICE" || type === "FEE_CHALLAN" || type === "FEE_STATEMENT" || type === "DUES_NOTICE" || type === "LATE_FEE_NOTICE") return "Fees invoices and parent pay links";
+  if (type === "PAYMENT_RECEIPT" || type === "CONSOLIDATED_RECEIPT" || type === "FEE_CLEARANCE") return "Fees payment receipts";
+  if (type === "STUDENT_ID") return "People · student ID cards";
+  if (type === "EMPLOYEE_ID") return "People · staff ID cards";
+  if (type === "SALARY_SLIP") return "Staff payroll salary slips";
+  if (type === "ADMIT_CARD") return "Exams · admit cards";
+  if (type === "EXAM_DATE_SHEET") return "Exams · date sheets";
+  if (type === "ADMISSION_CONFIRMATION") return "Admissions confirmations";
+  if (type === "REPORT_CARD" || type === "GRADE_SHEET" || type === "CONSOLIDATED_REPORT" || type === "PROGRESS_REPORT") return "Examination downloads and Exams";
+  return "this document’s zone";
+}
+
+function attachedLibraryTemplates(studio: Studio): DocumentTemplateSummary[] {
+  const libraryTypes = new Set(studio.types.map((row) => row.id));
+  return studio.defaults.filter((row) => libraryTypes.has(row.type)).map((builtin) => {
+    const saved = (studio.templates || [])
+      .filter((row) => row.type === builtin.type && row.status !== "ARCHIVED")
+      .sort((a, b) => {
+        const rank = (status: string) => (status === "ACTIVE" ? 3 : status === "DRAFT" ? 2 : status === "PUBLISHED" ? 1 : 0);
+        return rank(b.status) - rank(a.status) || String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""));
+      })[0];
+    return saved || builtin;
+  });
+}
 
 type ElementAction = {
   type: DocumentElementType;
@@ -52,6 +78,7 @@ const MEDIA_FIELD_LABELS: Record<string, string> = {
   "school.signPath": "Principal signature",
   "school.stampPath": "School stamp",
   "student.photo": "Student photo",
+  "employee.photo": "Staff photo",
 };
 
 function can(user: { permissions: string[] } | null, key: string) {
@@ -67,6 +94,9 @@ function visualFamily(type: string, category: string) {
   }
   if (category === "FEES" || /FEE|RECEIPT|CHALLAN|DUES|REFUND|CONCESSION/.test(type)) {
     return { label: "FINANCE", accent: "#0F766E", accent2: "#14B8A6", iconBg: "#CCFBF1", icon: "receipt-outline" as const, border: "#99F6E4" };
+  }
+  if (type === "EMPLOYEE_ID") {
+    return { label: "STAFF", accent: "#0F766E", accent2: "#EA580C", iconBg: "#CCFBF1", icon: "id-card-outline" as const, border: "#99F6E4" };
   }
   if (category === "EMPLOYEE") {
     return { label: "EMPLOYEES", accent: "#E11D48", accent2: "#EA580C", iconBg: "#FFE4E6", icon: "briefcase-outline" as const, border: "#FECDD3" };
@@ -99,15 +129,26 @@ function statusMeta(template: DocumentTemplateSummary) {
   return { tone: "ink" as const, label: template.status };
 }
 
+function miniLayerColor(row: DocumentElement) {
+  if (row.type === "PHOTO") return "#94A3B8";
+  if (row.type === "IMAGE") return "#E2E8F0";
+  if (row.type === "VERIFY_QR") return "#FFFFFF";
+  if (row.type === "BARCODE") return "#0F172A";
+  if (row.type === "TABLE") return "#2563EB";
+  return row.background || row.borderColor || "#E2E8F0";
+}
+
 function MiniDocumentPreview({ template }: { template: DocumentTemplateSummary }) {
   const card = template.pageSize === "CR80";
   const landscape = template.orientation === "LANDSCAPE";
-  const width = card ? 108 : landscape ? 118 : 86;
-  const height = card ? 68 : landscape ? 84 : 118;
-  const layers = template.layout.elements.filter((row) => row.type === "SHAPE" || row.type === "LINE" || row.type === "TABLE").slice(0, 36);
+  const width = card ? 148 : landscape ? 118 : 86;
+  const height = card ? 94 : landscape ? 84 : 118;
+  const layers = template.layout.elements
+    .filter((row) => ["SHAPE", "LINE", "TABLE", "PHOTO", "IMAGE", "VERIFY_QR", "BARCODE"].includes(row.type))
+    .slice(0, 48);
   return (
-    <View className="items-center justify-center rounded-xl px-2 py-3" style={{ backgroundColor: "#F8FAFC" }}>
-      <View className="overflow-hidden rounded-md bg-white shadow-sm" style={{ width, height }}>
+    <View className="items-center justify-center rounded-xl px-2 py-4" style={{ backgroundColor: card ? "#F0F9FF" : "#F8FAFC" }}>
+      <View className="overflow-hidden rounded-lg bg-white shadow-sm" style={{ width, height, borderWidth: 1, borderColor: card ? "#7DD3FC" : "#E2E8F0" }}>
         {layers.map((row) => (
           <View
             key={row.id}
@@ -118,7 +159,7 @@ function MiniDocumentPreview({ template }: { template: DocumentTemplateSummary }
               top: `${row.y}%`,
               width: `${row.width}%`,
               height: row.type === "LINE" ? 1 : `${row.height}%`,
-              backgroundColor: row.background || (row.type === "TABLE" ? "#2563EB" : row.borderColor || "#E2E8F0"),
+              backgroundColor: miniLayerColor(row),
               opacity: row.type === "TABLE" ? 0.85 : 1,
             }}
           />
@@ -184,6 +225,11 @@ function TemplateGalleryCard({
           </View>
         </View>
         <Text className="mt-3 text-xs leading-5 text-ink-700" numberOfLines={3}>{hint}</Text>
+        {template.status === "ACTIVE" ? (
+          <Text className="mt-2 text-[11px] font-semibold text-violet-800">Attached to {attachedZoneForType(template.type)}</Text>
+        ) : (
+          <Text className="mt-2 text-[11px] font-medium text-ink-600">Publish to attach this design to {attachedZoneForType(template.type)}</Text>
+        )}
         <Text className="mt-3 text-[11px] font-medium text-ink-600">{template.pageSize}  ·  {template.orientation === "LANDSCAPE" ? "Landscape" : "Portrait"}  ·  {template.layout.elements.length} elements</Text>
         <View className="mt-4 flex-row flex-wrap gap-2">
           {desktop && design ? <Button variant="ghost" onPress={onEdit}>{template.builtIn ? "Design document" : "Edit"}</Button> : null}
@@ -286,7 +332,7 @@ function defaultMediaField(type: DocumentElementType) {
 function mediaTypeForField(field?: string): DocumentElementType {
   if (field === "school.signPath") return "SIGNATURE";
   if (field === "school.stampPath") return "STAMP";
-  if (field === "student.photo") return "PHOTO";
+  if (field === "student.photo" || field === "employee.photo") return "PHOTO";
   return "IMAGE";
 }
 
@@ -326,12 +372,19 @@ function tableHeaderLabel(value: string) {
   return value.replace(/([A-Z])/g, " $1").replace(/^./, (char) => char.toUpperCase());
 }
 
-function ElementPreview({ element, previewData, previewScale }: { element: DocumentElement; previewData: Record<string, unknown>; previewScale: number }) {
+function ElementPreview({ element, previewData, previewScale, qrPreviewSrc, canvasWidth, canvasHeight }: { element: DocumentElement; previewData: Record<string, unknown>; previewScale: number; qrPreviewSrc?: string; canvasWidth?: number; canvasHeight?: number }) {
   if (element.type === "VERIFY_QR" || element.type === "CUSTOM_QR") {
+    const label = element.type === "VERIFY_QR"
+      ? (/attendance|student id/i.test(element.label || "") ? "SCAN TO VERIFY" : "VERIFICATION")
+      : "URL";
     return (
-      <View className="h-full w-full items-center justify-center border border-ink-300 bg-white">
-        <Ionicons name="qr-code-outline" size={30} color="#102a43" />
-        <Text className="mt-0.5 text-[6px] text-ink-700">{element.type === "VERIFY_QR" ? "VERIFY" : "URL"}</Text>
+      <View className="h-full w-full items-center justify-center border border-ink-200 bg-white">
+        {element.type === "VERIFY_QR" && qrPreviewSrc ? (
+          <Image source={{ uri: qrPreviewSrc }} className="h-[78%] w-[78%]" resizeMode="contain" />
+        ) : (
+          <Ionicons name="qr-code-outline" size={30} color="#102a43" />
+        )}
+        <Text className="mt-0.5 text-[6px] font-semibold text-ink-700">{label}</Text>
       </View>
     );
   }
@@ -377,25 +430,50 @@ function ElementPreview({ element, previewData, previewScale }: { element: Docum
     );
   }
   if (element.type === "LINE") return <View className="mt-[2px] h-px w-full bg-ink-600" />;
-  if (element.type === "SHAPE") return <View className="h-full w-full border border-ink-400" style={{ backgroundColor: element.background || "#f0f4f8" }} />;
+  if (element.type === "SHAPE") {
+    return (
+      <View
+        className="h-full w-full"
+        style={{
+          backgroundColor: element.background || "#f0f4f8",
+          borderWidth: element.borderColor ? 2 : 0,
+          borderColor: element.borderColor || "transparent",
+        }}
+      />
+    );
+  }
   if (element.type === "FIELD" && isMediaField(element.field)) return <MediaElementPreview element={{ ...element, type: mediaTypeForField(element.field) }} previewData={previewData} />;
   const copy = element.type === "FIELD" ? previewText(atPath(previewData, element.field)) || element.label || "Data" : element.value || element.label || element.type;
+  const boxHeight = Math.max(8, (canvasHeight || 0) * (element.height / 100));
+  const requested = (element.fontSize || 14) * previewScale;
+  const fontSize = canvasHeight ? Math.min(requested, Math.max(7, boxHeight / 1.2)) : requested;
+  const lines = boxHeight >= fontSize * 2.1 ? 2 : 1;
   return (
     <Text
-      style={{ fontSize: (element.fontSize || 14) * previewScale, lineHeight: (element.fontSize || 14) * previewScale * 1.2, fontWeight: element.fontWeight || "normal", color: element.color || "#102a43", textAlign: element.align || "left", backgroundColor: element.background || "transparent" }}
+      numberOfLines={lines}
+      style={{
+        fontSize,
+        lineHeight: fontSize * 1.15,
+        fontWeight: element.fontWeight || "normal",
+        color: element.color || "#102a43",
+        textAlign: element.align || "left",
+        backgroundColor: element.background || "transparent",
+        width: "100%",
+      }}
     >
       {copy}
     </Text>
   );
 }
 
-function CanvasItem({ element, selected, canvasWidth, canvasHeight, previewData, previewScale, onSelect, onMoveStart, onMove }: {
+function CanvasItem({ element, selected, canvasWidth, canvasHeight, previewData, previewScale, qrPreviewSrc, onSelect, onMoveStart, onMove }: {
   element: DocumentElement;
   selected: boolean;
   canvasWidth: number;
   canvasHeight: number;
   previewData: Record<string, unknown>;
   previewScale: number;
+  qrPreviewSrc?: string;
   onSelect: () => void;
   onMoveStart: () => void;
   onMove: (x: number, y: number) => void;
@@ -414,7 +492,9 @@ function CanvasItem({ element, selected, canvasWidth, canvasHeight, previewData,
       style={{ position: "absolute", left: `${element.x}%`, top: `${element.y}%`, width: `${element.width}%`, height: `${element.height}%` } as never}
       className={`${selected ? "border-2 border-blue-600" : "border border-transparent"} ${element.locked ? "opacity-80" : ""}`}
     >
-      <Pressable className="h-full w-full overflow-hidden" onPress={onSelect}><ElementPreview element={element} previewData={previewData} previewScale={previewScale} /></Pressable>
+      <Pressable className={`h-full w-full ${["TEXT", "FIELD"].includes(element.type) ? "overflow-visible" : "overflow-hidden"}`} onPress={onSelect}>
+        <ElementPreview element={element} previewData={previewData} previewScale={previewScale} qrPreviewSrc={qrPreviewSrc} canvasWidth={canvasWidth} canvasHeight={canvasHeight} />
+      </Pressable>
       {selected ? <View className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-blue-600" /> : null}
     </View>
   );
@@ -510,7 +590,7 @@ function TemplateEditor({ template, studio, data, onClose, onSaved }: { template
       phone: previewSelection.student?.parentPhone || sampleStudent.parentPhone,
     },
     employee: previewSelection.employee || sampleEmployee,
-    exam: { name: "Term 1", classLabel: previewSelection.student?.classLabel || "10-A", rollNo: "18", schedule: [{ subject: "English", date: "11 Sep 2026" }, { subject: "Mathematics", date: "12 Sep 2026" }] },
+    exam: { name: "Term 1", classLabel: previewSelection.student?.classLabel || "10-A", rollNo: "18", schedule: [{ Subject: "English", Date: "11 Sep 2026", Time: "9:00–12:00" }, { Subject: "Mathematics", Date: "12 Sep 2026", Time: "9:00–12:00" }, { Subject: "Science", Date: "14 Sep 2026", Time: "9:00–12:00" }] },
     results: { marks: [{ subject: "English", marks: 76, maxMarks: 80, grade: "A1" }, { subject: "Mathematics", marks: 72, maxMarks: 80, grade: "A1" }], attendance: "Present 92%" },
     fees: {
       amount: "Rs. 40,850.00",
@@ -622,8 +702,9 @@ function TemplateEditor({ template, studio, data, onClose, onSaved }: { template
     setMessage("");
     try {
       const result = await act<{ ok: true; template: { id: string } }>(token, "saveDocumentTemplate", { id: draft.builtIn ? "" : draft.id, type: draft.type, name: draft.name, description: draft.description, pageSize: draft.pageSize, orientation: draft.orientation, layout: draft.layout });
+      setDraft((current) => ({ ...current, id: result.template.id, builtIn: false }));
       if (publish) await act(token, "publishDocumentTemplate", { id: result.template.id });
-      setMessage(publish ? "Published and active." : "Draft saved.");
+      setMessage(publish ? `Published. This design is now attached to ${attachedZoneForType(draft.type)}.` : "Draft saved.");
       await onSaved();
       if (publish) onClose();
     } catch (error) {
@@ -658,7 +739,7 @@ function TemplateEditor({ template, studio, data, onClose, onSaved }: { template
           student: student || sampleStudent,
           employee: employee || sampleEmployee,
           staff: { classTeacherName: "Kavita Joshi", principalName: (data.school as { signatory?: string } | undefined)?.signatory || "Principal" },
-          exam: { name: "Annual Examination", classLabel: student?.classLabel || "VIII-A", schedule: [{ subject: "English", date: "11 Sep 2026" }, { subject: "Mathematics", date: "12 Sep 2026" }] },
+          exam: { name: "Annual Examination", classLabel: student?.classLabel || "VIII-A", schedule: [{ Subject: "English", Date: "11 Sep 2026", Time: "9:00–12:00" }, { Subject: "Mathematics", Date: "12 Sep 2026", Time: "9:00–12:00" }, { Subject: "Science", Date: "14 Sep 2026", Time: "9:00–12:00" }] },
           results: {
             marks: [
               { Subject: "Mathematics", "Max Marks": 100, "Marks Obtained": 87, Grade: "A+", "Grade Point": "9.0", Remark: "Excellent" },
@@ -687,8 +768,31 @@ function TemplateEditor({ template, studio, data, onClose, onSaved }: { template
             promotionStatus: "PROMOTED",
             nextClass: "Promoted to Class IX",
           },
-          fees: { amount: "₹24,000", paid: "₹18,000", due: "₹6,000", lines: [{ item: "Tuition fee", amount: "₹20,000" }, { item: "Activity fee", amount: "₹4,000" }] },
-          document: {},
+          guardian: { name: student?.parent || sampleStudent.parent, phone: student?.parentPhone || sampleStudent.parentPhone },
+          fees: {
+            amount: "₹24,000",
+            paid: draft.type === "PAYMENT_RECEIPT" ? "₹24,000" : "₹18,000",
+            due: draft.type === "PAYMENT_RECEIPT" ? "₹0" : "₹6,000",
+            status: draft.type === "PAYMENT_RECEIPT" ? "Paid" : "Part paid",
+            receiptLabel: "Receipt No.",
+            receiptNumber: "RCPT-2026-014",
+            term: "Term 1 · 2026–27",
+            method: "UPI",
+            reference: "UPI/2026/091201",
+            receivedBy: "Vikram Rao",
+            receivedAt: "2026-09-12 14:30",
+            receivedNote: "Collected against Term 1 fees",
+            upiId: "springfield.school@upi",
+            bankName: "HDFC Bank",
+            account: "Springfield Education Trust · 501000112233 · HDFC0001234",
+            lines: [
+              { Particulars: "Tuition fee", Period: "Apr–Jun 2026", Amount: "₹12,000" },
+              { Particulars: "Transport fee", Period: "Quarter 1", Amount: "₹6,000" },
+              { Particulars: "Examination fee", Period: "Term 1", Amount: "₹4,000" },
+              { Particulars: "Activity & lab", Period: "Annual", Amount: "₹2,000" },
+            ],
+          },
+          document: { dueDate: "15 Apr 2026" },
         },
       });
       if (browserWindow) {
@@ -709,7 +813,7 @@ function TemplateEditor({ template, studio, data, onClose, onSaved }: { template
   return (
     <Modal open title={`Design document · ${draft.name}`} onClose={onClose} studio footer={
       <View className="flex-row flex-wrap items-center justify-between gap-3">
-        <Text className={`text-xs ${/could not|required|add /i.test(message) ? "text-red-700" : "text-green-800"}`}>{message}</Text>
+        <Text className={`text-xs ${/could not|required|add |not found|no access|empty|foreign/i.test(message) ? "text-red-700" : "text-green-800"}`}>{message}</Text>
         <View className="flex-row gap-2"><Button variant="ghost" disabled={previewing} onPress={() => void preview()}>{previewing ? "Preparing…" : "Preview"}</Button><Button variant="ghost" disabled={saving} onPress={() => void save(false)}>Save draft</Button>{canPublish ? <Button disabled={saving} onPress={() => void save(true)}>Publish template</Button> : null}</View>
       </View>
     }>
@@ -766,7 +870,7 @@ function TemplateEditor({ template, studio, data, onClose, onSaved }: { template
             <View style={{ width: canvasWidth, height: canvasHeight }} className="relative bg-white shadow-lg">
               <View pointerEvents="none" className="absolute inset-3 border border-dashed border-ink-200" />
               {draft.layout.elements.map((item) => (
-                <CanvasItem key={item.id} element={item} selected={item.id === selectedId} canvasWidth={canvasWidth} canvasHeight={canvasHeight} previewData={canvasPreviewData} previewScale={canvasZoom} onSelect={() => setSelectedId(item.id)} onMoveStart={rememberLayout} onMove={(x, y) => patchElement(item.id, { x, y }, false)} />
+                <CanvasItem key={item.id} element={item} selected={item.id === selectedId} canvasWidth={canvasWidth} canvasHeight={canvasHeight} previewData={canvasPreviewData} previewScale={canvasZoom} qrPreviewSrc={studio.verifyQrPreviewSrc} onSelect={() => setSelectedId(item.id)} onMoveStart={rememberLayout} onMove={(x, y) => patchElement(item.id, { x, y }, false)} />
               ))}
             </View>
           </ScrollView>
@@ -860,7 +964,7 @@ export function DocumentStudio({ studio, data }: { studio: Studio; data: RecordP
   const publish = can(user, "documents.publish") || can(user, "school.edit");
   const issueAllowed = can(user, "documents.issue") || can(user, "school.edit");
   const revokeAllowed = can(user, "documents.revoke") || can(user, "school.edit");
-  const allTemplates = [...studio.templates, ...studio.defaults.filter((row) => !studio.templates.some((custom) => custom.type === row.type))];
+  const allTemplates = attachedLibraryTemplates(studio);
   const filtered = allTemplates.filter((row) => (category === "ALL" || row.category === category) && (!query.trim() || `${row.name} ${row.description}`.toLowerCase().includes(query.trim().toLowerCase())));
 
   useEffect(() => {
@@ -885,7 +989,7 @@ export function DocumentStudio({ studio, data }: { studio: Studio; data: RecordP
         <View className="max-w-2xl">
           <Text className="text-[11px] font-bold uppercase tracking-[0.16em] text-indigo-600">Document Studio</Text>
           <Text className="mt-1 text-2xl font-bold tracking-tight text-ink-900">Design documents</Text>
-          <Text className="mt-1.5 text-sm leading-6 text-ink-700">Visual PDF and print layouts for IDs, report cards, invoices, and certificates. Fee amounts stay in Fees → Configure fees. WhatsApp campaigns stay in Communication.</Text>
+          <Text className="mt-1.5 text-sm leading-6 text-ink-700">Publish a layout to attach it to its live zone: invoices and receipts in Fees, report cards in Exams, ID cards in People, and salary slips in Staff.</Text>
         </View>
         <View className="w-72"><Segmented value={view} options={[{ id: "templates", label: "Library" }, { id: "issued", label: `Issued · ${studio.issued.length}` }]} onChange={setView} /></View>
       </View>
@@ -904,7 +1008,7 @@ export function DocumentStudio({ studio, data }: { studio: Studio; data: RecordP
               </Pressable>
             ))}
           </View>
-          <Input value={query} onChangeText={setQuery} placeholder="Search report card, receipt, certificate…" />
+          <Input value={query} onChangeText={setQuery} placeholder="Search ID card, invoice, report card…" />
           <View className="flex-row flex-wrap gap-4">
             {filtered.map((template) => {
               const type = studio.types.find((row) => row.id === template.type);
@@ -945,7 +1049,12 @@ export function DocumentStudio({ studio, data }: { studio: Studio; data: RecordP
 }
 
 function issuableTemplates(studio: RecordPayload["documentStudio"] | undefined, allowedTypes: string[]) {
-  const active = (studio?.templates || []).filter((row) => row.status === "ACTIVE" && allowedTypes.includes(row.type));
+  const related = allowedTypes.some((type) => type === "REPORT_CARD" || type.startsWith("REPORT_CARD_") || type === "GRADE_SHEET" || type === "CONSOLIDATED_REPORT" || type === "PROGRESS_REPORT")
+    ? [...new Set([...allowedTypes, "REPORT_CARD", "GRADE_SHEET", "PROGRESS_REPORT", "CONSOLIDATED_REPORT"])]
+    : allowedTypes;
+  const active = (studio?.templates || []).filter((row) => row.status === "ACTIVE" && related.includes(row.type));
+  const reportOnly = allowedTypes.every((type) => type === "REPORT_CARD" || type.startsWith("REPORT_CARD_") || type === "GRADE_SHEET" || type === "CONSOLIDATED_REPORT" || type === "PROGRESS_REPORT");
+  if (reportOnly) return active.sort((a, b) => a.name.localeCompare(b.name));
   const used = new Set(active.map((row) => row.type));
   const defaults = (studio?.defaults || []).filter((row) => allowedTypes.includes(row.type) && !used.has(row.type));
   for (const row of defaults) used.add(row.type);
@@ -994,6 +1103,7 @@ export function QuickDocumentButton({
 }) {
   const { token, user } = useSession();
   const { reload } = useRecord();
+  const router = useRouter();
   const studio = data.documentStudio;
   const templates = issuableTemplates(studio, allowedTypes);
   const [open, setOpen] = useState(false);
@@ -1106,13 +1216,16 @@ export function QuickDocumentButton({
           {resultIssue ? (
             templates.length ? (
               <View className="rounded-md border border-ink-200 bg-white px-3 py-2.5">
-                <Text className="text-sm font-semibold text-ink-900">Report card</Text>
-                <Text className="mt-0.5 text-xs text-ink-700">Sitting results for this class</Text>
+                <Text className="text-sm font-semibold text-ink-900">{selectedTemplate?.name || "Report card"}</Text>
+                <Text className="mt-0.5 text-xs text-ink-700">Published template attached to this sitting</Text>
               </View>
             ) : (
               <View className="rounded-md border border-amber-300 bg-amber-50 p-3">
-                <Text className="text-sm font-semibold text-amber-900">No report card template</Text>
-                <Text className="mt-1 text-xs leading-5 text-amber-900">Add a Report card type in Settings → Documents, then issue results here.</Text>
+                <Text className="text-sm font-semibold text-amber-900">Report card template required</Text>
+                <Text className="mt-1 text-xs leading-5 text-amber-900">The result is published, but no Student Report Card design has been published yet.</Text>
+                <Pressable className="mt-2" onPress={() => { setOpen(false); router.push({ pathname: "/school", params: { tab: "documents", document: "REPORT_CARD" } } as never); }}>
+                  <Text className="text-xs font-semibold text-amber-950">Open Document Studio</Text>
+                </Pressable>
               </View>
             )
           ) : templates.length ? (
