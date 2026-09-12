@@ -1611,7 +1611,7 @@ export async function applyOnboardingImport(user: AccessUser, input: { batchId?:
   if (!batch) throw new Error("Import review not found.");
   if (batch.status === "APPLIED") throw new Error("This import was already applied.");
   const errors = JSON.parse(batch.errorsJson) as string[];
-  if (errors.length) throw new Error("Fix the review errors and upload the template again.");
+  if (errors.length && batch.status !== "FAILED") throw new Error("Fix the review errors and upload the template again.");
   const kind = asKind(batch.kind);
   const rows = JSON.parse(batch.rowsJson) as ImportRow[];
   const orgId = await onboardingOrgId(user);
@@ -1636,10 +1636,10 @@ export async function applyOnboardingImport(user: AccessUser, input: { batchId?:
                 ? applyExamMarks(db, rows, user)
           : kind === "class_teachers"
             ? applyClassTeachers(db, rows)
-            : applyOpeningBalances(db, rows, orgId));
+            : applyOpeningBalances(db, rows, orgId), { maxWait: 10_000, timeout: 60_000 });
     await prisma.schoolOnboardingImport.update({
       where: { id: batch.id },
-      data: { status: "APPLIED", appliedAt: new Date(), createdCount: result.created, updatedCount: result.updated },
+      data: { status: "APPLIED", appliedAt: new Date(), createdCount: result.created, updatedCount: result.updated, errorsJson: "[]" },
     });
     return { ...result, batchId: batch.id };
   } catch (error) {

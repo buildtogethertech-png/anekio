@@ -432,6 +432,11 @@ export function OnboardingBoard({
           </View>
           {preview.errors.slice(0, 12).map((error) => <Text key={error} className="text-xs leading-5 text-red-700">• {error}</Text>)}
           {preview.errors.length > 12 ? <Text className="text-xs text-red-700">And {preview.errors.length - 12} more issues.</Text> : null}
+          {message ? (
+            <View className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+              <Text className="text-xs leading-5 text-amber-900">{message}</Text>
+            </View>
+          ) : null}
           <View className="flex-row justify-end gap-2">
             <Button variant="ghost" onPress={() => setPreview(null)}>Cancel</Button>
             <Button disabled={preview.errors.length > 0 || busy === "apply"} onPress={() => void applyImport()}>
