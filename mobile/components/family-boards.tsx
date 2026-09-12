@@ -3131,10 +3131,6 @@ export function FamilyFees() {
   const toast = useToast();
   const child = data?.child;
   const months = useMemo(() => openFeeMonths(child?.fees ?? []), [child?.fees]);
-  const paid = useMemo(
-    () => (child?.fees ?? []).filter((inv) => inv.display === "paid" || dueOf(inv) <= 0),
-    [child?.fees]
-  );
   const allFees = child?.fees ?? [];
   const openInvoices = useMemo(() => allFees.filter((inv) => dueOf(inv) > 0), [allFees]);
   const totalDue = openInvoices.reduce((sum, inv) => sum + dueOf(inv), 0);
@@ -3144,25 +3140,14 @@ export function FamilyFees() {
   const nextDue = openInvoices
     .slice()
     .sort((a, b) => Date.parse(a.dueAt || "") - Date.parse(b.dueAt || ""))[0];
-  const documents = allFees.filter((inv) => inv.invoiceUrl || inv.receiptUrl);
-  const [through, setThrough] = useState<number | null>(null);
+  const statementRows = allFees
+    .slice()
+    .sort((a, b) => Date.parse(a.dueAt || "") - Date.parse(b.dueAt || "") || a.title.localeCompare(b.title));
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    setThrough(null);
-  }, [child?.id]);
-
-  const activeThrough = months.length ? (through == null ? months.length - 1 : Math.min(through, months.length - 1)) : -1;
-  const selected = months.slice(0, activeThrough + 1);
-  const selectedIds = selected.flatMap((month) => month.items.map((inv) => inv.id));
-  const selectedTotal = selected.reduce((sum, month) => sum + month.dueNow, 0);
-  const allDue = months.length > 0 && activeThrough === months.length - 1;
+  const selectedIds = openInvoices.map((inv) => inv.id);
   const payKind = data?.kind === "STUDENT" ? " with Razorpay" : "";
-  const payLabel = !selected.length
-    ? "Pick months to pay"
-    : allDue
-      ? `Pay all due · ${rupees(selectedTotal)}${payKind}`
-      : `Pay ${selected.length} ${selected.length === 1 ? "month" : "months"} · ${rupees(selectedTotal)}${payKind}`;
+  const payLabel = totalDue > 0 ? `Pay ${rupees(totalDue)}${payKind}` : "No dues";
 
   async function pay() {
     if (!child?.id || !selectedIds.length) return;
@@ -3184,11 +3169,6 @@ export function FamilyFees() {
     } finally {
       setBusy(false);
     }
-  }
-
-  function toggleMonth(index: number) {
-    if (index === activeThrough) setThrough(index - 1);
-    else if (index > activeThrough) setThrough(index);
   }
 
   function openDocument(url?: string) {
@@ -3219,12 +3199,12 @@ export function FamilyFees() {
                 <Text className="text-xs font-semibold uppercase tracking-wide text-ink-500">Selected child</Text>
                 <Text className="mt-1 text-lg font-semibold text-ink-900">{child?.name} · {child?.classLabel}</Text>
                 <Text className="mt-1 text-xs leading-5 text-ink-700">
-                  Older unpaid months are included first so school records stay clean.
+                  This statement includes older dues first, so payment records stay in order.
                 </Text>
               </View>
               {months.length ? (
                 <Button className="sm:min-w-[220px]" disabled={!selectedIds.length || busy} onPress={pay}>
-                  {busy ? "Opening pay..." : allDue ? `Pay ${rupees(selectedTotal)}` : payLabel}
+                  {busy ? "Opening pay..." : payLabel}
                 </Button>
               ) : null}
             </View>
@@ -3243,118 +3223,51 @@ export function FamilyFees() {
               </View>
             </View>
           </Card>
-          {months.length ? (
-            <>
-              <ChipScroller>
-                <Chip
-                  label={`All due · ${rupees(months.reduce((sum, month) => sum + month.dueNow, 0))}`}
-                  active={allDue}
-                  onPress={() => setThrough(months.length - 1)}
-                />
-                {months.length > 1
-                  ? months.slice(0, -1).map((month, i) => (
-                      <Chip
-                        key={month.period}
-                        label={`${i + 1} ${i === 0 ? "month" : "months"}`}
-                        active={activeThrough === i}
-                        onPress={() => setThrough(i)}
-                      />
-                    ))
-                  : null}
-              </ChipScroller>
-              <Text className="text-xs leading-5 text-ink-700">
-                Choose how far you want to pay. Earlier unpaid months remain selected because schools reconcile fees in date order.
-              </Text>
-            </>
-          ) : null}
-          {months.flatMap((month, index) => {
-            const on = index <= activeThrough;
-            const locked = !on && index > 0;
-            return month.items.map((inv) => (
-              <Pressable key={inv.id} onPress={() => toggleMonth(index)}>
-                <Card className={`p-5 ${on ? "border-clay-500" : ""}`}>
-                  <View className="gap-4 sm:flex-row sm:items-start">
-                    <View
-                      className={`h-5 w-5 rounded border ${
-                        on ? "border-clay-500 bg-clay-500" : "border-ink-300 bg-white"
-                      }`}
-                    />
+          <Card className="overflow-hidden">
+            <View className="border-b border-ink-100 px-4 py-3">
+              <Text className="text-sm font-semibold text-ink-900">Fee statement</Text>
+              <Text className="mt-0.5 text-xs text-ink-700">Invoices and receipts are kept with each fee row.</Text>
+            </View>
+            {statementRows.map((inv, index) => {
+              const status = feeStatus(inv);
+              return (
+                <View key={inv.id} className={`px-4 py-3 ${index ? "border-t border-ink-100" : ""}`}>
+                  <View className="gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <View className="min-w-0 flex-1">
-                      <View className="gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <View className="min-w-0 flex-1">
-                          <View className="flex-row flex-wrap items-center gap-2">
-                            <Text className="text-base font-semibold text-ink-900">{inv.title}</Text>
-                            <Badge tone={feeTone(feeStatus(inv))}>{feeStatus(inv)}</Badge>
-                          </View>
-                          <Text className="mt-1 text-xs text-ink-700">Due {inv.due}</Text>
-                        </View>
-                        <View className="flex-row flex-wrap gap-2">
-                          {inv.invoiceUrl ? <Button variant="ghost" className="px-3 py-2" onPress={() => openDocument(inv.invoiceUrl)}>View invoice</Button> : null}
-                          {inv.receiptUrl ? <Button variant="ghost" className="px-3 py-2" onPress={() => openDocument(inv.receiptUrl)}>View receipt</Button> : null}
-                        </View>
+                      <View className="flex-row flex-wrap items-center gap-2">
+                        <Text className="text-sm font-semibold text-ink-900">{inv.title}</Text>
+                        <Badge tone={feeTone(status)}>{status}</Badge>
                       </View>
-                      <View className="mt-4 flex-row flex-wrap gap-2">
-                        <View className="min-w-[112px] flex-1 rounded-md bg-ink-50 p-3">
-                          <Text className="text-[11px] font-medium text-ink-700">Amount</Text>
-                          <Text className="mt-1 text-sm font-semibold text-ink-900">{inv.amount}</Text>
-                        </View>
-                        <View className="min-w-[112px] flex-1 rounded-md bg-emerald-50 p-3">
-                          <Text className="text-[11px] font-medium text-emerald-800">Paid</Text>
-                          <Text className="mt-1 text-sm font-semibold text-emerald-900">{inv.paid}</Text>
-                        </View>
-                        <View className="min-w-[112px] flex-1 rounded-md bg-amber-50 p-3">
-                          <Text className="text-[11px] font-medium text-amber-800">Remaining</Text>
-                          <Text className="mt-1 text-sm font-semibold text-amber-950">{inv.remaining}</Text>
-                        </View>
-                      </View>
-                      {inv.lines.length ? (
-                        <Text className="mt-3 text-xs leading-5 text-ink-700">{inv.lines.join(" · ")}</Text>
+                      <Text className="mt-1 text-xs text-ink-700">Due {inv.due}</Text>
+                    </View>
+                    <View className="flex-row flex-wrap gap-x-4 gap-y-1">
+                      {inv.invoiceUrl ? (
+                        <Pressable onPress={() => openDocument(inv.invoiceUrl)} hitSlop={8}>
+                          <Text className="text-xs font-semibold text-clay-600">Invoice</Text>
+                        </Pressable>
                       ) : null}
-                      {inv.lateLabel ? <Text className="mt-1 text-xs text-red-700">{inv.lateLabel}</Text> : null}
-                      {locked ? (
-                        <Text className="mt-2 text-xs text-ink-700">
-                          Pay {months[index - 1].label} first to unlock this month.
-                        </Text>
+                      {inv.receiptUrl ? (
+                        <Pressable onPress={() => openDocument(inv.receiptUrl)} hitSlop={8}>
+                          <Text className="text-xs font-semibold text-clay-600">Receipt</Text>
+                        </Pressable>
                       ) : null}
                     </View>
                   </View>
-                </Card>
-              </Pressable>
-            ));
-          })}
-          {documents.length ? (
-            <Card className="mt-2 overflow-hidden">
-              <View className="border-b border-ink-100 p-4">
-                <Text className="text-base font-semibold text-ink-900">Invoices & Receipts</Text>
-                <Text className="mt-1 text-xs text-ink-700">Download official fee documents raised by the school.</Text>
-              </View>
-              <View>
-                {documents.map((inv, index) => {
-                  const status = feeStatus(inv);
-                  return (
-                    <View key={inv.id} className={`gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between ${index ? "border-t border-ink-100" : ""}`}>
-                      <View className="min-w-0 flex-1">
-                        <View className="flex-row flex-wrap items-center gap-2">
-                          <Text className="text-sm font-semibold text-ink-900">{inv.title}</Text>
-                          <Badge tone={feeTone(status)}>{status}</Badge>
-                        </View>
-                        <Text className="mt-1 text-xs text-ink-700">Due {inv.due} · Paid {inv.paid} · Remaining {inv.remaining}</Text>
-                      </View>
-                      <View className="flex-row flex-wrap gap-2">
-                        {inv.invoiceUrl ? <Button variant="ghost" className="px-3 py-2" onPress={() => openDocument(inv.invoiceUrl)}>Invoice</Button> : null}
-                        {inv.receiptUrl ? <Button variant="ghost" className="px-3 py-2" onPress={() => openDocument(inv.receiptUrl)}>Receipt</Button> : null}
-                      </View>
+                  <View className="mt-3 gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <View className="flex-row flex-wrap gap-x-5 gap-y-1">
+                      <Text className="text-xs text-ink-700">Amount <Text className="font-semibold text-ink-900">{inv.amount}</Text></Text>
+                      <Text className="text-xs text-ink-700">Paid <Text className="font-semibold text-ink-900">{inv.paid}</Text></Text>
+                      <Text className="text-xs text-ink-700">Remaining <Text className="font-semibold text-ink-900">{inv.remaining}</Text></Text>
                     </View>
-                  );
-                })}
-              </View>
-            </Card>
-          ) : paid.length ? (
-            <Card className="mt-2 p-5">
-              <Text className="text-base font-semibold text-ink-900">Invoices & Receipts</Text>
-              <Text className="mt-1 text-sm text-ink-700">Paid fee records are available here after school documents are issued.</Text>
-            </Card>
-          ) : null}
+                    {inv.lateLabel ? <Text className="text-xs font-medium text-red-700">{inv.lateLabel}</Text> : null}
+                  </View>
+                  {inv.lines.length ? (
+                    <Text className="mt-2 text-xs leading-5 text-ink-700">{inv.lines.join(" · ")}</Text>
+                  ) : null}
+                </View>
+              );
+            })}
+          </Card>
         </View>
       )}
     </View>
