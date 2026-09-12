@@ -22,6 +22,8 @@ type OnboardingStepKey =
   | "students"
   | "teachers"
   | "class_teachers"
+  | "collection_account"
+  | "fee_documents"
   | "opening_balances"
   | "recurring_fees"
   | "documents"
@@ -43,6 +45,8 @@ const ONBOARDING_STEP_KEYS = new Set<OnboardingStepKey>([
   "students",
   "teachers",
   "class_teachers",
+  "collection_account",
+  "fee_documents",
   "opening_balances",
   "recurring_fees",
   "documents",
@@ -1096,14 +1100,29 @@ export async function onboardingBundle(user: AccessUser) {
   need(user);
   const schoolId = String((user as AccessUser & { schoolId?: string | null }).schoolId || "school");
   const priorityDocumentTypes = DOCUMENT_TYPES.filter((item) => item.priority).map((item) => item.id);
-  const [state, school, classCount, studentCount, teacherCount, templateCount, openingCount, documentTemplateCount, latestImports, latestSheets] = await Promise.all([
+  const [state, school, classCount, studentCount, teacherCount, templateCount, openingCount, feeDocumentCount, documentTemplateCount, latestImports, latestSheets] = await Promise.all([
     prisma.schoolOnboardingState.findUnique({ where: { id: ONBOARDING_STATE_ID } }),
-    prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { name: true } }),
+    prisma.schoolConfig.findUnique({
+      where: { id: "school" },
+      select: {
+        name: true,
+        upiId: true,
+        bankName: true,
+        bankAccountName: true,
+        bankAccountNumber: true,
+        bankIfsc: true,
+        payGateway: true,
+        razorpayKeyId: true,
+        cashfreeAppId: true,
+        billdeskMerchantId: true,
+      },
+    }),
     prisma.class.count({ where: { archivedAt: null } }),
     prisma.student.count(),
     prisma.teacher.count(),
     prisma.feeTemplate.count(),
     prisma.feeInvoice.count({ where: { period: "OPENING" } }),
+    prisma.documentTemplate.count({ where: { schoolId, status: "ACTIVE", type: { in: ["FEE_INVOICE", "PAYMENT_RECEIPT"] } } }),
     prisma.documentTemplate.count({ where: { schoolId, status: "ACTIVE", type: { in: priorityDocumentTypes } } }),
     prisma.schoolOnboardingImport.findMany({ orderBy: { createdAt: "desc" }, take: 8 }),
     prisma.onboardingGoogleSheet.findMany({ orderBy: { createdAt: "desc" }, take: 8 }),
@@ -1112,6 +1131,13 @@ export async function onboardingBundle(user: AccessUser) {
   const modules = planState.modules;
   const manualDone = new Set(planState.manualSteps);
   const importDone = new Set(latestImports.filter((row) => row.status === "APPLIED").map((row) => row.kind));
+  const hasBank = Boolean(school?.bankName && school.bankAccountName && school.bankAccountNumber && school.bankIfsc);
+  const hasUpi = Boolean(school?.upiId);
+  const hasGateway =
+    school?.payGateway === "RAZORPAY" ? Boolean(school.razorpayKeyId)
+      : school?.payGateway === "CASHFREE" ? Boolean(school.cashfreeAppId)
+        : school?.payGateway === "BILLDESK" ? Boolean(school.billdeskMerchantId)
+          : false;
   const step = (
     key: OnboardingStepKey,
     area: OnboardingSetupArea,
@@ -1140,10 +1166,12 @@ export async function onboardingBundle(user: AccessUser) {
     step("students", "teaching", 3, "Students and parents", "Import family records with generated admission numbers when needed.", studentCount > 0 || importDone.has("students"), false, "Students and parent links are needed for attendance, fees, notices, documents, and parent app access.", { href: "/people", label: "Open students" }),
     step("teachers", "teaching", 4, "Teachers", "Import staff records with role and class-teacher columns when needed.", teacherCount > 0 || importDone.has("teachers"), false, "Teachers are needed for class ownership, timetable, attendance, exams, and staff documents.", { href: "/staff", label: "Open staff" }),
     step("class_teachers", "teaching", 5, "Class teacher assignments", "Use class labels from the sheet and choose which teacher owns each class.", importDone.has("class_teachers"), teacherCount === 0, "Class teacher assignments decide who manages attendance, class messages, and class-level follow-up.", { href: "/school?tab=classes", label: "Open classes" }),
-    step("opening_balances", "money", 6, "First time fee import", "Put any previous-system dues in a backlog invoice and tell Anekio the last month already invoiced.", importDone.has("opening_balances") || (studentCount > 0 && openingCount >= studentCount), studentCount === 0, "Opening balances prevent missed old dues and duplicate first invoices.", { href: "/fees", label: "Open fees" }),
-    step("recurring_fees", "money", 7, "Recurring fee rules", "Set class fee ranges. New invoices begin after each student's imported cut-off month.", templateCount > 0, classCount === 0, "Recurring fee rules are needed before monthly billing can run correctly.", { href: "/fees", label: "Open fees" }),
-    step("documents", "documents", 8, "Important documents", "Publish priority templates like ID card, bonafide, transfer certificate, admit card, report card, invoice, and receipt.", documentTemplateCount >= Math.min(priorityDocumentTypes.length, 3), false, "Important documents need published templates before the office can issue IDs, certificates, report cards, invoices, and receipts.", { href: "/school?tab=documents", label: "Open documents" }),
-    step("review", "documents", 9, "Review and launch", "Check counts, spot-check families, fees, and documents, then hand the workspace to the school.", false, classCount === 0 || studentCount === 0, "Review catches missing setup before the school starts using the workspace live.", { href: "/school", label: "Open school setup" }),
+    step("collection_account", "money", 6, "Bank and collection account", "Add UPI, bank account, or the school's payment gateway before asking parents to pay.", hasUpi || hasBank || hasGateway, false, "Collection details appear on pay pages, invoices, receipts, and office collection workflows.", { href: "/school?tab=collect", label: "Open collection setup" }),
+    step("fee_documents", "money", 7, "Invoice and receipt documents", "Set up the fee invoice and payment receipt templates before the first billing cycle.", feeDocumentCount >= 2, false, "Invoice and receipt templates decide what parents see, print, download, and verify after payment.", { href: "/school?tab=documents&document=FEE_INVOICE", label: "Open invoice sample" }),
+    step("opening_balances", "money", 8, "First time fee import", "Put any previous-system dues in a backlog invoice and tell Anekio the last month already invoiced.", importDone.has("opening_balances") || (studentCount > 0 && openingCount >= studentCount), studentCount === 0, "Opening balances prevent missed old dues and duplicate first invoices.", { href: "/fees", label: "Open fees" }),
+    step("recurring_fees", "money", 9, "Recurring fee rules", "Set class fee ranges. New invoices begin after each student's imported cut-off month.", templateCount > 0, classCount === 0, "Recurring fee rules are needed before monthly billing can run correctly.", { href: "/fees", label: "Open fees" }),
+    step("documents", "documents", 10, "Important documents", "Preview and publish priority templates like ID card, bonafide, transfer certificate, admit card, report card, invoice, and receipt.", documentTemplateCount >= Math.min(priorityDocumentTypes.length, 3), false, "Important documents need published templates before the office can issue IDs, certificates, report cards, invoices, and receipts.", { href: "/school?tab=documents&document=STUDENT_ID", label: "Open document samples" }),
+    step("review", "documents", 11, "Review and launch", "Check counts, spot-check families, fees, and documents, then hand the workspace to the school.", false, classCount === 0 || studentCount === 0, "Review catches missing setup before the school starts using the workspace live.", { href: "/school", label: "Open school setup" }),
   ];
   const required = steps;
   const completed = required.filter((row) => row.status === "complete").length;

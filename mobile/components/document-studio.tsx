@@ -1,6 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Image, Linking, PanResponder, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
-import { useEffect, useMemo, useState } from "react";
+import { useLocalSearchParams } from "expo-router";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Dropdown } from "./form";
 import { Badge, Button, Field, Input, Modal, Segmented } from "./ui";
 import { useAssetUrl } from "../lib/assets";
@@ -841,6 +842,9 @@ export function DocumentStudio({ studio, data }: { studio: Studio; data: RecordP
   const { reload } = useRecord();
   const { token, user } = useSession();
   const { width } = useWindowDimensions();
+  const params = useLocalSearchParams<{ document?: string | string[] }>();
+  const requestedDocument = Array.isArray(params.document) ? params.document[0] : params.document;
+  const openedRequestedDocument = useRef("");
   const desktop = width >= 900;
   const [view, setView] = useState("templates");
   const [category, setCategory] = useState("ALL");
@@ -858,6 +862,17 @@ export function DocumentStudio({ studio, data }: { studio: Studio; data: RecordP
   const revokeAllowed = can(user, "documents.revoke") || can(user, "school.edit");
   const allTemplates = [...studio.templates, ...studio.defaults.filter((row) => !studio.templates.some((custom) => custom.type === row.type))];
   const filtered = allTemplates.filter((row) => (category === "ALL" || row.category === category) && (!query.trim() || `${row.name} ${row.description}`.toLowerCase().includes(query.trim().toLowerCase())));
+
+  useEffect(() => {
+    if (!requestedDocument || openedRequestedDocument.current === requestedDocument) return;
+    const template = allTemplates.find((row) => row.type === requestedDocument);
+    if (!template) return;
+    openedRequestedDocument.current = requestedDocument;
+    setView("templates");
+    setCategory(template.category);
+    setQuery("");
+    setEditor(template);
+  }, [allTemplates, requestedDocument]);
 
   async function archive(template: DocumentTemplateSummary) {
     try { await act(token, "archiveDocumentTemplate", { id: template.id }); setMessage("Template archived."); await reload(); }
