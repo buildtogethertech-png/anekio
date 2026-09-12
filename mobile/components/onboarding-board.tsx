@@ -35,10 +35,10 @@ type GoogleSheetResult = {
 };
 
 const SETUP_AREAS: { key: Onboarding["steps"][number]["area"]; title: string; body: string; icon: keyof typeof Ionicons.glyphMap }[] = [
-  { key: "school", title: "School", body: "Identity, sessions, classes, and day structure.", icon: "school-outline" },
-  { key: "teaching", title: "Teaching", body: "Students, parents, staff, attendance, and people documents.", icon: "people-outline" },
+  { key: "school", title: "School basics", body: "Identity, sessions, classes, clock, and calendar.", icon: "school-outline" },
+  { key: "teaching", title: "People", body: "Students, parents, staff, attendance, and people documents.", icon: "people-outline" },
   { key: "exams", title: "Exams", body: "Exam setup, marks history, and result documents.", icon: "reader-outline" },
-  { key: "money", title: "Money", body: "Opening dues, fee rules, invoice, receipt, and collections.", icon: "card-outline" },
+  { key: "money", title: "Fees", body: "Opening dues, fee rules, invoice, receipt, and collections.", icon: "card-outline" },
 ];
 
 const FOCUSED_IMPORT_COPY: Record<Template["kind"], { heading: string; description: string; requiredColumns: string; note: string }> = {
@@ -315,7 +315,7 @@ export function OnboardingBoard({
             <View className="flex-row items-center justify-between gap-4">
               <View className="min-w-0 flex-1">
                 <Text className="text-base font-semibold text-ink-900">School setup</Text>
-                <Text className="mt-1 text-xs leading-5 text-ink-700">Work through School, Teaching, Exams, and Money. Steps validate live setup data before they can be checked directly.</Text>
+                <Text className="mt-1 text-xs leading-5 text-ink-700">Work through School basics, People, Exams, and Fees. Steps validate live setup data before they can be checked directly.</Text>
               </View>
               <Badge tone="clay">{`${onboarding.progress.percent}% complete`}</Badge>
             </View>
@@ -349,7 +349,7 @@ export function OnboardingBoard({
                       const showingAck = pendingAck === step.key;
                       const loading = busy === `step:${step.key}` || busy === `open:${step.key}`;
                       return (
-                        <View key={step.key} className={`rounded-lg border p-3 ${step.status === "blocked" ? "border-amber-200 bg-amber-50" : "border-ink-100 bg-white"}`}>
+                        <View key={step.key} className="rounded-lg border border-ink-100 bg-white p-3">
                           <View className="flex-row items-start gap-3">
                             <Pressable
                               accessibilityRole="checkbox"
@@ -362,14 +362,14 @@ export function OnboardingBoard({
                                 else if (canContinueManually) setPendingAck(showingAck ? "" : step.key);
                                 else void openStepTarget(step);
                               }}
-                              className={`h-7 w-7 items-center justify-center rounded-md border ${step.status === "complete" ? "border-emerald-600 bg-emerald-100" : "border-ink-300 bg-white"}`}
+                              className={`h-7 w-7 items-center justify-center rounded-md border ${step.status === "complete" ? "border-emerald-600 bg-emerald-100" : step.status === "blocked" ? "border-amber-500 bg-white" : "border-ink-300 bg-white"}`}
                             >
                               {loading ? (
                                 <ActivityIndicator color="#2563eb" size="small" />
                               ) : step.status === "complete" ? (
                                 <Ionicons name="checkmark" size={17} color="#047857" />
                               ) : (
-                                <Text className="text-xs font-semibold text-clay-700">{step.number}</Text>
+                                <Text className={`text-xs font-semibold ${step.status === "blocked" ? "text-amber-800" : "text-clay-700"}`}>{step.number}</Text>
                               )}
                             </Pressable>
                             <View className="min-w-0 flex-1">
