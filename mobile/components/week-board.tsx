@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useRouter } from "expo-router";
 import { Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { Button, Card, Chip, ChipScroller, Empty, Field, Input, Modal, PageHeader, Toast, useToast } from "./ui";
 import { DEFAULT_SUBJECTS } from "./school-setup";
@@ -79,6 +80,7 @@ function jsToWeekday(jsDay: number) {
 export function WeekBoard() {
   const { data, reload } = useRecord();
   const { token, user } = useSession();
+  const router = useRouter();
   const { width } = useWindowDimensions();
   const split = width >= 1100;
   const phone = width < 700;
@@ -106,6 +108,7 @@ export function WeekBoard() {
   const activeDay = weekdays.some((d) => d.n === day) ? day : weekdays[0]?.n ?? 1;
   const teamWeek = Boolean(data?.teamWeek);
   const editable = can(user, "timetable.edit") || teamWeek;
+  const periodsNotSet = periods.length === 0;
   const weekCapacity =
     table?.weekCapacity ?? weekdays.length * periods.filter((p) => !p.isBreak).length;
   const holdTeacher = hold ? teachers.find((t) => t.id === hold.teacherId)?.name : "";
@@ -235,6 +238,20 @@ export function WeekBoard() {
         />
       )}
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
+      {periodsNotSet ? (
+        <Card className="mt-3 gap-4 border-amber-200 bg-amber-50 p-5">
+          <View className="gap-1">
+            <Text className="text-base font-semibold text-amber-950">Periods not set</Text>
+            <Text className="max-w-2xl text-sm leading-6 text-amber-900">
+              Set bell periods in School settings before building the routine.
+            </Text>
+          </View>
+          <View className="flex-row flex-wrap gap-2">
+            <Button onPress={() => router.push("/school?tab=clock" as never)}>Set periods</Button>
+          </View>
+        </Card>
+      ) : null}
+      {periodsNotSet ? null : (
       <View className={split ? "mt-3 min-h-0 flex-1 flex-row gap-6" : phone ? "min-h-0 flex-1" : "mt-3 min-h-0 flex-1"}>
         {split ? <View className="min-h-0 w-1/4 max-w-xs shrink-0">{teacherRail}</View> : null}
 
@@ -351,6 +368,7 @@ export function WeekBoard() {
           </View>
         </View>
       </View>
+      )}
 
       <Modal
         open={Boolean(assign)}
