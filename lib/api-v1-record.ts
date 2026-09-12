@@ -321,6 +321,8 @@ function serializeChild(
         lateLabel: b.lateLabel,
         lines: feeLineTotal(parseFeeLines(inv.linesJson)).rows.map((l) => `${l.label} ${formatInr(l.value)}`),
         token: inv.shareToken,
+        invoiceUrl: inv.shareToken ? `${publicOrigin()}/i/${inv.shareToken}` : "",
+        receiptUrl: inv.shareToken && b.display === "PAID" ? `${publicOrigin()}/pay/${inv.shareToken}?paid=1` : "",
         payUrl: inv.shareToken ? `${publicOrigin()}/pay/${inv.shareToken}` : "",
       };
     }),

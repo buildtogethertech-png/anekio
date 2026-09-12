@@ -3070,6 +3070,32 @@ function dueOf(inv: FeeInv) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function amountOf(value?: string) {
+  const n = Number(String(value || "").replace(/[^\d.]/g, ""));
+  return Number.isFinite(n) ? n : 0;
+}
+
+function feeStatus(inv: FeeInv) {
+  if (inv.display === "paid" || dueOf(inv) <= 0) return "Paid";
+  if (inv.display === "overdue") return "Overdue";
+  if (amountOf(inv.paid) > 0) return "Partial";
+  return "Due";
+}
+
+function feeTone(status: string): "leaf" | "warn" | "danger" | "clay" {
+  if (status === "Paid") return "leaf";
+  if (status === "Overdue") return "danger";
+  if (status === "Partial") return "warn";
+  return "clay";
+}
+
+function shortDate(value?: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+}
+
 function openFeeMonths(fees: FeeInv[]) {
   const open = fees
     .map((inv) => ({ inv, dueNow: dueOf(inv) }))
@@ -3109,6 +3135,16 @@ export function FamilyFees() {
     () => (child?.fees ?? []).filter((inv) => inv.display === "paid" || dueOf(inv) <= 0),
     [child?.fees]
   );
+  const allFees = child?.fees ?? [];
+  const openInvoices = useMemo(() => allFees.filter((inv) => dueOf(inv) > 0), [allFees]);
+  const totalDue = openInvoices.reduce((sum, inv) => sum + dueOf(inv), 0);
+  const overdueDue = openInvoices
+    .filter((inv) => inv.display === "overdue")
+    .reduce((sum, inv) => sum + dueOf(inv), 0);
+  const nextDue = openInvoices
+    .slice()
+    .sort((a, b) => Date.parse(a.dueAt || "") - Date.parse(b.dueAt || ""))[0];
+  const documents = allFees.filter((inv) => inv.invoiceUrl || inv.receiptUrl);
   const [through, setThrough] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -3155,6 +3191,11 @@ export function FamilyFees() {
     else if (index > activeThrough) setThrough(index);
   }
 
+  function openDocument(url?: string) {
+    if (!url) return;
+    void Linking.openURL(url);
+  }
+
   return (
     <View>
       <PageHeader
@@ -3162,7 +3203,7 @@ export function FamilyFees() {
         title="Fees"
         lede={
           child
-            ? `${child.name} · ${child.classLabel}. Clear older dues first. Paying all at once is the usual way.`
+            ? `${child.name} · ${child.classLabel}. Pay dues and keep invoices and receipts in one place.`
             : "Dues and collection."
         }
       />
@@ -3172,6 +3213,36 @@ export function FamilyFees() {
         <Empty title="No fee invoices yet" body="When the office raises a bill, it is here." />
       ) : (
         <View className="gap-3">
+          <Card className="overflow-hidden">
+            <View className="gap-4 border-b border-ink-100 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+              <View className="min-w-0 flex-1">
+                <Text className="text-xs font-semibold uppercase tracking-wide text-ink-500">Selected child</Text>
+                <Text className="mt-1 text-lg font-semibold text-ink-900">{child?.name} · {child?.classLabel}</Text>
+                <Text className="mt-1 text-xs leading-5 text-ink-700">
+                  Older unpaid months are included first so school records stay clean.
+                </Text>
+              </View>
+              {months.length ? (
+                <Button className="sm:min-w-[220px]" disabled={!selectedIds.length || busy} onPress={pay}>
+                  {busy ? "Opening pay..." : allDue ? `Pay ${rupees(selectedTotal)}` : payLabel}
+                </Button>
+              ) : null}
+            </View>
+            <View className="flex-row flex-wrap gap-2 p-4">
+              <View className="min-w-[150px] flex-1 rounded-md border border-ink-100 bg-ink-50 p-3">
+                <Text className="text-xs font-medium text-ink-700">Total due</Text>
+                <Text className="mt-1 text-2xl font-semibold text-ink-900">{rupees(totalDue)}</Text>
+              </View>
+              <View className="min-w-[150px] flex-1 rounded-md border border-red-100 bg-red-50 p-3">
+                <Text className="text-xs font-medium text-red-800">Overdue</Text>
+                <Text className="mt-1 text-2xl font-semibold text-red-900">{rupees(overdueDue)}</Text>
+              </View>
+              <View className="min-w-[150px] flex-1 rounded-md border border-sky-100 bg-sky-50 p-3">
+                <Text className="text-xs font-medium text-sky-900">Next due date</Text>
+                <Text className="mt-1 text-2xl font-semibold text-sky-950">{shortDate(nextDue?.dueAt) || "All clear"}</Text>
+              </View>
+            </View>
+          </Card>
           {months.length ? (
             <>
               <ChipScroller>
@@ -3191,70 +3262,98 @@ export function FamilyFees() {
                     ))
                   : null}
               </ChipScroller>
-              <Text className="text-xs text-ink-700">
-                Tick months in order. Older dues stay selected — you cannot skip them.
+              <Text className="text-xs leading-5 text-ink-700">
+                Choose how far you want to pay. Earlier unpaid months remain selected because schools reconcile fees in date order.
               </Text>
-              <Button disabled={!selectedIds.length || busy} onPress={pay}>
-                {busy ? "Opening pay…" : payLabel}
-              </Button>
             </>
           ) : null}
           {months.flatMap((month, index) => {
             const on = index <= activeThrough;
+            const locked = !on && index > 0;
             return month.items.map((inv) => (
               <Pressable key={inv.id} onPress={() => toggleMonth(index)}>
                 <Card className={`p-5 ${on ? "border-clay-500" : ""}`}>
-                  <View className="flex-row items-start gap-3">
+                  <View className="gap-4 sm:flex-row sm:items-start">
                     <View
-                      className={`mt-0.5 h-5 w-5 rounded border ${
+                      className={`h-5 w-5 rounded border ${
                         on ? "border-clay-500 bg-clay-500" : "border-ink-300 bg-white"
                       }`}
                     />
-                    <View className="flex-1">
-                      <View className="flex-row items-start justify-between gap-3">
-                        <View className="flex-1">
-                          <Text className="font-semibold text-ink-900">{inv.title}</Text>
-                          <Text className="mt-1 text-sm text-ink-700">
-                            Due {inv.due} · {inv.amount} · paid {inv.paid}
-                            {inv.remaining !== "₹0" ? ` · remaining ${inv.remaining}` : ""}
-                          </Text>
-                          {inv.lines.length ? (
-                            <Text className="mt-1 text-xs text-ink-700">{inv.lines.join(" · ")}</Text>
-                          ) : null}
-                          {inv.lateLabel ? <Text className="mt-1 text-xs text-ink-700">{inv.lateLabel}</Text> : null}
-                          {!on && index > 0 ? (
-                            <Text className="mt-1 text-xs text-ink-700">
-                              Clear {months[index - 1].label} first.
-                            </Text>
-                          ) : null}
+                    <View className="min-w-0 flex-1">
+                      <View className="gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <View className="min-w-0 flex-1">
+                          <View className="flex-row flex-wrap items-center gap-2">
+                            <Text className="text-base font-semibold text-ink-900">{inv.title}</Text>
+                            <Badge tone={feeTone(feeStatus(inv))}>{feeStatus(inv)}</Badge>
+                          </View>
+                          <Text className="mt-1 text-xs text-ink-700">Due {inv.due}</Text>
                         </View>
-                        <Badge tone={inv.display === "overdue" ? "warn" : "clay"}>{inv.display}</Badge>
+                        <View className="flex-row flex-wrap gap-2">
+                          {inv.invoiceUrl ? <Button variant="ghost" className="px-3 py-2" onPress={() => openDocument(inv.invoiceUrl)}>View invoice</Button> : null}
+                          {inv.receiptUrl ? <Button variant="ghost" className="px-3 py-2" onPress={() => openDocument(inv.receiptUrl)}>View receipt</Button> : null}
+                        </View>
                       </View>
+                      <View className="mt-4 flex-row flex-wrap gap-2">
+                        <View className="min-w-[112px] flex-1 rounded-md bg-ink-50 p-3">
+                          <Text className="text-[11px] font-medium text-ink-700">Amount</Text>
+                          <Text className="mt-1 text-sm font-semibold text-ink-900">{inv.amount}</Text>
+                        </View>
+                        <View className="min-w-[112px] flex-1 rounded-md bg-emerald-50 p-3">
+                          <Text className="text-[11px] font-medium text-emerald-800">Paid</Text>
+                          <Text className="mt-1 text-sm font-semibold text-emerald-900">{inv.paid}</Text>
+                        </View>
+                        <View className="min-w-[112px] flex-1 rounded-md bg-amber-50 p-3">
+                          <Text className="text-[11px] font-medium text-amber-800">Remaining</Text>
+                          <Text className="mt-1 text-sm font-semibold text-amber-950">{inv.remaining}</Text>
+                        </View>
+                      </View>
+                      {inv.lines.length ? (
+                        <Text className="mt-3 text-xs leading-5 text-ink-700">{inv.lines.join(" · ")}</Text>
+                      ) : null}
+                      {inv.lateLabel ? <Text className="mt-1 text-xs text-red-700">{inv.lateLabel}</Text> : null}
+                      {locked ? (
+                        <Text className="mt-2 text-xs text-ink-700">
+                          Pay {months[index - 1].label} first to unlock this month.
+                        </Text>
+                      ) : null}
                     </View>
                   </View>
                 </Card>
               </Pressable>
             ));
           })}
-          {paid.length ? (
-            <View className="mt-2 gap-3">
-              {paid.map((inv) => (
-                <Card key={inv.id} className="p-5">
-                  <View className="flex-row items-start justify-between gap-3">
-                    <View className="flex-1">
-                      <Text className="font-semibold text-ink-900">{inv.title}</Text>
-                      <Text className="mt-1 text-sm text-ink-700">
-                        Due {inv.due} · {inv.amount} · paid {inv.paid}
-                      </Text>
-                      {inv.lines.length ? (
-                        <Text className="mt-1 text-xs text-ink-700">{inv.lines.join(" · ")}</Text>
-                      ) : null}
+          {documents.length ? (
+            <Card className="mt-2 overflow-hidden">
+              <View className="border-b border-ink-100 p-4">
+                <Text className="text-base font-semibold text-ink-900">Invoices & Receipts</Text>
+                <Text className="mt-1 text-xs text-ink-700">Download official fee documents raised by the school.</Text>
+              </View>
+              <View>
+                {documents.map((inv, index) => {
+                  const status = feeStatus(inv);
+                  return (
+                    <View key={inv.id} className={`gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between ${index ? "border-t border-ink-100" : ""}`}>
+                      <View className="min-w-0 flex-1">
+                        <View className="flex-row flex-wrap items-center gap-2">
+                          <Text className="text-sm font-semibold text-ink-900">{inv.title}</Text>
+                          <Badge tone={feeTone(status)}>{status}</Badge>
+                        </View>
+                        <Text className="mt-1 text-xs text-ink-700">Due {inv.due} · Paid {inv.paid} · Remaining {inv.remaining}</Text>
+                      </View>
+                      <View className="flex-row flex-wrap gap-2">
+                        {inv.invoiceUrl ? <Button variant="ghost" className="px-3 py-2" onPress={() => openDocument(inv.invoiceUrl)}>Invoice</Button> : null}
+                        {inv.receiptUrl ? <Button variant="ghost" className="px-3 py-2" onPress={() => openDocument(inv.receiptUrl)}>Receipt</Button> : null}
+                      </View>
                     </View>
-                    <Badge tone="leaf">{inv.display === "paid" ? "paid" : inv.display}</Badge>
-                  </View>
-                </Card>
-              ))}
-            </View>
+                  );
+                })}
+              </View>
+            </Card>
+          ) : paid.length ? (
+            <Card className="mt-2 p-5">
+              <Text className="text-base font-semibold text-ink-900">Invoices & Receipts</Text>
+              <Text className="mt-1 text-sm text-ink-700">Paid fee records are available here after school documents are issued.</Text>
+            </Card>
           ) : null}
         </View>
       )}

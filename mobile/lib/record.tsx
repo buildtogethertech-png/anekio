@@ -212,6 +212,8 @@ export type RecordPayload = {
       lateLabel: string;
       lines: string[];
       token: string;
+      invoiceUrl?: string;
+      receiptUrl?: string;
       payUrl?: string;
     }[];
   } | null;
