@@ -89,6 +89,8 @@ export async function startNextSchoolSession() {
           lateKind: t.lateKind,
           lateGraceDays: t.lateGraceDays,
           lateAmount: t.lateAmount,
+          lateIntervalCount: t.lateIntervalCount,
+          lateIntervalUnit: t.lateIntervalUnit,
           lateAfter10: t.lateAfter10,
           lateAfter20: t.lateAfter20,
           lines: {
@@ -165,6 +167,8 @@ export async function createSchoolSession(input: {
           lateKind: t.lateKind,
           lateGraceDays: t.lateGraceDays,
           lateAmount: t.lateAmount,
+          lateIntervalCount: t.lateIntervalCount,
+          lateIntervalUnit: t.lateIntervalUnit,
           lateAfter10: t.lateAfter10,
           lateAfter20: t.lateAfter20,
           lines: {

@@ -1061,6 +1061,8 @@ async function officePayload(user: AccessUser) {
       lateKind: t.lateKind,
       lateGraceDays: t.lateGraceDays,
       lateAmount: t.lateAmount,
+      lateIntervalCount: t.lateIntervalCount,
+      lateIntervalUnit: t.lateIntervalUnit,
       lines: t.lines.map((l) => ({ label: l.label, kind: l.kind, amount: l.amount, scope: l.scope || "ALL" })),
     })),
     people: people.students.map((s) => {

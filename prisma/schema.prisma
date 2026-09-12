@@ -598,6 +598,8 @@ model FeeTemplate {
   lateGraceDays Int            @default(0)
   lateKind      String         @default("")
   lateAmount    Int            @default(0)
+  lateIntervalCount Int        @default(1)
+  lateIntervalUnit  String     @default("DAY")
   lateAfter10   Int            @default(0)
   lateAfter20   Int            @default(0)
   lines         FeeLine[]
@@ -642,6 +644,8 @@ model FeeInvoice {
   lateGraceDays    Int           @default(0)
   lateKind         String        @default("")
   lateAmount       Int           @default(0)
+  lateIntervalCount Int          @default(1)
+  lateIntervalUnit  String       @default("DAY")
   lateFeePerDay    Int           @default(0)
   lateAfter10      Int           @default(0)
   lateAfter20      Int           @default(0)

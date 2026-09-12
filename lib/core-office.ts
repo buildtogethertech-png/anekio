@@ -164,6 +164,8 @@ export async function saveFeeTemplateCore(
     lateKind?: string;
     lateGraceDays?: number;
     lateAmount?: number;
+    lateIntervalCount?: number;
+    lateIntervalUnit?: string;
     lines?: { label?: string; kind?: string; amount?: number; scope?: string }[];
   }
 ) {
@@ -179,13 +181,17 @@ export async function saveFeeTemplateCore(
   if (startsPeriod > endsPeriod) throw new Error("Start month must be before end month");
   const dueDay = Math.min(28, Math.max(1, Number(input.dueDay || 10)));
   const rawKind = String(input.lateKind || "NONE").toUpperCase();
-  const lateKind = rawKind === "STATIC" || rawKind === "DAILY" ? rawKind : "NONE";
+  const lateKind = rawKind === "STATIC" || rawKind === "DAILY" || rawKind === "RECURRING" ? rawKind : "NONE";
   const lateGraceDays = lateKind === "NONE" ? 0 : Math.max(0, Math.round(Number(input.lateGraceDays || 0)));
   const lateAmount = lateKind === "NONE" ? 0 : Math.max(0, Math.round(Number(input.lateAmount || 0)));
+  const lateIntervalCount = lateKind === "RECURRING" ? Math.max(1, Math.round(Number(input.lateIntervalCount || 1))) : 1;
+  const lateIntervalUnit = lateKind === "RECURRING" && String(input.lateIntervalUnit || "DAY").toUpperCase() === "MONTH" ? "MONTH" : "DAY";
   const lateStamp = {
     lateKind,
     lateGraceDays,
     lateAmount,
+    lateIntervalCount,
+    lateIntervalUnit,
     lateAfter10: lateKind === "STATIC" ? lateAmount : 0,
     lateAfter20: 0,
   };

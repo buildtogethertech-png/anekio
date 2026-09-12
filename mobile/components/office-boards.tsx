@@ -3404,6 +3404,9 @@ export function FeesBoard() {
   const [tplEnd, setTplEnd] = useState(currentFeePeriod());
   const [tplLate, setTplLate] = useState("NONE");
   const [tplAmount, setTplAmount] = useState("0");
+  const [tplGraceDays, setTplGraceDays] = useState("0");
+  const [tplIntervalCount, setTplIntervalCount] = useState("15");
+  const [tplIntervalUnit, setTplIntervalUnit] = useState<"DAY" | "MONTH">("DAY");
   const [tplLines, setTplLines] = useState<FeeLineDraft[]>([
     newFeeLine("Tuition", "8000"),
     newFeeLine("Laboratory fee", "0"),
@@ -3762,14 +3765,17 @@ export function FeesBoard() {
     setTplDue(String(classTemplate?.dueDay || 10));
     setTplStart(classTemplate?.startsPeriod || defaultStartPeriod);
     setTplEnd(classTemplate?.endsPeriod || defaultEndPeriod);
-    setTplLate(classTemplate?.lateKind || "NONE");
+    setTplLate(classTemplate?.lateKind === "DAILY" ? "RECURRING" : classTemplate?.lateKind || "NONE");
     setTplAmount(String(classTemplate?.lateAmount || 0));
+    setTplGraceDays(String(classTemplate?.lateGraceDays || 0));
+    setTplIntervalCount(String(classTemplate?.lateKind === "DAILY" ? 1 : classTemplate?.lateIntervalCount || 15));
+    setTplIntervalUnit(classTemplate?.lateIntervalUnit === "MONTH" ? "MONTH" : "DAY");
     setTplLines(
       classTemplate?.lines?.length
         ? classTemplate.lines.map((line) => newFeeLine(line.label, String(line.amount), line.scope === "ADD_ON" ? "ADD_ON" : "ALL"))
         : [newFeeLine("Tuition", "8000"), newFeeLine("Laboratory fee", "0"), newFeeLine("Books", "0")]
     );
-  }, [classId, selectedTemplateId, classTemplate?.id, classTemplate?.name, classTemplate?.startsPeriod, classTemplate?.endsPeriod, classTemplate?.dueDay, classTemplate?.lateKind, classTemplate?.lateAmount, classTemplate?.lines, defaultStartPeriod, defaultEndPeriod]);
+  }, [classId, selectedTemplateId, classTemplate?.id, classTemplate?.name, classTemplate?.startsPeriod, classTemplate?.endsPeriod, classTemplate?.dueDay, classTemplate?.lateKind, classTemplate?.lateAmount, classTemplate?.lateGraceDays, classTemplate?.lateIntervalCount, classTemplate?.lateIntervalUnit, classTemplate?.lines, defaultStartPeriod, defaultEndPeriod]);
 
   function feeTemplateTotal(template: (typeof templates)[number]) {
     return template.lines
@@ -3835,7 +3841,10 @@ export function FeesBoard() {
         endsPeriod: tplEnd,
         dueDay: Number(tplDue),
         lateKind: tplLate,
+        lateGraceDays: Number(tplGraceDays),
         lateAmount: Number(tplAmount),
+        lateIntervalCount: Number(tplIntervalCount),
+        lateIntervalUnit: tplIntervalUnit,
         lines,
       });
       setSelectedTemplateId(saved.id);
@@ -3855,6 +3864,9 @@ export function FeesBoard() {
     setTplEnd(defaultEndPeriod);
     setTplLate("NONE");
     setTplAmount("0");
+    setTplGraceDays("0");
+    setTplIntervalCount("15");
+    setTplIntervalUnit("DAY");
     setTplLines([newFeeLine("Tuition", "8000"), newFeeLine("Laboratory fee", "0"), newFeeLine("Books", "0")]);
     setFeeEditorOpen(true);
   }
@@ -4300,14 +4312,59 @@ export function FeesBoard() {
           <View className="gap-3 rounded-md border border-ink-100 bg-white p-3">
             <Text className="text-sm font-semibold text-ink-900">Late fee rule</Text>
             <View className="flex-row flex-wrap gap-2">
-              {["NONE", "STATIC", "DAILY"].map((id) => (
-                <Chip key={id} label={id === "NONE" ? "No late" : id === "STATIC" ? "One-time late" : "Daily late"} active={tplLate === id} onPress={() => setTplLate(id)} />
+              {["NONE", "STATIC", "RECURRING"].map((id) => (
+                <Chip
+                  key={id}
+                  label={id === "NONE" ? "No late" : id === "STATIC" ? "One-time" : "Recurring"}
+                  active={tplLate === id}
+                  onPress={() => setTplLate(id)}
+                />
               ))}
             </View>
             {tplLate !== "NONE" ? (
-              <Field label="Late amount">
-                <Input keyboardType="number-pad" value={tplAmount} onChangeText={setTplAmount} />
-              </Field>
+              <View className="gap-3">
+                <View className="flex-row flex-wrap gap-3">
+                  <View className="min-w-[180px] flex-1">
+                    <Field label="Grace period" hint="Fine starts after these days.">
+                      <Input keyboardType="number-pad" value={tplGraceDays} onChangeText={setTplGraceDays} placeholder="0" />
+                    </Field>
+                  </View>
+                  <View className="min-w-[180px] flex-1">
+                    <Field label="Late amount">
+                      <Input keyboardType="number-pad" value={tplAmount} onChangeText={setTplAmount} placeholder="100" />
+                    </Field>
+                  </View>
+                </View>
+                {tplLate === "RECURRING" ? (
+                  <View className="flex-row flex-wrap gap-3">
+                    <View className="min-w-[180px] flex-1">
+                      <Field label="Repeat every">
+                        <Input keyboardType="number-pad" value={tplIntervalCount} onChangeText={setTplIntervalCount} placeholder="15" />
+                      </Field>
+                    </View>
+                    <View className="min-w-[220px] flex-1">
+                      <Text className="mb-1 text-xs font-medium text-ink-700">Interval unit</Text>
+                      <View className="flex-row rounded-md border border-ink-200 bg-white p-0.5">
+                        {(["DAY", "MONTH"] as const).map((unit) => (
+                          <Pressable
+                            key={unit}
+                            accessibilityRole="button"
+                            onPress={() => setTplIntervalUnit(unit)}
+                            className={`flex-1 items-center rounded px-2 py-2 ${tplIntervalUnit === unit ? "bg-ink-900" : "bg-white"}`}
+                          >
+                            <Text className={`text-xs font-semibold ${tplIntervalUnit === unit ? "text-white" : "text-ink-700"}`}>
+                              {unit === "DAY" ? "Days" : "Months"}
+                            </Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    </View>
+                  </View>
+                ) : null}
+                <Text className="text-xs leading-5 text-ink-700">
+                  Fine starts after due date plus grace period. {tplLate === "STATIC" ? "One-time adds the amount once." : "Recurring repeats from that start date by the selected interval."}
+                </Text>
+              </View>
             ) : null}
           </View>
         </View>

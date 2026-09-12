@@ -52,6 +52,8 @@ export function lateFromSlabs(days: number, policy: {
   lateKind?: string | null;
   lateGraceDays?: number | null;
   lateAmount?: number | null;
+  lateIntervalCount?: number | null;
+  lateIntervalUnit?: string | null;
   lateFeePerDay?: number;
   lateAfter10?: number;
   lateAfter20?: number;
@@ -174,31 +176,39 @@ export function latePolicyFrom(row: {
   lateKind?: string | null;
   lateGraceDays?: number | null;
   lateAmount?: number | null;
+  lateIntervalCount?: number | null;
+  lateIntervalUnit?: string | null;
   lateAfter10?: number | null;
   lateAfter20?: number | null;
   lateFeePerDay?: number | null;
 }) {
   const kind = (row.lateKind || "").toUpperCase();
-  if (kind === "NONE" || kind === "STATIC" || kind === "DAILY") {
+  if (kind === "NONE" || kind === "STATIC" || kind === "DAILY" || kind === "RECURRING") {
+    const intervalCount = Math.max(1, Math.round(Number(row.lateIntervalCount) || 1));
+    const intervalUnit = String(row.lateIntervalUnit || "DAY").toUpperCase() === "MONTH" ? "MONTH" : "DAY";
     return {
       lateKind: kind as LateKind,
       lateGraceDays: Math.max(0, row.lateGraceDays || 0),
       lateAmount: Math.max(0, row.lateAmount || 0),
+      lateIntervalCount: kind === "DAILY" ? 1 : intervalCount,
+      lateIntervalUnit: kind === "DAILY" ? "DAY" : intervalUnit,
     };
   }
   if ((row.lateAfter10 || 0) > 0 || (row.lateAfter20 || 0) > 0) {
-    return { lateKind: "STATIC" as const, lateGraceDays: 10, lateAmount: row.lateAfter10 || row.lateAfter20 || 0 };
+    return { lateKind: "STATIC" as const, lateGraceDays: 10, lateAmount: row.lateAfter10 || row.lateAfter20 || 0, lateIntervalCount: 1, lateIntervalUnit: "DAY" };
   }
   if ((row.lateFeePerDay || 0) > 0) {
-    return { lateKind: "DAILY" as const, lateGraceDays: 0, lateAmount: row.lateFeePerDay || 0 };
+    return { lateKind: "DAILY" as const, lateGraceDays: 0, lateAmount: row.lateFeePerDay || 0, lateIntervalCount: 1, lateIntervalUnit: "DAY" };
   }
-  return { lateKind: "NONE" as const, lateGraceDays: 0, lateAmount: 0 };
+  return { lateKind: "NONE" as const, lateGraceDays: 0, lateAmount: 0, lateIntervalCount: 1, lateIntervalUnit: "DAY" };
 }
 
 export function invoiceLateStamp(row: {
   lateKind?: string | null;
   lateGraceDays?: number | null;
   lateAmount?: number | null;
+  lateIntervalCount?: number | null;
+  lateIntervalUnit?: string | null;
   lateAfter10?: number | null;
   lateAfter20?: number | null;
   lateFeePerDay?: number | null;
@@ -208,7 +218,9 @@ export function invoiceLateStamp(row: {
     lateKind: policy.lateKind,
     lateGraceDays: policy.lateGraceDays,
     lateAmount: policy.lateAmount,
-    lateFeePerDay: policy.lateKind === "DAILY" ? policy.lateAmount : 0,
+    lateIntervalCount: policy.lateIntervalCount,
+    lateIntervalUnit: policy.lateIntervalUnit,
+    lateFeePerDay: policy.lateKind === "DAILY" || (policy.lateKind === "RECURRING" && policy.lateIntervalCount === 1 && policy.lateIntervalUnit === "DAY") ? policy.lateAmount : 0,
     lateAfter10: policy.lateKind === "STATIC" ? policy.lateAmount : 0,
     lateAfter20: 0,
   };
@@ -218,6 +230,8 @@ export function latePolicyLabel(row: {
   lateKind?: string | null;
   lateGraceDays?: number | null;
   lateAmount?: number | null;
+  lateIntervalCount?: number | null;
+  lateIntervalUnit?: string | null;
   lateAfter10?: number | null;
   lateAfter20?: number | null;
   lateFeePerDay?: number | null;
@@ -227,6 +241,11 @@ export function latePolicyLabel(row: {
   const grace =
     policy.lateGraceDays > 0 ? ` after ${policy.lateGraceDays} days` : " from the day after due";
   if (policy.lateKind === "DAILY") return `${formatInr(policy.lateAmount)}/day${grace}`;
+  if (policy.lateKind === "RECURRING") {
+    const count = Math.max(1, Number(policy.lateIntervalCount) || 1);
+    const unit = policy.lateIntervalUnit === "MONTH" ? "month" : "day";
+    return `${formatInr(policy.lateAmount)} every ${count} ${unit}${count === 1 ? "" : "s"}${grace}`;
+  }
   return `${formatInr(policy.lateAmount)} one-time${grace}`;
 }
 
@@ -240,6 +259,8 @@ export function invoiceBalance(inv: {
   lateKind?: string | null;
   lateGraceDays?: number | null;
   lateAmount?: number | null;
+  lateIntervalCount?: number | null;
+  lateIntervalUnit?: string | null;
   payments?: { amount: number }[];
   paid?: number;
 }) {
