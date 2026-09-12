@@ -3391,6 +3391,8 @@ export function FeesBoard() {
   const didInitialRefresh = useRef(false);
   const [classId, setClassId] = useState("all");
   const [filter, setFilter] = useState<"all" | "overdue">("all");
+  const [dueQuery, setDueQuery] = useState("");
+  const [dueSort, setDueSort] = useState<"priority" | "amount" | "name">("priority");
   const [tab, setTab] = useState<"report" | "due" | "templates">("due");
   const [feeEditorOpen, setFeeEditorOpen] = useState(false);
   const [selectedDueStudentId, setSelectedDueStudentId] = useState("");
@@ -3409,9 +3411,18 @@ export function FeesBoard() {
   const people = data?.people ?? [];
   const dueStudents = people.filter((s) => (s.dueAmount || 0) > 0);
   const overdueStudents = dueStudents.filter((s) => (s.overdueCount || 0) > 0);
+  const dueSearch = dueQuery.trim().toLowerCase();
   const students = (classId === "all" ? dueStudents : dueStudents.filter((s) => s.classId === classId))
     .filter((s) => (filter === "overdue" ? (s.overdueCount || 0) > 0 : true))
-    .sort((a, b) => (b.dueAmount || 0) - (a.dueAmount || 0) || a.name.localeCompare(b.name));
+    .filter((s) => {
+      if (!dueSearch) return true;
+      return [s.name, s.classLabel, s.admissionNo, s.parent, s.parentPhone].some((value) => String(value || "").toLowerCase().includes(dueSearch));
+    })
+    .sort((a, b) => {
+      if (dueSort === "name") return a.name.localeCompare(b.name);
+      if (dueSort === "amount") return (b.dueAmount || 0) - (a.dueAmount || 0) || a.name.localeCompare(b.name);
+      return (b.overdueCount || 0) - (a.overdueCount || 0) || (b.dueAmount || 0) - (a.dueAmount || 0) || a.name.localeCompare(b.name);
+    });
   const reportPeople = classId === "all" ? people : people.filter((s) => s.classId === classId);
   const reportDueStudents = reportPeople.filter((s) => (s.dueAmount || 0) > 0);
   const reportOverdueStudents = reportDueStudents.filter((s) => (s.overdueCount || 0) > 0);
@@ -4126,22 +4137,54 @@ export function FeesBoard() {
       </Modal>
       {tab === "due" ? (
         <View className="rounded-md border border-ink-100 bg-white p-3">
-          <View className="mb-3 flex-row items-center justify-between gap-3">
-            <Text className="font-semibold text-ink-900">Pending invoices</Text>
-            <View className="flex-row items-center gap-2">
-              {filter === "overdue" && can(user, "fees.remind") && overdueStudents.length ? (
-                <Button className="px-3 py-1.5" onPress={remindOverdue}>Remind</Button>
-              ) : null}
-              <Text className="text-xs font-medium text-ink-700">{students.length} students</Text>
+          <View className="mb-3 gap-3">
+            <View className="flex-row flex-wrap items-center justify-between gap-3">
+              <View>
+                <Text className="font-semibold text-ink-900">Pending invoices</Text>
+                <Text className="mt-0.5 text-xs text-ink-600">
+                  {students.length} of {(classId === "all" ? dueStudents : dueStudents.filter((s) => s.classId === classId)).length} students
+                </Text>
+              </View>
+              <View className="flex-row items-center gap-2">
+                {filter === "overdue" && can(user, "fees.remind") && overdueStudents.length ? (
+                  <Button className="px-3 py-1.5" onPress={remindOverdue}>Remind</Button>
+                ) : null}
+                {dueQuery ? (
+                  <Button variant="ghost" className="px-3 py-1.5" onPress={() => setDueQuery("")}>Clear</Button>
+                ) : null}
+              </View>
+            </View>
+            <View className="flex-row flex-wrap items-center gap-2">
+              <View className="min-w-[240px] flex-1">
+                <Input value={dueQuery} onChangeText={setDueQuery} placeholder="Search student, class, parent, phone..." />
+              </View>
+              <View className="flex-row rounded-md border border-ink-200 bg-white p-0.5">
+                {([
+                  ["priority", "Priority"],
+                  ["amount", "Amount"],
+                  ["name", "Name"],
+                ] as const).map(([id, label]) => (
+                  <Pressable
+                    key={id}
+                    accessibilityRole="button"
+                    onPress={() => setDueSort(id)}
+                    className={`min-w-[76px] items-center rounded-md px-3 py-1.5 ${dueSort === id ? "bg-ink-900" : "bg-white"}`}
+                  >
+                    <Text className={`text-xs font-semibold ${dueSort === id ? "text-white" : "text-ink-700"}`}>{label}</Text>
+                  </Pressable>
+                ))}
+              </View>
             </View>
           </View>
           {!students.length ? (
             <View className="h-[300px] items-center justify-center rounded-md bg-ink-50 px-4">
               <Text className="text-base font-semibold text-ink-900">
-                {filter === "overdue" ? "Nothing overdue" : "Nothing pending"}
+                {dueQuery ? "No matching students" : filter === "overdue" ? "Nothing overdue" : "Nothing pending"}
               </Text>
               <Text className="mt-1 max-w-lg text-center text-sm leading-5 text-ink-700">
-                {filter === "overdue"
+                {dueQuery
+                  ? "Try another student name, class, parent, or phone."
+                  : filter === "overdue"
                   ? "No unpaid invoice has crossed its due date."
                   : classId === "all"
                     ? "Pick a class to review its fee generation status."
@@ -4155,7 +4198,7 @@ export function FeesBoard() {
                 keyboardShouldPersistTaps="handled"
                 style={{ maxHeight: 500 }}
                 contentContainerClassName="gap-3 pb-1"
-                className={compactFees ? "" : "w-[44%]"}
+                className={compactFees ? "" : "w-[62%]"}
               >
                 {students.map((s) => {
                   const months = monthsOf(s);
@@ -4168,20 +4211,22 @@ export function FeesBoard() {
                       accessibilityState={{ selected }}
                       onPress={() => setSelectedDueStudentId(s.id)}
                     >
-                      <View className={`rounded-md border p-4 ${selected ? "border-clay-300 bg-blue-50" : "border-ink-100 bg-white"}`}>
+                      <View className={`rounded-md border px-4 py-3 ${selected ? "border-blue-300 bg-blue-50" : "border-ink-100 bg-white"}`}>
                         <View className="flex-row items-start justify-between gap-3">
                           <View className="min-w-0 flex-1">
-                            <Text className="font-semibold text-ink-900">
-                              {s.name}
-                              {s.classLabel ? ` · ${s.classLabel}` : ""}
+                            <View className="flex-row flex-wrap items-center gap-2">
+                              <Text className="font-semibold text-ink-900">{s.name}</Text>
+                              {s.classLabel ? <Text className="text-xs font-medium text-ink-500">{s.classLabel}</Text> : null}
+                            </View>
+                            <Text className="mt-1 text-xs text-ink-600">
+                              {s.admissionNo} · {months} {months === 1 ? "month" : "months"} pending
+                              {oldestOf(s) ? ` · oldest ${oldestOf(s)}` : ""}
                             </Text>
-                            <Text className="mt-1 text-sm text-ink-700">
-                              {s.dueNow} due · {months} {months === 1 ? "month" : "months"}
-                              {overdue ? ` · ${overdue} overdue` : ""}
-                            </Text>
-                            {oldestOf(s) ? <Text className="mt-1 text-xs text-ink-700">Oldest {oldestOf(s)}</Text> : null}
                           </View>
-                          <Badge tone={overdue ? "warn" : "clay"}>{overdue ? "overdue" : "due"}</Badge>
+                          <View className="items-end gap-1">
+                            <Text className="text-sm font-semibold text-ink-900">{s.dueNow}</Text>
+                            <Badge tone={overdue ? "warn" : "clay"}>{overdue ? `${overdue} overdue` : "due"}</Badge>
+                          </View>
                         </View>
                       </View>
                     </Pressable>
@@ -4189,15 +4234,12 @@ export function FeesBoard() {
                 })}
               </ScrollView>
               {selectedDueStudent ? (
-                <View className={`rounded-md border border-ink-100 bg-ink-50 p-4 ${compactFees ? "" : "min-w-0 flex-1"}`}>
-                  <View className="flex-row flex-wrap items-start justify-between gap-3">
+                <View className={`rounded-md border border-ink-100 bg-slate-50 p-4 ${compactFees ? "" : "min-w-0 flex-1"}`}>
+                  <View className="flex-row flex-wrap items-start justify-between gap-3 border-b border-ink-100 pb-3">
                     <View className="min-w-0 flex-1">
-                      <Text className="text-base font-semibold text-ink-900">{selectedDueStudent.name}</Text>
+                      <Text className="text-lg font-semibold text-ink-900">{selectedDueStudent.name}</Text>
                       <Text className="mt-0.5 text-xs text-ink-700">
                         {selectedDueStudent.classLabel || "No class"} · {selectedDueStudent.admissionNo}
-                      </Text>
-                      <Text className="mt-1 text-sm text-ink-800">
-                        {selectedDueStudent.dueNow} outstanding · {selectedDueStudent.paid || "₹0"} paid
                       </Text>
                     </View>
                     <View className="flex-row flex-wrap justify-end gap-2">
@@ -4213,7 +4255,29 @@ export function FeesBoard() {
                       </Button>
                     </View>
                   </View>
-                  <View className="mt-4 gap-2">
+                  <View className="mt-3 gap-2">
+                    <View className="flex-row gap-2">
+                      <View className="min-w-0 flex-1 rounded-md bg-white px-3 py-2">
+                        <Text className="text-[11px] font-medium text-ink-500">Outstanding</Text>
+                        <Text className="mt-1 text-base font-semibold text-amber-900">{selectedDueStudent.dueNow}</Text>
+                      </View>
+                      <View className="min-w-0 flex-1 rounded-md bg-white px-3 py-2">
+                        <Text className="text-[11px] font-medium text-ink-500">Paid</Text>
+                        <Text className="mt-1 text-base font-semibold text-green-800">{selectedDueStudent.paid || "₹0"}</Text>
+                      </View>
+                    </View>
+                    <View className="flex-row gap-2">
+                      <View className="min-w-0 flex-1 rounded-md bg-white px-3 py-2">
+                        <Text className="text-[11px] font-medium text-ink-500">Invoices</Text>
+                        <Text className="mt-1 text-sm font-semibold text-ink-900">{selectedDueStudent.invoices?.length || 0}</Text>
+                      </View>
+                      <View className="min-w-0 flex-1 rounded-md bg-white px-3 py-2">
+                        <Text className="text-[11px] font-medium text-ink-500">Overdue</Text>
+                        <Text className="mt-1 text-sm font-semibold text-ink-900">{selectedDueStudent.overdueCount || 0}</Text>
+                      </View>
+                    </View>
+                  </View>
+                  <ScrollView nestedScrollEnabled style={{ maxHeight: compactFees ? 360 : 390 }} contentContainerClassName="mt-4 gap-2 pb-1">
                     {studentFeeTimeline(selectedDueStudent).map((inv) => {
                       const paidInvoice = inv.status === "paid";
                       const payments = inv.payments ?? [];
@@ -4222,13 +4286,18 @@ export function FeesBoard() {
                           <View className="flex-row items-start justify-between gap-3">
                             <View className="min-w-0 flex-1">
                               <Text className="text-sm font-semibold text-ink-900">{inv.title}</Text>
-                              <Text className="mt-0.5 text-xs text-ink-700">
-                                Due {inv.due} · Bill {inv.amount} · Paid {inv.paid}
-                                {inv.remaining ? ` · Balance ${inv.remaining}` : ""}
-                              </Text>
+                              <Text className="mt-0.5 text-xs text-ink-600">Due {inv.due}</Text>
                               {inv.lateLabel && !paidInvoice ? <Text className="mt-0.5 text-xs text-amber-800">{inv.lateLabel}</Text> : null}
                             </View>
-                            <Badge tone={paidInvoice ? "leaf" : inv.status === "overdue" ? "warn" : "clay"}>{paidInvoice ? "paid" : inv.status}</Badge>
+                            <View className="items-end gap-1">
+                              <Badge tone={paidInvoice ? "leaf" : inv.status === "overdue" ? "warn" : "clay"}>{paidInvoice ? "paid" : inv.status}</Badge>
+                              <Text className="text-xs font-semibold text-ink-900">{inv.remaining || inv.amount}</Text>
+                            </View>
+                          </View>
+                          <View className="mt-3 flex-row justify-between rounded-md bg-ink-50 px-3 py-2">
+                            <Text className="text-[11px] text-ink-600">Bill {inv.amount}</Text>
+                            <Text className="text-[11px] text-green-800">Paid {inv.paid}</Text>
+                            <Text className="text-[11px] text-amber-900">Balance {inv.remaining || "₹0"}</Text>
                           </View>
                           {payments.length ? (
                             <View className="mt-3 gap-2 border-t border-ink-100 pt-2">
@@ -4251,7 +4320,7 @@ export function FeesBoard() {
                         </View>
                       );
                     })}
-                  </View>
+                  </ScrollView>
                 </View>
               ) : null}
             </View>
