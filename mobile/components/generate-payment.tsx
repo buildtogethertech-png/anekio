@@ -410,14 +410,15 @@ export function GeneratePayment({
 
           {error ? <Text className="text-sm text-red-700">{error}</Text> : null}
 
-          <View className="flex-row justify-end gap-2">
-            <Button variant="ghost" onPress={onClose}>
+          <View className="flex-row flex-wrap justify-end gap-2">
+            <Button className="px-3 py-2" variant="ghost" onPress={onClose}>
               Cancel
             </Button>
             {method === "RAZORPAY" ? null : (
               <>
                 <Button
                   variant="ghost"
+                  className="px-3 py-2"
                   disabled={!lead || locked || !manualReady}
                   onPress={async () => {
                     if (!lead) return;
@@ -445,7 +446,7 @@ export function GeneratePayment({
                 >
                   Collect all due
                 </Button>
-                <Button disabled={!selected.length || locked || !manualReady} onPress={collect}>
+                <Button className="px-3 py-2" disabled={!selected.length || locked || !manualReady} onPress={collect}>
                   {collectLabel}
                 </Button>
               </>
@@ -458,11 +459,11 @@ export function GeneratePayment({
             No bills yet. Run fees for {lead?.classLabel || "their class"} to create months through today, then collect.
           </Text>
           {error ? <Text className="text-sm text-red-700">{error}</Text> : null}
-          <View className="flex-row justify-end gap-2">
-            <Button variant="ghost" onPress={onClose}>
+          <View className="flex-row flex-wrap justify-end gap-2">
+            <Button className="px-3 py-2" variant="ghost" onPress={onClose}>
               Cancel
             </Button>
-            <Button disabled={locked} onPress={runFees}>
+            <Button className="px-3 py-2" disabled={locked} onPress={runFees}>
               {busy === "fees" ? "Running…" : "Run fees now"}
             </Button>
           </View>

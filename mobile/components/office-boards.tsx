@@ -3562,35 +3562,61 @@ export function FeesBoard() {
     }
   }
 
+  function FeePanelAction({
+    icon,
+    label,
+    primary,
+    onPress,
+  }: {
+    icon: keyof typeof Ionicons.glyphMap;
+    label: string;
+    primary?: boolean;
+    onPress: () => void;
+  }) {
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        onPress={onPress}
+        className={`h-9 flex-row items-center gap-1.5 rounded-md border px-2.5 ${
+          primary ? "border-blue-600 bg-blue-600" : "border-ink-200 bg-white"
+        }`}
+      >
+        <Ionicons name={icon} size={15} color={primary ? "#ffffff" : "#183153"} />
+        <Text className={`text-xs font-semibold ${primary ? "text-white" : "text-ink-800"}`}>{label}</Text>
+      </Pressable>
+    );
+  }
+
   const dueStudentPanel = selectedDueStudent ? (
     <View className="min-h-0 flex-1 bg-[#F5F8FC] p-4">
-      <View className="overflow-hidden rounded-md border border-blue-100 bg-white">
-        <View className="bg-blue-600 px-4 py-3">
-          <View className="flex-row flex-wrap items-center justify-between gap-2">
+      <View className="overflow-hidden rounded-md border border-ink-100 bg-white">
+        <View className="border-b border-ink-100 bg-white px-4 py-3">
+          <View className="flex-row flex-wrap items-start justify-between gap-3">
             <View className="min-w-0 flex-1">
-              <Text className="text-[11px] font-semibold uppercase tracking-wide text-blue-100">Collection profile</Text>
-              <Text className="mt-1 text-xl font-semibold text-white">{selectedDueStudent.name}</Text>
-              <Text className="mt-0.5 text-xs font-medium text-blue-100">
+              <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">Collection profile</Text>
+              <Text className="mt-1 text-xl font-semibold text-ink-900">{selectedDueStudent.name}</Text>
+              <Text className="mt-0.5 text-xs font-medium text-ink-700">
                 {selectedDueStudent.classLabel || "No class"} · {selectedDueStudent.admissionNo}
               </Text>
             </View>
-            <View className="rounded-md bg-white/15 px-3 py-2">
-              <Text className="text-[11px] font-semibold uppercase tracking-wide text-blue-100">Open balance</Text>
-              <Text className="mt-0.5 text-lg font-semibold text-white">{selectedDueStudent.dueNow}</Text>
+            <View className="items-end gap-2">
+              <View className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2">
+                <Text className="text-[10px] font-semibold uppercase tracking-wide text-blue-800">Open balance</Text>
+                <Text className="mt-0.5 text-lg font-semibold text-blue-950">{selectedDueStudent.dueNow}</Text>
+              </View>
+              <View className="flex-row flex-wrap justify-end gap-2">
+                {can(user, "fees.collect") ? (
+                  <FeePanelAction icon="cash-outline" label="Collect" primary onPress={() => setPayDueStudentId(selectedDueStudent.id)} />
+                ) : null}
+                <FeePanelAction
+                  icon="person-outline"
+                  label="Student"
+                  onPress={() => router.push({ pathname: "/people", params: { student: selectedDueStudent.id } } as never)}
+                />
+              </View>
             </View>
           </View>
-        </View>
-        <View className="flex-row flex-wrap justify-end gap-2 border-b border-ink-100 px-4 py-3">
-          {can(user, "fees.collect") ? (
-            <Button className="px-3 py-1.5" onPress={() => setPayDueStudentId(selectedDueStudent.id)}>Collect</Button>
-          ) : null}
-          <Button
-            variant="ghost"
-            className="px-3 py-1.5"
-            onPress={() => router.push({ pathname: "/people", params: { student: selectedDueStudent.id } } as never)}
-          >
-            View student
-          </Button>
         </View>
         <View className="flex-row flex-wrap gap-2 p-3">
           {[
