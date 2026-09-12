@@ -1,7 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { ActivityIndicator, Modal, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Image, Modal, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { hrefForNotice } from "./notification-row";
 import { classifyNotice, NOTICE_KIND_LABEL, type NoticeKind } from "../lib/notice-kind";
@@ -174,8 +174,14 @@ export function PhoneTopBar() {
   if (width >= 768) return null;
   return (
     <View className="flex-row items-center border-b border-ink-200 bg-white px-3 py-2">
-      <Pressable onPress={() => router.push("/")} className="min-w-0 flex-1 justify-center py-1">
-        <Text className="text-base font-semibold text-ink-900">Anekio</Text>
+      <Pressable onPress={() => router.push("/")} className="min-w-0 flex-1 flex-row items-center gap-2 py-1">
+        <Image source={require("../assets/icon.png")} className="h-9 w-9 rounded-xl" />
+        <View className="min-w-0 flex-1">
+          <Text className="text-base font-bold leading-5 text-ink-900">Anekio</Text>
+          <Text className="text-[10px] font-medium leading-3 text-ink-500" numberOfLines={1}>
+            One platform, many possibilities
+          </Text>
+        </View>
       </Pressable>
       <View className="flex-row items-center gap-1">
         <NoticeBell />

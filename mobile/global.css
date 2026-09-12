@@ -629,27 +629,33 @@ body,
 }
 @media (max-width: 767px) {
   .parent-examination-page .parent-exam-hero {
-    height: 156px;
-    margin-bottom: 22px;
+    height: auto;
+    margin-bottom: 16px;
+  }
+  .parent-examination-page .parent-exam-hero-bg {
+    border-radius: 16px;
   }
   .parent-examination-page .parent-exam-hero-grid {
-    grid-template-columns: minmax(0, 58%) minmax(110px, 42%);
+    display: flex;
+    min-height: 132px;
   }
   .parent-examination-page .parent-exam-hero-copy {
-    padding: 14px 8px 12px 16px;
+    padding: 16px;
   }
   .parent-examination-page .parent-exam-hero-kicker {
-    font-size: 20px;
-    letter-spacing: 0.14em;
+    font-size: 14px;
+    letter-spacing: 0.16em;
   }
   .parent-examination-page .parent-exam-hero-title {
-    font-size: 16px;
+    font-size: 22px;
+    max-width: 260px;
   }
   .parent-examination-page .parent-exam-hero-lede {
-    font-size: 12px;
+    font-size: 13px;
+    max-width: 300px;
   }
   .parent-examination-page .parent-exam-hero-art {
-    padding-right: 8px;
+    display: none;
   }
   .parent-examination-page .parent-exam-hero-photo {
     width: 128px !important;

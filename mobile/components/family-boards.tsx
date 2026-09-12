@@ -29,7 +29,7 @@ function can(user: { permissions: string[] } | null, key: string) {
   return Boolean(user?.permissions.includes(key));
 }
 
-function ChildSwitch() {
+function ChildSwitch({ fullWidth = false }: { fullWidth?: boolean } = {}) {
   const { data, childId, setChildId } = useRecord();
   const kids = data?.children ?? [];
   const child = data?.child;
@@ -58,13 +58,13 @@ function ChildSwitch() {
     if (!many) return;
     const node = triggerRef.current;
     if (!node?.measureInWindow) {
-      setMenu({ x: 24, y: 88, w: 220 });
+      setMenu({ x: 24, y: 88, w: fullWidth ? 300 : 220 });
       setOpen(true);
       return;
     }
     node.measureInWindow((x, y, w, h) => {
       const screen = Dimensions.get("window");
-      const width = Math.min(240, Math.max(200, w || 220));
+      const width = Math.min(fullWidth ? 320 : 240, Math.max(200, w || 220));
       const left = Math.min(Math.max(8, x), screen.width - width - 8);
       const top = Math.min(y + h + 4, screen.height - 180);
       setMenu({ x: left, y: top, w: width });
@@ -73,7 +73,7 @@ function ChildSwitch() {
   }
 
   return (
-    <View collapsable={false} ref={triggerRef} style={{ width: 220 }}>
+    <View collapsable={false} ref={triggerRef} style={fullWidth ? { width: "100%" } : { width: 220 }}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Switch child"
@@ -1737,19 +1737,37 @@ export function FamilyHomeBoard() {
   return (
     <View>
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
-      <View className="mb-4 flex-row flex-wrap items-center justify-between gap-3">
-        <View className="min-w-0 flex-1">
-          <Text className="text-[22px] font-semibold leading-7 text-ink-900">{child?.name || "Parent dashboard"}</Text>
-          {child ? (
-            <Text className="mt-0.5 text-[13px] text-ink-500">
-              Class {child.classLabel} · {child.admissionNo}
-            </Text>
-          ) : (
-            <Text className="mt-0.5 text-[13px] text-ink-500">No child linked yet.</Text>
-          )}
+      <View className="mb-4 overflow-hidden rounded-[18px] border border-ink-200 bg-white">
+        <View className="bg-[#EEF6FF] px-4 py-4">
+          <View className="flex-row items-center gap-3">
+            <View className="h-12 w-12 items-center justify-center rounded-2xl bg-clay-500">
+              <Text className="text-[18px] font-bold text-white">
+                {(child?.name || "P")
+                  .split(" ")
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .map((part) => part[0]?.toUpperCase())
+                  .join("") || "P"}
+              </Text>
+            </View>
+            <View className="min-w-0 flex-1">
+              <Text className="text-[20px] font-bold leading-6 text-ink-900" numberOfLines={1}>
+                {child?.name || "Parent dashboard"}
+              </Text>
+              {child ? (
+                <Text className="mt-0.5 text-[12px] font-medium text-ink-700" numberOfLines={1}>
+                  Class {child.classLabel} · {child.admissionNo}
+                </Text>
+              ) : (
+                <Text className="mt-0.5 text-[12px] font-medium text-ink-700">No child linked yet.</Text>
+              )}
+            </View>
+          </View>
         </View>
-        <View className="flex-row flex-wrap items-center gap-2">
-          <ChildSwitch />
+        <View className="gap-2.5 px-3 py-3 sm:flex-row sm:items-center">
+          <View className="min-w-0 flex-1">
+            <ChildSwitch fullWidth />
+          </View>
           <Button disabled={!child} variant="ghost" className="h-[42px] rounded-lg px-3 py-2" onPress={() => openParentQuery("office")}>
             Raise query
           </Button>
@@ -1826,15 +1844,22 @@ export function FamilyHomeBoard() {
                 <View className="gap-2.5" style={twoCol ? { flex: 1, justifyContent: "flex-start" } : undefined}>
                   <Pressable onPress={() => router.push("/fees")}>
                     <Card className={`rounded-[10px] px-3.5 py-3.5 ${unpaid.length ? "border-[#F0B4B4] bg-[#FDECEC]" : ""}`}>
-                      <Text className={`text-[11px] font-semibold uppercase tracking-wide ${unpaid.length ? "text-[#B42318]" : "text-ink-500"}`}>
-                        {unpaid.length ? "Fees due" : "Fees"}
-                      </Text>
-                      <Text className="mt-1.5 text-[22px] font-semibold leading-7 text-ink-900">{totalDueLabel}</Text>
-                      <Text className="mt-0.5 text-[12px] text-ink-500">
-                        {unpaid.length
-                          ? `${unpaid.length} month${unpaid.length === 1 ? "" : "s"} pending`
-                          : "Nothing pending"}
-                      </Text>
+                      <View className="flex-row items-start gap-3">
+                        <View className={`h-10 w-10 items-center justify-center rounded-xl ${unpaid.length ? "bg-red-100" : "bg-emerald-50"}`}>
+                          <Ionicons name="wallet-outline" size={20} color={unpaid.length ? "#B42318" : "#047857"} />
+                        </View>
+                        <View className="min-w-0 flex-1">
+                          <Text className={`text-[11px] font-semibold uppercase tracking-wide ${unpaid.length ? "text-[#B42318]" : "text-ink-500"}`}>
+                            {unpaid.length ? "Fees due" : "Fees"}
+                          </Text>
+                          <Text className="mt-1 text-[22px] font-bold leading-7 text-ink-900">{totalDueLabel}</Text>
+                          <Text className="mt-0.5 text-[12px] text-ink-500">
+                            {unpaid.length
+                              ? `${unpaid.length} month${unpaid.length === 1 ? "" : "s"} pending`
+                              : "Nothing pending"}
+                          </Text>
+                        </View>
+                      </View>
                       <Text className={`mt-2.5 text-[13px] font-medium ${unpaid.length ? "text-clay-500" : "text-ink-500"}`}>
                         {unpaid.length ? "Pay fees →" : "View fees →"}
                       </Text>
@@ -1843,10 +1868,17 @@ export function FamilyHomeBoard() {
 
                   <Pressable onPress={() => router.push("/attendance")}>
                     <Card className="rounded-[10px] px-3.5 py-3">
-                      <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">Attendance</Text>
+                      <View className="flex-row items-center justify-between">
+                        <View className="flex-row items-center gap-2">
+                          <View className="h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
+                            <Ionicons name="checkmark-circle-outline" size={18} color="#047857" />
+                          </View>
+                          <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">Attendance</Text>
+                        </View>
+                        <Text className="text-[12px] font-medium text-[#18794E]">{attWord}</Text>
+                      </View>
                       <View className="mt-1.5 flex-row items-end justify-between">
                         <Text className="text-[22px] font-semibold leading-7 text-ink-900">{att.pct}%</Text>
-                        <Text className="mb-0.5 text-[12px] font-medium text-[#18794E]">{attWord}</Text>
                       </View>
                       <View className="mt-2 h-1.5 overflow-hidden rounded-full bg-ink-100">
                         <View
@@ -1863,13 +1895,17 @@ export function FamilyHomeBoard() {
 
                   <Pressable onPress={() => router.push("/notices")}>
                     <Card className="rounded-[10px] px-3.5 py-2.5">
-                      <View className="flex-row items-center gap-1.5">
-                        <Ionicons name="megaphone-outline" size={13} color="#64748B" />
-                        <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">School notice</Text>
+                      <View className="flex-row items-start gap-3">
+                        <View className="h-9 w-9 items-center justify-center rounded-xl bg-blue-50">
+                          <Ionicons name="megaphone-outline" size={18} color="#2563EB" />
+                        </View>
+                        <View className="min-w-0 flex-1">
+                          <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">School notice</Text>
+                          <Text className="mt-1 text-[14px] font-semibold leading-5 text-ink-900" numberOfLines={2}>
+                            {notices[0]?.title || "No new notices"}
+                          </Text>
+                        </View>
                       </View>
-                      <Text className="mt-1.5 text-[14px] font-semibold leading-5 text-ink-900" numberOfLines={2}>
-                        {notices[0]?.title || "No new notices"}
-                      </Text>
                       <Text className="mt-0.5 text-[12px] text-ink-500">
                         {notices[0] ? notices[0].createdAt : "School updates will appear here."}
                       </Text>

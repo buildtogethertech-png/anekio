@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="172" y1="120" x2="852" y2="904" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1d4ed8"/>
+      <stop offset="0.55" stop-color="#2563eb"/>
+      <stop offset="1" stop-color="#0f766e"/>
+    </linearGradient>
+    <linearGradient id="leaf" x1="604" y1="260" x2="760" y2="430" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#34d399"/>
+      <stop offset="1" stop-color="#a7f3d0"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="230" fill="url(#bg)"/>
+  <path d="M512 196c-22 0-41 13-50 33L274 748c-8 22 8 46 32 46h69c15 0 28-9 33-23l29-84h151l29 84c5 14 18 23 33 23h72c24 0 40-24 32-46L572 229c-8-20-27-33-49-33h-11Zm0 248 54 158H459l53-158Z" fill="#fff"/>
+  <path d="M640 278c66-7 115 23 148 89-73 18-127 1-164-51 4-14 9-27 16-38Z" fill="url(#leaf)"/>
+  <path d="M621 336c52 5 95 21 132 49" fill="none" stroke="#0f766e" stroke-width="18" stroke-linecap="round" opacity=".55"/>
+  <path d="M320 812h384" stroke="#bfdbfe" stroke-width="26" stroke-linecap="round" opacity=".9"/>
+</svg>

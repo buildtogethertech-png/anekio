@@ -167,7 +167,7 @@ function ParentExamHero({ wide }: { wide: boolean }) {
   return (
     <View
       accessible
-      accessibilityLabel="Anekio. One platform, infinite possibilities. At Anekio, we celebrate every step of your child's learning journey. Learn, grow, achieve."
+      accessibilityLabel="Anekio. One platform, many possibilities. Track exams, timetables, and report cards in one place."
       className="parent-exam-hero"
     >
       <View className="parent-exam-hero-bg" pointerEvents="none" />
@@ -178,17 +178,17 @@ function ParentExamHero({ wide }: { wide: boolean }) {
             <View className="parent-exam-hero-brand-line" />
           </View>
           <Text className="parent-exam-hero-title" maxFontSizeMultiplier={1.12}>
-            One platform{"\n"}infinite possibilities
+            One platform,{"\n"}many possibilities
           </Text>
           <Text className="parent-exam-hero-lede" numberOfLines={wide ? 2 : 3}>
-            At Anekio, we celebrate every step of your child's learning journey.
+            Track exams, timetables, and report cards in one place.
           </Text>
           <Text className="parent-exam-hero-signature">
-            <Text className="parent-exam-hero-sig-word">Learn</Text>
+            <Text className="parent-exam-hero-sig-word">Prepare</Text>
             {"  ·  "}
-            <Text className="parent-exam-hero-sig-word">Grow</Text>
+            <Text className="parent-exam-hero-sig-word">Review</Text>
             {"  ·  "}
-            <Text className="parent-exam-hero-sig-word">Achieve</Text>
+            <Text className="parent-exam-hero-sig-word">Improve</Text>
           </Text>
         </View>
         <View className="parent-exam-hero-art" pointerEvents="none">
@@ -721,21 +721,28 @@ export function ParentExamination() {
               {sessions.map((session, index) => {
                 const tone = sittingTone(session.name, index);
                 const badge = statusStyle(session);
+                const cardStyle =
+                  Platform.OS === "web"
+                    ? undefined
+                    : {
+                        borderColor: tone.fg,
+                        minHeight: 156,
+                        width: wide ? 280 : ("100%" as const),
+                        flexGrow: wide ? 0 : 1,
+                      };
                 return (
                   <Pressable
                     key={session.id}
                     accessibilityRole="button"
                     accessibilityLabel={`${session.name} ${badge.label}`}
                     onPress={() => setSelectedExamId(session.id)}
-                    className="parent-exam-session-card rounded-[14px] border bg-white p-4"
-                    style={{
-                      borderColor: "#E5EAF2",
-                      minHeight: 188,
-                      ...(Platform.OS === "web" ? {} : { minWidth: 250, maxWidth: 290, flexGrow: 0 }),
-                    }}
+                    className="parent-exam-session-card overflow-hidden rounded-[16px] border bg-white"
+                    style={cardStyle}
                   >
-                    <View className="flex-row items-start justify-between">
-                      <View className="h-10 w-10 items-center justify-center rounded-[12px]" style={{ backgroundColor: tone.bg }}>
+                    <View className="h-2" style={{ backgroundColor: tone.fg }} />
+                    <View className="p-4">
+                    <View className="flex-row items-start justify-between gap-3">
+                      <View className="h-11 w-11 items-center justify-center rounded-[14px]" style={{ backgroundColor: tone.bg }}>
                         <Ionicons name={sittingIcon(session.name, session.status)} size={18} color={tone.fg} />
                       </View>
                       <View className="h-6 items-center justify-center rounded-full px-2" style={{ backgroundColor: badge.bg }}>
@@ -744,21 +751,21 @@ export function ParentExamination() {
                         </Text>
                       </View>
                     </View>
-                    <Text className="mt-3 text-[16px] font-bold text-ink-900" numberOfLines={1}>
+                    <Text className="mt-3 text-[17px] font-bold text-ink-900" numberOfLines={1}>
                       {session.name}
                     </Text>
                     {session.sessionLabel ? (
                       <Text className="mt-0.5 text-[11px] text-ink-500">{sessionYear(session.sessionLabel)}</Text>
                     ) : null}
-                    <View className="mt-3 gap-1.5">
+                    <View className="mt-3 gap-2 rounded-[12px] bg-[#F8FAFC] px-3 py-2.5">
                       <View className="flex-row items-center">
-                        <Ionicons name="calendar-outline" size={12} color="#94A3B8" />
-                        <Text className="ml-1.5 flex-1 text-[11px] text-ink-500">{session.examLabel}</Text>
+                        <Ionicons name="calendar-outline" size={13} color={tone.fg} />
+                        <Text className="ml-1.5 flex-1 text-[12px] font-medium text-ink-700">{session.examLabel}</Text>
                         <Text className="text-[12px] font-medium text-ink-800">{session.examDate}</Text>
                       </View>
                       <View className="flex-row items-center">
-                        <Ionicons name="document-text-outline" size={12} color="#94A3B8" />
-                        <Text className="ml-1.5 flex-1 text-[11px] text-ink-500">Schedule published</Text>
+                        <Ionicons name="document-text-outline" size={13} color={tone.fg} />
+                        <Text className="ml-1.5 flex-1 text-[12px] font-medium text-ink-700">Schedule published</Text>
                         <Text className="text-[12px] font-medium text-ink-800">{session.resultDate}</Text>
                       </View>
                     </View>
@@ -769,6 +776,7 @@ export function ParentExamination() {
                       <View className="parent-exam-card-arrow h-6 w-6 items-center justify-center rounded-full" style={{ backgroundColor: tone.bg }}>
                         <Ionicons name="arrow-forward" size={12} color={tone.fg} />
                       </View>
+                    </View>
                     </View>
                   </Pressable>
                 );

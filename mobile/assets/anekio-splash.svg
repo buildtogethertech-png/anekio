@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1200">
+  <defs>
+    <linearGradient id="bg" x1="288" y1="244" x2="912" y2="868" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1d4ed8"/>
+      <stop offset="0.58" stop-color="#2563eb"/>
+      <stop offset="1" stop-color="#0f766e"/>
+    </linearGradient>
+    <linearGradient id="leaf" x1="670" y1="372" x2="800" y2="510" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#34d399"/>
+      <stop offset="1" stop-color="#a7f3d0"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="1200" fill="#f4f7fb"/>
+  <g transform="translate(380 210)">
+    <rect width="440" height="440" rx="104" fill="url(#bg)"/>
+    <path d="M220 84c-11 0-21 7-26 17L94 326c-5 12 4 25 17 25h42c8 0 15-5 18-13l16-46h66l16 46c3 8 10 13 18 13h44c13 0 22-13 17-25L247 101c-5-10-15-17-27-17Zm0 128 26 72h-52l26-72Z" fill="#fff"/>
+    <path d="M286 112c43-4 76 16 98 59-48 12-84 1-108-34 2-9 6-18 10-25Z" fill="url(#leaf)"/>
+    <path d="M272 152c35 3 64 14 89 33" fill="none" stroke="#0f766e" stroke-width="11" stroke-linecap="round" opacity=".55"/>
+    <path d="M134 370h172" stroke="#bfdbfe" stroke-width="16" stroke-linecap="round" opacity=".9"/>
+  </g>
+  <text x="600" y="760" text-anchor="middle" font-family="SF Pro Display, Inter, Arial, sans-serif" font-size="78" font-weight="800" fill="#102A56">Anekio</text>
+  <text x="600" y="832" text-anchor="middle" font-family="SF Pro Text, Inter, Arial, sans-serif" font-size="34" font-weight="600" fill="#64748B">One platform, many possibilities</text>
+</svg>
