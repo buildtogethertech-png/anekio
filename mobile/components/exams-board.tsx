@@ -139,6 +139,7 @@ export function ExamsBoard() {
   const [focusPlanId, setFocusPlanId] = useState("");
   const [drawerTab, setDrawerTab] = useState<"overview" | "marks" | "activity">("overview");
   const [moreOpen, setMoreOpen] = useState(false);
+  const [historyMode, setHistoryMode] = useState(false);
   const scheduleRef = useRef<ExamScheduleSheetHandle>(null);
   const teachers = data?.peopleTeachers ?? [];
   useEffect(() => {
@@ -330,6 +331,7 @@ export function ExamsBoard() {
       return;
     }
     setSchedulePlanId(planItemId || nextSitting?.id || "");
+    setHistoryMode(false);
     setSheet(mode);
   }
   async function savePapers(papers: SchedulePaper[]) {
@@ -1002,7 +1004,9 @@ export function ExamsBoard() {
               >
                 {sheet === "edit"
                   ? "Save dates"
-                  : `Schedule ${sheetSitting.name}`}
+                  : historyMode
+                    ? `Create past ${sheetSitting.name}`
+                    : `Schedule ${sheetSitting.name}`}
               </Button>
             </View>
           ) : null
@@ -1025,6 +1029,7 @@ export function ExamsBoard() {
             }
             pending={Boolean(pending)}
             hideConfirm
+            onHistoryModeChange={setHistoryMode}
             onOpenRoutine={() => {
               setSheet("");
               router.push("/timetable");
