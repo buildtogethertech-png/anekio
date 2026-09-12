@@ -3239,30 +3239,33 @@ export function FamilyFees() {
             </View>
           </Card>
           <Card className="overflow-hidden">
-            <View className="flex-row border-b border-ink-100 px-3 pt-3">
-              {([
-                { id: "overdue", label: `${overdueCount ? "Overdue" : "Due"} ${openInvoices.length}` },
-                { id: "paid", label: `Paid ${paidInvoices.length}` },
-              ] as const).map((item) => {
-                const on = tab === item.id;
-                return (
-                  <Pressable
-                    key={item.id}
-                    accessibilityRole="button"
-                    onPress={() => setTab(item.id)}
-                    className={`mr-2 rounded-t-md border border-b-0 px-3 py-2 ${on ? "border-ink-200 bg-white" : "border-transparent bg-transparent"}`}
-                  >
-                    <Text className={`text-xs font-semibold ${on ? "text-ink-900" : "text-ink-600"}`}>{item.label}</Text>
-                  </Pressable>
-                );
-              })}
+            <View className="flex-row items-center justify-between gap-3 border-b border-ink-100 px-4 py-3">
+              <Text className="text-sm font-semibold text-ink-900">Invoices</Text>
+              <View className="flex-row rounded-md border border-ink-200 bg-ink-50 p-0.5">
+                {([
+                  { id: "overdue", label: `${overdueCount ? "Overdue" : "Due"} ${openInvoices.length}` },
+                  { id: "paid", label: `Paid ${paidInvoices.length}` },
+                ] as const).map((item) => {
+                  const on = tab === item.id;
+                  return (
+                    <Pressable
+                      key={item.id}
+                      accessibilityRole="button"
+                      onPress={() => setTab(item.id)}
+                      className={`h-8 justify-center rounded px-3 ${on ? "bg-white shadow-sm" : ""}`}
+                    >
+                      <Text className={`text-xs font-semibold ${on ? "text-ink-900" : "text-ink-600"}`}>{item.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
             </View>
             {visibleRows.map((inv, index) => {
               const status = feeStatus(inv);
               const selected = picked.includes(inv.id);
               return (
                 <View key={inv.id} className={`px-4 py-3 ${index ? "border-t border-ink-100" : ""}`}>
-                  <View className="gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <View className="gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <View className="min-w-0 flex-1 flex-row items-start gap-2">
                       {tab === "overdue" ? (
                         <Pressable
@@ -3278,15 +3281,15 @@ export function FamilyFees() {
                         </Pressable>
                       ) : null}
                       <View className="min-w-0 flex-1">
-                        <Text className="text-sm font-semibold text-ink-900">
-                          {familyMode ? `${inv.childName} · ${inv.title}` : inv.title}
+                        <Text className="text-sm font-semibold text-ink-900" numberOfLines={1}>
+                          {familyMode ? `${inv.childName} · ` : ""}{inv.title}
                         </Text>
-                        <Text className="mt-1 text-xs text-ink-700">
-                          {familyMode ? `${inv.classLabel} · ` : ""}Due {inv.due} · Amount <Text className="font-semibold text-ink-900">{inv.amount}</Text> · Paid <Text className="font-semibold text-ink-900">{inv.paid}</Text> · Remaining <Text className="font-semibold text-ink-900">{inv.remaining}</Text>
+                        <Text className="mt-1 text-xs text-ink-700" numberOfLines={1}>
+                          {familyMode ? `${inv.classLabel} · ` : ""}Due {inv.due} · Amt <Text className="font-semibold text-ink-900">{inv.amount}</Text> · Paid <Text className="font-semibold text-ink-900">{inv.paid}</Text> · Bal <Text className="font-semibold text-ink-900">{inv.remaining}</Text>
                         </Text>
                       </View>
                     </View>
-                    <View className="flex-row flex-wrap items-center gap-x-4 gap-y-1">
+                    <View className="flex-row flex-wrap items-center justify-end gap-x-3 gap-y-1">
                       <Badge tone={feeTone(status)}>{status}</Badge>
                       {inv.invoiceUrl ? (
                         <Pressable onPress={() => openDocument(inv.invoiceUrl)} hitSlop={8}>
@@ -3304,13 +3307,13 @@ export function FamilyFees() {
                           </View>
                         </Pressable>
                       ) : null}
+                      {inv.lateLabel ? <Text className="text-xs font-medium text-red-700">{inv.lateLabel}</Text> : null}
                     </View>
                   </View>
-                  <View className="mt-2 flex-row flex-wrap justify-between gap-x-4 gap-y-1">
+                  <View className="mt-2 flex-row flex-wrap gap-x-4 gap-y-1 pl-5">
                     {inv.lines.length ? (
                       <Text className="text-xs leading-5 text-ink-700">{inv.lines.join(" · ")}</Text>
                     ) : <Text />}
-                    {inv.lateLabel ? <Text className="text-xs font-medium text-red-700">{inv.lateLabel}</Text> : null}
                   </View>
                 </View>
               );
