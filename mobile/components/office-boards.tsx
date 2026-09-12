@@ -15,7 +15,7 @@ import { ReportCardSheet, type ReportCardData } from "./report-card-sheet";
 import { studentSeriesScore, studentYearScore } from "../lib/exams";
 import { act, saveLateTiming } from "../lib/mutate";
 import { openMarksheetPdf } from "../lib/print-html";
-import { apiBase } from "../lib/api";
+import { webOrigin } from "../lib/api";
 import { useRecord, type AdmissionFormField } from "../lib/record";
 import { useSession } from "../lib/session";
 import { canChangeManager, ManagerPicker } from "./manager-picker";
@@ -971,24 +971,32 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   }
 
   async function openFeeDocument(inv: { id: string; invoiceUrl?: string; receiptUrl?: string }, paid: boolean) {
-    const feeDocs = data?.school?.documentsReady;
-    const approved = paid ? feeDocs?.paymentReceipt : feeDocs?.feeInvoice;
-    if (!approved) {
-      Alert.alert("Template not approved", paid ? "Payment receipt template is not approved." : "Fee invoice template is not approved.");
-      return;
-    }
     const directUrl = paid ? inv.receiptUrl : inv.invoiceUrl;
     if (directUrl) {
+      if (Platform.OS === "web") {
+        window.open(directUrl, "_blank", "noopener,noreferrer");
+        return;
+      }
       await Linking.openURL(directUrl);
       return;
     }
+    const pendingWindow = Platform.OS === "web" ? window.open("", "_blank") : null;
+    if (pendingWindow) pendingWindow.opener = null;
+    const openUrl = async (url: string) => {
+      if (pendingWindow) {
+        pendingWindow.location.replace(url);
+        return;
+      }
+      await Linking.openURL(url);
+    };
     try {
       const result = await act<{ ok: true; token: string }>(token, "ensurePayToken", { invoiceId: inv.id });
       const shareToken = encodeURIComponent(result.token);
-      const url = paid ? `${apiBase()}/pay/${shareToken}?paid=1` : `${apiBase()}/i/${shareToken}`;
+      const url = paid ? `${webOrigin()}/pay/${shareToken}?paid=1` : `${webOrigin()}/i/${shareToken}`;
       await reload();
-      await Linking.openURL(url);
+      await openUrl(url);
     } catch (e) {
+      pendingWindow?.close();
       toast.show(e instanceof Error ? e.message : "Could not open fee document.");
     }
   }
@@ -1333,13 +1341,49 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                         {paid ? "paid" : inv.status}
                       </Badge>
                       <View className="flex-row flex-wrap justify-end gap-1.5">
-                        <Pressable
-                          onPress={() => void openFeeDocument(inv, false)}
-                          className="flex-row items-center gap-1 rounded-md border border-ink-200 px-2 py-1"
-                        >
-                          <Ionicons name="document-text-outline" size={14} color="#1d4ed8" />
-                          <Text className="text-xs font-medium text-clay-600">Invoice</Text>
-                        </Pressable>
+                        {Platform.OS === "web" ? (
+                          createElement(
+                            "button",
+                            {
+                              type: "button",
+                              onClick: (event: React.MouseEvent<HTMLButtonElement>) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                void openFeeDocument(inv, false);
+                              },
+                              style: {
+                                alignItems: "center",
+                                background: "#fff",
+                                border: "1px solid #CBD5E1",
+                                borderRadius: 6,
+                                color: "#2563eb",
+                                cursor: "pointer",
+                                display: "flex",
+                                flexDirection: "row",
+                                font: "inherit",
+                                fontSize: 12,
+                                fontWeight: 600,
+                                gap: 4,
+                                padding: "4px 8px",
+                                position: "relative",
+                                userSelect: "none",
+                                zIndex: 1,
+                              },
+                            },
+                            createElement(Ionicons, { name: "document-text-outline", size: 14, color: "#1d4ed8" }),
+                            "Invoice"
+                          )
+                        ) : (
+                          <Pressable
+                            onPress={() => {
+                              void openFeeDocument(inv, false);
+                            }}
+                            className="flex-row items-center gap-1 rounded-md border border-ink-200 px-2 py-1"
+                          >
+                            <Ionicons name="document-text-outline" size={14} color="#1d4ed8" />
+                            <Text className="text-xs font-medium text-clay-600">Invoice</Text>
+                          </Pressable>
+                        )}
                         {paid ? (
                           <Pressable
                             onPress={() => void openFeeDocument(inv, true)}
