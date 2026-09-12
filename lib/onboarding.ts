@@ -12,7 +12,7 @@ import { DOCUMENT_TYPES } from "./document-studio";
 import { parseWeekdays } from "./schedule";
 
 const ONBOARDING_STATE_ID = "school";
-export const IMPORT_KINDS = ["classes", "students", "teachers", "class_teachers", "attendance", "opening_balances"] as const;
+export const IMPORT_KINDS = ["classes", "students", "teachers", "class_teachers", "attendance", "staff_attendance", "opening_balances"] as const;
 export type ImportKind = (typeof IMPORT_KINDS)[number];
 type ImportRow = Record<string, string> & { _row: string };
 type OnboardingDb = Prisma.TransactionClient;
@@ -37,9 +37,10 @@ type OnboardingTarget = { href: string; label: string };
 const TEMPLATE_DETAILS: Record<ImportKind, { sheet: string; file: string; title: string }> = {
   classes: { sheet: "Classes", file: "anekio-classes.csv", title: "Classes and sections" },
   students: { sheet: "Students", file: "anekio-students.csv", title: "Students and parents" },
-  teachers: { sheet: "Teachers", file: "anekio-teachers.csv", title: "Teachers" },
+  teachers: { sheet: "Staff", file: "anekio-staff.csv", title: "Staff" },
   class_teachers: { sheet: "Class teachers", file: "anekio-class-teachers.csv", title: "Class teacher assignments" },
-  attendance: { sheet: "Attendance", file: "anekio-attendance.csv", title: "Attendance history" },
+  attendance: { sheet: "Student attendance", file: "anekio-student-attendance.csv", title: "Student attendance history" },
+  staff_attendance: { sheet: "Staff attendance", file: "anekio-staff-attendance.csv", title: "Staff attendance history" },
   opening_balances: { sheet: "First time fees", file: "anekio-first-time-fees.csv", title: "First time fee import" },
 };
 const DEFAULT_ONBOARDING_MODULES = ["school", "teaching", "money", "documents"];
@@ -168,6 +169,7 @@ function sheetCell(row: ImportRow, ...keys: string[]) {
 type CsvCell = string | number;
 type StaffImportRole = Pick<Role, "id" | "name" | "slug" | "portal">;
 type AttendanceImportMark = AttendanceStatus | "HOLIDAY";
+type StaffAttendancePerson = { kind: "teacher" | "staff"; id: string; employeeId: string; name: string; role: string };
 
 function csvBuffer(rows: CsvCell[][]) {
   const encoded = rows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(","));
@@ -384,6 +386,13 @@ async function csvRowsFor(kind: ImportKind): Promise<CsvCell[][]> {
     ];
   }
 
+  if (kind === "staff_attendance") {
+    return [
+      ["Anekio staff ID", "Staff type", "Employee ID", "Staff name", "Role", dateText(new Date()), "Example only"],
+      ["", "teacher", "T-101", "Meera Singh (example)", "Teacher", "P", "YES"],
+    ];
+  }
+
   if (kind === "class_teachers") {
     const teachers = await prisma.teacher.findMany({ include: { user: true }, orderBy: { user: { name: "asc" } } });
     const teacherLabels = teachers.map((teacher) => `${teacher.employeeId} · ${teacher.user.name}`);
@@ -478,6 +487,74 @@ async function attendanceTemplateWorkbook(options: { sampleData?: boolean } = {}
   return workbook;
 }
 
+async function staffAttendanceTemplateWorkbook(options: { sampleData?: boolean } = {}) {
+  const session = await prisma.schoolSession.findFirst({
+    where: { current: true },
+    orderBy: { startsOn: "desc" },
+  });
+  if (!session) throw new Error("Create a school session before downloading staff attendance.");
+  const today = dateText(new Date());
+  const through = [session.endsOn, today].filter(Boolean).sort()[0] || today;
+  const dates = dateRange(session.startsOn, through);
+  if (!dates.length) throw new Error("This session has no dates to export yet.");
+  const [config, holidays, teachers, staffMembers] = await Promise.all([
+    prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { weekdays: true } }),
+    prisma.schoolHoliday.findMany({ where: { sessionId: session.id }, orderBy: { date: "asc" } }),
+    prisma.teacher.findMany({
+      include: { user: { include: { role: true } }, class: true },
+      orderBy: { user: { name: "asc" } },
+    }),
+    prisma.staffMember.findMany({
+      where: { archivedAt: null },
+      include: { role: true, user: { include: { role: true } } },
+      orderBy: { name: "asc" },
+    }),
+  ]);
+  if (!teachers.length && !staffMembers.length) throw new Error("Create staff before downloading staff attendance.");
+  const holidayByDate = new Map(holidays.map((row) => [row.date, row.name]));
+  const weekdays = parseWeekdays(config?.weekdays);
+  const markForDate = (date: string) => holidayByDate.has(date) ? "H" : weekdays.includes(new Date(`${date}T00:00:00`).getDay() || 7) ? "P" : "H";
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "Anekio";
+  workbook.subject = `Staff attendance import for ${session.label}`;
+  const headers = ["Anekio staff ID", "Staff type", "Employee ID", "Staff name", "Role", ...dates, "Example only"];
+  const sheet = workbook.addWorksheet(TEMPLATE_DETAILS.staff_attendance.sheet);
+  sheet.addRow(headers);
+  sheet.addRow(["", "teacher", "T-101", "Meera Singh (example)", "Teacher", ...dates.map(markForDate), "YES"]);
+  if (options.sampleData) {
+    [
+      ["", "teacher", "TEST-T-001", "Meera Singh", "Teacher"],
+      ["", "staff", "TEST-S-001", "Ritu Shah", "Accounts"],
+    ].forEach((row) => sheet.addRow([...row, ...dates.map(markForDate), ""]));
+  } else {
+    teachers.forEach((teacher) => {
+      sheet.addRow([
+        teacher.id,
+        "teacher",
+        teacher.employeeId,
+        teacher.user.name,
+        teacher.class ? `Class teacher ${teacher.class.name}-${teacher.class.section}` : roleLabel(teacher.user.role),
+        ...dates.map(markForDate),
+        "",
+      ]);
+    });
+    staffMembers.forEach((staff) => {
+      sheet.addRow([
+        staff.id,
+        "staff",
+        staff.employeeId,
+        staff.name,
+        staff.role ? roleLabel(staff.role) : staff.user?.role ? roleLabel(staff.user.role) : staff.title || "Staff",
+        ...dates.map(markForDate),
+        "",
+      ]);
+    });
+  }
+  applyHeaderStyle(sheet);
+  sheet.columns = headers.map((header, index) => ({ header, key: normalizeHeader(header), width: index < 5 ? Math.max(16, header.length + 2) : 13 }));
+  return workbook;
+}
+
 function xlsxFileName(kind: ImportKind) {
   return TEMPLATE_DETAILS[kind].file.replace(/\.csv$/i, ".xlsx");
 }
@@ -548,7 +625,15 @@ export async function onboardingSpreadsheetTemplate(user: AccessUser, rawKind: s
   if (kind === "attendance") {
     const workbook = await attendanceTemplateWorkbook(options);
     return {
-      fileName: "anekio-attendance.xlsx",
+      fileName: xlsxFileName(kind),
+      contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
+    };
+  }
+  if (kind === "staff_attendance") {
+    const workbook = await staffAttendanceTemplateWorkbook(options);
+    return {
+      fileName: xlsxFileName(kind),
       contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
     };
@@ -716,12 +801,53 @@ function parseAttendanceMark(value: string): AttendanceImportMark | null {
   return null;
 }
 
+function normalizeStaffKind(value: string): StaffAttendancePerson["kind"] | "" {
+  const kind = value.trim().toLowerCase();
+  if (["teacher", "teaching"].includes(kind)) return "teacher";
+  if (["staff", "employee", "support", "office"].includes(kind)) return "staff";
+  return "";
+}
+
+async function staffAttendancePeople(db: Pick<typeof prisma, "teacher" | "staffMember"> = prisma): Promise<StaffAttendancePerson[]> {
+  const [teachers, staffMembers] = await Promise.all([
+    db.teacher.findMany({ include: { user: { include: { role: true } }, class: true } }),
+    db.staffMember.findMany({ where: { archivedAt: null }, include: { role: true, user: { include: { role: true } } } }),
+  ]);
+  return [
+    ...teachers.map((teacher) => ({
+      kind: "teacher" as const,
+      id: teacher.id,
+      employeeId: teacher.employeeId,
+      name: teacher.user.name,
+      role: teacher.class ? `Class teacher ${teacher.class.name}-${teacher.class.section}` : roleLabel(teacher.user.role),
+    })),
+    ...staffMembers.map((staff) => ({
+      kind: "staff" as const,
+      id: staff.id,
+      employeeId: staff.employeeId,
+      name: staff.name,
+      role: staff.role ? roleLabel(staff.role) : staff.user?.role ? roleLabel(staff.user.role) : staff.title || "Staff",
+    })),
+  ];
+}
+
+function resolveStaffAttendancePerson(row: ImportRow, people: StaffAttendancePerson[]) {
+  const kind = normalizeStaffKind(sheetCell(row, "Staff type", "Type", "Kind"));
+  const staffId = sheetCell(row, "Anekio staff ID", "Staff ID", "Anekio employee ID");
+  const employeeId = sheetCell(row, "Employee ID", "Employee number").toLowerCase();
+  const byId = staffId ? people.filter((person) => person.id === staffId) : [];
+  const byEmployee = employeeId ? people.filter((person) => person.employeeId.toLowerCase() === employeeId) : [];
+  const matches = (byId.length ? byId : byEmployee).filter((person) => !kind || person.kind === kind);
+  return matches.length === 1 ? matches[0] : null;
+}
+
 async function validateRows(kind: ImportKind, rows: ImportRow[]) {
   const errors: string[] = [];
   const roles = kind === "teachers" ? await staffImportRoles() : [];
   const students = kind === "opening_balances" || kind === "students" || kind === "attendance"
     ? await prisma.student.findMany({ select: { id: true, admissionNo: true } })
     : [];
+  const staffPeople = kind === "staff_attendance" ? await staffAttendancePeople() : [];
   const studentIds = new Set(students.map((row) => row.id));
   const admissionNos = new Set(students.map((row) => row.admissionNo.toLowerCase()));
 
@@ -755,6 +881,21 @@ async function validateRows(kind: ImportKind, rows: ImportRow[]) {
       const admissionNo = sheetCell(row, "Admission number", "Admission no").toLowerCase();
       if ((!studentId || !studentIds.has(studentId)) && (!admissionNo || !admissionNos.has(admissionNo))) {
         errors.push(rowError(row, "student ID or admission number was not found."));
+      }
+      const cells = attendanceCells(row);
+      if (!cells.length) errors.push(rowError(row, "at least one date column is required."));
+      for (const cell of cells) {
+        if (!validDate(cell.date)) errors.push(rowError(row, `${cell.date} is not a valid date column.`));
+        if (cell.date > dateText(new Date())) errors.push(rowError(row, `${cell.date} cannot be in the future.`));
+        if (cell.value && !parseAttendanceMark(cell.value)) errors.push(rowError(row, `${cell.date} must be P, A, H, L, LT, or half day.`));
+      }
+      return;
+    }
+    if (kind === "staff_attendance") {
+      const rawKind = sheetCell(row, "Staff type", "Type", "Kind");
+      if (rawKind && !normalizeStaffKind(rawKind)) errors.push(rowError(row, "staff type must be teacher or staff."));
+      if (!resolveStaffAttendancePerson(row, staffPeople)) {
+        errors.push(rowError(row, "staff ID or employee ID was not found."));
       }
       const cells = attendanceCells(row);
       if (!cells.length) errors.push(rowError(row, "at least one date column is required."));
@@ -1181,6 +1322,40 @@ async function applyAttendance(db: OnboardingDb, rows: ImportRow[], user: Access
   return { created, updated };
 }
 
+async function applyStaffAttendance(db: OnboardingDb, rows: ImportRow[], user: AccessUser) {
+  let created = 0;
+  let updated = 0;
+  const people = await staffAttendancePeople(db);
+  for (const row of rows) {
+    const person = resolveStaffAttendancePerson(row, people);
+    if (!person) throw new Error(rowError(row, "staff no longer exists."));
+    for (const cell of attendanceCells(row)) {
+      const status = parseAttendanceMark(cell.value);
+      if (!status || status === "HOLIDAY") continue;
+      const date = new Date(`${cell.date}T00:00:00`);
+      const where = person.kind === "teacher"
+        ? { teacherId_date: { teacherId: person.id, date } }
+        : { staffId_date: { staffId: person.id, date } };
+      const existing = await db.staffDay.findUnique({ where, select: { id: true } });
+      await db.staffDay.upsert({
+        where,
+        update: { status, markedById: user.id, inAt: "", outAt: "", startTimeUsed: "", computedStatus: null },
+        create: {
+          orgId: user.orgId ?? null,
+          teacherId: person.kind === "teacher" ? person.id : null,
+          staffId: person.kind === "staff" ? person.id : null,
+          date,
+          status,
+          markedById: user.id,
+        },
+      });
+      if (existing) updated += 1;
+      else created += 1;
+    }
+  }
+  return { created, updated };
+}
+
 export async function applyOnboardingImport(user: AccessUser, input: { batchId?: string }) {
   need(user);
   const batchId = String(input.batchId || "");
@@ -1206,6 +1381,8 @@ export async function applyOnboardingImport(user: AccessUser, input: { batchId?:
           ? applyTeachers(db, rows, peopleSetup as { password: string; employee: number; staffEmployee: number; roles: StaffImportRole[] })
           : kind === "attendance"
             ? applyAttendance(db, rows, user)
+            : kind === "staff_attendance"
+              ? applyStaffAttendance(db, rows, user)
           : kind === "class_teachers"
             ? applyClassTeachers(db, rows)
             : applyOpeningBalances(db, rows, user.orgId));
@@ -1260,7 +1437,7 @@ export async function onboardingBundle(user: AccessUser) {
   need(user);
   const schoolId = String((user as AccessUser & { schoolId?: string | null }).schoolId || "school");
   const priorityDocumentTypes = DOCUMENT_TYPES.filter((item) => item.priority).map((item) => item.id);
-  const [state, school, classCount, studentCount, teacherCount, attendanceCount, templateCount, openingCount, feeDocuments, documentTemplateCount, latestImports, latestSheets] = await Promise.all([
+  const [state, school, classCount, studentCount, teacherCount, staffMemberCount, attendanceCount, staffAttendanceCount, templateCount, openingCount, feeDocuments, documentTemplateCount, latestImports, latestSheets] = await Promise.all([
     prisma.schoolOnboardingState.findUnique({ where: { id: ONBOARDING_STATE_ID } }),
     prisma.schoolConfig.findUnique({
       where: { id: "school" },
@@ -1280,7 +1457,9 @@ export async function onboardingBundle(user: AccessUser) {
     prisma.class.count({ where: { archivedAt: null } }),
     prisma.student.count(),
     prisma.teacher.count(),
+    prisma.staffMember.count({ where: { archivedAt: null } }),
     prisma.attendance.count(),
+    prisma.staffDay.count(),
     prisma.feeTemplate.count(),
     prisma.feeInvoice.count({ where: { period: "OPENING" } }),
     prisma.documentTemplate.findMany({ where: { schoolId, status: "ACTIVE", type: { in: ["FEE_INVOICE", "PAYMENT_RECEIPT"] } }, select: { type: true } }),
@@ -1303,6 +1482,9 @@ export async function onboardingBundle(user: AccessUser) {
   const hasInvoiceDocument = savedFeeDocumentTypes.has("FEE_INVOICE");
   const hasReceiptDocument = savedFeeDocumentTypes.has("PAYMENT_RECEIPT");
   const hasFeeDocuments = hasInvoiceDocument && hasReceiptDocument;
+  const staffCount = teacherCount + staffMemberCount;
+  const hasStudentAttendanceHistory = attendanceCount > 0 || importDone.has("attendance");
+  const hasStaffAttendanceHistory = staffAttendanceCount > 0 || importDone.has("staff_attendance");
   const step = (
     key: OnboardingStepKey,
     area: OnboardingSetupArea,
@@ -1331,8 +1513,8 @@ export async function onboardingBundle(user: AccessUser) {
     step("school", "school", 1, "School identity", "Confirm school name, session, contact details, and branding in Settings.", Boolean(school?.name && school.name !== "School"), false, "School identity appears on receipts, documents, logins, and parent-facing pages.", { href: "/school?tab=identity", label: "Open identity" }),
     step("classes", "school", 2, "Classes in CRM", "Create classes in School setup, or let student and staff sheets create valid class labels like 1-A.", classCount > 0, false, "Classes connect students, teachers, fees, attendance, exams, and document batches.", { href: "/school?tab=classes", label: "Open classes" }),
     step("students", "teaching", 3, "Students and parents", "Import family records with generated admission numbers when needed.", studentCount > 0 || importDone.has("students"), false, "Students and parent links are needed for attendance, fees, notices, documents, and parent app access.", { href: "/people", label: "Open students" }),
-    step("teachers", "teaching", 4, "Teachers", "Import staff records with role and class-teacher columns when needed.", teacherCount > 0 || importDone.has("teachers"), false, "Teachers are needed for class ownership, timetable, attendance, exams, and staff documents.", { href: "/staff", label: "Open staff" }),
-    step("attendance", "teaching", 5, "Attendance history", "Import old attendance with class sheets, holiday calendar days, and dates through today.", attendanceCount > 0 || importDone.has("attendance"), studentCount === 0 || classCount === 0, "Attendance import needs classes, students, and the holiday calendar first.", { href: "/attendance", label: "Open attendance" }),
+    step("teachers", "teaching", 4, "Staff", "Import staff records with role and class-teacher columns when needed.", staffCount > 0 || importDone.has("teachers"), false, "Staff are needed for class ownership, timetable, attendance, payroll, and documents.", { href: "/staff", label: "Open staff" }),
+    step("attendance", "teaching", 5, "Attendance history", "Import student and staff attendance history through today with holidays already marked.", hasStudentAttendanceHistory && hasStaffAttendanceHistory, studentCount === 0 || classCount === 0 || staffCount === 0, "Attendance history needs classes, students, staff, and the holiday calendar first.", { href: "/attendance", label: "Open attendance" }),
     step("collection_account", "money", 6, "Bank and collection account", "Add UPI, bank account, or the school's payment gateway before asking parents to pay.", hasUpi || hasBank || hasGateway, false, "Collection details appear on pay pages, invoices, receipts, and office collection workflows.", { href: "/school?tab=collect", label: "Open collection setup" }),
     step("fee_invoice_document", "money", 7, "Fee invoice template", "Save and publish the fee invoice template before the first billing cycle.", hasInvoiceDocument, !hasInvoiceDocument, "Fee invoice template is required before fee setup can continue.", { href: "/school?tab=documents&document=FEE_INVOICE", label: "Open invoice template" }, false),
     step("payment_receipt_document", "money", 8, "Payment receipt template", "Save and publish the payment receipt template before the first billing cycle.", hasReceiptDocument, !hasReceiptDocument, "Payment receipt template is required before fee setup can continue.", { href: "/school?tab=documents&document=PAYMENT_RECEIPT", label: "Open receipt template" }, false),
@@ -1346,14 +1528,14 @@ export async function onboardingBundle(user: AccessUser) {
   return {
     modules,
     progress: { completed, total: required.length, percent: required.length ? Math.round((completed / required.length) * 100) : 0 },
-    counts: { classes: classCount, students: studentCount, teachers: teacherCount, openingBalances: openingCount, feeTemplates: templateCount },
+    counts: { classes: classCount, students: studentCount, teachers: staffCount, openingBalances: openingCount, feeTemplates: templateCount },
     steps,
     templates: (IMPORT_KINDS.filter((kind) => kind !== "classes" && kind !== "class_teachers") as ImportKind[]).map((kind) => ({
       kind,
       title: TEMPLATE_DETAILS[kind].title,
       fileName: xlsxFileName(kind),
-      disabled: (kind === "opening_balances" && studentCount === 0) || (kind === "attendance" && (studentCount === 0 || classCount === 0)),
-      prerequisite: kind === "opening_balances" ? "Students" : kind === "attendance" ? "Classes, students, and holiday calendar" : "Class labels can be created from the sheet",
+      disabled: (kind === "opening_balances" && studentCount === 0) || (kind === "attendance" && (studentCount === 0 || classCount === 0)) || (kind === "staff_attendance" && staffCount === 0),
+      prerequisite: kind === "opening_balances" ? "Students" : kind === "attendance" ? "Classes, students, and holiday calendar" : kind === "staff_attendance" ? "Staff and holiday calendar" : "Class labels can be created from the sheet",
     })),
     imports: latestImports.map((row) => ({
       id: row.id,

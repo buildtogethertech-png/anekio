@@ -36,7 +36,7 @@ type GoogleSheetResult = {
 
 const SETUP_AREAS: { key: Onboarding["steps"][number]["area"]; title: string; body: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: "school", title: "School", body: "Identity, sessions, classes, and day structure.", icon: "school-outline" },
-  { key: "teaching", title: "Teaching", body: "Students, parents, teachers, and class ownership.", icon: "people-outline" },
+  { key: "teaching", title: "Teaching", body: "Students, parents, staff, and attendance.", icon: "people-outline" },
   { key: "money", title: "Money", body: "Opening dues, fee rules, invoices, and collections.", icon: "card-outline" },
   { key: "documents", title: "Documents", body: "Important templates and final launch review.", icon: "document-text-outline" },
 ];
@@ -45,7 +45,8 @@ const TEMPLATE_COPY: Record<Template["kind"], string> = {
   students: "Prefilled with current students; blank admission numbers are generated.",
   teachers: "Import staff records first, without mixing class ownership.",
   class_teachers: "Generated from imported classes and teachers so each class gets an owner.",
-  attendance: "Class-wise history through today, with school days marked P and holidays marked H.",
+  attendance: "Class-wise student history through today, with school days marked P and holidays marked H.",
+  staff_attendance: "Staff history through today, with school days marked P and holidays marked H.",
   opening_balances: "Create a one-time backlog invoice, then Anekio starts after the last invoiced month.",
 };
 const FOCUSED_IMPORT_COPY: Record<Template["kind"], { heading: string; description: string; requiredColumns: string; note: string }> = {
@@ -56,9 +57,9 @@ const FOCUSED_IMPORT_COPY: Record<Template["kind"], { heading: string; descripti
     note: "Blank admission numbers are generated. Parent logins are matched or created from parent email/mobile; review must pass before Apply changes records.",
   },
   teachers: {
-    heading: "Choose an employee CSV or Excel file",
-    description: "Upload teachers and office staff for review.",
-    requiredColumns: "Teacher name, Mobile, Role",
+    heading: "Choose a staff CSV or Excel file",
+    description: "Upload teaching and office staff for review.",
+    requiredColumns: "Name, Mobile, Role",
     note: "Employee IDs are generated when blank. Class teacher values can use labels like 1-A; review must pass before Apply changes records.",
   },
   class_teachers: {
@@ -72,6 +73,12 @@ const FOCUSED_IMPORT_COPY: Record<Template["kind"], { heading: string; descripti
     description: "Upload old attendance for review.",
     requiredColumns: "Anekio student ID or Admission number, date columns",
     note: "Downloaded templates mark school days as P and holidays as H. Change absences to A; H and blank cells are skipped when Apply creates attendance.",
+  },
+  staff_attendance: {
+    heading: "Choose a staff attendance CSV or Excel file",
+    description: "Upload old staff attendance for review.",
+    requiredColumns: "Anekio staff ID or Employee ID, Staff type, date columns",
+    note: "Downloaded templates mark school days as P and holidays as H. Change absences to A; H and blank cells are skipped when Apply syncs staff attendance.",
   },
   opening_balances: {
     heading: "Choose a fee CSV or Excel file",
@@ -153,8 +160,12 @@ export function OnboardingBoard({
   }
 
   function openStepTarget(step: Onboarding["steps"][number]) {
-    if (step.key === "students" || step.key === "teachers" || step.key === "attendance") {
+    if (step.key === "students" || step.key === "teachers") {
       setStepImportKind(step.key);
+      return;
+    }
+    if (step.key === "attendance") {
+      setStepImportKind("attendance");
       return;
     }
     onNavigate?.();
@@ -489,11 +500,11 @@ export function OnboardingBoard({
 
       <Modal
         open={Boolean(stepImportKind)}
-        title={stepImportKind === "teachers" ? "Import teachers" : stepImportKind === "attendance" ? "Import attendance" : "Import students and parents"}
+        title={stepImportKind === "teachers" ? "Import staff" : stepImportKind === "attendance" ? "Import attendance history" : "Import students and parents"}
         onClose={() => setStepImportKind(null)}
         wide
       >
-        {stepImportKind ? <OnboardingBoard compact focusKinds={[stepImportKind]} /> : null}
+        {stepImportKind ? <OnboardingBoard compact focusKinds={stepImportKind === "attendance" ? ["attendance", "staff_attendance"] : [stepImportKind]} /> : null}
       </Modal>
 
       {imports.length ? (

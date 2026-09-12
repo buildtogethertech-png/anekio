@@ -72,7 +72,7 @@ export type RecordPayload = {
       status: "complete" | "ready" | "blocked" | "optional";
     }[];
     templates: {
-      kind: "students" | "teachers" | "class_teachers" | "attendance" | "opening_balances";
+      kind: "students" | "teachers" | "class_teachers" | "attendance" | "staff_attendance" | "opening_balances";
       title: string;
       fileName: string;
       disabled: boolean;
