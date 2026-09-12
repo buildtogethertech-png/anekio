@@ -31,7 +31,7 @@ import { addDays, examPlanWeight, parseExamPlan, ymd } from "./exams";
 import { teacherCanEditMarks, teacherMayEnterMarks } from "./exam-workflow";
 import { validateExamMark } from "./exam-marks";
 import { notifySchedulePublished, notifySeriesAssigned } from "./exam-events";
-import { isNoticeKind, normalizeWhatsAppGroupUrl } from "./notices";
+import { normalizeWhatsAppGroupUrl } from "./notices";
 import { notifyNoticePublished, notifyNoticeRecipients } from "./push";
 import { PAY_GATEWAYS, type PayGateway } from "./pay-config";
 import { formatQualification, parseSubjectCatalog, parseWeekdays, weekCapacity } from "./schedule";
@@ -1194,7 +1194,7 @@ export async function publishNoticeCore(
   if (!portals.length) throw new Error("Pick who should see this");
   const classIds = input.allClasses ? [] : [...new Set((input.classIds || []).filter(Boolean))];
   if (!input.allClasses && !classIds.length) throw new Error("Pick a class, or All classes");
-  const kind = isNoticeKind(String(input.kind || "")) ? input.kind : "CIRCULAR";
+  const kind = "CIRCULAR";
   const notice = await prisma.notice.create({
     data: {
       title,

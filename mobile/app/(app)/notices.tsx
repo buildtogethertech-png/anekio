@@ -1,24 +1,24 @@
 import { useCallback, useEffect, useState } from "react";
 import { RefreshControl, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { Badge, Button, Card, Chip, Empty, Field, Input, PageHeader, Toast, useToast } from "../../components/ui";
 import { PhoneTopBar } from "../../components/notice-bell";
 import { api, type Notice } from "../../lib/api";
 import { act } from "../../lib/mutate";
-import { isCircularNotice, NOTICE_KIND_LABEL, NOTICE_KINDS, type NoticeKind } from "../../lib/notice-kind";
+import { isCircularNotice } from "../../lib/notice-kind";
 import { useNoticeInbox } from "../../lib/notice-inbox";
 import { useRecord } from "../../lib/record";
 import { useSession } from "../../lib/session";
 
 function postedWhen(value: string) {
-  return new Date(value).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+  return new Date(value).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 }
 
 export default function Notices() {
   const { token, user } = useSession();
   const inbox = useNoticeInbox();
   const refreshInbox = inbox?.refresh;
-  const markInboxSeen = inbox?.markAllSeen;
   const { data } = useRecord();
   const toast = useToast();
   const [notices, setNotices] = useState<Notice[] | null>(null);
@@ -29,15 +29,13 @@ export default function Notices() {
   const [audience, setAudience] = useState<string[]>(["PARENT"]);
   const [allClasses, setAllClasses] = useState(true);
   const [classIds, setClassIds] = useState<string[]>([]);
-  const [kind, setKind] = useState<NoticeKind>("CIRCULAR");
 
   const load = useCallback(async () => {
     if (!token) return;
     const payload = await api<{ notices: Notice[] }>("/notices", token);
     setNotices(payload.notices);
     await refreshInbox?.({ silent: true });
-    await markInboxSeen?.();
-  }, [token, refreshInbox, markInboxSeen]);
+  }, [token, refreshInbox]);
 
   useEffect(() => {
     load().catch((e) => setError(e instanceof Error ? e.message : "Could not load."));
@@ -58,10 +56,10 @@ export default function Notices() {
 
   async function post() {
     try {
-      await act(token, "publishNotice", { title, body, audience, allClasses, classIds, kind });
+      await act(token, "publishNotice", { title, body, audience, allClasses, classIds, kind: "CIRCULAR" });
       setTitle("");
       setBody("");
-      toast.show(kind === "CIRCULAR" ? "On the board." : `${NOTICE_KIND_LABEL[kind]} notification sent.`);
+      toast.show("On the board.");
       await load();
     } catch (e) {
       toast.show(e instanceof Error ? e.message : "Could not post.");
@@ -94,11 +92,11 @@ export default function Notices() {
       >
         <PageHeader
           kicker={kicker}
-          title="Notices"
+          title="School Notices"
           lede={
             user?.portal === "PARENT"
-              ? "Circulars for your child's class."
-              : "Circulars on the board. Parents and staff see them in the app."
+              ? "Circulars and events for your child's class."
+              : "Things the school wants to announce — events, holidays, and circulars."
           }
         />
         {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
@@ -108,11 +106,12 @@ export default function Notices() {
             <Text className="mb-3 text-sm font-medium text-ink-900">Post a notice</Text>
             <View className="gap-3">
               <Field label="Title">
-                <Input value={title} onChangeText={setTitle} />
+                <Input value={title} onChangeText={setTitle} placeholder="Annual Sports Day" />
               </Field>
-              <Field label="Body">
-                <Input value={body} onChangeText={setBody} multiline />
+              <Field label="Message">
+                <Input value={body} onChangeText={setBody} multiline placeholder="Venue, time, and what families should know." />
               </Field>
+              <Text className="text-xs font-medium text-ink-700">Audience</Text>
               <View className="flex-row flex-wrap gap-2">
                 {["PARENT", "TEACHER", "STUDENT", "OFFICE"].map((p) => (
                   <Chip
@@ -125,13 +124,6 @@ export default function Notices() {
                   />
                 ))}
               </View>
-              <Field label="Type">
-                <View className="flex-row flex-wrap gap-2">
-                  {NOTICE_KINDS.map((k) => (
-                    <Chip key={k} label={NOTICE_KIND_LABEL[k]} active={kind === k} onPress={() => setKind(k)} />
-                  ))}
-                </View>
-              </Field>
               <Chip
                 label="All classes"
                 active={allClasses}
@@ -153,7 +145,7 @@ export default function Notices() {
                   />
                 ))}
               </View>
-              <Button onPress={post}>Post</Button>
+              <Button onPress={post}>Publish notice</Button>
             </View>
           </Card>
         ) : null}
@@ -164,7 +156,10 @@ export default function Notices() {
           {(notices ?? []).filter(isCircularNotice).map((n) => (
             <Card key={n.id} className="p-4">
               <View className="flex-row items-start justify-between gap-2">
-                <Text className="flex-1 font-medium text-ink-900">{n.title}</Text>
+                <View className="flex-row min-w-0 flex-1 items-start gap-2">
+                  <Ionicons name="megaphone-outline" size={18} color="#1d4ed8" style={{ marginTop: 2 }} />
+                  <Text className="flex-1 font-medium text-ink-900">{n.title}</Text>
+                </View>
                 <Text className="text-xs text-ink-700">{postedWhen(n.createdAt)}</Text>
               </View>
               <Text className="mt-2 text-sm leading-5 text-ink-700">{n.body}</Text>

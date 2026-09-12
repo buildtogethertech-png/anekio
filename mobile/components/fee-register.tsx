@@ -152,7 +152,7 @@ function asOfLabel(iso: string) {
   return date.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 }
 
-export function FeeRegister() {
+export function FeeRegister({ embedded = false }: { embedded?: boolean }) {
   const { token, user } = useSession();
   const { data, reload } = useRecord();
   const router = useRouter();
@@ -594,6 +594,7 @@ export function FeeRegister() {
   return (
     <View className="min-h-0 flex-1 gap-3">
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
+      {embedded ? null : (
       <PageHeader
         title="Fee Register"
         lede="Track invoices, payments, outstanding balances and receipts."
@@ -605,6 +606,7 @@ export function FeeRegister() {
           ) : undefined
         }
       />
+      )}
 
       <View className="flex-row flex-wrap items-end gap-2">
         <View className="min-w-[180px] flex-1">

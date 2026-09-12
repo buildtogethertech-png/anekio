@@ -98,7 +98,7 @@ export function NoticeInboxProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(
     async (opts?: { silent?: boolean }) => {
       if (!token || !user) return;
-      const payload = await api<{ notices: Notice[] }>("/notices", token);
+      const payload = await api<{ notices: Notice[] }>("/notices?feed=notifications", token);
       const rows = payload.notices;
       if (!primed.current) {
         const stored = await getSeenNoticeIds(user.id);

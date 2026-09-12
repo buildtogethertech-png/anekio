@@ -249,7 +249,7 @@ export function officeSittingProgress(papers: { workflowStatus?: string | null }
 
 export function officePaperAction(status?: string | null, granted?: boolean) {
   if (status === "PUBLISHED") return "View result";
-  if (status === "APPROVED") return "Publish";
+  if (status === "APPROVED") return "View result";
   if (status === "CORRECTION_REQUIRED") return "View issue";
   if (status === "SUBMITTED" || status === "UNDER_REVIEW" || status === "RESUBMITTED") return "Review";
   if (status === "IN_PROGRESS" || status === "MARKS_DRAFT") return "View";
@@ -305,7 +305,6 @@ export function officeExamTimeline(flags: {
   marksDone: boolean;
   submitted: boolean;
   approved: boolean;
-  published: boolean;
   correction?: boolean;
 }) {
   const correction = Boolean(flags.correction);
@@ -318,7 +317,6 @@ export function officeExamTimeline(flags: {
     { key: "submitted", label: "Submitted to office", done: Boolean(flags.submitted) || correction },
     ...(correction ? [{ key: "correction", label: "Returned for correction", done: false }] : []),
     { key: "approved", label: "Approved", done: Boolean(flags.approved) && !correction },
-    { key: "published", label: "Published to parents", done: Boolean(flags.published) && !correction },
   ];
   let sawPending = false;
   return items.map((item) => {

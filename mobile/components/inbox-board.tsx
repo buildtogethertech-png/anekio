@@ -209,7 +209,7 @@ export function InboxBoard() {
 
   const load = useCallback(async () => {
     if (!token) return;
-    const payload = await api<{ notices: Notice[] }>("/notices", token);
+    const payload = await api<{ notices: Notice[] }>("/notices?feed=notifications", token);
     const tickets = payload.notices.filter((n) => isInboxNotice(n, user?.portal));
     setRows(tickets);
     setSelectedId((old) => old || tickets[0]?.id || "");

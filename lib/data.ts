@@ -8,6 +8,7 @@ import { compareExamNearness, eligibleMarksTeacherIds, examWorkStepOrder, teache
 import { parseWeekdays, weekCapacity } from "./schedule";
 import { schoolFromConfig } from "./school";
 import { ensureSchoolSessions } from "./school-session";
+import { isCircularNotice, type NoticeFeed } from "./notices";
 
 export async function getParentWithChildren(userId: string) {
   return prisma.parent.findUnique({
@@ -1046,51 +1047,60 @@ async function ensureDueAdmissionFollowUpNotices(user: { portal: "OFFICE" | "TEA
   }
 }
 
-export async function noticesForUser(user: { id: string; portal: "OFFICE" | "TEACHER" | "PARENT" | "STUDENT" }) {
+export async function noticesForUser(
+  user: { id: string; portal: "OFFICE" | "TEACHER" | "PARENT" | "STUDENT" },
+  opts?: { feed?: NoticeFeed }
+) {
   await ensureDueAdmissionFollowUpNotices(user);
   const rows = await prisma.notice.findMany({
     include: noticeInclude,
     orderBy: { createdAt: "desc" },
   });
+  let visible;
   if (user.portal === "OFFICE") {
-    return rows.filter((n) =>
+    visible = rows.filter((n) =>
       n.recipients.length
         ? n.recipients.some((recipient) => recipient.userId === user.id)
         : n.audiences.some((a) => a.portal === "OFFICE")
     );
-  }
-  let classIds: string[] = [];
-  let studentIds: string[] = [];
-  if (user.portal === "PARENT") {
-    const parent = await prisma.parent.findUnique({
-      where: { userId: user.id },
-      include: { students: { select: { id: true, classId: true } } },
-    });
-    classIds = [...new Set((parent?.students ?? []).map((s) => s.classId))];
-    studentIds = (parent?.students ?? []).map((s) => s.id);
-  } else if (user.portal === "TEACHER") {
-    classIds = await teacherNoticeClassIds(user.id);
-  } else if (user.portal === "STUDENT") {
-    const student = await prisma.student.findUnique({
-      where: { userId: user.id },
-      select: { id: true, classId: true },
-    });
-    if (student) {
-      classIds = [student.classId];
-      studentIds = [student.id];
+  } else {
+    let classIds: string[] = [];
+    let studentIds: string[] = [];
+    if (user.portal === "PARENT") {
+      const parent = await prisma.parent.findUnique({
+        where: { userId: user.id },
+        include: { students: { select: { id: true, classId: true } } },
+      });
+      classIds = [...new Set((parent?.students ?? []).map((s) => s.classId))];
+      studentIds = (parent?.students ?? []).map((s) => s.id);
+    } else if (user.portal === "TEACHER") {
+      classIds = await teacherNoticeClassIds(user.id);
+    } else if (user.portal === "STUDENT") {
+      const student = await prisma.student.findUnique({
+        where: { userId: user.id },
+        select: { id: true, classId: true },
+      });
+      if (student) {
+        classIds = [student.classId];
+        studentIds = [student.id];
+      }
     }
+    visible = rows.filter((n) => {
+      if (n.recipients.length) return n.recipients.some((recipient) => recipient.userId === user.id);
+      if (!n.audiences.some((a) => a.portal === user.portal)) return false;
+      if (n.studentId) {
+        if (user.portal === "PARENT" || user.portal === "STUDENT") return studentIds.includes(n.studentId);
+        if (user.portal === "TEACHER") return n.classes.some((c) => classIds.includes(c.classId));
+        return false;
+      }
+      if (!n.classes.length) return true;
+      return n.classes.some((c) => classIds.includes(c.classId));
+    });
   }
-  return rows.filter((n) => {
-    if (n.recipients.length) return n.recipients.some((recipient) => recipient.userId === user.id);
-    if (!n.audiences.some((a) => a.portal === user.portal)) return false;
-    if (n.studentId) {
-      if (user.portal === "PARENT" || user.portal === "STUDENT") return studentIds.includes(n.studentId);
-      if (user.portal === "TEACHER") return n.classes.some((c) => classIds.includes(c.classId));
-      return false;
-    }
-    if (!n.classes.length) return true;
-    return n.classes.some((c) => classIds.includes(c.classId));
-  });
+  const feed = opts?.feed ?? "all";
+  if (feed === "circulars") return visible.filter(isCircularNotice);
+  if (feed === "notifications") return visible.filter((n) => !isCircularNotice(n));
+  return visible;
 }
 
 export async function getNoticesBoard() {

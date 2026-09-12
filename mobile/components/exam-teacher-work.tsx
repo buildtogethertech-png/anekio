@@ -419,11 +419,6 @@ export function TeacherMarksModal({
                       Approve
                     </Button>
                   ) : null}
-                  {sheet.workflowStatus === "APPROVED" ? (
-                    <Button disabled={pending} onPress={() => void adminRun("publishExamResults")}>
-                      Publish to parents
-                    </Button>
-                  ) : null}
                 </>
               ) : locked ? null : (
                 <>

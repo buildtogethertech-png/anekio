@@ -14,7 +14,6 @@ import { act } from "../lib/mutate";
 import { calendarFrom } from "../lib/calendar";
 import {
   adminBucket,
-  adminCanPublish,
   adminCanReview,
   officePaperAction,
   officePaperDots,
@@ -286,41 +285,17 @@ export function ExamsBoard() {
       setPending("");
     }
   }
-  async function publishToParents(examId?: string) {
+  async function publishToParents() {
     if (!series) return;
-    const ready = examId
-      ? papers.filter((exam) => exam.id === examId)
-      : approvedPapers;
-    if (!ready.length) {
-      toast.show(
-        "Approve the mark sheet first, then publish so parents can see marks.",
-      );
+    if (!allApproved) {
+      toast.show("Finish and approve every subject first, then show results to parents.");
       return;
     }
-    if (!examId && allApproved) {
-      await run(
-        "publishExamResults",
-        { seriesId: series.id },
-        "Results published. Parents can see marks now.",
-      );
-      return;
-    }
-    setPending("publishExamResults");
-    try {
-      for (const exam of ready) {
-        await act(token, "publishExamResults", { examId: exam.id });
-      }
-      toast.show(
-        ready.length === 1
-          ? `${ready[0].subject.name} published to parents`
-          : `${ready.length} papers published to parents`,
-      );
-      await reload();
-    } catch (e) {
-      toast.show(e instanceof Error ? e.message : "Could not publish.");
-    } finally {
-      setPending("");
-    }
+    await run(
+      "publishExamResults",
+      { seriesId: series.id },
+      "Results are visible to parents now.",
+    );
   }
   function openSchedule(mode: "create" | "edit", planItemId?: string) {
     if (!klass?.subjects?.length) {
@@ -384,9 +359,6 @@ export function ExamsBoard() {
       (e) => adminBucket(e.workflowStatus) === "published",
     ).length,
   };
-  const resultsPublished = papers.some(
-    (exam) => exam.workflowStatus === "PUBLISHED",
-  );
   const allPublished =
     papers.length > 0 &&
     papers.every((exam) => exam.workflowStatus === "PUBLISHED");
@@ -418,10 +390,6 @@ export function ExamsBoard() {
         await run("reviewExamMarks", { examId: exam.id }, "Opened for review");
       }
       setReviewExamId(exam.id);
-      return;
-    }
-    if (action === "Publish" && canPublish) {
-      await publishToParents(exam.id);
       return;
     }
     setDrawerTab("overview");
@@ -808,7 +776,7 @@ export function ExamsBoard() {
                   </View>
                   <View className="mt-3 flex-row flex-wrap items-center gap-x-6 gap-y-2 border-t border-ink-200 pt-3">
                     <Text className="text-[11px] font-semibold text-ink-700">Family Access</Text>
-                    <View className="flex-row items-center gap-2">
+                    <View className="flex-row flex-wrap items-center gap-2">
                       <Text className="text-[12px] text-ink-800">Timetable</Text>
                       <Pressable
                         accessibilityRole="switch"
@@ -829,50 +797,24 @@ export function ExamsBoard() {
                         {published ? "Visible to parents" : "Hidden from parents"}
                       </Text>
                     </View>
-                    <View className="flex-row flex-wrap items-center gap-2">
-                      <Text className="text-[12px] text-ink-800">Results</Text>
-                      <Pressable
-                        accessibilityRole="switch"
-                        accessibilityLabel="Publish results to parents"
-                        accessibilityState={{ checked: allPublished, disabled: allPublished || Boolean(pending) }}
-                        disabled={Boolean(pending) || allPublished || !canPublish}
-                        onPress={() => {
-                          if (allApproved) {
-                            setPublishOpen(true);
-                            return;
-                          }
-                          toast.show("Approve every paper first, then publish so parents can see the report card.");
-                        }}
-                        className={`anekio-switch h-5 w-9 justify-center rounded-full ${allPublished ? "bg-[#10B981]" : "bg-ink-200"}`}
-                      >
-                        <View className={`anekio-switch-knob h-4 w-4 rounded-full bg-white ${allPublished ? "ml-4" : "ml-0.5"}`} />
-                      </Pressable>
-                      <Text className="text-[11px] text-ink-700">
-                        {allPublished
-                          ? "Visible to parents"
-                          : resultsPublished
-                            ? "Some papers published · full report waits"
-                            : "Hidden from parents"}
-                      </Text>
-                      {canPublish && allApproved && !allPublished ? (
-                        <ExamAction busy={pending === "publishExamResults"} onPress={() => setPublishOpen(true)}>
-                          Publish to parents
-                        </ExamAction>
-                      ) : null}
-                    </View>
+                    {allPublished ? (
+                      <Text className="text-[11px] text-ink-700">Results visible to parents</Text>
+                    ) : null}
                   </View>
                 </View>
               </ExamEnter>
               {allApproved && !allPublished && canPublish ? (
                 <View className="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3">
-                  <Text className="text-[13px] font-semibold text-ink-900">✓ {papers.length} / {papers.length} papers approved</Text>
-                  <Text className="mt-0.5 text-[12px] text-ink-700">Results are ready.</Text>
+                  <Text className="text-[13px] font-semibold text-ink-900">
+                    ✓ {papers.length} / {papers.length} subjects ready
+                  </Text>
+                  <Text className="mt-0.5 text-[12px] text-ink-700">Marks are approved for every paper. Show this sitting to parents when you are ready.</Text>
                   <View className="mt-2 flex-row flex-wrap gap-2">
                     <Button variant="ghost" onPress={() => setDesk("review")}>
                       Preview results
                     </Button>
                     <ExamAction busy={pending === "publishExamResults"} onPress={() => setPublishOpen(true)}>
-                      Publish results
+                      Show to parent
                     </ExamAction>
                   </View>
                 </View>
@@ -1070,7 +1012,7 @@ export function ExamsBoard() {
           const ok = await run(
             "approveExamMarks",
             { examId: approveExam.id },
-            "Approved. Publish to parents when ready.",
+            "Approved. Show to parent when every subject is ready.",
           );
           setApproveExamId("");
           setLeavingIds((cur) => cur.filter((id) => id !== approveExam.id));
@@ -1079,9 +1021,9 @@ export function ExamsBoard() {
       />
       <ExamConfirm
         open={publishOpen}
-        title={`Publish ${series?.name || "exam"} results`}
-        body={`${approvedPapers.length} papers approved\n${studentCount} students\n\nResults will become visible to parents and students.`}
-        action="Publish results"
+        title={`Show ${series?.name || "exam"} results to parents?`}
+        body={`${approvedPapers.length} papers approved\n${studentCount} students\n\nParents and students will see marks for this sitting.`}
+        action="Show to parent"
         busy={pending === "publishExamResults"}
         onClose={() => setPublishOpen(false)}
         onConfirm={async () => {
@@ -1196,14 +1138,6 @@ export function ExamsBoard() {
                         : undefined
                     }
                     approved={detailExam.workflowStatus === "APPROVED" || detailExam.workflowStatus === "PUBLISHED"}
-                    published={detailExam.workflowStatus === "PUBLISHED"}
-                    publishedHint={
-                      detailExam.workflowStatus === "PUBLISHED"
-                        ? allPublished
-                          ? "Report card visible to fee-cleared parents"
-                          : "This paper is published. The full report card waits until every subject is published."
-                        : undefined
-                    }
                   />
                 </View>
                 <View className="flex-row flex-wrap gap-2">
@@ -1247,9 +1181,6 @@ export function ExamsBoard() {
                     >
                       Return for correction
                     </Button>
-                  ) : null}
-                  {canPublish && adminCanPublish(detailExam.workflowStatus) ? (
-                    <ExamAction onPress={() => void publishToParents(detailExam.id)}>Publish results</ExamAction>
                   ) : null}
                   {canRun ? (
                     <Button variant="ghost" className="w-full" onPress={() => openSchedule("edit")}>

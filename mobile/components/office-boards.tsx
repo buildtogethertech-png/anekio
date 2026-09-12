@@ -3,6 +3,9 @@ import type { ReactNode } from "react";
 import { Linking, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { FeesChrome } from "./fees-chrome";
+import { FeeHistory } from "./fee-history";
+import { FeeRegister } from "./fee-register";
 import { GeneratePayment } from "./generate-payment";
 import { Dropdown } from "./form";
 import { Badge, Button, Card, Chip, Empty, Field, Input, Modal, PageHeader, Segmented, Sheet, Stat, Switch, Toast, useToast } from "./ui";
@@ -3176,7 +3179,7 @@ export function FeesBoard() {
   const toast = useToast();
   const [classId, setClassId] = useState("all");
   const [filter, setFilter] = useState<"all" | "overdue">("all");
-  const [tab, setTab] = useState<"due" | "templates">("due");
+  const [tab, setTab] = useState<"due" | "templates" | "history" | "register">("due");
   const [feeEditorOpen, setFeeEditorOpen] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [tplName, setTplName] = useState("Monthly fee");
@@ -3337,10 +3340,31 @@ export function FeesBoard() {
     setFeeEditorOpen(true);
   }
 
+  const feesTitle =
+    tab === "templates" ? "Setup" : tab === "history" ? "Fee History" : tab === "register" ? "Register" : "Collect";
+  const feesLede =
+    tab === "templates"
+      ? "Class fee ranges and issue invoices."
+      : tab === "history"
+        ? "Payments collected at the desk."
+        : tab === "register"
+          ? "Track invoices, balances and receipts."
+          : "Pending invoices for collection.";
+
   return (
-    <View>
+    <View className="min-h-0 flex-1 gap-3">
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
-      <View className="mb-3 gap-1.5 rounded-md border border-ink-100 bg-white p-1.5">
+      <FeesChrome
+        title={feesTitle}
+        lede={feesLede}
+        tab={tab}
+        onCollect={() => setTab("due")}
+        onSetup={() => setTab("templates")}
+        onHistory={() => setTab("history")}
+        onRegister={() => setTab("register")}
+      />
+      {tab === "history" || tab === "register" ? null : (
+      <View className="shrink-0 gap-1.5 rounded-md border border-ink-100 bg-white p-1.5">
         <View className="flex-row flex-wrap items-stretch gap-1.5">
           <Pressable
             accessibilityRole="button"
@@ -3370,22 +3394,6 @@ export function FeesBoard() {
             <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-700">Generated through</Text>
             <Text className="text-base font-semibold text-ink-900">{periodLabel(generatedThrough)}</Text>
           </View>
-          <View className="flex-row rounded-md border border-ink-200 bg-white p-0.5">
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setTab("due")}
-              className={`min-w-[76px] items-center rounded-md px-3 py-1.5 ${tab === "due" ? "bg-clay-500" : "bg-white"}`}
-            >
-              <Text className={`text-sm font-semibold ${tab === "due" ? "text-white" : "text-ink-800"}`}>Collect</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setTab("templates")}
-              className={`min-w-[76px] items-center rounded-md px-3 py-1.5 ${tab === "templates" ? "bg-clay-500" : "bg-white"}`}
-            >
-              <Text className={`text-sm font-semibold ${tab === "templates" ? "text-white" : "text-ink-800"}`}>Setup</Text>
-            </Pressable>
-          </View>
         </View>
         <View className="flex-row flex-wrap gap-1.5">
           <Chip
@@ -3408,7 +3416,15 @@ export function FeesBoard() {
           ))}
         </View>
       </View>
+      )}
+      {tab === "history" ? (
+        <FeeHistory />
+      ) : null}
+      {tab === "register" ? (
+        <FeeRegister embedded />
+      ) : null}
       {tab === "templates" ? (
+        <ScrollView className="min-h-0 flex-1" nestedScrollEnabled keyboardShouldPersistTaps="handled">
         <Card className="mb-6 p-4">
           <View className="mb-4 flex-row flex-wrap items-start justify-between gap-3">
             <View className="max-w-2xl">
@@ -3533,6 +3549,7 @@ export function FeesBoard() {
             </View>
           )}
         </Card>
+        </ScrollView>
       ) : null}
       <Modal
         open={feeEditorOpen}
@@ -3684,7 +3701,7 @@ export function FeesBoard() {
         </View>
       </Modal>
       {tab === "due" ? (
-        <View className="rounded-md border border-ink-100 bg-white p-3">
+        <View className="min-h-0 flex-1 rounded-md border border-ink-100 bg-white p-3">
           <View className="mb-3 flex-row items-center justify-between gap-3">
             <Text className="font-semibold text-ink-900">Pending invoices</Text>
             <View className="flex-row items-center gap-2">
@@ -3711,7 +3728,7 @@ export function FeesBoard() {
             <ScrollView
               nestedScrollEnabled
               keyboardShouldPersistTaps="handled"
-              style={{ maxHeight: 500 }}
+              className="min-h-0 flex-1"
               contentContainerClassName="gap-3 pb-1"
             >
               {students.map((s) => {
