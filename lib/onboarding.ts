@@ -8,7 +8,6 @@ import { normalizeMobile } from "./phone";
 import { ensureAccessRoles, roleIdBySlug } from "./roles";
 import { parseClassLabel, parseCsv } from "./sheet";
 import { readUpload } from "./uploads";
-import { DOCUMENT_TYPES } from "./document-studio";
 import { parseWeekdays } from "./schedule";
 import { examPlanWeight, parseExamPlan } from "./exams";
 
@@ -17,24 +16,31 @@ export const IMPORT_KINDS = ["classes", "students", "teachers", "class_teachers"
 export type ImportKind = (typeof IMPORT_KINDS)[number];
 type ImportRow = Record<string, string> & { _row: string };
 type OnboardingDb = Prisma.TransactionClient;
-type OnboardingSetupArea = "school" | "teaching" | "exams" | "money" | "documents";
+type OnboardingSetupArea = "school" | "teaching" | "exams" | "money";
 type OnboardingStepKey =
   | "school"
   | "classes"
   | "students"
+  | "student_id_document"
+  | "student_admit_card_document"
+  | "admission_confirmation_document"
   | "teachers"
+  | "staff_id_document"
+  | "salary_slip_document"
   | "attendance"
   | "staff_attendance"
   | "exam_plan"
   | "exam_history"
   | "exam_marks"
+  | "report_card_document"
+  | "exam_date_sheet_document"
+  | "consolidated_report_document"
   | "class_teachers"
   | "collection_account"
   | "fee_invoice_document"
   | "payment_receipt_document"
   | "opening_balances"
   | "recurring_fees"
-  | "documents"
   | "review";
 type OnboardingPlanState = { modules: string[]; manualSteps: string[] };
 type OnboardingTarget = { href: string; label: string };
@@ -49,24 +55,31 @@ const TEMPLATE_DETAILS: Record<ImportKind, { sheet: string; file: string; title:
   exam_marks: { sheet: "Exam marks", file: "anekio-exam-marks.csv", title: "Exam marks history" },
   opening_balances: { sheet: "First time fees", file: "anekio-first-time-fees.csv", title: "First time fee import" },
 };
-const DEFAULT_ONBOARDING_MODULES = ["school", "teaching", "exams", "money", "documents"];
+const DEFAULT_ONBOARDING_MODULES = ["school", "teaching", "exams", "money"];
 const ONBOARDING_STEP_KEYS = new Set<OnboardingStepKey>([
   "school",
   "classes",
   "students",
+  "student_id_document",
+  "student_admit_card_document",
+  "admission_confirmation_document",
   "teachers",
+  "staff_id_document",
+  "salary_slip_document",
   "attendance",
   "staff_attendance",
   "exam_plan",
   "exam_history",
   "exam_marks",
+  "report_card_document",
+  "exam_date_sheet_document",
+  "consolidated_report_document",
   "class_teachers",
   "collection_account",
   "fee_invoice_document",
   "payment_receipt_document",
   "opening_balances",
   "recurring_fees",
-  "documents",
   "review",
 ]);
 
@@ -1621,8 +1634,19 @@ export async function toggleOnboardingStep(user: AccessUser, input: { key?: unkn
 export async function onboardingBundle(user: AccessUser) {
   need(user);
   const schoolId = String((user as AccessUser & { schoolId?: string | null }).schoolId || "school");
-  const priorityDocumentTypes = DOCUMENT_TYPES.filter((item) => item.priority).map((item) => item.id);
-  const [state, school, classCount, studentCount, teacherCount, staffMemberCount, attendanceCount, staffAttendanceCount, currentSession, examCount, examMarkCount, templateCount, openingCount, feeDocuments, documentTemplateCount, latestImports, latestSheets] = await Promise.all([
+  const importantDocumentTypes = [
+    "FEE_INVOICE",
+    "PAYMENT_RECEIPT",
+    "STUDENT_ID",
+    "ADMIT_CARD",
+    "ADMISSION_CONFIRMATION",
+    "EMPLOYEE_ID",
+    "SALARY_SLIP",
+    "REPORT_CARD",
+    "EXAM_DATE_SHEET",
+    "CONSOLIDATED_REPORT",
+  ];
+  const [state, school, classCount, studentCount, teacherCount, staffMemberCount, attendanceCount, staffAttendanceCount, currentSession, examCount, examMarkCount, templateCount, openingCount, documentTemplates, latestImports, latestSheets] = await Promise.all([
     prisma.schoolOnboardingState.findUnique({ where: { id: ONBOARDING_STATE_ID } }),
     prisma.schoolConfig.findUnique({
       where: { id: "school" },
@@ -1650,8 +1674,7 @@ export async function onboardingBundle(user: AccessUser) {
     prisma.examResult.count(),
     prisma.feeTemplate.count(),
     prisma.feeInvoice.count({ where: { period: "OPENING" } }),
-    prisma.documentTemplate.findMany({ where: { schoolId, status: "ACTIVE", type: { in: ["FEE_INVOICE", "PAYMENT_RECEIPT"] } }, select: { type: true } }),
-    prisma.documentTemplate.count({ where: { schoolId, status: "ACTIVE", type: { in: priorityDocumentTypes } } }),
+    prisma.documentTemplate.findMany({ where: { schoolId, status: "ACTIVE", type: { in: importantDocumentTypes } }, select: { type: true } }),
     prisma.schoolOnboardingImport.findMany({ orderBy: { createdAt: "desc" }, take: 8 }),
     prisma.onboardingGoogleSheet.findMany({ orderBy: { createdAt: "desc" }, take: 8 }),
   ]);
@@ -1666,10 +1689,19 @@ export async function onboardingBundle(user: AccessUser) {
       : school?.payGateway === "CASHFREE" ? Boolean(school.cashfreeAppId)
         : school?.payGateway === "BILLDESK" ? Boolean(school.billdeskMerchantId)
           : false;
-  const savedFeeDocumentTypes = new Set(feeDocuments.map((row) => row.type));
-  const hasInvoiceDocument = savedFeeDocumentTypes.has("FEE_INVOICE");
-  const hasReceiptDocument = savedFeeDocumentTypes.has("PAYMENT_RECEIPT");
+  const savedDocumentTypes = new Set(documentTemplates.map((row) => row.type));
+  const hasInvoiceDocument = savedDocumentTypes.has("FEE_INVOICE");
+  const hasReceiptDocument = savedDocumentTypes.has("PAYMENT_RECEIPT");
   const hasFeeDocuments = hasInvoiceDocument && hasReceiptDocument;
+  const hasStudentIdDocument = savedDocumentTypes.has("STUDENT_ID");
+  const hasStudentAdmitCardDocument = savedDocumentTypes.has("ADMIT_CARD");
+  const hasAdmissionConfirmationDocument = savedDocumentTypes.has("ADMISSION_CONFIRMATION");
+  const hasStaffIdDocument = savedDocumentTypes.has("EMPLOYEE_ID");
+  const hasSalarySlipDocument = savedDocumentTypes.has("SALARY_SLIP");
+  const hasReportCardDocument = savedDocumentTypes.has("REPORT_CARD");
+  const hasExamDateSheetDocument = savedDocumentTypes.has("EXAM_DATE_SHEET");
+  const hasConsolidatedReportDocument = savedDocumentTypes.has("CONSOLIDATED_REPORT");
+  const hasImportantDocuments = importantDocumentTypes.every((type) => savedDocumentTypes.has(type));
   const staffCount = teacherCount + staffMemberCount;
   const hasStudentAttendanceHistory = attendanceCount > 0 || importDone.has("attendance");
   const hasStaffAttendanceHistory = staffAttendanceCount > 0 || importDone.has("staff_attendance");
@@ -1705,19 +1737,26 @@ export async function onboardingBundle(user: AccessUser) {
     step("school", "school", 1, "School identity", "Confirm school name, session, contact details, and branding in Settings.", Boolean(school?.name && school.name !== "School"), false, "School identity appears on receipts, documents, logins, and parent-facing pages.", { href: "/school?tab=identity", label: "Open identity" }),
     step("classes", "school", 2, "Classes in CRM", "Create classes in School setup, or let student and staff sheets create valid class labels like 1-A.", classCount > 0, false, "Classes connect students, teachers, fees, attendance, exams, and document batches.", { href: "/school?tab=classes", label: "Open classes" }),
     step("students", "teaching", 3, "Students and parents", "Import family records with generated admission numbers when needed.", studentCount > 0 || importDone.has("students"), false, "Students and parent links are needed for attendance, fees, notices, documents, and parent app access.", { href: "/people", label: "Open students" }),
-    step("teachers", "teaching", 4, "Staff", "Import staff records with role and class-teacher columns when needed.", staffCount > 0 || importDone.has("teachers"), false, "Staff are needed for class ownership, timetable, attendance, payroll, and documents.", { href: "/staff", label: "Open staff" }),
-    step("attendance", "teaching", 5, "Student attendance history", "Import old student attendance with class sheets, holiday calendar days, and dates through today.", hasStudentAttendanceHistory, studentCount === 0 || classCount === 0, "Student attendance history needs classes, students, and the holiday calendar first.", { href: "/attendance", label: "Open student attendance" }),
-    step("staff_attendance", "teaching", 6, "Staff attendance history", "Import old staff attendance with holidays already marked through today.", hasStaffAttendanceHistory, staffCount === 0, "Staff attendance history needs staff and the holiday calendar first.", { href: "/staff", label: "Open staff attendance" }),
-    step("exam_plan", "exams", 7, "This year's exam plan", "Save the session plan with exam sittings, result weight, maximum marks, and expected periods.", hasExamPlan, classCount === 0, "Create classes first, then save this year's exam plan.", { href: "/school?tab=exams", label: "Open year plan" }),
-    step("exam_history", "exams", 8, "Setup exams", "Create or customize the exam series, classes, subjects, dates, and max marks for exams that already happened.", hasExamHistory, classCount === 0 || !hasExamPlan, "Save this year's exam plan before creating exam history.", { href: "/exams", label: "Open exam setup" }),
-    step("exam_marks", "exams", 9, "Exam marks history", "Download the marks sheet generated from saved exam history, then upload completed marks for review.", hasExamMarksHistory, studentCount === 0 || !hasExamPlan || !hasExamHistory, "Save this year's exam plan, create exam history, and add students before importing marks.", { href: "/exams", label: "Open marks import" }),
-    step("collection_account", "money", 10, "Bank and collection account", "Add UPI, bank account, or the school's payment gateway before asking parents to pay.", hasUpi || hasBank || hasGateway, false, "Collection details appear on pay pages, invoices, receipts, and office collection workflows.", { href: "/school?tab=collect", label: "Open collection setup" }),
-    step("fee_invoice_document", "money", 11, "Fee invoice template", "Save and publish the fee invoice template before the first billing cycle.", hasInvoiceDocument, !hasInvoiceDocument, "Fee invoice template is required before fee setup can continue.", { href: "/school?tab=documents&document=FEE_INVOICE", label: "Open invoice template" }, false),
-    step("payment_receipt_document", "money", 12, "Payment receipt template", "Save and publish the payment receipt template before the first billing cycle.", hasReceiptDocument, !hasReceiptDocument, "Payment receipt template is required before fee setup can continue.", { href: "/school?tab=documents&document=PAYMENT_RECEIPT", label: "Open receipt template" }, false),
-    step("opening_balances", "money", 13, "First time fee import", "Put any previous-system dues in a backlog invoice and tell Anekio the last month already invoiced.", importDone.has("opening_balances") || (studentCount > 0 && openingCount >= studentCount), studentCount === 0, "Opening balances prevent missed old dues and duplicate first invoices.", { href: "/fees", label: "Open fees" }),
-    step("recurring_fees", "money", 14, "Recurring fee rules", "Set class fee ranges. New invoices begin after each student's imported cut-off month.", templateCount > 0, classCount === 0, "Recurring fee rules are needed before monthly billing can run correctly.", { href: "/fees", label: "Open fees" }),
-    step("documents", "documents", 15, "Important documents", "Preview and publish priority templates like ID card, bonafide, transfer certificate, admit card, report card, invoice, and receipt.", documentTemplateCount >= Math.min(priorityDocumentTypes.length, 3), false, "Important documents need published templates before the office can issue IDs, certificates, report cards, invoices, and receipts.", { href: "/school?tab=documents&document=STUDENT_ID", label: "Open document samples" }),
-    step("review", "documents", 16, "Review and launch", "Check counts, spot-check families, fees, and documents, then hand the workspace to the school.", false, classCount === 0 || studentCount === 0 || !hasFeeDocuments, !hasFeeDocuments ? "Save and publish both invoice and receipt templates before launch review." : "Review catches missing setup before the school starts using the workspace live.", { href: "/school", label: "Open school setup" }, false),
+    step("student_id_document", "teaching", 4, "Student ID card template", "Save and publish the student ID card template.", hasStudentIdDocument, !hasStudentIdDocument, "Student ID cards need a published template before the office can issue cards.", { href: "/school?tab=documents&document=STUDENT_ID", label: "Open student ID template" }, false),
+    step("student_admit_card_document", "teaching", 5, "Student admit card template", "Save and publish the student admit card template.", hasStudentAdmitCardDocument, !hasStudentAdmitCardDocument, "Admit cards need a published template before exams can issue hall tickets.", { href: "/school?tab=documents&document=ADMIT_CARD", label: "Open admit card template" }, false),
+    step("admission_confirmation_document", "teaching", 6, "Admission confirmation template", "Save and publish the admission confirmation template.", hasAdmissionConfirmationDocument, !hasAdmissionConfirmationDocument, "Admission confirmation needs a published template before admitted families can receive it.", { href: "/school?tab=documents&document=ADMISSION_CONFIRMATION", label: "Open admission template" }, false),
+    step("teachers", "teaching", 7, "Staff", "Import staff records with role and class-teacher columns when needed.", staffCount > 0 || importDone.has("teachers"), false, "Staff are needed for class ownership, timetable, attendance, payroll, and documents.", { href: "/staff", label: "Open staff" }),
+    step("staff_id_document", "teaching", 8, "Staff ID card template", "Save and publish the staff ID card template.", hasStaffIdDocument, !hasStaffIdDocument, "Staff ID cards need a published template before the office can issue cards.", { href: "/school?tab=documents&document=EMPLOYEE_ID", label: "Open staff ID template" }, false),
+    step("salary_slip_document", "teaching", 9, "Salary slip template", "Save and publish the salary slip template.", hasSalarySlipDocument, !hasSalarySlipDocument, "Salary slips need a published template before payroll documents can be issued.", { href: "/school?tab=documents&document=SALARY_SLIP", label: "Open salary slip template" }, false),
+    step("attendance", "teaching", 10, "Student attendance history", "Import old student attendance with class sheets, holiday calendar days, and dates through today.", hasStudentAttendanceHistory, studentCount === 0 || classCount === 0, "Student attendance history needs classes, students, and the holiday calendar first.", { href: "/attendance", label: "Open student attendance" }),
+    step("staff_attendance", "teaching", 11, "Staff attendance history", "Import old staff attendance with holidays already marked through today.", hasStaffAttendanceHistory, staffCount === 0, "Staff attendance history needs staff and the holiday calendar first.", { href: "/staff", label: "Open staff attendance" }),
+    step("exam_plan", "exams", 12, "This year's exam plan", "Save the session plan with exam sittings, result weight, maximum marks, and expected periods.", hasExamPlan, classCount === 0, "Create classes first, then save this year's exam plan.", { href: "/school?tab=exams", label: "Open year plan" }),
+    step("exam_history", "exams", 13, "Setup exams", "Create or customize the exam series, classes, subjects, dates, and max marks for exams that already happened.", hasExamHistory, classCount === 0 || !hasExamPlan, "Save this year's exam plan before creating exam history.", { href: "/exams", label: "Open exam setup" }),
+    step("exam_marks", "exams", 14, "Exam marks history", "Download the marks sheet generated from saved exam history, then upload completed marks for review.", hasExamMarksHistory, studentCount === 0 || !hasExamPlan || !hasExamHistory, "Save this year's exam plan, create exam history, and add students before importing marks.", { href: "/exams", label: "Open marks import" }),
+    step("report_card_document", "exams", 15, "Report card template", "Save and publish the report card template.", hasReportCardDocument, !hasReportCardDocument, "Report cards need a published template before results can be shared.", { href: "/school?tab=documents&document=REPORT_CARD", label: "Open report card template" }, false),
+    step("exam_date_sheet_document", "exams", 16, "Exam date sheet template", "Save and publish the exam date sheet template.", hasExamDateSheetDocument, !hasExamDateSheetDocument, "Exam date sheets need a published template before schedules can be issued.", { href: "/school?tab=documents&document=EXAM_DATE_SHEET", label: "Open date sheet template" }, false),
+    step("consolidated_report_document", "exams", 17, "Consolidated report card template", "Save and publish the consolidated report card template.", hasConsolidatedReportDocument, !hasConsolidatedReportDocument, "Consolidated report cards need a published template before full-session results can be shared.", { href: "/school?tab=documents&document=CONSOLIDATED_REPORT", label: "Open consolidated report template" }, false),
+    step("collection_account", "money", 18, "Bank and collection account", "Add UPI, bank account, or the school's payment gateway before asking parents to pay.", hasUpi || hasBank || hasGateway, false, "Collection details appear on pay pages, invoices, receipts, and office collection workflows.", { href: "/school?tab=collect", label: "Open collection setup" }),
+    step("fee_invoice_document", "money", 19, "Fee invoice template", "Save and publish the fee invoice template before the first billing cycle.", hasInvoiceDocument, !hasInvoiceDocument, "Fee invoice template is required before fee setup can continue.", { href: "/school?tab=documents&document=FEE_INVOICE", label: "Open invoice template" }, false),
+    step("payment_receipt_document", "money", 20, "Payment receipt template", "Save and publish the payment receipt template before the first billing cycle.", hasReceiptDocument, !hasReceiptDocument, "Payment receipt template is required before fee setup can continue.", { href: "/school?tab=documents&document=PAYMENT_RECEIPT", label: "Open receipt template" }, false),
+    step("opening_balances", "money", 21, "First time fee import", "Put any previous-system dues in a backlog invoice and tell Anekio the last month already invoiced.", importDone.has("opening_balances") || (studentCount > 0 && openingCount >= studentCount), studentCount === 0, "Opening balances prevent missed old dues and duplicate first invoices.", { href: "/fees", label: "Open fees" }),
+    step("recurring_fees", "money", 22, "Recurring fee rules", "Set class fee ranges. New invoices begin after each student's imported cut-off month.", templateCount > 0, classCount === 0, "Recurring fee rules are needed before monthly billing can run correctly.", { href: "/fees", label: "Open fees" }),
+    step("review", "money", 23, "Review and launch", "Check counts, spot-check families, fees, exams, staff, and templates, then hand the workspace to the school.", false, classCount === 0 || studentCount === 0 || !hasImportantDocuments, !hasImportantDocuments ? "Save and publish the important student, staff, exam, invoice, and receipt templates before launch review." : "Review catches missing setup before the school starts using the workspace live.", { href: "/school", label: "Open school setup" }, false),
   ];
   const required = steps;
   const completed = required.filter((row) => row.status === "complete").length;

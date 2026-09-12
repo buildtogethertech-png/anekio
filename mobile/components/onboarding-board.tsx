@@ -36,10 +36,9 @@ type GoogleSheetResult = {
 
 const SETUP_AREAS: { key: Onboarding["steps"][number]["area"]; title: string; body: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: "school", title: "School", body: "Identity, sessions, classes, and day structure.", icon: "school-outline" },
-  { key: "teaching", title: "Teaching", body: "Students, parents, staff, and attendance.", icon: "people-outline" },
-  { key: "exams", title: "Exams", body: "Past exam structure and marks history.", icon: "reader-outline" },
-  { key: "money", title: "Money", body: "Opening dues, fee rules, invoices, and collections.", icon: "card-outline" },
-  { key: "documents", title: "Documents", body: "Important templates and final launch review.", icon: "document-text-outline" },
+  { key: "teaching", title: "Teaching", body: "Students, parents, staff, attendance, and people documents.", icon: "people-outline" },
+  { key: "exams", title: "Exams", body: "Exam setup, marks history, and result documents.", icon: "reader-outline" },
+  { key: "money", title: "Money", body: "Opening dues, fee rules, invoice, receipt, and collections.", icon: "card-outline" },
 ];
 
 const FOCUSED_IMPORT_COPY: Record<Template["kind"], { heading: string; description: string; requiredColumns: string; note: string }> = {
@@ -298,7 +297,7 @@ export function OnboardingBoard({
             <View className="flex-row items-center justify-between gap-4">
               <View className="min-w-0 flex-1">
                 <Text className="text-base font-semibold text-ink-900">School setup</Text>
-                <Text className="mt-1 text-xs leading-5 text-ink-700">Work through School, Teaching, Money, and Documents. Steps validate live setup data before they can be checked directly.</Text>
+                <Text className="mt-1 text-xs leading-5 text-ink-700">Work through School, Teaching, Exams, and Money. Steps validate live setup data before they can be checked directly.</Text>
               </View>
               <Badge tone="clay">{`${onboarding.progress.percent}% complete`}</Badge>
             </View>

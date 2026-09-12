@@ -60,7 +60,7 @@ export type RecordPayload = {
     counts: { classes: number; students: number; teachers: number; openingBalances: number; feeTemplates: number };
     steps: {
       key: string;
-      area: "school" | "teaching" | "exams" | "money" | "documents";
+      area: "school" | "teaching" | "exams" | "money";
       number: number;
       title: string;
       body: string;
