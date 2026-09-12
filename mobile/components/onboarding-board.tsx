@@ -76,7 +76,7 @@ const FOCUSED_IMPORT_COPY: Record<Template["kind"], { heading: string; descripti
     heading: "Choose an exam marks CSV or Excel file",
     description: "Upload old exam marks for review.",
     requiredColumns: "Anekio student ID or Admission number, generated exam columns",
-    note: "Create the past exam series first, then download this template. Fill marks, use Ab for absent, and leave blanks to skip.",
+    note: "Download the generated marks sheet, fill marks, use Ab for absent, and leave blanks to skip.",
   },
   opening_balances: {
     heading: "Choose a fee CSV or Excel file",
