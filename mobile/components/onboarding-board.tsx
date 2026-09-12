@@ -45,6 +45,7 @@ const TEMPLATE_COPY: Record<Template["kind"], string> = {
   students: "Prefilled with current students; blank admission numbers are generated.",
   teachers: "Import staff records first, without mixing class ownership.",
   class_teachers: "Generated from imported classes and teachers so each class gets an owner.",
+  attendance: "Class-wise history through today, with school days marked P and holidays marked H.",
   opening_balances: "Create a one-time backlog invoice, then Anekio starts after the last invoiced month.",
 };
 const FOCUSED_IMPORT_COPY: Record<Template["kind"], { heading: string; description: string; requiredColumns: string; note: string }> = {
@@ -65,6 +66,12 @@ const FOCUSED_IMPORT_COPY: Record<Template["kind"], { heading: string; descripti
     description: "Upload class ownership assignments for review.",
     requiredColumns: "Class, Class teacher employee ID or Teacher name",
     note: "Use class labels like 1-A. Review must pass before Apply updates class ownership.",
+  },
+  attendance: {
+    heading: "Choose an attendance CSV or Excel file",
+    description: "Upload old attendance for review.",
+    requiredColumns: "Anekio student ID or Admission number, date columns",
+    note: "Downloaded templates mark school days as P and holidays as H. Change absences to A; H and blank cells are skipped when Apply creates attendance.",
   },
   opening_balances: {
     heading: "Choose a fee CSV or Excel file",
@@ -146,7 +153,7 @@ export function OnboardingBoard({
   }
 
   function openStepTarget(step: Onboarding["steps"][number]) {
-    if (step.key === "students" || step.key === "teachers") {
+    if (step.key === "students" || step.key === "teachers" || step.key === "attendance") {
       setStepImportKind(step.key);
       return;
     }
@@ -480,7 +487,12 @@ export function OnboardingBoard({
         </Card>
       ) : null}
 
-      <Modal open={Boolean(stepImportKind)} title={stepImportKind === "teachers" ? "Import teachers" : "Import students and parents"} onClose={() => setStepImportKind(null)} wide>
+      <Modal
+        open={Boolean(stepImportKind)}
+        title={stepImportKind === "teachers" ? "Import teachers" : stepImportKind === "attendance" ? "Import attendance" : "Import students and parents"}
+        onClose={() => setStepImportKind(null)}
+        wide
+      >
         {stepImportKind ? <OnboardingBoard compact focusKinds={[stepImportKind]} /> : null}
       </Modal>
 

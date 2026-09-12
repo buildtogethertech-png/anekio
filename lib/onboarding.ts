@@ -1,6 +1,6 @@
 import bcrypt from "bcryptjs";
 import ExcelJS from "exceljs";
-import { InvoiceStatus, type Prisma, type Role } from "@prisma/client";
+import { AttendanceStatus, InvoiceStatus, type Prisma, type Role } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { can, type AccessUser } from "./permissions";
 import { prisma } from "./prisma";
@@ -9,9 +9,10 @@ import { ensureAccessRoles, roleIdBySlug } from "./roles";
 import { parseClassLabel, parseCsv } from "./sheet";
 import { readUpload } from "./uploads";
 import { DOCUMENT_TYPES } from "./document-studio";
+import { parseWeekdays } from "./schedule";
 
 const ONBOARDING_STATE_ID = "school";
-export const IMPORT_KINDS = ["classes", "students", "teachers", "class_teachers", "opening_balances"] as const;
+export const IMPORT_KINDS = ["classes", "students", "teachers", "class_teachers", "attendance", "opening_balances"] as const;
 export type ImportKind = (typeof IMPORT_KINDS)[number];
 type ImportRow = Record<string, string> & { _row: string };
 type OnboardingDb = Prisma.TransactionClient;
@@ -21,6 +22,7 @@ type OnboardingStepKey =
   | "classes"
   | "students"
   | "teachers"
+  | "attendance"
   | "class_teachers"
   | "collection_account"
   | "fee_invoice_document"
@@ -37,6 +39,7 @@ const TEMPLATE_DETAILS: Record<ImportKind, { sheet: string; file: string; title:
   students: { sheet: "Students", file: "anekio-students.csv", title: "Students and parents" },
   teachers: { sheet: "Teachers", file: "anekio-teachers.csv", title: "Teachers" },
   class_teachers: { sheet: "Class teachers", file: "anekio-class-teachers.csv", title: "Class teacher assignments" },
+  attendance: { sheet: "Attendance", file: "anekio-attendance.csv", title: "Attendance history" },
   opening_balances: { sheet: "First time fees", file: "anekio-first-time-fees.csv", title: "First time fee import" },
 };
 const DEFAULT_ONBOARDING_MODULES = ["school", "teaching", "money", "documents"];
@@ -45,6 +48,7 @@ const ONBOARDING_STEP_KEYS = new Set<OnboardingStepKey>([
   "classes",
   "students",
   "teachers",
+  "attendance",
   "class_teachers",
   "collection_account",
   "fee_invoice_document",
@@ -128,6 +132,23 @@ function validDate(value: string) {
   return !Number.isNaN(new Date(`${value}T00:00:00`).getTime());
 }
 
+function addDaysYmd(value: string, days: number) {
+  const date = new Date(`${value}T00:00:00`);
+  date.setDate(date.getDate() + days);
+  return dateText(date);
+}
+
+function dateRange(from: string, to: string, limit = 430) {
+  const dates: string[] = [];
+  if (!validDate(from) || !validDate(to) || from > to) return dates;
+  let date = from;
+  while (date <= to && dates.length < limit) {
+    dates.push(date);
+    date = addDaysYmd(date, 1);
+  }
+  return dates;
+}
+
 function parseClass(value: string) {
   const parsed = parseClassLabel(value);
   if (parsed) return parsed;
@@ -146,6 +167,7 @@ function sheetCell(row: ImportRow, ...keys: string[]) {
 
 type CsvCell = string | number;
 type StaffImportRole = Pick<Role, "id" | "name" | "slug" | "portal">;
+type AttendanceImportMark = AttendanceStatus | "HOLIDAY";
 
 function csvBuffer(rows: CsvCell[][]) {
   const encoded = rows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(","));
@@ -355,6 +377,13 @@ async function csvRowsFor(kind: ImportKind): Promise<CsvCell[][]> {
     ];
   }
 
+  if (kind === "attendance") {
+    return [
+      ["Anekio student ID", "Admission number", "Student name", "Class", dateText(new Date()), "Example only"],
+      ["", "ADM-001", "Aarav Sharma (example)", classLabels[0] || "1-A", "P", "YES"],
+    ];
+  }
+
   if (kind === "class_teachers") {
     const teachers = await prisma.teacher.findMany({ include: { user: true }, orderBy: { user: { name: "asc" } } });
     const teacherLabels = teachers.map((teacher) => `${teacher.employeeId} · ${teacher.user.name}`);
@@ -393,6 +422,60 @@ async function csvRowsFor(kind: ImportKind): Promise<CsvCell[][]> {
       ];
     }),
   ];
+}
+
+async function attendanceTemplateWorkbook(options: { sampleData?: boolean } = {}) {
+  const session = await prisma.schoolSession.findFirst({
+    where: { current: true },
+    orderBy: { startsOn: "desc" },
+  });
+  if (!session) throw new Error("Create a school session before downloading attendance.");
+  const today = dateText(new Date());
+  const through = [session.endsOn, today].filter(Boolean).sort()[0] || today;
+  const dates = dateRange(session.startsOn, through);
+  if (!dates.length) throw new Error("This session has no dates to export yet.");
+  const [config, holidays, classes] = await Promise.all([
+    prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { weekdays: true } }),
+    prisma.schoolHoliday.findMany({ where: { sessionId: session.id }, orderBy: { date: "asc" } }),
+    prisma.class.findMany({
+      where: { archivedAt: null },
+      include: { students: { orderBy: { name: "asc" } } },
+      orderBy: [{ name: "asc" }, { section: "asc" }],
+    }),
+  ]);
+  if (!classes.length) throw new Error("Create classes before downloading attendance.");
+  const holidayByDate = new Map(holidays.map((row) => [row.date, row.name]));
+  const weekdays = parseWeekdays(config?.weekdays);
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "Anekio";
+  workbook.subject = `Attendance import for ${session.label}`;
+  const headers = ["Anekio student ID", "Admission number", "Student name", "Class", ...dates, "Example only"];
+  for (const klass of classes) {
+    const label = `${klass.name}-${klass.section}`;
+    const sheet = workbook.addWorksheet(label);
+    sheet.addRow(headers);
+    sheet.addRow([
+      "",
+      "ADM-001",
+      "Aarav Sharma (example)",
+      label,
+      ...dates.map((date) => holidayByDate.has(date) ? "H" : weekdays.includes(new Date(`${date}T00:00:00`).getDay() || 7) ? "P" : "H"),
+      "YES",
+    ]);
+    klass.students.forEach((student) => {
+      sheet.addRow([
+        student.id,
+        student.admissionNo,
+        student.name,
+        label,
+        ...dates.map((date) => holidayByDate.has(date) ? "H" : weekdays.includes(new Date(`${date}T00:00:00`).getDay() || 7) ? "P" : "H"),
+        "",
+      ]);
+    });
+    applyHeaderStyle(sheet);
+    sheet.columns = headers.map((header, index) => ({ header, key: normalizeHeader(header), width: index < 4 ? Math.max(18, header.length + 2) : 13 }));
+  }
+  return workbook;
 }
 
 function xlsxFileName(kind: ImportKind) {
@@ -462,6 +545,14 @@ export async function onboardingTemplate(user: AccessUser, rawKind: string) {
 export async function onboardingSpreadsheetTemplate(user: AccessUser, rawKind: string, options: { sampleData?: boolean } = {}) {
   need(user);
   const kind = asKind(rawKind);
+  if (kind === "attendance") {
+    const workbook = await attendanceTemplateWorkbook(options);
+    return {
+      fileName: "anekio-attendance.xlsx",
+      contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
+    };
+  }
   const classes = await prisma.class.findMany({
     where: { archivedAt: null },
     orderBy: [{ name: "asc" }, { section: "asc" }],
@@ -576,12 +667,12 @@ export async function rowsFromWorkbookBuffer(kind: ImportKind, buf: Buffer): Pro
   const workbook = new ExcelJS.Workbook();
   const arrayBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
   await workbook.xlsx.load(arrayBuffer);
-  if (kind === "students") {
-    const studentsSheet = workbook.getWorksheet(TEMPLATE_DETAILS.students.sheet);
+  if (kind === "students" || kind === "attendance") {
+    const studentsSheet = kind === "students" ? workbook.getWorksheet(TEMPLATE_DETAILS.students.sheet) : undefined;
     const sheets = studentsSheet
       ? [studentsSheet]
       : workbook.worksheets.filter((sheet) => Boolean(parseClass(sheet.name)));
-    if (!sheets.length) throw new Error("This workbook needs a Students sheet, or tabs named like 1-A, 1-B, 2-C.");
+    if (!sheets.length) throw new Error(kind === "attendance" ? "This workbook needs class tabs named like 1-A, 1-B, 2-C." : "This workbook needs a Students sheet, or tabs named like 1-A, 1-B, 2-C.");
     return realRows(sheets.flatMap((sheet) => rowsFromWorksheet(sheet, studentsSheet ? "" : sheet.name)));
   }
   const sheet = workbook.getWorksheet(TEMPLATE_DETAILS[kind].sheet);
@@ -602,10 +693,33 @@ function rowError(row: ImportRow, message: string) {
   return `Row ${row._row}: ${message}`;
 }
 
+function attendanceDateFromHeader(header: string) {
+  if (/^\d{8}$/.test(header)) return `${header.slice(0, 4)}-${header.slice(4, 6)}-${header.slice(6, 8)}`;
+  return "";
+}
+
+function attendanceCells(row: ImportRow) {
+  return Object.entries(row)
+    .map(([key, value]) => ({ date: attendanceDateFromHeader(key), value: value.trim() }))
+    .filter((cell) => cell.date);
+}
+
+function parseAttendanceMark(value: string): AttendanceImportMark | null {
+  const mark = value.trim().toUpperCase().replace(/[\s_-]+/g, "");
+  if (!mark || mark === "-") return null;
+  if (["H", "HOLIDAY", "OFF", "CLOSED"].includes(mark)) return "HOLIDAY";
+  if (["P", "PRESENT"].includes(mark)) return AttendanceStatus.PRESENT;
+  if (["A", "ABSENT"].includes(mark)) return AttendanceStatus.ABSENT;
+  if (["LT", "LATE"].includes(mark)) return AttendanceStatus.LATE;
+  if (["L", "LEAVE"].includes(mark)) return AttendanceStatus.LEAVE;
+  if (["HD", "HALF", "HALFDAY"].includes(mark)) return AttendanceStatus.HALF_DAY;
+  return null;
+}
+
 async function validateRows(kind: ImportKind, rows: ImportRow[]) {
   const errors: string[] = [];
   const roles = kind === "teachers" ? await staffImportRoles() : [];
-  const students = kind === "opening_balances" || kind === "students"
+  const students = kind === "opening_balances" || kind === "students" || kind === "attendance"
     ? await prisma.student.findMany({ select: { id: true, admissionNo: true } })
     : [];
   const studentIds = new Set(students.map((row) => row.id));
@@ -633,6 +747,21 @@ async function validateRows(kind: ImportKind, rows: ImportRow[]) {
       if (studentId && !studentIds.has(studentId)) errors.push(rowError(row, "Anekio student ID was not found."));
       if (!studentId && admissionNo && admissionNos.has(admissionNo)) {
         // An admission number is a safe update key, so this row is valid.
+      }
+      return;
+    }
+    if (kind === "attendance") {
+      const studentId = sheetCell(row, "Anekio student ID");
+      const admissionNo = sheetCell(row, "Admission number", "Admission no").toLowerCase();
+      if ((!studentId || !studentIds.has(studentId)) && (!admissionNo || !admissionNos.has(admissionNo))) {
+        errors.push(rowError(row, "student ID or admission number was not found."));
+      }
+      const cells = attendanceCells(row);
+      if (!cells.length) errors.push(rowError(row, "at least one date column is required."));
+      for (const cell of cells) {
+        if (!validDate(cell.date)) errors.push(rowError(row, `${cell.date} is not a valid date column.`));
+        if (cell.date > dateText(new Date())) errors.push(rowError(row, `${cell.date} cannot be in the future.`));
+        if (cell.value && !parseAttendanceMark(cell.value)) errors.push(rowError(row, `${cell.date} must be P, A, H, L, LT, or half day.`));
       }
       return;
     }
@@ -1025,6 +1154,33 @@ async function applyOpeningBalances(db: OnboardingDb, rows: ImportRow[], orgId?:
   return { created, updated };
 }
 
+async function applyAttendance(db: OnboardingDb, rows: ImportRow[], user: AccessUser) {
+  let created = 0;
+  let updated = 0;
+  for (const row of rows) {
+    const studentId = sheetCell(row, "Anekio student ID");
+    const admissionNo = sheetCell(row, "Admission number", "Admission no");
+    const student = studentId
+      ? await db.student.findUnique({ where: { id: studentId }, select: { id: true } })
+      : await db.student.findUnique({ where: { admissionNo }, select: { id: true } });
+    if (!student) throw new Error(rowError(row, "student no longer exists."));
+    for (const cell of attendanceCells(row)) {
+      const status = parseAttendanceMark(cell.value);
+      if (!status || status === "HOLIDAY") continue;
+      const date = new Date(`${cell.date}T00:00:00`);
+      const existing = await db.attendance.findUnique({ where: { studentId_date: { studentId: student.id, date } }, select: { id: true } });
+      await db.attendance.upsert({
+        where: { studentId_date: { studentId: student.id, date } },
+        update: { status, markedById: user.id },
+        create: { orgId: user.orgId ?? null, studentId: student.id, date, status, markedById: user.id },
+      });
+      if (existing) updated += 1;
+      else created += 1;
+    }
+  }
+  return { created, updated };
+}
+
 export async function applyOnboardingImport(user: AccessUser, input: { batchId?: string }) {
   need(user);
   const batchId = String(input.batchId || "");
@@ -1048,6 +1204,8 @@ export async function applyOnboardingImport(user: AccessUser, input: { batchId?:
         ? applyStudents(db, rows, peopleSetup as { roleId: string; password: string; admission: number })
         : kind === "teachers"
           ? applyTeachers(db, rows, peopleSetup as { password: string; employee: number; staffEmployee: number; roles: StaffImportRole[] })
+          : kind === "attendance"
+            ? applyAttendance(db, rows, user)
           : kind === "class_teachers"
             ? applyClassTeachers(db, rows)
             : applyOpeningBalances(db, rows, user.orgId));
@@ -1102,7 +1260,7 @@ export async function onboardingBundle(user: AccessUser) {
   need(user);
   const schoolId = String((user as AccessUser & { schoolId?: string | null }).schoolId || "school");
   const priorityDocumentTypes = DOCUMENT_TYPES.filter((item) => item.priority).map((item) => item.id);
-  const [state, school, classCount, studentCount, teacherCount, templateCount, openingCount, feeDocuments, documentTemplateCount, latestImports, latestSheets] = await Promise.all([
+  const [state, school, classCount, studentCount, teacherCount, attendanceCount, templateCount, openingCount, feeDocuments, documentTemplateCount, latestImports, latestSheets] = await Promise.all([
     prisma.schoolOnboardingState.findUnique({ where: { id: ONBOARDING_STATE_ID } }),
     prisma.schoolConfig.findUnique({
       where: { id: "school" },
@@ -1122,6 +1280,7 @@ export async function onboardingBundle(user: AccessUser) {
     prisma.class.count({ where: { archivedAt: null } }),
     prisma.student.count(),
     prisma.teacher.count(),
+    prisma.attendance.count(),
     prisma.feeTemplate.count(),
     prisma.feeInvoice.count({ where: { period: "OPENING" } }),
     prisma.documentTemplate.findMany({ where: { schoolId, status: "ACTIVE", type: { in: ["FEE_INVOICE", "PAYMENT_RECEIPT"] } }, select: { type: true } }),
@@ -1173,13 +1332,14 @@ export async function onboardingBundle(user: AccessUser) {
     step("classes", "school", 2, "Classes in CRM", "Create classes in School setup, or let student and staff sheets create valid class labels like 1-A.", classCount > 0, false, "Classes connect students, teachers, fees, attendance, exams, and document batches.", { href: "/school?tab=classes", label: "Open classes" }),
     step("students", "teaching", 3, "Students and parents", "Import family records with generated admission numbers when needed.", studentCount > 0 || importDone.has("students"), false, "Students and parent links are needed for attendance, fees, notices, documents, and parent app access.", { href: "/people", label: "Open students" }),
     step("teachers", "teaching", 4, "Teachers", "Import staff records with role and class-teacher columns when needed.", teacherCount > 0 || importDone.has("teachers"), false, "Teachers are needed for class ownership, timetable, attendance, exams, and staff documents.", { href: "/staff", label: "Open staff" }),
-    step("collection_account", "money", 5, "Bank and collection account", "Add UPI, bank account, or the school's payment gateway before asking parents to pay.", hasUpi || hasBank || hasGateway, false, "Collection details appear on pay pages, invoices, receipts, and office collection workflows.", { href: "/school?tab=collect", label: "Open collection setup" }),
-    step("fee_invoice_document", "money", 6, "Fee invoice template", "Save and publish the fee invoice template before the first billing cycle.", hasInvoiceDocument, !hasInvoiceDocument, "Fee invoice template is required before fee setup can continue.", { href: "/school?tab=documents&document=FEE_INVOICE", label: "Open invoice template" }, false),
-    step("payment_receipt_document", "money", 7, "Payment receipt template", "Save and publish the payment receipt template before the first billing cycle.", hasReceiptDocument, !hasReceiptDocument, "Payment receipt template is required before fee setup can continue.", { href: "/school?tab=documents&document=PAYMENT_RECEIPT", label: "Open receipt template" }, false),
-    step("opening_balances", "money", 8, "First time fee import", "Put any previous-system dues in a backlog invoice and tell Anekio the last month already invoiced.", importDone.has("opening_balances") || (studentCount > 0 && openingCount >= studentCount), studentCount === 0, "Opening balances prevent missed old dues and duplicate first invoices.", { href: "/fees", label: "Open fees" }),
-    step("recurring_fees", "money", 9, "Recurring fee rules", "Set class fee ranges. New invoices begin after each student's imported cut-off month.", templateCount > 0, classCount === 0, "Recurring fee rules are needed before monthly billing can run correctly.", { href: "/fees", label: "Open fees" }),
-    step("documents", "documents", 10, "Important documents", "Preview and publish priority templates like ID card, bonafide, transfer certificate, admit card, report card, invoice, and receipt.", documentTemplateCount >= Math.min(priorityDocumentTypes.length, 3), false, "Important documents need published templates before the office can issue IDs, certificates, report cards, invoices, and receipts.", { href: "/school?tab=documents&document=STUDENT_ID", label: "Open document samples" }),
-    step("review", "documents", 11, "Review and launch", "Check counts, spot-check families, fees, and documents, then hand the workspace to the school.", false, classCount === 0 || studentCount === 0 || !hasFeeDocuments, !hasFeeDocuments ? "Save and publish both invoice and receipt templates before launch review." : "Review catches missing setup before the school starts using the workspace live.", { href: "/school", label: "Open school setup" }, false),
+    step("attendance", "teaching", 5, "Attendance history", "Import old attendance with class sheets, holiday calendar days, and dates through today.", attendanceCount > 0 || importDone.has("attendance"), studentCount === 0 || classCount === 0, "Attendance import needs classes, students, and the holiday calendar first.", { href: "/attendance", label: "Open attendance" }),
+    step("collection_account", "money", 6, "Bank and collection account", "Add UPI, bank account, or the school's payment gateway before asking parents to pay.", hasUpi || hasBank || hasGateway, false, "Collection details appear on pay pages, invoices, receipts, and office collection workflows.", { href: "/school?tab=collect", label: "Open collection setup" }),
+    step("fee_invoice_document", "money", 7, "Fee invoice template", "Save and publish the fee invoice template before the first billing cycle.", hasInvoiceDocument, !hasInvoiceDocument, "Fee invoice template is required before fee setup can continue.", { href: "/school?tab=documents&document=FEE_INVOICE", label: "Open invoice template" }, false),
+    step("payment_receipt_document", "money", 8, "Payment receipt template", "Save and publish the payment receipt template before the first billing cycle.", hasReceiptDocument, !hasReceiptDocument, "Payment receipt template is required before fee setup can continue.", { href: "/school?tab=documents&document=PAYMENT_RECEIPT", label: "Open receipt template" }, false),
+    step("opening_balances", "money", 9, "First time fee import", "Put any previous-system dues in a backlog invoice and tell Anekio the last month already invoiced.", importDone.has("opening_balances") || (studentCount > 0 && openingCount >= studentCount), studentCount === 0, "Opening balances prevent missed old dues and duplicate first invoices.", { href: "/fees", label: "Open fees" }),
+    step("recurring_fees", "money", 10, "Recurring fee rules", "Set class fee ranges. New invoices begin after each student's imported cut-off month.", templateCount > 0, classCount === 0, "Recurring fee rules are needed before monthly billing can run correctly.", { href: "/fees", label: "Open fees" }),
+    step("documents", "documents", 11, "Important documents", "Preview and publish priority templates like ID card, bonafide, transfer certificate, admit card, report card, invoice, and receipt.", documentTemplateCount >= Math.min(priorityDocumentTypes.length, 3), false, "Important documents need published templates before the office can issue IDs, certificates, report cards, invoices, and receipts.", { href: "/school?tab=documents&document=STUDENT_ID", label: "Open document samples" }),
+    step("review", "documents", 12, "Review and launch", "Check counts, spot-check families, fees, and documents, then hand the workspace to the school.", false, classCount === 0 || studentCount === 0 || !hasFeeDocuments, !hasFeeDocuments ? "Save and publish both invoice and receipt templates before launch review." : "Review catches missing setup before the school starts using the workspace live.", { href: "/school", label: "Open school setup" }, false),
   ];
   const required = steps;
   const completed = required.filter((row) => row.status === "complete").length;
@@ -1192,8 +1352,8 @@ export async function onboardingBundle(user: AccessUser) {
       kind,
       title: TEMPLATE_DETAILS[kind].title,
       fileName: xlsxFileName(kind),
-      disabled: kind === "opening_balances" && studentCount === 0,
-      prerequisite: kind === "opening_balances" ? "Students" : "Class labels can be created from the sheet",
+      disabled: (kind === "opening_balances" && studentCount === 0) || (kind === "attendance" && (studentCount === 0 || classCount === 0)),
+      prerequisite: kind === "opening_balances" ? "Students" : kind === "attendance" ? "Classes, students, and holiday calendar" : "Class labels can be created from the sheet",
     })),
     imports: latestImports.map((row) => ({
       id: row.id,
