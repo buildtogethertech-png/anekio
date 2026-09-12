@@ -47,6 +47,11 @@ config.server = {
         (req.url.startsWith("/api/") ||
           req.url.startsWith("/pay/") ||
           req.url.startsWith("/i/") ||
+          req.url.startsWith("/verify/") ||
+          req.url.startsWith("/documents/") ||
+          req.url.startsWith("/document-batches/") ||
+          req.url.startsWith("/attendance/scan/") ||
+          req.url.startsWith("/staff/scan/") ||
           serverRenderedRoutes.some((route) => req.url === route || req.url.startsWith(`${route}?`)))
       ) {
         proxyToApi(req, res);

@@ -436,7 +436,7 @@ export function ExamsBoard() {
         subjectLabel={`${series.name} · ${classLabel}`}
         allowedTypes={
           allPublished
-            ? ["REPORT_CARD"]
+            ? ["REPORT_CARD", "GRADE_SHEET", "PROGRESS_REPORT", "CONSOLIDATED_REPORT"]
             : ["ADMIT_CARD", "EXAM_DATE_SHEET", "SEATING_PLAN", "DESK_SLIP", "INVIGILATOR_DUTY", "SUBJECT_MARKSHEET"]
         }
         label={allPublished ? "Report card" : "Generate documents"}
@@ -461,8 +461,10 @@ export function ExamsBoard() {
             },
           }))}
         extraData={{
+          seriesId: series.id,
           exam: {
             name: series.name,
+            seriesId: series.id,
             classLabel,
             schedule: series.exams.map((exam) => ({
               subject: exam.subject.name,

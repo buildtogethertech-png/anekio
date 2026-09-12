@@ -724,6 +724,7 @@ export type RecordPayload = {
     fields: { group: string; id: string; label: string }[];
     defaults: DocumentTemplateSummary[];
     templates: DocumentTemplateSummary[];
+    verifyQrPreviewSrc?: string;
     issued: {
       id: string;
       documentNumber: string;

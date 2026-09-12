@@ -982,14 +982,14 @@ export function TeacherAttendanceBoard() {
       toast.show(lockedNote || "Attendance is not marked.");
       return;
     }
-    const normalizedCodes = [clean, ...clean.split(/[/:?#&=]+/).filter(Boolean)];
-    const student = roster.find((s) => {
+    const looksLikeIssuedQr = /\/(attendance\/scan|staff\/scan|verify|documents)\//i.test(raw) || /^https?:\/\//i.test(raw.trim());
+    const student = looksLikeIssuedQr ? undefined : roster.find((s) => {
       const admission = String((s as { admissionNo?: string }).admissionNo || "").toLowerCase();
       const id = s.id.toLowerCase();
-      return normalizedCodes.includes(admission) || normalizedCodes.includes(id) || s.name.toLowerCase() === clean;
+      return admission && (clean === admission || s.name.toLowerCase() === clean || id === clean);
     });
     let resolved = student;
-    if (!resolved && /\/(verify|documents)\//i.test(raw)) {
+    if (!resolved && looksLikeIssuedQr) {
       try {
         setScanResult({ tone: "idle", title: "Checking card", body: "Resolving this issued ID card..." });
         const result = await act<{ ok: true; studentId: string; documentNumber: string }>(token, "resolveStudentIdCardScan", { code: raw });

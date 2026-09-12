@@ -14,6 +14,7 @@ import { StudentAdmitForm, type StudentAdmitPayload } from "./student-admit-form
 import { ReportCardSheet, type ReportCardData } from "./report-card-sheet";
 import { studentSeriesScore, studentYearScore } from "../lib/exams";
 import { act, saveLateTiming } from "../lib/mutate";
+import { openMarksheetPdf } from "../lib/print-html";
 import { apiBase } from "../lib/api";
 import { useRecord, type AdmissionFormField } from "../lib/record";
 import { useSession } from "../lib/session";
@@ -1320,7 +1321,13 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
               return (
                 <Pressable
                   key={series.id}
-                  onPress={() =>
+                  onPress={() => {
+                    if (series.published) {
+                      void openMarksheetPdf(token, { seriesId: series.id, studentId: selected.id }).catch((error) => {
+                        toast.show(error instanceof Error ? error.message : "Could not open the report card.");
+                      });
+                      return;
+                    }
                     setOpenCard({
                       school: examPack?.school ?? data?.school ?? {},
                       seriesName: series.name,
@@ -1337,8 +1344,8 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                       exams: series.exams,
                       marks: series.marks,
                       policy: examPack?.policy ?? { bands: [], passPercent: 33, showRank: false, reportCardPaidMonths: 0 },
-                    })
-                  }
+                    });
+                  }}
                   className={`flex-row items-center justify-between gap-3 px-3 py-3 ${i ? "border-t border-ink-100" : ""}`}
                 >
                   <View className="flex-1">
