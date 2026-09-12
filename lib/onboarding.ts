@@ -13,6 +13,10 @@ import { examPlanWeight, parseExamPlan } from "./exams";
 import { runWithoutTenant } from "./tenant-context";
 
 const ONBOARDING_STATE_ID = "school";
+function onboardingStateId(orgId: string) {
+  return `${ONBOARDING_STATE_ID}:${orgId}`;
+}
+
 export const IMPORT_KINDS = ["classes", "students", "teachers", "class_teachers", "attendance", "staff_attendance", "exam_marks", "opening_balances"] as const;
 export type ImportKind = (typeof IMPORT_KINDS)[number];
 type ImportRow = Record<string, string> & { _row: string };
@@ -1134,10 +1138,18 @@ async function validateRows(kind: ImportKind, rows: ImportRow[]) {
 
 export async function ensureOnboardingState(user: AccessUser) {
   const orgId = await onboardingOrgId(user);
+  const id = onboardingStateId(orgId);
+  const legacy = await runWithoutTenant(() =>
+    prisma.schoolOnboardingState.findUnique({
+      where: { id: ONBOARDING_STATE_ID },
+      select: { orgId: true, selectedModulesJson: true },
+    })
+  );
+  const selectedModulesJson = legacy && (!legacy.orgId || legacy.orgId === orgId) ? legacy.selectedModulesJson : undefined;
   return prisma.schoolOnboardingState.upsert({
-    where: { id: ONBOARDING_STATE_ID },
+    where: { id },
     update: { orgId },
-    create: { id: ONBOARDING_STATE_ID, orgId },
+    create: { id, orgId, ...(selectedModulesJson ? { selectedModulesJson } : {}) },
   });
 }
 
@@ -1172,12 +1184,12 @@ export async function previewOnboardingRows(
   const rows = input.rows;
   if (!rows.length) throw new Error("No data rows found. Add school data below the example row, or copy it and clear Example only.");
   const errors = await validateRows(kind, rows);
-  await ensureOnboardingState(user);
+  const state = await ensureOnboardingState(user);
   const orgId = await onboardingOrgId(user);
   const batch = await prisma.schoolOnboardingImport.create({
     data: {
       orgId,
-      stateId: ONBOARDING_STATE_ID,
+      stateId: state.id,
       kind,
       fileName: input.fileName || TEMPLATE_DETAILS[kind].file,
       uploadPath: input.uploadPath,
@@ -1644,14 +1656,15 @@ function onboardingApplyErrorMessage(error: unknown) {
 export async function applyOnboardingImport(user: AccessUser, input: { batchId?: string }) {
   need(user);
   const batchId = String(input.batchId || "");
+  const orgId = await onboardingOrgId(user);
   const batch = await prisma.schoolOnboardingImport.findUnique({ where: { id: batchId } });
   if (!batch) throw new Error("Import review not found.");
+  if (batch.orgId && batch.orgId !== orgId) throw new Error("Import review not found.");
   if (batch.status === "APPLIED") throw new Error("This import was already applied.");
   const errors = JSON.parse(batch.errorsJson) as string[];
   if (errors.length && batch.status !== "FAILED") throw new Error("Fix the review errors and upload the template again.");
   const kind = asKind(batch.kind);
   const rows = JSON.parse(batch.rowsJson) as ImportRow[];
-  const orgId = await onboardingOrgId(user);
   try {
     const codes = kind === "students" || kind === "teachers" ? await nextCodes() : null;
     const peopleSetup = kind === "students"
@@ -1698,9 +1711,9 @@ export async function saveOnboardingPlan(user: AccessUser, input: { modules?: un
   const selectedModulesJson = serializePlanState({ modules, manualSteps: current.manualSteps });
   const orgId = await onboardingOrgId(user);
   const saved = await prisma.schoolOnboardingState.upsert({
-    where: { id: ONBOARDING_STATE_ID },
+    where: { id: state.id },
     update: { orgId, selectedModulesJson },
-    create: { id: ONBOARDING_STATE_ID, orgId, selectedModulesJson },
+    create: { id: state.id, orgId, selectedModulesJson },
   });
   return parsePlanState(saved.selectedModulesJson);
 }
@@ -1716,15 +1729,16 @@ export async function toggleOnboardingStep(user: AccessUser, input: { key?: unkn
   else manual.add(key);
   const orgId = await onboardingOrgId(user);
   const saved = await prisma.schoolOnboardingState.upsert({
-    where: { id: ONBOARDING_STATE_ID },
+    where: { id: state.id },
     update: { orgId, selectedModulesJson: serializePlanState({ modules: current.modules, manualSteps: [...manual] }) },
-    create: { id: ONBOARDING_STATE_ID, orgId, selectedModulesJson: serializePlanState({ modules: current.modules, manualSteps: [...manual] }) },
+    create: { id: state.id, orgId, selectedModulesJson: serializePlanState({ modules: current.modules, manualSteps: [...manual] }) },
   });
   return parsePlanState(saved.selectedModulesJson);
 }
 
 export async function onboardingBundle(user: AccessUser) {
   need(user);
+  const state = await ensureOnboardingState(user);
   const schoolId = String((user as AccessUser & { schoolId?: string | null }).schoolId || "school");
   const importantDocumentTypes = [
     "FEE_INVOICE",
@@ -1738,8 +1752,7 @@ export async function onboardingBundle(user: AccessUser) {
     "EXAM_DATE_SHEET",
     "CONSOLIDATED_REPORT",
   ];
-  const [state, school, classCount, studentCount, teacherCount, staffMemberCount, attendanceCount, staffAttendanceCount, currentSession, examCount, examMarkCount, templateCount, openingCount, documentTemplates, latestImports, latestSheets] = await Promise.all([
-    prisma.schoolOnboardingState.findUnique({ where: { id: ONBOARDING_STATE_ID } }),
+  const [school, classCount, studentCount, teacherCount, staffMemberCount, attendanceCount, staffAttendanceCount, currentSession, examCount, examMarkCount, templateCount, openingCount, documentTemplates, latestImports, latestSheets] = await Promise.all([
     prisma.schoolConfig.findUnique({
       where: { id: "school" },
       select: {
@@ -1767,8 +1780,8 @@ export async function onboardingBundle(user: AccessUser) {
     prisma.feeTemplate.count(),
     prisma.feeInvoice.count({ where: { period: "OPENING" } }),
     prisma.documentTemplate.findMany({ where: { schoolId, status: "ACTIVE", type: { in: importantDocumentTypes } }, select: { type: true } }),
-    prisma.schoolOnboardingImport.findMany({ orderBy: { createdAt: "desc" }, take: 8 }),
-    prisma.onboardingGoogleSheet.findMany({ orderBy: { createdAt: "desc" }, take: 8 }),
+    prisma.schoolOnboardingImport.findMany({ where: { stateId: state.id }, orderBy: { createdAt: "desc" }, take: 8 }),
+    prisma.onboardingGoogleSheet.findMany({ where: { stateId: state.id }, orderBy: { createdAt: "desc" }, take: 8 }),
   ]);
   const planState = parsePlanState(state?.selectedModulesJson);
   const modules = planState.modules;

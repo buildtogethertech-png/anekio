@@ -25,6 +25,15 @@ describe("school onboarding imports", () => {
     vi.resetModules();
     prisma = (await import("../../lib/prisma")).prisma;
     const fixture = await seedPortalFixture(prisma);
+    const org = await prisma.saasOrg.create({
+      data: {
+        id: "org-onboarding-fixture",
+        schoolName: "Fixture Academy",
+        ownerName: "Ojas Office",
+        ownerEmail: "office.fixture@school.test",
+        ownerPhone: "9876540001",
+      },
+    });
     const office = await prisma.user.findUniqueOrThrow({
       where: { id: fixture.users.office.id },
       include: { role: { include: { grants: true } } },
@@ -36,6 +45,7 @@ describe("school onboarding imports", () => {
       role: office.role.slug,
       roleName: office.role.name,
       roleId: office.roleId,
+      orgId: org.id,
       portal: "OFFICE",
       permissions: office.role.grants.map((grant) => grant.permission),
       scopes: Object.fromEntries(office.role.grants.map((grant) => [grant.permission, grant.scope || "SCHOOL"])) as AccessUser["scopes"],
@@ -198,19 +208,19 @@ describe("school onboarding imports", () => {
 
     const bundle = await onboardingBundle(user);
     const staffTemplate = bundle.templates.find((template) => template.kind === "teachers");
-    expect(staffTemplate?.fileName).toBe("anekio-teachers.xlsx");
+    expect(staffTemplate?.fileName).toBe("anekio-staff.xlsx");
     expect(bundle.templates.some((template) => template.kind === "class_teachers")).toBe(false);
 
     const template = await onboardingSpreadsheetTemplate(user, "teachers");
     expect(template).toMatchObject({
-      fileName: "anekio-teachers.xlsx",
+      fileName: "anekio-staff.xlsx",
       contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     });
 
     const workbook = new ExcelJS.Workbook();
     const arrayBuffer = template.buffer.buffer.slice(template.buffer.byteOffset, template.buffer.byteOffset + template.buffer.byteLength) as ArrayBuffer;
     await workbook.xlsx.load(arrayBuffer);
-    const sheet = workbook.getWorksheet("Teachers")!;
+    const sheet = workbook.getWorksheet("Staff")!;
     expect((sheet.getRow(1).values as unknown[]).slice(1)).toEqual([
       "Name",
       "Mobile",
@@ -234,7 +244,7 @@ describe("school onboarding imports", () => {
     const sampleWorkbook = new ExcelJS.Workbook();
     const sampleArrayBuffer = sampleTemplate.buffer.buffer.slice(sampleTemplate.buffer.byteOffset, sampleTemplate.buffer.byteOffset + sampleTemplate.buffer.byteLength) as ArrayBuffer;
     await sampleWorkbook.xlsx.load(sampleArrayBuffer);
-    const sampleSheet = sampleWorkbook.getWorksheet("Teachers")!;
+    const sampleSheet = sampleWorkbook.getWorksheet("Staff")!;
     const rows = sampleSheet.getRows(2, sampleSheet.rowCount - 1) || [];
     const names = rows.map((row) => String(row.getCell(1).value || ""));
     const roles = rows.map((row) => String(row.getCell(4).value || ""));
@@ -276,7 +286,7 @@ describe("school onboarding imports", () => {
     const { previewOnboardingImport, applyOnboardingImport } = await import("../../lib/onboarding");
     const { saveUploadPath } = await import("../../lib/uploads");
     const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet("Teachers");
+    const sheet = workbook.addWorksheet("Staff");
     sheet.addRow(["Anekio teacher ID", "Employee ID", "Name", "Mobile", "Email", "Role", "Class teacher of", "Monthly salary", "Qualification", "Example only"]);
     sheet.addRow(["", "", "New Sheet Teacher", "9876505678", "", "TEACHER", "9-C", "41000", "M.Sc", ""]);
     sheet.addRow(["", "", "Sheet Fees Admin", "9876505679", "", "FEES", "", "32000", "Accounts", ""]);

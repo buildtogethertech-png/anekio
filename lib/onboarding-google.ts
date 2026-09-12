@@ -317,10 +317,11 @@ export async function createOnboardingGoogleSheet(user: AccessUser, input: { kin
   if (!response.ok || !data?.id || !data.webViewLink) {
     throw new Error(googleErrorMessage(text, "Could not create the Google Sheet."));
   }
-  await ensureOnboardingState(user);
+  const state = await ensureOnboardingState(user);
   const sheet = await prisma.onboardingGoogleSheet.create({
     data: {
-      stateId: "school",
+      orgId: user.orgId ?? null,
+      stateId: state.id,
       userId: user.id,
       kind,
       fileId: data.id,
