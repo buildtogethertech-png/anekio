@@ -2,7 +2,7 @@ import { createElement, useCallback, useEffect, useMemo, useState } from "react"
 import { Linking, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
-import { api } from "../lib/api";
+import { api, apiBase } from "../lib/api";
 import { act } from "../lib/mutate";
 import { useRecord } from "../lib/record";
 import { useSession } from "../lib/session";
@@ -272,7 +272,6 @@ export function FeeRegister() {
   const people = data?.people ?? [];
   const collect = can(user, "fees.collect");
   const remind = can(user, "fees.remind");
-  const issueDocs = can(user, "documents.issue") || can(user, "school.edit");
   const sticky = Platform.OS === "web" ? ({ position: "sticky", zIndex: 2 } as const) : undefined;
   const stickyHead = Platform.OS === "web" ? ({ position: "sticky", top: 0, zIndex: 5 } as const) : undefined;
 
@@ -354,14 +353,14 @@ export function FeeRegister() {
     };
   }
 
-  async function issueReceipt(invoiceId: string) {
+  async function openFeeDocument(invoiceId: string, paid: boolean) {
     try {
-      const result = await act<{ ok: true; documentUrl: string }>(token, "issueFeeReceipt", { invoiceId });
-      toast.show("Receipt issued.");
-      await load();
-      if (result.documentUrl) await Linking.openURL(result.documentUrl);
+      const result = await act<{ ok: true; token: string }>(token, "ensurePayToken", { invoiceId });
+      const shareToken = encodeURIComponent(result.token);
+      const url = paid ? `${apiBase()}/pay/${shareToken}?paid=1` : `${apiBase()}/i/${shareToken}`;
+      await Linking.openURL(url);
     } catch (e) {
-      toast.show(e instanceof Error ? e.message : "Could not issue receipt.");
+      toast.show(e instanceof Error ? e.message : paid ? "Could not open the receipt." : "Could not open the invoice.");
     }
   }
 
@@ -538,14 +537,12 @@ export function FeeRegister() {
                     <Text className="text-[12px] font-medium text-clay-600">Collect</Text>
                   </Pressable>
                 ) : null}
-                {row.receipt && row.receiptUrl ? (
-                  <Pressable onPress={() => void Linking.openURL(row.receiptUrl)}>
+                <Pressable onPress={() => void openFeeDocument(row.id, false)}>
+                  <Text className="text-[12px] font-medium text-clay-600">Invoice</Text>
+                </Pressable>
+                {row.paid > 0 ? (
+                  <Pressable onPress={() => void openFeeDocument(row.id, true)}>
                     <Text className="text-[12px] font-medium text-clay-600">Receipt</Text>
-                  </Pressable>
-                ) : null}
-                {!row.receipt && row.paid > 0 && issueDocs ? (
-                  <Pressable onPress={() => void issueReceipt(row.id)}>
-                    <Text className="text-[12px] font-medium text-clay-600">Issue receipt</Text>
                   </Pressable>
                 ) : null}
               </View>
@@ -711,7 +708,8 @@ export function FeeRegister() {
                 <View className="mt-3 flex-row flex-wrap gap-2">
                   <Button variant="ghost" onPress={() => router.push({ pathname: "/people", params: { student: row.studentId } } as never)}>View</Button>
                   {collect && row.dueNow > 0 ? <Button onPress={() => setPayStudentId(row.studentId)}>Collect</Button> : null}
-                  {row.receipt && row.receiptUrl ? <Button variant="ghost" onPress={() => void Linking.openURL(row.receiptUrl)}>Receipt</Button> : null}
+                  <Button variant="ghost" onPress={() => void openFeeDocument(row.id, false)}>Invoice</Button>
+                  {row.paid > 0 ? <Button variant="ghost" onPress={() => void openFeeDocument(row.id, true)}>Receipt</Button> : null}
                 </View>
               </Card>
             ))}

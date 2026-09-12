@@ -176,8 +176,10 @@ function TemplateGalleryCard({
   design,
   publish,
   issueAllowed,
+  publishing,
   onEdit,
   onIssue,
+  onPublish,
   onArchive,
 }: {
   template: DocumentTemplateSummary;
@@ -186,8 +188,10 @@ function TemplateGalleryCard({
   design: boolean;
   publish: boolean;
   issueAllowed: boolean;
+  publishing?: boolean;
   onEdit: () => void;
   onIssue: () => void;
+  onPublish: () => void;
   onArchive: () => void;
 }) {
   const [hover, setHover] = useState(false);
@@ -233,7 +237,8 @@ function TemplateGalleryCard({
         <Text className="mt-3 text-[11px] font-medium text-ink-600">{template.pageSize}  ·  {template.orientation === "LANDSCAPE" ? "Landscape" : "Portrait"}  ·  {template.layout.elements.length} elements</Text>
         <View className="mt-4 flex-row flex-wrap gap-2">
           {desktop && design ? <Button variant="ghost" onPress={onEdit}>{template.builtIn ? "Design document" : "Edit"}</Button> : null}
-          {template.status === "ACTIVE" && issueAllowed ? <Button onPress={onIssue}>Issue</Button> : null}
+          {publish ? <Button disabled={publishing} onPress={onPublish}>{publishing ? "Publishing…" : "Publish"}</Button> : null}
+          {template.status === "ACTIVE" && issueAllowed && !isFeeFinanceLayout(template.type) ? <Button variant="ghost" onPress={onIssue}>Issue</Button> : null}
           {!template.builtIn && publish ? <Button variant="danger" onPress={onArchive}>Archive</Button> : null}
         </View>
       </View>
@@ -903,38 +908,139 @@ function TemplateEditor({ template, studio, data, onClose, onSaved }: { template
   );
 }
 
+function isFeeFinanceLayout(type: string) {
+  return type === "FEE_INVOICE" || type === "FEE_CHALLAN" || type === "PAYMENT_RECEIPT" || type === "CONSOLIDATED_RECEIPT";
+}
+
 function IssueModal({ template, data, onClose, onDone }: { template: DocumentTemplateSummary; data: RecordPayload; onClose: () => void; onDone: () => Promise<void> }) {
   const { token } = useSession();
   const [target, setTarget] = useState("");
-  const [customLabel, setCustomLabel] = useState("");
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
-  const employeeType = template.category === "EMPLOYEE";
+  const feeLayout = isFeeFinanceLayout(template.type);
+  const receiptLayout = template.type === "PAYMENT_RECEIPT" || template.type === "CONSOLIDATED_RECEIPT";
+  const employeeType = template.category === "EMPLOYEE" && !feeLayout;
+  const students = data.people || [];
+  const staff = data.staff || data.peopleTeachers || [];
   const options = employeeType
-    ? (data.staff || []).map((row) => ({ id: `${row.kind}:${row.id}`, label: `${row.name} · ${row.employeeId || row.role}` }))
-    : (data.people || []).map((row) => ({ id: `student:${row.id}`, label: `${row.name} · ${row.classLabel}` }));
-  async function issue() {
+    ? staff.map((row) => ({ id: `EMPLOYEE:${row.id}`, label: `${row.name} · ${row.employeeId || row.role}` }))
+    : students.map((row) => ({ id: `STUDENT:${row.id}`, label: `${row.name} · ${row.classLabel}` }));
+  const allRecipients = students;
+
+  async function issueOne() {
     const picked = options.find((row) => row.id === target);
-    const label = picked?.label.split(" · ")[0] || customLabel.trim();
-    if (!target && !label) { setMessage("Choose a student or employee."); return; }
+    if (!picked) { setMessage(employeeType ? "Choose a staff member." : "Choose a student."); return; }
+    const [subjectType, subjectId] = picked.id.split(":");
+    const school = data.school || { name: "School", address: "" };
+    const student = students.find((row) => row.id === subjectId);
+    const employee = staff.find((row) => row.id === subjectId);
     setPending(true);
+    setMessage("");
     try {
-      const [subjectType, subjectId] = target ? target.split(":") : ["custom", `custom-${Date.now()}`];
-      const school = data.school || { name: "School", address: "" };
-      const student = data.people?.find((row) => row.id === subjectId);
-      const employee = data.staff?.find((row) => row.id === subjectId);
-      const result = await act<{ ok: true; documentNumber: string; documentUrl: string }>(token, "issueDocument", { templateId: template.id, subjectType, subjectId, subjectLabel: label, data: { school, student: student ? { ...student, classLabel: student.classLabel } : undefined, employee, document: {} } });
+      const result = await act<{ ok: true; documentNumber: string; documentUrl: string }>(token, "issueDocument", {
+        templateId: template.id,
+        subjectType,
+        subjectId,
+        subjectLabel: picked.label.split(" · ")[0],
+        data: {
+          school,
+          student: student ? { ...student, classLabel: student.classLabel } : undefined,
+          employee,
+          fees: student ? { lines: student.invoices || [], amount: student.billed || "", paid: student.paid || "", due: student.dueNow || "" } : undefined,
+          document: {},
+        },
+      });
       await onDone();
       onClose();
       await Linking.openURL(result.documentUrl);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not issue document.");
-    } finally { setPending(false); }
+    } finally {
+      setPending(false);
+    }
   }
+
+  async function issueAll() {
+    if (!allRecipients.length) {
+      setMessage("No students on the roll yet. Add students, then this invoice layout is used for every billed family.");
+      return;
+    }
+    setPending(true);
+    setMessage("");
+    try {
+      const result = await act<{ ok: true; combinedUrl: string; issued: unknown[]; blocked: unknown[] }>(token, "issueDocumentBatch", {
+        templateId: template.id,
+        requirePaidMonths: 0,
+        blockIfPendingMonths: 0,
+        subjects: allRecipients.map((row) => ({
+          subjectType: "STUDENT",
+          subjectId: row.id,
+          subjectLabel: row.name,
+          data: {
+            school: data.school,
+            student: { ...row, classLabel: row.classLabel },
+            fees: { lines: row.invoices || [], amount: row.billed || "", paid: row.paid || "", due: row.dueNow || "" },
+            document: {},
+          },
+        })),
+      });
+      await onDone();
+      if (result.combinedUrl) await Linking.openURL(result.combinedUrl);
+      onClose();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not issue invoices.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  if (feeLayout) {
+    return (
+      <Modal
+        open
+        title={`Issue · ${template.name}`}
+        onClose={onClose}
+        footer={
+          <View className="flex-row flex-wrap justify-end gap-2">
+            <Button variant="ghost" onPress={onClose}>Close</Button>
+            <Button disabled={pending || !allRecipients.length} onPress={() => void issueAll()}>
+              {pending ? "Issuing…" : receiptLayout ? `Issue receipts · ${allRecipients.length}` : `Issue to all students · ${allRecipients.length}`}
+            </Button>
+          </View>
+        }
+      >
+        <View className="gap-4">
+          <View className="rounded-md border border-blue-200 bg-blue-50 p-3">
+            <Text className="text-sm font-semibold text-blue-950">
+              {receiptLayout ? "Every paid invoice uses this receipt." : "Every billed student gets this invoice."}
+            </Text>
+            <Text className="mt-1 text-xs leading-5 text-blue-900">
+              {receiptLayout
+                ? "No extra recipient and no paid-months rule. Families open the receipt from Fees after payment."
+                : "No extra recipient and no paid-months rule. Families open the invoice from Fees and the pay link."}
+            </Text>
+          </View>
+          {!allRecipients.length ? (
+            <Text className="text-sm text-ink-700">No students on the roll yet. This published layout is still attached to Fees.</Text>
+          ) : (
+            <Text className="text-sm text-ink-700">
+              {allRecipients.length} student{allRecipients.length === 1 ? "" : "s"} will receive a copy. Nobody is skipped for unpaid fees.
+            </Text>
+          )}
+          {message ? <Text className="text-sm text-red-700">{message}</Text> : null}
+        </View>
+      </Modal>
+    );
+  }
+
   return (
-    <Modal open title={`Issue · ${template.name}`} onClose={onClose} footer={<View className="items-end"><Button disabled={pending} onPress={() => void issue()}>{pending ? "Issuing…" : "Issue document"}</Button></View>}>
+    <Modal open title={`Issue · ${template.name}`} onClose={onClose} footer={<View className="items-end"><Button disabled={pending} onPress={() => void issueOne()}>{pending ? "Issuing…" : "Issue document"}</Button></View>}>
       <View className="gap-4">
-        {options.length ? <Dropdown label={employeeType ? "Employee" : "Student"} value={target} options={options} placeholder="Choose" onChange={setTarget} /> : <Field label="Recipient / record"><Input value={customLabel} onChangeText={setCustomLabel} placeholder="Name or reference" /></Field>}
+        {options.length ? (
+          <Dropdown label={employeeType ? "Employee" : "Student"} value={target} options={options} placeholder="Choose" onChange={setTarget} />
+        ) : (
+          <Text className="text-sm text-ink-700">{employeeType ? "No staff on the roll yet." : "No students on the roll yet."}</Text>
+        )}
         <View className="rounded-md border border-blue-200 bg-blue-50 p-3"><Text className="text-xs leading-5 text-blue-900">Issuing creates an immutable document number, Verify ID, verification link, template-version snapshot, and audit record.</Text></View>
         {message ? <Text className="text-sm text-red-700">{message}</Text> : null}
       </View>
@@ -955,6 +1061,7 @@ export function DocumentStudio({ studio, data }: { studio: Studio; data: RecordP
   const [query, setQuery] = useState("");
   const [editor, setEditor] = useState<DocumentTemplateSummary | null>(null);
   const [issue, setIssue] = useState<DocumentTemplateSummary | null>(null);
+  const [publishingId, setPublishingId] = useState("");
   const [revokeId, setRevokeId] = useState("");
   const [revokeReason, setRevokeReason] = useState("");
   const [reissueId, setReissueId] = useState("");
@@ -981,6 +1088,29 @@ export function DocumentStudio({ studio, data }: { studio: Studio; data: RecordP
   async function archive(template: DocumentTemplateSummary) {
     try { await act(token, "archiveDocumentTemplate", { id: template.id }); setMessage("Template archived."); await reload(); }
     catch (error) { setMessage(error instanceof Error ? error.message : "Could not archive template."); }
+  }
+
+  async function publishTemplate(template: DocumentTemplateSummary) {
+    setPublishingId(template.id);
+    setMessage("");
+    try {
+      const result = await act<{ ok: true; template: { id: string } }>(token, "saveDocumentTemplate", {
+        id: template.builtIn ? "" : template.id,
+        type: template.type,
+        name: template.name,
+        description: template.description,
+        pageSize: template.pageSize,
+        orientation: template.orientation,
+        layout: template.layout,
+      });
+      await act(token, "publishDocumentTemplate", { id: result.template.id });
+      setMessage(`Published. This design is now attached to ${attachedZoneForType(template.type)}.`);
+      await reload();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not publish template.");
+    } finally {
+      setPublishingId("");
+    }
   }
 
   return (
@@ -1021,8 +1151,10 @@ export function DocumentStudio({ studio, data }: { studio: Studio; data: RecordP
                   design={design}
                   publish={publish}
                   issueAllowed={issueAllowed}
+                  publishing={publishingId === template.id}
                   onEdit={() => setEditor(template)}
                   onIssue={() => setIssue(template)}
+                  onPublish={() => void publishTemplate(template)}
                   onArchive={() => void archive(template)}
                 />
               );

@@ -122,6 +122,7 @@ describe("document studio library", () => {
       "fees.lines",
     ]));
     expect(defaultLayout("FEE_INVOICE").elements.find((item) => item.id === "title")?.fontSize).toBeGreaterThanOrEqual(16);
+    expect(defaultLayout("FEE_INVOICE").elements.find((item) => item.id === "page-bg")?.background).toBe("#FFFFFF");
     expect(defaultLayout("PAYMENT_RECEIPT").elements.find((item) => item.field === "fees.method")).toBeTruthy();
   });
 
