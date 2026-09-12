@@ -849,7 +849,15 @@ export function SchoolBoard() {
                   await run("saveSchoolClock", payload, "Clock saved.");
                 }}
                 onAdd={async (payload) => {
-                  await run("addPeriod", payload, "Period added.");
+                  const result = await act<
+                    {
+                      ok: true;
+                      period?: { id: string; name: string; startsAt: string; endsAt: string; isBreak: boolean; sortOrder?: number };
+                    }
+                  >(token, "addPeriod", payload);
+                  toast.show("Period added.");
+                  void reload();
+                  return result;
                 }}
                 onDelete={async (id) => {
                   await run("deletePeriod", { id }, "Period removed.");

@@ -36,6 +36,15 @@ const ALL_WEEKDAYS = [
   { n: 7, label: "Sun" },
 ];
 
+type ClockPeriodRow = {
+  id: string;
+  name: string;
+  startsAt: string;
+  endsAt: string;
+  isBreak: boolean;
+  sortOrder?: number;
+};
+
 function periodsDraft(value?: number) {
   if (value == null || !Number.isFinite(value) || value <= 0) return "4";
   return String(Math.trunc(value));
@@ -127,11 +136,16 @@ export function ClockForm({
     weekdays: number[];
     periods: { id: string; name: string; startsAt: string; endsAt: string; isBreak: boolean; sortOrder?: number }[];
   }) => Promise<void>;
-  onAdd: (payload: { name: string; startsAt: string; endsAt: string; isBreak: boolean }) => Promise<void>;
+  onAdd: (payload: { name: string; startsAt: string; endsAt: string; isBreak: boolean }) => Promise<
+    | {
+        period?: ClockPeriodRow;
+      }
+    | void
+  >;
   onDelete: (id: string) => Promise<void>;
 }) {
   const [days, setDays] = useState<number[]>(weekdays);
-  const [rows, setRows] = useState(
+  const [rows, setRows] = useState<ClockPeriodRow[]>(
     periods.map((p) => ({
       id: p.id,
       name: p.name,
@@ -220,8 +234,14 @@ export function ClockForm({
             variant="ghost"
             onPress={async () => {
               if (!add.name.trim()) return;
-              await onAdd({ ...add, name: add.name.trim() });
-              setAdd({ name: "", startsAt: "15:10", endsAt: "15:50", isBreak: false });
+              setError("");
+              try {
+                const result = await onAdd({ ...add, name: add.name.trim() });
+                if (result?.period) setRows([...rows, result.period]);
+                setAdd({ name: "", startsAt: "15:10", endsAt: "15:50", isBreak: false });
+              } catch (e) {
+                setError(e instanceof Error ? e.message : "Could not add period.");
+              }
             }}
           >
             Add

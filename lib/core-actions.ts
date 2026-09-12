@@ -2574,7 +2574,7 @@ export async function addPeriodCore(
 ) {
   needSchoolScope(user, "timetable.edit");
   const last = await prisma.period.aggregate({ _max: { sortOrder: true } });
-  await prisma.period.create({
+  const period = await prisma.period.create({
     data: {
       name: input.name || "Period",
       startsAt: input.startsAt || "09:00",
@@ -2583,6 +2583,16 @@ export async function addPeriodCore(
       sortOrder: (last._max.sortOrder ?? 0) + 1,
     },
   });
+  return {
+    period: {
+      id: period.id,
+      name: period.name,
+      startsAt: period.startsAt,
+      endsAt: period.endsAt,
+      isBreak: period.isBreak,
+      sortOrder: period.sortOrder,
+    },
+  };
 }
 
 export async function deletePeriodCore(user: AccessUser, input: { id: string }) {

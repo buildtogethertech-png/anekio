@@ -288,8 +288,7 @@ export async function runAct(
       await sendClassNoteCore(user, body as never);
       break;
     case "addPeriod":
-      await addPeriodCore(user, body as never);
-      break;
+      return { ok: true, ...(await addPeriodCore(user, body as never)) };
     case "deletePeriod":
       await deletePeriodCore(user, body as never);
       break;
