@@ -88,6 +88,56 @@ export async function buildStudentMonthPayPath(
   };
 }
 
+export async function buildParentMonthPayPath(
+  parentUserId: string,
+  primaryStudentId: string,
+  invoiceIds: string[]
+) {
+  const parent = await prisma.parent.findUnique({
+    where: { userId: parentUserId },
+    include: {
+      students: {
+        include: { feeInvoices: { include: { payments: true } } },
+        orderBy: { name: "asc" },
+      },
+    },
+  });
+  if (!parent) throw new Error("Parent missing");
+  const primary = parent.students.find((student) => student.id === primaryStudentId) || parent.students[0];
+  if (!primary) throw new Error("Student missing");
+  const wanted = new Set(invoiceIds.filter(Boolean));
+  if (!wanted.size) throw new Error("Pick the invoices to pay");
+
+  const picked = parent.students
+    .flatMap((student) => student.feeInvoices)
+    .filter((inv) => wanted.has(inv.id))
+    .map((inv) => ({ inv, dueNow: invoiceBalance(inv).dueNow }))
+    .filter((row) => row.dueNow > 0)
+    .sort((a, b) => +a.inv.dueDate - +b.inv.dueDate || a.inv.title.localeCompare(b.inv.title))
+    .map((row) => row.inv);
+  if (!picked.length) throw new Error("Those invoices are already paid");
+
+  let payToken = primary.payToken;
+  if (!payToken) {
+    payToken = randomUUID();
+    await prisma.student.update({ where: { id: primary.id }, data: { payToken } });
+  }
+  for (const inv of picked) {
+    if (!inv.shareToken) {
+      await prisma.feeInvoice.update({
+        where: { id: inv.id },
+        data: { shareToken: randomUUID() },
+      });
+    }
+  }
+
+  return {
+    payToken,
+    invoiceIds: picked.map((inv) => inv.id),
+    path: `/pay/s/${payToken}?ids=${encodeURIComponent(picked.map((inv) => inv.id).join(","))}`,
+  };
+}
+
 export async function invoicesFromPeriods(studentToken: string, periods: string) {
   const list = periods.split(",").map((p) => p.trim()).filter(Boolean);
   const student = await prisma.student.findUnique({

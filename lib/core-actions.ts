@@ -2200,7 +2200,7 @@ export async function ensureInvoiceShareTokenCore(user: AccessUser, invoiceId: s
 
 export async function ensurePayerPayLinkCore(
   user: AccessUser,
-  input: { studentId: string; invoiceIds: string[] }
+  input: { studentId: string; invoiceIds: string[]; combineFamily?: boolean }
 ) {
   need(user, "fees.pay", "fees.collect");
   const student = await prisma.student.findUnique({
@@ -2211,6 +2211,10 @@ export async function ensurePayerPayLinkCore(
   if (user.portal === "PARENT" && student.parent.userId !== user.id) throw new Error("Student missing");
   if (user.portal === "STUDENT" && student.userId !== user.id) throw new Error("Student missing");
   if (user.portal === "TEACHER") throw new Error("No access.");
+  if (user.portal === "PARENT" && input.combineFamily) {
+    const { buildParentMonthPayPath } = await import("./pay");
+    return buildParentMonthPayPath(user.id, student.id, input.invoiceIds);
+  }
   return buildStudentMonthPayPath(student.id, input.invoiceIds, {
     forceOlderPrefix: user.portal === "PARENT" || user.portal === "STUDENT",
   });

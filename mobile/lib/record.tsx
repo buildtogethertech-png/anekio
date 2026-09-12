@@ -23,6 +23,25 @@ export type DocumentElement = {
   locked?: boolean;
 };
 export type DocumentLayout = { elements: DocumentElement[] };
+
+export type FeeRow = {
+  id: string;
+  title: string;
+  due: string;
+  amount: string;
+  paid: string;
+  remaining: string;
+  dueNow: number;
+  period: string;
+  dueAt: string;
+  display: string;
+  lateLabel: string;
+  lines: string[];
+  token: string;
+  invoiceUrl?: string;
+  receiptUrl?: string;
+  payUrl?: string;
+};
 export type DocumentTemplateSummary = {
   id: string;
   builtIn: boolean;
@@ -141,6 +160,7 @@ export type RecordPayload = {
     born?: string;
     email?: string;
     interests?: string[];
+    fees?: FeeRow[];
   }[];
   parent?: {
     name: string;
@@ -198,24 +218,7 @@ export type RecordPayload = {
       score: number | null;
     }[];
     letter: { lines: string[]; paths: string[] };
-    fees: {
-      id: string;
-      title: string;
-      due: string;
-      amount: string;
-      paid: string;
-      remaining: string;
-      dueNow: number;
-      period: string;
-      dueAt: string;
-      display: string;
-      lateLabel: string;
-      lines: string[];
-      token: string;
-      invoiceUrl?: string;
-      receiptUrl?: string;
-      payUrl?: string;
-    }[];
+    fees: FeeRow[];
   } | null;
   upcoming?: { id: string; title: string; subject: string; date: string; time?: string; resultDate?: string; teacher: string; seriesId?: string; seriesName?: string }[];
   examTimetable?: { id: string; title: string; subject: string; date: string; time?: string; resultDate?: string; teacher: string; seriesId?: string; seriesName?: string }[];

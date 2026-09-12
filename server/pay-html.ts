@@ -433,14 +433,18 @@ function receiptNumber(reference: string | null | undefined, invoiceId: string) 
   return (paymentReferenceBase(reference) || `RCPT-${invoiceId.slice(-8)}`).toUpperCase();
 }
 
-export async function renderStudentPayPage(token: string, monthsRaw: string, embed: boolean, paid = false) {
+export async function renderStudentPayPage(token: string, monthsRaw: string, invoiceIdsRaw: string, embed: boolean, paid = false) {
   const data = await getStudentPay(token);
   if (!data) return null;
   const school = schoolFromConfig(data.config);
   const pay = await getSchoolPaySecrets();
   const wanted = new Set(monthsRaw.split(",").map((p) => p.trim()).filter(Boolean));
-  const selected = data.student.feeInvoices
-    .filter((inv) => !wanted.size || wanted.has(inv.period) || wanted.has(inv.id))
+  const wantedIds = new Set(invoiceIdsRaw.split(",").map((p) => p.trim()).filter(Boolean));
+  const invoiceSource = wantedIds.size
+    ? data.student.parent.students.flatMap((student) => student.feeInvoices)
+    : data.student.feeInvoices;
+  const selected = invoiceSource
+    .filter((inv) => wantedIds.size ? wantedIds.has(inv.id) : !wanted.size || wanted.has(inv.period) || wanted.has(inv.id))
     .map((inv) => {
       const b = invoiceBalance(inv);
       const latestPayment = [...inv.payments].sort((a, b) => +b.paidAt - +a.paidAt)[0];

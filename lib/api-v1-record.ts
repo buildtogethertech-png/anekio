@@ -48,6 +48,37 @@ function inTime(value: Date | string) {
   return new Date(value).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
 }
 
+function serializeFamilyFeeInvoice(inv: {
+  id: string;
+  title: string;
+  period?: string | null;
+  dueDate: Date;
+  amount: number;
+  linesJson: string;
+  shareToken?: string | null;
+  payments: { amount: number }[];
+}) {
+  const b = invoiceBalance(inv);
+  return {
+    id: inv.id,
+    title: inv.title,
+    due: inDate(inv.dueDate),
+    amount: formatInr(inv.amount),
+    paid: formatInr(b.paid),
+    remaining: formatInr(b.remaining),
+    dueNow: b.dueNow,
+    period: inv.period || "",
+    dueAt: new Date(inv.dueDate).toISOString(),
+    display: b.display.toLowerCase(),
+    lateLabel: b.lateLabel,
+    lines: feeLineTotal(parseFeeLines(inv.linesJson)).rows.map((l) => `${l.label} ${formatInr(l.value)}`),
+    token: inv.shareToken,
+    invoiceUrl: inv.shareToken ? `${publicOrigin()}/i/${inv.shareToken}` : "",
+    receiptUrl: inv.shareToken && b.display === "PAID" ? `${publicOrigin()}/pay/${inv.shareToken}?paid=1` : "",
+    payUrl: inv.shareToken ? `${publicOrigin()}/pay/${inv.shareToken}` : "",
+  };
+}
+
 function serializePeopleFeeInvoice(inv: {
   id: string;
   title: string;
@@ -305,27 +336,7 @@ function serializeChild(
       score: e.score,
     })),
     letter: { lines: letter.lines, paths: letter.paths },
-    fees: child.feeInvoices.map((inv) => {
-      const b = invoiceBalance(inv);
-      return {
-        id: inv.id,
-        title: inv.title,
-        due: inDate(inv.dueDate),
-        amount: formatInr(inv.amount),
-        paid: formatInr(b.paid),
-        remaining: formatInr(b.remaining),
-        dueNow: b.dueNow,
-        period: inv.period || "",
-        dueAt: new Date(inv.dueDate).toISOString(),
-        display: b.display.toLowerCase(),
-        lateLabel: b.lateLabel,
-        lines: feeLineTotal(parseFeeLines(inv.linesJson)).rows.map((l) => `${l.label} ${formatInr(l.value)}`),
-        token: inv.shareToken,
-        invoiceUrl: inv.shareToken ? `${publicOrigin()}/i/${inv.shareToken}` : "",
-        receiptUrl: inv.shareToken && b.display === "PAID" ? `${publicOrigin()}/pay/${inv.shareToken}?paid=1` : "",
-        payUrl: inv.shareToken ? `${publicOrigin()}/pay/${inv.shareToken}` : "",
-      };
-    }),
+    fees: child.feeInvoices.map(serializeFamilyFeeInvoice),
   };
 }
 
@@ -553,6 +564,7 @@ async function parentStudentPayload(user: AccessUser, requestedChildId?: string 
       born: inDate(s.dateOfBirth),
       email: s.user?.email || "",
       interests: s.interests.map((i) => PATH_LABEL[i.tag] || i.tag),
+      fees: s.feeInvoices.map(serializeFamilyFeeInvoice),
     })),
     child: child ? serializeChild(child, { timetable, upcoming }) : null,
     upcoming,

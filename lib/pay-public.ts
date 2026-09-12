@@ -18,7 +18,20 @@ export async function getStudentPay(token: string) {
     where: { payToken: token },
     include: {
       class: true,
-      parent: { include: { user: true } },
+      parent: {
+        include: {
+          user: true,
+          students: {
+            include: {
+              class: true,
+              feeInvoices: {
+                include: { payments: true },
+                orderBy: { dueDate: "asc" },
+              },
+            },
+          },
+        },
+      },
       feeInvoices: {
         include: { payments: true },
         orderBy: { dueDate: "asc" },

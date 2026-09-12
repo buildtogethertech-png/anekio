@@ -17,6 +17,7 @@ export async function getParentWithChildren(userId: string) {
       students: {
         include: {
           class: true,
+          feeInvoices: { include: { payments: true } },
           interests: true,
           user: true,
         },

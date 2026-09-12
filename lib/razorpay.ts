@@ -87,14 +87,18 @@ export async function createMonthsOrder(studentToken: string, invoiceIds: string
   });
   if (!student) throw new Error("Pay link is not valid");
   const wanted = new Set(invoiceIds);
-  const open = student.feeInvoices
+  const familyInvoices = await prisma.feeInvoice.findMany({
+    where: { id: { in: invoiceIds }, student: { parentId: student.parentId } },
+    include: { student: true, payments: true },
+  });
+  const open = familyInvoices
     .filter((inv) => wanted.has(inv.id))
     .map((inv) => ({ inv, dueNow: invoiceBalance(inv).dueNow }))
     .filter((row) => row.dueNow > 0)
     .sort((a, b) => +a.inv.dueDate - +b.inv.dueDate);
   if (!open.length) throw new Error("Those months are already paid");
   const amount = open.reduce((sum, row) => sum + row.dueNow, 0);
-  const titles = open.map((row) => row.inv.title);
+  const titles = open.map((row) => `${row.inv.student.name} · ${row.inv.title}`);
   const range = payRangeLabel(titles);
   const periods = open.map((row) => row.inv.period).join(",");
   const rzp = await getRazorpay();
@@ -102,7 +106,7 @@ export async function createMonthsOrder(studentToken: string, invoiceIds: string
     amount: amount * 100,
     currency: "INR",
     receipt: studentToken.replace(/-/g, "").slice(0, 40),
-    notes: { studentToken, periods, student: student.name },
+    notes: { studentToken, periods, student: student.name, invoiceIds: open.map((row) => row.inv.id).join(",") },
   });
   const { keyId } = await razorpayKeys();
   return {
@@ -113,7 +117,7 @@ export async function createMonthsOrder(studentToken: string, invoiceIds: string
     amountPaise: amount * 100,
     name: student.name,
     email: student.parent.user.email ?? "",
-    description: open.length === 1 ? titles[0] : `${range} · ${open.length} months`,
+    description: open.length === 1 ? titles[0] : `${range} · ${open.length} invoices`,
     invoiceIds: open.map((row) => row.inv.id),
   };
 }

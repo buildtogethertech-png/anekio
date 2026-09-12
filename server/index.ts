@@ -1180,6 +1180,7 @@ app.get("/pay/s/:token", async (req, res) => {
   const html = await renderStudentPayPage(
     req.params.token,
     String(req.query.m || ""),
+    String(req.query.ids || ""),
     req.query.embed === "1",
     req.query.paid === "1"
   );

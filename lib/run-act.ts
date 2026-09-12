@@ -433,6 +433,7 @@ export async function runAct(
       const link = await ensurePayerPayLinkCore(user, {
         studentId: String(body.studentId || ""),
         invoiceIds,
+        combineFamily: body.combineFamily === true,
       });
       return { ok: true, ...link };
     }
