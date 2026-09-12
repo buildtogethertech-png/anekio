@@ -238,6 +238,14 @@ function contactLine(school: { phone: string; email: string }) {
   return [school.phone, school.email].filter(Boolean).join(" · ");
 }
 
+function onlinePaymentHelp(testMode: boolean) {
+  return `<p class="small">You will return here after payment verification.</p>${
+    testMode
+      ? `<p class="small">Test card: <strong>4111 1111 1111 1111</strong> · any future expiry · CVV 123 · OTP 123456</p>`
+      : ""
+  }`;
+}
+
 function parentLine(parent?: { user?: { name?: string | null; email?: string | null } | null; phone?: string | null } | null) {
   if (!parent) return "";
   return [parent.user?.name, parent.phone, parent.user?.email].filter(Boolean).join(" · ");
@@ -270,7 +278,7 @@ function schoolContext(opts: {
     </div>
     <div class="trust">
       <div class="trust-item"><span class="dot">✓</span><span>Review every invoice before paying. The amount shown here is calculated from the school fee ledger.</span></div>
-      <div class="trust-item"><span class="dot">✓</span><span>Payment opens through ${escapeHtml(opts.gateway)} and is verified before the receipt is shown.</span></div>
+      <div class="trust-item"><span class="dot">✓</span><span>Online payment is verified before the receipt is shown.</span></div>
     </div>
   </section>`;
 }
@@ -400,7 +408,7 @@ export async function renderPayPage(token: string, embed: boolean, paid: boolean
         ${bank ? `<p class="small">${escapeHtml(bank)}</p>` : ""}
         ${
           ready
-            ? `<button id="pay">Pay ${escapeHtml(formatInr(dueNow))} securely</button><p class="small">Powered by ${escapeHtml(gatewayLabel(pay.gateway))}. You will return here after verification.</p><p id="err" class="err"></p>`
+            ? `<button id="pay">Pay ${escapeHtml(formatInr(dueNow))} securely</button>${onlinePaymentHelp(pay.testMode)}<p id="err" class="err"></p>`
             : dueNow > 0
               ? `<p>Pay at the school desk, or ask the office to connect a gateway.</p>`
               : `<p class="ok">This bill is paid.</p>`
@@ -507,7 +515,7 @@ export async function renderStudentPayPage(token: string, monthsRaw: string, inv
         ${bank ? `<p class="small">${escapeHtml(bank)}</p>` : ""}
         ${
           ready
-            ? `<button id="pay">Pay ${escapeHtml(formatInr(dueNow))} securely</button><p class="small">Powered by ${escapeHtml(gatewayLabel(pay.gateway))}. You will return here after verification.</p><p id="err" class="err"></p>`
+            ? `<button id="pay">Pay ${escapeHtml(formatInr(dueNow))} securely</button>${onlinePaymentHelp(pay.testMode)}<p id="err" class="err"></p>`
             : dueNow > 0 && !canCombine
               ? `<p>Pick one invoice at a time for ${escapeHtml(gatewayLabel(pay.gateway))}, or ask the school to enable Razorpay for combined checkout.</p>`
             : dueNow > 0
