@@ -3300,7 +3300,7 @@ export function FeesBoard() {
   const didInitialRefresh = useRef(false);
   const [classId, setClassId] = useState("all");
   const [filter, setFilter] = useState<"all" | "overdue">("all");
-  const [tab, setTab] = useState<"due" | "templates">("due");
+  const [tab, setTab] = useState<"report" | "due" | "templates">("due");
   const [feeEditorOpen, setFeeEditorOpen] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [tplName, setTplName] = useState("Monthly fee");
@@ -3319,7 +3319,11 @@ export function FeesBoard() {
   const students = (classId === "all" ? dueStudents : dueStudents.filter((s) => s.classId === classId))
     .filter((s) => (filter === "overdue" ? (s.overdueCount || 0) > 0 : true))
     .sort((a, b) => (b.dueAmount || 0) - (a.dueAmount || 0) || a.name.localeCompare(b.name));
-  const allInvoices = people.flatMap((s) =>
+  const reportPeople = classId === "all" ? people : people.filter((s) => s.classId === classId);
+  const reportDueStudents = reportPeople.filter((s) => (s.dueAmount || 0) > 0);
+  const reportOverdueStudents = reportDueStudents.filter((s) => (s.overdueCount || 0) > 0);
+  const reportClasses = classId === "all" ? (data?.classes ?? []) : (data?.classes ?? []).filter((c) => c.id === classId);
+  const allInvoices = reportPeople.flatMap((s) =>
     (s.invoices ?? []).map((inv) => ({
       ...inv,
       studentId: s.id,
@@ -3334,18 +3338,18 @@ export function FeesBoard() {
   const openInvoices = allInvoices.filter((inv) => inv.status !== "paid" && inv.dueNowAmount > 0);
   const overdueInvoices = openInvoices.filter((inv) => inv.status === "overdue");
   const feeHealth = {
-    billed: people.reduce((sum, s) => sum + moneyNumber(s.billed), 0),
-    paid: people.reduce((sum, s) => sum + moneyNumber(s.paid), 0),
-    outstanding: dueStudents.reduce((sum, s) => sum + (s.dueAmount || 0), 0),
+    billed: reportPeople.reduce((sum, s) => sum + moneyNumber(s.billed), 0),
+    paid: reportPeople.reduce((sum, s) => sum + moneyNumber(s.paid), 0),
+    outstanding: reportDueStudents.reduce((sum, s) => sum + (s.dueAmount || 0), 0),
     overdue: overdueInvoices.reduce((sum, inv) => sum + inv.dueNowAmount, 0),
     collectionRate: 0,
   };
   feeHealth.collectionRate = ratio(feeHealth.paid, feeHealth.billed);
   const currentDue = Math.max(0, feeHealth.outstanding - feeHealth.overdue);
   const maxCollectionBar = Math.max(feeHealth.billed, feeHealth.paid, feeHealth.outstanding, 1);
-  const classHealth = (data?.classes ?? [])
+  const classHealth = reportClasses
     .map((c) => {
-      const rows = people.filter((s) => s.classId === c.id);
+      const rows = reportPeople.filter((s) => s.classId === c.id);
       const classInvoices = openInvoices.filter((inv) => inv.classId === c.id);
       const billed = rows.reduce((sum, s) => sum + moneyNumber(s.billed), 0);
       const paid = rows.reduce((sum, s) => sum + moneyNumber(s.paid), 0);
@@ -3370,7 +3374,7 @@ export function FeesBoard() {
     { label: "2 months", count: 0 },
     { label: "3+ months", count: 0 },
   ];
-  for (const s of dueStudents) {
+  for (const s of reportDueStudents) {
     const openMonths = new Set((s.invoices ?? []).filter((inv) => inv.status !== "paid" && (inv.dueNow ?? moneyNumber(inv.remaining)) > 0).map((inv) => inv.period || inv.title));
     const count = openMonths.size;
     if (count >= 3) pendingBuckets[2].count += 1;
@@ -3378,7 +3382,7 @@ export function FeesBoard() {
     else if (count === 1) pendingBuckets[0].count += 1;
   }
   const maxPendingBucket = Math.max(...pendingBuckets.map((row) => row.count), 1);
-  const topFollowUps = dueStudents
+  const topFollowUps = reportDueStudents
     .slice()
     .sort((a, b) => (b.overdueCount || 0) - (a.overdueCount || 0) || (b.dueAmount || 0) - (a.dueAmount || 0))
     .slice(0, 5);
@@ -3576,6 +3580,16 @@ export function FeesBoard() {
           <View className="flex-row rounded-md border border-ink-200 bg-white p-0.5">
             <Pressable
               accessibilityRole="button"
+              onPress={() => {
+                setTab("report");
+                setFilter("all");
+              }}
+              className={`min-w-[76px] items-center rounded-md px-3 py-1.5 ${tab === "report" ? "bg-clay-500" : "bg-white"}`}
+            >
+              <Text className={`text-sm font-semibold ${tab === "report" ? "text-white" : "text-ink-800"}`}>Report</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
               onPress={() => setTab("due")}
               className={`min-w-[76px] items-center rounded-md px-3 py-1.5 ${tab === "due" ? "bg-clay-500" : "bg-white"}`}
             >
@@ -3611,11 +3625,11 @@ export function FeesBoard() {
           ))}
         </View>
       </View>
-      {tab === "due" ? (
+      {tab === "report" ? (
         <View className="mb-3 gap-3 rounded-md border border-ink-100 bg-ink-50 p-3">
           <View className="flex-row flex-wrap items-start justify-between gap-3">
             <View className="min-w-0 flex-1">
-              <Text className="text-base font-semibold text-ink-900">Fee health</Text>
+              <Text className="text-base font-semibold text-ink-900">{selectedClass ? `${selectedClass.label} fee health` : "Fee health"}</Text>
               <Text className="mt-1 text-sm leading-5 text-ink-700">
                 Collection, overdue pressure, class exposure, and the students finance should call first.
               </Text>
@@ -3628,8 +3642,8 @@ export function FeesBoard() {
           <View className="flex-row flex-wrap gap-2">
             <FeeHealthTile label="Billed" value={compactInr(feeHealth.billed)} hint={`${allInvoices.length} invoices raised`} />
             <FeeHealthTile label="Collected" value={compactInr(feeHealth.paid)} hint={`${feeHealth.collectionRate}% of billed`} tone="leaf" />
-            <FeeHealthTile label="Outstanding" value={compactInr(feeHealth.outstanding)} hint={`${dueStudents.length} students pending`} tone={feeHealth.outstanding ? "warn" : "leaf"} />
-            <FeeHealthTile label="Overdue" value={compactInr(feeHealth.overdue)} hint={`${overdueStudents.length} students crossed due date`} tone={feeHealth.overdue ? "danger" : "leaf"} />
+            <FeeHealthTile label="Outstanding" value={compactInr(feeHealth.outstanding)} hint={`${reportDueStudents.length} students pending`} tone={feeHealth.outstanding ? "warn" : "leaf"} />
+            <FeeHealthTile label="Overdue" value={compactInr(feeHealth.overdue)} hint={`${reportOverdueStudents.length} students crossed due date`} tone={feeHealth.overdue ? "danger" : "leaf"} />
           </View>
           <View className={`gap-3 ${compactFees ? "" : "flex-row"}`}>
             <FeeHealthChart title="Collection funnel" subtitle="How billed fees are converting into cash.">
@@ -3673,7 +3687,7 @@ export function FeesBoard() {
                 />
               ))}
               <View className="rounded-md bg-ink-50 px-3 py-2">
-                <Text className="text-xs font-medium text-ink-900">{people.length - dueStudents.length} students clear</Text>
+                <Text className="text-xs font-medium text-ink-900">{reportPeople.length - reportDueStudents.length} students clear</Text>
                 <Text className="mt-0.5 text-xs text-ink-700">Use this to see whether dues are shallow or turning into backlog.</Text>
               </View>
             </FeeHealthChart>
