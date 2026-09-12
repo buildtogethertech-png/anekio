@@ -3,6 +3,7 @@ import * as SecureStore from "expo-secure-store";
 
 const KEY = "anekio.token";
 const CHILD_KEY = "anekio.child";
+const LAUNCHER_POSITION_KEY = "anekio.launcherPosition";
 
 export async function getToken() {
   if (Platform.OS === "web") {
@@ -85,4 +86,22 @@ export async function getSeenNoticeIds(userId: string) {
 
 export async function setSeenNoticeIds(userId: string, ids: string[]) {
   await writeStore(NOTICES_SEEN_KEY, JSON.stringify({ userId, ids: ids.slice(0, 200) }));
+}
+
+export type LauncherPosition = { x: number; y: number };
+
+export async function getLauncherPosition() {
+  const raw = await readStore(LAUNCHER_POSITION_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<LauncherPosition>;
+    if (typeof parsed.x !== "number" || typeof parsed.y !== "number") return null;
+    return { x: parsed.x, y: parsed.y };
+  } catch {
+    return null;
+  }
+}
+
+export async function setLauncherPosition(position: LauncherPosition) {
+  await writeStore(LAUNCHER_POSITION_KEY, JSON.stringify(position));
 }

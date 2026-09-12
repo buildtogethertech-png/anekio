@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import { Redirect, Slot, Tabs, useRouter } from "expo-router";
-import { ActivityIndicator, Modal, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Modal, PanResponder, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { AppTabBar } from "../../components/app-tab-bar";
@@ -9,6 +10,7 @@ import { NoticeBell } from "../../components/notice-bell";
 import { OnboardingBoard } from "../../components/onboarding-board";
 import { RecordProvider, useRecord } from "../../lib/record";
 import { useSession } from "../../lib/session";
+import { getLauncherPosition, setLauncherPosition, type LauncherPosition } from "../../lib/storage";
 
 function ProfileChip() {
   const { user } = useSession();
@@ -49,37 +51,190 @@ function LaunchPanelButton() {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState<LauncherPosition | null>(null);
+  const [customPosition, setCustomPosition] = useState(false);
+  const dragStart = useRef<LauncherPosition>({ x: 0, y: 0 });
+  const pointerStart = useRef<LauncherPosition | null>(null);
+  const dragged = useRef(false);
   const onboarding = data?.onboarding;
   const show = user?.portal === "OFFICE" && onboarding && onboarding.progress.percent < 100;
-  if (!show) return null;
 
+  const buttonSize = 64;
   const panelWidth = Math.min(760, Math.max(360, width - 48));
   const bottomOffset = width >= 768 ? Math.max(insets.bottom + 24, 24) : Math.max(insets.bottom + 84, 84);
   const rightOffset = width >= 768 ? 28 : 16;
+  const defaultPosition = useMemo(
+    () => ({
+      x: width - rightOffset - buttonSize,
+      y: height - bottomOffset - buttonSize,
+    }),
+    [bottomOffset, height, rightOffset, width]
+  );
+  const clampPosition = useMemo(
+    () => (next: LauncherPosition) => ({
+      x: Math.min(Math.max(next.x, 12), Math.max(12, width - buttonSize - 12)),
+      y: Math.min(Math.max(next.y, Math.max(12, insets.top + 12)), Math.max(Math.max(12, insets.top + 12), height - buttonSize - Math.max(12, insets.bottom + 12))),
+    }),
+    [height, insets.bottom, insets.top, width]
+  );
+  const launcherPosition = position ?? clampPosition(defaultPosition);
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dx) > 3 || Math.abs(gesture.dy) > 3,
+        onMoveShouldSetPanResponderCapture: (_, gesture) => Math.abs(gesture.dx) > 3 || Math.abs(gesture.dy) > 3,
+        onPanResponderGrant: () => {
+          dragStart.current = launcherPosition;
+          dragged.current = false;
+        },
+        onPanResponderMove: (_, gesture) => {
+          if (Math.abs(gesture.dx) > 5 || Math.abs(gesture.dy) > 5) dragged.current = true;
+          setPosition(clampPosition({ x: dragStart.current.x + gesture.dx, y: dragStart.current.y + gesture.dy }));
+          setCustomPosition(true);
+        },
+        onPanResponderRelease: (_, gesture) => {
+          const next = clampPosition({ x: dragStart.current.x + gesture.dx, y: dragStart.current.y + gesture.dy });
+          setPosition(next);
+          if (dragged.current) {
+            void setLauncherPosition(next);
+            return;
+          }
+          setOpen(true);
+        },
+        onPanResponderTerminate: (_, gesture) => {
+          const next = clampPosition({ x: dragStart.current.x + gesture.dx, y: dragStart.current.y + gesture.dy });
+          setPosition(next);
+          if (dragged.current) void setLauncherPosition(next);
+        },
+      }),
+    [clampPosition, launcherPosition]
+  );
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const onMove = (event: MouseEvent) => {
+      if (!pointerStart.current) return;
+      const dx = event.clientX - pointerStart.current.x;
+      const dy = event.clientY - pointerStart.current.y;
+      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) dragged.current = true;
+      if (!dragged.current) return;
+      setPosition(clampPosition({ x: dragStart.current.x + dx, y: dragStart.current.y + dy }));
+      setCustomPosition(true);
+    };
+    const onUp = (event: MouseEvent) => {
+      if (!pointerStart.current) return;
+      const dx = event.clientX - pointerStart.current.x;
+      const dy = event.clientY - pointerStart.current.y;
+      const next = clampPosition({ x: dragStart.current.x + dx, y: dragStart.current.y + dy });
+      pointerStart.current = null;
+      document.body.style.userSelect = "";
+      if (dragged.current) {
+        setPosition(next);
+        void setLauncherPosition(next);
+        return;
+      }
+      setOpen(true);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.userSelect = "";
+    };
+  }, [clampPosition]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getLauncherPosition().then((saved) => {
+      if (!cancelled && saved) {
+        setPosition(clampPosition(saved));
+        setCustomPosition(true);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [clampPosition]);
+
+  useEffect(() => {
+    const next = clampPosition(customPosition ? launcherPosition : defaultPosition);
+    setPosition((old) => (old && old.x === next.x && old.y === next.y ? old : next));
+  }, [clampPosition, customPosition, defaultPosition, launcherPosition]);
+
+  if (!show) return null;
+
+  const launcherContent = (
+    <>
+      <View className="h-12 w-12 items-center justify-center rounded-full bg-blue-50">
+        <Ionicons name="rocket" size={27} color="#2563eb" />
+      </View>
+      <View className="absolute -right-1 -top-1 min-w-[30px] items-center rounded-full border border-white bg-clay-500 px-1.5 py-0.5">
+        <Text className="text-[10px] font-bold text-white">{onboarding.progress.percent}%</Text>
+      </View>
+    </>
+  );
+  const launcherStyle = {
+    left: launcherPosition.x,
+    top: launcherPosition.y,
+    shadowColor: "#1d4ed8",
+    shadowOpacity: 0.22,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+  };
+  const webLauncherStyle: CSSProperties = {
+    alignItems: "center",
+    backgroundColor: "white",
+    border: "1px solid #BFDBFE",
+    borderRadius: 999,
+    boxShadow: "0 8px 18px rgba(29, 78, 216, 0.22)",
+    cursor: "grab",
+    display: "flex",
+    height: buttonSize,
+    justifyContent: "center",
+    left: launcherPosition.x,
+    position: "absolute",
+    top: launcherPosition.y,
+    touchAction: "none",
+    width: buttonSize,
+    zIndex: 50,
+  };
+
   return (
     <>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Open school setup"
-        accessibilityState={{ expanded: open }}
-        onPress={() => setOpen(true)}
-        className="absolute z-50 h-16 w-16 items-center justify-center rounded-full border border-blue-200 bg-white shadow-xl"
-        style={{
-          bottom: bottomOffset,
-          right: rightOffset,
-          shadowColor: "#1d4ed8",
-          shadowOpacity: 0.22,
-          shadowRadius: 18,
-          shadowOffset: { width: 0, height: 8 },
-        }}
-      >
-        <View className="h-12 w-12 items-center justify-center rounded-full bg-blue-50">
-          <Ionicons name="rocket" size={27} color="#2563eb" />
+      {Platform.OS === "web" ? (
+        <div
+          aria-expanded={open}
+          aria-label="Open school setup"
+          role="button"
+          tabIndex={0}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") setOpen(true);
+          }}
+          onMouseDown={(event) => {
+            pointerStart.current = { x: event.clientX, y: event.clientY };
+            dragStart.current = launcherPosition;
+            dragged.current = false;
+            document.body.style.userSelect = "none";
+            event.preventDefault();
+          }}
+          style={webLauncherStyle}
+        >
+          {launcherContent}
+        </div>
+      ) : (
+        <View
+          accessibilityRole="button"
+          accessibilityLabel="Open school setup"
+          accessibilityState={{ expanded: open }}
+          onAccessibilityTap={() => setOpen(true)}
+          {...panResponder.panHandlers}
+          className="absolute z-50 h-16 w-16 items-center justify-center rounded-full border border-blue-200 bg-white shadow-xl"
+          style={launcherStyle}
+        >
+          {launcherContent}
         </View>
-        <View className="absolute -right-1 -top-1 min-w-[30px] items-center rounded-full border border-white bg-clay-500 px-1.5 py-0.5">
-          <Text className="text-[10px] font-bold text-white">{onboarding.progress.percent}%</Text>
-        </View>
-      </Pressable>
+      )}
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <View className="flex-1">
           <Pressable accessibilityLabel="Close school setup" className="absolute inset-0 bg-ink-900/20" onPress={() => setOpen(false)} />
