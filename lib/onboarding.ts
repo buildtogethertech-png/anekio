@@ -203,6 +203,8 @@ type StaffImportRole = Pick<Role, "id" | "name" | "slug" | "portal">;
 type AttendanceImportMark = AttendanceStatus | "HOLIDAY";
 type StaffAttendancePerson = { kind: "teacher" | "staff"; id: string; employeeId: string; name: string; role: string };
 type ExamMarkColumn = { key: string; examId: string; classId: string; classLabel: string; maxMarks: number; label: string };
+type OpeningBalanceStudent = Prisma.StudentGetPayload<{ include: { class: true } }>;
+type OpeningBalanceInvoice = Prisma.FeeInvoiceGetPayload<{ include: { payments: true } }>;
 
 function csvBuffer(rows: CsvCell[][]) {
   const encoded = rows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(","));
@@ -327,6 +329,50 @@ function sampleStaffRows(labels: string[], roles: StaffImportRole[]) {
   return [...teacherRows, ...officeRows];
 }
 
+function sampleOpeningBalanceAmount(index: number) {
+  return 900 + ((index * 1379) % 8) * 500;
+}
+
+function openingBalanceRows(
+  students: OpeningBalanceStudent[],
+  openingByStudent: Map<string, OpeningBalanceInvoice>,
+  classLabels: string[],
+  options: { sampleData?: boolean } = {}
+): CsvCell[][] {
+  const defaultThrough = monthBefore();
+  const generatedOn = dateText(new Date());
+  const defaultDueDate = tenthOfMonth();
+  const rows: CsvCell[][] = [
+    ["Admission number", "Student name", "Class", "Backlog invoice amount", "Invoice date", "Due date", "Invoices already generated till", "Example only"],
+  ];
+
+  if (!students.length) {
+    rows.push(["", "Aarav Sharma (example)", classLabels[0] || "1-A", 2500, generatedOn, defaultDueDate, defaultThrough, "YES"]);
+    return rows;
+  }
+
+  students.forEach((student, index) => {
+    const current = openingByStudent.get(student.id);
+    rows.push([
+      student.admissionNo,
+      student.name,
+      `${student.class.name}-${student.class.section}`,
+      options.sampleData ? sampleOpeningBalanceAmount(index) : current?.amount || 0,
+      generatedOn,
+      current ? dateText(current.dueDate) : defaultDueDate,
+      student.feeGeneratedThrough || current?.generatedThrough || defaultThrough,
+      "",
+    ]);
+  });
+  return rows;
+}
+
+async function openingBalanceRowsForTemplate(classLabels: string[], options: { sampleData?: boolean } = {}) {
+  const students = await prisma.student.findMany({ include: { class: true }, orderBy: { name: "asc" } });
+  const opening = await prisma.feeInvoice.findMany({ where: { period: "OPENING" }, include: { payments: true } });
+  return openingBalanceRows(students, new Map(opening.map((row) => [row.studentId, row])), classLabels, options);
+}
+
 function blankRowsFor(kind: ImportKind, labels: string[]): CsvCell[][] {
   const firstClass = labels[0] || "1-A";
   if (kind === "teachers") {
@@ -448,30 +494,7 @@ async function csvRowsFor(kind: ImportKind): Promise<CsvCell[][]> {
     ];
   }
 
-  const students = await prisma.student.findMany({ include: { class: true }, orderBy: { name: "asc" } });
-  const opening = await prisma.feeInvoice.findMany({ where: { period: "OPENING" }, include: { payments: true } });
-  const openingByStudent = new Map(opening.map((row) => [row.studentId, row]));
-  const defaultThrough = monthBefore();
-  const generatedOn = dateText(new Date());
-  const defaultDueDate = tenthOfMonth();
-  return [
-    ["Admission number", "Student name", "Class", "Backlog invoice amount", "Invoice date", "Due date", "Invoices already generated till", "Example only"],
-    ["", "Aarav Sharma (example)", classLabels[0] || "1-A", 2500, generatedOn, defaultDueDate, defaultThrough, "YES"],
-    ...students.map((student) => {
-    const current = openingByStudent.get(student.id);
-    const paid = current?.payments.reduce((total, payment) => total + payment.amount, 0) || 0;
-      return [
-      student.admissionNo,
-      student.name,
-      `${student.class.name}-${student.class.section}`,
-      current ? Math.max(0, current.amount - paid) : 0,
-      generatedOn,
-      current ? dateText(current.dueDate) : defaultDueDate,
-      student.feeGeneratedThrough || current?.generatedThrough || defaultThrough,
-        "",
-      ];
-    }),
-  ];
+  return openingBalanceRowsForTemplate(classLabels);
 }
 
 async function attendanceTemplateWorkbook(options: { sampleData?: boolean } = {}) {
@@ -763,6 +786,8 @@ export async function onboardingSpreadsheetTemplate(user: AccessUser, rawKind: s
     const blankRows = blankRowsFor(kind, labels);
     const rows = options.sampleData && kind === "teachers"
       ? blankRows
+      : options.sampleData && kind === "opening_balances"
+        ? await openingBalanceRowsForTemplate(labels, { sampleData: true })
       : options.sampleData || !blankRows.length
         ? await csvRowsFor(kind)
         : blankRows;
