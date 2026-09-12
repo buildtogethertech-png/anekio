@@ -28,7 +28,6 @@ import {
   preparePresignedFileUpload,
 } from "../lib/handle-upload";
 import { presignedReadUrl, readUpload, readUploadDataUrl, resolveUploadPath } from "../lib/uploads";
-import { gatewayReady, getSchoolPaySecrets } from "../lib/pay-config";
 import { createSchoolFeeOrder, verifySchoolPayment, invoicesFromPeriods } from "../lib/pay";
 import { batchDocumentsHtml, findBatchDocuments, findIssuedDocument, identityScanHtml, missingIssuedScanHtml, verificationHtml } from "../lib/document-studio";
 import { prisma } from "../lib/prisma";
@@ -1049,8 +1048,6 @@ app.post("/api/saas/payment/verify", verifySaasPaymentOrder);
 app.post("/api/saas/razorpay/verify", verifySaasPaymentOrder);
 
 app.post("/api/pay/order", async (req, res) => {
-  const pay = await getSchoolPaySecrets();
-  if (!gatewayReady(pay)) return sendError(res, 503, "School has not connected a payment gateway yet");
   const { token, studentToken, invoiceIds } = req.body || {};
   if (!token && !studentToken) return sendError(res, 400, "Token required");
   try {

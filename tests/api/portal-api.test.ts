@@ -610,6 +610,45 @@ describe("Express portal API", () => {
     expect(response.text).toContain("Selected invoices are paid.");
   });
 
+  it("uses the invoice school gateway for public student pay links", async () => {
+    await prisma.saasOrg.create({
+      data: {
+        id: "org-public-pay",
+        schoolName: "Gateway Fixture School",
+        ownerName: "Gateway Owner",
+        ownerEmail: "gateway.owner@school.test",
+        ownerPhone: "9876540099",
+      },
+    });
+    await prisma.schoolConfig.create({
+      data: {
+        id: "school:org-public-pay",
+        orgId: "org-public-pay",
+        name: "Gateway Fixture School",
+        payGateway: "RAZORPAY",
+        razorpayKeyId: "rzp_test_fixture",
+        razorpayKeySecret: "fixture-secret",
+      },
+    });
+    await prisma.student.update({ where: { id: fixture.studentId }, data: { orgId: "org-public-pay" } });
+    await prisma.feeInvoice.update({ where: { id: "invoice-anaya-april" }, data: { orgId: "org-public-pay" } });
+
+    try {
+      const response = await request(app).get("/pay/s/pay-anaya-fixture?m=2026-04&embed=1");
+
+      expect(response.status).toBe(200);
+      expect(response.text).toContain("Gateway Fixture School");
+      expect(response.text).toContain("Pay ₹2,50,000 securely");
+      expect(response.text).toContain("Powered by Razorpay");
+      expect(response.text).not.toContain("Pay at the school desk");
+    } finally {
+      await prisma.feeInvoice.update({ where: { id: "invoice-anaya-april" }, data: { orgId: null } });
+      await prisma.student.update({ where: { id: fixture.studentId }, data: { orgId: null } });
+      await prisma.schoolConfig.delete({ where: { id: "school:org-public-pay" } });
+      await prisma.saasOrg.delete({ where: { id: "org-public-pay" } });
+    }
+  });
+
   it("keeps teacher leave waiting until office approval", async () => {
     const teacherSession = await login(fixture.users.teacher.email);
     const teacherAuth = { Authorization: `Bearer ${teacherSession.body.token}` };

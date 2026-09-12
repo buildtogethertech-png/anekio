@@ -155,13 +155,13 @@ export async function createSchoolFeeOrder(
   origin: string,
   extras?: { studentToken?: string; invoiceIds?: string[] }
 ) {
-  const pay = await getSchoolPaySecrets();
-  if (!gatewayReady(pay)) {
-    throw new Error("School has not connected a payment gateway yet");
-  }
   const studentToken = extras?.studentToken;
   const invoiceIds = extras?.invoiceIds?.filter(Boolean) || [];
   if (studentToken && invoiceIds.length) {
+    const student = await prisma.student.findUnique({ where: { payToken: studentToken }, select: { orgId: true } });
+    if (!student) throw new Error("Pay link is not valid");
+    const pay = await getSchoolPaySecrets(student.orgId);
+    if (!gatewayReady(pay)) throw new Error("School has not connected a payment gateway yet");
     if (pay.gateway === "RAZORPAY") return createMonthsOrder(studentToken, invoiceIds);
     if (invoiceIds.length === 1) {
       const inv = await prisma.feeInvoice.findUnique({ where: { id: invoiceIds[0] } });
@@ -171,6 +171,13 @@ export async function createSchoolFeeOrder(
     }
     throw new Error("This gateway can take one month at a time. Pick one month, or use Razorpay.");
   }
+  const inv = await prisma.feeInvoice.findUnique({
+    where: { shareToken: token },
+    include: { student: { select: { orgId: true } } },
+  });
+  if (!inv) throw new Error("Invoice missing");
+  const pay = await getSchoolPaySecrets(inv.orgId || inv.student.orgId);
+  if (!gatewayReady(pay)) throw new Error("School has not connected a payment gateway yet");
   if (pay.gateway === "CASHFREE") return createCashfreeOrder(token, origin);
   if (pay.gateway === "BILLDESK") return createBilldeskOrder(token, origin);
   return createFeeOrder(token);
@@ -186,12 +193,14 @@ export async function verifySchoolPayment(input: {
   razorpay_signature?: string;
   orderId?: string;
 }) {
-  const pay = await getSchoolPaySecrets();
-  const provider = input.provider || pay.gateway;
   const invoiceIds = input.invoiceIds?.filter(Boolean) || [];
   const studentToken = input.studentToken || "";
 
   if (studentToken && invoiceIds.length) {
+    const student = await prisma.student.findUnique({ where: { payToken: studentToken }, select: { orgId: true } });
+    if (!student) throw new Error("Pay link is not valid");
+    const pay = await getSchoolPaySecrets(student.orgId);
+    const provider = input.provider || pay.gateway;
     const open = await invoicesForStudentMonths(studentToken, invoiceIds);
     const ids = open.map((inv) => inv.id);
     if (provider === "RAZORPAY") {
@@ -200,7 +209,7 @@ export async function verifySchoolPayment(input: {
       const paymentId = input.razorpay_payment_id || "";
       const signature = input.razorpay_signature || "";
       if (!orderId || !paymentId || !signature) throw new Error("Incomplete payment");
-      if (!(await verifyCheckoutSignature(orderId, paymentId, signature))) {
+      if (!(await verifyCheckoutSignature(orderId, paymentId, signature, student.orgId))) {
         throw new Error("Signature failed");
       }
       return captureRazorpayMonths({ invoiceIds: ids, paymentId, orderId });
@@ -209,9 +218,14 @@ export async function verifySchoolPayment(input: {
   }
 
   const invoice = input.token
-    ? await prisma.feeInvoice.findUnique({ where: { shareToken: input.token } })
+    ? await prisma.feeInvoice.findUnique({
+        where: { shareToken: input.token },
+        include: { student: { select: { orgId: true } } },
+      })
     : null;
   if (!invoice) throw new Error("Invoice missing");
+  const pay = await getSchoolPaySecrets(invoice.orgId || invoice.student.orgId);
+  const provider = input.provider || pay.gateway;
 
   if (provider === "RAZORPAY") {
     const { verifyCheckoutSignature } = await import("./razorpay");
@@ -219,7 +233,7 @@ export async function verifySchoolPayment(input: {
     const paymentId = input.razorpay_payment_id || "";
     const signature = input.razorpay_signature || "";
     if (!orderId || !paymentId || !signature) throw new Error("Incomplete payment");
-    if (!(await verifyCheckoutSignature(orderId, paymentId, signature))) {
+    if (!(await verifyCheckoutSignature(orderId, paymentId, signature, invoice.orgId || invoice.student.orgId))) {
       throw new Error("Signature failed");
     }
     return captureRazorpayPayment({ invoiceId: invoice.id, paymentId, orderId });

@@ -1,5 +1,13 @@
 import { prisma } from "./prisma";
 
+async function schoolConfigForOrg(orgId?: string | null) {
+  if (orgId) {
+    const scoped = await prisma.schoolConfig.findFirst({ where: { orgId } });
+    if (scoped) return scoped;
+  }
+  return prisma.schoolConfig.findUnique({ where: { id: "school" } });
+}
+
 export async function getSharedInvoice(token: string) {
   const invoice = await prisma.feeInvoice.findUnique({
     where: { shareToken: token },
@@ -9,7 +17,7 @@ export async function getSharedInvoice(token: string) {
     },
   });
   if (!invoice) return null;
-  const config = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
+  const config = await schoolConfigForOrg(invoice.orgId || invoice.student.orgId);
   return { invoice, config };
 }
 
@@ -39,6 +47,6 @@ export async function getStudentPay(token: string) {
     },
   });
   if (!student) return null;
-  const config = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
+  const config = await schoolConfigForOrg(student.orgId);
   return { student, config };
 }

@@ -360,7 +360,7 @@ export async function renderPayPage(token: string, embed: boolean, paid: boolean
   const inv = data.invoice;
   const balance = invoiceBalance(inv);
   const { dueNow } = balance;
-  const pay = await getSchoolPaySecrets();
+  const pay = await getSchoolPaySecrets(inv.orgId || inv.student.orgId);
   const ready = gatewayReady(pay) && dueNow > 0;
   const bank = schoolBankLine(school);
   const lines = feeLineTotal(parseFeeLines(inv.linesJson)).rows;
@@ -437,7 +437,7 @@ export async function renderStudentPayPage(token: string, monthsRaw: string, inv
   const data = await getStudentPay(token);
   if (!data) return null;
   const school = schoolFromConfig(data.config);
-  const pay = await getSchoolPaySecrets();
+  const pay = await getSchoolPaySecrets(data.student.orgId);
   const wanted = new Set(monthsRaw.split(",").map((p) => p.trim()).filter(Boolean));
   const wantedIds = new Set(invoiceIdsRaw.split(",").map((p) => p.trim()).filter(Boolean));
   const invoiceSource = wantedIds.size
@@ -539,7 +539,7 @@ export async function renderInvoicePage(token: string) {
   if (!data) return null;
   const school = schoolFromConfig(data.config);
   const dueNow = invoiceBalance(data.invoice).dueNow;
-  const pay = await getSchoolPaySecrets();
+  const pay = await getSchoolPaySecrets(data.invoice.orgId || data.invoice.student.orgId);
   const payUrl = dueNow > 0 ? feePayUrl(token) : "";
   const via = dueNow > 0 && gatewayReady(pay) ? gatewayLabel(pay.gateway) : "";
   const inv = data.invoice;

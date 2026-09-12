@@ -119,8 +119,9 @@ export function gatewayLabel(gateway: PayGateway) {
   return PAY_GATEWAYS.find((g) => g.id === gateway)?.label || "Online";
 }
 
-export async function getSchoolPaySecrets(): Promise<SchoolPaySecrets> {
-  const row = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
+export async function getSchoolPaySecrets(orgId?: string | null): Promise<SchoolPaySecrets> {
+  const scoped = orgId ? await prisma.schoolConfig.findFirst({ where: { orgId } }) : null;
+  const row = scoped || await prisma.schoolConfig.findUnique({ where: { id: "school" } });
   const secrets = row
     ? paySecretsFromRow({
         gateway: asGateway(row.payGateway),

@@ -6,8 +6,8 @@ import { invoiceBalance, payRangeLabel } from "./fees";
 import { recordLedgerPayment, settleMonthPayments } from "./fee-ledger";
 import { getSchoolPaySecrets } from "./pay-config";
 
-export async function razorpayKeys() {
-  const pay = await getSchoolPaySecrets();
+export async function razorpayKeys(orgId?: string | null) {
+  const pay = await getSchoolPaySecrets(orgId);
   return {
     keyId: pay.razorpayKeyId,
     keySecret: pay.razorpayKeySecret,
@@ -16,14 +16,14 @@ export async function razorpayKeys() {
   };
 }
 
-export async function getRazorpay() {
-  const { keyId, keySecret, configured } = await razorpayKeys();
+export async function getRazorpay(orgId?: string | null) {
+  const { keyId, keySecret, configured } = await razorpayKeys(orgId);
   if (!configured) throw new Error("Add the school's Razorpay keys in Admin → School");
   return new Razorpay({ key_id: keyId, key_secret: keySecret });
 }
 
-export async function verifyCheckoutSignature(orderId: string, paymentId: string, signature: string) {
-  const { keySecret } = await razorpayKeys();
+export async function verifyCheckoutSignature(orderId: string, paymentId: string, signature: string, orgId?: string | null) {
+  const { keySecret } = await razorpayKeys(orgId);
   if (!keySecret) return false;
   const expected = crypto.createHmac("sha256", keySecret).update(`${orderId}|${paymentId}`).digest("hex");
   return expected === signature;
@@ -57,14 +57,14 @@ export async function createFeeOrder(token: string) {
   if (!row) throw new Error("Invoice missing");
   const due = await invoiceDueNow(row.id);
   if (!due || due.dueNow <= 0) throw new Error("This invoice is already paid");
-  const rzp = await getRazorpay();
+  const rzp = await getRazorpay(row.orgId || row.student.orgId);
   const order = await rzp.orders.create({
     amount: due.dueNow * 100,
     currency: "INR",
     receipt: row.id.slice(0, 40),
     notes: { token, invoiceId: row.id, student: row.student.name },
   });
-  const { keyId } = await razorpayKeys();
+  const { keyId } = await razorpayKeys(row.orgId || row.student.orgId);
   return {
     provider: "RAZORPAY" as const,
     keyId,
@@ -101,14 +101,14 @@ export async function createMonthsOrder(studentToken: string, invoiceIds: string
   const titles = open.map((row) => `${row.inv.student.name} · ${row.inv.title}`);
   const range = payRangeLabel(titles);
   const periods = open.map((row) => row.inv.period).join(",");
-  const rzp = await getRazorpay();
+  const rzp = await getRazorpay(student.orgId);
   const order = await rzp.orders.create({
     amount: amount * 100,
     currency: "INR",
     receipt: studentToken.replace(/-/g, "").slice(0, 40),
     notes: { studentToken, periods, student: student.name, invoiceIds: open.map((row) => row.inv.id).join(",") },
   });
-  const { keyId } = await razorpayKeys();
+  const { keyId } = await razorpayKeys(student.orgId);
   return {
     provider: "RAZORPAY" as const,
     keyId,
@@ -128,7 +128,11 @@ export async function captureRazorpayPayment(opts: {
   orderId?: string;
   amountRupees?: number;
 }) {
-  const rzp = await getRazorpay();
+  const invoice = await prisma.feeInvoice.findUnique({
+    where: { id: opts.invoiceId },
+    select: { orgId: true, student: { select: { orgId: true } } },
+  });
+  const rzp = await getRazorpay(invoice?.orgId || invoice?.student.orgId);
   const payment = await rzp.payments.fetch(opts.paymentId);
   if (payment.status === "authorized") {
     await rzp.payments.capture(opts.paymentId, payment.amount, payment.currency || "INR");
@@ -150,7 +154,11 @@ export async function captureRazorpayMonths(opts: {
   paymentId: string;
   orderId?: string;
 }) {
-  const rzp = await getRazorpay();
+  const invoice = await prisma.feeInvoice.findFirst({
+    where: { id: { in: opts.invoiceIds } },
+    select: { orgId: true, student: { select: { orgId: true } } },
+  });
+  const rzp = await getRazorpay(invoice?.orgId || invoice?.student.orgId);
   const payment = await rzp.payments.fetch(opts.paymentId);
   if (payment.status === "authorized") {
     await rzp.payments.capture(opts.paymentId, payment.amount, payment.currency || "INR");
