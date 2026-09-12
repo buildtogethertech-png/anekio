@@ -1090,6 +1090,18 @@ async function validateRows(kind: ImportKind, rows: ImportRow[]) {
   const examStudentsByAdmission = new Map(examStudents.map((row) => [row.admissionNo.toLowerCase(), row]));
   const classTeacherRows = new Map<string, string>();
 
+  if (kind === "exam_marks") {
+    if (!examColumns.length) {
+      return ["No saved exam papers were found for this school. Schedule the past exam papers in Exams, then download a fresh exam marks template."];
+    }
+    const hasGeneratedMarkColumn = rows.some((row) =>
+      examColumns.some((column) => Object.prototype.hasOwnProperty.call(row, column.key))
+    );
+    if (!hasGeneratedMarkColumn) {
+      return ["This file does not contain the generated exam mark columns for saved exams. Download the latest exam marks template or test data, fill marks, then upload that file."];
+    }
+  }
+
   rows.forEach((row) => {
     if (kind === "classes") {
       const name = sheetCell(row, "Class name", "Class");
@@ -1146,7 +1158,6 @@ async function validateRows(kind: ImportKind, rows: ImportRow[]) {
       return;
     }
     if (kind === "exam_marks") {
-      if (!examColumns.length) errors.push(rowError(row, "create exam history in Exams before importing marks."));
       const studentId = sheetCell(row, "Anekio student ID");
       const admissionNo = sheetCell(row, "Admission number", "Admission no").toLowerCase();
       const student = studentId ? examStudentsById.get(studentId) : admissionNo ? examStudentsByAdmission.get(admissionNo) : null;
@@ -1155,7 +1166,6 @@ async function validateRows(kind: ImportKind, rows: ImportRow[]) {
         return;
       }
       const cells = examMarkCells(row, examColumns);
-      if (!cells.length) errors.push(rowError(row, "at least one generated exam mark column is required."));
       for (const cell of cells) {
         const exam = examsById.get(cell.examId);
         const parsed = examMarkValue(cell.value);
