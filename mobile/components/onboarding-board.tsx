@@ -142,6 +142,13 @@ export function OnboardingBoard({
   const templates = focused ? onboarding.templates.filter((template) => focusSet.has(template.kind)) : onboarding.templates;
   const imports = focused ? onboarding.imports.filter((item) => focusSet.has(item.kind as Template["kind"])) : onboarding.imports;
   const focusedTemplate = focused && templates.length === 1 ? templates[0] : null;
+  const focusedExamMarksCanBrowse = focusedTemplate?.kind === "exam_marks" && onboarding.counts.students > 0;
+  const focusedBrowseDisabled = focusedTemplate ? (focusedExamMarksCanBrowse ? false : focusedTemplate.disabled) : false;
+  const focusedNote = focusedTemplate
+    ? focusedTemplate.disabled && !focusedExamMarksCanBrowse
+      ? `Finish prerequisite first: ${focusedTemplate.prerequisite}.`
+      : FOCUSED_IMPORT_COPY[focusedTemplate.kind].note
+    : "";
 
   async function toggleStep(step: Onboarding["steps"][number], complete: boolean) {
     setBusy(`step:${step.key}`);
@@ -417,12 +424,12 @@ export function OnboardingBoard({
             heading={FOCUSED_IMPORT_COPY[focusedTemplate.kind].heading}
             description={FOCUSED_IMPORT_COPY[focusedTemplate.kind].description}
             requiredColumns={FOCUSED_IMPORT_COPY[focusedTemplate.kind].requiredColumns}
-            note={focusedTemplate.disabled ? `Finish prerequisite first: ${focusedTemplate.prerequisite}.` : FOCUSED_IMPORT_COPY[focusedTemplate.kind].note}
+            note={focusedNote}
             supportedFormat=".csv, .xlsx"
             browseLabel={busy === `upload:${focusedTemplate.kind}` ? "Reviewing..." : "Browse"}
             templateLabel={busy === `download:${focusedTemplate.kind}` ? "Preparing..." : "Download template"}
             sampleLabel={busy === `downloadSample:${focusedTemplate.kind}` ? "Preparing..." : "Download test data"}
-            browseDisabled={focusedTemplate.disabled || Boolean(busy)}
+            browseDisabled={focusedBrowseDisabled || Boolean(busy)}
             downloadDisabled={Boolean(busy)}
             onBrowse={() => void review(focusedTemplate)}
             onDownloadTemplate={() => void download(focusedTemplate)}
