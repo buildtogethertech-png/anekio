@@ -665,6 +665,13 @@ function examColumnLabel(exam: { series?: { name: string } | null; subject: { na
   return `${exam.series?.name || "Exam"} - ${exam.subject.name} (/${exam.maxMarks})`;
 }
 
+function sampleExamMark(studentIndex: number, examIndex: number, maxMarks: number): CsvCell {
+  if ((studentIndex + examIndex) % 13 === 5) return "Ab";
+  const floor = Math.max(1, Math.round(maxMarks * 0.45));
+  const range = Math.max(1, maxMarks - floor);
+  return Math.min(maxMarks, floor + ((studentIndex * 11 + examIndex * 7) % (range + 1)));
+}
+
 async function examMarksTemplateWorkbook(options: { sampleData?: boolean } = {}) {
   const session = await prisma.schoolSession.findFirst({
     where: { current: true },
@@ -695,13 +702,17 @@ async function examMarksTemplateWorkbook(options: { sampleData?: boolean } = {})
     const sheet = workbook.addWorksheet(label);
     sheet.addRow(headers);
     sheet.addRow(["", "ADM-001", "Aarav Sharma (example)", label, ...exams.map((exam, index) => index === 0 ? Math.min(72, exam.maxMarks) : ""), "", "YES"]);
-    if (options.sampleData) {
-      sheet.addRow(["", "TEST-001", "Aarav Sharma", label, ...exams.map((exam, index) => index % 5 === 0 ? "Ab" : Math.max(0, Math.min(exam.maxMarks, exam.maxMarks - 8 - index))), "", ""]);
-    } else {
-      klass.students.forEach((student) => {
-        sheet.addRow([student.id, student.admissionNo, student.name, label, ...exams.map(() => ""), "", ""]);
-      });
-    }
+    klass.students.forEach((student, studentIndex) => {
+      sheet.addRow([
+        student.id,
+        student.admissionNo,
+        student.name,
+        label,
+        ...exams.map((exam, examIndex) => options.sampleData ? sampleExamMark(studentIndex, examIndex, exam.maxMarks) : ""),
+        "",
+        "",
+      ]);
+    });
     applyHeaderStyle(sheet);
     sheet.columns = headers.map((header, index) => ({ header, key: normalizeHeader(header), width: index < 4 ? Math.max(18, header.length + 2) : Math.max(16, Math.min(28, header.length + 2)) }));
   }
