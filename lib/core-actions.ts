@@ -2965,6 +2965,7 @@ export async function createExamSeriesCore(
           if (!subject) return [];
           return [
             {
+              orgId: user.orgId ?? null,
               title: `${name} · ${subject.name}`,
               subjectId: subject.id,
               classId,

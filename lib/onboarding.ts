@@ -10,7 +10,7 @@ import { parseClassLabel, parseCsv } from "./sheet";
 import { readUpload } from "./uploads";
 import { parseWeekdays } from "./schedule";
 import { examPlanWeight, parseExamPlan } from "./exams";
-import { runWithoutTenant } from "./tenant-context";
+import { currentTenantOrg, runWithoutTenant } from "./tenant-context";
 
 const ONBOARDING_STATE_ID = "school";
 function onboardingStateId(orgId: string) {
@@ -993,16 +993,27 @@ function examMarkValue(value: string) {
 }
 
 async function examMarkColumns(): Promise<ExamMarkColumn[]> {
-  const session = await prisma.schoolSession.findFirst({
+  const orgId = currentTenantOrg();
+  const session = await (orgId ? runWithoutTenant(() => prisma.schoolSession.findFirst({
+    where: { current: true, orgId },
+    orderBy: { startsOn: "desc" },
+  })) : prisma.schoolSession.findFirst({
     where: { current: true },
     orderBy: { startsOn: "desc" },
-  });
+  }));
   if (!session) return [];
-  const exams = await prisma.exam.findMany({
-    where: { series: { sessionId: session.id } },
+  const where: Prisma.ExamWhereInput = {
+    series: { sessionId: session.id, ...(orgId ? { orgId } : {}) },
+  };
+  const exams = await (orgId ? runWithoutTenant(() => prisma.exam.findMany({
+    where,
     include: { subject: true, series: true, class: true },
     orderBy: [{ classId: "asc" }, { date: "asc" }, { title: "asc" }],
-  });
+  })) : prisma.exam.findMany({
+    where,
+    include: { subject: true, series: true, class: true },
+    orderBy: [{ classId: "asc" }, { date: "asc" }, { title: "asc" }],
+  }));
   return exams.map((exam) => {
     const label = examColumnLabel(exam);
     return { key: normalizeHeader(label), examId: exam.id, classId: exam.classId, classLabel: `${exam.class.name}-${exam.class.section}`, maxMarks: exam.maxMarks, label };
@@ -1859,7 +1870,7 @@ export async function onboardingBundle(user: AccessUser) {
     prisma.staffDay.count(),
     prisma.schoolSession.findFirst({ where: { current: true }, select: { examPlanJson: true } }),
     prisma.schoolHoliday.count(),
-    prisma.exam.count(),
+    prisma.examSeries.count({ where: { exams: { some: {} } } }),
     prisma.examResult.count(),
     prisma.feeTemplate.count(),
     prisma.feeInvoice.count({ where: { period: "OPENING" } }),
