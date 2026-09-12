@@ -67,6 +67,7 @@ export type RecordPayload = {
       target: { href: string; label: string };
       dataComplete: boolean;
       manualComplete: boolean;
+      manualAllowed?: boolean;
       missingReason: string;
       status: "complete" | "ready" | "blocked" | "optional";
     }[];

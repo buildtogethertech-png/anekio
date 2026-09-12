@@ -8,7 +8,7 @@ import { Dropdown } from "./form";
 import { Badge, Button, Card, Chip, Empty, Field, Input, Modal, PageHeader, Segmented, Sheet, Stat, Switch, Toast, useToast } from "./ui";
 import { DateField } from "./date-field";
 import { FilterBar, type FilterConfig, type FilterValues } from "./filter";
-import { StaffAdmitForm, type StaffAdmitClass, type StaffAdmitPayload, type StaffAdmitRole } from "./staff-admit-form";
+import { StaffAdmitForm, type StaffAdmitPayload } from "./staff-admit-form";
 import { StaffAttendanceDetail } from "./staff-attendance-detail";
 import { StudentAdmitForm, type StudentAdmitPayload } from "./student-admit-form";
 import { ReportCardSheet, type ReportCardData } from "./report-card-sheet";
@@ -25,6 +25,7 @@ import { calendarFrom, closedCaption, closedReason, ymd } from "../lib/calendar"
 import { QuickDocumentButton } from "./document-studio";
 import { StaffHoursForm, type StaffHoursFormHandle } from "./staff-hours-form";
 import { StaffTimesheet } from "./staff-timesheet";
+import { OnboardingBoard } from "./onboarding-board";
 
 function can(user: { permissions: string[] } | null, key: string) {
   return Boolean(user?.permissions.includes(key));
@@ -577,8 +578,6 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   const [openCard, setOpenCard] = useState<ReportCardData | null>(null);
   const [add, setAdd] = useState<PeopleKind | null>(null);
   const [importOpen, setImportOpen] = useState(false);
-  const [importCsv, setImportCsv] = useState("");
-  const [importKind, setImportKind] = useState<PeopleKind>("student");
   const [fileTab, setFileTab] = useState<StudentTab>("overview");
   const [fileEdit, setFileEdit] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
@@ -1762,10 +1761,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
           {can(user, "people.import") || can(user, "people.edit") ? (
             <Button
               variant="ghost"
-              onPress={() => {
-                setImportKind("student");
-                setImportOpen(true);
-              }}
+              onPress={() => setImportOpen(true)}
             >
               Import
             </Button>
@@ -1818,33 +1814,8 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
         }}
       /> : null}
 
-      <Modal open={importOpen} title="Import sheet" onClose={() => setImportOpen(false)}>
-        <View className="gap-3">
-          <Text className="text-sm text-ink-700">
-            Paste CSV with a header row. Students need name, admissionNo, dateOfBirth, class, parentEmail.
-          </Text>
-          <Field label="CSV">
-            <Input value={importCsv} onChangeText={setImportCsv} multiline />
-          </Field>
-          <Button
-            onPress={async () => {
-              try {
-                const result = await act<{ ok: true; created: number; skipped: string[] }>(token, "importPeopleSheet", {
-                  kind: importKind,
-                  csv: importCsv,
-                });
-                setImportOpen(false);
-                setImportCsv("");
-                toast.show(`Imported ${result.created}.`);
-                await reload();
-              } catch (e) {
-                toast.show(e instanceof Error ? e.message : "Could not import.");
-              }
-            }}
-          >
-            Import
-          </Button>
-        </View>
+      <Modal open={importOpen} title="Import students and parents" onClose={() => setImportOpen(false)} wide>
+        <OnboardingBoard compact focusKinds={["students"]} />
       </Modal>
 
       <Modal
@@ -2539,112 +2510,6 @@ export function AdmissionsBoard() {
   );
 }
 
-function todayStaffYmd() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function parseStaffBulkRows(raw: string, roleId: string, classId: string): StaffAdmitPayload[] {
-  return raw
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const parts = line.split(/\t|,/).map((part) => part.trim());
-      return {
-        name: parts[0] || "",
-        phone: parts[1] || "",
-        email: parts[2] || "",
-        monthlySalary: parts[3] || "30000",
-        roleId,
-        classId,
-        joinedOn: todayStaffYmd(),
-        address: "",
-        city: "",
-        state: "",
-        pincode: "",
-        managerId: "",
-      };
-    });
-}
-
-function StaffBulkAdmitForm({
-  roles,
-  classes,
-  onSubmit,
-}: {
-  roles: StaffAdmitRole[];
-  classes: StaffAdmitClass[];
-  onSubmit: (rows: StaffAdmitPayload[]) => Promise<void>;
-}) {
-  const defaultRole = roles.find((r) => r.portal === "TEACHER")?.id || roles[0]?.id || "";
-  const [roleId, setRoleId] = useState(defaultRole);
-  const [classId, setClassId] = useState("");
-  const [raw, setRaw] = useState("");
-  const [busy, setBusy] = useState(false);
-  const picked = roles.find((r) => r.id === roleId);
-  const showClassTeacher = picked?.portal === "TEACHER";
-  const rows = parseStaffBulkRows(raw, roleId, showClassTeacher ? classId : "").filter((row) => row.name || row.phone);
-
-  useEffect(() => {
-    if (!roleId && defaultRole) setRoleId(defaultRole);
-  }, [defaultRole, roleId]);
-
-  async function save() {
-    if (busy || !rows.length) return;
-    setBusy(true);
-    try {
-      await onSubmit(rows);
-      setRaw("");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <View className="gap-4">
-      <View className="gap-3 sm:flex-row">
-        <View className="flex-1">
-          <Dropdown
-            label="Role"
-            value={roleId}
-            options={roles.map((r) => ({ id: r.id, label: r.name, group: r.portal || "Role" }))}
-            onChange={(next) => {
-              setRoleId(next);
-              if (roles.find((r) => r.id === next)?.portal !== "TEACHER") setClassId("");
-            }}
-            placeholder="Pick a role"
-          />
-        </View>
-        {showClassTeacher ? (
-          <View className="flex-1">
-            <Dropdown
-              label="Class teacher of"
-              value={classId}
-              options={[{ id: "", label: "Not a class teacher" }, ...classes.map((c) => ({ id: c.id, label: c.label }))]}
-              onChange={setClassId}
-              placeholder="Choose class"
-            />
-          </View>
-        ) : null}
-      </View>
-      <Field label="Rows">
-        <Input
-          multiline
-          value={raw}
-          onChangeText={setRaw}
-          placeholder={"Name, Mobile, Email, Salary\nAnita Sharma, 9876543210, anita@school.in, 30000"}
-          className="min-h-[180px] align-top"
-        />
-      </Field>
-      <View className="flex-row items-center justify-between gap-3">
-        <Text className="text-xs text-ink-700">{rows.length ? `${rows.length} ready` : "No rows"}</Text>
-        <Button disabled={!rows.length || busy} onPress={save}>{busy ? "Adding..." : "Add employees"}</Button>
-      </View>
-    </View>
-  );
-}
-
 export function StaffBoard() {
   const { data, reload } = useRecord();
   const { token, user } = useSession();
@@ -2768,17 +2633,6 @@ export function StaffBoard() {
     await reload();
   }
 
-  async function addBulkStaff(rows: StaffAdmitPayload[]) {
-    let count = 0;
-    for (const row of rows) {
-      await act(token, "createStaffMember", row);
-      count += 1;
-    }
-    setBulkOpen(false);
-    toast.show(`Added ${count} ${count === 1 ? "employee" : "employees"}.`);
-    await reload();
-  }
-
   async function editStaff(values: StaffAdmitPayload) {
     if (!editFor) return;
     if (editFor.kind === "teacher") {
@@ -2886,8 +2740,8 @@ export function StaffBoard() {
                 </Button>
               ) : null}
               {canMark ? (
-                <Button variant="ghost" accessibilityLabel="Bulk upload employees" onPress={() => setBulkOpen(true)} className="shrink-0 px-2 py-2">
-                  Bulk
+                <Button variant="ghost" accessibilityLabel="Import employees" onPress={() => setBulkOpen(true)} className="shrink-0 px-2 py-2">
+                  Import
                 </Button>
               ) : null}
             </View>
@@ -2955,8 +2809,8 @@ export function StaffBoard() {
             </Button>
           ) : null}
           {canMark ? (
-            <Button variant="ghost" accessibilityLabel="Bulk upload employees" onPress={() => setBulkOpen(true)}>
-              Bulk upload
+            <Button variant="ghost" accessibilityLabel="Import employees" onPress={() => setBulkOpen(true)}>
+              Import
             </Button>
           ) : null}
           <Button variant="ghost" accessibilityLabel="Timesheet" onPress={() => setTimesheetOpen(true)}>
@@ -3277,19 +3131,8 @@ export function StaffBoard() {
           }}
         />
       </Modal>
-      <Modal open={bulkOpen} title="Bulk upload employees" onClose={() => setBulkOpen(false)} wide>
-        <StaffBulkAdmitForm
-          roles={data?.staffRoles ?? []}
-          classes={data?.classes ?? []}
-          onSubmit={async (rows) => {
-            try {
-              await addBulkStaff(rows);
-            } catch (e) {
-              toast.show(e instanceof Error ? e.message : "Could not upload.");
-              throw e;
-            }
-          }}
-        />
+      <Modal open={bulkOpen} title="Import teachers" onClose={() => setBulkOpen(false)} wide>
+        <OnboardingBoard compact focusKinds={["teachers"]} />
       </Modal>
       <Modal open={Boolean(editFor)} title="Edit employee" onClose={() => setEditFor(null)}>
         {editFor ? (

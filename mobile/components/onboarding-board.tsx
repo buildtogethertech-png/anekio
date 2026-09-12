@@ -8,7 +8,8 @@ import { downloadAuthedFile } from "../lib/print-html";
 import { useRecord, type RecordPayload } from "../lib/record";
 import { useSession } from "../lib/session";
 import { pickFile, uploadFile } from "../lib/upload";
-import { Badge, Button, Card, Empty, PageHeader } from "./ui";
+import { Badge, Button, Card, Empty, Modal, PageHeader } from "./ui";
+import { UploadCsvPanel } from "./upload-csv-panel";
 
 type Onboarding = NonNullable<RecordPayload["onboarding"]>;
 type Template = Onboarding["templates"][number];
@@ -46,6 +47,32 @@ const TEMPLATE_COPY: Record<Template["kind"], string> = {
   class_teachers: "Generated from imported classes and teachers so each class gets an owner.",
   opening_balances: "Create a one-time backlog invoice, then Anekio starts after the last invoiced month.",
 };
+const FOCUSED_IMPORT_COPY: Record<Template["kind"], { heading: string; description: string; requiredColumns: string; note: string }> = {
+  students: {
+    heading: "Choose a student CSV or Excel file",
+    description: "Upload student and parent records for review.",
+    requiredColumns: "Student name, Date of birth, Class, Parent name, Parent mobile or Parent email",
+    note: "Blank admission numbers are generated. Parent logins are matched or created from parent email/mobile; review must pass before Apply changes records.",
+  },
+  teachers: {
+    heading: "Choose an employee CSV or Excel file",
+    description: "Upload teachers and office staff for review.",
+    requiredColumns: "Teacher name, Mobile, Role",
+    note: "Employee IDs are generated when blank. Class teacher values can use labels like 1-A; review must pass before Apply changes records.",
+  },
+  class_teachers: {
+    heading: "Choose a class-teacher CSV or Excel file",
+    description: "Upload class ownership assignments for review.",
+    requiredColumns: "Class, Class teacher employee ID or Teacher name",
+    note: "Use class labels like 1-A. Review must pass before Apply updates class ownership.",
+  },
+  opening_balances: {
+    heading: "Choose a fee CSV or Excel file",
+    description: "Upload first-time fee balances for review.",
+    requiredColumns: "Admission number, Last invoiced month, Opening balance",
+    note: "Opening balances create backlog invoices only after review passes and you press Apply.",
+  },
+};
 
 function statusTone(status: Onboarding["steps"][number]["status"]) {
   if (status === "complete") return "leaf" as const;
@@ -61,7 +88,15 @@ function statusLabel(status: Onboarding["steps"][number]["status"]) {
   return "Important";
 }
 
-export function OnboardingBoard({ compact = false, onNavigate }: { compact?: boolean; onNavigate?: () => void } = {}) {
+export function OnboardingBoard({
+  compact = false,
+  focusKinds,
+  onNavigate,
+}: {
+  compact?: boolean;
+  focusKinds?: Template["kind"][];
+  onNavigate?: () => void;
+} = {}) {
   const router = useRouter();
   const { data, reload } = useRecord();
   const { token } = useSession();
@@ -70,6 +105,7 @@ export function OnboardingBoard({ compact = false, onNavigate }: { compact?: boo
   const [message, setMessage] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);
   const [pendingAck, setPendingAck] = useState("");
+  const [stepImportKind, setStepImportKind] = useState<Template["kind"] | null>(null);
   const autoGoogleStarted = useRef(false);
 
   useEffect(() => {
@@ -89,6 +125,11 @@ export function OnboardingBoard({ compact = false, onNavigate }: { compact?: boo
   }, [onboarding, token]);
 
   if (!onboarding) return <Empty title="School setup is unavailable" body="Ask an administrator for the onboarding permission." />;
+  const focused = Boolean(focusKinds?.length);
+  const focusSet = new Set(focusKinds ?? []);
+  const templates = focused ? onboarding.templates.filter((template) => focusSet.has(template.kind)) : onboarding.templates;
+  const imports = focused ? onboarding.imports.filter((item) => focusSet.has(item.kind as Template["kind"])) : onboarding.imports;
+  const focusedTemplate = focused && templates.length === 1 ? templates[0] : null;
 
   async function toggleStep(step: Onboarding["steps"][number], complete: boolean) {
     setBusy(`step:${step.key}`);
@@ -105,6 +146,10 @@ export function OnboardingBoard({ compact = false, onNavigate }: { compact?: boo
   }
 
   function openStepTarget(step: Onboarding["steps"][number]) {
+    if (step.key === "students" || step.key === "teachers") {
+      setStepImportKind(step.key);
+      return;
+    }
     onNavigate?.();
     router.push((step.target?.href || "/school") as never);
   }
@@ -234,114 +279,139 @@ export function OnboardingBoard({ compact = false, onNavigate }: { compact?: boo
         />
       )}
 
-      <Card className="gap-4 p-5">
-        <View className="flex-row items-center justify-between gap-4">
-          <View className="min-w-0 flex-1">
-            <Text className="text-base font-semibold text-ink-900">School setup</Text>
-            <Text className="mt-1 text-xs leading-5 text-ink-700">Work through School, Teaching, Money, and Documents. Steps validate live setup data before they can be checked directly.</Text>
-          </View>
-          <Badge tone="clay">{`${onboarding.progress.percent}% complete`}</Badge>
-        </View>
-        <View className="h-2 overflow-hidden rounded-full bg-ink-100">
-          <View className="h-2 rounded-full bg-clay-500" style={{ width: `${onboarding.progress.percent}%` }} />
-        </View>
-      </Card>
-
-      <View className="gap-2">
-        {SETUP_AREAS.map((area) => {
-          const steps = onboarding.steps.filter((step) => step.area === area.key);
-          const complete = steps.filter((step) => step.status === "complete").length;
-          return (
-            <Card key={area.key} className="gap-3 p-4">
-              <View className="flex-row items-start justify-between gap-3">
-                <View className="min-w-0 flex-1 flex-row items-start gap-3">
-                  <View className="h-9 w-9 items-center justify-center rounded-lg bg-clay-50">
-                    <Ionicons name={area.icon} size={20} color="#2563eb" />
-                  </View>
-                  <View className="min-w-0 flex-1">
-                    <Text className="text-sm font-semibold text-ink-900">{area.title}</Text>
-                    <Text className="mt-0.5 text-xs leading-5 text-ink-700">{area.body}</Text>
-                  </View>
-                </View>
-                <Badge tone={complete === steps.length ? "leaf" : "clay"}>{`${complete}/${steps.length}`}</Badge>
+      {focused ? null : (
+        <>
+          <Card className="gap-4 p-5">
+            <View className="flex-row items-center justify-between gap-4">
+              <View className="min-w-0 flex-1">
+                <Text className="text-base font-semibold text-ink-900">School setup</Text>
+                <Text className="mt-1 text-xs leading-5 text-ink-700">Work through School, Teaching, Money, and Documents. Steps validate live setup data before they can be checked directly.</Text>
               </View>
-              <View className="gap-2">
-                {steps.map((step) => {
-                  const canCheckDirectly = step.dataComplete || step.manualComplete;
-                  const showingAck = pendingAck === step.key;
-                  const loading = busy === `step:${step.key}`;
-                  return (
-                    <View key={step.key} className={`rounded-lg border p-3 ${step.status === "blocked" ? "border-amber-200 bg-amber-50" : "border-ink-100 bg-white"}`}>
-                      <View className="flex-row items-start gap-3">
-                        <Pressable
-                          accessibilityRole="checkbox"
-                          accessibilityState={{ checked: step.status === "complete" }}
-                          accessibilityLabel={`${step.title} setup step`}
-                          disabled={loading}
-                          onPress={() => {
-                            if (step.manualComplete) void toggleStep(step, false);
-                            else if (step.dataComplete) void toggleStep(step, true);
-                            else setPendingAck(showingAck ? "" : step.key);
-                          }}
-                          className={`h-7 w-7 items-center justify-center rounded-md border ${step.status === "complete" ? "border-emerald-600 bg-emerald-100" : "border-ink-300 bg-white"}`}
-                        >
-                          {loading ? (
-                            <ActivityIndicator color="#2563eb" size="small" />
-                          ) : step.status === "complete" ? (
-                            <Ionicons name="checkmark" size={17} color="#047857" />
-                          ) : (
-                            <Text className="text-xs font-semibold text-clay-700">{step.number}</Text>
-                          )}
-                        </Pressable>
-	                        <View className="min-w-0 flex-1">
-	                          <View className="flex-row items-center justify-between gap-2">
-	                            <Pressable
-	                              accessibilityRole="link"
-	                              accessibilityLabel={`${step.title} setup`}
-	                              onPress={() => openStepTarget(step)}
-	                              className="min-w-0 flex-1 flex-row items-center gap-1"
-	                            >
-	                              <Text className="min-w-0 text-sm font-semibold text-clay-700 underline" numberOfLines={1}>{step.title}</Text>
-	                              <Ionicons name="arrow-forward" size={13} color="#1d4ed8" />
-	                            </Pressable>
-	                            <Badge tone={statusTone(step.status)}>{step.manualComplete && !step.dataComplete ? "Continued" : statusLabel(step.status)}</Badge>
-	                          </View>
-	                          <Text className="mt-1 text-xs leading-5 text-ink-700">{step.body}</Text>
-	                          {step.manualComplete && !step.dataComplete ? (
-	                            <Text className="mt-1 text-[11px] leading-4 text-amber-800">Marked continue anyway. Add the missing setup later when the school is ready.</Text>
-	                          ) : null}
-	                        </View>
+              <Badge tone="clay">{`${onboarding.progress.percent}% complete`}</Badge>
+            </View>
+            <View className="h-2 overflow-hidden rounded-full bg-ink-100">
+              <View className="h-2 rounded-full bg-clay-500" style={{ width: `${onboarding.progress.percent}%` }} />
+            </View>
+          </Card>
+
+          <View className="gap-2">
+            {SETUP_AREAS.map((area) => {
+              const steps = onboarding.steps.filter((step) => step.area === area.key);
+              const complete = steps.filter((step) => step.status === "complete").length;
+              return (
+                <Card key={area.key} className="gap-3 p-4">
+                  <View className="flex-row items-start justify-between gap-3">
+                    <View className="min-w-0 flex-1 flex-row items-start gap-3">
+                      <View className="h-9 w-9 items-center justify-center rounded-lg bg-clay-50">
+                        <Ionicons name={area.icon} size={20} color="#2563eb" />
                       </View>
-                      {showingAck && !canCheckDirectly ? (
-                        <View className="mt-3 gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
-                          <Text className="text-xs font-semibold text-amber-950">This setup is important</Text>
-                          <Text className="text-xs leading-5 text-amber-900">{step.missingReason || "This data is needed by later school workflows."}</Text>
-                          <Pressable
-                            accessibilityRole="checkbox"
-                            accessibilityState={{ checked: false }}
-                            disabled={loading}
-                            onPress={() => void toggleStep(step, true)}
-                            className="flex-row items-center gap-2"
-                          >
-                            <View className="h-5 w-5 items-center justify-center rounded border border-amber-500 bg-white" />
-                            <Text className="text-xs font-semibold text-amber-950">Continue anyway</Text>
-                          </Pressable>
-                        </View>
-                      ) : null}
+                      <View className="min-w-0 flex-1">
+                        <Text className="text-sm font-semibold text-ink-900">{area.title}</Text>
+                        <Text className="mt-0.5 text-xs leading-5 text-ink-700">{area.body}</Text>
+                      </View>
                     </View>
-                  );
-                })}
-              </View>
-            </Card>
-          );
-        })}
-      </View>
+                    <Badge tone={complete === steps.length ? "leaf" : "clay"}>{`${complete}/${steps.length}`}</Badge>
+                  </View>
+                  <View className="gap-2">
+                    {steps.map((step) => {
+                      const canCheckDirectly = step.dataComplete || step.manualComplete;
+                      const canContinueManually = step.manualAllowed !== false;
+                      const showingAck = pendingAck === step.key;
+                      const loading = busy === `step:${step.key}`;
+                      return (
+                        <View key={step.key} className={`rounded-lg border p-3 ${step.status === "blocked" ? "border-amber-200 bg-amber-50" : "border-ink-100 bg-white"}`}>
+                          <View className="flex-row items-start gap-3">
+                            <Pressable
+                              accessibilityRole="checkbox"
+                              accessibilityState={{ checked: step.status === "complete" }}
+                              accessibilityLabel={`${step.title} setup step`}
+                              disabled={loading}
+                              onPress={() => {
+                                if (step.manualComplete) void toggleStep(step, false);
+                                else if (step.dataComplete) void toggleStep(step, true);
+                                else if (canContinueManually) setPendingAck(showingAck ? "" : step.key);
+                                else openStepTarget(step);
+                              }}
+                              className={`h-7 w-7 items-center justify-center rounded-md border ${step.status === "complete" ? "border-emerald-600 bg-emerald-100" : "border-ink-300 bg-white"}`}
+                            >
+                              {loading ? (
+                                <ActivityIndicator color="#2563eb" size="small" />
+                              ) : step.status === "complete" ? (
+                                <Ionicons name="checkmark" size={17} color="#047857" />
+                              ) : (
+                                <Text className="text-xs font-semibold text-clay-700">{step.number}</Text>
+                              )}
+                            </Pressable>
+                            <View className="min-w-0 flex-1">
+                              <View className="flex-row items-center justify-between gap-2">
+                                <Pressable
+                                  accessibilityRole="link"
+                                  accessibilityLabel={`${step.title} setup`}
+                                  onPress={() => openStepTarget(step)}
+                                  className="min-w-0 flex-1 flex-row items-center gap-1"
+                                >
+                                  <Text className="min-w-0 text-sm font-semibold text-clay-700 underline" numberOfLines={1}>{step.title}</Text>
+                                  <Ionicons name="arrow-forward" size={13} color="#1d4ed8" />
+                                </Pressable>
+                                <Badge tone={statusTone(step.status)}>{step.manualComplete && !step.dataComplete ? "Continued" : statusLabel(step.status)}</Badge>
+                              </View>
+                              <Text className="mt-1 text-xs leading-5 text-ink-700">{step.body}</Text>
+                              {step.manualComplete && !step.dataComplete ? (
+                                <Text className="mt-1 text-[11px] leading-4 text-amber-800">Marked continue anyway. Add the missing setup later when the school is ready.</Text>
+                              ) : null}
+                            </View>
+                          </View>
+                          {showingAck && !canCheckDirectly && canContinueManually ? (
+                            <View className="mt-3 gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                              <Text className="text-xs font-semibold text-amber-950">This setup is important</Text>
+                              <Text className="text-xs leading-5 text-amber-900">{step.missingReason || "This data is needed by later school workflows."}</Text>
+                              <Pressable
+                                accessibilityRole="checkbox"
+                                accessibilityState={{ checked: false }}
+                                disabled={loading}
+                                onPress={() => void toggleStep(step, true)}
+                                className="flex-row items-center gap-2"
+                              >
+                                <View className="h-5 w-5 items-center justify-center rounded border border-amber-500 bg-white" />
+                                <Text className="text-xs font-semibold text-amber-950">Continue anyway</Text>
+                              </Pressable>
+                            </View>
+                          ) : null}
+                        </View>
+                      );
+                    })}
+                  </View>
+                </Card>
+              );
+            })}
+          </View>
+        </>
+      )}
 
       <View className="gap-2">
-        <Text className="text-base font-semibold text-ink-900">Generated onboarding templates</Text>
-        <Text className="text-xs leading-5 text-ink-700">Classes come from CRM (School setup). Each template includes realistic example rows marked Example only = YES. Add school data below them, or copy and clear that field. Example rows are ignored. Nothing changes until review passes and you press Apply.</Text>
-        <View className="flex-row flex-wrap gap-3">
-          {onboarding.templates.map((template) => (
+        {focusedTemplate ? (
+          <UploadCsvPanel
+            heading={FOCUSED_IMPORT_COPY[focusedTemplate.kind].heading}
+            description={FOCUSED_IMPORT_COPY[focusedTemplate.kind].description}
+            requiredColumns={FOCUSED_IMPORT_COPY[focusedTemplate.kind].requiredColumns}
+            note={FOCUSED_IMPORT_COPY[focusedTemplate.kind].note}
+            supportedFormat=".csv, .xlsx"
+            browseLabel={busy === `upload:${focusedTemplate.kind}` ? "Reviewing..." : "Browse"}
+            templateLabel={busy === `download:${focusedTemplate.kind}` ? "Preparing..." : "Download template"}
+            sampleLabel={busy === `downloadSample:${focusedTemplate.kind}` ? "Preparing..." : "Download test data"}
+            disabled={focusedTemplate.disabled || Boolean(busy)}
+            onBrowse={() => void review(focusedTemplate)}
+            onDownloadTemplate={() => void download(focusedTemplate)}
+            onDownloadSample={() => void download(focusedTemplate, true)}
+          />
+        ) : (
+          <>
+            {focused ? null : <Text className="text-base font-semibold text-ink-900">Generated onboarding templates</Text>}
+            <Text className="text-xs leading-5 text-ink-700">
+              Classes come from CRM (School setup). Each template includes realistic example rows marked Example only = YES. Add school data below them, or copy and clear that field. Example rows are ignored. Nothing changes until review passes and you press Apply.
+            </Text>
+            <View className="flex-row flex-wrap gap-3">
+              {templates.map((template) => (
             <Card key={template.kind} className="min-w-[260px] flex-1 gap-3 p-4">
               <View className="flex-row items-start justify-between gap-2">
                 <View className="min-w-0 flex-1">
@@ -378,8 +448,10 @@ export function OnboardingBoard({ compact = false, onNavigate }: { compact?: boo
               </View>
               {template.disabled ? <Text className="text-[11px] text-amber-800">Finish the prerequisite first.</Text> : null}
             </Card>
-          ))}
-        </View>
+              ))}
+            </View>
+          </>
+        )}
       </View>
 
       {preview ? (
@@ -408,10 +480,14 @@ export function OnboardingBoard({ compact = false, onNavigate }: { compact?: boo
         </Card>
       ) : null}
 
-      {onboarding.imports.length ? (
+      <Modal open={Boolean(stepImportKind)} title={stepImportKind === "teachers" ? "Import teachers" : "Import students and parents"} onClose={() => setStepImportKind(null)} wide>
+        {stepImportKind ? <OnboardingBoard compact focusKinds={[stepImportKind]} /> : null}
+      </Modal>
+
+      {imports.length ? (
         <Card className="gap-3 p-5">
           <Text className="text-base font-semibold text-ink-900">Recent imports</Text>
-          {onboarding.imports.map((item) => (
+          {imports.map((item) => (
             <View key={item.id} className="flex-row items-center justify-between gap-3 border-t border-ink-100 pt-3">
               <View className="min-w-0 flex-1">
                 <Text className="text-sm font-medium text-ink-900" numberOfLines={1}>{item.fileName}</Text>
