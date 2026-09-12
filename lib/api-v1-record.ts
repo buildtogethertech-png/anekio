@@ -55,7 +55,7 @@ function serializePeopleFeeInvoice(inv: {
   dueDate: Date;
   amount: number;
   shareToken?: string | null;
-  payments: { amount: number }[];
+  payments: { amount: number; method?: string; reference?: string | null; notes?: string | null; paidAt?: Date }[];
 }) {
   const paidAmt = inv.payments.reduce((n, payment) => n + payment.amount, 0);
   const balance = invoiceBalance({ ...inv, paid: paidAmt });
@@ -74,6 +74,13 @@ function serializePeopleFeeInvoice(inv: {
     status: balance.display.toLowerCase(),
     invoiceUrl,
     receiptUrl,
+    payments: inv.payments.map((payment) => ({
+      amount: formatInr(payment.amount),
+      method: payment.method || "",
+      reference: payment.reference || "",
+      notes: payment.notes || "",
+      paidAt: payment.paidAt ? payment.paidAt.toISOString() : "",
+    })),
   };
 }
 

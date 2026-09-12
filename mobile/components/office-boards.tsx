@@ -3393,6 +3393,8 @@ export function FeesBoard() {
   const [filter, setFilter] = useState<"all" | "overdue">("all");
   const [tab, setTab] = useState<"report" | "due" | "templates">("due");
   const [feeEditorOpen, setFeeEditorOpen] = useState(false);
+  const [selectedDueStudentId, setSelectedDueStudentId] = useState("");
+  const [payDueStudentId, setPayDueStudentId] = useState("");
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [tplName, setTplName] = useState("Monthly fee");
   const [tplDue, setTplDue] = useState("10");
@@ -3478,6 +3480,8 @@ export function FeesBoard() {
     .sort((a, b) => (b.overdueCount || 0) - (a.overdueCount || 0) || (b.dueAmount || 0) - (a.dueAmount || 0))
     .slice(0, 5);
   const compactFees = width < 760;
+  const selectedDueStudent = students.find((s) => s.id === selectedDueStudentId) || students[0] || null;
+  const payDueStudent = payDueStudentId ? people.find((s) => s.id === payDueStudentId) || null : null;
 
   function monthsOf(s: (typeof people)[number]) {
     return (s.invoices ?? []).filter((inv) => inv.status !== "paid").length;
@@ -3486,6 +3490,34 @@ export function FeesBoard() {
   function oldestOf(s: (typeof people)[number]) {
     const open = (s.invoices ?? []).filter((inv) => inv.status !== "paid");
     return open[open.length - 1]?.title || open[0]?.title || "";
+  }
+
+  function paymentMethodLabel(method: string) {
+    const labels: Record<string, string> = {
+      CASH: "Cash",
+      UPI: "UPI",
+      BANK: "Bank",
+      CHEQUE: "Cheque",
+      RAZORPAY: "Razorpay",
+      CASHFREE: "Cashfree",
+      BILLDESK: "BillDesk",
+    };
+    return labels[method] || method || "Payment";
+  }
+
+  function timelineDate(value?: string) {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(+date)) return value;
+    return date.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+  }
+
+  function studentFeeTimeline(s: (typeof people)[number]) {
+    return [...(s.invoices ?? [])].sort((a, b) => {
+      const aKey = a.period || a.due || a.title;
+      const bKey = b.period || b.due || b.title;
+      return bKey.localeCompare(aKey);
+    });
   }
 
   const templates = data?.feeTemplates ?? [];
@@ -3531,6 +3563,10 @@ export function FeesBoard() {
     if (classId === "all") return;
     setSelectedTemplateId((current) => (current && (current === "new" || classTemplates.some((t) => t.id === current)) ? current : classTemplates[0]?.id || "new"));
   }, [classId, classTemplates]);
+
+  useEffect(() => {
+    setSelectedDueStudentId((current) => (current && students.some((s) => s.id === current) ? current : students[0]?.id || ""));
+  }, [classId, filter, students.length, students[0]?.id]);
 
   useEffect(() => {
     if (classId === "all") return;
@@ -4113,43 +4149,126 @@ export function FeesBoard() {
               </Text>
             </View>
           ) : (
-            <ScrollView
-              nestedScrollEnabled
-              keyboardShouldPersistTaps="handled"
-              style={{ maxHeight: 500 }}
-              contentContainerClassName="gap-3 pb-1"
-            >
-              {students.map((s) => {
-                const months = monthsOf(s);
-                const overdue = s.overdueCount || 0;
-                return (
-                  <Pressable
-                    key={s.id}
-                    onPress={() => router.push({ pathname: "/people", params: { student: s.id } } as never)}
-                  >
-                    <View className="rounded-md border border-ink-100 bg-white p-4">
-                      <View className="flex-row items-start justify-between gap-3">
-                        <View className="flex-1">
-                          <Text className="font-semibold text-ink-900">
-                            {s.name}
-                            {s.classLabel ? ` · ${s.classLabel}` : ""}
-                          </Text>
-                          <Text className="mt-1 text-sm text-ink-700">
-                            {s.dueNow} due · {months} {months === 1 ? "month" : "months"}
-                            {overdue ? ` · ${overdue} overdue` : ""}
-                          </Text>
-                          {oldestOf(s) ? <Text className="mt-1 text-xs text-ink-700">Oldest {oldestOf(s)}</Text> : null}
+            <View className={`${compactFees ? "gap-3" : "flex-row gap-3"}`}>
+              <ScrollView
+                nestedScrollEnabled
+                keyboardShouldPersistTaps="handled"
+                style={{ maxHeight: 500 }}
+                contentContainerClassName="gap-3 pb-1"
+                className={compactFees ? "" : "w-[44%]"}
+              >
+                {students.map((s) => {
+                  const months = monthsOf(s);
+                  const overdue = s.overdueCount || 0;
+                  const selected = selectedDueStudent?.id === s.id;
+                  return (
+                    <Pressable
+                      key={s.id}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected }}
+                      onPress={() => setSelectedDueStudentId(s.id)}
+                    >
+                      <View className={`rounded-md border p-4 ${selected ? "border-clay-300 bg-blue-50" : "border-ink-100 bg-white"}`}>
+                        <View className="flex-row items-start justify-between gap-3">
+                          <View className="min-w-0 flex-1">
+                            <Text className="font-semibold text-ink-900">
+                              {s.name}
+                              {s.classLabel ? ` · ${s.classLabel}` : ""}
+                            </Text>
+                            <Text className="mt-1 text-sm text-ink-700">
+                              {s.dueNow} due · {months} {months === 1 ? "month" : "months"}
+                              {overdue ? ` · ${overdue} overdue` : ""}
+                            </Text>
+                            {oldestOf(s) ? <Text className="mt-1 text-xs text-ink-700">Oldest {oldestOf(s)}</Text> : null}
+                          </View>
+                          <Badge tone={overdue ? "warn" : "clay"}>{overdue ? "overdue" : "due"}</Badge>
                         </View>
-                        <Badge tone={overdue ? "warn" : "clay"}>{overdue ? "overdue" : "due"}</Badge>
                       </View>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+              {selectedDueStudent ? (
+                <View className={`rounded-md border border-ink-100 bg-ink-50 p-4 ${compactFees ? "" : "min-w-0 flex-1"}`}>
+                  <View className="flex-row flex-wrap items-start justify-between gap-3">
+                    <View className="min-w-0 flex-1">
+                      <Text className="text-base font-semibold text-ink-900">{selectedDueStudent.name}</Text>
+                      <Text className="mt-0.5 text-xs text-ink-700">
+                        {selectedDueStudent.classLabel || "No class"} · {selectedDueStudent.admissionNo}
+                      </Text>
+                      <Text className="mt-1 text-sm text-ink-800">
+                        {selectedDueStudent.dueNow} outstanding · {selectedDueStudent.paid || "₹0"} paid
+                      </Text>
                     </View>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
+                    <View className="flex-row flex-wrap justify-end gap-2">
+                      {can(user, "fees.collect") ? (
+                        <Button className="px-3 py-1.5" onPress={() => setPayDueStudentId(selectedDueStudent.id)}>Collect</Button>
+                      ) : null}
+                      <Button
+                        variant="ghost"
+                        className="px-3 py-1.5"
+                        onPress={() => router.push({ pathname: "/people", params: { student: selectedDueStudent.id } } as never)}
+                      >
+                        View student
+                      </Button>
+                    </View>
+                  </View>
+                  <View className="mt-4 gap-2">
+                    {studentFeeTimeline(selectedDueStudent).map((inv) => {
+                      const paidInvoice = inv.status === "paid";
+                      const payments = inv.payments ?? [];
+                      return (
+                        <View key={inv.id} className="rounded-md border border-ink-100 bg-white p-3">
+                          <View className="flex-row items-start justify-between gap-3">
+                            <View className="min-w-0 flex-1">
+                              <Text className="text-sm font-semibold text-ink-900">{inv.title}</Text>
+                              <Text className="mt-0.5 text-xs text-ink-700">
+                                Due {inv.due} · Bill {inv.amount} · Paid {inv.paid}
+                                {inv.remaining ? ` · Balance ${inv.remaining}` : ""}
+                              </Text>
+                              {inv.lateLabel && !paidInvoice ? <Text className="mt-0.5 text-xs text-amber-800">{inv.lateLabel}</Text> : null}
+                            </View>
+                            <Badge tone={paidInvoice ? "leaf" : inv.status === "overdue" ? "warn" : "clay"}>{paidInvoice ? "paid" : inv.status}</Badge>
+                          </View>
+                          {payments.length ? (
+                            <View className="mt-3 gap-2 border-t border-ink-100 pt-2">
+                              {payments.map((payment, index) => (
+                                <View key={`${inv.id}-${index}`} className="flex-row items-start justify-between gap-3">
+                                  <View className="min-w-0 flex-1">
+                                    <Text className="text-xs font-medium text-green-800">
+                                      {paymentMethodLabel(payment.method)} · {timelineDate(payment.paidAt)}
+                                    </Text>
+                                    {payment.reference ? <Text className="mt-0.5 text-[11px] text-ink-600">Ref {payment.reference}</Text> : null}
+                                    {payment.notes ? <Text className="mt-0.5 text-[11px] text-ink-600">{payment.notes}</Text> : null}
+                                  </View>
+                                  <Text className="text-xs font-semibold text-green-800">{payment.amount}</Text>
+                                </View>
+                              ))}
+                            </View>
+                          ) : (
+                            <Text className="mt-3 border-t border-ink-100 pt-2 text-xs text-ink-600">No payment recorded yet.</Text>
+                          )}
+                        </View>
+                      );
+                    })}
+                  </View>
+                </View>
+              ) : null}
+            </View>
           )}
         </View>
       ) : null}
+      <GeneratePayment
+        open={Boolean(payDueStudent)}
+        student={payDueStudent}
+        title={payDueStudent ? `Payment · ${payDueStudent.name}` : undefined}
+        onClose={() => setPayDueStudentId("")}
+        onDone={async (message) => {
+          setPayDueStudentId("");
+          toast.show(message);
+          await reload();
+        }}
+      />
     </View>
   );
 }

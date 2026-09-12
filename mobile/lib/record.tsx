@@ -455,6 +455,13 @@ export type RecordPayload = {
       invoiceUrl?: string;
       receiptUrl?: string;
       receiptNumber?: string;
+      payments?: {
+        amount: string;
+        method: string;
+        reference: string;
+        notes: string;
+        paidAt: string;
+      }[];
     }[];
   }[];
   peopleTeachers?: {
