@@ -60,7 +60,7 @@ export type RecordPayload = {
     counts: { classes: number; students: number; teachers: number; openingBalances: number; feeTemplates: number };
     steps: {
       key: string;
-      area: "school" | "teaching" | "money" | "documents";
+      area: "school" | "teaching" | "exams" | "money" | "documents";
       number: number;
       title: string;
       body: string;
@@ -72,7 +72,7 @@ export type RecordPayload = {
       status: "complete" | "ready" | "blocked" | "optional";
     }[];
     templates: {
-      kind: "students" | "teachers" | "class_teachers" | "attendance" | "staff_attendance" | "opening_balances";
+      kind: "students" | "teachers" | "class_teachers" | "attendance" | "staff_attendance" | "exam_marks" | "opening_balances";
       title: string;
       fileName: string;
       disabled: boolean;

@@ -37,6 +37,7 @@ type GoogleSheetResult = {
 const SETUP_AREAS: { key: Onboarding["steps"][number]["area"]; title: string; body: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: "school", title: "School", body: "Identity, sessions, classes, and day structure.", icon: "school-outline" },
   { key: "teaching", title: "Teaching", body: "Students, parents, staff, and attendance.", icon: "people-outline" },
+  { key: "exams", title: "Exams", body: "Past exam structure and marks history.", icon: "reader-outline" },
   { key: "money", title: "Money", body: "Opening dues, fee rules, invoices, and collections.", icon: "card-outline" },
   { key: "documents", title: "Documents", body: "Important templates and final launch review.", icon: "document-text-outline" },
 ];
@@ -47,6 +48,7 @@ const TEMPLATE_COPY: Record<Template["kind"], string> = {
   class_teachers: "Generated from imported classes and teachers so each class gets an owner.",
   attendance: "Class-wise student history through today, with school days marked P and holidays marked H.",
   staff_attendance: "Staff history through today, with school days marked P and holidays marked H.",
+  exam_marks: "Class-wise marks sheet generated from saved exam series and subjects.",
   opening_balances: "Create a one-time backlog invoice, then Anekio starts after the last invoiced month.",
 };
 const FOCUSED_IMPORT_COPY: Record<Template["kind"], { heading: string; description: string; requiredColumns: string; note: string }> = {
@@ -79,6 +81,12 @@ const FOCUSED_IMPORT_COPY: Record<Template["kind"], { heading: string; descripti
     description: "Upload old staff attendance for review.",
     requiredColumns: "Anekio staff ID or Employee ID, Staff type, date columns",
     note: "Downloaded templates mark school days as P and holidays as H. Change absences to A; H and blank cells are skipped when Apply syncs staff attendance.",
+  },
+  exam_marks: {
+    heading: "Choose an exam marks CSV or Excel file",
+    description: "Upload old exam marks for review.",
+    requiredColumns: "Anekio student ID or Admission number, generated exam columns",
+    note: "Create the past exam series first, then download this template. Fill marks, use Ab for absent, and leave blanks to skip.",
   },
   opening_balances: {
     heading: "Choose a fee CSV or Excel file",
@@ -160,7 +168,7 @@ export function OnboardingBoard({
   }
 
   function openStepTarget(step: Onboarding["steps"][number]) {
-    if (step.key === "students" || step.key === "teachers" || step.key === "attendance" || step.key === "staff_attendance") {
+    if (step.key === "students" || step.key === "teachers" || step.key === "attendance" || step.key === "staff_attendance" || step.key === "exam_marks") {
       setStepImportKind(step.key as Template["kind"]);
       return;
     }
@@ -503,6 +511,8 @@ export function OnboardingBoard({
               ? "Import student attendance history"
               : stepImportKind === "staff_attendance"
                 ? "Import staff attendance history"
+                : stepImportKind === "exam_marks"
+                  ? "Import exam marks history"
                 : "Import students and parents"
         }
         onClose={() => setStepImportKind(null)}
