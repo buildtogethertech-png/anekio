@@ -1611,7 +1611,7 @@ export async function saveSchoolIdentityCore(
       : input.websiteSlug;
   const websiteSlug = validateSchoolWebsiteSlug(requestedWebsiteSlug);
   const slugOwner = await prisma.schoolConfig.findFirst({
-    where: { websiteSlug, NOT: { id: "school" } },
+    where: { websiteSlug, NOT: { id: existing?.id || "school" } },
     select: { id: true },
   });
   if (slugOwner) throw new Error("That website slug is already used by another school.");
@@ -1685,11 +1685,11 @@ export async function saveSchoolIdentityCore(
   if (data.sessionStart && data.sessionEnd && data.sessionEnd < data.sessionStart) {
     throw new Error("Session end must be after session start.");
   }
-  await prisma.schoolConfig.upsert({
-    where: { id: "school" },
-    update: data,
-    create: { id: "school", weekdays: "[1,2,3,4,5,6]", ...data },
-  });
+  if (existing) {
+    await prisma.schoolConfig.update({ where: { id: existing.id }, data });
+  } else {
+    await prisma.schoolConfig.create({ data: { id: "school", weekdays: "[1,2,3,4,5,6]", ...data } });
+  }
   if (data.sessionStart && data.sessionEnd) {
     await syncCurrentSessionDates(data.sessionStart, data.sessionEnd);
   }
@@ -1721,7 +1721,7 @@ export async function saveSchoolWebsiteCore(
       : input.websiteSlug;
   const websiteSlug = validateSchoolWebsiteSlug(requestedWebsiteSlug);
   const slugOwner = await prisma.schoolConfig.findFirst({
-    where: { websiteSlug, NOT: { id: "school" } },
+    where: { websiteSlug, NOT: { id: existing?.id || "school" } },
     select: { id: true },
   });
   if (slugOwner) throw new Error("That website slug is already used by another school.");
@@ -1742,11 +1742,11 @@ export async function saveSchoolWebsiteCore(
     websiteAdmissionNote: input.websiteAdmissionNote === undefined ? existing?.websiteAdmissionNote || "" : input.websiteAdmissionNote.trim().slice(0, 300),
   };
 
-  await prisma.schoolConfig.upsert({
-    where: { id: "school" },
-    update: data,
-    create: { id: "school", name: schoolName, weekdays: "[1,2,3,4,5,6]", ...data },
-  });
+  if (existing) {
+    await prisma.schoolConfig.update({ where: { id: existing.id }, data });
+  } else {
+    await prisma.schoolConfig.create({ data: { id: "school", name: schoolName, weekdays: "[1,2,3,4,5,6]", ...data } });
+  }
   await ensureVercelSchoolWebsiteDomain(data.websiteSlug, { enabled: data.websiteEnabled, logger: console });
   return { website: { enabled: data.websiteEnabled, slug: data.websiteSlug } };
 }

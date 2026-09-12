@@ -296,6 +296,53 @@ describe("Express portal API", () => {
     }
   });
 
+  it("saves tenant school gateway settings without duplicating the website slug", async () => {
+    await prisma.saasOrg.create({
+      data: {
+        id: "org-school-settings",
+        schoolName: "Settings Gateway School",
+        ownerName: "Settings Owner",
+        ownerEmail: "settings.gateway@school.test",
+        ownerPhone: "9876540097",
+      },
+    });
+    await prisma.schoolConfig.create({
+      data: {
+        id: "school:org-school-settings",
+        orgId: "org-school-settings",
+        name: "Settings Gateway School",
+        websiteSlug: "settings-gateway-school",
+      },
+    });
+    await prisma.user.update({ where: { id: fixture.users.office.id }, data: { orgId: "org-school-settings" } });
+
+    try {
+      const session = await login(fixture.users.office.email);
+      const saved = await request(app)
+        .post("/api/v1/act")
+        .set({ Authorization: `Bearer ${session.body.token}` })
+        .send({
+          op: "saveSchoolIdentity",
+          name: "Settings Gateway School",
+          payGateway: "RAZORPAY",
+          payTestMode: true,
+          razorpayKeyId: "rzp_test_settings",
+          razorpayKeySecret: "settings-secret",
+        });
+
+      expect(saved.status).toBe(200);
+      const config = await prisma.schoolConfig.findUniqueOrThrow({ where: { id: "school:org-school-settings" } });
+      expect(config.websiteSlug).toBe("settings-gateway-school");
+      expect(config.payGateway).toBe("RAZORPAY");
+      expect(config.razorpayKeyId).toBe("rzp_test_settings");
+      expect(config.razorpayKeySecret).toBe("settings-secret");
+    } finally {
+      await prisma.user.update({ where: { id: fixture.users.office.id }, data: { orgId: null } });
+      await prisma.schoolConfig.delete({ where: { id: "school:org-school-settings" } });
+      await prisma.saasOrg.delete({ where: { id: "org-school-settings" } });
+    }
+  });
+
   it("protects the SaaS admin and completes the organisation, invoice, and payment workflow", async () => {
     const anonymous = await request(app).get("/anekio-admin");
     expect(anonymous.status).toBe(200);
