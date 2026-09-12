@@ -3296,7 +3296,7 @@ export function FeesBoard() {
   const { token, user } = useSession();
   const router = useRouter();
   const toast = useToast();
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const didInitialRefresh = useRef(false);
   const [classId, setClassId] = useState("all");
   const [filter, setFilter] = useState<"all" | "overdue">("all");
@@ -3626,7 +3626,14 @@ export function FeesBoard() {
         </View>
       </View>
       {tab === "report" ? (
-        <View className="mb-3 gap-3 rounded-md border border-ink-100 bg-ink-50 p-3">
+        <ScrollView
+          className="min-h-0 flex-1"
+          nestedScrollEnabled
+          keyboardShouldPersistTaps="handled"
+          style={{ maxHeight: Math.max(420, height - 190) }}
+          contentContainerClassName="pb-8"
+        >
+        <View className="gap-3 rounded-md border border-ink-100 bg-ink-50 p-3">
           <View className="flex-row flex-wrap items-start justify-between gap-3">
             <View className="min-w-0 flex-1">
               <Text className="text-base font-semibold text-ink-900">{selectedClass ? `${selectedClass.label} fee health` : "Fee health"}</Text>
@@ -3713,6 +3720,7 @@ export function FeesBoard() {
             </FeeHealthChart>
           </View>
         </View>
+        </ScrollView>
       ) : null}
       {tab === "templates" ? (
         <Card className="mb-6 p-4">
