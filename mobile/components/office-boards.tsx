@@ -27,6 +27,7 @@ import { QuickDocumentButton } from "./document-studio";
 import { StaffHoursForm, type StaffHoursFormHandle } from "./staff-hours-form";
 import { StaffTimesheet } from "./staff-timesheet";
 import { OnboardingBoard } from "./onboarding-board";
+import { StaffAttendanceQrButton, StaffAttendanceQrScanButton } from "./staff-attendance-qr";
 
 function can(user: { permissions: string[] } | null, key: string) {
   return Boolean(user?.permissions.includes(key));
@@ -2931,6 +2932,10 @@ export function StaffBoard() {
               <Button variant="ghost" accessibilityLabel="Late timing" onPress={() => setHoursOpen(true)} className="shrink-0 px-2 py-2">
                 Late timing
               </Button>
+              {canMark ? (
+                <StaffAttendanceQrScanButton token={token} compact disabled={locked} onMessage={toast.show} onDone={reload} />
+              ) : null}
+              {data?.staffAttendanceSelf ? <StaffAttendanceQrButton token={token} compact disabled={locked} onMessage={toast.show} /> : null}
             </View>
             <View testID="staff-toolbar-summary" className="flex-row flex-wrap items-center gap-2">
               {locked ? (
@@ -2950,7 +2955,7 @@ export function StaffBoard() {
           <>
         <View
           testID="staff-toolbar-controls"
-          className="flex-row items-end gap-2"
+          className="flex-row flex-wrap items-end gap-2"
         >
           <View className="min-w-0 flex-1">
             <Field label="Search">
@@ -2998,6 +3003,10 @@ export function StaffBoard() {
           <Button variant="ghost" accessibilityLabel="Late timing" onPress={() => setHoursOpen(true)}>
             Late timing
           </Button>
+          {canMark ? (
+            <StaffAttendanceQrScanButton token={token} disabled={locked} onMessage={toast.show} onDone={reload} />
+          ) : null}
+          {data?.staffAttendanceSelf ? <StaffAttendanceQrButton token={token} disabled={locked} onMessage={toast.show} /> : null}
         </View>
         <View testID="staff-toolbar-summary" className="flex-row flex-wrap items-center justify-between gap-2">
           {locked ? (

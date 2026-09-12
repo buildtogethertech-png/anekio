@@ -24,6 +24,7 @@ import { examTodoKind, examTodoTone } from "./exam-teacher-work";
 import { LeaveApplyCard, LeaveDecideList } from "./leave-apply";
 import { ManagerPicker } from "./manager-picker";
 import { TeacherMonthlyRegister } from "./teacher-monthly-register";
+import { StaffAttendanceQrButton } from "./staff-attendance-qr";
 
 function can(user: { permissions: string[] } | null, key: string) {
   return Boolean(user?.permissions.includes(key));
@@ -340,7 +341,10 @@ export function TeacherDeskBoard() {
           <Text className="text-xs font-medium uppercase tracking-wide text-clay-600">Teacher desk</Text>
           <Text className="mt-1 text-xl font-semibold text-ink-900">{greeting}</Text>
         </View>
-        <Text className="text-xs text-ink-700">Live school overview</Text>
+        <View className="flex-row flex-wrap items-center justify-end gap-2">
+          {data?.staffAttendanceSelf ? <StaffAttendanceQrButton token={token} compact={phoneDashboard} onMessage={toast.show} /> : null}
+          <Text className="text-xs text-ink-700">Live school overview</Text>
+        </View>
       </View>
 
       <View className={`mb-4 ${wideDashboard ? "flex-row gap-3" : "flex-row flex-wrap gap-3"}`}>

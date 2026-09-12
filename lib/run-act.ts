@@ -20,6 +20,7 @@ import {
   createParentCore,
   createSchoolSessionCore,
   correctStaffAttendanceCore,
+  generateStaffAttendanceQrCore,
   saveStaffPayrollCore,
   createStaffMemberCore,
   createStudentCore,
@@ -57,6 +58,7 @@ import {
   saveSchoolWebsiteCore,
   saveAdmissionFeeSetupCore,
   saveSchoolSubjectsCore,
+  scanStaffAttendanceQrCore,
   saveTimetableSlotCore,
   sendStudentPayLinkCore,
   setCurrentSchoolSessionCore,
@@ -166,6 +168,10 @@ export async function runAct(
       break;
     case "markStaffAttendance":
       return { ok: true, ...(await markStaffAttendanceCore(user, body as never)) };
+    case "generateStaffAttendanceQr":
+      return { ok: true, ...(await generateStaffAttendanceQrCore(user)) };
+    case "scanStaffAttendanceQr":
+      return { ok: true, ...(await scanStaffAttendanceQrCore(user, body as never)) };
     case "correctStaffAttendance":
       await correctStaffAttendanceCore(user, body as never);
       break;

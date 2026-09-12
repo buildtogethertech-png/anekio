@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import { randomUUID } from "node:crypto";
+import QRCode from "qrcode";
 import { AttendanceStatus, PaymentMethod, PathTag, Portal, PayrollStatus, RoomKind, StaffKind } from "@prisma/client";
 import { sendAisensyWhatsApp } from "./aisensy";
 import { getPayShareChannels, type PayShareChannelId } from "./comms";
@@ -50,6 +51,72 @@ import { admissionFormFields, admissionFormJson, admissionLeadInput } from "./ad
 
 function need(user: AccessUser, ...keys: string[]) {
   if (!keys.some((k) => can(user, k))) throw new Error("No access.");
+}
+
+const STAFF_ATTENDANCE_QR_TTL_MS = 2 * 60 * 1000;
+const staffAttendanceQrTokens = new Map<
+  string,
+  {
+    orgId: string | null;
+    kind: "teacher" | "staff";
+    id: string;
+    name: string;
+    employeeId: string;
+    expiresAt: number;
+    usedAt?: number;
+  }
+>();
+
+function staffAttendanceQrPayload(token: string) {
+  return `anekio:staff-attendance:${token}`;
+}
+
+function staffAttendanceTokenFromCode(code: string) {
+  const raw = code.trim();
+  const direct = raw.match(/^anekio:staff-attendance:([A-Za-z0-9_-]+)$/i);
+  if (direct) return direct[1];
+  const path = raw.match(/\/staff-attendance\/scan\/([A-Za-z0-9_-]+)/i);
+  return path ? path[1] : raw;
+}
+
+function currentSchoolTime() {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date());
+  const hour = parts.find((part) => part.type === "hour")?.value || "";
+  const minute = parts.find((part) => part.type === "minute")?.value || "";
+  return hour && minute ? `${hour}:${minute}` : "";
+}
+
+async function resolveStaffAttendanceSelf(user: AccessUser) {
+  const teacher = await prisma.teacher.findUnique({
+    where: { userId: user.id },
+    select: { id: true, orgId: true, employeeId: true, user: { select: { name: true } } },
+  });
+  if (teacher) {
+    return {
+      kind: "teacher" as const,
+      id: teacher.id,
+      orgId: teacher.orgId || null,
+      name: teacher.user.name,
+      employeeId: teacher.employeeId,
+    };
+  }
+  const staff = await prisma.staffMember.findUnique({
+    where: { userId: user.id },
+    select: { id: true, orgId: true, name: true, employeeId: true },
+  });
+  if (!staff) return null;
+  return {
+    kind: "staff" as const,
+    id: staff.id,
+    orgId: staff.orgId || null,
+    name: staff.name,
+    employeeId: staff.employeeId,
+  };
 }
 
 function needSchoolScope(user: AccessUser, key: string) {
@@ -938,6 +1005,84 @@ export async function markStaffAttendanceCore(
     written.push({ kind: row.kind, id: row.id, date: stamp, status: next.status, inAt: next.inAt });
   }
   return { days: written };
+}
+
+export async function generateStaffAttendanceQrCore(user: AccessUser) {
+  const self = await resolveStaffAttendanceSelf(user);
+  if (!self) throw new Error("No staff profile is linked to this account.");
+  const token = randomUUID().replace(/-/g, "");
+  const expiresAt = Date.now() + STAFF_ATTENDANCE_QR_TTL_MS;
+  staffAttendanceQrTokens.set(token, { ...self, expiresAt });
+  const qrText = staffAttendanceQrPayload(token);
+  const qrDataUrl = await QRCode.toDataURL(qrText, {
+    errorCorrectionLevel: "M",
+    margin: 2,
+    width: 280,
+    color: { dark: "#102a43", light: "#ffffff" },
+  });
+  return {
+    token,
+    qrText,
+    qrDataUrl,
+    expiresAt: new Date(expiresAt).toISOString(),
+    ttlSeconds: Math.floor(STAFF_ATTENDANCE_QR_TTL_MS / 1000),
+    person: {
+      kind: self.kind,
+      id: self.id,
+      name: self.name,
+      employeeId: self.employeeId,
+    },
+  };
+}
+
+export async function scanStaffAttendanceQrCore(user: AccessUser, input: { code: string }) {
+  need(user, "staff.edit");
+  const token = staffAttendanceTokenFromCode(String(input.code || ""));
+  if (!token) throw new Error("Scan a staff attendance QR.");
+  const ticket = staffAttendanceQrTokens.get(token);
+  if (!ticket) throw new Error("This staff attendance QR is not valid.");
+  if ((ticket.orgId || null) !== (user.orgId || null)) throw new Error("This QR is for another school.");
+  if (ticket.usedAt) throw new Error("This staff attendance QR was already used.");
+  if (ticket.expiresAt < Date.now()) {
+    staffAttendanceQrTokens.delete(token);
+    throw new Error("This staff attendance QR has expired.");
+  }
+
+  const stamp = staffDayYmd(new Date());
+  const cal = await loadSchoolCalendar();
+  const closed = closedReason(stamp, cal);
+  if (closed) {
+    throw new Error(
+      /off$/i.test(closed) ? `${closed}. Attendance is not marked.` : `${closed} — school closed. Attendance is not marked.`
+    );
+  }
+
+  const config = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
+  const rules = parsePayrollRules(config?.payrollJson);
+  const inAt = currentSchoolTime();
+  const next = classifyStaffDay("PRESENT", inAt, "", rules);
+  await writeStaffDayOnStamp(ticket.kind, ticket.id, stamp, {
+    status: next.status,
+    markedById: user.id,
+    inAt: next.inAt,
+    outAt: next.outAt,
+    startTimeUsed: next.startTimeUsed,
+    computedStatus: next.computedStatus,
+    remark: "Marked by attendance QR scan.",
+  });
+  ticket.usedAt = Date.now();
+  staffAttendanceQrTokens.set(token, ticket);
+  return {
+    person: {
+      kind: ticket.kind,
+      id: ticket.id,
+      name: ticket.name,
+      employeeId: ticket.employeeId,
+    },
+    date: stamp,
+    status: next.status,
+    inAt: next.inAt,
+  };
 }
 
 function classifyStaffDay(

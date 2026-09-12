@@ -179,6 +179,19 @@ function staffDepartment(kind: "teacher" | "staff", portal?: string | null) {
   return "Support";
 }
 
+async function staffAttendanceSelf(user: AccessUser) {
+  const teacher = await prisma.teacher.findUnique({
+    where: { userId: user.id },
+    select: { id: true, employeeId: true, user: { select: { name: true } } },
+  });
+  if (teacher) return { kind: "teacher" as const, id: teacher.id, name: teacher.user.name, employeeId: teacher.employeeId };
+  const staff = await prisma.staffMember.findUnique({
+    where: { userId: user.id },
+    select: { id: true, name: true, employeeId: true },
+  });
+  return staff ? { kind: "staff" as const, id: staff.id, name: staff.name, employeeId: staff.employeeId } : null;
+}
+
 function isBellNotice(n: { kind?: string | null; body?: string | null; recipients?: unknown[] }) {
   return isCircularNotice(n) || Boolean(n.recipients?.length);
 }
@@ -601,6 +614,7 @@ async function teacherPayload(user: AccessUser) {
   const seeFees = can(user, "fees.view");
   return {
     kind: "TEACHER" as const,
+    staffAttendanceSelf: await staffAttendanceSelf(user),
     classId: teacher?.classId || "",
     classLabel: desk?.classLabel || "",
     classTeacher: Boolean(desk?.classTeacher),
@@ -988,6 +1002,7 @@ async function officePayload(user: AccessUser) {
     : [];
   return {
     kind: "OFFICE" as const,
+    staffAttendanceSelf: await staffAttendanceSelf(user),
     onboarding: can(user, "onboarding.manage") ? await onboardingBundle(user) : null,
     desk: {
       label: pulse.label,

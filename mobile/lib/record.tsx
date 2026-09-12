@@ -532,6 +532,12 @@ export type RecordPayload = {
     managerId?: string;
     managerName?: string;
   }[];
+  staffAttendanceSelf?: {
+    kind: "teacher" | "staff";
+    id: string;
+    name: string;
+    employeeId: string;
+  } | null;
   payrollRules?: {
     presentCredit: number;
     absentCredit: number;
