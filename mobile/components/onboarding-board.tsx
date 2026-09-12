@@ -42,15 +42,6 @@ const SETUP_AREAS: { key: Onboarding["steps"][number]["area"]; title: string; bo
   { key: "documents", title: "Documents", body: "Important templates and final launch review.", icon: "document-text-outline" },
 ];
 
-const TEMPLATE_COPY: Record<Template["kind"], string> = {
-  students: "Prefilled with current students; blank admission numbers are generated.",
-  teachers: "Import staff records first, without mixing class ownership.",
-  class_teachers: "Generated from imported classes and teachers so each class gets an owner.",
-  attendance: "Class-wise student history through today, with school days marked P and holidays marked H.",
-  staff_attendance: "Staff history through today, with school days marked P and holidays marked H.",
-  exam_marks: "Class-wise marks sheet generated from saved exam series and subjects.",
-  opening_balances: "Create a one-time backlog invoice, then Anekio starts after the last invoiced month.",
-};
 const FOCUSED_IMPORT_COPY: Record<Template["kind"], { heading: string; description: string; requiredColumns: string; note: string }> = {
   students: {
     heading: "Choose a student CSV or Excel file",
@@ -410,8 +401,8 @@ export function OnboardingBoard({
         </>
       )}
 
-      <View className="gap-2">
-        {focusedTemplate ? (
+      {focusedTemplate ? (
+        <View className="gap-2">
           <UploadCsvPanel
             heading={FOCUSED_IMPORT_COPY[focusedTemplate.kind].heading}
             description={FOCUSED_IMPORT_COPY[focusedTemplate.kind].description}
@@ -426,55 +417,8 @@ export function OnboardingBoard({
             onDownloadTemplate={() => void download(focusedTemplate)}
             onDownloadSample={() => void download(focusedTemplate, true)}
           />
-        ) : (
-          <>
-            {focused ? null : <Text className="text-base font-semibold text-ink-900">Generated onboarding templates</Text>}
-            <Text className="text-xs leading-5 text-ink-700">
-              Classes come from CRM (School setup). Each template includes realistic example rows marked Example only = YES. Add school data below them, or copy and clear that field. Example rows are ignored. Nothing changes until review passes and you press Apply.
-            </Text>
-            <View className="flex-row flex-wrap gap-3">
-              {templates.map((template) => (
-            <Card key={template.kind} className="min-w-[260px] flex-1 gap-3 p-4">
-              <View className="flex-row items-start justify-between gap-2">
-                <View className="min-w-0 flex-1">
-                  <Text className="text-sm font-semibold text-ink-900">{template.title}</Text>
-                  <Text className="mt-1 text-xs leading-5 text-ink-700">{TEMPLATE_COPY[template.kind]}</Text>
-                </View>
-                <Ionicons name="grid-outline" size={20} color="#2563eb" />
-              </View>
-              <Text className="text-[11px] text-ink-500">Needs: {template.prerequisite}</Text>
-              <View className="flex-row flex-wrap gap-2">
-                <Button
-                  variant="ghost"
-                  className="min-w-[118px] flex-1"
-                  disabled={template.disabled || Boolean(busy)}
-                  onPress={() => void download(template)}
-                >
-                  {busy === `download:${template.kind}` ? "Preparing…" : "Download template"}
-                </Button>
-                <Button
-                  variant="ghost"
-                  className="min-w-[130px] flex-1"
-                  disabled={template.disabled || Boolean(busy)}
-                  onPress={() => void download(template, true)}
-                >
-                  {busy === `downloadSample:${template.kind}` ? "Preparing…" : "Download test data"}
-                </Button>
-                <Button
-                  className="min-w-[134px] flex-1"
-                  disabled={template.disabled || Boolean(busy)}
-                  onPress={() => void review(template)}
-                >
-                  {busy === `upload:${template.kind}` ? "Reviewing…" : "Upload & review"}
-                </Button>
-              </View>
-              {template.disabled ? <Text className="text-[11px] text-amber-800">Finish the prerequisite first.</Text> : null}
-            </Card>
-              ))}
-            </View>
-          </>
-        )}
-      </View>
+        </View>
+      ) : null}
 
       {preview ? (
         <Card className={`gap-3 p-5 ${preview.errors.length ? "border-red-200 bg-red-50" : "border-emerald-200 bg-emerald-50"}`}>
