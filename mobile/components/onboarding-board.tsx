@@ -157,10 +157,18 @@ export function OnboardingBoard({
     }
   }
 
-  function openStepTarget(step: Onboarding["steps"][number]) {
+  async function openStepTarget(step: Onboarding["steps"][number]) {
     if (step.key === "students" || step.key === "teachers" || step.key === "attendance" || step.key === "staff_attendance" || step.key === "exam_marks" || step.key === "opening_balances") {
-      setStepImportKind(step.key as Template["kind"]);
-      void reload();
+      setBusy(`open:${step.key}`);
+      setMessage("");
+      try {
+        await reload();
+        setStepImportKind(step.key as Template["kind"]);
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "Could not refresh the setup step.");
+      } finally {
+        setBusy("");
+      }
       return;
     }
     onNavigate?.();
@@ -332,7 +340,7 @@ export function OnboardingBoard({
                       const canCheckDirectly = step.dataComplete || step.manualComplete;
                       const canContinueManually = step.manualAllowed !== false;
                       const showingAck = pendingAck === step.key;
-                      const loading = busy === `step:${step.key}`;
+                      const loading = busy === `step:${step.key}` || busy === `open:${step.key}`;
                       return (
                         <View key={step.key} className={`rounded-lg border p-3 ${step.status === "blocked" ? "border-amber-200 bg-amber-50" : "border-ink-100 bg-white"}`}>
                           <View className="flex-row items-start gap-3">
@@ -345,7 +353,7 @@ export function OnboardingBoard({
                                 if (step.manualComplete) void toggleStep(step, false);
                                 else if (step.dataComplete) void toggleStep(step, true);
                                 else if (canContinueManually) setPendingAck(showingAck ? "" : step.key);
-                                else openStepTarget(step);
+                                else void openStepTarget(step);
                               }}
                               className={`h-7 w-7 items-center justify-center rounded-md border ${step.status === "complete" ? "border-emerald-600 bg-emerald-100" : "border-ink-300 bg-white"}`}
                             >
@@ -362,7 +370,7 @@ export function OnboardingBoard({
                                 <Pressable
                                   accessibilityRole="link"
                                   accessibilityLabel={`${step.title} setup`}
-                                  onPress={() => openStepTarget(step)}
+                                  onPress={() => void openStepTarget(step)}
                                   className="min-w-0 flex-1 flex-row items-center gap-1"
                                 >
                                   <Text className="min-w-0 text-sm font-semibold text-clay-700 underline" numberOfLines={1}>{step.title}</Text>
