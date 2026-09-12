@@ -81,7 +81,7 @@ const FOCUSED_IMPORT_COPY: Record<Template["kind"], { heading: string; descripti
   opening_balances: {
     heading: "Choose a fee CSV or Excel file",
     description: "Upload first-time fee balances for review.",
-    requiredColumns: "Admission number, Last invoiced month, Opening balance",
+    requiredColumns: "Admission number, Backlog invoice amount, Due date, Invoices already generated till",
     note: "Opening balances create backlog invoices only after review passes and you press Apply.",
   },
 };
@@ -158,7 +158,7 @@ export function OnboardingBoard({
   }
 
   function openStepTarget(step: Onboarding["steps"][number]) {
-    if (step.key === "students" || step.key === "teachers" || step.key === "attendance" || step.key === "staff_attendance" || step.key === "exam_marks") {
+    if (step.key === "students" || step.key === "teachers" || step.key === "attendance" || step.key === "staff_attendance" || step.key === "exam_marks" || step.key === "opening_balances") {
       setStepImportKind(step.key as Template["kind"]);
       return;
     }
@@ -457,6 +457,8 @@ export function OnboardingBoard({
         title={
           stepImportKind === "teachers"
             ? "Import staff"
+            : stepImportKind === "opening_balances"
+              ? "First time fee import"
             : stepImportKind === "attendance"
               ? "Import student attendance history"
               : stepImportKind === "staff_attendance"
