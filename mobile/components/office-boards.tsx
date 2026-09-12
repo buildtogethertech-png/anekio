@@ -3366,31 +3366,6 @@ function periodLabel(period?: string) {
   return new Date(year, month - 1, 1).toLocaleString("en-IN", { month: "long", year: "numeric" });
 }
 
-function MonthInput({ value, onChangeText }: { value: string; onChangeText: (value: string) => void }) {
-  if (Platform.OS === "web") {
-    return (
-      <View className="h-[46px] justify-center rounded-md border border-ink-200 bg-white px-3">
-        {createElement("input", {
-          "aria-label": "Fee month",
-          type: "month",
-          value,
-          onChange: (event: { currentTarget: { value: string } }) => onChangeText(event.currentTarget.value),
-          style: {
-            width: "100%",
-            border: 0,
-            outline: "none",
-            background: "transparent",
-            color: "#12233d",
-            font: "inherit",
-            fontSize: 16,
-          },
-        })}
-      </View>
-    );
-  }
-  return <Input value={value} onChangeText={onChangeText} placeholder="2026-07" />;
-}
-
 export function FeesBoard() {
   const { data, reload } = useRecord();
   const { token, user } = useSession();
@@ -3409,8 +3384,6 @@ export function FeesBoard() {
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [tplName, setTplName] = useState("Monthly fee");
   const [tplDue, setTplDue] = useState("10");
-  const [tplStart, setTplStart] = useState(currentFeePeriod());
-  const [tplEnd, setTplEnd] = useState(currentFeePeriod());
   const [tplLate, setTplLate] = useState("NONE");
   const [tplAmount, setTplAmount] = useState("0");
   const [tplGraceDays, setTplGraceDays] = useState("0");
@@ -3751,6 +3724,8 @@ export function FeesBoard() {
     .reduce((sum, line) => sum + Math.max(0, Math.round(Number(line.amount) || 0)), 0);
   const defaultStartPeriod = currentSession?.startsOn?.slice(0, 7) || currentFeePeriod();
   const defaultEndPeriod = currentSession?.endsOn?.slice(0, 7) || defaultStartPeriod;
+  const sessionRangeLabel = `${periodLabel(defaultStartPeriod)} to ${periodLabel(defaultEndPeriod)}`;
+  const feeSessionLabel = currentSession?.label || "Current session";
 
   useEffect(() => {
     if (didInitialRefresh.current) return;
@@ -3780,8 +3755,6 @@ export function FeesBoard() {
     if (classId === "all") return;
     setTplName(classTemplate?.name || "Monthly fee");
     setTplDue(String(classTemplate?.dueDay || 10));
-    setTplStart(classTemplate?.startsPeriod || defaultStartPeriod);
-    setTplEnd(classTemplate?.endsPeriod || defaultEndPeriod);
     setTplLate(classTemplate?.lateKind === "DAILY" ? "RECURRING" : classTemplate?.lateKind || "NONE");
     setTplAmount(String(classTemplate?.lateAmount || 0));
     setTplGraceDays(String(classTemplate?.lateGraceDays || 0));
@@ -3792,7 +3765,7 @@ export function FeesBoard() {
         ? classTemplate.lines.map((line) => newFeeLine(line.label, String(line.amount), line.scope === "ADD_ON" ? "ADD_ON" : "ALL"))
         : [newFeeLine("Tuition", "8000"), newFeeLine("Laboratory fee", "0"), newFeeLine("Books", "0")]
     );
-  }, [classId, selectedTemplateId, classTemplate?.id, classTemplate?.name, classTemplate?.startsPeriod, classTemplate?.endsPeriod, classTemplate?.dueDay, classTemplate?.lateKind, classTemplate?.lateAmount, classTemplate?.lateGraceDays, classTemplate?.lateIntervalCount, classTemplate?.lateIntervalUnit, classTemplate?.lines, defaultStartPeriod, defaultEndPeriod]);
+  }, [classId, selectedTemplateId, classTemplate?.id, classTemplate?.name, classTemplate?.dueDay, classTemplate?.lateKind, classTemplate?.lateAmount, classTemplate?.lateGraceDays, classTemplate?.lateIntervalCount, classTemplate?.lateIntervalUnit, classTemplate?.lines, defaultStartPeriod, defaultEndPeriod]);
 
   function feeTemplateTotal(template: (typeof templates)[number]) {
     return template.lines
@@ -3854,8 +3827,8 @@ export function FeesBoard() {
         classId,
         sessionId: currentSession?.id,
         name: tplName,
-        startsPeriod: tplStart,
-        endsPeriod: tplEnd,
+        startsPeriod: defaultStartPeriod,
+        endsPeriod: defaultEndPeriod,
         dueDay: Number(tplDue),
         lateKind: tplLate,
         lateGraceDays: Number(tplGraceDays),
@@ -3877,8 +3850,6 @@ export function FeesBoard() {
     setSelectedTemplateId("new");
     setTplName("Monthly fee");
     setTplDue("10");
-    setTplStart(defaultStartPeriod);
-    setTplEnd(defaultEndPeriod);
     setTplLate("NONE");
     setTplAmount("0");
     setTplGraceDays("0");
@@ -4230,21 +4201,19 @@ export function FeesBoard() {
           <View className="rounded-md border border-ink-100 bg-white p-3">
             <View className="mb-3 flex-row flex-wrap items-start justify-between gap-3">
               <View className="min-w-0 flex-1">
-                <Text className="text-sm font-semibold text-ink-900">Fee applies for</Text>
-                <Text className="mt-0.5 text-xs leading-5 text-ink-700">Use a new range when this class fee increases or decreases.</Text>
+                <Text className="text-sm font-semibold text-ink-900">Fee applies for session</Text>
+                <Text className="mt-0.5 text-xs leading-5 text-ink-700">Invoices use the active academic session configured in School.</Text>
               </View>
-              <Badge tone="clay">{tplStart && tplEnd ? `${tplStart} to ${tplEnd}` : "Set range"}</Badge>
+              <Badge tone="clay">{feeSessionLabel}</Badge>
             </View>
             <View className="flex-row flex-wrap gap-3">
-              <View className="min-w-[180px] flex-1">
-                <Field label="From month">
-                  <MonthInput value={tplStart} onChangeText={setTplStart} />
-                </Field>
+              <View className="min-w-[220px] flex-1 rounded-md border border-ink-100 bg-ink-50 px-3 py-2">
+                <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-600">Session</Text>
+                <Text className="mt-1 text-sm font-semibold text-ink-900">{feeSessionLabel}</Text>
               </View>
-              <View className="min-w-[180px] flex-1">
-                <Field label="To month">
-                  <MonthInput value={tplEnd} onChangeText={setTplEnd} />
-                </Field>
+              <View className="min-w-[260px] flex-1 rounded-md border border-ink-100 bg-ink-50 px-3 py-2">
+                <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-600">Invoice months</Text>
+                <Text className="mt-1 text-sm font-semibold text-ink-900">{sessionRangeLabel}</Text>
               </View>
             </View>
           </View>
@@ -4347,7 +4316,7 @@ export function FeesBoard() {
                     </Field>
                   </View>
                   <View className="min-w-[180px] flex-1">
-                    <Field label="Late amount">
+                    <Field label="Late amount" hint="Amount added as fine.">
                       <Input keyboardType="number-pad" value={tplAmount} onChangeText={setTplAmount} placeholder="100" />
                     </Field>
                   </View>
@@ -4355,12 +4324,13 @@ export function FeesBoard() {
                 {tplLate === "RECURRING" ? (
                   <View className="flex-row flex-wrap gap-3">
                     <View className="min-w-[180px] flex-1">
-                      <Field label="Repeat every">
+                      <Field label="Repeat every" hint="Number of days or months.">
                         <Input keyboardType="number-pad" value={tplIntervalCount} onChangeText={setTplIntervalCount} placeholder="15" />
                       </Field>
                     </View>
                     <View className="min-w-[220px] flex-1">
                       <Text className="mb-1 text-xs font-medium text-ink-700">Interval unit</Text>
+                      <Text className="mb-1 text-xs leading-5 text-ink-700">Choose days or months.</Text>
                       <View className="flex-row rounded-md border border-ink-200 bg-white p-0.5">
                         {(["DAY", "MONTH"] as const).map((unit) => (
                           <Pressable
