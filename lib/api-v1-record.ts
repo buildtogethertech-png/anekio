@@ -60,6 +60,7 @@ function serializePeopleFeeInvoice(inv: {
   const paidAmt = inv.payments.reduce((n, payment) => n + payment.amount, 0);
   const balance = invoiceBalance({ ...inv, paid: paidAmt });
   const invoiceUrl = inv.shareToken ? `${publicOrigin()}/i/${inv.shareToken}` : "";
+  const receiptUrl = inv.shareToken && balance.display === "PAID" ? `${publicOrigin()}/pay/${inv.shareToken}?paid=1` : "";
   return {
     id: inv.id,
     title: inv.title,
@@ -72,7 +73,7 @@ function serializePeopleFeeInvoice(inv: {
     lateLabel: balance.lateLabel,
     status: balance.display.toLowerCase(),
     invoiceUrl,
-    receiptUrl: balance.display === "PAID" ? invoiceUrl : "",
+    receiptUrl,
   };
 }
 

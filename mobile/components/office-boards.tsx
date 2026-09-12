@@ -1385,13 +1385,47 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                           </Pressable>
                         )}
                         {paid ? (
-                          <Pressable
-                            onPress={() => void openFeeDocument(inv, true)}
-                            className="flex-row items-center gap-1 rounded-md border border-ink-200 px-2 py-1"
-                          >
-                            <Ionicons name="receipt-outline" size={14} color="#15803d" />
-                            <Text className="text-xs font-medium text-green-700">Receipt</Text>
-                          </Pressable>
+                          Platform.OS === "web" ? (
+                            createElement(
+                              "button",
+                              {
+                                type: "button",
+                                onClick: (event: React.MouseEvent<HTMLButtonElement>) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  void openFeeDocument(inv, true);
+                                },
+                                style: {
+                                  alignItems: "center",
+                                  background: "#fff",
+                                  border: "1px solid #CBD5E1",
+                                  borderRadius: 6,
+                                  color: "#15803d",
+                                  cursor: "pointer",
+                                  display: "flex",
+                                  flexDirection: "row",
+                                  font: "inherit",
+                                  fontSize: 12,
+                                  fontWeight: 600,
+                                  gap: 4,
+                                  padding: "4px 8px",
+                                  position: "relative",
+                                  userSelect: "none",
+                                  zIndex: 1,
+                                },
+                              },
+                              createElement(Ionicons, { name: "receipt-outline", size: 14, color: "#15803d" }),
+                              "Receipt"
+                            )
+                          ) : (
+                            <Pressable
+                              onPress={() => void openFeeDocument(inv, true)}
+                              className="flex-row items-center gap-1 rounded-md border border-ink-200 px-2 py-1"
+                            >
+                              <Ionicons name="receipt-outline" size={14} color="#15803d" />
+                              <Text className="text-xs font-medium text-green-700">Receipt</Text>
+                            </Pressable>
+                          )
                         ) : null}
                       </View>
                     </View>
