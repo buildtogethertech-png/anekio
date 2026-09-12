@@ -160,6 +160,7 @@ export function OnboardingBoard({
   function openStepTarget(step: Onboarding["steps"][number]) {
     if (step.key === "students" || step.key === "teachers" || step.key === "attendance" || step.key === "staff_attendance" || step.key === "exam_marks" || step.key === "opening_balances") {
       setStepImportKind(step.key as Template["kind"]);
+      void reload();
       return;
     }
     onNavigate?.();
@@ -408,12 +409,13 @@ export function OnboardingBoard({
             heading={FOCUSED_IMPORT_COPY[focusedTemplate.kind].heading}
             description={FOCUSED_IMPORT_COPY[focusedTemplate.kind].description}
             requiredColumns={FOCUSED_IMPORT_COPY[focusedTemplate.kind].requiredColumns}
-            note={FOCUSED_IMPORT_COPY[focusedTemplate.kind].note}
+            note={focusedTemplate.disabled ? `Finish prerequisite first: ${focusedTemplate.prerequisite}.` : FOCUSED_IMPORT_COPY[focusedTemplate.kind].note}
             supportedFormat=".csv, .xlsx"
             browseLabel={busy === `upload:${focusedTemplate.kind}` ? "Reviewing..." : "Browse"}
             templateLabel={busy === `download:${focusedTemplate.kind}` ? "Preparing..." : "Download template"}
             sampleLabel={busy === `downloadSample:${focusedTemplate.kind}` ? "Preparing..." : "Download test data"}
-            disabled={focusedTemplate.disabled || Boolean(busy)}
+            browseDisabled={focusedTemplate.disabled || Boolean(busy)}
+            downloadDisabled={Boolean(busy)}
             onBrowse={() => void review(focusedTemplate)}
             onDownloadTemplate={() => void download(focusedTemplate)}
             onDownloadSample={() => void download(focusedTemplate, true)}
