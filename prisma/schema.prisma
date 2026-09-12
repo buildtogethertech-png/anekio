@@ -179,10 +179,10 @@ model RoleGrant {
 
 model User {
   id               String                 @id @default(cuid())
-  email            String                 @unique
+  email            String
   password         String
   name             String
-  phone            String?                @unique
+  phone            String?
   pushToken        String?
   roleId           String
   role             Role                   @relation(fields: [roleId], references: [id])
@@ -208,6 +208,8 @@ model User {
   orgId             String?
   org               SaasOrg?                @relation(fields: [orgId], references: [id], onDelete: SetNull)
 
+  @@unique([orgId, email])
+  @@unique([orgId, phone])
   @@index([orgId])
 }
 

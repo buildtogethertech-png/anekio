@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Redirect, Slot, Tabs, useRouter } from "expo-router";
 import { ActivityIndicator, Modal, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { AppTabBar } from "../../components/app-tab-bar";
 import { NavMenu } from "../../components/nav-menu";
@@ -47,12 +47,15 @@ function LaunchPanelButton() {
   const { data } = useRecord();
   const { user } = useSession();
   const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const [open, setOpen] = useState(false);
   const onboarding = data?.onboarding;
   const show = user?.portal === "OFFICE" && onboarding && onboarding.progress.percent < 100;
   if (!show) return null;
 
   const panelWidth = Math.min(760, Math.max(360, width - 48));
+  const bottomOffset = width >= 768 ? Math.max(insets.bottom + 24, 24) : Math.max(insets.bottom + 84, 84);
+  const rightOffset = width >= 768 ? 28 : 16;
   return (
     <>
       <Pressable
@@ -60,12 +63,21 @@ function LaunchPanelButton() {
         accessibilityLabel="Open school setup"
         accessibilityState={{ expanded: open }}
         onPress={() => setOpen(true)}
-        className="min-h-10 flex-row items-center gap-2 rounded-full border border-clay-200 bg-clay-50 px-3 py-1.5"
+        className="absolute z-50 h-16 w-16 items-center justify-center rounded-full border border-blue-200 bg-white shadow-xl"
+        style={{
+          bottom: bottomOffset,
+          right: rightOffset,
+          shadowColor: "#1d4ed8",
+          shadowOpacity: 0.22,
+          shadowRadius: 18,
+          shadowOffset: { width: 0, height: 8 },
+        }}
       >
-        <Ionicons name="rocket-outline" size={18} color="#2563eb" />
-        <View className="min-w-0">
-          <Text className="text-[12px] font-semibold text-clay-700">Setup</Text>
-          <Text className="text-[10px] text-ink-500">{onboarding.progress.percent}%</Text>
+        <View className="h-12 w-12 items-center justify-center rounded-full bg-blue-50">
+          <Ionicons name="rocket" size={27} color="#2563eb" />
+        </View>
+        <View className="absolute -right-1 -top-1 min-w-[30px] items-center rounded-full border border-white bg-clay-500 px-1.5 py-0.5">
+          <Text className="text-[10px] font-bold text-white">{onboarding.progress.percent}%</Text>
         </View>
       </Pressable>
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
@@ -151,7 +163,6 @@ export default function AppLayout() {
           <Sidebar />
           <View className="min-h-0 flex-1 overflow-hidden">
             <View className="h-14 shrink-0 flex-row items-center justify-end gap-2 border-b border-ink-200 bg-white px-5">
-              <LaunchPanelButton />
               <NoticeBell />
               <ProfileChip />
             </View>
@@ -159,6 +170,7 @@ export default function AppLayout() {
               <Slot />
             </View>
           </View>
+          <LaunchPanelButton />
         </View>
       </RecordProvider>
     );
@@ -200,6 +212,7 @@ export default function AppLayout() {
           <Tabs.Screen name="uploads" options={{ href: null }} />
           <Tabs.Screen name="profile" options={{ href: null }} />
         </Tabs>
+        <LaunchPanelButton />
       </View>
     </RecordProvider>
   );

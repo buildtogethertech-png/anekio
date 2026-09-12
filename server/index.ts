@@ -14,7 +14,7 @@ import {
   resetPasswordWithCode,
 } from "../lib/auth-challenges";
 import { hasAny, userFromAuthHeader } from "../lib/http-user";
-import { userForLogin } from "../lib/login";
+import { userForLogin, usersForLogin } from "../lib/login";
 import { serializeUser } from "../lib/http-user";
 import { publicNav, navForPortal } from "../lib/nav";
 import { recordPayload } from "../lib/api-v1-record";
@@ -242,6 +242,13 @@ async function requireActiveSubscription(userId: string, res: express.Response) 
 }
 
 type LoginRow = NonNullable<Awaited<ReturnType<typeof userForLogin>>>;
+type LoginChoice = {
+  id: string;
+  name: string;
+  schoolName: string;
+  portal: string;
+  roleName: string;
+};
 
 function loginSession(row: LoginRow) {
   const user = {
@@ -265,6 +272,16 @@ function loginSession(row: LoginRow) {
   };
 }
 
+function loginChoices(rows: LoginRow[]): LoginChoice[] {
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    schoolName: row.org?.schoolName || "Anekio School",
+    portal: row.role.portal,
+    roleName: row.role.name,
+  }));
+}
+
 function sendAuthFlowError(res: express.Response, error: unknown) {
   if (error instanceof AuthFlowError) return sendError(res, error.status, error.message);
   console.error("Authentication flow failed", error);
@@ -274,13 +291,21 @@ function sendAuthFlowError(res: express.Response, error: unknown) {
 app.post("/api/v1/login", async (req, res) => {
   const login = String(req.body?.login || "").trim();
   const password = String(req.body?.password || "");
+  const accountId = String(req.body?.accountId || "").trim();
   if (!login || !password) return sendError(res, 400, "Email or number, and password.");
   await ensureAccessRoles();
-  const row = await userForLogin(login);
-  if (!row?.role) return sendError(res, 401, "Those credentials are not in this school.");
-  const ok = await bcrypt.compare(password, row.password);
-  if (!ok) return sendError(res, 401, "Those credentials are not in this school.");
-  res.json(loginSession(row));
+  const rows = await usersForLogin(login);
+  const picked = accountId ? rows.find((row) => row.id === accountId) : null;
+  const candidates = picked ? [picked] : rows;
+  const valid: LoginRow[] = [];
+  for (const row of candidates) {
+    if (row.role && await bcrypt.compare(password, row.password)) valid.push(row);
+  }
+  if (!valid.length) return sendError(res, 401, "Those credentials are not in this school.");
+  if (!accountId && valid.length > 1) {
+    return res.json({ accountChoices: loginChoices(valid) });
+  }
+  res.json(loginSession(valid[0]));
 });
 
 app.post("/api/v1/login/otp/request", async (req, res) => {
@@ -297,7 +322,7 @@ app.post("/api/v1/login/otp/verify", async (req, res) => {
     const userId = await consumeAuthCode(String(req.body?.login || ""), "LOGIN", String(req.body?.code || ""));
     const row = await prisma.user.findUnique({
       where: { id: userId },
-      include: { role: { include: { grants: true } } },
+      include: { role: { include: { grants: true } }, org: { select: { schoolName: true } } },
     });
     if (!row?.role) return sendError(res, 401, "That code is invalid or has expired.");
     res.json(loginSession(row));

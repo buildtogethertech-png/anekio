@@ -4,6 +4,7 @@ import { can, type AccessUser } from "./permissions";
 import { publicOrigin } from "./utils";
 import {
   IMPORT_KINDS,
+  ensureOnboardingState,
   onboardingSpreadsheetTemplate,
   onboardingTemplate,
   previewOnboardingRows,
@@ -316,14 +317,11 @@ export async function createOnboardingGoogleSheet(user: AccessUser, input: { kin
   if (!response.ok || !data?.id || !data.webViewLink) {
     throw new Error(googleErrorMessage(text, "Could not create the Google Sheet."));
   }
-  await prisma.schoolOnboardingState.upsert({
-    where: { id: "school" },
-    update: {},
-    create: { id: "school" },
-  });
+  const state = await ensureOnboardingState(user);
   const sheet = await prisma.onboardingGoogleSheet.create({
     data: {
-      stateId: "school",
+      orgId: user.orgId ?? null,
+      stateId: state.id,
       userId: user.id,
       kind,
       fileId: data.id,

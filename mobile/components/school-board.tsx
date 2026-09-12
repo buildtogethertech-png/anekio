@@ -15,31 +15,32 @@ import { useSession } from "../lib/session";
 import { pickFile, uploadFile } from "../lib/upload";
 
 const TABS = [
-  { id: "identity", label: "Identity & brand assets", hint: "Name, address, logo, signatures, and stamps", group: "School" },
-  { id: "sessions", label: "Sessions", hint: "Academic years and current session", group: "School" },
-  { id: "classes", label: "Classes", hint: "Sections and class strength", group: "School" },
-  { id: "clock", label: "Clock", hint: "School days and bell times. Set once.", group: "School" },
-  { id: "subjects", label: "Subjects", hint: "What the school teaches. Add at the start.", group: "Teaching" },
-  { id: "calendar", label: "Calendar", hint: "Holidays exam papers skip. Weekly offs are on Clock.", group: "Teaching" },
-  { id: "leave", label: "Leave", hint: "Planned and sick. Who can use them, and how much notice.", group: "Teaching" },
-  { id: "exams", label: "Exams", hint: "Grade scale and this year's sittings. Every class follows this.", group: "Teaching" },
-  { id: "collect", label: "Collect", hint: "UPI, bank, gateway", group: "Money" },
+  { id: "identity", label: "Identity & brand assets", hint: "Name, address, logo, signatures, and stamps", group: "School Setup" },
+  { id: "sessions", label: "Sessions", hint: "Academic years and current session", group: "School Setup" },
+  { id: "classes", label: "Classes", hint: "Sections and class strength", group: "School Setup" },
+  { id: "clock", label: "Clock", hint: "School days and bell times. Set once.", group: "School Setup" },
+  { id: "calendar", label: "Calendar", hint: "Holidays exam papers skip. Weekly offs are on Clock.", group: "School Setup" },
+  { id: "subjects", label: "Subjects", hint: "What the school teaches. Add at the start.", group: "Academics" },
+  { id: "exams", label: "Exams", hint: "Grade scale and this year's sittings. Every class follows this.", group: "Academics" },
+  { id: "leave", label: "Leave", hint: "Planned and sick. Who can use them, and how much notice.", group: "Staff & Leave" },
+  { id: "collect", label: "Collect", hint: "UPI, bank, gateway", group: "Fees" },
   { id: "documents", label: "Document Studio", hint: "Design printable PDFs. Fee amounts stay in Fees.", group: "Documents" },
-  { id: "website", label: "Admissions website", hint: "Public school page, enquiry form, and incoming leads", group: "Reach" },
+  { id: "website", label: "Admissions website", hint: "Public school page, enquiry form, and incoming leads", group: "Admissions" },
 ] as const;
 
 type Tab = (typeof TABS)[number]["id"];
 type Door = (typeof TABS)[number]["group"];
 type Level = "doors" | "group" | "page";
 
-const TAB_GROUPS = ["School", "Teaching", "Money", "Documents", "Reach"] as const;
+const TAB_GROUPS = ["School Setup", "Academics", "Staff & Leave", "Fees", "Documents", "Admissions"] as const;
 
 const DOOR_LEDE: Record<Door, string> = {
-  School: "Name, logo, academic years, classes, and days.",
-  Teaching: "Subjects, holidays, leave, and this year's exams.",
-  Money: "How parents pay and how the school collects.",
+  "School Setup": "Identity, sessions, classes, calendar, and days.",
+  Academics: "Subjects and this year's exams.",
+  "Staff & Leave": "Leave rules for teachers, staff, and students.",
+  Fees: "How parents pay and how the school collects.",
   Documents: "Design report cards, IDs, receipts, certificates, and letters.",
-  Reach: "Admissions website and incoming enquiries.",
+  Admissions: "Admissions website and incoming enquiries.",
 };
 
 const PAY_GATEWAYS = [
@@ -332,7 +333,7 @@ export function SchoolBoard() {
   const linked = tabFromParam(tabParam);
   const linkedGroup = groupFromParam(groupParam);
   const [tab, setTab] = useState<Tab>(linked?.id ?? "identity");
-  const [door, setDoor] = useState<Door>(linked?.group ?? linkedGroup ?? "School");
+  const [door, setDoor] = useState<Door>(linked?.group ?? linkedGroup ?? "School Setup");
   const [level, setLevel] = useState<Level>(linked ? "page" : linkedGroup ? "group" : "doors");
   const [form, setForm] = useState<SchoolForm>(blankForm(s));
   const [holiday, setHoliday] = useState({ date: "", name: "" });
@@ -849,7 +850,15 @@ export function SchoolBoard() {
                   await run("saveSchoolClock", payload, "Clock saved.");
                 }}
                 onAdd={async (payload) => {
-                  await run("addPeriod", payload, "Period added.");
+                  const result = await act<
+                    {
+                      ok: true;
+                      period?: { id: string; name: string; startsAt: string; endsAt: string; isBreak: boolean; sortOrder?: number };
+                    }
+                  >(token, "addPeriod", payload);
+                  toast.show("Period added.");
+                  void reload();
+                  return result;
                 }}
                 onDelete={async (id) => {
                   await run("deletePeriod", { id }, "Period removed.");

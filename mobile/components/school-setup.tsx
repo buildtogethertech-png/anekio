@@ -36,6 +36,24 @@ const ALL_WEEKDAYS = [
   { n: 7, label: "Sun" },
 ];
 
+type ClockPeriodRow = {
+  id: string;
+  name: string;
+  startsAt: string;
+  endsAt: string;
+  isBreak: boolean;
+  sortOrder?: number;
+};
+
+function nextPeriodName(rows: { name: string; isBreak?: boolean }[]) {
+  const highest = rows.reduce((max, row) => {
+    if (row.isBreak) return max;
+    const match = row.name.match(/\d+/);
+    return match ? Math.max(max, Number(match[0])) : max;
+  }, 0);
+  return `Period ${highest + 1}`;
+}
+
 function periodsDraft(value?: number) {
   if (value == null || !Number.isFinite(value) || value <= 0) return "4";
   return String(Math.trunc(value));
@@ -127,11 +145,16 @@ export function ClockForm({
     weekdays: number[];
     periods: { id: string; name: string; startsAt: string; endsAt: string; isBreak: boolean; sortOrder?: number }[];
   }) => Promise<void>;
-  onAdd: (payload: { name: string; startsAt: string; endsAt: string; isBreak: boolean }) => Promise<void>;
+  onAdd: (payload: { name: string; startsAt: string; endsAt: string; isBreak: boolean }) => Promise<
+    | {
+        period?: ClockPeriodRow;
+      }
+    | void
+  >;
   onDelete: (id: string) => Promise<void>;
 }) {
   const [days, setDays] = useState<number[]>(weekdays);
-  const [rows, setRows] = useState(
+  const [rows, setRows] = useState<ClockPeriodRow[]>(
     periods.map((p) => ({
       id: p.id,
       name: p.name,
@@ -143,9 +166,10 @@ export function ClockForm({
   );
   const [add, setAdd] = useState({ name: "", startsAt: "15:10", endsAt: "15:50", isBreak: false });
   const [error, setError] = useState("");
+  const draftName = add.name.trim() || nextPeriodName(rows);
   return (
     <View className="mt-4 gap-4">
-      <View>
+      <View className="gap-2">
         <Text className="mb-2 text-xs font-medium text-ink-700">Days the school runs</Text>
         <View className="flex-row flex-wrap gap-1.5">
           {ALL_WEEKDAYS.map((d) => (
@@ -160,73 +184,110 @@ export function ClockForm({
           ))}
         </View>
       </View>
-      <View>
-        <Text className="mb-2 text-xs font-medium text-ink-700">Bell times · {rows.length} periods</Text>
-        {rows.map((p) => (
-          <View key={p.id} className="flex-row flex-wrap items-center gap-2 border-t border-ink-100 py-2">
-            <View className="min-w-[8rem] flex-1">
-              <Input value={p.name} onChangeText={(v) => setRows(rows.map((r) => (r.id === p.id ? { ...r, name: v } : r)))} />
-            </View>
-            <View className="w-24">
-              <Input
-                value={p.startsAt}
-                onChangeText={(v) => setRows(rows.map((r) => (r.id === p.id ? { ...r, startsAt: v } : r)))}
-              />
-            </View>
-            <View className="w-24">
-              <Input
-                value={p.endsAt}
-                onChangeText={(v) => setRows(rows.map((r) => (r.id === p.id ? { ...r, endsAt: v } : r)))}
-              />
-            </View>
-            <Chip
-              label="Break"
-              active={p.isBreak}
-              onPress={() => setRows(rows.map((r) => (r.id === p.id ? { ...r, isBreak: !r.isBreak } : r)))}
-            />
-            <Pressable onPress={() => onDelete(p.id)}>
-              <Text className="text-ink-700">×</Text>
-            </Pressable>
+
+      <View className="gap-3 rounded-lg border border-ink-100 bg-ink-50 p-3">
+        <View className="flex-row flex-wrap items-center justify-between gap-2">
+          <View>
+            <Text className="text-xs font-medium uppercase text-ink-700">Bell times</Text>
+            <Text className="mt-0.5 text-sm font-semibold text-ink-900">{rows.length} {rows.length === 1 ? "period" : "periods"}</Text>
           </View>
-        ))}
-      </View>
-      {error ? <Text className="text-sm text-red-700">{error}</Text> : null}
-      <Button
-        onPress={async () => {
-          setError("");
-          try {
-            await onSave({ weekdays: days, periods: rows });
-          } catch (e) {
-            setError(e instanceof Error ? e.message : "Could not save.");
-          }
-        }}
-      >
-        Save clock
-      </Button>
-      <View className="gap-2 border-t border-ink-100 pt-4">
-        <Text className="text-xs font-medium text-ink-700">Add a period</Text>
-        <View className="flex-row flex-wrap items-center gap-2">
-          <View className="w-28">
-            <Input value={add.name} onChangeText={(v) => setAdd({ ...add, name: v })} placeholder="Period 9" />
-          </View>
-          <View className="w-24">
-            <Input value={add.startsAt} onChangeText={(v) => setAdd({ ...add, startsAt: v })} />
-          </View>
-          <View className="w-24">
-            <Input value={add.endsAt} onChangeText={(v) => setAdd({ ...add, endsAt: v })} />
-          </View>
-          <Chip label="Break" active={add.isBreak} onPress={() => setAdd({ ...add, isBreak: !add.isBreak })} />
           <Button
             variant="ghost"
+            className="px-5"
             onPress={async () => {
-              if (!add.name.trim()) return;
-              await onAdd({ ...add, name: add.name.trim() });
-              setAdd({ name: "", startsAt: "15:10", endsAt: "15:50", isBreak: false });
+              setError("");
+              try {
+                await onSave({ weekdays: days, periods: rows });
+              } catch (e) {
+                setError(e instanceof Error ? e.message : "Could not save.");
+              }
             }}
           >
-            Add
+            Save clock
           </Button>
         </View>
+
+        {rows.length ? (
+          <View className="gap-2">
+            {rows.map((p) => (
+              <View key={p.id} className="flex-row flex-wrap items-center gap-2 rounded-md border border-ink-100 bg-white p-2">
+                <View className="min-w-[9rem] flex-1">
+                  <Input value={p.name} onChangeText={(v) => setRows(rows.map((r) => (r.id === p.id ? { ...r, name: v } : r)))} />
+                </View>
+                <View className="w-24">
+                  <Input
+                    value={p.startsAt}
+                    onChangeText={(v) => setRows(rows.map((r) => (r.id === p.id ? { ...r, startsAt: v } : r)))}
+                  />
+                </View>
+                <View className="w-24">
+                  <Input
+                    value={p.endsAt}
+                    onChangeText={(v) => setRows(rows.map((r) => (r.id === p.id ? { ...r, endsAt: v } : r)))}
+                  />
+                </View>
+                <Chip
+                  label="Break"
+                  active={p.isBreak}
+                  onPress={() => setRows(rows.map((r) => (r.id === p.id ? { ...r, isBreak: !r.isBreak } : r)))}
+                />
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Delete ${p.name}`}
+                  onPress={async () => {
+                    setError("");
+                    try {
+                      await onDelete(p.id);
+                      setRows(rows.filter((row) => row.id !== p.id));
+                    } catch (e) {
+                      setError(e instanceof Error ? e.message : "Could not delete period.");
+                    }
+                  }}
+                  className="h-10 w-10 items-center justify-center rounded-md border border-ink-200 bg-white"
+                >
+                  <Ionicons name="trash-outline" size={18} color="#3d4f66" />
+                </Pressable>
+              </View>
+            ))}
+          </View>
+        ) : (
+          <View className="rounded-md border border-dashed border-ink-200 bg-white px-3 py-4">
+            <Text className="text-sm font-medium text-ink-900">No bell times yet</Text>
+            <Text className="mt-1 text-xs leading-5 text-ink-700">Add periods below, then save the clock for timetable planning.</Text>
+          </View>
+        )}
+
+        <View className="gap-2 rounded-md border border-ink-100 bg-white p-3">
+          <Text className="text-xs font-medium text-ink-700">Add a period</Text>
+          <View className="flex-row flex-wrap items-center gap-2">
+            <View className="min-w-[9rem] flex-1">
+              <Input value={add.name} onChangeText={(v) => setAdd({ ...add, name: v })} placeholder={draftName} />
+            </View>
+            <View className="w-24">
+              <Input value={add.startsAt} onChangeText={(v) => setAdd({ ...add, startsAt: v })} />
+            </View>
+            <View className="w-24">
+              <Input value={add.endsAt} onChangeText={(v) => setAdd({ ...add, endsAt: v })} />
+            </View>
+            <Chip label="Break" active={add.isBreak} onPress={() => setAdd({ ...add, isBreak: !add.isBreak })} />
+            <Button
+              className="px-6"
+              onPress={async () => {
+                setError("");
+                try {
+                  const result = await onAdd({ ...add, name: draftName });
+                  if (result?.period) setRows([...rows, result.period]);
+                  setAdd({ name: "", startsAt: "15:10", endsAt: "15:50", isBreak: false });
+                } catch (e) {
+                  setError(e instanceof Error ? e.message : "Could not add period.");
+                }
+              }}
+            >
+              Add period
+            </Button>
+          </View>
+        </View>
+        {error ? <Text className="text-sm text-red-700">{error}</Text> : null}
       </View>
     </View>
   );

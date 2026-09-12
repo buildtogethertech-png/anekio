@@ -25,6 +25,15 @@ describe("school onboarding imports", () => {
     vi.resetModules();
     prisma = (await import("../../lib/prisma")).prisma;
     const fixture = await seedPortalFixture(prisma);
+    const org = await prisma.saasOrg.create({
+      data: {
+        id: "org-onboarding-fixture",
+        schoolName: "Fixture Academy",
+        ownerName: "Ojas Office",
+        ownerEmail: "office.fixture@school.test",
+        ownerPhone: "9876540001",
+      },
+    });
     const office = await prisma.user.findUniqueOrThrow({
       where: { id: fixture.users.office.id },
       include: { role: { include: { grants: true } } },
@@ -36,6 +45,7 @@ describe("school onboarding imports", () => {
       role: office.role.slug,
       roleName: office.role.name,
       roleId: office.roleId,
+      orgId: org.id,
       portal: "OFFICE",
       permissions: office.role.grants.map((grant) => grant.permission),
       scopes: Object.fromEntries(office.role.grants.map((grant) => [grant.permission, grant.scope || "SCHOOL"])) as AccessUser["scopes"],
@@ -129,6 +139,43 @@ describe("school onboarding imports", () => {
     expect(periods).toEqual(["2026-04", "2026-09", "OPENING"]);
   });
 
+  it("requires working days and holiday calendar before attendance history imports", async () => {
+    const { onboardingBundle } = await import("../../lib/onboarding");
+
+    const before = await onboardingBundle(user);
+    expect(before.steps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "working_days", status: "complete", target: expect.objectContaining({ href: "/school?tab=clock" }) }),
+      expect.objectContaining({ key: "holiday_calendar", status: "blocked", target: expect.objectContaining({ href: "/school?tab=calendar" }) }),
+      expect.objectContaining({ key: "attendance", status: "blocked" }),
+      expect.objectContaining({ key: "staff_attendance", status: "blocked" }),
+    ]));
+    expect(before.templates.find((template) => template.kind === "attendance")).toMatchObject({
+      disabled: true,
+      prerequisite: "Classes, students, working days, and holiday calendar",
+    });
+    expect(before.templates.find((template) => template.kind === "staff_attendance")).toMatchObject({
+      disabled: true,
+      prerequisite: "Staff, working days, and holiday calendar",
+    });
+
+    await prisma.schoolHoliday.create({
+      data: {
+        sessionId: "session-2026",
+        date: "2026-10-02",
+        name: "Gandhi Jayanti",
+        source: "manual",
+      },
+    });
+    const after = await onboardingBundle(user);
+    expect(after.steps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "holiday_calendar", status: "complete" }),
+      expect.objectContaining({ key: "attendance", status: "complete" }),
+      expect.objectContaining({ key: "staff_attendance", status: "ready" }),
+    ]));
+    expect(after.templates.find((template) => template.kind === "attendance")).toMatchObject({ disabled: false });
+    expect(after.templates.find((template) => template.kind === "staff_attendance")).toMatchObject({ disabled: false });
+  });
+
   it("generates a student workbook with one tab per class section", async () => {
     const ExcelJS = (await import("exceljs")).default;
     const { onboardingSpreadsheetTemplate, onboardingBundle } = await import("../../lib/onboarding");
@@ -198,19 +245,19 @@ describe("school onboarding imports", () => {
 
     const bundle = await onboardingBundle(user);
     const staffTemplate = bundle.templates.find((template) => template.kind === "teachers");
-    expect(staffTemplate?.fileName).toBe("anekio-teachers.xlsx");
+    expect(staffTemplate?.fileName).toBe("anekio-staff.xlsx");
     expect(bundle.templates.some((template) => template.kind === "class_teachers")).toBe(false);
 
     const template = await onboardingSpreadsheetTemplate(user, "teachers");
     expect(template).toMatchObject({
-      fileName: "anekio-teachers.xlsx",
+      fileName: "anekio-staff.xlsx",
       contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     });
 
     const workbook = new ExcelJS.Workbook();
     const arrayBuffer = template.buffer.buffer.slice(template.buffer.byteOffset, template.buffer.byteOffset + template.buffer.byteLength) as ArrayBuffer;
     await workbook.xlsx.load(arrayBuffer);
-    const sheet = workbook.getWorksheet("Teachers")!;
+    const sheet = workbook.getWorksheet("Staff")!;
     expect((sheet.getRow(1).values as unknown[]).slice(1)).toEqual([
       "Name",
       "Mobile",
@@ -234,7 +281,7 @@ describe("school onboarding imports", () => {
     const sampleWorkbook = new ExcelJS.Workbook();
     const sampleArrayBuffer = sampleTemplate.buffer.buffer.slice(sampleTemplate.buffer.byteOffset, sampleTemplate.buffer.byteOffset + sampleTemplate.buffer.byteLength) as ArrayBuffer;
     await sampleWorkbook.xlsx.load(sampleArrayBuffer);
-    const sampleSheet = sampleWorkbook.getWorksheet("Teachers")!;
+    const sampleSheet = sampleWorkbook.getWorksheet("Staff")!;
     const rows = sampleSheet.getRows(2, sampleSheet.rowCount - 1) || [];
     const names = rows.map((row) => String(row.getCell(1).value || ""));
     const roles = rows.map((row) => String(row.getCell(4).value || ""));
@@ -271,12 +318,72 @@ describe("school onboarding imports", () => {
     expect(student.admissionNo).toMatch(/^ANE-\d{5}$/);
   });
 
+  it("allows a parent contact already used in another organisation", async () => {
+    const { previewOnboardingImport, applyOnboardingImport } = await import("../../lib/onboarding");
+    const { saveUploadPath } = await import("../../lib/uploads");
+    const parentRole = await prisma.role.findUniqueOrThrow({ where: { slug: "PARENT" } });
+    await prisma.saasOrg.create({
+      data: {
+        id: "org-other-parent-contact",
+        schoolName: "Other Contact School",
+        ownerName: "Other Owner",
+        ownerEmail: "other-owner@example.test",
+        ownerPhone: "9876508888",
+      },
+    });
+    await prisma.user.create({
+      data: {
+        orgId: "org-other-parent-contact",
+        email: "shared.parent@example.test",
+        phone: "9876509999",
+        password: "unused",
+        name: "Shared Parent Elsewhere",
+        roleId: parentRole.id,
+        parent: { create: { orgId: "org-other-parent-contact", phone: "9876509999" } },
+      },
+    });
+    const uploadPath = "private/schools/test/onboarding/imports/shared-parent.csv";
+    await saveUploadPath(
+      uploadPath,
+      Buffer.from(csvFromObjects([
+        {
+          "Student name": "Shared Contact Student",
+          "Date of birth": "2015-05-11",
+          Class: "10-D",
+          "Parent name": "Shared Parent Here",
+          "Parent mobile": "9876509999",
+          "Parent email": "shared.parent@example.test",
+          "Example only": "",
+        },
+      ])),
+      "text/csv"
+    );
+
+    const preview = await previewOnboardingImport(user, {
+      kind: "students",
+      uploadPath,
+      fileName: "shared-parent.csv",
+    });
+    expect(preview).toMatchObject({ rowCount: 1, validCount: 1, errors: [] });
+    await applyOnboardingImport(user, { batchId: preview.batchId });
+
+    const users = await prisma.user.findMany({
+      where: { email: "shared.parent@example.test", phone: "9876509999" },
+      select: { orgId: true, parent: { select: { id: true } } },
+      orderBy: { orgId: "asc" },
+    });
+    expect(users).toEqual([
+      { orgId: "org-onboarding-fixture", parent: expect.objectContaining({ id: expect.any(String) }) },
+      { orgId: "org-other-parent-contact", parent: expect.objectContaining({ id: expect.any(String) }) },
+    ]);
+  });
+
   it("imports staff roles from the teacher sheet and creates missing class teacher classes", async () => {
     const ExcelJS = (await import("exceljs")).default;
     const { previewOnboardingImport, applyOnboardingImport } = await import("../../lib/onboarding");
     const { saveUploadPath } = await import("../../lib/uploads");
     const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet("Teachers");
+    const sheet = workbook.addWorksheet("Staff");
     sheet.addRow(["Anekio teacher ID", "Employee ID", "Name", "Mobile", "Email", "Role", "Class teacher of", "Monthly salary", "Qualification", "Example only"]);
     sheet.addRow(["", "", "New Sheet Teacher", "9876505678", "", "TEACHER", "9-C", "41000", "M.Sc", ""]);
     sheet.addRow(["", "", "Sheet Fees Admin", "9876505679", "", "FEES", "", "32000", "Accounts", ""]);

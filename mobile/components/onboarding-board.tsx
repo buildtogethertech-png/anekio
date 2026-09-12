@@ -35,10 +35,10 @@ type GoogleSheetResult = {
 };
 
 const SETUP_AREAS: { key: Onboarding["steps"][number]["area"]; title: string; body: string; icon: keyof typeof Ionicons.glyphMap }[] = [
-  { key: "school", title: "School", body: "Identity, sessions, classes, and day structure.", icon: "school-outline" },
-  { key: "teaching", title: "Teaching", body: "Students, parents, staff, attendance, and people documents.", icon: "people-outline" },
+  { key: "school", title: "School basics", body: "Identity, sessions, classes, clock, and calendar.", icon: "school-outline" },
+  { key: "teaching", title: "People", body: "Students, parents, staff, attendance, and people documents.", icon: "people-outline" },
   { key: "exams", title: "Exams", body: "Exam setup, marks history, and result documents.", icon: "reader-outline" },
-  { key: "money", title: "Money", body: "Opening dues, fee rules, invoice, receipt, and collections.", icon: "card-outline" },
+  { key: "money", title: "Fees", body: "Opening dues, fee rules, invoice, receipt, and collections.", icon: "card-outline" },
 ];
 
 const FOCUSED_IMPORT_COPY: Record<Template["kind"], { heading: string; description: string; requiredColumns: string; note: string }> = {
@@ -76,12 +76,12 @@ const FOCUSED_IMPORT_COPY: Record<Template["kind"], { heading: string; descripti
     heading: "Choose an exam marks CSV or Excel file",
     description: "Upload old exam marks for review.",
     requiredColumns: "Anekio student ID or Admission number, generated exam columns",
-    note: "Create the past exam series first, then download this template. Fill marks, use Ab for absent, and leave blanks to skip.",
+    note: "Download the generated marks sheet, fill marks, use Ab for absent, and leave blanks to skip.",
   },
   opening_balances: {
     heading: "Choose a fee CSV or Excel file",
     description: "Upload first-time fee balances for review.",
-    requiredColumns: "Admission number, Last invoiced month, Opening balance",
+    requiredColumns: "Admission number, Backlog invoice amount, Due date, Invoices already generated till",
     note: "Opening balances create backlog invoices only after review passes and you press Apply.",
   },
 };
@@ -142,6 +142,13 @@ export function OnboardingBoard({
   const templates = focused ? onboarding.templates.filter((template) => focusSet.has(template.kind)) : onboarding.templates;
   const imports = focused ? onboarding.imports.filter((item) => focusSet.has(item.kind as Template["kind"])) : onboarding.imports;
   const focusedTemplate = focused && templates.length === 1 ? templates[0] : null;
+  const focusedExamMarksCanBrowse = focusedTemplate?.kind === "exam_marks" && onboarding.counts.students > 0;
+  const focusedBrowseDisabled = focusedTemplate ? (focusedExamMarksCanBrowse ? false : focusedTemplate.disabled) : false;
+  const focusedNote = focusedTemplate
+    ? focusedTemplate.disabled && !focusedExamMarksCanBrowse
+      ? `Finish prerequisite first: ${focusedTemplate.prerequisite}.`
+      : FOCUSED_IMPORT_COPY[focusedTemplate.kind].note
+    : "";
 
   async function toggleStep(step: Onboarding["steps"][number], complete: boolean) {
     setBusy(`step:${step.key}`);
@@ -157,9 +164,18 @@ export function OnboardingBoard({
     }
   }
 
-  function openStepTarget(step: Onboarding["steps"][number]) {
-    if (step.key === "students" || step.key === "teachers" || step.key === "attendance" || step.key === "staff_attendance" || step.key === "exam_marks") {
-      setStepImportKind(step.key as Template["kind"]);
+  async function openStepTarget(step: Onboarding["steps"][number]) {
+    if (step.key === "students" || step.key === "teachers" || step.key === "attendance" || step.key === "staff_attendance" || step.key === "exam_marks" || step.key === "opening_balances") {
+      setBusy(`open:${step.key}`);
+      setMessage("");
+      try {
+        await reload();
+        setStepImportKind(step.key as Template["kind"]);
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "Could not refresh the setup step.");
+      } finally {
+        setBusy("");
+      }
       return;
     }
     onNavigate?.();
@@ -233,6 +249,7 @@ export function OnboardingBoard({
         kind: template.kind,
         sheetId: sheet.id,
       });
+      setMessage("");
       setPreview(result);
       await reload();
     } catch (error) {
@@ -255,6 +272,7 @@ export function OnboardingBoard({
         uploadPath: uploaded.path,
         fileName: uploaded.fileName,
       });
+      setMessage("");
       setPreview(result);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not review the CSV file.");
@@ -297,7 +315,7 @@ export function OnboardingBoard({
             <View className="flex-row items-center justify-between gap-4">
               <View className="min-w-0 flex-1">
                 <Text className="text-base font-semibold text-ink-900">School setup</Text>
-                <Text className="mt-1 text-xs leading-5 text-ink-700">Work through School, Teaching, Exams, and Money. Steps validate live setup data before they can be checked directly.</Text>
+                <Text className="mt-1 text-xs leading-5 text-ink-700">Work through School basics, People, Exams, and Fees. Steps validate live setup data before they can be checked directly.</Text>
               </View>
               <Badge tone="clay">{`${onboarding.progress.percent}% complete`}</Badge>
             </View>
@@ -329,9 +347,9 @@ export function OnboardingBoard({
                       const canCheckDirectly = step.dataComplete || step.manualComplete;
                       const canContinueManually = step.manualAllowed !== false;
                       const showingAck = pendingAck === step.key;
-                      const loading = busy === `step:${step.key}`;
+                      const loading = busy === `step:${step.key}` || busy === `open:${step.key}`;
                       return (
-                        <View key={step.key} className={`rounded-lg border p-3 ${step.status === "blocked" ? "border-amber-200 bg-amber-50" : "border-ink-100 bg-white"}`}>
+                        <View key={step.key} className="rounded-lg border border-ink-100 bg-white p-3">
                           <View className="flex-row items-start gap-3">
                             <Pressable
                               accessibilityRole="checkbox"
@@ -342,16 +360,16 @@ export function OnboardingBoard({
                                 if (step.manualComplete) void toggleStep(step, false);
                                 else if (step.dataComplete) void toggleStep(step, true);
                                 else if (canContinueManually) setPendingAck(showingAck ? "" : step.key);
-                                else openStepTarget(step);
+                                else void openStepTarget(step);
                               }}
-                              className={`h-7 w-7 items-center justify-center rounded-md border ${step.status === "complete" ? "border-emerald-600 bg-emerald-100" : "border-ink-300 bg-white"}`}
+                              className={`h-7 w-7 items-center justify-center rounded-md border ${step.status === "complete" ? "border-emerald-600 bg-emerald-100" : step.status === "blocked" ? "border-amber-500 bg-white" : "border-ink-300 bg-white"}`}
                             >
                               {loading ? (
                                 <ActivityIndicator color="#2563eb" size="small" />
                               ) : step.status === "complete" ? (
                                 <Ionicons name="checkmark" size={17} color="#047857" />
                               ) : (
-                                <Text className="text-xs font-semibold text-clay-700">{step.number}</Text>
+                                <Text className={`text-xs font-semibold ${step.status === "blocked" ? "text-amber-800" : "text-clay-700"}`}>{step.number}</Text>
                               )}
                             </Pressable>
                             <View className="min-w-0 flex-1">
@@ -359,7 +377,7 @@ export function OnboardingBoard({
                                 <Pressable
                                   accessibilityRole="link"
                                   accessibilityLabel={`${step.title} setup`}
-                                  onPress={() => openStepTarget(step)}
+                                  onPress={() => void openStepTarget(step)}
                                   className="min-w-0 flex-1 flex-row items-center gap-1"
                                 >
                                   <Text className="min-w-0 text-sm font-semibold text-clay-700 underline" numberOfLines={1}>{step.title}</Text>
@@ -406,12 +424,13 @@ export function OnboardingBoard({
             heading={FOCUSED_IMPORT_COPY[focusedTemplate.kind].heading}
             description={FOCUSED_IMPORT_COPY[focusedTemplate.kind].description}
             requiredColumns={FOCUSED_IMPORT_COPY[focusedTemplate.kind].requiredColumns}
-            note={FOCUSED_IMPORT_COPY[focusedTemplate.kind].note}
+            note={focusedNote}
             supportedFormat=".csv, .xlsx"
             browseLabel={busy === `upload:${focusedTemplate.kind}` ? "Reviewing..." : "Browse"}
             templateLabel={busy === `download:${focusedTemplate.kind}` ? "Preparing..." : "Download template"}
             sampleLabel={busy === `downloadSample:${focusedTemplate.kind}` ? "Preparing..." : "Download test data"}
-            disabled={focusedTemplate.disabled || Boolean(busy)}
+            browseDisabled={focusedBrowseDisabled || Boolean(busy)}
+            downloadDisabled={Boolean(busy)}
             onBrowse={() => void review(focusedTemplate)}
             onDownloadTemplate={() => void download(focusedTemplate)}
             onDownloadSample={() => void download(focusedTemplate, true)}
@@ -430,6 +449,11 @@ export function OnboardingBoard({
           </View>
           {preview.errors.slice(0, 12).map((error) => <Text key={error} className="text-xs leading-5 text-red-700">• {error}</Text>)}
           {preview.errors.length > 12 ? <Text className="text-xs text-red-700">And {preview.errors.length - 12} more issues.</Text> : null}
+          {message ? (
+            <View className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+              <Text className="text-xs leading-5 text-amber-900">{message}</Text>
+            </View>
+          ) : null}
           <View className="flex-row justify-end gap-2">
             <Button variant="ghost" onPress={() => setPreview(null)}>Cancel</Button>
             <Button disabled={preview.errors.length > 0 || busy === "apply"} onPress={() => void applyImport()}>
@@ -439,7 +463,7 @@ export function OnboardingBoard({
         </Card>
       ) : null}
 
-      {message ? (
+      {message && !preview ? (
         <Card className={`p-4 ${message.startsWith("Applied") ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
           <Text className="text-sm text-ink-800">{message}</Text>
         </Card>
@@ -450,6 +474,8 @@ export function OnboardingBoard({
         title={
           stepImportKind === "teachers"
             ? "Import staff"
+            : stepImportKind === "opening_balances"
+              ? "First time fee import"
             : stepImportKind === "attendance"
               ? "Import student attendance history"
               : stepImportKind === "staff_attendance"
@@ -464,7 +490,7 @@ export function OnboardingBoard({
         {stepImportKind ? <OnboardingBoard compact focusKinds={[stepImportKind]} /> : null}
       </Modal>
 
-      {imports.length ? (
+      {!compact && imports.length ? (
         <Card className="gap-3 p-5">
           <Text className="text-base font-semibold text-ink-900">Recent imports</Text>
           {imports.map((item) => (

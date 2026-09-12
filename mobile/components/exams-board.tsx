@@ -139,6 +139,7 @@ export function ExamsBoard() {
   const [focusPlanId, setFocusPlanId] = useState("");
   const [drawerTab, setDrawerTab] = useState<"overview" | "marks" | "activity">("overview");
   const [moreOpen, setMoreOpen] = useState(false);
+  const [historyMode, setHistoryMode] = useState(false);
   const scheduleRef = useRef<ExamScheduleSheetHandle>(null);
   const teachers = data?.peopleTeachers ?? [];
   useEffect(() => {
@@ -330,6 +331,7 @@ export function ExamsBoard() {
       return;
     }
     setSchedulePlanId(planItemId || nextSitting?.id || "");
+    setHistoryMode(false);
     setSheet(mode);
   }
   async function savePapers(papers: SchedulePaper[]) {
@@ -403,7 +405,20 @@ export function ExamsBoard() {
   function marksGranted(exam: (typeof papers)[number]) {
     return Boolean((exam.evaluators || []).length || exam.marksGrantedAt);
   }
+  function isHistoryImportPaper(exam: (typeof papers)[number]) {
+    return !exam.paperAt && Boolean(exam.marksGrantedAt) && (exam.entered ?? 0) > 0;
+  }
+  async function openMarksEditor(exam: (typeof papers)[number]) {
+    if (exam.workflowStatus === "SUBMITTED") {
+      await run("reviewExamMarks", { examId: exam.id }, "Opened for review");
+    }
+    setReviewExamId(exam.id);
+  }
   async function handlePaperAction(exam: (typeof papers)[number]) {
+    if (isHistoryImportPaper(exam)) {
+      await openMarksEditor(exam);
+      return;
+    }
     const action = officePaperAction(exam.workflowStatus, marksGranted(exam));
     if (action === "Allow marks" && exam.teacherId && canRun) {
       await run(
@@ -906,7 +921,8 @@ export function ExamsBoard() {
                       const teacherName = teachers.find((t) => t.id === exam.teacherId)?.name || exam.teacherName || "—";
                       const extraTeachers = (exam.evaluators || []).filter((person) => person.id !== exam.teacherId);
                       const selectedRow = detailExamId === exam.id;
-                      const action = officePaperAction(exam.workflowStatus, marksGranted(exam));
+                      const historyImportPaper = isHistoryImportPaper(exam);
+                      const action = historyImportPaper ? "Edit marks" : officePaperAction(exam.workflowStatus, marksGranted(exam));
                       return (
                         <Pressable
                           key={exam.id}
@@ -1004,7 +1020,9 @@ export function ExamsBoard() {
               >
                 {sheet === "edit"
                   ? "Save dates"
-                  : `Schedule ${sheetSitting.name}`}
+                  : historyMode
+                    ? `Create past ${sheetSitting.name}`
+                    : `Schedule ${sheetSitting.name}`}
               </Button>
             </View>
           ) : null
@@ -1027,6 +1045,7 @@ export function ExamsBoard() {
             }
             pending={Boolean(pending)}
             hideConfirm
+            onHistoryModeChange={setHistoryMode}
             onOpenRoutine={() => {
               setSheet("");
               router.push("/timetable");
@@ -1125,7 +1144,7 @@ export function ExamsBoard() {
                     <Text className="mt-1 text-sm text-ink-900">{detailExam.maxMarks}</Text>
                   </View>
                 </View>
-                {(() => {
+                {!isHistoryImportPaper(detailExam) ? (() => {
                   const granted = detailExam.evaluators || [];
                   const subjectTeacherId = klass?.subjects?.find(
                     (subject) => subject.name === detailExam.subject.name,
@@ -1172,44 +1191,74 @@ export function ExamsBoard() {
                       }
                     />
                   );
-                })()}
+                })() : null}
                 <View className="gap-2">
-                  <Text className="text-[10px] font-semibold uppercase tracking-wide text-ink-700">Exam progress</Text>
-                  <ExamTimeline
-                    paper={Boolean(detailExam.paperAt)}
-                    paperHint={detailExam.paperAt ? `Prepared on ${prettyDay(detailExam.paperAt)}` : undefined}
-                    scheduled={Boolean(detailExam.date)}
-                    scheduledHint={prettyFull(detailExam.date)}
-                    conducted={Boolean(detailExam.conductedAt)}
-                    conductedHint={detailExam.conductedAt ? prettyDay(detailExam.conductedAt) : undefined}
-                    marksGranted={marksGranted(detailExam)}
-                    marksGrantedHint={
-                      marksGranted(detailExam)
-                        ? `${(detailExam.evaluators || []).length || 1} teacher${(detailExam.evaluators || []).length === 1 ? "" : "s"} can enter marks`
-                        : "Office must allow marks entry"
-                    }
-                    marksDone={(detailExam.entered ?? 0) >= studentCount && studentCount > 0}
-                    marksHint={`${detailExam.entered ?? 0}/${studentCount} entered`}
-                    submitted={officeSubmitted(detailExam.workflowStatus)}
-                    correction={detailExam.workflowStatus === "CORRECTION_REQUIRED"}
-                    correctionHint={
-                      detailExam.workflowStatus === "CORRECTION_REQUIRED"
-                        ? detailExam.correctionNote || "Sent back to the teacher"
-                        : undefined
-                    }
-                    approved={detailExam.workflowStatus === "APPROVED" || detailExam.workflowStatus === "PUBLISHED"}
-                    published={detailExam.workflowStatus === "PUBLISHED"}
-                    publishedHint={
-                      detailExam.workflowStatus === "PUBLISHED"
-                        ? allPublished
-                          ? "Report card visible to fee-cleared parents"
-                          : "This paper is published. The full report card waits until every subject is published."
-                        : undefined
-                    }
-                  />
+                  <Text className="text-[10px] font-semibold uppercase tracking-wide text-ink-700">
+                    {isHistoryImportPaper(detailExam) ? "History status" : "Exam progress"}
+                  </Text>
+                  {isHistoryImportPaper(detailExam) ? (
+                    <View className="rounded-xl border border-ink-100 bg-ink-50 px-3 py-3">
+                      <View className="flex-row items-center gap-2">
+                        <View className="h-6 w-6 items-center justify-center rounded-full bg-[#10B981]">
+                          <Ionicons name="checkmark" size={13} color="#fff" />
+                        </View>
+                        <View className="min-w-0 flex-1">
+                          <Text className="text-[13px] font-semibold text-ink-900">
+                            {detailExam.workflowStatus === "PUBLISHED"
+                              ? "History marks published"
+                              : detailExam.workflowStatus === "APPROVED"
+                                ? "History marks approved"
+                                : "History marks imported"}
+                          </Text>
+                          <Text className="mt-0.5 text-[12px] text-ink-600">
+                            {detailExam.entered ?? 0}/{studentCount} marks saved from backlog import
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                  ) : (
+                    <ExamTimeline
+                      paper={Boolean(detailExam.paperAt)}
+                      paperHint={detailExam.paperAt ? `Prepared on ${prettyDay(detailExam.paperAt)}` : undefined}
+                      scheduled={Boolean(detailExam.date)}
+                      scheduledHint={prettyFull(detailExam.date)}
+                      conducted={Boolean(detailExam.conductedAt)}
+                      conductedHint={detailExam.conductedAt ? prettyDay(detailExam.conductedAt) : undefined}
+                      marksGranted={marksGranted(detailExam)}
+                      marksGrantedHint={
+                        marksGranted(detailExam)
+                          ? `${(detailExam.evaluators || []).length || 1} teacher${(detailExam.evaluators || []).length === 1 ? "" : "s"} can enter marks`
+                          : "Office must allow marks entry"
+                      }
+                      marksDone={(detailExam.entered ?? 0) >= studentCount && studentCount > 0}
+                      marksHint={`${detailExam.entered ?? 0}/${studentCount} entered`}
+                      submitted={officeSubmitted(detailExam.workflowStatus)}
+                      correction={detailExam.workflowStatus === "CORRECTION_REQUIRED"}
+                      correctionHint={
+                        detailExam.workflowStatus === "CORRECTION_REQUIRED"
+                          ? detailExam.correctionNote || "Sent back to the teacher"
+                          : undefined
+                      }
+                      approved={detailExam.workflowStatus === "APPROVED" || detailExam.workflowStatus === "PUBLISHED"}
+                      published={detailExam.workflowStatus === "PUBLISHED"}
+                      publishedHint={
+                        detailExam.workflowStatus === "PUBLISHED"
+                          ? allPublished
+                            ? "Report card visible to fee-cleared parents"
+                            : "This paper is published. The full report card waits until every subject is published."
+                          : undefined
+                      }
+                    />
+                  )}
                 </View>
                 <View className="flex-row flex-wrap gap-2">
+                  {canRun && isHistoryImportPaper(detailExam) ? (
+                    <Button className="w-full" onPress={() => void openMarksEditor(detailExam)}>
+                      Edit marks
+                    </Button>
+                  ) : null}
                   {canRun &&
+                  !isHistoryImportPaper(detailExam) &&
                   (adminCanReview(detailExam.workflowStatus) ||
                     detailExam.workflowStatus === "APPROVED" ||
                     detailExam.workflowStatus === "PUBLISHED" ||
@@ -1219,16 +1268,13 @@ export function ExamsBoard() {
                       variant="ghost"
                       busy={pending === "reviewExamMarks"}
                       onPress={async () => {
-                        if (detailExam.workflowStatus === "SUBMITTED") {
-                          await run("reviewExamMarks", { examId: detailExam.id }, "Opened for review");
-                        }
-                        setReviewExamId(detailExam.id);
+                        await openMarksEditor(detailExam);
                       }}
                     >
                       Review marks
                     </ExamAction>
                   ) : null}
-                  {canRun && adminCanReview(detailExam.workflowStatus) ? (
+                  {canRun && !isHistoryImportPaper(detailExam) && adminCanReview(detailExam.workflowStatus) ? (
                     <ExamAction
                       done={approvedFlash === detailExam.id}
                       onPress={() => setApproveExamId(detailExam.id)}
@@ -1237,6 +1283,7 @@ export function ExamsBoard() {
                     </ExamAction>
                   ) : null}
                   {canRun &&
+                  !isHistoryImportPaper(detailExam) &&
                   (detailExam.workflowStatus === "SUBMITTED" ||
                     detailExam.workflowStatus === "UNDER_REVIEW" ||
                     detailExam.workflowStatus === "APPROVED") ? (
@@ -1250,10 +1297,10 @@ export function ExamsBoard() {
                       Return for correction
                     </Button>
                   ) : null}
-                  {canPublish && adminCanPublish(detailExam.workflowStatus) ? (
+                  {canPublish && !isHistoryImportPaper(detailExam) && adminCanPublish(detailExam.workflowStatus) ? (
                     <ExamAction onPress={() => void publishToParents(detailExam.id)}>Publish results</ExamAction>
                   ) : null}
-                  {canRun ? (
+                  {canRun && !isHistoryImportPaper(detailExam) ? (
                     <Button variant="ghost" className="w-full" onPress={() => openSchedule("edit")}>
                       Edit paper details
                     </Button>

@@ -525,6 +525,7 @@ export async function copyExamSeriesCore(user: AccessUser, input: { seriesId: st
         name: source.name,
         exams: {
           create: papers.map((p) => ({
+            orgId: user.orgId ?? null,
             title: `${source.name} · ${p.subject.name}`,
             subjectId: p.subject.id,
             classId,

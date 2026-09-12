@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useRouter } from "expo-router";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { Button, Card, Chip, ChipScroller, Empty, Field, Input, Modal, PageHeader, Toast, useToast } from "./ui";
 import { DEFAULT_SUBJECTS } from "./school-setup";
@@ -79,6 +81,7 @@ function jsToWeekday(jsDay: number) {
 export function WeekBoard() {
   const { data, reload } = useRecord();
   const { token, user } = useSession();
+  const router = useRouter();
   const { width } = useWindowDimensions();
   const split = width >= 1100;
   const phone = width < 700;
@@ -106,6 +109,7 @@ export function WeekBoard() {
   const activeDay = weekdays.some((d) => d.n === day) ? day : weekdays[0]?.n ?? 1;
   const teamWeek = Boolean(data?.teamWeek);
   const editable = can(user, "timetable.edit") || teamWeek;
+  const periodsNotSet = periods.length === 0;
   const weekCapacity =
     table?.weekCapacity ?? weekdays.length * periods.filter((p) => !p.isBreak).length;
   const holdTeacher = hold ? teachers.find((t) => t.id === hold.teacherId)?.name : "";
@@ -236,7 +240,7 @@ export function WeekBoard() {
       )}
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
       <View className={split ? "mt-3 min-h-0 flex-1 flex-row gap-6" : phone ? "min-h-0 flex-1" : "mt-3 min-h-0 flex-1"}>
-        {split ? <View className="min-h-0 w-1/4 max-w-xs shrink-0">{teacherRail}</View> : null}
+        {split && !periodsNotSet ? <View className="min-h-0 w-1/4 max-w-xs shrink-0">{teacherRail}</View> : null}
 
         <View className="min-h-0 min-w-0 flex-1">
           <View className="shrink-0 gap-2">
@@ -252,7 +256,7 @@ export function WeekBoard() {
             </ChipScroller>
           </View>
 
-          {klass?.subjects?.length ? (
+          {klass?.subjects?.length && !periodsNotSet ? (
             <View className="mt-3 shrink-0 flex-row flex-wrap gap-2">
               {klass.subjects.map((s) => {
                 const placed = klass.slots.filter((slot) => slot.subject === s.name).length;
@@ -298,7 +302,9 @@ export function WeekBoard() {
             </View>
           ) : (
             <Text className="mt-2 shrink-0 text-sm text-ink-700">
-              {klass
+              {periodsNotSet
+                ? "No periods found. Set bell periods before placing teachers."
+                : klass
                 ? phone
                   ? `${klass.label} · ${weekCapacity} periods this week.`
                   : `${klass.label} · ${weekCapacity} periods this week. Drag a subject onto a cell.`
@@ -307,7 +313,9 @@ export function WeekBoard() {
           )}
 
           <View className="mt-3 min-h-0 flex-1">
-            {klass ? (
+            {periodsNotSet ? (
+              <MissingPeriodsGrid onPress={() => router.push("/school?tab=clock" as never)} />
+            ) : klass ? (
               phone ? (
                 <ScrollView className="min-h-0 flex-1" nestedScrollEnabled contentContainerClassName="pb-6">
                   <DaySchedule
@@ -741,6 +749,25 @@ function WeekGrid({
       </ScrollView>
       {footer ? <View className="mt-4 px-1">{footer}</View> : null}
       </ScrollView>
+    </Card>
+  );
+}
+
+function MissingPeriodsGrid({ onPress }: { onPress: () => void }) {
+  return (
+    <Card className="min-h-[320px] flex-1 items-center justify-center gap-3 p-6">
+      <View className="h-12 w-12 items-center justify-center rounded-full bg-blue-50">
+        <Ionicons name="time-outline" size={24} color="#1f5feb" />
+      </View>
+      <View className="items-center gap-1">
+        <Text className="text-base font-semibold text-ink-900">No periods found</Text>
+        <Text className="max-w-md text-center text-sm leading-6 text-ink-700">
+          Set bell periods in School settings before building the routine.
+        </Text>
+      </View>
+      <Button className="mt-1 px-6" onPress={onPress}>
+        Set periods
+      </Button>
     </Card>
   );
 }

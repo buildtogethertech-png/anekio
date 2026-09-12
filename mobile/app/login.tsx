@@ -4,7 +4,7 @@ import { Redirect, useRouter } from "expo-router";
 import { Linking, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button, Input } from "../components/ui";
-import { useSession } from "../lib/session";
+import { useSession, type AuthAccountChoice } from "../lib/session";
 
 type LoginMode = "password" | "otp" | "forgot";
 
@@ -59,6 +59,7 @@ export default function Login() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [developmentCode, setDevelopmentCode] = useState("");
+  const [accountChoices, setAccountChoices] = useState<AuthAccountChoice[]>([]);
   const [pending, setPending] = useState(false);
 
   if (user) return <Redirect href="/(app)" />;
@@ -67,6 +68,7 @@ export default function Login() {
     setError("");
     setNotice("");
     setDevelopmentCode("");
+    setAccountChoices([]);
   }
 
   function chooseMode(next: LoginMode) {
@@ -77,11 +79,18 @@ export default function Login() {
     clearFeedback();
   }
 
-  async function onPasswordSignIn() {
+  async function onPasswordSignIn(accountId?: string) {
     setPending(true);
-    clearFeedback();
+    setError("");
+    setNotice("");
+    setDevelopmentCode("");
     try {
-      await signIn(login, password);
+      const choices = await signIn(login, password, accountId);
+      if (choices?.length) {
+        setAccountChoices(choices);
+        setNotice("Choose which school account to open.");
+        return;
+      }
       router.replace("/(app)");
     } catch (exception) {
       setError(exception instanceof Error ? exception.message : "We could not sign you in.");
@@ -211,7 +220,10 @@ export default function Login() {
                         keyboardType="email-address"
                         testID="login-identity"
                         value={login}
-                        onChangeText={setLogin}
+                        onChangeText={(value) => {
+                          setLogin(value);
+                          setAccountChoices([]);
+                        }}
                         placeholder="name@school.com or mobile number"
                         className="h-12 pl-10"
                       />
@@ -233,8 +245,11 @@ export default function Login() {
                           secureTextEntry={!showPassword}
                           testID="login-password"
                           value={password}
-                          onChangeText={setPassword}
-                          onSubmitEditing={onPasswordSignIn}
+                          onChangeText={(value) => {
+                            setPassword(value);
+                            setAccountChoices([]);
+                          }}
+                          onSubmitEditing={() => onPasswordSignIn()}
                           placeholder="Enter your password"
                           className="h-12 px-10"
                         />
@@ -297,8 +312,27 @@ export default function Login() {
                     </View>
                   ) : null}
 
+                  {accountChoices.length ? (
+                    <View className="gap-2 rounded-md border border-clay-200 bg-clay-50 p-3">
+                      <Text className="text-xs font-semibold text-ink-900">Choose school</Text>
+                      {accountChoices.map((choice) => (
+                        <Pressable
+                          key={choice.id}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Sign in to ${choice.schoolName}`}
+                          disabled={pending}
+                          onPress={() => onPasswordSignIn(choice.id)}
+                          className="rounded-md border border-[#D8E2EC] bg-white px-3 py-2.5"
+                        >
+                          <Text className="text-sm font-semibold text-ink-900">{choice.schoolName}</Text>
+                          <Text className="mt-0.5 text-xs text-ink-700">{choice.name} · {choice.roleName}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  ) : null}
+
                   {mode === "password" ? (
-                    <Button testID="login-submit" accessibilityLabel="Sign in" onPress={onPasswordSignIn} disabled={pending || !login || !password} className="h-12 justify-center">
+                    <Button testID="login-submit" accessibilityLabel="Sign in" onPress={() => onPasswordSignIn()} disabled={pending || !login || !password} className="h-12 justify-center">
                       {pending ? "Signing in..." : "Sign in securely"}
                     </Button>
                   ) : codeSent ? (

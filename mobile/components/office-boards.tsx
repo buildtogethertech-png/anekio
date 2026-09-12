@@ -118,6 +118,94 @@ function MoneyText({ amount }: { amount: number }) {
   return <Text className="text-sm font-semibold text-amber-800">₹{Math.round(amount).toLocaleString("en-IN")} due</Text>;
 }
 
+function compactInr(amount: number) {
+  const rounded = Math.round(amount || 0);
+  if (Math.abs(rounded) >= 100000) {
+    const lakhs = rounded / 100000;
+    const digits = Math.abs(lakhs) >= 10 ? 1 : 2;
+    return `₹${lakhs.toFixed(digits).replace(/\.0+$/, "").replace(/(\.\d)0$/, "$1")}L`;
+  }
+  return inr(rounded);
+}
+
+function moneyNumber(value?: string | number) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const raw = String(value || "").replace(/[^\d.-]/g, "");
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function ratio(numerator: number, denominator: number) {
+  if (denominator <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((numerator / denominator) * 100)));
+}
+
+function FeeHealthTile({ label, value, hint, tone = "ink" }: { label: string; value: string; hint: string; tone?: "ink" | "leaf" | "warn" | "danger" }) {
+  const toneClass =
+    tone === "leaf"
+      ? "text-green-700"
+      : tone === "warn"
+        ? "text-amber-800"
+        : tone === "danger"
+          ? "text-red-700"
+          : "text-ink-900";
+  return (
+    <View className="min-w-[150px] flex-1 rounded-md border border-ink-100 bg-white px-3 py-3">
+      <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-700">{label}</Text>
+      <Text className={`mt-1 text-lg font-semibold ${toneClass}`}>{value}</Text>
+      <Text className="mt-1 text-xs leading-4 text-ink-700">{hint}</Text>
+    </View>
+  );
+}
+
+function FeeBarRow({
+  label,
+  value,
+  max,
+  detail,
+  tone = "blue",
+}: {
+  label: string;
+  value: number;
+  max: number;
+  detail: string;
+  tone?: "blue" | "amber" | "red" | "green";
+}) {
+  const width = max > 0 ? Math.max(5, Math.round((value / max) * 100)) : 0;
+  const bar = tone === "red" ? "bg-red-500" : tone === "amber" ? "bg-amber-500" : tone === "green" ? "bg-emerald-500" : "bg-blue-500";
+  return (
+    <View className="gap-1.5">
+      <View className="flex-row items-center justify-between gap-3">
+        <Text className="min-w-0 flex-1 text-xs font-medium text-ink-900" numberOfLines={1}>{label}</Text>
+        <Text className="text-xs text-ink-700">{detail}</Text>
+      </View>
+      <View className="h-2 overflow-hidden rounded-full bg-ink-100">
+        {value > 0 ? <View className={`h-full rounded-full ${bar}`} style={{ width: `${width}%` }} /> : null}
+      </View>
+    </View>
+  );
+}
+
+function FeeHealthChart({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  children: ReactNode;
+}) {
+  return (
+    <View className="min-w-[260px] flex-1 rounded-md border border-ink-100 bg-white p-3">
+      <View className="mb-3">
+        <Text className="text-sm font-semibold text-ink-900">{title}</Text>
+        <Text className="mt-0.5 text-xs leading-4 text-ink-700">{subtitle}</Text>
+      </View>
+      <View className="gap-3">{children}</View>
+    </View>
+  );
+}
+
 function DetailField({ label, value }: { label: string; value?: string }) {
   return (
     <View className="min-w-[44%] flex-1 py-2">
@@ -3215,10 +3303,11 @@ export function FeesBoard() {
   const { token, user } = useSession();
   const router = useRouter();
   const toast = useToast();
+  const { width, height } = useWindowDimensions();
   const didInitialRefresh = useRef(false);
   const [classId, setClassId] = useState("all");
   const [filter, setFilter] = useState<"all" | "overdue">("all");
-  const [tab, setTab] = useState<"due" | "templates">("due");
+  const [tab, setTab] = useState<"report" | "due" | "templates">("due");
   const [feeEditorOpen, setFeeEditorOpen] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [tplName, setTplName] = useState("Monthly fee");
@@ -3237,6 +3326,74 @@ export function FeesBoard() {
   const students = (classId === "all" ? dueStudents : dueStudents.filter((s) => s.classId === classId))
     .filter((s) => (filter === "overdue" ? (s.overdueCount || 0) > 0 : true))
     .sort((a, b) => (b.dueAmount || 0) - (a.dueAmount || 0) || a.name.localeCompare(b.name));
+  const reportPeople = classId === "all" ? people : people.filter((s) => s.classId === classId);
+  const reportDueStudents = reportPeople.filter((s) => (s.dueAmount || 0) > 0);
+  const reportOverdueStudents = reportDueStudents.filter((s) => (s.overdueCount || 0) > 0);
+  const reportClasses = classId === "all" ? (data?.classes ?? []) : (data?.classes ?? []).filter((c) => c.id === classId);
+  const allInvoices = reportPeople.flatMap((s) =>
+    (s.invoices ?? []).map((inv) => ({
+      ...inv,
+      studentId: s.id,
+      studentName: s.name,
+      classId: s.classId || "",
+      classLabel: s.classLabel,
+      dueNowAmount: inv.dueNow ?? moneyNumber(inv.remaining),
+      amountValue: moneyNumber(inv.amount),
+      paidValue: moneyNumber(inv.paid),
+    }))
+  );
+  const openInvoices = allInvoices.filter((inv) => inv.status !== "paid" && inv.dueNowAmount > 0);
+  const overdueInvoices = openInvoices.filter((inv) => inv.status === "overdue");
+  const feeHealth = {
+    billed: reportPeople.reduce((sum, s) => sum + moneyNumber(s.billed), 0),
+    paid: reportPeople.reduce((sum, s) => sum + moneyNumber(s.paid), 0),
+    outstanding: reportDueStudents.reduce((sum, s) => sum + (s.dueAmount || 0), 0),
+    overdue: overdueInvoices.reduce((sum, inv) => sum + inv.dueNowAmount, 0),
+    collectionRate: 0,
+  };
+  feeHealth.collectionRate = ratio(feeHealth.paid, feeHealth.billed);
+  const currentDue = Math.max(0, feeHealth.outstanding - feeHealth.overdue);
+  const maxCollectionBar = Math.max(feeHealth.billed, feeHealth.paid, feeHealth.outstanding, 1);
+  const classHealth = reportClasses
+    .map((c) => {
+      const rows = reportPeople.filter((s) => s.classId === c.id);
+      const classInvoices = openInvoices.filter((inv) => inv.classId === c.id);
+      const billed = rows.reduce((sum, s) => sum + moneyNumber(s.billed), 0);
+      const paid = rows.reduce((sum, s) => sum + moneyNumber(s.paid), 0);
+      const outstanding = rows.reduce((sum, s) => sum + (s.dueAmount || 0), 0);
+      const overdue = classInvoices.filter((inv) => inv.status === "overdue").reduce((sum, inv) => sum + inv.dueNowAmount, 0);
+      return {
+        id: c.id,
+        label: c.label,
+        students: rows.length,
+        billed,
+        paid,
+        outstanding,
+        overdue,
+        collectionRate: ratio(paid, billed),
+      };
+    })
+    .filter((row) => row.students > 0)
+    .sort((a, b) => b.outstanding - a.outstanding || a.label.localeCompare(b.label));
+  const maxClassOutstanding = Math.max(...classHealth.map((row) => row.outstanding), 1);
+  const pendingBuckets = [
+    { label: "1 month", count: 0 },
+    { label: "2 months", count: 0 },
+    { label: "3+ months", count: 0 },
+  ];
+  for (const s of reportDueStudents) {
+    const openMonths = new Set((s.invoices ?? []).filter((inv) => inv.status !== "paid" && (inv.dueNow ?? moneyNumber(inv.remaining)) > 0).map((inv) => inv.period || inv.title));
+    const count = openMonths.size;
+    if (count >= 3) pendingBuckets[2].count += 1;
+    else if (count === 2) pendingBuckets[1].count += 1;
+    else if (count === 1) pendingBuckets[0].count += 1;
+  }
+  const maxPendingBucket = Math.max(...pendingBuckets.map((row) => row.count), 1);
+  const topFollowUps = reportDueStudents
+    .slice()
+    .sort((a, b) => (b.overdueCount || 0) - (a.overdueCount || 0) || (b.dueAmount || 0) - (a.dueAmount || 0))
+    .slice(0, 5);
+  const compactFees = width < 760;
 
   function monthsOf(s: (typeof people)[number]) {
     return (s.invoices ?? []).filter((inv) => inv.status !== "paid").length;
@@ -3430,6 +3587,16 @@ export function FeesBoard() {
           <View className="flex-row rounded-md border border-ink-200 bg-white p-0.5">
             <Pressable
               accessibilityRole="button"
+              onPress={() => {
+                setTab("report");
+                setFilter("all");
+              }}
+              className={`min-w-[76px] items-center rounded-md px-3 py-1.5 ${tab === "report" ? "bg-clay-500" : "bg-white"}`}
+            >
+              <Text className={`text-sm font-semibold ${tab === "report" ? "text-white" : "text-ink-800"}`}>Report</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
               onPress={() => setTab("due")}
               className={`min-w-[76px] items-center rounded-md px-3 py-1.5 ${tab === "due" ? "bg-clay-500" : "bg-white"}`}
             >
@@ -3465,6 +3632,103 @@ export function FeesBoard() {
           ))}
         </View>
       </View>
+      {tab === "report" ? (
+        <ScrollView
+          className="min-h-0 flex-1"
+          nestedScrollEnabled
+          keyboardShouldPersistTaps="handled"
+          style={{ maxHeight: Math.max(420, height - 190) }}
+          contentContainerClassName="pb-8"
+        >
+        <View className="gap-3 rounded-md border border-ink-100 bg-ink-50 p-3">
+          <View className="flex-row flex-wrap items-start justify-between gap-3">
+            <View className="min-w-0 flex-1">
+              <Text className="text-base font-semibold text-ink-900">{selectedClass ? `${selectedClass.label} fee health` : "Fee health"}</Text>
+              <Text className="mt-1 text-sm leading-5 text-ink-700">
+                Collection, overdue pressure, class exposure, and the students finance should call first.
+              </Text>
+            </View>
+            <View className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2">
+              <Text className="text-[11px] font-semibold uppercase tracking-wide text-blue-900">Collection rate</Text>
+              <Text className="text-xl font-semibold text-blue-950">{feeHealth.collectionRate}%</Text>
+            </View>
+          </View>
+          <View className="flex-row flex-wrap gap-2">
+            <FeeHealthTile label="Billed" value={compactInr(feeHealth.billed)} hint={`${allInvoices.length} invoices raised`} />
+            <FeeHealthTile label="Collected" value={compactInr(feeHealth.paid)} hint={`${feeHealth.collectionRate}% of billed`} tone="leaf" />
+            <FeeHealthTile label="Outstanding" value={compactInr(feeHealth.outstanding)} hint={`${reportDueStudents.length} students pending`} tone={feeHealth.outstanding ? "warn" : "leaf"} />
+            <FeeHealthTile label="Overdue" value={compactInr(feeHealth.overdue)} hint={`${reportOverdueStudents.length} students crossed due date`} tone={feeHealth.overdue ? "danger" : "leaf"} />
+          </View>
+          <View className={`gap-3 ${compactFees ? "" : "flex-row"}`}>
+            <FeeHealthChart title="Collection funnel" subtitle="How billed fees are converting into cash.">
+              <FeeBarRow label="Billed" value={feeHealth.billed} max={maxCollectionBar} detail={compactInr(feeHealth.billed)} tone="blue" />
+              <FeeBarRow label="Collected" value={feeHealth.paid} max={maxCollectionBar} detail={compactInr(feeHealth.paid)} tone="green" />
+              <FeeBarRow label="Outstanding" value={feeHealth.outstanding} max={maxCollectionBar} detail={compactInr(feeHealth.outstanding)} tone="amber" />
+            </FeeHealthChart>
+            <FeeHealthChart title="Outstanding mix" subtitle="Split between fresh dues and overdue money.">
+              <FeeBarRow label="Current due" value={currentDue} max={Math.max(feeHealth.outstanding, 1)} detail={compactInr(currentDue)} tone="amber" />
+              <FeeBarRow label="Overdue" value={feeHealth.overdue} max={Math.max(feeHealth.outstanding, 1)} detail={compactInr(feeHealth.overdue)} tone="red" />
+              <View className="rounded-md bg-ink-50 px-3 py-2">
+                <Text className="text-xs font-medium text-ink-900">{openInvoices.length} open invoices</Text>
+                <Text className="mt-0.5 text-xs text-ink-700">{overdueInvoices.length} overdue invoices need follow-up.</Text>
+              </View>
+            </FeeHealthChart>
+          </View>
+          <View className={`gap-3 ${compactFees ? "" : "flex-row"}`}>
+            <FeeHealthChart title="Class exposure" subtitle="Classes ranked by unpaid amount.">
+              {classHealth.length ? classHealth.slice(0, 6).map((row) => (
+                <FeeBarRow
+                  key={row.id}
+                  label={row.label}
+                  value={row.outstanding}
+                  max={maxClassOutstanding}
+                  detail={`${compactInr(row.outstanding)} · ${row.collectionRate}% paid`}
+                  tone={row.overdue > 0 ? "red" : "amber"}
+                />
+              )) : (
+                <Text className="text-sm text-ink-700">No class exposure yet.</Text>
+              )}
+            </FeeHealthChart>
+            <FeeHealthChart title="Pending depth" subtitle="How long students have unpaid fee months.">
+              {pendingBuckets.map((row) => (
+                <FeeBarRow
+                  key={row.label}
+                  label={row.label}
+                  value={row.count}
+                  max={maxPendingBucket}
+                  detail={`${row.count} students`}
+                  tone={row.label === "3+ months" ? "red" : row.label === "2 months" ? "amber" : "blue"}
+                />
+              ))}
+              <View className="rounded-md bg-ink-50 px-3 py-2">
+                <Text className="text-xs font-medium text-ink-900">{reportPeople.length - reportDueStudents.length} students clear</Text>
+                <Text className="mt-0.5 text-xs text-ink-700">Use this to see whether dues are shallow or turning into backlog.</Text>
+              </View>
+            </FeeHealthChart>
+            <FeeHealthChart title="Priority follow-ups" subtitle="Highest-risk accounts for finance.">
+              {topFollowUps.length ? topFollowUps.map((s) => (
+                <Pressable
+                  key={s.id}
+                  accessibilityRole="button"
+                  onPress={() => router.push({ pathname: "/people", params: { student: s.id } } as never)}
+                  className="rounded-md border border-ink-100 bg-ink-50 px-3 py-2"
+                >
+                  <View className="flex-row items-start justify-between gap-3">
+                    <View className="min-w-0 flex-1">
+                      <Text className="text-xs font-semibold text-ink-900" numberOfLines={1}>{s.name} · {s.classLabel}</Text>
+                      <Text className="mt-0.5 text-xs text-ink-700">{monthsOf(s)} pending · {s.overdueCount || 0} overdue</Text>
+                    </View>
+                    <Text className="text-xs font-semibold text-amber-800">{compactInr(s.dueAmount || 0)}</Text>
+                  </View>
+                </Pressable>
+              )) : (
+                <Text className="text-sm text-ink-700">No follow-ups pending.</Text>
+              )}
+            </FeeHealthChart>
+          </View>
+        </View>
+        </ScrollView>
+      ) : null}
       {tab === "templates" ? (
         <Card className="mb-6 p-4">
           <View className="mb-4 flex-row flex-wrap items-start justify-between gap-3">

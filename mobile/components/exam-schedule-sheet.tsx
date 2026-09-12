@@ -4,14 +4,17 @@ import { DateField } from "./date-field";
 import {
   cadenceForKind,
   closedReason as dayClosed,
+  addDays,
   defaultExamStart,
   inferDeadlineOffsets,
   paperOffsets,
   paperDates,
   prettyDay,
   sittingDeadlines,
+  snapToSchoolDay,
   type DeadlineOffsets,
   type SchoolCalendar,
+  ymd,
 } from "../lib/calendar";
 
 export type ScheduleSubject = { id: string; name: string; teacherId?: string };
@@ -51,6 +54,10 @@ type Row = {
 
 function day(value?: string | null) {
   return (value || "").slice(0, 10);
+}
+
+function defaultPastExamStart(calendar: SchoolCalendar) {
+  return snapToSchoolDay(addDays(ymd(new Date()), -30), calendar);
 }
 
 function seedRows(
@@ -136,6 +143,7 @@ export const ExamScheduleSheet = forwardRef<
     confirmLabel?: string;
     hideConfirm?: boolean;
     onOpenRoutine?: () => void;
+    onHistoryModeChange?: (on: boolean) => void;
     onSave: (papers: SchedulePaper[]) => void;
   }
 >(function ExamScheduleSheet(
@@ -151,6 +159,7 @@ export const ExamScheduleSheet = forwardRef<
     confirmLabel,
     hideConfirm,
     onOpenRoutine,
+    onHistoryModeChange,
     onSave,
   },
   ref
@@ -201,6 +210,7 @@ export const ExamScheduleSheet = forwardRef<
   const [stagger, setStagger] = useState(() => rows.some((row) => row.date !== initialStart));
   const [error, setError] = useState("");
   const [advanced, setAdvanced] = useState(false);
+  const [historyMode, setHistoryMode] = useState(false);
 
   const reasonFor = useMemo(() => (value: string) => dayClosed(value, calendar), [calendar]);
   const orderedExamDates = rows.map((row) => row.date).filter(Boolean).sort();
@@ -258,6 +268,29 @@ export const ExamScheduleSheet = forwardRef<
     );
   }
 
+  function setPastExamMode(on: boolean) {
+    setHistoryMode(on);
+    onHistoryModeChange?.(on);
+    if (existing?.length) return;
+    const start = on ? defaultPastExamStart(calendar) : defaultExamStart(calendar);
+    const nextRows = seedRows(subjects, start, sittingKind, maxMarks, calendar)
+      .map((row) => {
+        const calculated = paperOffsets(row.date, offsets, calendar);
+        return { ...row, paperDueOn: calculated.paperDueOn, copiesDueOn: calculated.copiesDueOn };
+      })
+      .sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
+    setRows(nextRows);
+    setResultDateChanged(false);
+    setResultDate(
+      sittingDeadlines(
+        nextRows.map((row) => row.date),
+        offsets,
+        calendar
+      ).resultOn
+    );
+    setStagger(nextRows.some((row) => row.date !== start));
+  }
+
   function save() {
     const unassigned = rows.filter((row) => !row.teacherId);
     if (unassigned.length) {
@@ -307,6 +340,25 @@ export const ExamScheduleSheet = forwardRef<
           <Text className="mt-1 text-sm font-medium text-ink-900">{rows.length}</Text>
         </View>
       </View>
+
+      {!existing?.length ? (
+        <Pressable
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: historyMode }}
+          onPress={() => setPastExamMode(!historyMode)}
+          className={`flex-row items-center gap-3 rounded-lg border px-4 py-3 ${
+            historyMode ? "border-clay-500 bg-blue-50" : "border-ink-200 bg-white"
+          }`}
+        >
+          <View className={`h-5 w-5 items-center justify-center rounded border ${historyMode ? "border-clay-500 bg-clay-500" : "border-ink-300 bg-white"}`}>
+            {historyMode ? <Text className="text-xs font-semibold text-white">✓</Text> : null}
+          </View>
+          <View className="min-w-0 flex-1">
+            <Text className="text-sm font-semibold text-ink-900">Past exam / history import</Text>
+            <Text className="mt-0.5 text-xs leading-4 text-ink-700">Use past dates so this exam is ready for old marks import.</Text>
+          </View>
+        </Pressable>
+      ) : null}
 
       {rows.some((row) => !row.teacherId) ? (
         <View className="flex-row flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3">

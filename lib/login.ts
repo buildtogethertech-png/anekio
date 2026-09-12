@@ -2,29 +2,37 @@ import { prisma } from "./prisma";
 import { looksLikeEmail, normalizeMobile } from "./phone";
 
 const roleInclude = { role: { include: { grants: true } } } as const;
+const loginInclude = { ...roleInclude, org: { select: { schoolName: true } } } as const;
 
-export async function userForLogin(raw: string) {
+export async function usersForLogin(raw: string) {
   if (looksLikeEmail(raw)) {
-    return prisma.user.findUnique({
+    return prisma.user.findMany({
       where: { email: raw.toLowerCase() },
-      include: roleInclude,
+      include: loginInclude,
+      orderBy: [{ orgId: "asc" }, { createdAt: "asc" }],
     });
   }
   const phone = normalizeMobile(raw);
-  if (!phone) return null;
-  const byPhone = await prisma.user.findUnique({
+  if (!phone) return [];
+  const byPhone = await prisma.user.findMany({
     where: { phone },
-    include: roleInclude,
+    include: loginInclude,
+    orderBy: [{ orgId: "asc" }, { createdAt: "asc" }],
   });
-  if (byPhone) return byPhone;
+  if (byPhone.length) return byPhone;
   const staff = await prisma.staffMember.findFirst({
     where: { phone, userId: { not: null } },
-    include: { user: { include: roleInclude } },
+    include: { user: { include: loginInclude } },
   });
-  if (staff?.user) return staff.user;
+  if (staff?.user) return [staff.user];
   const parent = await prisma.parent.findFirst({
     where: { phone },
-    include: { user: { include: roleInclude } },
+    include: { user: { include: loginInclude } },
   });
-  return parent?.user ?? null;
+  return parent?.user ? [parent.user] : [];
+}
+
+export async function userForLogin(raw: string) {
+  const users = await usersForLogin(raw);
+  return users[0] ?? null;
 }
