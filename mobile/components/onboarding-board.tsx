@@ -490,7 +490,7 @@ export function OnboardingBoard({
         {stepImportKind ? <OnboardingBoard compact focusKinds={[stepImportKind]} /> : null}
       </Modal>
 
-      {imports.length ? (
+      {!compact && imports.length ? (
         <Card className="gap-3 p-5">
           <Text className="text-base font-semibold text-ink-900">Recent imports</Text>
           {imports.map((item) => (
