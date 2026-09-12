@@ -85,6 +85,8 @@ variable "staging_cors_origins" {
   description = "Browser origins allowed to use staging presigned S3 requests."
   type        = list(string)
   default = [
+    "http://localhost:8081",
+    "http://app.localhost:8081",
     "https://staging.anekio.com",
     "https://app.staging.anekio.com",
     "https://*.staging.anekio.com",

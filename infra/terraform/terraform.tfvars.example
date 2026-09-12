@@ -17,6 +17,8 @@ vercel_staging_project_name    = "anekio-staging"
 vercel_production_project_name = "cultivate-school"
 
 staging_cors_origins = [
+  "http://localhost:8081",
+  "http://app.localhost:8081",
   "https://staging.anekio.com",
   "https://app.staging.anekio.com",
   "https://*.staging.anekio.com",
