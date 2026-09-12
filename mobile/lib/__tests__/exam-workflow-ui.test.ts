@@ -20,7 +20,7 @@ describe("office exam presentation", () => {
   it("picks one primary paper action", () => {
     expect(officePaperAction("SCHEDULED", false)).toBe("Allow marks");
     expect(officePaperAction("SUBMITTED", true)).toBe("Review");
-    expect(officePaperAction("APPROVED", true)).toBe("Publish");
+    expect(officePaperAction("APPROVED", true)).toBe("View result");
     expect(officePaperAction("PUBLISHED", true)).toBe("View result");
   });
 
@@ -53,7 +53,6 @@ describe("office exam presentation", () => {
       marksDone: false,
       submitted: false,
       approved: false,
-      published: false,
     });
     expect(started.map((row) => row.label)).toEqual([
       "Exam scheduled",
@@ -63,7 +62,6 @@ describe("office exam presentation", () => {
       "Marks entered",
       "Submitted to office",
       "Approved",
-      "Published to parents",
     ]);
     expect(started.find((row) => row.label === "Question paper")?.kind).toBe("now");
     expect(started.find((row) => row.label === "Exam conducted")?.kind).toBe("wait");
@@ -76,9 +74,9 @@ describe("office exam presentation", () => {
       marksDone: true,
       submitted: true,
       approved: true,
-      published: false,
     });
-    expect(ready.find((row) => row.label === "Published to parents")?.kind).toBe("now");
+    expect(ready.find((row) => row.label === "Approved")?.kind).toBe("done");
+    expect(ready.some((row) => row.label === "Published to parents")).toBe(false);
   });
 
   it("filters @ teacher mentions to ungranted names", () => {

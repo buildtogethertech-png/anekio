@@ -111,7 +111,13 @@ export function PortalBody({ screen }: { screen: string }) {
     return <FamilyTimetable />;
   }
   if (screen === "fees") {
-    if (data.kind === "OFFICE") return <FeesBoard />;
+    if (data.kind === "OFFICE") {
+      return (
+        <View className="min-h-0 flex-1">
+          <FeesBoard />
+        </View>
+      );
+    }
     return <FamilyFees />;
   }
   if (screen === "exams") {

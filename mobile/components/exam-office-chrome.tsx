@@ -558,8 +558,6 @@ export function ExamTimeline({
   correctionHint,
   approved,
   approvedHint,
-  published,
-  publishedHint,
 }: {
   paper: boolean;
   paperHint?: string;
@@ -577,8 +575,6 @@ export function ExamTimeline({
   correctionHint?: string;
   approved: boolean;
   approvedHint?: string;
-  published: boolean;
-  publishedHint?: string;
 }) {
   const hints: Record<string, string | undefined> = {
     scheduled: scheduledHint,
@@ -589,7 +585,6 @@ export function ExamTimeline({
     submitted: submittedHint,
     correction: correctionHint,
     approved: approvedHint,
-    published: publishedHint,
   };
   const steps = officeExamTimeline({
     scheduled: Boolean(scheduled),
@@ -600,7 +595,6 @@ export function ExamTimeline({
     submitted,
     correction: Boolean(correction),
     approved,
-    published,
   }).map((row) => ({ ...row, hint: hints[row.key] }));
   return (
     <View>

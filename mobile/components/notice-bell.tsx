@@ -4,11 +4,11 @@ import { useState } from "react";
 import { ActivityIndicator, Modal, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { hrefForNotice } from "./notification-row";
-import { classifyNotice, NOTICE_KIND_LABEL, type NoticeKind } from "../lib/notice-kind";
+import { classifyNotice, NOTICE_KIND_LABEL, type ClassifiedNoticeKind } from "../lib/notice-kind";
 import { useNoticeInbox } from "../lib/notice-inbox";
 import { useSession } from "../lib/session";
 
-const TAG_STYLE: Record<NoticeKind, string> = {
+const TAG_STYLE: Record<ClassifiedNoticeKind, string> = {
   ADMISSION: "bg-amber-100 text-amber-900",
   EXAM: "bg-orange-100 text-orange-900",
   FEES: "bg-emerald-100 text-emerald-900",
@@ -16,6 +16,7 @@ const TAG_STYLE: Record<NoticeKind, string> = {
   ATTENDANCE: "bg-yellow-100 text-yellow-900",
   LEAVE: "bg-indigo-100 text-indigo-900",
   CIRCULAR: "bg-blue-100 text-blue-800",
+  OTHER: "bg-slate-100 text-slate-700",
 };
 
 function postedWhen(value: string) {

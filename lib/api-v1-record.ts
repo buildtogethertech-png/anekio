@@ -112,8 +112,8 @@ function staffDepartment(kind: "teacher" | "staff", portal?: string | null) {
   return "Support";
 }
 
-function isBellNotice(n: { kind?: string | null; body?: string | null; recipients?: unknown[] }) {
-  return isCircularNotice(n) || Boolean(n.recipients?.length);
+function isDashboardNotice(n: { kind?: string | null }) {
+  return isCircularNotice(n);
 }
 
 function noticeSummary(n: { id: string; title: string; body: string; createdAt: Date; author: { name: string } }) {
@@ -433,7 +433,7 @@ async function parentStudentPayload(user: AccessUser, requestedChildId?: string 
       child ? timetableForClass(child.classId) : Promise.resolve(null),
     noticesForUser(user).then((rows) =>
       rows
-          .filter(isBellNotice)
+          .filter(isDashboardNotice)
           .slice(0, 3)
           .map(noticeSummary)
     ),
@@ -474,7 +474,7 @@ async function parentStudentPayload(user: AccessUser, requestedChildId?: string 
     child ? timetableForClass(child.classId) : Promise.resolve(null),
     noticesForUser(user).then((rows) =>
       rows
-        .filter(isBellNotice)
+        .filter(isDashboardNotice)
         .slice(0, 4)
         .map(noticeSummary)
     ),
@@ -534,7 +534,7 @@ async function teacherPayload(user: AccessUser) {
     getTeacherProfile(user.id),
     noticesForUser(user).then((rows) =>
       rows
-        .filter(isBellNotice)
+        .filter(isDashboardNotice)
         .slice(0, 3)
         .map(noticeSummary)
     ),

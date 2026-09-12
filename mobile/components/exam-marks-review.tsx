@@ -194,9 +194,12 @@ export function ExamMarksReview({
           {seriesName} · {classLabel}
         </Text>
         <View className="flex-row flex-wrap gap-2">
-          {canPublish && approvedCount ? (
+          {canPublish &&
+          exams.length > 0 &&
+          exams.every((exam) => exam.workflowStatus === "APPROVED" || exam.workflowStatus === "PUBLISHED") &&
+          exams.some((exam) => exam.workflowStatus === "APPROVED") ? (
             <Button disabled={Boolean(pending)} onPress={onPublish}>
-              Publish {approvedCount} to parents
+              Show to parent
             </Button>
           ) : null}
           <Button variant="ghost" onPress={exportSheet}>

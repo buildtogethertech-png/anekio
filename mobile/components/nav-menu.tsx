@@ -3,7 +3,6 @@ import { usePathname, useRouter } from "expo-router";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { iconForNav, visibleTabs } from "../lib/nav-icons";
 import { pathForNav } from "../lib/paths";
-import { useNoticeInbox } from "../lib/notice-inbox";
 import { useSession } from "../lib/session";
 import { PageHeader } from "./ui";
 
@@ -27,7 +26,6 @@ export function NavMenu({ onNavigate }: { onNavigate?: () => void }) {
   const { user, nav, signOut } = useSession();
   const pathname = usePathname();
   const router = useRouter();
-  const inbox = useNoticeInbox();
   const items = nav
     .filter((n) => n.key !== "profile" && n.key !== "uploads")
     .sort((a, b) => {
@@ -57,7 +55,6 @@ export function NavMenu({ onNavigate }: { onNavigate?: () => void }) {
       <ScrollView className="flex-1 px-3" contentContainerStyle={{ paddingBottom: 24 }}>
         {items.map((item) => {
           const on = active(item.key);
-          const badge = item.key === "notices" ? inbox?.unread || 0 : 0;
           return (
             <Pressable
               key={item.key}
@@ -72,11 +69,6 @@ export function NavMenu({ onNavigate }: { onNavigate?: () => void }) {
               <Text className={`min-w-0 flex-1 text-[14px] ${on ? "font-semibold text-clay-700" : "font-medium text-ink-900"}`}>
                 {navLabel(user?.portal, item)}
               </Text>
-              {badge > 0 ? (
-                <View className="min-w-[18px] items-center rounded-full bg-clay-500 px-1.5">
-                  <Text className="text-[10px] font-semibold text-white">{badge > 9 ? "9+" : badge}</Text>
-                </View>
-              ) : null}
             </Pressable>
           );
         })}

@@ -680,6 +680,24 @@ describe("Express portal API", () => {
       .get("/api/v1/fee-register")
       .set({ Authorization: `Bearer ${parentSession.body.token}` });
     expect(parent.status).toBe(403);
+
+    const historyDenied = await request(app).get("/api/v1/fee-history");
+    expect(historyDenied.status).toBe(401);
+    const history = await request(app)
+      .get("/api/v1/fee-history")
+      .query({ datePreset: "custom", from: "2000-01-01", to: "2099-12-31", pageSize: 25 })
+      .set(officeAuth);
+    expect(history.status).toBe(200);
+    expect(history.body.events.length).toBeGreaterThan(0);
+    expect(history.body.events[0]).toEqual(
+      expect.objectContaining({
+        studentId: fixture.studentId,
+      })
+    );
+    const parentHistory = await request(app)
+      .get("/api/v1/fee-history")
+      .set({ Authorization: `Bearer ${parentSession.body.token}` });
+    expect(parentHistory.status).toBe(403);
   });
 
   it("saves late timing and staff In time so a later record load still has them", async () => {
@@ -1370,11 +1388,23 @@ describe("Express portal API", () => {
       login("manager.only@school.test"),
       login("notice.viewer@school.test"),
     ]);
-    const inboxes = await Promise.all(
-      sessions.map((session) =>
+    const circulars = await Promise.all(
+      sessions.slice(0, 4).map((session) =>
         request(app).get("/api/v1/notices").set("Authorization", `Bearer ${session.body.token}`)
       )
     );
+    const inboxes = await Promise.all(
+      sessions.map((session) =>
+        request(app).get("/api/v1/notices?feed=notifications").set("Authorization", `Bearer ${session.body.token}`)
+      )
+    );
+    for (const board of circulars) {
+      expect(board.status).toBe(200);
+      expect(board.body.notices).toEqual(
+        expect.arrayContaining([expect.objectContaining({ title: "Fixture circular", kind: "CIRCULAR" })])
+      );
+      expect(board.body.notices.filter((notice: { title: string }) => notice.title.startsWith("Paper deadline missed"))).toHaveLength(0);
+    }
     expect(inboxes[0].body.notices.filter((notice: { kind: string; title: string }) => notice.title.startsWith("Paper deadline missed"))).toHaveLength(2);
     expect(inboxes[1].body.notices.filter((notice: { kind: string; title: string }) => notice.title.startsWith("Paper deadline missed"))).toHaveLength(2);
     expect(inboxes[2].body.notices.filter((notice: { kind: string }) => notice.kind === "EXAM")).toHaveLength(0);
@@ -1385,9 +1415,7 @@ describe("Express portal API", () => {
     expect(inboxes[6].status).toBe(200);
     expect(inboxes[6].body.notices.filter((notice: { kind: string }) => notice.kind === "EXAM")).toHaveLength(0);
     for (const inbox of inboxes.slice(0, 4)) {
-      expect(inbox.body.notices).toEqual(
-        expect.arrayContaining([expect.objectContaining({ title: "Fixture circular" })])
-      );
+      expect(inbox.body.notices.filter((notice: { title: string }) => notice.title === "Fixture circular")).toHaveLength(0);
     }
 
     await prisma.exam.create({
@@ -1519,5 +1547,79 @@ describe("Express portal API", () => {
       })
     ).toBe(105);
     fetchMock.mockRestore();
+  });
+
+  it("keeps school circulars off the notification feed and system kinds off Notices", async () => {
+    const office = await login(fixture.users.office.email);
+    const parent = await login(fixture.users.parent.email);
+    const officeAuth = { Authorization: `Bearer ${office.body.token}` };
+    const parentAuth = { Authorization: `Bearer ${parent.body.token}` };
+
+    const posted = await request(app).post("/api/v1/act").set(officeAuth).send({
+      op: "publishNotice",
+      title: "Annual Sports Day",
+      body: "20 September · School Ground",
+      audience: ["PARENT", "TEACHER", "STUDENT", "OFFICE"],
+      allClasses: true,
+      kind: "FEES",
+    });
+    expect(posted.status).toBe(200);
+
+    await prisma.notice.create({
+      data: {
+        id: "notice-fee-legacy",
+        title: "Report card held due to fee",
+        body: "Clear dues to open the report card.",
+        kind: "FEE",
+        authorId: fixture.users.office.id,
+        audiences: { create: [{ portal: "PARENT" }, { portal: "STUDENT" }, { portal: "OFFICE" }] },
+        classes: { create: [{ classId: fixture.classId }] },
+      },
+    });
+    await prisma.notice.create({
+      data: {
+        id: "notice-unknown-kind",
+        title: "Mystery ping",
+        body: "Should not be a circular.",
+        kind: "WEIRD",
+        authorId: fixture.users.office.id,
+        audiences: { create: [{ portal: "OFFICE" }, { portal: "PARENT" }] },
+      },
+    });
+    await prisma.notice.create({
+      data: {
+        id: "notice-personal-fees",
+        title: "Fee payment received",
+        body: "₹5,000 received for September",
+        kind: "FEES",
+        authorId: fixture.users.office.id,
+        recipients: { create: [{ userId: fixture.users.parent.id }] },
+      },
+    });
+
+    const board = await request(app).get("/api/v1/notices").set(officeAuth);
+    const titles = (board.body.notices as { title: string; kind: string }[]).map((n) => n.title);
+    expect(titles).toContain("Annual Sports Day");
+    expect(board.body.notices.find((n: { title: string }) => n.title === "Annual Sports Day")).toMatchObject({
+      kind: "CIRCULAR",
+    });
+    expect(titles).not.toContain("Report card held due to fee");
+    expect(titles).not.toContain("Mystery ping");
+    expect(titles).not.toContain("Fee payment received");
+
+    const feed = await request(app).get("/api/v1/notices?feed=notifications").set(officeAuth);
+    const feedKinds = (feed.body.notices as { title: string; kind: string }[]).map((n) => `${n.kind}:${n.title}`);
+    expect(feedKinds).toContain("FEES:Report card held due to fee");
+    expect(feedKinds).toContain("OTHER:Mystery ping");
+    expect(feedKinds.some((row) => row.endsWith(":Annual Sports Day"))).toBe(false);
+
+    const parentBoard = await request(app).get("/api/v1/notices").set(parentAuth);
+    expect(parentBoard.body.notices.map((n: { title: string }) => n.title)).not.toContain("Fee payment received");
+    const parentFeed = await request(app).get("/api/v1/notices?feed=notifications").set(parentAuth);
+    expect(parentFeed.body.notices).toEqual(
+      expect.arrayContaining([expect.objectContaining({ title: "Fee payment received", kind: "FEES" })])
+    );
+    const officePersonal = (feed.body.notices as { title: string }[]).filter((n) => n.title === "Fee payment received");
+    expect(officePersonal).toHaveLength(0);
   });
 });

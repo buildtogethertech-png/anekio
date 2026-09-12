@@ -1703,7 +1703,7 @@ async function createBlockedFeeNotice(
     data: {
       title,
       body,
-      kind: "FEE",
+      kind: "FEES",
       priority: "HIGH",
       authorId: user.id,
       studentId: status.student.id,

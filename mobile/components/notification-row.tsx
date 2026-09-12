@@ -2,12 +2,12 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import { Pressable, Text, View } from "react-native";
 import type { Notice } from "../lib/api";
-import { classifyNotice, type NoticeKind } from "../lib/notice-kind";
+import { classifyNotice, type ClassifiedNoticeKind } from "../lib/notice-kind";
 import type { IoniconName } from "../lib/nav-icons";
 import { useNoticeInbox } from "../lib/notice-inbox";
 import { useSession } from "../lib/session";
 
-const KIND_STYLE: Record<NoticeKind, { icon: IoniconName; color: string; bg: string; label: string; rail: string }> = {
+const KIND_STYLE: Record<ClassifiedNoticeKind, { icon: IoniconName; color: string; bg: string; label: string; rail: string }> = {
   ADMISSION: { icon: "person-add", color: "#7c2d12", bg: "bg-amber-50", label: "Admissions", rail: "bg-amber-500" },
   EXAM: { icon: "document-text", color: "#c2410c", bg: "bg-orange-50", label: "Examination", rail: "bg-orange-500" },
   FEES: { icon: "card", color: "#047857", bg: "bg-emerald-50", label: "Fees", rail: "bg-emerald-600" },
@@ -15,13 +15,14 @@ const KIND_STYLE: Record<NoticeKind, { icon: IoniconName; color: string; bg: str
   ATTENDANCE: { icon: "checkmark-circle", color: "#d97706", bg: "bg-amber-50", label: "Attendance", rail: "bg-yellow-500" },
   LEAVE: { icon: "calendar", color: "#4338ca", bg: "bg-blue-50", label: "Leave", rail: "bg-indigo-600" },
   CIRCULAR: { icon: "megaphone", color: "#1d4ed8", bg: "bg-blue-50", label: "School", rail: "bg-blue-600" },
+  OTHER: { icon: "notifications", color: "#334155", bg: "bg-slate-100", label: "Update", rail: "bg-slate-500" },
 };
 
 function postedWhen(value: string) {
   return new Date(value).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
 }
 
-export function hrefForNotice(kind: NoticeKind, notice: Notice, navKeys: string[]) {
+export function hrefForNotice(kind: ClassifiedNoticeKind, notice: Notice, navKeys: string[]) {
   const has = (key: string) => navKeys.includes(key);
   if (kind === "EXAM") {
     const key = notice.eventKey || "";

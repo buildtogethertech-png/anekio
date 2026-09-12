@@ -2,8 +2,10 @@ import type { Portal } from "./permissions";
 
 export const NOTICE_KINDS = ["CIRCULAR", "ADMISSION", "EXAM", "FEES", "FEEDBACK", "ATTENDANCE", "LEAVE"] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
+export type ClassifiedNoticeKind = NoticeKind | "OTHER";
+export type NoticeFeed = "circulars" | "notifications" | "all";
 
-export const NOTICE_KIND_LABEL: Record<NoticeKind, string> = {
+export const NOTICE_KIND_LABEL: Record<ClassifiedNoticeKind, string> = {
   CIRCULAR: "School",
   ADMISSION: "Admissions",
   EXAM: "Examination",
@@ -11,26 +13,37 @@ export const NOTICE_KIND_LABEL: Record<NoticeKind, string> = {
   FEEDBACK: "Feedback",
   ATTENDANCE: "Attendance",
   LEAVE: "Leave",
+  OTHER: "Update",
 };
+
+export function canonicalNoticeKind(value?: string | null) {
+  const raw = String(value || "").trim().toUpperCase();
+  if (raw === "FEE") return "FEES";
+  return raw;
+}
 
 export function isNoticeKind(value: string): value is NoticeKind {
   return (NOTICE_KINDS as readonly string[]).includes(value);
 }
 
-export function classifyNotice(n: { kind?: string | null; body?: string | null }) {
-  const body = n.body || "";
-  const stored = isNoticeKind(n.kind || "") ? (n.kind as NoticeKind) : "";
-  const kind: NoticeKind =
-    stored && stored !== "CIRCULAR"
-      ? stored
-      : / added .+ for .+ on /.test(body)
-        ? "EXAM"
-        : stored || "CIRCULAR";
-  return { kind };
+export function classifyNotice(n: { kind?: string | null }) {
+  const stored = canonicalNoticeKind(n.kind);
+  if (isNoticeKind(stored)) return { kind: stored };
+  return { kind: "OTHER" as const };
 }
 
-export function isCircularNotice(n: { kind?: string | null; body?: string | null }) {
-  return classifyNotice(n).kind === "CIRCULAR";
+export function isCircularNotice(n: { kind?: string | null }) {
+  return canonicalNoticeKind(n.kind) === "CIRCULAR";
+}
+
+export function isSystemNotification(n: { kind?: string | null }) {
+  return !isCircularNotice(n);
+}
+
+export function noticeMatchesFeed(n: { kind?: string | null }, feed: NoticeFeed = "all") {
+  if (feed === "circulars") return isCircularNotice(n);
+  if (feed === "notifications") return isSystemNotification(n);
+  return true;
 }
 
 export const NOTICE_ROLES: { portal: Portal; label: string }[] = [
