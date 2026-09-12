@@ -1,6 +1,6 @@
 import { createElement, useMemo, useState, useEffect, useRef } from "react";
 import type { ReactNode } from "react";
-import { Alert, Linking, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { Alert, Linking, Modal as RnModal, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { GeneratePayment } from "./generate-payment";
@@ -3491,7 +3491,7 @@ export function FeesBoard() {
     .sort((a, b) => (b.overdueCount || 0) - (a.overdueCount || 0) || (b.dueAmount || 0) - (a.dueAmount || 0))
     .slice(0, 5);
   const compactFees = width < 760;
-  const selectedDueStudent = students.find((s) => s.id === selectedDueStudentId) || students[0] || null;
+  const selectedDueStudent = selectedDueStudentId ? students.find((s) => s.id === selectedDueStudentId) || null : null;
   const payDueStudent = payDueStudentId ? people.find((s) => s.id === payDueStudentId) || null : null;
 
   function monthsOf(s: (typeof people)[number]) {
@@ -3530,6 +3530,150 @@ export function FeesBoard() {
       return bKey.localeCompare(aKey);
     });
   }
+
+  async function openDueFeeDocument(inv: { id: string; invoiceUrl?: string; receiptUrl?: string }, paid: boolean) {
+    const directUrl = paid ? inv.receiptUrl : inv.invoiceUrl;
+    if (directUrl) {
+      if (Platform.OS === "web") {
+        window.open(directUrl, "_blank", "noopener,noreferrer");
+        return;
+      }
+      await Linking.openURL(directUrl);
+      return;
+    }
+    const pendingWindow = Platform.OS === "web" ? window.open("", "_blank") : null;
+    if (pendingWindow) pendingWindow.opener = null;
+    const openUrl = async (url: string) => {
+      if (pendingWindow) {
+        pendingWindow.location.replace(url);
+        return;
+      }
+      await Linking.openURL(url);
+    };
+    try {
+      const result = await act<{ ok: true; token: string }>(token, "ensurePayToken", { invoiceId: inv.id });
+      const shareToken = encodeURIComponent(result.token);
+      const url = paid ? `${webOrigin()}/pay/${shareToken}?paid=1` : `${webOrigin()}/i/${shareToken}`;
+      await reload();
+      await openUrl(url);
+    } catch (e) {
+      pendingWindow?.close();
+      toast.show(e instanceof Error ? e.message : "Could not open fee document.");
+    }
+  }
+
+  const dueStudentPanel = selectedDueStudent ? (
+    <View className="min-h-0 flex-1 bg-slate-50 p-4">
+      <View className="flex-row flex-wrap items-start justify-between gap-3 border-b border-ink-100 pb-3">
+        <View className="min-w-0 flex-1">
+          <Text className="text-lg font-semibold text-ink-900">{selectedDueStudent.name}</Text>
+          <Text className="mt-0.5 text-xs text-ink-700">
+            {selectedDueStudent.classLabel || "No class"} · {selectedDueStudent.admissionNo}
+          </Text>
+        </View>
+        <View className="flex-row flex-wrap justify-end gap-2">
+          {can(user, "fees.collect") ? (
+            <Button className="px-3 py-1.5" onPress={() => setPayDueStudentId(selectedDueStudent.id)}>Collect</Button>
+          ) : null}
+          <Button
+            variant="ghost"
+            className="px-3 py-1.5"
+            onPress={() => router.push({ pathname: "/people", params: { student: selectedDueStudent.id } } as never)}
+          >
+            View student
+          </Button>
+        </View>
+      </View>
+      <View className="mt-3 gap-2">
+        <View className="flex-row gap-2">
+          <View className="min-w-0 flex-1 rounded-md bg-white px-3 py-2">
+            <Text className="text-[11px] font-medium text-ink-500">Outstanding</Text>
+            <Text className="mt-1 text-base font-semibold text-amber-900">{selectedDueStudent.dueNow}</Text>
+          </View>
+          <View className="min-w-0 flex-1 rounded-md bg-white px-3 py-2">
+            <Text className="text-[11px] font-medium text-ink-500">Paid</Text>
+            <Text className="mt-1 text-base font-semibold text-green-800">{selectedDueStudent.paid || "₹0"}</Text>
+          </View>
+        </View>
+        <View className="flex-row gap-2">
+          <View className="min-w-0 flex-1 rounded-md bg-white px-3 py-2">
+            <Text className="text-[11px] font-medium text-ink-500">Invoices</Text>
+            <Text className="mt-1 text-sm font-semibold text-ink-900">{selectedDueStudent.invoices?.length || 0}</Text>
+          </View>
+          <View className="min-w-0 flex-1 rounded-md bg-white px-3 py-2">
+            <Text className="text-[11px] font-medium text-ink-500">Overdue</Text>
+            <Text className="mt-1 text-sm font-semibold text-ink-900">{selectedDueStudent.overdueCount || 0}</Text>
+          </View>
+        </View>
+      </View>
+      <ScrollView nestedScrollEnabled style={{ maxHeight: compactFees ? 420 : height - 260 }} contentContainerClassName="mt-4 gap-2 pb-1">
+        {studentFeeTimeline(selectedDueStudent).map((inv) => {
+          const paidInvoice = inv.status === "paid";
+          const payments = inv.payments ?? [];
+          return (
+            <View key={inv.id} className="rounded-md border border-ink-100 bg-white p-3">
+              <View className="flex-row items-start justify-between gap-3">
+                <View className="min-w-0 flex-1">
+                  <Text className="text-sm font-semibold text-ink-900">{inv.title}</Text>
+                  <Text className="mt-0.5 text-xs text-ink-600">Due {inv.due}</Text>
+                  {inv.lateLabel && !paidInvoice ? <Text className="mt-0.5 text-xs text-amber-800">{inv.lateLabel}</Text> : null}
+                </View>
+                <View className="items-end gap-1">
+                  <Badge tone={paidInvoice ? "leaf" : inv.status === "overdue" ? "warn" : "clay"}>{paidInvoice ? "paid" : inv.status}</Badge>
+                  <Text className="text-xs font-semibold text-ink-900">{inv.remaining || inv.amount}</Text>
+                </View>
+              </View>
+              <View className="mt-3 flex-row flex-wrap justify-between gap-2 rounded-md bg-ink-50 px-3 py-2">
+                <Text className="text-[11px] text-ink-600">Bill {inv.amount}</Text>
+                <Text className="text-[11px] text-green-800">Paid {inv.paid}</Text>
+                <Text className="text-[11px] text-amber-900">Balance {inv.remaining || "₹0"}</Text>
+              </View>
+              <View className="mt-3 flex-row flex-wrap gap-2">
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open invoice for ${inv.title}`}
+                  onPress={() => void openDueFeeDocument(inv, false)}
+                  className="flex-row items-center gap-1 rounded-md border border-ink-200 bg-white px-2.5 py-1.5"
+                >
+                  <Ionicons name="document-text-outline" size={14} color="#1d4ed8" />
+                  <Text className="text-xs font-semibold text-blue-700">Invoice</Text>
+                </Pressable>
+                {paidInvoice ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open receipt for ${inv.title}`}
+                    onPress={() => void openDueFeeDocument(inv, true)}
+                    className="flex-row items-center gap-1 rounded-md border border-ink-200 bg-white px-2.5 py-1.5"
+                  >
+                    <Ionicons name="receipt-outline" size={14} color="#15803d" />
+                    <Text className="text-xs font-semibold text-green-700">Receipt</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+              {payments.length ? (
+                <View className="mt-3 gap-2 border-t border-ink-100 pt-2">
+                  {payments.map((payment, index) => (
+                    <View key={`${inv.id}-${index}`} className="flex-row items-start justify-between gap-3">
+                      <View className="min-w-0 flex-1">
+                        <Text className="text-xs font-medium text-green-800">
+                          {paymentMethodLabel(payment.method)} · {timelineDate(payment.paidAt)}
+                        </Text>
+                        {payment.reference ? <Text className="mt-0.5 text-[11px] text-ink-600">Ref {payment.reference}</Text> : null}
+                        {payment.notes ? <Text className="mt-0.5 text-[11px] text-ink-600">{payment.notes}</Text> : null}
+                      </View>
+                      <Text className="text-xs font-semibold text-green-800">{payment.amount}</Text>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <Text className="mt-3 border-t border-ink-100 pt-2 text-xs text-ink-600">No payment recorded yet.</Text>
+              )}
+            </View>
+          );
+        })}
+      </ScrollView>
+    </View>
+  ) : null;
 
   const templates = data?.feeTemplates ?? [];
   const currentSession = data?.school?.sessions?.find((s) => s.current) ?? data?.school?.sessions?.[0];
@@ -3576,7 +3720,7 @@ export function FeesBoard() {
   }, [classId, classTemplates]);
 
   useEffect(() => {
-    setSelectedDueStudentId((current) => (current && students.some((s) => s.id === current) ? current : students[0]?.id || ""));
+    setSelectedDueStudentId((current) => (current && students.some((s) => s.id === current) ? current : ""));
   }, [classId, filter, students.length, students[0]?.id]);
 
   useEffect(() => {
@@ -4192,13 +4336,12 @@ export function FeesBoard() {
               </Text>
             </View>
           ) : (
-            <View className={`${compactFees ? "gap-3" : "flex-row gap-3"}`}>
+            <View className="gap-3">
               <ScrollView
                 nestedScrollEnabled
                 keyboardShouldPersistTaps="handled"
                 style={{ maxHeight: 500 }}
                 contentContainerClassName="gap-3 pb-1"
-                className={compactFees ? "" : "w-[62%]"}
               >
                 {students.map((s) => {
                   const months = monthsOf(s);
@@ -4233,99 +4376,35 @@ export function FeesBoard() {
                   );
                 })}
               </ScrollView>
-              {selectedDueStudent ? (
-                <View className={`rounded-md border border-ink-100 bg-slate-50 p-4 ${compactFees ? "" : "min-w-0 flex-1"}`}>
-                  <View className="flex-row flex-wrap items-start justify-between gap-3 border-b border-ink-100 pb-3">
-                    <View className="min-w-0 flex-1">
-                      <Text className="text-lg font-semibold text-ink-900">{selectedDueStudent.name}</Text>
-                      <Text className="mt-0.5 text-xs text-ink-700">
-                        {selectedDueStudent.classLabel || "No class"} · {selectedDueStudent.admissionNo}
-                      </Text>
-                    </View>
-                    <View className="flex-row flex-wrap justify-end gap-2">
-                      {can(user, "fees.collect") ? (
-                        <Button className="px-3 py-1.5" onPress={() => setPayDueStudentId(selectedDueStudent.id)}>Collect</Button>
-                      ) : null}
-                      <Button
-                        variant="ghost"
-                        className="px-3 py-1.5"
-                        onPress={() => router.push({ pathname: "/people", params: { student: selectedDueStudent.id } } as never)}
-                      >
-                        View student
-                      </Button>
-                    </View>
-                  </View>
-                  <View className="mt-3 gap-2">
-                    <View className="flex-row gap-2">
-                      <View className="min-w-0 flex-1 rounded-md bg-white px-3 py-2">
-                        <Text className="text-[11px] font-medium text-ink-500">Outstanding</Text>
-                        <Text className="mt-1 text-base font-semibold text-amber-900">{selectedDueStudent.dueNow}</Text>
-                      </View>
-                      <View className="min-w-0 flex-1 rounded-md bg-white px-3 py-2">
-                        <Text className="text-[11px] font-medium text-ink-500">Paid</Text>
-                        <Text className="mt-1 text-base font-semibold text-green-800">{selectedDueStudent.paid || "₹0"}</Text>
-                      </View>
-                    </View>
-                    <View className="flex-row gap-2">
-                      <View className="min-w-0 flex-1 rounded-md bg-white px-3 py-2">
-                        <Text className="text-[11px] font-medium text-ink-500">Invoices</Text>
-                        <Text className="mt-1 text-sm font-semibold text-ink-900">{selectedDueStudent.invoices?.length || 0}</Text>
-                      </View>
-                      <View className="min-w-0 flex-1 rounded-md bg-white px-3 py-2">
-                        <Text className="text-[11px] font-medium text-ink-500">Overdue</Text>
-                        <Text className="mt-1 text-sm font-semibold text-ink-900">{selectedDueStudent.overdueCount || 0}</Text>
-                      </View>
-                    </View>
-                  </View>
-                  <ScrollView nestedScrollEnabled style={{ maxHeight: compactFees ? 360 : 390 }} contentContainerClassName="mt-4 gap-2 pb-1">
-                    {studentFeeTimeline(selectedDueStudent).map((inv) => {
-                      const paidInvoice = inv.status === "paid";
-                      const payments = inv.payments ?? [];
-                      return (
-                        <View key={inv.id} className="rounded-md border border-ink-100 bg-white p-3">
-                          <View className="flex-row items-start justify-between gap-3">
-                            <View className="min-w-0 flex-1">
-                              <Text className="text-sm font-semibold text-ink-900">{inv.title}</Text>
-                              <Text className="mt-0.5 text-xs text-ink-600">Due {inv.due}</Text>
-                              {inv.lateLabel && !paidInvoice ? <Text className="mt-0.5 text-xs text-amber-800">{inv.lateLabel}</Text> : null}
-                            </View>
-                            <View className="items-end gap-1">
-                              <Badge tone={paidInvoice ? "leaf" : inv.status === "overdue" ? "warn" : "clay"}>{paidInvoice ? "paid" : inv.status}</Badge>
-                              <Text className="text-xs font-semibold text-ink-900">{inv.remaining || inv.amount}</Text>
-                            </View>
-                          </View>
-                          <View className="mt-3 flex-row justify-between rounded-md bg-ink-50 px-3 py-2">
-                            <Text className="text-[11px] text-ink-600">Bill {inv.amount}</Text>
-                            <Text className="text-[11px] text-green-800">Paid {inv.paid}</Text>
-                            <Text className="text-[11px] text-amber-900">Balance {inv.remaining || "₹0"}</Text>
-                          </View>
-                          {payments.length ? (
-                            <View className="mt-3 gap-2 border-t border-ink-100 pt-2">
-                              {payments.map((payment, index) => (
-                                <View key={`${inv.id}-${index}`} className="flex-row items-start justify-between gap-3">
-                                  <View className="min-w-0 flex-1">
-                                    <Text className="text-xs font-medium text-green-800">
-                                      {paymentMethodLabel(payment.method)} · {timelineDate(payment.paidAt)}
-                                    </Text>
-                                    {payment.reference ? <Text className="mt-0.5 text-[11px] text-ink-600">Ref {payment.reference}</Text> : null}
-                                    {payment.notes ? <Text className="mt-0.5 text-[11px] text-ink-600">{payment.notes}</Text> : null}
-                                  </View>
-                                  <Text className="text-xs font-semibold text-green-800">{payment.amount}</Text>
-                                </View>
-                              ))}
-                            </View>
-                          ) : (
-                            <Text className="mt-3 border-t border-ink-100 pt-2 text-xs text-ink-600">No payment recorded yet.</Text>
-                          )}
-                        </View>
-                      );
-                    })}
-                  </ScrollView>
-                </View>
-              ) : null}
             </View>
           )}
         </View>
+      ) : null}
+      {Platform.OS === "web" && selectedDueStudent ? (
+        <RnModal visible transparent animationType="fade" onRequestClose={() => setSelectedDueStudentId("")}>
+          <View className="flex-1 flex-row justify-end">
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Dismiss fee detail"
+              className="absolute inset-0 bg-black/30"
+              onPress={() => setSelectedDueStudentId("")}
+            />
+            <View className="z-10 h-full w-full max-w-[480px] border-l border-ink-200 bg-slate-50 shadow-lg">
+              <View className="flex-row items-center justify-between border-b border-ink-100 bg-white px-4 py-3">
+                <Text className="text-base font-semibold text-ink-900">Fee detail</Text>
+                <Pressable accessibilityRole="button" accessibilityLabel="Close fee detail" hitSlop={8} onPress={() => setSelectedDueStudentId("")}>
+                  <Ionicons name="close" size={22} color="#3d4f66" />
+                </Pressable>
+              </View>
+              {dueStudentPanel}
+            </View>
+          </View>
+        </RnModal>
+      ) : null}
+      {Platform.OS !== "web" ? (
+        <Sheet open={Boolean(selectedDueStudent)} onClose={() => setSelectedDueStudentId("")}>
+          {dueStudentPanel}
+        </Sheet>
       ) : null}
       <GeneratePayment
         open={Boolean(payDueStudent)}
