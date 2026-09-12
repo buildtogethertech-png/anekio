@@ -1622,7 +1622,11 @@ export async function saveSchoolIdentityCore(
   const schoolAsset = (next: string | undefined, current?: string | null) => {
     if (next === undefined) return current || "";
     const value = next.trim();
-    if (value && !value.startsWith("school/")) throw new Error("Invalid school asset.");
+    const allowed =
+      value.startsWith("school/") ||
+      value.startsWith("public/school/branding/") ||
+      value.startsWith("private/school/branding/");
+    if (value && !allowed) throw new Error("Invalid school asset.");
     return value;
   };
   const data = {
