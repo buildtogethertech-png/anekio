@@ -32,6 +32,8 @@ type OnboardingStepKey =
   | "teachers"
   | "staff_id_document"
   | "salary_slip_document"
+  | "working_days"
+  | "holiday_calendar"
   | "attendance"
   | "staff_attendance"
   | "exam_plan"
@@ -71,6 +73,8 @@ const ONBOARDING_STEP_KEYS = new Set<OnboardingStepKey>([
   "teachers",
   "staff_id_document",
   "salary_slip_document",
+  "working_days",
+  "holiday_calendar",
   "attendance",
   "staff_attendance",
   "exam_plan",
@@ -1752,11 +1756,12 @@ export async function onboardingBundle(user: AccessUser) {
     "EXAM_DATE_SHEET",
     "CONSOLIDATED_REPORT",
   ];
-  const [school, classCount, studentCount, teacherCount, staffMemberCount, attendanceCount, staffAttendanceCount, currentSession, examCount, examMarkCount, templateCount, openingCount, documentTemplates, latestImports, latestSheets] = await Promise.all([
+  const [school, classCount, studentCount, teacherCount, staffMemberCount, attendanceCount, staffAttendanceCount, currentSession, holidayCount, examCount, examMarkCount, templateCount, openingCount, documentTemplates, latestImports, latestSheets] = await Promise.all([
     prisma.schoolConfig.findUnique({
       where: { id: "school" },
       select: {
         name: true,
+        weekdays: true,
         upiId: true,
         bankName: true,
         bankAccountName: true,
@@ -1775,6 +1780,7 @@ export async function onboardingBundle(user: AccessUser) {
     prisma.attendance.count(),
     prisma.staffDay.count(),
     prisma.schoolSession.findFirst({ where: { current: true }, select: { examPlanJson: true } }),
+    prisma.schoolHoliday.count(),
     prisma.exam.count(),
     prisma.examResult.count(),
     prisma.feeTemplate.count(),
@@ -1808,6 +1814,8 @@ export async function onboardingBundle(user: AccessUser) {
   const hasConsolidatedReportDocument = savedDocumentTypes.has("CONSOLIDATED_REPORT");
   const hasImportantDocuments = importantDocumentTypes.every((type) => savedDocumentTypes.has(type));
   const staffCount = teacherCount + staffMemberCount;
+  const hasWorkingDays = parseWeekdays(school?.weekdays).length > 0;
+  const hasHolidayCalendar = holidayCount > 0 || manualDone.has("holiday_calendar");
   const hasStudentAttendanceHistory = attendanceCount > 0 || importDone.has("attendance");
   const hasStaffAttendanceHistory = staffAttendanceCount > 0 || importDone.has("staff_attendance");
   const currentExamPlan = parseExamPlan(currentSession?.examPlanJson, false);
@@ -1848,20 +1856,22 @@ export async function onboardingBundle(user: AccessUser) {
     step("teachers", "teaching", 7, "Staff", "Import staff records with role and class-teacher columns when needed.", staffCount > 0 || importDone.has("teachers"), false, "Staff are needed for class ownership, timetable, attendance, payroll, and documents.", { href: "/staff", label: "Open staff" }),
     step("staff_id_document", "teaching", 8, "Staff ID card template", "Save and publish the staff ID card template.", hasStaffIdDocument, !hasStaffIdDocument, "Staff ID cards need a published template before the office can issue cards.", { href: "/school?tab=documents&document=EMPLOYEE_ID", label: "Open staff ID template" }, false),
     step("salary_slip_document", "teaching", 9, "Salary slip template", "Save and publish the salary slip template.", hasSalarySlipDocument, !hasSalarySlipDocument, "Salary slips need a published template before payroll documents can be issued.", { href: "/school?tab=documents&document=SALARY_SLIP", label: "Open salary slip template" }, false),
-    step("attendance", "teaching", 10, "Student attendance history", "Import old student attendance with class sheets, holiday calendar days, and dates through today.", hasStudentAttendanceHistory, studentCount === 0 || classCount === 0, "Student attendance history needs classes, students, and the holiday calendar first.", { href: "/attendance", label: "Open student attendance" }),
-    step("staff_attendance", "teaching", 11, "Staff attendance history", "Import old staff attendance with holidays already marked through today.", hasStaffAttendanceHistory, staffCount === 0, "Staff attendance history needs staff and the holiday calendar first.", { href: "/staff", label: "Open staff attendance" }),
-    step("exam_plan", "exams", 12, "This year's exam plan", "Save the session plan with exam sittings, result weight, maximum marks, and expected periods.", hasExamPlan, classCount === 0, "Create classes first, then save this year's exam plan.", { href: "/school?tab=exams", label: "Open year plan" }),
-    step("exam_history", "exams", 13, "Setup exams", "Create or customize the exam series, classes, subjects, dates, and max marks for exams that already happened.", hasExamHistory, classCount === 0 || !hasExamPlan, "Save this year's exam plan before creating exam history.", { href: "/exams", label: "Open exam setup" }),
-    step("exam_marks", "exams", 14, "Exam marks history", "Download the marks sheet generated from saved exam history, then upload completed marks for review.", hasExamMarksHistory, studentCount === 0 || !hasExamPlan || !hasExamHistory, "Save this year's exam plan, create exam history, and add students before importing marks.", { href: "/exams", label: "Open marks import" }),
-    step("report_card_document", "exams", 15, "Report card template", "Save and publish the report card template.", hasReportCardDocument, !hasReportCardDocument, "Report cards need a published template before results can be shared.", { href: "/school?tab=documents&document=REPORT_CARD", label: "Open report card template" }, false),
-    step("exam_date_sheet_document", "exams", 16, "Exam date sheet template", "Save and publish the exam date sheet template.", hasExamDateSheetDocument, !hasExamDateSheetDocument, "Exam date sheets need a published template before schedules can be issued.", { href: "/school?tab=documents&document=EXAM_DATE_SHEET", label: "Open date sheet template" }, false),
-    step("consolidated_report_document", "exams", 17, "Consolidated report card template", "Save and publish the consolidated report card template.", hasConsolidatedReportDocument, !hasConsolidatedReportDocument, "Consolidated report cards need a published template before full-session results can be shared.", { href: "/school?tab=documents&document=CONSOLIDATED_REPORT", label: "Open consolidated report template" }, false),
-    step("collection_account", "money", 18, "Bank and collection account", "Add UPI, bank account, or the school's payment gateway before asking parents to pay.", hasUpi || hasBank || hasGateway, false, "Collection details appear on pay pages, invoices, receipts, and office collection workflows.", { href: "/school?tab=collect", label: "Open collection setup" }),
-    step("fee_invoice_document", "money", 19, "Fee invoice template", "Save and publish the fee invoice template before the first billing cycle.", hasInvoiceDocument, !hasInvoiceDocument, "Fee invoice template is required before fee setup can continue.", { href: "/school?tab=documents&document=FEE_INVOICE", label: "Open invoice template" }, false),
-    step("payment_receipt_document", "money", 20, "Payment receipt template", "Save and publish the payment receipt template before the first billing cycle.", hasReceiptDocument, !hasReceiptDocument, "Payment receipt template is required before fee setup can continue.", { href: "/school?tab=documents&document=PAYMENT_RECEIPT", label: "Open receipt template" }, false),
-    step("opening_balances", "money", 21, "First time fee import", "Put any previous-system dues in a backlog invoice and tell Anekio the last month already invoiced.", importDone.has("opening_balances") || (studentCount > 0 && openingCount >= studentCount), studentCount === 0, "Opening balances prevent missed old dues and duplicate first invoices.", { href: "/fees", label: "Open fees" }),
-    step("recurring_fees", "money", 22, "Recurring fee rules", "Set class fee ranges. New invoices begin after each student's imported cut-off month.", templateCount > 0, classCount === 0, "Recurring fee rules are needed before monthly billing can run correctly.", { href: "/fees", label: "Open fees" }),
-    step("review", "money", 23, "Review and launch", "Check counts, spot-check families, fees, exams, staff, and templates, then hand the workspace to the school.", false, classCount === 0 || studentCount === 0 || !hasImportantDocuments, !hasImportantDocuments ? "Save and publish the important student, staff, exam, invoice, and receipt templates before launch review." : "Review catches missing setup before the school starts using the workspace live.", { href: "/school", label: "Open school setup" }, false),
+    step("working_days", "teaching", 10, "Working days", "Choose the days the school runs before attendance templates are generated.", hasWorkingDays, !hasWorkingDays, "Attendance uses Clock working days to prefill school days and weekly offs.", { href: "/school?tab=clock", label: "Open clock" }, false),
+    step("holiday_calendar", "teaching", 11, "Holiday calendar", "Add or import holidays before attendance templates are generated.", hasHolidayCalendar, !hasHolidayCalendar, "Attendance imports need holidays marked first so those dates are skipped.", { href: "/school?tab=calendar", label: "Open calendar" }),
+    step("attendance", "teaching", 12, "Student attendance history", "Import old student attendance with class sheets, holiday calendar days, and dates through today.", hasStudentAttendanceHistory && hasWorkingDays && hasHolidayCalendar, studentCount === 0 || classCount === 0 || !hasWorkingDays || !hasHolidayCalendar, "Student attendance history needs classes, students, working days, and the holiday calendar first.", { href: "/attendance", label: "Open student attendance" }),
+    step("staff_attendance", "teaching", 13, "Staff attendance history", "Import old staff attendance with holidays already marked through today.", hasStaffAttendanceHistory && hasWorkingDays && hasHolidayCalendar, staffCount === 0 || !hasWorkingDays || !hasHolidayCalendar, "Staff attendance history needs staff, working days, and the holiday calendar first.", { href: "/staff", label: "Open staff attendance" }),
+    step("exam_plan", "exams", 14, "This year's exam plan", "Save the session plan with exam sittings, result weight, maximum marks, and expected periods.", hasExamPlan, classCount === 0, "Create classes first, then save this year's exam plan.", { href: "/school?tab=exams", label: "Open year plan" }),
+    step("exam_history", "exams", 15, "Setup exams", "Create or customize the exam series, classes, subjects, dates, and max marks for exams that already happened.", hasExamHistory, classCount === 0 || !hasExamPlan, "Save this year's exam plan before creating exam history.", { href: "/exams", label: "Open exam setup" }),
+    step("exam_marks", "exams", 16, "Exam marks history", "Download the marks sheet generated from saved exam history, then upload completed marks for review.", hasExamMarksHistory, studentCount === 0 || !hasExamPlan || !hasExamHistory, "Save this year's exam plan, create exam history, and add students before importing marks.", { href: "/exams", label: "Open marks import" }),
+    step("report_card_document", "exams", 17, "Report card template", "Save and publish the report card template.", hasReportCardDocument, !hasReportCardDocument, "Report cards need a published template before results can be shared.", { href: "/school?tab=documents&document=REPORT_CARD", label: "Open report card template" }, false),
+    step("exam_date_sheet_document", "exams", 18, "Exam date sheet template", "Save and publish the exam date sheet template.", hasExamDateSheetDocument, !hasExamDateSheetDocument, "Exam date sheets need a published template before schedules can be issued.", { href: "/school?tab=documents&document=EXAM_DATE_SHEET", label: "Open date sheet template" }, false),
+    step("consolidated_report_document", "exams", 19, "Consolidated report card template", "Save and publish the consolidated report card template.", hasConsolidatedReportDocument, !hasConsolidatedReportDocument, "Consolidated report cards need a published template before full-session results can be shared.", { href: "/school?tab=documents&document=CONSOLIDATED_REPORT", label: "Open consolidated report template" }, false),
+    step("collection_account", "money", 20, "Bank and collection account", "Add UPI, bank account, or the school's payment gateway before asking parents to pay.", hasUpi || hasBank || hasGateway, false, "Collection details appear on pay pages, invoices, receipts, and office collection workflows.", { href: "/school?tab=collect", label: "Open collection setup" }),
+    step("fee_invoice_document", "money", 21, "Fee invoice template", "Save and publish the fee invoice template before the first billing cycle.", hasInvoiceDocument, !hasInvoiceDocument, "Fee invoice template is required before fee setup can continue.", { href: "/school?tab=documents&document=FEE_INVOICE", label: "Open invoice template" }, false),
+    step("payment_receipt_document", "money", 22, "Payment receipt template", "Save and publish the payment receipt template before the first billing cycle.", hasReceiptDocument, !hasReceiptDocument, "Payment receipt template is required before fee setup can continue.", { href: "/school?tab=documents&document=PAYMENT_RECEIPT", label: "Open receipt template" }, false),
+    step("opening_balances", "money", 23, "First time fee import", "Put any previous-system dues in a backlog invoice and tell Anekio the last month already invoiced.", importDone.has("opening_balances") || (studentCount > 0 && openingCount >= studentCount), studentCount === 0, "Opening balances prevent missed old dues and duplicate first invoices.", { href: "/fees", label: "Open fees" }),
+    step("recurring_fees", "money", 24, "Recurring fee rules", "Set class fee ranges. New invoices begin after each student's imported cut-off month.", templateCount > 0, classCount === 0, "Recurring fee rules are needed before monthly billing can run correctly.", { href: "/fees", label: "Open fees" }),
+    step("review", "money", 25, "Review and launch", "Check counts, spot-check families, fees, exams, staff, and templates, then hand the workspace to the school.", false, classCount === 0 || studentCount === 0 || !hasImportantDocuments, !hasImportantDocuments ? "Save and publish the important student, staff, exam, invoice, and receipt templates before launch review." : "Review catches missing setup before the school starts using the workspace live.", { href: "/school", label: "Open school setup" }, false),
   ];
   const required = steps;
   const completed = required.filter((row) => row.status === "complete").length;
@@ -1874,8 +1884,8 @@ export async function onboardingBundle(user: AccessUser) {
       kind,
       title: TEMPLATE_DETAILS[kind].title,
       fileName: xlsxFileName(kind),
-      disabled: (kind === "opening_balances" && studentCount === 0) || (kind === "attendance" && (studentCount === 0 || classCount === 0)) || (kind === "staff_attendance" && staffCount === 0) || (kind === "exam_marks" && (studentCount === 0 || !hasExamPlan || !hasExamHistory)),
-      prerequisite: kind === "opening_balances" ? "Students" : kind === "attendance" ? "Classes, students, and holiday calendar" : kind === "staff_attendance" ? "Staff and holiday calendar" : kind === "exam_marks" ? "Year exam plan, setup exams, and students" : "Class labels can be created from the sheet",
+      disabled: (kind === "opening_balances" && studentCount === 0) || (kind === "attendance" && (studentCount === 0 || classCount === 0 || !hasWorkingDays || !hasHolidayCalendar)) || (kind === "staff_attendance" && (staffCount === 0 || !hasWorkingDays || !hasHolidayCalendar)) || (kind === "exam_marks" && (studentCount === 0 || !hasExamPlan || !hasExamHistory)),
+      prerequisite: kind === "opening_balances" ? "Students" : kind === "attendance" ? "Classes, students, working days, and holiday calendar" : kind === "staff_attendance" ? "Staff, working days, and holiday calendar" : kind === "exam_marks" ? "Year exam plan, setup exams, and students" : "Class labels can be created from the sheet",
     })),
     imports: latestImports.map((row) => ({
       id: row.id,

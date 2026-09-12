@@ -139,6 +139,43 @@ describe("school onboarding imports", () => {
     expect(periods).toEqual(["2026-04", "2026-09", "OPENING"]);
   });
 
+  it("requires working days and holiday calendar before attendance history imports", async () => {
+    const { onboardingBundle } = await import("../../lib/onboarding");
+
+    const before = await onboardingBundle(user);
+    expect(before.steps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "working_days", status: "complete", target: expect.objectContaining({ href: "/school?tab=clock" }) }),
+      expect.objectContaining({ key: "holiday_calendar", status: "blocked", target: expect.objectContaining({ href: "/school?tab=calendar" }) }),
+      expect.objectContaining({ key: "attendance", status: "blocked" }),
+      expect.objectContaining({ key: "staff_attendance", status: "blocked" }),
+    ]));
+    expect(before.templates.find((template) => template.kind === "attendance")).toMatchObject({
+      disabled: true,
+      prerequisite: "Classes, students, working days, and holiday calendar",
+    });
+    expect(before.templates.find((template) => template.kind === "staff_attendance")).toMatchObject({
+      disabled: true,
+      prerequisite: "Staff, working days, and holiday calendar",
+    });
+
+    await prisma.schoolHoliday.create({
+      data: {
+        sessionId: "session-2026",
+        date: "2026-10-02",
+        name: "Gandhi Jayanti",
+        source: "manual",
+      },
+    });
+    const after = await onboardingBundle(user);
+    expect(after.steps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "holiday_calendar", status: "complete" }),
+      expect.objectContaining({ key: "attendance", status: "complete" }),
+      expect.objectContaining({ key: "staff_attendance", status: "ready" }),
+    ]));
+    expect(after.templates.find((template) => template.kind === "attendance")).toMatchObject({ disabled: false });
+    expect(after.templates.find((template) => template.kind === "staff_attendance")).toMatchObject({ disabled: false });
+  });
+
   it("generates a student workbook with one tab per class section", async () => {
     const ExcelJS = (await import("exceljs")).default;
     const { onboardingSpreadsheetTemplate, onboardingBundle } = await import("../../lib/onboarding");
