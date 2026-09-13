@@ -1685,12 +1685,20 @@ export function SchoolBoard() {
                         <Text className="text-xs font-semibold text-blue-700">{form.websiteSlug || "demo"}.anekio.com</Text>
                         <View className={`h-2 w-2 rounded-full ${form.websiteEnabled ? "bg-green-600" : "bg-ink-400"}`} />
                         <Text className="text-xs font-semibold text-ink-800">{form.websiteEnabled ? "Live" : "Offline"}</Text>
-                        <Text className="text-xs text-ink-600">
-                          {form.admissionForm.filter((field) => field.visible).length} fields · {form.admissionForm.filter((field) => field.required).length} required
-                        </Text>
                       </View>
                     </View>
                     <View className="flex-row flex-wrap items-center gap-2">
+                      <View className="flex-row items-center gap-3 rounded-md border border-ink-200 bg-white px-3 py-2">
+                        <View>
+                          <Text className="text-xs font-medium text-ink-700">Admission form</Text>
+                          <Text className="text-[11px] font-semibold text-ink-900">
+                            {form.admissionForm.filter((field) => field.visible).length} shown · {form.admissionForm.filter((field) => field.required).length} required
+                          </Text>
+                        </View>
+                        <Button variant="ghost" className="h-9 px-3" onPress={() => setAdmissionFormOpen(true)}>
+                          Edit
+                        </Button>
+                      </View>
                       <Button
                         variant="ghost"
                         onPress={() => {
@@ -1711,20 +1719,6 @@ export function SchoolBoard() {
 
                   <View className="mt-4 border-t border-ink-100 pt-4">
                     <Text className="mb-3 text-sm font-semibold text-ink-900">Website setup</Text>
-                    <View className="mb-3 rounded-lg border border-ink-200 bg-ink-50 p-3">
-                      <View className="flex-row flex-wrap items-center justify-between gap-3">
-                        <View className="min-w-0 flex-1">
-                          <Text className="text-sm font-semibold text-ink-900">Website status</Text>
-                          <Text className="mt-0.5 text-xs text-ink-700">
-                            {form.websiteEnabled ? "Parents can view your website." : "Website is not visible to parents yet."}
-                          </Text>
-                        </View>
-                        <View className="flex-row items-center gap-2">
-                          <View className={`h-2 w-2 rounded-full ${form.websiteEnabled ? "bg-green-600" : "bg-ink-400"}`} />
-                          <Text className="text-xs font-semibold text-ink-800">{form.websiteEnabled ? "Live" : "Draft"}</Text>
-                        </View>
-                      </View>
-                    </View>
                     <View className="flex-row flex-wrap gap-3">
                       <View className={phone ? "w-full min-w-full" : "min-w-[520px] flex-[1.6]"}>
                         <View className="rounded-lg border border-ink-200 bg-ink-50 p-3">
@@ -1769,17 +1763,6 @@ export function SchoolBoard() {
                             ]}
                             onChange={(v) => patch("websiteTheme", v)}
                           />
-                        </View>
-                      </View>
-                      <View className={phone ? "w-full min-w-full" : "min-w-[260px] flex-1"}>
-                        <View className="rounded-lg border border-ink-200 bg-white p-3">
-                          <Text className="text-xs font-medium text-ink-700">Admission form</Text>
-                          <Text className="mt-1 text-sm font-semibold text-ink-900">
-                            {form.admissionForm.filter((field) => field.visible).length} shown · {form.admissionForm.filter((field) => field.required).length} required
-                          </Text>
-                          <Button variant="ghost" className="mt-3 self-start" onPress={() => setAdmissionFormOpen(true)}>
-                            Edit form
-                          </Button>
                         </View>
                       </View>
                     </View>
