@@ -218,6 +218,16 @@ export function TeacherDeskBoard() {
   const dashboardTodos = todos.slice(0, wideDashboard ? 5 : 4);
   const remainingTodoCount = Math.max(0, todos.length - dashboardTodos.length);
 
+  function nextWorkingDayLabel() {
+    for (let offset = 1; offset <= 14; offset += 1) {
+      const date = addDays(ymd(new Date()), offset);
+      if (!closedReason(date, calendar)) {
+        return new Date(`${date}T00:00:00`).toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "short" });
+      }
+    }
+    return "next working day";
+  }
+
   function closedDayVoice(reason: string) {
     if (/^Sun off$/i.test(reason)) return { title: "Happy Sunday", register: "Sunday off", hint: "School is off. Monday the periods show here." };
     if (/^Sat off$/i.test(reason)) return { title: "Saturday off", register: "Saturday off", hint: "School is closed. Next school day the periods show here." };
@@ -348,61 +358,47 @@ export function TeacherDeskBoard() {
           ? closed.hint
           : "No lesson scheduled now";
     if (phoneDashboard) {
+      const headline = closed ? "School is off today" : next ? next.subject : day.periods.length ? "Done for today" : "No class now";
+      const subline = closed
+        ? `Next working day: ${nextWorkingDayLabel()}`
+        : next
+          ? `${next.period || "Now"}${next.start ? ` · ${next.start}${next.end ? `-${next.end}` : ""}` : ""}${next.classLabel ? ` · ${next.classLabel}` : ""}`
+          : day.periods.length
+            ? "All scheduled lessons are complete"
+            : "Use the quick actions below";
       return (
-        <Card className="mb-3 overflow-hidden">
-          <View className="border-b border-ink-100 bg-white px-4 py-4">
-            <View className="flex-row items-start justify-between gap-3">
+        <Card className="mb-3 overflow-hidden border-clay-100">
+          <View className="bg-white px-4 py-4">
+            <View className="flex-row items-start justify-between gap-2">
               <View className="min-w-0 flex-1">
-                <Text className="text-xs font-medium uppercase tracking-wide text-clay-600">Today</Text>
-                <Text className="mt-1 text-2xl font-semibold text-ink-900">
-                  {closed ? closed.title : next ? next.subject : day.periods.length ? "Done for today" : "No class now"}
+                <Text className="text-xs font-medium uppercase tracking-wide text-clay-600">
+                  {new Date().toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}
                 </Text>
-                <Text className="mt-1 text-sm leading-5 text-ink-700">{scheduleText}</Text>
+                <Text className="mt-1 text-2xl font-semibold text-ink-900">
+                  {headline}
+                </Text>
+                <Text className="mt-1 text-sm leading-5 text-ink-700">{subline}</Text>
               </View>
-              <Badge tone={closed ? "warn" : data?.markedToday ? "leaf" : "danger"}>
-                {closed ? "Closed" : data?.markedToday ? "Marked" : "Pending"}
-              </Badge>
+              {!closed && data?.classTeacher && !data.markedToday ? <Badge tone="danger">Pending</Badge> : null}
             </View>
-            <View className="mt-4 flex-row gap-2">
+            <View className="mt-4 flex-row flex-wrap gap-2">
               {data?.staffAttendanceSelf ? (
-                <View className="flex-1">
+                <View className="min-w-[130px] flex-1">
                   <StaffAttendanceQrButton token={token} disabled={Boolean(todayClosed)} compact onMessage={toast.show} />
                 </View>
               ) : null}
-              <View className="flex-1">
+              <View className="min-w-[130px] flex-1">
                 <Button variant={data?.classTeacher && !data.markedToday && !closed ? "primary" : "ghost"} onPress={() => router.push("/attendance")}>
                   Attendance
                 </Button>
               </View>
             </View>
           </View>
-          <View className="flex-row">
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Open attendance register"
-              onPress={() => router.push("/attendance")}
-              className="flex-1 border-r border-ink-100 px-4 py-3"
-            >
-              <Text className="text-[11px] font-medium uppercase tracking-wide text-ink-700">Register</Text>
-              <Text className={`mt-1 text-sm font-semibold ${!closed && data?.classTeacher && !data.markedToday ? "text-red-700" : "text-ink-900"}`}>
-                {registerText}
-              </Text>
-              <Text className="mt-1 text-xs text-ink-700" numberOfLines={1}>
-                {closed ? "Unavailable today" : data?.markedToday ? "Review or correct" : "Mark the class"}
-              </Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Open timetable"
-              onPress={() => router.push("/timetable")}
-              className="flex-1 px-4 py-3"
-            >
-              <Text className="text-[11px] font-medium uppercase tracking-wide text-ink-700">Schedule</Text>
-              <Text className="mt-1 text-sm font-semibold text-ink-900">
-                {next ? next.period || "Now" : day.periods.length ? `${day.periods.length} today` : closed ? closed.register : "No class"}
-              </Text>
-              <Text className="mt-1 text-xs text-ink-700" numberOfLines={1}>{rest.length ? `${rest.length} more` : "Open week"}</Text>
-            </Pressable>
+          <View className="border-t border-ink-100 bg-ink-50 px-4 py-3">
+            <View className="flex-row items-center justify-between gap-3">
+              <Text className="min-w-0 flex-1 text-sm font-medium text-ink-900" numberOfLines={1}>{registerText}</Text>
+              <Text className="text-xs text-ink-700">{closed ? "Closed" : data?.markedToday ? "Review" : "Mark now"}</Text>
+            </View>
           </View>
         </Card>
       );
@@ -457,11 +453,12 @@ export function TeacherDeskBoard() {
 
   function phoneWorkCard() {
     if (!phoneDashboard) return null;
+    const top = dashboardTodos.slice(0, 4);
     return (
       <Card className="mb-4">
         <View className="flex-row items-center justify-between border-b border-ink-100 px-4 py-3">
           <View>
-            <Text className="text-sm font-semibold text-ink-900">Work waiting</Text>
+            <Text className="text-sm font-semibold text-ink-900">Pending work</Text>
             <Text className="mt-0.5 text-xs text-ink-700">
               {overdueTodos ? `${overdueTodos} overdue` : todos.length ? `${todos.length} open` : "Nothing urgent"}
             </Text>
@@ -470,11 +467,14 @@ export function TeacherDeskBoard() {
             <Text className="text-sm font-medium text-clay-600">Open</Text>
           </Pressable>
         </View>
-        {dashboardTodos.length ? (
-          dashboardTodos.slice(0, 3).map((todo) => (
-            <Pressable key={todo.id} onPress={() => router.push("/exams")} className="border-t border-ink-100 px-4 py-3">
-              <Text className="text-sm font-medium text-ink-900" numberOfLines={1}>{todo.title}</Text>
-              <Text className="mt-1 text-xs text-ink-700" numberOfLines={1}>{todo.hint}</Text>
+        {top.length ? (
+          top.map((todo) => (
+            <Pressable key={todo.id} onPress={() => router.push("/exams")} className="flex-row items-center gap-3 border-t border-ink-100 px-4 py-3">
+              <View className="min-w-0 flex-1">
+                <Text className="text-sm font-medium text-ink-900" numberOfLines={1}>{todo.title.replace(/^Take exam · /, "")}</Text>
+                <Text className="mt-1 text-xs text-ink-700" numberOfLines={1}>{todo.hint}</Text>
+              </View>
+              <Text className="text-xs font-medium text-clay-600">Open</Text>
             </Pressable>
           ))
         ) : (
@@ -512,20 +512,26 @@ export function TeacherDeskBoard() {
         tone: overdueTodos ? "text-red-700" : "text-amber-800",
       },
     ];
+    const peopleLabel = data?.classTeacher ? "students" : "classes";
     return (
-      <View className="mb-3 flex-row overflow-hidden rounded-md border border-ink-100 bg-white">
+      <View className="mb-3 rounded-md border border-ink-100 bg-white px-4 py-3">
+        <Text className="text-xs text-ink-700">
+          {`${stats[0].value} ${peopleLabel} · ${todos.length} pending · ${weekSlots.length} lessons this week`}
+        </Text>
+        <View className="mt-3 flex-row">
         {stats.map((stat, index) => (
           <Pressable
             key={stat.label}
             accessibilityRole="button"
             accessibilityLabel={`${stat.label}: ${stat.value}`}
             onPress={() => router.push(stat.route as never)}
-            className={`flex-1 px-3 py-3 ${index ? "border-l border-ink-100" : ""}`}
+            className={`flex-1 ${index ? "border-l border-ink-100 pl-3" : ""}`}
           >
             <Text className="text-[10px] font-medium uppercase tracking-wide text-ink-700">{stat.label}</Text>
             <Text className={`mt-1 text-lg font-semibold ${stat.tone}`}>{stat.value}</Text>
           </Pressable>
         ))}
+        </View>
       </View>
     );
   }
@@ -535,12 +541,19 @@ export function TeacherDeskBoard() {
 
   return (
     <View>
-      <View className="mb-4 flex-row flex-wrap items-end justify-between gap-2">
+      <View className={phoneDashboard ? "mb-3" : "mb-4 flex-row flex-wrap items-end justify-between gap-2"}>
         <View>
-          <Text className="text-xs font-medium uppercase tracking-wide text-clay-600">Teacher desk</Text>
-          <Text className="mt-1 text-xl font-semibold text-ink-900">{greeting}</Text>
+          <Text className="text-xs font-medium uppercase tracking-wide text-clay-600">{phoneDashboard ? "Teacher" : "Teacher desk"}</Text>
+          <Text className={phoneDashboard ? "mt-1 text-3xl font-semibold text-ink-900" : "mt-1 text-xl font-semibold text-ink-900"}>
+            {phoneDashboard ? "Today" : greeting}
+          </Text>
+          {phoneDashboard ? (
+            <Text className="mt-1 text-sm text-ink-700">
+              {data?.classTeacher && data.classLabel ? `Class ${data.classLabel} · ${data.studentCount || roster.length} students` : `${taughtSubjects.length || 0} subjects`}
+            </Text>
+          ) : null}
         </View>
-        <Text className="text-xs text-ink-700">{todayClosed ? "Closed day" : data?.markedToday ? "Register marked" : "Needs attention"}</Text>
+        {!phoneDashboard ? <Text className="text-xs text-ink-700">{todayClosed ? "Closed day" : data?.markedToday ? "Register marked" : "Needs attention"}</Text> : null}
       </View>
 
       {todayFocusCard()}
