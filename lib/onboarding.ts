@@ -1834,7 +1834,7 @@ export async function toggleOnboardingStep(user: AccessUser, input: { key?: unkn
 export async function onboardingBundle(user: AccessUser) {
   need(user);
   const state = await ensureOnboardingState(user);
-  const schoolId = String((user as AccessUser & { schoolId?: string | null }).schoolId || "school");
+  const orgId = state.orgId || (user.orgId ?? "");
   const importantDocumentTypes = [
     "FEE_INVOICE",
     "PAYMENT_RECEIPT",
@@ -1876,7 +1876,7 @@ export async function onboardingBundle(user: AccessUser) {
     prisma.examResult.count(),
     prisma.feeTemplate.count(),
     prisma.feeInvoice.count({ where: { period: "OPENING" } }),
-    prisma.documentTemplate.findMany({ where: { schoolId, status: "ACTIVE", type: { in: importantDocumentTypes } }, select: { type: true } }),
+    prisma.documentTemplate.findMany({ where: { orgId, status: "ACTIVE", type: { in: importantDocumentTypes } }, select: { type: true } }),
     prisma.schoolOnboardingImport.findMany({ where: { stateId: state.id }, orderBy: { createdAt: "desc" }, take: 8 }),
     prisma.onboardingGoogleSheet.findMany({ where: { stateId: state.id }, orderBy: { createdAt: "desc" }, take: 8 }),
   ]);

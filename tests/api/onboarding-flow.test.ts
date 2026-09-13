@@ -176,6 +176,37 @@ describe("school onboarding imports", () => {
     expect(after.templates.find((template) => template.kind === "staff_attendance")).toMatchObject({ disabled: false });
   });
 
+  it("marks student ID template complete from active org document templates", async () => {
+    const { onboardingBundle } = await import("../../lib/onboarding");
+    await prisma.schoolConfig.create({
+      data: {
+        id: "school:org-onboarding-fixture",
+        orgId: "org-onboarding-fixture",
+        name: "Fixture Academy",
+      },
+    });
+    await prisma.documentTemplate.create({
+      data: {
+        orgId: "org-onboarding-fixture",
+        schoolId: "school:org-onboarding-fixture",
+        type: "STUDENT_ID",
+        category: "STUDENT",
+        name: "Student ID card",
+        status: "ACTIVE",
+        activeVersion: 1,
+        draftJson: JSON.stringify({ elements: [{ id: "verify", type: "VERIFY_QR", x: 75, y: 75, width: 16, height: 16 }] }),
+        createdById: user.id,
+        updatedById: user.id,
+      },
+    });
+
+    const bundle = await onboardingBundle(user);
+    expect(bundle.steps.find((step) => step.key === "student_id_document")).toMatchObject({
+      status: "complete",
+      dataComplete: true,
+    });
+  });
+
   it("generates a student workbook with one tab per class section", async () => {
     const ExcelJS = (await import("exceljs")).default;
     const { onboardingSpreadsheetTemplate, onboardingBundle } = await import("../../lib/onboarding");
