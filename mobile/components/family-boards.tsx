@@ -552,13 +552,46 @@ export function TeacherDeskBoard() {
 
   function phoneSummaryStrip() {
     if (!phoneDashboard) return null;
-    const peopleLabel = data?.classTeacher ? "students" : "classes";
+    const attendanceValue = classAtt
+      ? `${classAtt.pct}%`
+      : data?.markedToday
+        ? `${Math.max(0, 100 - Math.round((outToday.length / Math.max(1, data.studentCount || roster.length)) * 100))}%`
+        : "--";
+    const stats = [
+      {
+        label: data?.classTeacher ? "Students" : "Classes",
+        value: String(data?.classTeacher ? data.studentCount || roster.length : taughtClasses.length),
+        route: "/class",
+        tone: "text-clay-600",
+      },
+      { label: "Attendance", value: attendanceValue, route: "/attendance", tone: "text-green-700" },
+      { label: "Lessons", value: String(weekSlots.length), route: "/timetable", tone: "text-violet-700" },
+      { label: "Work", value: String(todos.length), route: "/exams", tone: overdueTodos ? "text-red-700" : "text-amber-800" },
+    ];
     return (
-      <Pressable onPress={() => router.push("/class")} className="mb-3 rounded-md border border-ink-100 bg-white px-4 py-3">
-        <Text className="text-xs text-ink-700">
-          {`${data?.classTeacher ? data.studentCount || roster.length : taughtClasses.length} ${peopleLabel} · ${todos.length} pending · ${weekSlots.length} lessons this week${classAtt ? ` · ${classAtt.pct}% attendance` : ""}`}
-        </Text>
-      </Pressable>
+      <Card className="mb-3 p-0">
+        <View className="border-b border-ink-100 px-4 py-3">
+          <Text className="text-sm font-semibold text-ink-900">Snapshot</Text>
+          <Text className="mt-0.5 text-xs text-ink-700">Class and week at a glance</Text>
+        </View>
+        <View className="flex-row flex-wrap">
+          {stats.map((stat, index) => (
+            <Pressable
+              key={stat.label}
+              accessibilityRole="button"
+              accessibilityLabel={`${stat.label}: ${stat.value}`}
+              onPress={() => router.push(stat.route as never)}
+              className={`w-1/2 px-4 py-3 ${index > 1 ? "border-t border-ink-100" : ""} ${index % 2 ? "border-l border-ink-100" : ""}`}
+            >
+              <View className="flex-row items-center justify-between gap-2">
+                <Text className="text-[11px] font-medium uppercase tracking-wide text-ink-700">{stat.label}</Text>
+                <Ionicons name="arrow-forward" size={13} color="#64748B" />
+              </View>
+              <Text className={`mt-1 text-xl font-semibold ${stat.tone}`}>{stat.value}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </Card>
     );
   }
 
