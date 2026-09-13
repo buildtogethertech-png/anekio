@@ -455,6 +455,9 @@ body,
   pointer-events: none;
   transition: opacity 220ms ease;
 }
+.fee-permission-blur {
+  filter: blur(10px);
+}
 .parent-examination-page .parent-exam-hero-float {
   position: relative;
   z-index: 2;

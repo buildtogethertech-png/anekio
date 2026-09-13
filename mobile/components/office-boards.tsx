@@ -318,6 +318,50 @@ function StatBox({ label, value, hint }: { label: string; value: string; hint?: 
   );
 }
 
+function LockedFeePanel({ kind }: { kind: "trend" | "health" }) {
+  const bars = kind === "trend" ? [30, 62, 44, 78, 52, 86, 68] : [70, 18, 52];
+  return (
+    <View className="relative mt-5 min-h-[160px] overflow-hidden rounded-md bg-ink-50">
+      <View className="fee-permission-blur pointer-events-none absolute inset-0 opacity-80">
+        {kind === "trend" ? (
+          <View className="h-full flex-row items-end gap-2 px-4 pb-4 pt-8">
+            {bars.map((height, index) => (
+              <View key={index} className="flex-1 items-center justify-end">
+                <View className="h-28 w-full max-w-16 justify-end overflow-hidden rounded-md bg-white">
+                  <View className="w-full rounded-md bg-sky-300" style={{ height }} />
+                </View>
+                <View className="mt-2 h-2 w-8 rounded-full bg-ink-200" />
+              </View>
+            ))}
+          </View>
+        ) : (
+          <View className="h-full justify-center gap-5 px-7 py-6">
+            <View className="h-4 flex-row overflow-hidden rounded-full bg-white">
+              <View className="h-full bg-emerald-300" style={{ width: "28%" }} />
+              <View className="h-full bg-amber-300" style={{ width: "24%" }} />
+              <View className="h-full flex-1 bg-red-300" />
+            </View>
+            {[0, 1, 2].map((row) => (
+              <View key={row} className="flex-row items-center justify-between">
+                <View className="h-3 w-28 rounded-full bg-white" />
+                <View className="h-3 w-8 rounded-full bg-white" />
+              </View>
+            ))}
+            <View className="h-9 rounded-md bg-white" />
+          </View>
+        )}
+      </View>
+      <View className="absolute inset-0 items-center justify-center bg-white/70 px-4">
+        <View className="h-11 w-11 items-center justify-center rounded-full bg-ink-900">
+          <Ionicons name="lock-closed" size={18} color="#ffffff" />
+        </View>
+        <Text className="mt-3 text-center text-sm font-semibold text-ink-900">No permission</Text>
+        <Text className="mt-1 text-center text-xs text-ink-700">Fee collection data is hidden for this role.</Text>
+      </View>
+    </View>
+  );
+}
+
 export function DeskBoard() {
   const { data, reload } = useRecord();
   const { token, user } = useSession();
@@ -329,6 +373,7 @@ export function DeskBoard() {
   const desk = data?.desk;
   if (!desk) return <Empty title="The desk" body="Loading the school pulse." />;
   const desktop = width >= 900;
+  const canSeeFees = can(user, "fees.view") || can(user, "school.edit");
   const subjectLoadPending = desk.subjectLoadPending ?? 0;
   const overdue = desk.overdueCount ?? 0;
   const series = desk.series ?? [];
@@ -413,13 +458,25 @@ export function DeskBoard() {
           },
           { label: "Idle staff", value: String(desk.idleStaff), hint: "Available this stretch", route: "/staff", danger: false },
           { label: "Teacher absent", value: String(desk.teacherAbsent ?? 0), hint: "Assigned today", route: "/staff", danger: (desk.teacherAbsent ?? 0) > 0 },
-          { label: "Fees overdue", value: String(overdue), hint: desk.dueNow || "₹0 pending", route: "/fees", danger: overdue > 0 },
+          {
+            label: "Fees overdue",
+            value: canSeeFees ? String(overdue) : "—",
+            hint: canSeeFees ? desk.dueNow || "₹0 pending" : "No permission",
+            route: canSeeFees ? "/fees" : "",
+            danger: canSeeFees && overdue > 0,
+            locked: !canSeeFees,
+          },
         ].map((metric) => (
-          <Pressable key={metric.label} className={desktop ? "w-[23.5%]" : "w-[47%]"} onPress={() => router.push(metric.route as never)}>
+          <Pressable
+            key={metric.label}
+            className={desktop ? "w-[23.5%]" : "w-[47%]"}
+            disabled={!metric.route}
+            onPress={() => metric.route && router.push(metric.route as never)}
+          >
             <Card className="min-h-[124px] p-4">
               <View className="flex-row items-center justify-between gap-2">
                 <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">{metric.label}</Text>
-                <Ionicons name="arrow-forward" size={15} color="#3d4f66" />
+                <Ionicons name={metric.locked ? "lock-closed" : "arrow-forward"} size={15} color="#3d4f66" />
               </View>
               <Text className={`mt-3 text-3xl font-semibold ${metric.danger ? "text-red-600" : "text-ink-900"}`}>{metric.value}</Text>
               <Text className="mt-1 text-xs text-ink-700">{metric.hint}</Text>
@@ -475,24 +532,32 @@ export function DeskBoard() {
               <Text className="mt-0.5 text-xs text-ink-700">Last seven days</Text>
             </View>
             <View className="items-end">
-              <Text className="text-xl font-semibold text-ink-900">{desk.weekAmount || "₹0"}</Text>
-              <Text className="text-xs text-ink-700">Today {desk.todayAmount || "₹0"}</Text>
+              {canSeeFees ? (
+                <>
+                  <Text className="text-xl font-semibold text-ink-900">{desk.weekAmount || "₹0"}</Text>
+                  <Text className="text-xs text-ink-700">Today {desk.todayAmount || "₹0"}</Text>
+                </>
+              ) : (
+                <Badge tone="ink">Locked</Badge>
+              )}
             </View>
           </View>
-          <View className="mt-5 h-40 flex-row items-end gap-2">
-            {series.map((point) => (
-              <View key={`${point.label}-${point.isToday}`} className="flex-1 items-center justify-end">
-                <Text className="mb-1 text-[9px] font-medium text-ink-700">{point.amount ? shortMoney(point.amount) : ""}</Text>
-                <View className="h-28 w-full max-w-16 justify-end overflow-hidden rounded-md bg-ink-50">
-                  <View
-                    className={`w-full rounded-md ${point.isToday ? "bg-clay-500" : "bg-sky-400"}`}
-                    style={{ height: Math.max(5, (point.amount / max) * 112) }}
-                  />
+          {canSeeFees ? (
+            <View className="mt-5 h-40 flex-row items-end gap-2">
+              {series.map((point) => (
+                <View key={`${point.label}-${point.isToday}`} className="flex-1 items-center justify-end">
+                  <Text className="mb-1 text-[9px] font-medium text-ink-700">{point.amount ? shortMoney(point.amount) : ""}</Text>
+                  <View className="h-28 w-full max-w-16 justify-end overflow-hidden rounded-md bg-ink-50">
+                    <View
+                      className={`w-full rounded-md ${point.isToday ? "bg-clay-500" : "bg-sky-400"}`}
+                      style={{ height: Math.max(5, (point.amount / max) * 112) }}
+                    />
+                  </View>
+                  <Text className={`mt-1.5 text-[10px] ${point.isToday ? "font-semibold text-clay-600" : "text-ink-700"}`}>{point.label}</Text>
                 </View>
-                <Text className={`mt-1.5 text-[10px] ${point.isToday ? "font-semibold text-clay-600" : "text-ink-700"}`}>{point.label}</Text>
-              </View>
-            ))}
-          </View>
+              ))}
+            </View>
+          ) : <LockedFeePanel kind="trend" />}
         </Card>
 
         <Card className="flex-1 p-5">
@@ -501,28 +566,32 @@ export function DeskBoard() {
               <Text className="text-base font-semibold text-ink-900">Fee health</Text>
               <Text className="mt-0.5 text-xs text-ink-700">Recent invoice status</Text>
             </View>
-            <Pressable onPress={() => router.push("/fees")}><Text className="text-sm text-clay-600">Open fees</Text></Pressable>
+            {canSeeFees ? <Pressable onPress={() => router.push("/fees")}><Text className="text-sm text-clay-600">Open fees</Text></Pressable> : <Badge tone="ink">Locked</Badge>}
           </View>
-          <View className="mt-7 h-4 flex-row overflow-hidden rounded-full bg-ink-100">
-            {feePaid ? <View className="h-full bg-emerald-500" style={{ width: `${(feePaid / feeTotal) * 100}%` }} /> : null}
-            {feeOpen ? <View className="h-full bg-amber-400" style={{ width: `${(feeOpen / feeTotal) * 100}%` }} /> : null}
-            {feeOverdue ? <View className="h-full bg-red-500" style={{ width: `${(feeOverdue / feeTotal) * 100}%` }} /> : null}
-          </View>
-          <View className="mt-6 gap-3">
-            {[
-              ["Paid", feePaid, "bg-emerald-500"],
-              ["Pending", feeOpen, "bg-amber-400"],
-              ["Overdue", feeOverdue, "bg-red-500"],
-            ].map(([label, count, color]) => (
-              <View key={String(label)} className="flex-row items-center justify-between">
-                <View className="flex-row items-center gap-2"><View className={`h-2.5 w-2.5 rounded-full ${color}`} /><Text className="text-sm text-ink-700">{label}</Text></View>
-                <Text className="text-sm font-semibold text-ink-900">{count}</Text>
+          {canSeeFees ? (
+            <>
+              <View className="mt-7 h-4 flex-row overflow-hidden rounded-full bg-ink-100">
+                {feePaid ? <View className="h-full bg-emerald-500" style={{ width: `${(feePaid / feeTotal) * 100}%` }} /> : null}
+                {feeOpen ? <View className="h-full bg-amber-400" style={{ width: `${(feeOpen / feeTotal) * 100}%` }} /> : null}
+                {feeOverdue ? <View className="h-full bg-red-500" style={{ width: `${(feeOverdue / feeTotal) * 100}%` }} /> : null}
               </View>
-            ))}
-          </View>
-          <View className="mt-6 rounded-md bg-red-50 px-3 py-2.5">
-            <Text className="text-xs text-red-700">{desk.dueNow || "₹0"} currently outstanding</Text>
-          </View>
+              <View className="mt-6 gap-3">
+                {[
+                  ["Paid", feePaid, "bg-emerald-500"],
+                  ["Pending", feeOpen, "bg-amber-400"],
+                  ["Overdue", feeOverdue, "bg-red-500"],
+                ].map(([label, count, color]) => (
+                  <View key={String(label)} className="flex-row items-center justify-between">
+                    <View className="flex-row items-center gap-2"><View className={`h-2.5 w-2.5 rounded-full ${color}`} /><Text className="text-sm text-ink-700">{label}</Text></View>
+                    <Text className="text-sm font-semibold text-ink-900">{count}</Text>
+                  </View>
+                ))}
+              </View>
+              <View className="mt-6 rounded-md bg-red-50 px-3 py-2.5">
+                <Text className="text-xs text-red-700">{desk.dueNow || "₹0"} currently outstanding</Text>
+              </View>
+            </>
+          ) : <LockedFeePanel kind="health" />}
         </Card>
       </View>
 
