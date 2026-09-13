@@ -331,6 +331,99 @@ export function TeacherDeskBoard() {
     );
   }
 
+  function todayFocusCard() {
+    const closed = todayClosed ? closedDayVoice(todayClosed) : null;
+    const registerText = closed
+      ? "Register closed"
+      : data?.markedToday
+        ? "Class register marked"
+        : data?.classTeacher
+          ? "Class register pending"
+          : "No class register";
+    const scheduleText = next
+      ? `${next.subject}${next.start ? ` · ${next.start}${next.end ? `-${next.end}` : ""}` : ""}${next.classLabel ? ` · ${next.classLabel}` : ""}`
+      : day.periods.length
+        ? "Scheduled lessons complete"
+        : closed
+          ? closed.hint
+          : "No lesson scheduled now";
+    return (
+      <Card className="mb-4 p-4">
+        <View className="flex-row flex-wrap items-start justify-between gap-3">
+          <View className="min-w-0 flex-1">
+            <Text className="text-xs font-medium uppercase tracking-wide text-clay-600">Today</Text>
+            <Text className="mt-1 text-2xl font-semibold text-ink-900">
+              {closed ? closed.title : next ? next.subject : day.periods.length ? "Done for today" : "No class now"}
+            </Text>
+            <Text className="mt-1 text-sm leading-5 text-ink-700">{scheduleText}</Text>
+          </View>
+          {data?.staffAttendanceSelf ? (
+            <View className={phoneDashboard ? "w-full" : "shrink-0"}>
+              <StaffAttendanceQrButton token={token} disabled={Boolean(todayClosed)} onMessage={toast.show} />
+            </View>
+          ) : null}
+        </View>
+        <View className="mt-4 flex-row flex-wrap gap-2">
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open attendance register"
+            onPress={() => router.push("/attendance")}
+            className="min-w-[160px] flex-1 rounded-md border border-ink-100 bg-ink-50 px-3 py-3"
+          >
+            <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">Attendance</Text>
+            <Text className={`mt-1 text-base font-semibold ${!closed && data?.classTeacher && !data.markedToday ? "text-red-700" : "text-ink-900"}`}>
+              {registerText}
+            </Text>
+            <Text className="mt-1 text-xs text-ink-700">
+              {closed ? "QR and register are unavailable today." : data?.markedToday ? "Open to review or correct." : "Open to mark the class."}
+            </Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open timetable"
+            onPress={() => router.push("/timetable")}
+            className="min-w-[160px] flex-1 rounded-md border border-ink-100 bg-white px-3 py-3"
+          >
+            <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">Schedule</Text>
+            <Text className="mt-1 text-base font-semibold text-ink-900">
+              {next ? next.period || "Now" : day.periods.length ? `${day.periods.length} today` : closed ? closed.register : "No class"}
+            </Text>
+            <Text className="mt-1 text-xs text-ink-700">{rest.length ? `${rest.length} more after this` : "Tap for the week."}</Text>
+          </Pressable>
+        </View>
+      </Card>
+    );
+  }
+
+  function phoneWorkCard() {
+    if (!phoneDashboard) return null;
+    return (
+      <Card className="mb-4">
+        <View className="flex-row items-center justify-between border-b border-ink-100 px-4 py-3">
+          <View>
+            <Text className="text-sm font-semibold text-ink-900">Work waiting</Text>
+            <Text className="mt-0.5 text-xs text-ink-700">
+              {overdueTodos ? `${overdueTodos} overdue` : todos.length ? `${todos.length} open` : "Nothing urgent"}
+            </Text>
+          </View>
+          <Pressable onPress={() => router.push("/exams")}>
+            <Text className="text-sm font-medium text-clay-600">Open</Text>
+          </Pressable>
+        </View>
+        {dashboardTodos.length ? (
+          dashboardTodos.slice(0, 3).map((todo) => (
+            <Pressable key={todo.id} onPress={() => router.push("/exams")} className="border-t border-ink-100 px-4 py-3">
+              <Text className="text-sm font-medium text-ink-900" numberOfLines={1}>{todo.title}</Text>
+              <Text className="mt-1 text-xs text-ink-700" numberOfLines={1}>{todo.hint}</Text>
+            </Pressable>
+          ))
+        ) : (
+          <Text className="px-4 py-4 text-sm text-ink-700">Nothing waiting right now.</Text>
+        )}
+      </Card>
+    );
+  }
+
   const team = data?.team;
   const teamLeave = (data?.pendingLeave ?? []).filter((r) => r.who === "teacher" || r.who === "staff");
 
@@ -341,11 +434,10 @@ export function TeacherDeskBoard() {
           <Text className="text-xs font-medium uppercase tracking-wide text-clay-600">Teacher desk</Text>
           <Text className="mt-1 text-xl font-semibold text-ink-900">{greeting}</Text>
         </View>
-        <View className="flex-row flex-wrap items-center justify-end gap-2">
-          {data?.staffAttendanceSelf ? <StaffAttendanceQrButton token={token} compact={phoneDashboard} onMessage={toast.show} /> : null}
-          <Text className="text-xs text-ink-700">Live school overview</Text>
-        </View>
+        <Text className="text-xs text-ink-700">{todayClosed ? "Closed day" : data?.markedToday ? "Register marked" : "Needs attention"}</Text>
       </View>
+
+      {todayFocusCard()}
 
       <View className={`mb-4 ${wideDashboard ? "flex-row gap-3" : "flex-row flex-wrap gap-3"}`}>
         {[
@@ -543,10 +635,12 @@ export function TeacherDeskBoard() {
         </>
       ) : null}
 
-      <View className={`mb-4 gap-4 ${wideDashboard ? "flex-row" : ""}`}>
+      {!phoneDashboard ? <View className={`mb-4 gap-4 ${wideDashboard ? "flex-row" : ""}`}>
         {pinRegister ? registerCard() : nowCard()}
         {pinRegister ? nowCard() : registerCard()}
-      </View>
+      </View> : null}
+
+      {phoneWorkCard()}
 
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
 

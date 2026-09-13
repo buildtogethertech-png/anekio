@@ -86,7 +86,7 @@ export function StaffAttendanceQrButton({
   return (
     <>
       <Button variant="ghost" disabled={disabled || busy} onPress={() => void generate()} className={compact ? "shrink-0 px-2 py-2" : undefined}>
-        {busy ? "Generating..." : compact ? "My QR" : "My attendance QR"}
+        {busy ? "Generating..." : compact ? "Show QR" : "Show attendance QR"}
       </Button>
       <Modal open={open} title="My attendance QR" onClose={() => setOpen(false)} footer={<Button onPress={() => setOpen(false)}>Done</Button>}>
         {qr ? (
