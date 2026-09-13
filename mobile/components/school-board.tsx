@@ -25,6 +25,7 @@ const TABS = [
   { id: "leave", label: "Leave", hint: "Planned and sick. Who can use them, and how much notice.", group: "Staff & Leave" },
   { id: "collect", label: "Collect", hint: "UPI, bank, gateway", group: "Fees" },
   { id: "documents", label: "Document Studio", hint: "Design printable PDFs. Fee amounts stay in Fees.", group: "Documents" },
+  { id: "forms", label: "Forms & Templates", hint: "Configure reusable student and staff forms", group: "Admissions" },
   { id: "website", label: "School website", hint: "Public school page, admissions, enquiry form, and incoming leads", group: "Admissions" },
 ] as const;
 
@@ -593,7 +594,7 @@ export function SchoolBoard() {
   async function save() {
     try {
       await act(token, "saveSchoolIdentity", form);
-      if (tab === "website") await act(token, "saveAdmissionForm", { fields: form.admissionForm });
+      if (tab === "website" || tab === "forms") await act(token, "saveAdmissionForm", { fields: form.admissionForm });
       toast.show("School saved.");
       await reload();
       return true;
@@ -1911,8 +1912,82 @@ export function SchoolBoard() {
               </View>
             ) : null}
 
+            {tab === "forms" ? (
+              <View className="w-full max-w-[1160px] self-center">
+                <View className="rounded-xl border border-ink-200 bg-white p-4">
+                  <View className="border-b border-ink-100 pb-4">
+                    <Text className="text-base font-semibold text-ink-900">Forms & Templates</Text>
+                    <Text className="mt-1 max-w-3xl text-sm text-ink-700">
+                      Configure the fields once, then reuse the same structure across website forms, office entry, downloads, and imports.
+                    </Text>
+                  </View>
+
+                  <View className="mt-4 flex-row flex-wrap gap-3">
+                    <View className={phone ? "w-full min-w-full" : "min-w-[360px] flex-1"}>
+                      <View className="h-full rounded-lg border border-blue-100 bg-blue-50 p-4">
+                        <View className="flex-row items-start justify-between gap-3">
+                          <View className="min-w-0 flex-1">
+                            <Text className="text-sm font-semibold text-ink-900">Student admission form</Text>
+                            <Text className="mt-1 text-xs leading-5 text-ink-700">
+                              Used by the public school website, office walk-in leads, and future admission templates.
+                            </Text>
+                          </View>
+                          <View className="rounded-md border border-blue-100 bg-white px-2.5 py-1.5">
+                            <Text className="text-[11px] font-semibold text-blue-700">
+                              {form.admissionForm.filter((field) => field.visible).length} shown · {form.admissionForm.filter((field) => field.required).length} required
+                            </Text>
+                          </View>
+                        </View>
+                        <View className="mt-4 flex-row flex-wrap gap-2">
+                          <Button onPress={() => setAdmissionFormOpen(true)}>Edit form</Button>
+                          <Button variant="ghost" disabled>
+                            Download template
+                          </Button>
+                        </View>
+                      </View>
+                    </View>
+
+                    <View className={phone ? "w-full min-w-full" : "min-w-[360px] flex-1"}>
+                      <View className="h-full rounded-lg border border-ink-200 bg-white p-4">
+                        <View className="flex-row items-start justify-between gap-3">
+                          <View className="min-w-0 flex-1">
+                            <Text className="text-sm font-semibold text-ink-900">Staff onboarding form</Text>
+                            <Text className="mt-1 text-xs leading-5 text-ink-700">
+                              Planned source for staff onboarding, staff upload templates, and document collection.
+                            </Text>
+                          </View>
+                          <View className="rounded-md bg-ink-100 px-2.5 py-1.5">
+                            <Text className="text-[11px] font-semibold text-ink-700">Coming next</Text>
+                          </View>
+                        </View>
+                        <View className="mt-4 flex-row flex-wrap gap-2">
+                          <Button variant="ghost" disabled>
+                            Configure
+                          </Button>
+                          <Button variant="ghost" disabled>
+                            Download template
+                          </Button>
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+
+                  <View className="mt-4 rounded-lg border border-ink-200 bg-ink-50 p-4">
+                    <Text className="text-sm font-semibold text-ink-900">How this connects</Text>
+                    <View className="mt-3 flex-row flex-wrap gap-2">
+                      {["Website form", "Office walk-in form", "Download template", "Import validation"].map((item) => (
+                        <Text key={item} className="rounded-full bg-white px-3 py-1 text-xs font-medium text-ink-800">
+                          {item}
+                        </Text>
+                      ))}
+                    </View>
+                  </View>
+                </View>
+              </View>
+            ) : null}
+
             {showSave ? (
-              <View className={`mt-5 flex-row flex-wrap items-center justify-between gap-3 border-t border-ink-100 pt-4 ${tab === "website" ? "pr-20" : ""}`}>
+              <View className={`mt-5 flex-row flex-wrap items-center justify-between gap-3 border-t border-ink-100 pt-4 ${tab === "website" || tab === "forms" ? "pr-20" : ""}`}>
                 <Text className="text-[11px] text-ink-700">Saves school settings together.</Text>
                 {edit ? <Button onPress={save}>Save</Button> : null}
               </View>
