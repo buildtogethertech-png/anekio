@@ -50,6 +50,23 @@ export async function uploadFile(
   const fileType = (Platform.OS === "web" && file instanceof File ? file.type : picked.type) || blob.type || "application/octet-stream";
   const headers = new Headers({ "Content-Type": "application/json" });
   if (token) headers.set("Authorization", `Bearer ${token}`);
+  const uploadThroughApi = async () => {
+    const body = new FormData();
+    for (const [key, value] of Object.entries(fields)) body.append(key, value);
+    if (Platform.OS === "web" && file instanceof File) {
+      body.append("file", file);
+    } else if (Platform.OS === "web" && "uri" in file) {
+      body.append("file", blob, file.name);
+    } else {
+      body.append("file", { uri: picked.uri, name: picked.name, type: picked.type } as unknown as Blob);
+    }
+    const apiHeaders = new Headers(headers);
+    apiHeaders.delete("Content-Type");
+    const res = await fetch(`${apiBase()}/api/files`, { method: "POST", headers: apiHeaders, body });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error((data as { error?: string }).error || "Upload failed.");
+    return data as { ok: true; path: string; fileName: string };
+  };
   const prepare = await fetch(`${apiBase()}/api/files/presign`, {
     method: "POST",
     headers,
@@ -68,8 +85,8 @@ export async function uploadFile(
       method: "PUT",
       headers: prepared.headers,
       body: blob,
-    });
-    if (!uploaded.ok) throw new Error("File could not be sent to storage.");
+    }).catch(() => null);
+    if (!uploaded?.ok) return uploadThroughApi();
     const completed = await fetch(`${apiBase()}/api/files/complete`, {
       method: "POST",
       headers,
@@ -80,19 +97,5 @@ export async function uploadFile(
     return result as { ok: true; path: string; fileName: string };
   }
 
-  const body = new FormData();
-  for (const [key, value] of Object.entries(fields)) body.append(key, value);
-  if (Platform.OS === "web" && file instanceof File) {
-    body.append("file", file);
-  } else if (Platform.OS === "web" && "uri" in file) {
-    body.append("file", blob, file.name);
-  } else {
-    body.append("file", { uri: picked.uri, name: picked.name, type: picked.type } as unknown as Blob);
-  }
-  headers.delete("Content-Type");
-  const url = `${apiBase()}/api/files`;
-  const res = await fetch(url, { method: "POST", headers, body });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((data as { error?: string }).error || "Upload failed.");
-  return data as { ok: true; path: string; fileName: string };
+  return uploadThroughApi();
 }
