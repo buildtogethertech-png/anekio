@@ -333,6 +333,8 @@ const ADMISSION_FIELD_TYPE_OPTIONS = [
   { id: "file", label: "File upload" },
 ] as const;
 
+const SCHOOL_CLASSES_FIELD_TYPE = "schoolClasses";
+
 const ADMISSION_FILE_TYPE_OPTIONS = [
   { id: "image_pdf", label: "Image or PDF" },
   { id: "pdf", label: "PDF only" },
@@ -386,18 +388,28 @@ function schoolClassOptions(classes?: RecordPayload["classes"]) {
   return [...new Set((classes || []).map((row) => row.label || [row.name, row.section].filter(Boolean).join("-")).filter(Boolean))];
 }
 
-function admissionFormWithClassOptions(fields: AdmissionFormField[], classes?: RecordPayload["classes"]) {
-  const classOptions = schoolClassOptions(classes);
-  return fields.map((field) => {
-    if (field.id !== "classWanted") return { ...field, options: [...field.options] };
-    const options = field.options.length ? field.options : classOptions;
-    if (!classOptions.length && !field.options.length) return { ...field, options: [] };
-    return {
-      ...field,
-      type: field.type === "text" ? "select" : field.type,
-      options: [...options],
-    };
-  });
+function sameOptions(left: string[], right: string[]) {
+  return left.length === right.length && left.every((option, index) => option === right[index]);
+}
+
+function admissionFieldTypeValue(field: AdmissionFormField, classOptions: string[]) {
+  if (field.id === "classWanted" && field.type === "select" && classOptions.length && sameOptions(field.options, classOptions)) {
+    return SCHOOL_CLASSES_FIELD_TYPE;
+  }
+  return field.type;
+}
+
+function admissionFieldTypeOptions(field: AdmissionFormField) {
+  if (field.id !== "classWanted") return [...ADMISSION_FIELD_TYPE_OPTIONS];
+  return [
+    ...ADMISSION_FIELD_TYPE_OPTIONS.slice(0, 6),
+    { id: SCHOOL_CLASSES_FIELD_TYPE, label: "School classes" },
+    ...ADMISSION_FIELD_TYPE_OPTIONS.slice(6),
+  ];
+}
+
+function cloneAdmissionForm(fields: AdmissionFormField[]) {
+  return fields.map((field) => ({ ...field, options: [...field.options] }));
 }
 
 export function SchoolBoard() {
@@ -417,7 +429,7 @@ export function SchoolBoard() {
   const [tab, setTab] = useState<Tab>(linked?.id ?? "identity");
   const [door, setDoor] = useState<Door>(linked?.group ?? linkedGroup ?? "School Setup");
   const [level, setLevel] = useState<Level>(linked ? "page" : linkedGroup ? "group" : "doors");
-  const [form, setForm] = useState<SchoolForm>(blankForm(s, data?.classes));
+  const [form, setForm] = useState<SchoolForm>(blankForm(s));
   const [holiday, setHoliday] = useState({ date: "", name: "" });
   const [addOpen, setAddOpen] = useState(false);
   const [classOpen, setClassOpen] = useState(false);
@@ -456,7 +468,7 @@ export function SchoolBoard() {
 
   useEffect(() => {
     if (!s) return;
-    setForm(blankForm(s, data?.classes));
+    setForm(blankForm(s));
     setBands(s.policy?.bands?.length ? s.policy.bands : DEFAULT_GRADE_BANDS);
     setPassPercent(String(s.policy?.passPercent ?? 33));
     setShowRank(Boolean(s.policy?.showRank));
@@ -464,7 +476,7 @@ export function SchoolBoard() {
     setPlan(normalizeExamPlan(s.plan));
     setCalendarSessionId((current) => current || s.sessionId || "");
     if (data?.leaveTypes?.length) setLeaveTypes(normalizeLeaveTypes(data.leaveTypes));
-  }, [s, data?.classes, data?.leaveTypes]);
+  }, [s, data?.leaveTypes]);
 
   const sessions = s?.sessions ?? [];
   const calendarSession = sessions.find((row) => row.id === calendarSessionId) ?? sessions.find((row) => row.current) ?? sessions[0];
@@ -2077,12 +2089,13 @@ export function SchoolBoard() {
             </Field>
             <Dropdown
               label="Input type"
-              value={editingAdmissionField.type}
-              options={[...ADMISSION_FIELD_TYPE_OPTIONS]}
+              value={admissionFieldTypeValue(editingAdmissionField, admissionClassOptions)}
+              options={admissionFieldTypeOptions(editingAdmissionField)}
               onChange={(type) => {
-                const nextType = type as AdmissionFormField["type"];
+                const useSchoolClasses = type === SCHOOL_CLASSES_FIELD_TYPE;
+                const nextType = (useSchoolClasses ? "select" : type) as AdmissionFormField["type"];
                 const choiceType = ["select", "radio", "multi"].includes(nextType);
-                const seededOptions = editingAdmissionField.id === "classWanted" && !editingAdmissionField.options.length
+                const seededOptions = useSchoolClasses
                   ? admissionClassOptions
                   : editingAdmissionField.options;
                 patchAdmissionField(editingAdmissionField.id, {
@@ -2096,7 +2109,7 @@ export function SchoolBoard() {
             {["select", "radio", "multi"].includes(editingAdmissionField.type) ? (
               <Field
                 label="Options"
-                hint={editingAdmissionField.id === "classWanted" ? "One class per line. Defaults come from School setup classes." : "One option per line"}
+                hint={admissionFieldTypeValue(editingAdmissionField, admissionClassOptions) === SCHOOL_CLASSES_FIELD_TYPE ? "Linked from School setup classes. Edit lines here to override." : "One option per line"}
               >
                 <Input
                   multiline
@@ -2275,7 +2288,7 @@ export function SchoolBoard() {
   );
 }
 
-function blankForm(s?: RecordPayload["school"], classes?: RecordPayload["classes"]): SchoolForm {
+function blankForm(s?: RecordPayload["school"]): SchoolForm {
   const website = (s as unknown as { website?: {
     enabled?: boolean;
     slug?: string;
@@ -2331,10 +2344,7 @@ function blankForm(s?: RecordPayload["school"], classes?: RecordPayload["classes
     websiteFacilities: (website?.facilities || ["Digital classrooms", "Library", "Computer lab", "Sports", "Transport"]).join("\n"),
     websiteAdmissionOpen: website?.admissionOpen ?? true,
     websiteAdmissionNote: website?.admissionNote || "Admissions are open. Submit an enquiry and our office will contact you.",
-    admissionForm: admissionFormWithClassOptions(
-      s?.admissionForm?.length ? s.admissionForm : DEFAULT_ADMISSION_FIELDS,
-      classes
-    ),
+    admissionForm: cloneAdmissionForm(s?.admissionForm?.length ? s.admissionForm : DEFAULT_ADMISSION_FIELDS),
     admissionCharge: String(s?.admissionCharge || 0),
     sessionStart: s?.sessionStart || "",
     sessionEnd: s?.sessionEnd || "",
