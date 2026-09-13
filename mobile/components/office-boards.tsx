@@ -329,6 +329,7 @@ export function DeskBoard() {
   if (!desk) return <Empty title="The desk" body="Loading the school pulse." />;
   const desktop = width >= 900;
   const empty = desk.emptyPeriods;
+  const subjectLoadPending = desk.subjectLoadPending ?? 0;
   const overdue = desk.overdueCount ?? 0;
   const series = desk.series ?? [];
   const max = Math.max(...series.map((d) => d.amount), 1);
@@ -354,6 +355,11 @@ export function DeskBoard() {
     ...(desk.idleNow ?? []).map((row) => ({ label: row.name, hint: `${row.employeeId} · idle now`, route: "/staff" })),
     ...(desk.didNotCome ?? []).map((row) => ({ label: row.label, hint: "Did not come", route: "/staff" })),
     ...(desk.holes ?? []).map((row) => ({ label: row.classLabel, hint: `${row.count} unassigned period${row.count === 1 ? "" : "s"}`, route: "/timetable" })),
+    ...(desk.subjectShortfalls ?? []).map((row) => ({
+      label: row.classLabel,
+      hint: `${row.count} subject period${row.count === 1 ? "" : "s"} still not placed`,
+      route: "/timetable",
+    })),
     ...upcomingLeave
       .filter((leave) => leave.covered < leave.total)
       .map((leave) => ({
@@ -399,11 +405,18 @@ export function DeskBoard() {
       <View className="flex-row flex-wrap gap-3">
         {[
           { label: "Timetable gaps", value: String(empty), hint: empty ? "Needs assignment" : "Fully covered", route: "/timetable", danger: empty > 0 },
+          {
+            label: "Subject load pending",
+            value: String(subjectLoadPending),
+            hint: subjectLoadPending ? "Needs routine slots" : "All subjects placed",
+            route: "/timetable",
+            danger: subjectLoadPending > 0,
+          },
           { label: "Idle staff", value: String(desk.idleStaff), hint: "Available this stretch", route: "/staff", danger: false },
           { label: "Teacher absent", value: String(desk.teacherAbsent ?? 0), hint: "Assigned today", route: "/staff", danger: (desk.teacherAbsent ?? 0) > 0 },
           { label: "Fees overdue", value: String(overdue), hint: desk.dueNow || "₹0 pending", route: "/fees", danger: overdue > 0 },
         ].map((metric) => (
-          <Pressable key={metric.label} className={desktop ? "w-[23.5%]" : "w-[47%]"} onPress={() => router.push(metric.route as never)}>
+          <Pressable key={metric.label} className={desktop ? "w-[18.8%]" : "w-[47%]"} onPress={() => router.push(metric.route as never)}>
             <Card className="min-h-[124px] p-4">
               <View className="flex-row items-center justify-between gap-2">
                 <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">{metric.label}</Text>

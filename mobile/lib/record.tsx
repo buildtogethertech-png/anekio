@@ -358,6 +358,7 @@ export type RecordPayload = {
   desk?: {
     label?: string;
     emptyPeriods: number;
+    subjectLoadPending?: number;
     idleStaff: number;
     teacherAbsent?: number;
     unmarked?: number;
@@ -367,6 +368,7 @@ export type RecordPayload = {
     openBills?: number;
     school: string;
     holes?: { classId: string; classLabel: string; count: number }[];
+    subjectShortfalls?: { classId: string; classLabel: string; count: number }[];
     idleNow?: { id: string; name: string; employeeId: string }[];
     didNotCome?: { id: string; label: string }[];
     todayAmount?: string;

@@ -931,11 +931,8 @@ async function officePayload(user: AccessUser) {
     row.count += 1;
     holeMap.set(hole.classId, row);
   }
-  for (const shortfall of subjectShortfallByClass.values()) {
-    const row = holeMap.get(shortfall.classId);
-    holeMap.set(shortfall.classId, row ? { ...row, count: Math.max(row.count, shortfall.count) } : shortfall);
-  }
   const emptyPeriods = [...holeMap.values()].reduce((sum, row) => sum + row.count, 0);
+  const subjectLoadPending = [...subjectShortfallByClass.values()].reduce((sum, row) => sum + row.count, 0);
   const todayKey = ymd(new Date());
   const staffToday = staffDayYmd(new Date());
   const coverUntil = new Date();
@@ -1007,6 +1004,7 @@ async function officePayload(user: AccessUser) {
     desk: {
       label: pulse.label,
       emptyPeriods,
+      subjectLoadPending,
       idleStaff: pulse.idleTeachers.length,
       teacherAbsent: pulse.emptyClasses.length,
       unmarked: pulse.unmarked,
@@ -1015,6 +1013,7 @@ async function officePayload(user: AccessUser) {
       pendingBills: openBills.length,
       school: config?.name || "School",
       holes: [...holeMap.values()].sort((a, b) => b.count - a.count),
+      subjectShortfalls: [...subjectShortfallByClass.values()].sort((a, b) => b.count - a.count),
       idleNow: pulse.idleTeachers.map((t) => ({ id: t.id, name: t.user.name, employeeId: t.employeeId })),
       didNotCome: [
         ...pulse.emptyClasses.map((s) => ({
