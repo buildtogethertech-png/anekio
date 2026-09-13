@@ -1673,21 +1673,6 @@ export function SchoolBoard() {
 
             {tab === "website" ? (
               <View className="w-full max-w-[1160px] self-center">
-                <View className="mb-5 flex-row flex-wrap items-center justify-end gap-2 border-b border-ink-100 pb-4">
-                  <View className="flex-row flex-wrap items-center gap-2">
-                    <Button variant="ghost" onPress={() => setAdmissionFormOpen(true)}>
-                      Edit admission form
-                    </Button>
-                    <View className="flex-row items-center gap-3 rounded-md border border-ink-200 bg-white px-3 py-2">
-                      <View className="items-end">
-                        <Text className="text-xs font-medium text-ink-700">Website</Text>
-                        <Text className="text-[11px] font-medium text-ink-600">{form.websiteEnabled ? "On" : "Off"}</Text>
-                      </View>
-                      <Switch on={form.websiteEnabled} onPress={() => patch("websiteEnabled", !form.websiteEnabled)} />
-                    </View>
-                  </View>
-                </View>
-
                 <View className="gap-5">
                   <View className="rounded-xl border border-ink-200 bg-white p-4">
                     <View className="flex-row flex-wrap items-start justify-between gap-3">
@@ -1702,11 +1687,17 @@ export function SchoolBoard() {
                           <Text className="text-xs font-semibold text-blue-700">{form.websiteSlug || "demo"}.anekio.com</Text>
                         </View>
                       </View>
-                      <View className="rounded-md border border-ink-200 bg-ink-50 px-3 py-2">
-                        <Text className="text-[11px] font-medium text-ink-600">Admission enquiry form</Text>
-                        <Text className="mt-0.5 text-xs font-semibold text-ink-900">
-                          {form.admissionForm.filter((field) => field.visible).length} fields · {form.admissionForm.filter((field) => field.required).length} required
-                        </Text>
+                      <View className={phone ? "w-full gap-2" : "items-end gap-2"}>
+                        <View className="flex-row items-center gap-3 rounded-md border border-ink-200 bg-ink-50 px-3 py-2">
+                          <View className="items-end">
+                            <Text className="text-xs font-medium text-ink-700">Website</Text>
+                            <Text className="text-[11px] font-medium text-ink-600">{form.websiteEnabled ? "On" : "Off"}</Text>
+                          </View>
+                          <Switch on={form.websiteEnabled} onPress={() => patch("websiteEnabled", !form.websiteEnabled)} />
+                        </View>
+                        <Button variant="ghost" onPress={() => setAdmissionFormOpen(true)}>
+                          Edit admission form
+                        </Button>
                       </View>
                     </View>
                   </View>
@@ -1852,12 +1843,9 @@ export function SchoolBoard() {
                       <View className="min-w-0 flex-1">
                         <Text className="text-base font-semibold text-ink-900">Admission enquiry form</Text>
                         <Text className="mt-1 text-sm text-ink-700">
-                          Configure the information parents provide when enquiring.
+                          {form.admissionForm.filter((field) => field.visible).length} fields shown to parents · {form.admissionForm.filter((field) => field.required).length} required.
                         </Text>
                       </View>
-                      <Button variant="ghost" onPress={() => setAdmissionFormOpen(true)}>
-                        Edit form
-                      </Button>
                     </View>
                   </View>
                 </View>
