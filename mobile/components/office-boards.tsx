@@ -404,7 +404,7 @@ export function DeskBoard() {
 
       <View className="flex-row flex-wrap gap-3">
         {[
-          { label: "Timetable gaps", value: String(empty), hint: empty ? "Needs assignment" : "Fully covered", route: "/timetable", danger: empty > 0 },
+          { label: "Teacher coverage gaps", value: String(empty), hint: empty ? "Needs teacher" : "All assigned", route: "/timetable", danger: empty > 0 },
           {
             label: "Subject load pending",
             value: String(subjectLoadPending),
