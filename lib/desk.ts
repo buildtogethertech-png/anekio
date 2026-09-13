@@ -124,30 +124,24 @@ export function findUnassigned(input: {
   periods: { id: string; name: string; startsAt: string; endsAt: string; isBreak: boolean; sortOrder: number }[];
   slots: DeskSlot[];
 }): UnassignedCell[] {
-  const teaching = input.periods.filter((p) => !p.isBreak).sort((a, b) => a.sortOrder - b.sortOrder);
-  const filled = new Set(
-    input.slots.filter((s) => s.teacherId).map((s) => `${s.classId}:${s.period.id}:${s.weekday}`)
-  );
-  const holes: UnassignedCell[] = [];
-  for (const klass of input.classes) {
-    const label = `${klass.name}-${klass.section}`;
-    for (const weekday of input.weekdays) {
-      for (const period of teaching) {
-        const key = `${klass.id}:${period.id}:${weekday}`;
-        if (filled.has(key)) continue;
-        holes.push({
-          key,
-          classId: klass.id,
-          classLabel: label,
-          weekday,
-          day: WEEKDAY_SHORT[weekday] ?? String(weekday),
-          periodName: period.name,
-          time: `${period.startsAt}–${period.endsAt}`,
-        });
-      }
-    }
-  }
-  return holes;
+  return input.slots
+    .filter((slot) => input.weekdays.includes(slot.weekday) && slot.subject && !slot.teacherId)
+    .map((slot) => {
+      const klass = input.classes.find((row) => row.id === slot.classId);
+      const period = input.periods.find((row) => row.id === slot.period.id);
+      const periodName = period?.name || slot.period.name;
+      const startsAt = period?.startsAt || slot.period.startsAt || "";
+      const endsAt = period?.endsAt || slot.period.endsAt || "";
+      return {
+        key: `${slot.classId}:${slot.period.id}:${slot.weekday}`,
+        classId: slot.classId,
+        classLabel: klass ? `${klass.name}-${klass.section}` : `${slot.class.name}-${slot.class.section}`,
+        weekday: slot.weekday,
+        day: WEEKDAY_SHORT[slot.weekday] ?? String(slot.weekday),
+        periodName,
+        time: startsAt && endsAt ? `${startsAt}–${endsAt}` : "",
+      };
+    });
 }
 
 export function buildDeskPulse(input: {
