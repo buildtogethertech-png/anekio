@@ -122,6 +122,7 @@ import {
   publishDocumentTemplateCore,
   resolveStudentIdCardScanCore,
   saveDocumentTemplateCore,
+  uploadStudentDocumentCore,
 } from "./document-studio";
 
 export function actOp(body: Record<string, unknown>) {
@@ -215,6 +216,8 @@ export async function runAct(
       break;
     case "issueDocument":
       return { ok: true, ...(await issueDocumentCore(user, body)) };
+    case "uploadStudentDocument":
+      return { ok: true, ...(await uploadStudentDocumentCore(user, body)) };
     case "issueDocumentBatch":
       return { ok: true, ...(await issueDocumentBatchCore(user, body)) };
     case "reissueDocument":

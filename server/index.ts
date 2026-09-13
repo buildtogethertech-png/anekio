@@ -29,7 +29,7 @@ import {
 } from "../lib/handle-upload";
 import { presignedReadUrl, readUpload, readUploadDataUrl, resolveUploadPath } from "../lib/uploads";
 import { createSchoolFeeOrder, verifySchoolPayment, invoicesFromPeriods } from "../lib/pay";
-import { batchDocumentsHtml, findBatchDocuments, findIssuedDocument, identityScanHtml, missingIssuedScanHtml, verificationHtml } from "../lib/document-studio";
+import { batchDocumentsHtml, findBatchDocuments, findIssuedDocument, identityScanHtml, missingIssuedScanHtml, uploadedIssuedDocumentFile, verificationHtml } from "../lib/document-studio";
 import { prisma } from "../lib/prisma";
 import { verifyCashfreeWebhook, captureCashfreePayment } from "../lib/cashfree";
 import { captureRazorpayPayment, captureRazorpayMonths, verifyWebhookSignature } from "../lib/razorpay";
@@ -1254,6 +1254,21 @@ app.get("/staff/scan/:token", async (req, res) => {
   const row = await findIssuedDocument(req.params.token);
   if (!row || row.type !== "EMPLOYEE_ID") return res.status(404).type("html").send(missingIssuedScanHtml());
   res.type("html").send(identityScanHtml(row, "EMPLOYEE_ID"));
+});
+
+app.get("/documents/:token/file", async (req, res) => {
+  const row = await findIssuedDocument(req.params.token);
+  if (!row || row.status === "REVOKED") return res.status(404).send("Document unavailable");
+  const { filePath, fileName } = uploadedIssuedDocumentFile(row);
+  if (!filePath) return res.status(404).send("Uploaded file unavailable");
+  try {
+    const { buf, type } = await readUpload(filePath);
+    res.setHeader("Content-Type", type);
+    if (fileName) res.setHeader("Content-Disposition", `inline; filename="${fileName.replace(/["\r\n]/g, "")}"`);
+    res.send(buf);
+  } catch {
+    res.status(404).send("Uploaded file unavailable");
+  }
 });
 
 app.get("/documents/:token", async (req, res) => {

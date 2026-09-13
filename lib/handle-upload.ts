@@ -62,6 +62,15 @@ function isReceiptFile(name: string, mime: string) {
   );
 }
 
+function isStudentDocumentFile(name: string, mime: string) {
+  return allowedFile(
+    name,
+    mime,
+    [".jpg", ".jpeg", ".png", ".webp", ".pdf", ".doc", ".docx"],
+    ["image/jpeg", "image/png", "image/webp", "application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"]
+  );
+}
+
 function isOnboardingSheet(name: string, mime: string) {
   return allowedFile(
     name,
@@ -127,6 +136,16 @@ function validateAndFolder(user: AccessUser, file: UploadFile, fields: Record<st
     const folder = folders[fields.asset];
     if (!folder) throw new Error("School asset type required");
     return { kind, folder };
+  }
+
+  if (kind === "studentDocument") {
+    if (!can(user, "documents.issue") && !can(user, "people.edit") && !can(user, "school.edit")) throw new Error("No access.");
+    if (!fields.studentId) throw new Error("Student required");
+    if (!isStudentDocumentFile(file.name, file.mime)) throw new Error("Upload the student document as a PDF, Word file, or image.");
+    return {
+      kind,
+      folder: `private/${schoolRoot()}/students/${safePathSegment(fields.studentId)}/documents`,
+    };
   }
 
   if (kind === "onboarding") {

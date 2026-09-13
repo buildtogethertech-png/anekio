@@ -1226,7 +1226,7 @@ export async function documentStudioBundle(user: AccessUser) {
       width: 240,
       color: { dark: "#000000", light: "#ffffff" },
     }).catch(() => ""),
-    templates: templates.filter((row) => LIBRARY_TYPE_SET.has(row.type)).map((row) => ({
+    templates: templates.filter((row) => LIBRARY_TYPE_SET.has(row.type) && !row.name.startsWith("Uploaded ")).map((row) => ({
       id: row.id,
       builtIn: false,
       type: row.type,
@@ -1242,21 +1242,27 @@ export async function documentStudioBundle(user: AccessUser) {
       updatedAt: row.updatedAt.toISOString(),
       layout: withRequiredOfficialElements(row.type, parseDocumentLayout(row.draftJson)),
     })),
-    issued: issued.map((row) => ({
-      id: row.id,
-      documentNumber: row.documentNumber,
-      type: row.type,
-      subjectType: row.subjectType,
-      subjectId: row.subjectId,
-      subjectLabel: row.subjectLabel,
-      status: row.status,
-      issuedAt: row.issuedAt.toISOString(),
-      batchId: row.batchId,
-      verifyUrl: `${publicOrigin()}/verify/${row.verifyToken}`,
-      documentUrl: `${publicOrigin()}/documents/${row.verifyToken}`,
-      templateName: row.templateVersion.template.name,
-      version: row.templateVersion.version,
-    })),
+    issued: issued.map((row) => {
+      const snapshot = safeObject(row.dataJson);
+      const upload = snapshot.upload && typeof snapshot.upload === "object" ? snapshot.upload as Record<string, unknown> : {};
+      return {
+        id: row.id,
+        documentNumber: row.documentNumber,
+        type: row.type,
+        subjectType: row.subjectType,
+        subjectId: row.subjectId,
+        subjectLabel: row.subjectLabel,
+        status: row.status,
+        issuedAt: row.issuedAt.toISOString(),
+        batchId: row.batchId,
+        verifyUrl: `${publicOrigin()}/verify/${row.verifyToken}`,
+        documentUrl: `${publicOrigin()}/documents/${row.verifyToken}`,
+        templateName: row.templateVersion.template.name,
+        version: row.templateVersion.version,
+        uploadLabel: typeof upload.label === "string" ? upload.label : "",
+        uploadSourceType: typeof upload.sourceType === "string" ? upload.sourceType : "",
+      };
+    }),
   };
 }
 
@@ -1834,6 +1840,113 @@ export async function issueDocumentCore(user: AccessUser, input: Record<string, 
   return { id: issued.id, documentNumber, verifyUrl, documentUrl: `${publicOrigin()}/documents/${verifyToken}` };
 }
 
+const STUDENT_UPLOAD_TYPES = new Set(["STUDENT_ID", "DOB_CERTIFICATE", "TRANSFER_CERTIFICATE", "CUSTOM_LETTER"]);
+
+async function resolveUploadTemplate(user: AccessUser, type: string, schoolId: string) {
+  const include = { versions: { orderBy: { version: "desc" as const }, take: 1 } };
+  const active = await prisma.documentTemplate.findFirst({ where: { schoolId, type, status: "ACTIVE" }, include });
+  if (active?.versions[0]) return active;
+  const existing = await prisma.documentTemplate.findFirst({ where: { schoolId, type, status: "PUBLISHED", name: { startsWith: "Uploaded " } }, include });
+  if (existing?.versions[0]) return existing;
+  const builtin = builtInTemplates().find((row) => row.type === type || row.id === `builtin:${type}`);
+  if (!builtin) throw new Error("Unknown document type.");
+  return prisma.documentTemplate.create({
+    data: {
+      schoolId,
+      type: builtin.type,
+      category: builtin.category,
+      name: `Uploaded ${builtin.name}`,
+      description: "Register placeholder for uploaded student files.",
+      pageSize: builtin.pageSize,
+      orientation: builtin.orientation,
+      scopeJson: "{}",
+      draftJson: JSON.stringify(builtin.layout),
+      createdById: user.id,
+      updatedById: user.id,
+      status: "PUBLISHED",
+      activeVersion: 1,
+      versions: {
+        create: {
+          schoolId,
+          version: 1,
+          layoutJson: JSON.stringify(builtin.layout),
+          pageSize: builtin.pageSize,
+          orientation: builtin.orientation,
+          scopeJson: "{}",
+          publishedById: user.id,
+        },
+      },
+    },
+    include,
+  });
+}
+
+function uploadedDocumentHtml(input: {
+  documentNumber: string;
+  fileName: string;
+  label: string;
+  subjectLabel: string;
+  token: string;
+  verifyUrl: string;
+}) {
+  const fileUrl = `/documents/${encodeURIComponent(input.token)}/file`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(input.label)}</title><style>body{margin:0;background:#f4f7fb;font-family:Arial,sans-serif;color:#102a43}.bar{display:flex;gap:16px;align-items:center;justify-content:space-between;padding:16px 20px;background:#fff;border-bottom:1px solid #d9e2ec}.title{min-width:0}.title h1{margin:0;font-size:18px}.title p{margin:4px 0 0;color:#52667d;font-size:13px}.actions{display:flex;gap:10px;flex-wrap:wrap}a{color:#1d4ed8;font-weight:700;text-decoration:none}.viewer{height:calc(100vh - 75px)}iframe{width:100%;height:100%;border:0;background:#fff}.fallback{padding:24px}@media(max-width:700px){.bar{align-items:flex-start;flex-direction:column}.viewer{height:calc(100vh - 130px)}}</style></head><body><header class="bar"><div class="title"><h1>${escapeHtml(input.label)}</h1><p>${escapeHtml(input.subjectLabel || "Student")} · ${escapeHtml(input.documentNumber)} · ${escapeHtml(input.fileName)}</p></div><div class="actions"><a href="${escapeHtml(fileUrl)}" target="_blank" rel="noopener">Open file</a><a href="${escapeHtml(input.verifyUrl)}" target="_blank" rel="noopener">Verify</a></div></header><main class="viewer"><iframe src="${escapeHtml(fileUrl)}"><p class="fallback"><a href="${escapeHtml(fileUrl)}">Open uploaded file</a></p></iframe></main></body></html>`;
+}
+
+export async function uploadStudentDocumentCore(user: AccessUser, input: Record<string, unknown>) {
+  need(user, "documents.issue", "people.edit", "school.edit");
+  const rawType = String(input.type || "").trim().toUpperCase();
+  const type = rawType === "OTHER" ? "CUSTOM_LETTER" : rawType;
+  if (!STUDENT_UPLOAD_TYPES.has(type)) throw new Error("Choose a supported student document type.");
+  const subjectId = String(input.studentId || input.subjectId || "").slice(0, 120);
+  if (!subjectId) throw new Error("Choose a student.");
+  const filePath = String(input.filePath || "").replace(/^\/+/, "");
+  const fileName = String(input.fileName || "Uploaded document").trim().slice(0, 180) || "Uploaded document";
+  resolveUploadPath(filePath);
+
+  const schoolId = await schoolIdFor(user);
+  const template = await resolveUploadTemplate(user, type, schoolId);
+  const now = new Date();
+  const year = now.getFullYear();
+  const count = await prisma.issuedDocument.count({ where: { schoolId, type, issuedAt: { gte: new Date(year, 0, 1), lt: new Date(year + 1, 0, 1) } } });
+  const code = type.split("_").map((word) => word[0]).join("").slice(0, 4);
+  const documentNumber = `${code}-${year}-${String(count + 1).padStart(6, "0")}`;
+  const verifyToken = randomBytes(24).toString("base64url");
+  const verifyUrl = `${publicOrigin()}/verify/${verifyToken}`;
+  const subjectLabel = String(input.subjectLabel || "").slice(0, 200);
+  const label = String(input.label || DOCUMENT_TYPES.find((row) => row.id === type)?.label || "Student document").slice(0, 120);
+  const incoming = input.data && typeof input.data === "object" ? { ...(input.data as Record<string, unknown>) } : {};
+  const data = await hydrateIssuedDocumentData(type, "STUDENT", subjectId, incoming);
+  data.document = {
+    ...((data.document && typeof data.document === "object") ? data.document : {}),
+    type,
+    number: documentNumber,
+    issueDate: now.toISOString().slice(0, 10),
+    verifyId: verifyToken.slice(0, 10).toUpperCase(),
+  };
+  data.upload = { filePath, fileName, label, sourceType: rawType || type };
+  const renderedHtml = uploadedDocumentHtml({ documentNumber, fileName, label, subjectLabel, token: verifyToken, verifyUrl });
+  const fileHash = createHash("sha256").update(`${filePath}:${fileName}`).digest("hex");
+  const issued = await prisma.issuedDocument.create({
+    data: {
+      schoolId,
+      documentNumber,
+      verifyToken,
+      templateVersionId: template.versions[0].id,
+      type,
+      subjectType: "STUDENT",
+      subjectId,
+      subjectLabel,
+      dataJson: JSON.stringify(data),
+      renderedHtml,
+      fileHash,
+      issuedById: user.id,
+      events: { create: { action: "UPLOADED", actorId: user.id, metadataJson: JSON.stringify({ fileName, sourceType: rawType || type }) } },
+    },
+  });
+  return { id: issued.id, documentNumber, verifyUrl, documentUrl: `${publicOrigin()}/documents/${verifyToken}` };
+}
+
 async function findActiveTemplateByTypes(types: string[]) {
   for (const type of types) {
     const row = await prisma.documentTemplate.findFirst({
@@ -2333,6 +2446,15 @@ export async function reissueDocumentCore(user: AccessUser, input: Record<string
 
 export async function findIssuedDocument(token: string) {
   return prisma.issuedDocument.findUnique({ where: { verifyToken: token }, include: { templateVersion: { include: { template: true } } } });
+}
+
+export function uploadedIssuedDocumentFile(row: NonNullable<Awaited<ReturnType<typeof findIssuedDocument>>>) {
+  const snapshot = safeObject(row.dataJson);
+  const upload = snapshot.upload && typeof snapshot.upload === "object" ? snapshot.upload as Record<string, unknown> : {};
+  return {
+    filePath: String(upload.filePath || ""),
+    fileName: String(upload.fileName || ""),
+  };
 }
 
 export function verificationHtml(row: NonNullable<Awaited<ReturnType<typeof findIssuedDocument>>>) {

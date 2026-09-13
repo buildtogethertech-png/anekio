@@ -15,6 +15,7 @@ import { ReportCardSheet, type ReportCardData } from "./report-card-sheet";
 import { studentSeriesScore, studentYearScore } from "../lib/exams";
 import { act, saveLateTiming } from "../lib/mutate";
 import { openMarksheetPdf } from "../lib/print-html";
+import { pickFile, uploadFile } from "../lib/upload";
 import { webOrigin } from "../lib/api";
 import { useRecord, type AdmissionFormField } from "../lib/record";
 import { useSession } from "../lib/session";
@@ -685,6 +686,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   const [edit, setEdit] = useState<Record<string, any>>({});
   const [editTags, setEditTags] = useState<string[]>([]);
   const [idCardPending, setIdCardPending] = useState(false);
+  const [documentUploadPending, setDocumentUploadPending] = useState("");
   const people = data?.people ?? [];
   const teachersAll = data?.peopleTeachers ?? [];
   const parentsAll = data?.peopleParents ?? [];
@@ -979,6 +981,38 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       toast.show(e instanceof Error ? e.message : "Could not issue ID card.");
     } finally {
       setIdCardPending(false);
+    }
+  }
+
+  async function uploadStudentDocument(doc: { type: string; label: string; uploadType?: string }) {
+    if (!data || !selected) return;
+    const file = await pickFile(".pdf,.doc,.docx,image/png,image/jpeg,image/webp,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    if (!file) return;
+    setDocumentUploadPending(doc.type);
+    try {
+      const uploaded = await uploadFile(token, file, {
+        kind: "studentDocument",
+        studentId: selected.id,
+        type: doc.uploadType || doc.type,
+      });
+      const result = await act<{ ok: true; documentUrl: string }>(token, "uploadStudentDocument", {
+        studentId: selected.id,
+        subjectLabel: selected.name,
+        type: doc.uploadType || doc.type,
+        label: doc.label,
+        filePath: uploaded.path,
+        fileName: uploaded.fileName || file.name,
+        data: {
+          school: data.school,
+          student: selected,
+        },
+      });
+      await reload();
+      await Linking.openURL(result.documentUrl);
+    } catch (e) {
+      toast.show(e instanceof Error ? e.message : "Could not upload document.");
+    } finally {
+      setDocumentUploadPending("");
     }
   }
 
@@ -1552,11 +1586,12 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       </View>
     );
     const documentRows = [
-      { type: "STUDENT_ID", label: "Student ID" },
-      { type: "DOB_CERTIFICATE", label: "Birth certificate" },
-      { type: "TRANSFER_CERTIFICATE", label: "Transfer certificate" },
-      { type: "OTHER", label: "Other documents" },
+      { type: "STUDENT_ID", label: "Student ID", uploadType: "STUDENT_ID" },
+      { type: "DOB_CERTIFICATE", label: "Birth certificate", uploadType: "DOB_CERTIFICATE" },
+      { type: "TRANSFER_CERTIFICATE", label: "Transfer certificate", uploadType: "TRANSFER_CERTIFICATE" },
+      { type: "OTHER", label: "Other documents", uploadType: "OTHER" },
     ];
+    const canUploadDocuments = can(user, "documents.issue") || can(user, "people.edit") || can(user, "school.edit");
     const documentsBody = (
       <View className="mt-5 gap-4">
         <View className="flex-row flex-wrap items-center justify-between gap-3">
@@ -1578,17 +1613,19 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
           {documentRows.map((doc, index) => {
             const issued =
               doc.type === "OTHER"
-                ? studentDocs.find((row) => !["STUDENT_ID", "DOB_CERTIFICATE", "TRANSFER_CERTIFICATE"].includes(row.type))
+                ? studentDocs.find((row) => row.uploadSourceType === "OTHER" || !["STUDENT_ID", "DOB_CERTIFICATE", "TRANSFER_CERTIFICATE"].includes(row.type))
                 : studentDocs.find((row) => row.type === doc.type);
+            const issuedLabel = issued?.uploadLabel || (issued ? docTypeLabel(issued.type) : doc.label);
+            const issuedVerb = issued?.uploadLabel ? "Uploaded" : "Issued";
             return (
               <View
                 key={doc.type}
                 className={`flex-row items-center justify-between gap-3 px-3 py-3 ${index ? "border-t border-ink-100" : ""}`}
               >
                 <View className="min-w-0 flex-1">
-                  <Text className="text-sm font-medium text-ink-900">{issued ? docTypeLabel(issued.type) : doc.label}</Text>
+                  <Text className="text-sm font-medium text-ink-900">{issued ? issuedLabel : doc.label}</Text>
                   <Text className="mt-1 text-xs text-ink-700">
-                    {issued ? `Uploaded ${new Date(issued.issuedAt).toLocaleDateString("en-IN")} · ${issued.documentNumber}` : "Not uploaded"}
+                    {issued ? `${issuedVerb} ${new Date(issued.issuedAt).toLocaleDateString("en-IN")} · ${issued.documentNumber}` : "Not uploaded"}
                   </Text>
                 </View>
                 <View className="flex-row items-center gap-2">
@@ -1596,6 +1633,11 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                   {issued ? (
                     <Pressable onPress={() => void Linking.openURL(issued.documentUrl)} hitSlop={8}>
                       <Text className="text-xs font-medium text-clay-600">Open</Text>
+                    </Pressable>
+                  ) : null}
+                  {canUploadDocuments ? (
+                    <Pressable disabled={documentUploadPending === doc.type} onPress={() => void uploadStudentDocument(doc)} hitSlop={8}>
+                      <Text className="text-xs font-medium text-clay-600">{documentUploadPending === doc.type ? "Uploading..." : issued ? "Replace" : "Upload"}</Text>
                     </Pressable>
                   ) : null}
                 </View>

@@ -765,6 +765,8 @@ export type RecordPayload = {
       documentUrl: string;
       templateName: string;
       version: number;
+      uploadLabel?: string;
+      uploadSourceType?: string;
     }[];
   } | null;
   examPapers?: { id: string; name: string; classId: string }[];
