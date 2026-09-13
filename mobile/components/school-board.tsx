@@ -351,6 +351,36 @@ const COMMON_ADMISSION_DOCUMENTS = [
   { label: "Address proof", fileType: "image_pdf" },
 ] as const;
 
+const DEFAULT_STAFF_ONBOARDING_FIELDS = [
+  { label: "Staff name", type: "Short text", required: true },
+  { label: "Phone", type: "Phone", required: true },
+  { label: "Email", type: "Email", required: false },
+  { label: "Role", type: "Dropdown", required: true },
+  { label: "Department", type: "Short text", required: false },
+  { label: "Joining date", type: "Date", required: true },
+  { label: "Qualification", type: "Short text", required: false },
+  { label: "Address", type: "Long text", required: false },
+] as const;
+
+const DEFAULT_STAFF_ONBOARDING_DOCUMENTS = ["Photo", "ID proof", "Address proof", "Qualification certificate", "Experience letter"] as const;
+
+function csvCell(value: string) {
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+function downloadCsvTemplate(filename: string, headers: string[]) {
+  if (typeof document === "undefined") return false;
+  const csv = `${headers.map(csvCell).join(",")}\n`;
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+  return true;
+}
+
 function admissionFieldId(label: string) {
   return `custom_${label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "field"}_${Date.now()}`;
 }
@@ -445,6 +475,7 @@ export function SchoolBoard() {
   const [uploadingAsset, setUploadingAsset] = useState("");
   const [selectedDocs, setSelectedDocs] = useState<string[]>([]);
   const [admissionFormOpen, setAdmissionFormOpen] = useState(false);
+  const [staffFormOpen, setStaffFormOpen] = useState(false);
   const [editingAdmissionFieldId, setEditingAdmissionFieldId] = useState("");
   const [savingYearPlan, setSavingYearPlan] = useState(false);
   const [plan, setPlan] = useState<ExamPlanDraft[]>(normalizeExamPlan(s?.plan));
@@ -569,6 +600,18 @@ export function SchoolBoard() {
       })),
     ]);
     setSelectedDocs([]);
+  }
+
+  function downloadStaffOnboardingTemplate() {
+    const headers = [
+      ...DEFAULT_STAFF_ONBOARDING_FIELDS.map((field) => field.label),
+      ...DEFAULT_STAFF_ONBOARDING_DOCUMENTS.map((label) => `${label} file`),
+    ];
+    if (downloadCsvTemplate("staff-onboarding-template.csv", headers)) {
+      toast.show("Staff onboarding template downloaded.");
+      return;
+    }
+    toast.show("Template download is available on web.");
   }
 
   async function run(op: string, body: Record<string, unknown>, ok: string) {
@@ -1953,18 +1996,20 @@ export function SchoolBoard() {
                           <View className="min-w-0 flex-1">
                             <Text className="text-sm font-semibold text-ink-900">Staff onboarding form</Text>
                             <Text className="mt-1 text-xs leading-5 text-ink-700">
-                              Planned source for staff onboarding, staff upload templates, and document collection.
+                              Default staff intake fields for onboarding, upload templates, and document collection.
                             </Text>
                           </View>
-                          <View className="rounded-md bg-ink-100 px-2.5 py-1.5">
-                            <Text className="text-[11px] font-semibold text-ink-700">Coming next</Text>
+                          <View className="rounded-md border border-ink-100 bg-ink-50 px-2.5 py-1.5">
+                            <Text className="text-[11px] font-semibold text-ink-800">
+                              {DEFAULT_STAFF_ONBOARDING_FIELDS.length} fields · {DEFAULT_STAFF_ONBOARDING_FIELDS.filter((field) => field.required).length} required
+                            </Text>
                           </View>
                         </View>
                         <View className="mt-4 flex-row flex-wrap gap-2">
-                          <Button variant="ghost" disabled>
-                            Configure
+                          <Button variant="ghost" onPress={() => setStaffFormOpen(true)}>
+                            View form
                           </Button>
-                          <Button variant="ghost" disabled>
+                          <Button variant="ghost" onPress={downloadStaffOnboardingTemplate}>
                             Download template
                           </Button>
                         </View>
@@ -2157,6 +2202,47 @@ export function SchoolBoard() {
             >
               Save
             </Button>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal open={staffFormOpen} title="Staff onboarding form" onClose={() => setStaffFormOpen(false)}>
+        <View className="gap-4">
+          <View className="rounded-md border border-ink-200 bg-ink-50 p-3">
+            <Text className="text-sm font-semibold text-ink-900">Default staff onboarding form</Text>
+            <Text className="mt-1 text-xs leading-4 text-ink-700">
+              This default structure can be used for staff onboarding and the staff upload template.
+            </Text>
+          </View>
+          <View className="overflow-hidden rounded-md border border-ink-200 bg-white">
+            <View className="border-b border-ink-100 bg-ink-50 px-3 py-2.5">
+              <Text className="text-sm font-semibold text-ink-900">Fields</Text>
+            </View>
+            {DEFAULT_STAFF_ONBOARDING_FIELDS.map((field) => (
+              <View key={field.label} className="flex-row items-center justify-between gap-3 border-b border-ink-100 px-3 py-2.5 last:border-b-0">
+                <View className="min-w-0 flex-1">
+                  <Text className="text-sm font-semibold text-ink-900">{field.label}</Text>
+                  <Text className="mt-0.5 text-[11px] text-ink-700">{field.type}</Text>
+                </View>
+                {field.required ? <Badge tone="warn">Required</Badge> : <Badge tone="ink">Optional</Badge>}
+              </View>
+            ))}
+          </View>
+          <View className="rounded-md border border-ink-200 bg-white p-3">
+            <Text className="text-sm font-semibold text-ink-900">Documents</Text>
+            <View className="mt-3 flex-row flex-wrap gap-2">
+              {DEFAULT_STAFF_ONBOARDING_DOCUMENTS.map((doc) => (
+                <Text key={doc} className="rounded-md border border-ink-200 bg-ink-50 px-2.5 py-1.5 text-[11px] font-medium text-ink-800">
+                  {doc}
+                </Text>
+              ))}
+            </View>
+          </View>
+          <View className="flex-row justify-end gap-2">
+            <Button variant="ghost" onPress={downloadStaffOnboardingTemplate}>
+              Download template
+            </Button>
+            <Button onPress={() => setStaffFormOpen(false)}>Done</Button>
           </View>
         </View>
       </Modal>
