@@ -596,8 +596,10 @@ export function SchoolBoard() {
       if (tab === "website") await act(token, "saveAdmissionForm", { fields: form.admissionForm });
       toast.show("School saved.");
       await reload();
+      return true;
     } catch (e) {
       toast.show(e instanceof Error ? e.message : "Could not save.");
+      return false;
     }
   }
 
@@ -2073,7 +2075,13 @@ export function SchoolBoard() {
             ))}
           </View>
           <View className="items-end">
-            <Button onPress={() => setAdmissionFormOpen(false)}>Done</Button>
+            <Button
+              onPress={async () => {
+                if (await save()) setAdmissionFormOpen(false);
+              }}
+            >
+              Save
+            </Button>
           </View>
         </View>
       </Modal>
