@@ -8,7 +8,7 @@ import { UploadCsvPanel } from "./upload-csv-panel";
 import { DocumentStudio } from "./document-studio";
 import { ClockForm, SchoolSubjectsForm } from "./school-setup";
 import { StaffHoursForm } from "./staff-hours-form";
-import { webOrigin } from "../lib/api";
+import { useAssetUrl } from "../lib/assets";
 import { act, saveLateTiming } from "../lib/mutate";
 import { useRecord, type AdmissionFormField, type RecordPayload } from "../lib/record";
 import { useSession } from "../lib/session";
@@ -118,13 +118,14 @@ function inr(n: number) {
   return `₹${n.toLocaleString("en-IN")}`;
 }
 
-function assetUrl(rel?: string) {
-  if (!rel) return "";
-  return `${webOrigin()}/api/files/${rel}`;
-}
-
 function listLines(value: string) {
   return value.split(/\n|,/).map((line) => line.trim()).filter(Boolean).slice(0, 6);
+}
+
+function AssetImage({ path, className }: { path?: string | null; className: string }) {
+  const uri = useAssetUrl(path);
+  if (!uri) return null;
+  return <Image source={{ uri }} className={className} resizeMode="contain" />;
 }
 
 function Half({ children }: { children: React.ReactNode }) {
@@ -654,7 +655,7 @@ export function SchoolBoard() {
                         <View className="flex-row items-center gap-3">
                           <View className="h-20 w-20 items-center justify-center rounded-md border border-ink-200 bg-white p-2">
                             {s?.logoPath ? (
-                              <Image source={{ uri: assetUrl(s.logoPath) }} className="h-16 w-16" resizeMode="contain" />
+                              <AssetImage path={s.logoPath} className="h-16 w-16" />
                             ) : (
                               <Ionicons name="school-outline" size={30} color="#3d4f66" />
                             )}
@@ -688,7 +689,7 @@ export function SchoolBoard() {
                       <View className="min-w-[45%] flex-1 rounded-md border border-ink-200 p-4">
                         <Text className="text-sm font-medium text-ink-900">Principal signature</Text>
                         <Text className="mt-1 text-xs text-ink-700">Transparent PNG works best.</Text>
-                        {s?.signPath ? <Image source={{ uri: assetUrl(s.signPath) }} className="my-3 h-14 w-full" resizeMode="contain" /> : null}
+                        {s?.signPath ? <AssetImage path={s.signPath} className="my-3 h-14 w-full" /> : null}
                         {edit ? (
                           <Button
                             variant="ghost"
@@ -703,7 +704,7 @@ export function SchoolBoard() {
                       <View className="min-w-[45%] flex-1 rounded-md border border-ink-200 p-4">
                         <Text className="text-sm font-medium text-ink-900">School stamp</Text>
                         <Text className="mt-1 text-xs text-ink-700">Optional, shown on formal documents.</Text>
-                        {s?.stampPath ? <Image source={{ uri: assetUrl(s.stampPath) }} className="my-3 h-14 w-full" resizeMode="contain" /> : null}
+                        {s?.stampPath ? <AssetImage path={s.stampPath} className="my-3 h-14 w-full" /> : null}
                         {edit ? (
                           <Button
                             variant="ghost"
@@ -1964,7 +1965,7 @@ function WebsiteMiniPreview({ form, logoPath }: { form: SchoolForm; logoPath?: s
       <View style={{ backgroundColor: theme.main }} className="p-4">
         <View className="flex-row items-center gap-2">
           <View className="h-10 w-10 items-center justify-center rounded-lg bg-white p-1">
-            {logoPath ? <Image source={{ uri: assetUrl(logoPath) }} className="h-8 w-8" resizeMode="contain" /> : <Ionicons name="school-outline" size={22} color={theme.main} />}
+            {logoPath ? <AssetImage path={logoPath} className="h-8 w-8" /> : <Ionicons name="school-outline" size={22} color={theme.main} />}
           </View>
           <View className="min-w-0 flex-1">
             <Text className="font-semibold text-white" numberOfLines={1}>{form.name}</Text>
@@ -2016,7 +2017,7 @@ function BrandAssetPreview({
         <View className="mt-3 flex-row items-center gap-3 border-b border-ink-100 pb-3">
           <View className="h-12 w-12 items-center justify-center rounded-md border border-ink-200 bg-ink-50 p-1.5">
             {logoPath ? (
-              <Image source={{ uri: assetUrl(logoPath) }} className="h-10 w-10" resizeMode="contain" />
+              <AssetImage path={logoPath} className="h-10 w-10" />
             ) : (
               <Ionicons name="school-outline" size={22} color="#60748d" />
             )}
@@ -2033,7 +2034,7 @@ function BrandAssetPreview({
             <Text className="text-[11px] font-medium uppercase text-ink-700">Authorised signature</Text>
             <View className="mt-2 h-14 items-center justify-center rounded bg-white">
               {signPath ? (
-                <Image source={{ uri: assetUrl(signPath) }} className="h-12 w-full" resizeMode="contain" />
+                <AssetImage path={signPath} className="h-12 w-full" />
               ) : (
                 <Text className="text-xs text-ink-500">Upload signature</Text>
               )}
@@ -2044,7 +2045,7 @@ function BrandAssetPreview({
             <Text className="text-[11px] font-medium uppercase text-ink-700">School stamp</Text>
             <View className="mt-2 h-16 items-center justify-center rounded bg-white">
               {stampPath ? (
-                <Image source={{ uri: assetUrl(stampPath) }} className="h-14 w-20" resizeMode="contain" />
+                <AssetImage path={stampPath} className="h-14 w-20" />
               ) : (
                 <Text className="text-xs text-ink-500">Upload stamp</Text>
               )}
@@ -2084,7 +2085,7 @@ function InvoicePreview({ form, logoPath }: { form: SchoolForm; logoPath?: strin
           {ids ? <Text className="mt-0.5 text-[11px] text-ink-700">{ids}</Text> : null}
           {compact ? <Text className="mt-2 text-[10px] font-medium uppercase text-ink-700">Proforma invoice</Text> : null}
         </View>
-        {logoPath ? <Image source={{ uri: assetUrl(logoPath) }} className="h-12 w-12" resizeMode="contain" /> : null}
+        {logoPath ? <AssetImage path={logoPath} className="h-12 w-12" /> : null}
       </View>
       <View className="mt-4 flex-row justify-between gap-3">
         <View>
