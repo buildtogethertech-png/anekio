@@ -4,6 +4,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Dropdown } from "./form";
 import { Badge, Button, Card, Field, Input, Modal, PageHeader, Switch, Toast, useToast } from "./ui";
+import { DateField } from "./date-field";
 import { UploadCsvPanel } from "./upload-csv-panel";
 import { DocumentStudio } from "./document-studio";
 import { ClockForm, SchoolSubjectsForm } from "./school-setup";
@@ -931,7 +932,7 @@ export function SchoolBoard() {
                   <View className="flex-row flex-wrap items-end gap-3">
                     <View className={wide ? "w-44" : "min-w-[12rem] flex-1"}>
                       <Field label="Date">
-                        <Input value={holiday.date} placeholder="2026-10-02" onChangeText={(v) => setHoliday({ ...holiday, date: v })} />
+                        <DateField value={holiday.date} placeholder="Pick date" onChange={(date) => setHoliday({ ...holiday, date })} />
                       </Field>
                     </View>
                     <View className="min-w-[14rem] flex-1">
