@@ -1689,26 +1689,29 @@ export function SchoolBoard() {
                         </Text>
                       </View>
                     </View>
-                    <View className={phone ? "w-full gap-2" : "items-end gap-2"}>
-                      <View className="flex-row items-center gap-3 rounded-md border border-ink-200 bg-ink-50 px-3 py-2">
+                    <View className="flex-row flex-wrap items-center gap-2">
+                      <View className="flex-row items-center gap-3 rounded-md border border-ink-200 bg-white px-3 py-2">
                         <View className="items-end">
                           <Text className="text-xs font-medium text-ink-700">Website</Text>
                           <Text className="text-[11px] font-medium text-ink-600">{form.websiteEnabled ? "On" : "Off"}</Text>
                         </View>
                         <Switch on={form.websiteEnabled} onPress={() => patch("websiteEnabled", !form.websiteEnabled)} />
                       </View>
-                      <Button variant="ghost" onPress={() => setAdmissionFormOpen(true)}>
-                        Edit admission form
-                      </Button>
                     </View>
                   </View>
 
                   <View className="mt-4 border-t border-ink-100 pt-4">
-                    <Text className="text-sm font-semibold text-ink-900">Website configuration</Text>
-                    <View className="mt-3 flex-row flex-wrap gap-3">
-                      <View className={phone ? "w-full min-w-full" : "min-w-[360px] flex-[1.25]"}>
-                        <Field label="Website URL">
-                          <View className="overflow-hidden rounded-md border border-ink-200 bg-white">
+                    <View className="flex-row flex-wrap gap-3">
+                      <View className={phone ? "w-full min-w-full" : "min-w-[520px] flex-[1.6]"}>
+                        <View className="rounded-lg border border-ink-200 bg-ink-50 p-3">
+                          <View className="flex-row flex-wrap items-start justify-between gap-2">
+                            <View>
+                              <Text className="text-sm font-semibold text-ink-900">Public URL</Text>
+                              <Text className="mt-0.5 text-[11px] text-ink-600">Share this link with parents.</Text>
+                            </View>
+                            <Text className="text-[11px] font-semibold text-blue-700">{form.websiteSlug || "demo"}.anekio.com</Text>
+                          </View>
+                          <View className="mt-3 overflow-hidden rounded-md border border-ink-200 bg-white">
                             <View className="flex-row items-center">
                               <View className="border-r border-ink-100 bg-ink-50 px-3 py-2.5">
                                 <Text className="text-sm font-medium text-ink-600">https://</Text>
@@ -1727,20 +1730,33 @@ export function SchoolBoard() {
                               </View>
                             </View>
                           </View>
-                        </Field>
+                        </View>
                       </View>
-                      <View className={phone ? "w-full min-w-full" : "min-w-[240px] flex-1"}>
-                        <Dropdown
-                          label="Theme"
-                          value={form.websiteTheme}
-                          options={[
-                            { id: "blue", label: "Blue" },
-                            { id: "green", label: "Green" },
-                            { id: "purple", label: "Purple" },
-                            { id: "orange", label: "Orange" },
-                          ]}
-                          onChange={(v) => patch("websiteTheme", v)}
-                        />
+                      <View className={phone ? "w-full min-w-full" : "min-w-[260px] flex-1"}>
+                        <View className="rounded-lg border border-ink-200 bg-white p-3">
+                          <Dropdown
+                            label="Theme"
+                            value={form.websiteTheme}
+                            options={[
+                              { id: "blue", label: "Blue" },
+                              { id: "green", label: "Green" },
+                              { id: "purple", label: "Purple" },
+                              { id: "orange", label: "Orange" },
+                            ]}
+                            onChange={(v) => patch("websiteTheme", v)}
+                          />
+                        </View>
+                      </View>
+                      <View className={phone ? "w-full min-w-full" : "min-w-[260px] flex-1"}>
+                        <View className="rounded-lg border border-ink-200 bg-white p-3">
+                          <Text className="text-xs font-medium text-ink-700">Admission form</Text>
+                          <Text className="mt-1 text-sm font-semibold text-ink-900">
+                            {form.admissionForm.filter((field) => field.visible).length} shown · {form.admissionForm.filter((field) => field.required).length} required
+                          </Text>
+                          <Button variant="ghost" className="mt-3 self-start" onPress={() => setAdmissionFormOpen(true)}>
+                            Edit form
+                          </Button>
+                        </View>
                       </View>
                     </View>
                   </View>
