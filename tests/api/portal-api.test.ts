@@ -328,6 +328,8 @@ describe("Express portal API", () => {
           payTestMode: true,
           razorpayKeyId: "rzp_test_settings",
           razorpayKeySecret: "settings-secret",
+          logoPath: "public/schools/green-valley-delhi/branding/logos/logo.png",
+          signPath: "private/schools/green-valley-delhi/branding/signatures/sign.png",
         });
 
       expect(saved.status).toBe(200);
@@ -336,6 +338,8 @@ describe("Express portal API", () => {
       expect(config.payGateway).toBe("RAZORPAY");
       expect(config.razorpayKeyId).toBe("rzp_test_settings");
       expect(config.razorpayKeySecret).toBe("settings-secret");
+      expect(config.logoPath).toBe("public/schools/green-valley-delhi/branding/logos/logo.png");
+      expect(config.signPath).toBe("private/schools/green-valley-delhi/branding/signatures/sign.png");
     } finally {
       await prisma.user.update({ where: { id: fixture.users.office.id }, data: { orgId: null } });
       await prisma.schoolConfig.delete({ where: { id: "school:org-school-settings" } });

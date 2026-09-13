@@ -1772,7 +1772,9 @@ export async function saveSchoolIdentityCore(
     const allowed =
       value.startsWith("school/") ||
       value.startsWith("public/school/branding/") ||
-      value.startsWith("private/school/branding/");
+      value.startsWith("private/school/branding/") ||
+      /^public\/schools\/[^/]+\/branding\//.test(value) ||
+      /^private\/schools\/[^/]+\/branding\//.test(value);
     if (value && !allowed) throw new Error("Invalid school asset.");
     return value;
   };
