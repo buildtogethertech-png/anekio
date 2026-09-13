@@ -1815,49 +1815,49 @@ export function SchoolBoard() {
                   <View className="mt-4 border-t border-ink-100 pt-4">
                     <Text className="text-sm font-semibold text-ink-900">About your school</Text>
                     <Text className="mt-0.5 text-xs text-ink-700">Tell parents what makes your school special.</Text>
+                    <View className="mt-3">
+                      <Field label="About school">
+                        <Input
+                          multiline
+                          className="min-h-[72px]"
+                          value={form.websiteAbout}
+                          placeholder="Short intro, teaching style, campus, values..."
+                          onChangeText={(v) => patch("websiteAbout", v)}
+                        />
+                      </Field>
+                    </View>
+                  </View>
+
+                  <View className="mt-4 border-t border-ink-100 pt-4">
+                    <Text className="text-sm font-semibold text-ink-900">Admissions</Text>
+                    <Text className="mt-0.5 text-xs text-ink-700">How parents understand availability, fees, and next steps.</Text>
                     <View className="mt-3 flex-row flex-wrap gap-3">
-                      <View className={phone ? "w-full min-w-full" : "min-w-[360px] flex-1"}>
-                        <Field label="About school">
+                      <View className={phone ? "w-full min-w-full" : "min-w-[220px] flex-1"}>
+                        <Dropdown
+                          label="Admission status"
+                          value={form.websiteAdmissionOpen ? "open" : "closed"}
+                          options={[
+                            { id: "open", label: "Admissions open" },
+                            { id: "closed", label: "Only collect enquiries" },
+                          ]}
+                          onChange={(v) => patch("websiteAdmissionOpen", v === "open")}
+                        />
+                      </View>
+                      <View className={phone ? "w-full min-w-full" : "min-w-[160px] flex-1"}>
+                        <Field label="Admission charge">
                           <Input
-                            multiline
-                            className="min-h-[72px]"
-                            value={form.websiteAbout}
-                            placeholder="Short intro, teaching style, campus, values..."
-                            onChangeText={(v) => patch("websiteAbout", v)}
+                            className="h-10"
+                            keyboardType="number-pad"
+                            value={form.admissionCharge}
+                            placeholder="0"
+                            onChangeText={(v) => patch("admissionCharge", v.replace(/[^0-9]/g, ""))}
                           />
                         </Field>
                       </View>
-                      <View className={phone ? "w-full min-w-full" : "min-w-[360px] flex-1"}>
-                        <Text className="mb-3 text-sm font-semibold text-ink-900">Admissions</Text>
-                        <View className="flex-row flex-wrap gap-3">
-                          <View className="min-w-[220px] flex-1">
-                            <Dropdown
-                              label="Admission status"
-                              value={form.websiteAdmissionOpen ? "open" : "closed"}
-                              options={[
-                                { id: "open", label: "Admissions open" },
-                                { id: "closed", label: "Only collect enquiries" },
-                              ]}
-                              onChange={(v) => patch("websiteAdmissionOpen", v === "open")}
-                            />
-                          </View>
-                          <View className="min-w-[120px] flex-1">
-                            <Field label="Admission charge">
-                              <Input
-                                className="h-10"
-                                keyboardType="number-pad"
-                                value={form.admissionCharge}
-                                placeholder="0"
-                                onChangeText={(v) => patch("admissionCharge", v.replace(/[^0-9]/g, ""))}
-                              />
-                            </Field>
-                          </View>
-                        </View>
-                        <View className="mt-3">
-                          <Field label="Admission note">
-                            <Input className="h-10" value={form.websiteAdmissionNote} onChangeText={(v) => patch("websiteAdmissionNote", v)} />
-                          </Field>
-                        </View>
+                      <View className={phone ? "w-full min-w-full" : "min-w-[360px] flex-[1.5]"}>
+                        <Field label="Admission note">
+                          <Input className="h-10" value={form.websiteAdmissionNote} onChangeText={(v) => patch("websiteAdmissionNote", v)} />
+                        </Field>
                       </View>
                     </View>
                   </View>
@@ -1868,24 +1868,42 @@ export function SchoolBoard() {
                     <View className="mt-3 flex-row flex-wrap gap-3">
                       <View className={phone ? "w-full min-w-full" : "min-w-[320px] flex-1"}>
                         <Field label="Highlights">
-                          <Input
-                            multiline
-                            className="min-h-[88px]"
-                            value={form.websiteHighlights}
-                            placeholder="One per line: Admissions open, Safe campus, Smart updates"
-                            onChangeText={(v) => patch("websiteHighlights", v)}
-                          />
+                          <View className="rounded-lg border border-ink-200 bg-white p-3">
+                            <Input
+                              multiline
+                              className="min-h-[64px] border-0 bg-transparent p-0"
+                              value={form.websiteHighlights}
+                              placeholder="One per line: Admissions open, Safe campus, Smart updates"
+                              onChangeText={(v) => patch("websiteHighlights", v)}
+                            />
+                            <View className="mt-3 flex-row flex-wrap gap-2">
+                              {listLines(form.websiteHighlights).map((item) => (
+                                <Text key={item} className="rounded-full bg-brand-50 px-3 py-1 text-xs font-medium text-brand-700">
+                                  {item}
+                                </Text>
+                              ))}
+                            </View>
+                          </View>
                         </Field>
                       </View>
                       <View className={phone ? "w-full min-w-full" : "min-w-[320px] flex-1"}>
                         <Field label="Facilities">
-                          <Input
-                            multiline
-                            className="min-h-[88px]"
-                            value={form.websiteFacilities}
-                            placeholder="One per line: Library, Computer lab, Transport"
-                            onChangeText={(v) => patch("websiteFacilities", v)}
-                          />
+                          <View className="rounded-lg border border-ink-200 bg-white p-3">
+                            <Input
+                              multiline
+                              className="min-h-[64px] border-0 bg-transparent p-0"
+                              value={form.websiteFacilities}
+                              placeholder="One per line: Library, Computer lab, Transport"
+                              onChangeText={(v) => patch("websiteFacilities", v)}
+                            />
+                            <View className="mt-3 flex-row flex-wrap gap-2">
+                              {listLines(form.websiteFacilities).map((item) => (
+                                <Text key={item} className="rounded-full bg-ink-100 px-3 py-1 text-xs font-medium text-ink-800">
+                                  {item}
+                                </Text>
+                              ))}
+                            </View>
+                          </View>
                         </Field>
                       </View>
                     </View>
@@ -1895,7 +1913,7 @@ export function SchoolBoard() {
             ) : null}
 
             {showSave ? (
-              <View className="mt-5 flex-row flex-wrap items-center justify-between gap-3 border-t border-ink-100 pt-4">
+              <View className={`mt-5 flex-row flex-wrap items-center justify-between gap-3 border-t border-ink-100 pt-4 ${tab === "website" ? "pr-20" : ""}`}>
                 <Text className="text-[11px] text-ink-700">Saves school settings together.</Text>
                 {edit ? <Button onPress={save}>Save</Button> : null}
               </View>
