@@ -165,6 +165,7 @@ export function StaffAttendanceDetail({
 }) {
   const toast = useToast();
   const { width } = useWindowDimensions();
+  const phone = width < 640;
   const split = width >= 960;
   const now = ymd(new Date());
   const [month, setMonth] = useState(now.slice(0, 7));
@@ -421,16 +422,16 @@ export function StaffAttendanceDetail({
   return (
     <ScrollView className="min-h-0 flex-1" contentContainerClassName="pb-6" keyboardShouldPersistTaps="handled">
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
-      <View className="mb-3 flex-row flex-wrap items-start justify-between gap-3">
-        <View className="min-w-0 flex-1">
+      <View className={`mb-3 ${phone ? "gap-3" : "flex-row flex-wrap items-start justify-between gap-3"}`}>
+        <View className={phone ? "w-full" : "min-w-0 flex-1"}>
           <Pressable onPress={onBack} className="mb-1 flex-row items-center gap-1" accessibilityRole="button" accessibilityLabel="Back to Employees">
             <Ionicons name="chevron-back" size={16} color="#2855F6" />
             <Text className="text-[12px] font-medium text-clay-500">Back to Employees</Text>
           </Pressable>
-          <Text className="text-[22px] font-semibold text-ink-900">{person.name}</Text>
-          <Text className="mt-0.5 text-[13px] text-ink-500">{roleLine}</Text>
+          <Text className="text-[22px] font-semibold text-ink-900" numberOfLines={1}>{person.name}</Text>
+          <Text className="mt-0.5 text-[13px] text-ink-500" numberOfLines={1}>{roleLine}</Text>
         </View>
-        <View className="flex-row flex-wrap items-center gap-2">
+        <View className={`flex-row flex-wrap items-center gap-2 ${phone ? "w-full" : ""}`}>
           <View className={`rounded-md px-2.5 py-1 ${pay.className}`}>
             <Text className={`text-[11px] font-semibold ${pay.className}`}>Payment Status: {pay.label}</Text>
           </View>
