@@ -25,7 +25,7 @@ const TABS = [
   { id: "leave", label: "Leave", hint: "Planned and sick. Who can use them, and how much notice.", group: "Staff & Leave" },
   { id: "collect", label: "Collect", hint: "UPI, bank, gateway", group: "Fees" },
   { id: "documents", label: "Document Studio", hint: "Design printable PDFs. Fee amounts stay in Fees.", group: "Documents" },
-  { id: "website", label: "Admissions website", hint: "Public school page, enquiry form, and incoming leads", group: "Admissions" },
+  { id: "website", label: "School website", hint: "Public school page, admissions, enquiry form, and incoming leads", group: "Admissions" },
 ] as const;
 
 type Tab = (typeof TABS)[number]["id"];
@@ -1676,20 +1676,29 @@ export function SchoolBoard() {
                 <View className="rounded-xl border border-ink-200 bg-white p-4">
                   <View className="flex-row flex-wrap items-start justify-between gap-3">
                     <View className="min-w-0 flex-1">
-                      <Text className="text-base font-semibold text-ink-900">Admissions website</Text>
+                      <Text className="text-base font-semibold text-ink-900">{form.name || "School website"}</Text>
                       <Text className="mt-1 text-sm text-ink-700">
-                        Public page, enquiry form, and incoming leads in one place.
+                        Your public school website, admissions page, and enquiry form.
                       </Text>
                       <View className="mt-2 flex-row flex-wrap items-center gap-2">
+                        <Ionicons name="globe-outline" size={14} color="#1d4ed8" />
+                        <Text className="text-xs font-semibold text-blue-700">{form.websiteSlug || "demo"}.anekio.com</Text>
                         <View className={`h-2 w-2 rounded-full ${form.websiteEnabled ? "bg-green-600" : "bg-ink-400"}`} />
                         <Text className="text-xs font-semibold text-ink-800">{form.websiteEnabled ? "Live" : "Offline"}</Text>
-                        <Text className="text-xs font-semibold text-blue-700">{form.websiteSlug || "demo"}.anekio.com</Text>
                         <Text className="text-xs text-ink-600">
                           {form.admissionForm.filter((field) => field.visible).length} fields · {form.admissionForm.filter((field) => field.required).length} required
                         </Text>
                       </View>
                     </View>
                     <View className="flex-row flex-wrap items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        onPress={() => {
+                          if (typeof window !== "undefined") window.open(`https://${form.websiteSlug || "demo"}.anekio.com`, "_blank");
+                        }}
+                      >
+                        Preview website
+                      </Button>
                       <View className="flex-row items-center gap-3 rounded-md border border-ink-200 bg-white px-3 py-2">
                         <View className="items-end">
                           <Text className="text-xs font-medium text-ink-700">Website</Text>
@@ -1701,12 +1710,27 @@ export function SchoolBoard() {
                   </View>
 
                   <View className="mt-4 border-t border-ink-100 pt-4">
+                    <Text className="mb-3 text-sm font-semibold text-ink-900">Website setup</Text>
+                    <View className="mb-3 rounded-lg border border-ink-200 bg-ink-50 p-3">
+                      <View className="flex-row flex-wrap items-center justify-between gap-3">
+                        <View className="min-w-0 flex-1">
+                          <Text className="text-sm font-semibold text-ink-900">Website status</Text>
+                          <Text className="mt-0.5 text-xs text-ink-700">
+                            {form.websiteEnabled ? "Parents can view your website." : "Website is not visible to parents yet."}
+                          </Text>
+                        </View>
+                        <View className="flex-row items-center gap-2">
+                          <View className={`h-2 w-2 rounded-full ${form.websiteEnabled ? "bg-green-600" : "bg-ink-400"}`} />
+                          <Text className="text-xs font-semibold text-ink-800">{form.websiteEnabled ? "Live" : "Draft"}</Text>
+                        </View>
+                      </View>
+                    </View>
                     <View className="flex-row flex-wrap gap-3">
                       <View className={phone ? "w-full min-w-full" : "min-w-[520px] flex-[1.6]"}>
                         <View className="rounded-lg border border-ink-200 bg-ink-50 p-3">
                           <View className="flex-row flex-wrap items-start justify-between gap-2">
                             <View>
-                              <Text className="text-sm font-semibold text-ink-900">Public URL</Text>
+                              <Text className="text-sm font-semibold text-ink-900">Website address</Text>
                               <Text className="mt-0.5 text-[11px] text-ink-600">Share this link with parents.</Text>
                             </View>
                             <Text className="text-[11px] font-semibold text-blue-700">{form.websiteSlug || "demo"}.anekio.com</Text>
@@ -1762,7 +1786,8 @@ export function SchoolBoard() {
                   </View>
 
                   <View className="mt-4 border-t border-ink-100 pt-4">
-                    <Text className="text-sm font-semibold text-ink-900">Hero section</Text>
+                    <Text className="text-sm font-semibold text-ink-900">Homepage hero</Text>
+                    <Text className="mt-0.5 text-xs text-ink-700">The first thing parents see when they visit your website.</Text>
                     <View className="mt-3 flex-row flex-wrap gap-3">
                       <View className={phone ? "w-full min-w-full" : "min-w-[360px] flex-1"}>
                         <Field label="Hero title">
@@ -1788,7 +1813,9 @@ export function SchoolBoard() {
                   </View>
 
                   <View className="mt-4 border-t border-ink-100 pt-4">
-                    <View className="flex-row flex-wrap gap-3">
+                    <Text className="text-sm font-semibold text-ink-900">About your school</Text>
+                    <Text className="mt-0.5 text-xs text-ink-700">Tell parents what makes your school special.</Text>
+                    <View className="mt-3 flex-row flex-wrap gap-3">
                       <View className={phone ? "w-full min-w-full" : "min-w-[360px] flex-1"}>
                         <Field label="About school">
                           <Input
@@ -1801,6 +1828,7 @@ export function SchoolBoard() {
                         </Field>
                       </View>
                       <View className={phone ? "w-full min-w-full" : "min-w-[360px] flex-1"}>
+                        <Text className="mb-3 text-sm font-semibold text-ink-900">Admissions</Text>
                         <View className="flex-row flex-wrap gap-3">
                           <View className="min-w-[220px] flex-1">
                             <Dropdown
@@ -1835,7 +1863,8 @@ export function SchoolBoard() {
                   </View>
 
                   <View className="mt-4 border-t border-ink-100 pt-4">
-                    <Text className="text-sm font-semibold text-ink-900">Details parents see</Text>
+                    <Text className="text-sm font-semibold text-ink-900">What parents will see</Text>
+                    <Text className="mt-0.5 text-xs text-ink-700">Highlights and facilities displayed on your public website.</Text>
                     <View className="mt-3 flex-row flex-wrap gap-3">
                       <View className={phone ? "w-full min-w-full" : "min-w-[320px] flex-1"}>
                         <Field label="Highlights">
