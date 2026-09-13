@@ -1680,28 +1680,47 @@ export function SchoolBoard() {
                       <Text className="mt-1 text-sm leading-5 text-blue-900">
                         A simple public page with school details and an enquiry form. Every submitted form becomes a lead here.
                       </Text>
-                      <Text className="mt-2 text-xs font-semibold text-blue-800">
-                        https://{form.websiteSlug || "demo"}.anekio.com
-                      </Text>
-                    </View>
-                    <View className="flex-row items-center gap-3 rounded-md border border-blue-200 bg-white px-3 py-2">
-                      <View className="items-end">
-                        <Text className="text-xs font-semibold text-blue-950">Website</Text>
-                        <Badge tone={form.websiteEnabled ? "leaf" : "ink"}>{form.websiteEnabled ? "On" : "Off"}</Badge>
+                      <View className="mt-3 flex-row flex-wrap items-center gap-2">
+                        <Badge tone={form.websiteEnabled ? "leaf" : "ink"}>{form.websiteEnabled ? "Published" : "Draft"}</Badge>
+                        <Text className="text-xs font-semibold text-blue-800">https://{form.websiteSlug || "demo"}.anekio.com</Text>
                       </View>
-                      <Switch on={form.websiteEnabled} onPress={() => patch("websiteEnabled", !form.websiteEnabled)} />
+                    </View>
+                    <View className={phone ? "w-full gap-2" : "items-end gap-2"}>
+                      <View className="flex-row items-center gap-3 rounded-md border border-blue-200 bg-white px-3 py-2">
+                        <View className="items-end">
+                          <Text className="text-xs font-semibold text-blue-950">Website</Text>
+                          <Text className="text-[11px] font-medium text-ink-600">{form.websiteEnabled ? "On" : "Off"}</Text>
+                        </View>
+                        <Switch on={form.websiteEnabled} onPress={() => patch("websiteEnabled", !form.websiteEnabled)} />
+                      </View>
+                      <Button variant="ghost" onPress={() => setAdmissionFormOpen(true)}>
+                        Edit admission form
+                      </Button>
                     </View>
                   </View>
                 </View>
                 <View className="flex-row flex-wrap gap-3">
                   <Half>
                     <Field label="Website slug">
-                      <Input
-                        autoCapitalize="none"
-                        value={form.websiteSlug}
-                        placeholder="green-valley"
-                        onChangeText={(v) => patch("websiteSlug", v.toLowerCase().replace(/[^a-z0-9-]/g, "-"))}
-                      />
+                      <View className="overflow-hidden rounded-md border border-ink-200 bg-white">
+                        <View className="flex-row items-center">
+                          <View className="border-r border-ink-100 bg-ink-50 px-3 py-3">
+                            <Text className="text-sm font-semibold text-ink-600">https://</Text>
+                          </View>
+                          <View className="min-w-0 flex-1">
+                            <Input
+                              autoCapitalize="none"
+                              className="rounded-none border-0 bg-transparent"
+                              value={form.websiteSlug}
+                              placeholder="green-valley"
+                              onChangeText={(v) => patch("websiteSlug", v.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-+/g, ""))}
+                            />
+                          </View>
+                          <View className="border-l border-ink-100 bg-ink-50 px-3 py-3">
+                            <Text className="text-sm font-semibold text-ink-600">.anekio.com</Text>
+                          </View>
+                        </View>
+                      </View>
                     </Field>
                   </Half>
                   <Half>
@@ -1788,9 +1807,6 @@ export function SchoolBoard() {
                         {form.admissionForm.filter((field) => field.visible).length} shown to parents · {form.admissionForm.filter((field) => field.required).length} required
                       </Text>
                     </View>
-                    <Button variant="ghost" onPress={() => setAdmissionFormOpen(true)}>
-                      Edit admission form
-                    </Button>
                   </View>
                 </View>
               </View>
