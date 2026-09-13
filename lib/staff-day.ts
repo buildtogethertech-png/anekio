@@ -51,6 +51,13 @@ export function staffDayWindow(stamp: string) {
   };
 }
 
+export function earliestStaffInAt(...values: (string | null | undefined)[]) {
+  return values
+    .map((value) => String(value || "").trim())
+    .filter((value) => /^\d{2}:\d{2}$/.test(value))
+    .sort()[0] || "";
+}
+
 export function collapseStaffDaysByDate<T extends { date: Date | string; inAt?: string | null }>(rows: T[]) {
   const out = new Map<string, T>();
   for (const row of rows) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { collapseStaffDaysByDate, staffDayInstant, staffDayYmd } from "../../lib/staff-day";
+import { collapseStaffDaysByDate, earliestStaffInAt, staffDayInstant, staffDayYmd } from "../../lib/staff-day";
 
 describe("staff calendar day", () => {
   it("maps IST midnight, UTC midnight, and +05:30 noon to the same school date", () => {
@@ -39,5 +39,11 @@ describe("staff calendar day", () => {
     };
     const map = collapseStaffDaysByDate([utcMidnight, istMidnight]);
     expect(map.get("2026-09-09")?.inAt).toBe("08:05");
+  });
+
+  it("keeps the earliest staff In time from repeated QR scans", () => {
+    expect(earliestStaffInAt("09:18", "08:55")).toBe("08:55");
+    expect(earliestStaffInAt("", "09:05")).toBe("09:05");
+    expect(earliestStaffInAt("08:45", "bad-time", null)).toBe("08:45");
   });
 });

@@ -27,7 +27,7 @@ import { roleIdBySlug, slugFromName } from "./roles";
 import { closedReason, paperDates, parseHolidayText, snapToSchoolDay, type PaperCadence } from "./calendar";
 import { classifyFromIn, normalizeHHmm, parsePayrollRules, personKey, type PayrollRules } from "./payroll";
 import { loadSchoolCalendar } from "./leave";
-import { staffDayInstant, staffDayWindow, staffDayYmd } from "./staff-day";
+import { earliestStaffInAt, staffDayInstant, staffDayWindow, staffDayYmd } from "./staff-day";
 import { addDays, examPlanWeight, parseExamPlan, ymd } from "./exams";
 import { teacherCanEditMarks, teacherMayEnterMarks } from "./exam-workflow";
 import { validateExamMark } from "./exam-marks";
@@ -1060,7 +1060,9 @@ export async function scanStaffAttendanceQrCore(user: AccessUser, input: { code:
   const config = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
   const rules = parsePayrollRules(config?.payrollJson);
   const inAt = currentSchoolTime();
-  const next = classifyStaffDay("PRESENT", inAt, "", rules);
+  const existing = await findStaffDayOnStamp(ticket.kind, ticket.id, stamp);
+  const preservedInAt = earliestStaffInAt(existing?.inAt, inAt) || inAt;
+  const next = classifyStaffDay("PRESENT", preservedInAt, "", rules);
   await writeStaffDayOnStamp(ticket.kind, ticket.id, stamp, {
     status: next.status,
     markedById: user.id,
