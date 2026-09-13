@@ -2523,6 +2523,15 @@ export function AdmissionsBoard() {
   }
 
   async function createWalkInLead() {
+    const requiredMissing = admissionFields.find((field) => field.required && !String(walkInValues[field.id] || "").trim());
+    if (requiredMissing) {
+      toast.show(`${requiredMissing.label} is required.`);
+      return;
+    }
+    if (!String(walkInValues.phone || "").trim()) {
+      toast.show("Phone number is required.");
+      return;
+    }
     try {
       const result = await act<{ ok: true; leadId: string }>(token, "createAdmissionLead", walkInValues);
       toast.show("Walk-in lead added.");
