@@ -1807,7 +1807,7 @@ export function SchoolBoard() {
 
                   <View className="mt-4 border-t border-ink-100 pt-4">
                     <Text className="text-sm font-semibold text-ink-900">Admissions</Text>
-                    <Text className="mt-0.5 text-xs text-ink-700">How parents understand availability, fees, and next steps.</Text>
+                    <Text className="mt-0.5 text-xs text-ink-700">How parents understand availability and next steps.</Text>
                     <View className="mt-3 flex-row flex-wrap gap-3">
                       <View className={phone ? "w-full min-w-full" : "min-w-[220px] flex-1"}>
                         <Dropdown
@@ -1820,18 +1820,7 @@ export function SchoolBoard() {
                           onChange={(v) => patch("websiteAdmissionOpen", v === "open")}
                         />
                       </View>
-                      <View className={phone ? "w-full min-w-full" : "min-w-[160px] flex-1"}>
-                        <Field label="Admission charge">
-                          <Input
-                            className="h-10"
-                            keyboardType="number-pad"
-                            value={form.admissionCharge}
-                            placeholder="0"
-                            onChangeText={(v) => patch("admissionCharge", v.replace(/[^0-9]/g, ""))}
-                          />
-                        </Field>
-                      </View>
-                      <View className={phone ? "w-full min-w-full" : "min-w-[360px] flex-[1.5]"}>
+                      <View className={phone ? "w-full min-w-full" : "min-w-[520px] flex-[2]"}>
                         <Field label="Admission note">
                           <Input className="h-10" value={form.websiteAdmissionNote} onChangeText={(v) => patch("websiteAdmissionNote", v)} />
                         </Field>
