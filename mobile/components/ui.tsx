@@ -450,23 +450,39 @@ export function Toast({ message, onDone }: { message: string; onDone: () => void
   const tone = alertTone(message);
   const ok = tone === "success";
   const copy = alertMessage(message, ok);
+  const body = (
+    <View
+      accessibilityRole="alert"
+      className="w-full max-w-sm flex-row items-center gap-3 rounded-lg border border-ink-100 bg-white px-4 py-3 shadow-lg"
+    >
+      <View className={`h-6 w-6 items-center justify-center rounded-full ${ok ? "bg-green-600" : "bg-red-600"}`}>
+        <Ionicons name={ok ? "checkmark" : "alert"} size={16} color="#ffffff" />
+      </View>
+      <Text className={`min-w-0 flex-1 text-sm font-semibold ${ok ? "text-green-800" : "text-red-700"}`}>
+        {copy}
+      </Text>
+      <Pressable accessibilityRole="button" accessibilityLabel="Dismiss alert" hitSlop={8} onPress={onDone}>
+        <Ionicons name="close" size={22} color="#3d4f66" />
+      </Pressable>
+    </View>
+  );
+  if (Platform.OS === "web") {
+    return (
+      <View
+        pointerEvents="box-none"
+        className="fixed inset-x-0 bottom-0 z-50 items-center px-4"
+        style={{ paddingBottom: bottom } as StyleProp<ViewStyle>}
+      >
+        <View pointerEvents="auto" className="w-full max-w-sm">
+          {body}
+        </View>
+      </View>
+    );
+  }
   return (
     <RnModal visible={Boolean(message)} transparent animationType="fade" onRequestClose={onDone}>
       <View pointerEvents="box-none" className="flex-1 items-center justify-end px-4" style={{ paddingBottom: bottom }}>
-        <View
-          accessibilityRole="alert"
-          className="w-full max-w-sm flex-row items-center gap-3 rounded-lg border border-ink-100 bg-white px-4 py-3 shadow-lg"
-        >
-          <View className={`h-6 w-6 items-center justify-center rounded-full ${ok ? "bg-green-600" : "bg-red-600"}`}>
-            <Ionicons name={ok ? "checkmark" : "alert"} size={16} color="#ffffff" />
-          </View>
-          <Text className={`min-w-0 flex-1 text-sm font-semibold ${ok ? "text-green-800" : "text-red-700"}`}>
-            {copy}
-          </Text>
-          <Pressable accessibilityRole="button" accessibilityLabel="Dismiss alert" hitSlop={8} onPress={onDone}>
-            <Ionicons name="close" size={22} color="#3d4f66" />
-          </Pressable>
-        </View>
+        {body}
       </View>
     </RnModal>
   );
