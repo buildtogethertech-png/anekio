@@ -8,9 +8,8 @@ import { DateField } from "./date-field";
 import { UploadCsvPanel } from "./upload-csv-panel";
 import { DocumentStudio } from "./document-studio";
 import { ClockForm, SchoolSubjectsForm } from "./school-setup";
-import { StaffHoursForm } from "./staff-hours-form";
 import { useAssetUrl } from "../lib/assets";
-import { act, saveLateTiming } from "../lib/mutate";
+import { act } from "../lib/mutate";
 import { useRecord, type AdmissionFormField, type RecordPayload } from "../lib/record";
 import { useSession } from "../lib/session";
 import { pickFile, uploadFile } from "../lib/upload";
@@ -864,15 +863,6 @@ export function SchoolBoard() {
                 }}
                 onDelete={async (id) => {
                   await run("deletePeriod", { id }, "Period removed.");
-                }}
-              />
-              <StaffHoursForm
-                rules={data?.payrollRules}
-                canEdit={edit}
-                onSave={async (payload) => {
-                  await saveLateTiming(token, payload);
-                  toast.show("Attendance hours saved.");
-                  await reload();
                 }}
               />
               </View>
