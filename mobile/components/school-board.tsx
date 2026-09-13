@@ -1672,140 +1672,192 @@ export function SchoolBoard() {
             ) : null}
 
             {tab === "website" ? (
-              <View className="gap-4">
-                <View className="rounded-xl border border-blue-200 bg-blue-50 p-4">
-                  <View className="flex-row flex-wrap items-start justify-between gap-3">
-                    <View className="min-w-0 flex-1">
-                      <Text className="text-base font-semibold text-blue-950">School admissions website</Text>
-                      <Text className="mt-1 text-sm leading-5 text-blue-900">
-                        A simple public page with school details and an enquiry form. Every submitted form becomes a lead here.
-                      </Text>
-                      <View className="mt-3 flex-row flex-wrap items-center gap-2">
-                        <Badge tone={form.websiteEnabled ? "leaf" : "ink"}>{form.websiteEnabled ? "Published" : "Draft"}</Badge>
-                        <Text className="text-xs font-semibold text-blue-800">https://{form.websiteSlug || "demo"}.anekio.com</Text>
+              <View className="w-full max-w-[1160px] self-center">
+                <View className="mb-5 flex-row flex-wrap items-center justify-end gap-2 border-b border-ink-100 pb-4">
+                  <View className="flex-row flex-wrap items-center gap-2">
+                    <Button variant="ghost" onPress={() => setAdmissionFormOpen(true)}>
+                      Edit admission form
+                    </Button>
+                    <View className="flex-row items-center gap-3 rounded-md border border-ink-200 bg-white px-3 py-2">
+                      <View className="items-end">
+                        <Text className="text-xs font-medium text-ink-700">Website</Text>
+                        <Text className="text-[11px] font-medium text-ink-600">{form.websiteEnabled ? "On" : "Off"}</Text>
                       </View>
-                    </View>
-                    <View className={phone ? "w-full gap-2" : "items-end gap-2"}>
-                      <View className="flex-row items-center gap-3 rounded-md border border-blue-200 bg-white px-3 py-2">
-                        <View className="items-end">
-                          <Text className="text-xs font-semibold text-blue-950">Website</Text>
-                          <Text className="text-[11px] font-medium text-ink-600">{form.websiteEnabled ? "On" : "Off"}</Text>
-                        </View>
-                        <Switch on={form.websiteEnabled} onPress={() => patch("websiteEnabled", !form.websiteEnabled)} />
-                      </View>
-                      <Button variant="ghost" onPress={() => setAdmissionFormOpen(true)}>
-                        Edit admission form
-                      </Button>
+                      <Switch on={form.websiteEnabled} onPress={() => patch("websiteEnabled", !form.websiteEnabled)} />
                     </View>
                   </View>
                 </View>
-                <View className="flex-row flex-wrap gap-3">
-                  <Half>
-                    <Field label="Website slug">
-                      <View className="overflow-hidden rounded-md border border-ink-200 bg-white">
-                        <View className="flex-row items-center">
-                          <View className="border-r border-ink-100 bg-ink-50 px-3 py-3">
-                            <Text className="text-sm font-semibold text-ink-600">https://</Text>
-                          </View>
-                          <View className="min-w-0 flex-1">
-                            <Input
-                              autoCapitalize="none"
-                              className="rounded-none border-0 bg-transparent"
-                              value={form.websiteSlug}
-                              placeholder="green-valley"
-                              onChangeText={(v) => patch("websiteSlug", v.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-+/g, ""))}
-                            />
-                          </View>
-                          <View className="border-l border-ink-100 bg-ink-50 px-3 py-3">
-                            <Text className="text-sm font-semibold text-ink-600">.anekio.com</Text>
-                          </View>
+
+                <View className="gap-5">
+                  <View className="rounded-xl border border-ink-200 bg-white p-4">
+                    <View className="flex-row flex-wrap items-start justify-between gap-3">
+                      <View className="min-w-0 flex-1">
+                        <Text className="text-base font-semibold text-ink-900">Admissions website</Text>
+                        <Text className="mt-1 text-sm text-ink-700">
+                          Your public admissions page is currently {form.websiteEnabled ? "on" : "off"}.
+                        </Text>
+                        <View className="mt-3 flex-row flex-wrap items-center gap-2">
+                          <View className={`h-2 w-2 rounded-full ${form.websiteEnabled ? "bg-green-600" : "bg-ink-400"}`} />
+                          <Text className="text-xs font-semibold text-ink-800">{form.websiteEnabled ? "Live" : "Offline"}</Text>
+                          <Text className="text-xs font-semibold text-blue-700">{form.websiteSlug || "demo"}.anekio.com</Text>
                         </View>
                       </View>
-                    </Field>
-                  </Half>
-                  <Half>
-                    <Dropdown
-                      label="Theme"
-                      value={form.websiteTheme}
-                      options={[
-                        { id: "blue", label: "Blue" },
-                        { id: "green", label: "Green" },
-                        { id: "purple", label: "Purple" },
-                        { id: "orange", label: "Orange" },
-                      ]}
-                      onChange={(v) => patch("websiteTheme", v)}
-                    />
-                  </Half>
-                </View>
-                <Field label="Hero title">
-                  <Input value={form.websiteHeroTitle} placeholder={`${form.name || "School"} admissions are open`} onChangeText={(v) => patch("websiteHeroTitle", v)} />
-                </Field>
-                <Field label="Hero subtitle">
-                  <Input
-                    multiline
-                    value={form.websiteHeroSubtitle}
-                    placeholder="Tell parents why they should enquire."
-                    onChangeText={(v) => patch("websiteHeroSubtitle", v)}
-                  />
-                </Field>
-                <Field label="About school">
-                  <Input multiline value={form.websiteAbout} placeholder="Short intro, teaching style, campus, values…" onChangeText={(v) => patch("websiteAbout", v)} />
-                </Field>
-                <View className="flex-row flex-wrap gap-3">
-                  <Half>
-                    <Field label="Highlights">
-                      <Input
-                        multiline
-                        value={form.websiteHighlights}
-                        placeholder="One per line: Admissions open, Safe campus, Smart updates"
-                        onChangeText={(v) => patch("websiteHighlights", v)}
-                      />
-                    </Field>
-                  </Half>
-                  <Half>
-                    <Field label="Facilities">
-                      <Input
-                        multiline
-                        value={form.websiteFacilities}
-                        placeholder="One per line: Library, Computer lab, Transport"
-                        onChangeText={(v) => patch("websiteFacilities", v)}
-                      />
-                    </Field>
-                  </Half>
-                </View>
-                <View className="flex-row flex-wrap gap-3">
-                  <Half>
-                    <Dropdown
-                      label="Admission status"
-                      value={form.websiteAdmissionOpen ? "open" : "closed"}
-                      options={[
-                        { id: "open", label: "Admissions open" },
-                        { id: "closed", label: "Only collect enquiries" },
-                      ]}
-                      onChange={(v) => patch("websiteAdmissionOpen", v === "open")}
-                    />
-                  </Half>
-                  <Half>
-                    <Field label="Admission note">
-                      <Input value={form.websiteAdmissionNote} onChangeText={(v) => patch("websiteAdmissionNote", v)} />
-                    </Field>
-                  </Half>
-                </View>
-                <Field label="Admission charge" hint="Default amount collected before a lead becomes a student. Use 0 when no charge applies.">
-                  <Input
-                    keyboardType="number-pad"
-                    value={form.admissionCharge}
-                    placeholder="0"
-                    onChangeText={(v) => patch("admissionCharge", v.replace(/[^0-9]/g, ""))}
-                  />
-                </Field>
-                <View className="mt-2 rounded-xl border border-ink-200 bg-ink-50 p-4">
-                  <View className="flex-row flex-wrap items-start justify-between gap-3">
-                    <View className="min-w-0 flex-1">
-                      <Text className="text-base font-semibold text-ink-900">Admission form fields</Text>
-                      <Text className="mt-1 text-xs leading-5 text-ink-700">
-                        {form.admissionForm.filter((field) => field.visible).length} shown to parents · {form.admissionForm.filter((field) => field.required).length} required
-                      </Text>
+                      <View className="rounded-md border border-ink-200 bg-ink-50 px-3 py-2">
+                        <Text className="text-[11px] font-medium text-ink-600">Admission enquiry form</Text>
+                        <Text className="mt-0.5 text-xs font-semibold text-ink-900">
+                          {form.admissionForm.filter((field) => field.visible).length} fields · {form.admissionForm.filter((field) => field.required).length} required
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  <View className="rounded-xl border border-ink-200 bg-white p-4">
+                    <Text className="text-base font-semibold text-ink-900">Website configuration</Text>
+                    <View className="mt-4 flex-row flex-wrap gap-4">
+                      <View className={phone ? "w-full min-w-full" : "min-w-[360px] flex-[1.25]"}>
+                        <Field label="Website URL">
+                          <View className="overflow-hidden rounded-md border border-ink-200 bg-white">
+                            <View className="flex-row items-center">
+                              <View className="border-r border-ink-100 bg-ink-50 px-3 py-2.5">
+                                <Text className="text-sm font-medium text-ink-600">https://</Text>
+                              </View>
+                              <View className="min-w-0 flex-1">
+                                <Input
+                                  autoCapitalize="none"
+                                  className="h-11 rounded-none border-0 bg-transparent"
+                                  value={form.websiteSlug}
+                                  placeholder="green-valley"
+                                  onChangeText={(v) => patch("websiteSlug", v.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-+/g, ""))}
+                                />
+                              </View>
+                              <View className="border-l border-ink-100 bg-ink-50 px-3 py-2.5">
+                                <Text className="text-sm font-medium text-ink-600">.anekio.com</Text>
+                              </View>
+                            </View>
+                          </View>
+                        </Field>
+                      </View>
+                      <View className={phone ? "w-full min-w-full" : "min-w-[260px] flex-1"}>
+                        <Dropdown
+                          label="Theme"
+                          value={form.websiteTheme}
+                          options={[
+                            { id: "blue", label: "Blue" },
+                            { id: "green", label: "Green" },
+                            { id: "purple", label: "Purple" },
+                            { id: "orange", label: "Orange" },
+                          ]}
+                          onChange={(v) => patch("websiteTheme", v)}
+                        />
+                      </View>
+                    </View>
+                  </View>
+
+                  <View className="rounded-xl border border-ink-200 bg-white p-4">
+                    <Text className="text-base font-semibold text-ink-900">Hero section</Text>
+                    <View className="mt-4 gap-3">
+                      <Field label="Hero title">
+                        <Input
+                          className="h-11"
+                          value={form.websiteHeroTitle}
+                          placeholder={`${form.name || "School"} admissions are open`}
+                          onChangeText={(v) => patch("websiteHeroTitle", v)}
+                        />
+                      </Field>
+                      <Field label="Hero subtitle">
+                        <Input
+                          className="min-h-[44px]"
+                          value={form.websiteHeroSubtitle}
+                          placeholder="Tell parents why they should enquire."
+                          onChangeText={(v) => patch("websiteHeroSubtitle", v)}
+                        />
+                      </Field>
+                    </View>
+                  </View>
+
+                  <View className="rounded-xl border border-ink-200 bg-white p-4">
+                    <Text className="text-base font-semibold text-ink-900">About the school</Text>
+                    <View className="mt-4">
+                      <Field label="About school">
+                        <Input
+                          multiline
+                          className="min-h-[76px]"
+                          value={form.websiteAbout}
+                          placeholder="Short intro, teaching style, campus, values..."
+                          onChangeText={(v) => patch("websiteAbout", v)}
+                        />
+                      </Field>
+                    </View>
+                  </View>
+
+                  <View className="rounded-xl border border-ink-200 bg-white p-4">
+                    <Text className="text-base font-semibold text-ink-900">Details parents see</Text>
+                    <View className="mt-4 flex-row flex-wrap gap-4">
+                      <View className={phone ? "w-full min-w-full" : "min-w-[320px] flex-1"}>
+                        <Field label="Highlights">
+                          <Input
+                            multiline
+                            className="min-h-[96px]"
+                            value={form.websiteHighlights}
+                            placeholder="One per line: Admissions open, Safe campus, Smart updates"
+                            onChangeText={(v) => patch("websiteHighlights", v)}
+                          />
+                        </Field>
+                      </View>
+                      <View className={phone ? "w-full min-w-full" : "min-w-[320px] flex-1"}>
+                        <Field label="Facilities">
+                          <Input
+                            multiline
+                            className="min-h-[96px]"
+                            value={form.websiteFacilities}
+                            placeholder="One per line: Library, Computer lab, Transport"
+                            onChangeText={(v) => patch("websiteFacilities", v)}
+                          />
+                        </Field>
+                      </View>
+                    </View>
+                    <View className="mt-4 flex-row flex-wrap gap-4">
+                      <View className={phone ? "w-full min-w-full" : "min-w-[260px] flex-1"}>
+                        <Dropdown
+                          label="Admission status"
+                          value={form.websiteAdmissionOpen ? "open" : "closed"}
+                          options={[
+                            { id: "open", label: "Admissions open" },
+                            { id: "closed", label: "Only collect enquiries" },
+                          ]}
+                          onChange={(v) => patch("websiteAdmissionOpen", v === "open")}
+                        />
+                      </View>
+                      <View className={phone ? "w-full min-w-full" : "min-w-[360px] flex-[1.25]"}>
+                        <Field label="Admission note">
+                          <Input className="h-11" value={form.websiteAdmissionNote} onChangeText={(v) => patch("websiteAdmissionNote", v)} />
+                        </Field>
+                      </View>
+                    </View>
+                    <View className="mt-4">
+                      <Field label="Admission charge" hint="Default amount collected before a lead becomes a student. Use 0 when no charge applies.">
+                        <Input
+                          className="h-11"
+                          keyboardType="number-pad"
+                          value={form.admissionCharge}
+                          placeholder="0"
+                          onChangeText={(v) => patch("admissionCharge", v.replace(/[^0-9]/g, ""))}
+                        />
+                      </Field>
+                    </View>
+                  </View>
+
+                  <View className="rounded-xl border border-ink-200 bg-ink-50 p-4">
+                    <View className="flex-row flex-wrap items-center justify-between gap-3">
+                      <View className="min-w-0 flex-1">
+                        <Text className="text-base font-semibold text-ink-900">Admission enquiry form</Text>
+                        <Text className="mt-1 text-sm text-ink-700">
+                          Configure the information parents provide when enquiring.
+                        </Text>
+                      </View>
+                      <Button variant="ghost" onPress={() => setAdmissionFormOpen(true)}>
+                        Edit form
+                      </Button>
                     </View>
                   </View>
                 </View>
