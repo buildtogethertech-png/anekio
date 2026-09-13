@@ -105,10 +105,7 @@ export function admissionFormFields(value: unknown): AdmissionFormField[] {
       } satisfies AdmissionFormField;
     });
 
-  return [...builtins, ...custom].map((field) => {
-    if (field.id === "phone") return { ...field, visible: true, required: true };
-    return { ...field, required: field.visible && field.required };
-  });
+  return [...builtins, ...custom].map((field) => ({ ...field, required: field.visible && field.required }));
 }
 
 export function admissionFormJson(value: unknown) {

@@ -21,6 +21,14 @@ describe("admission form configuration", () => {
     });
   });
 
+  it("allows the built-in phone field to be optional", () => {
+    const fields = admissionFormFields([
+      { id: "phone", label: "Phone", type: "phone", required: false, visible: true },
+    ]);
+
+    expect(fields.find((field) => field.id === "phone")).toMatchObject({ visible: true, required: false });
+  });
+
   it("enforces required fields and dropdown choices for every lead source", () => {
     const fields = [
       ...DEFAULT_ADMISSION_FORM.map((field) => ({ ...field, required: false })),
@@ -34,7 +42,7 @@ describe("admission form configuration", () => {
 
   it("rejects a visible dropdown without options before saving", () => {
     expect(() => admissionFormJson([{ id: "custom_empty", label: "Empty", type: "select", visible: true }])).toThrow(
-      "Empty needs at least one dropdown option."
+      "Empty needs at least one option."
     );
   });
 });
