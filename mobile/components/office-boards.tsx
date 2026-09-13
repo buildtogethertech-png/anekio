@@ -2415,12 +2415,19 @@ function AdmissionFieldControl({
   field,
   value,
   onChange,
+  classOptions = [],
 }: {
   field: AdmissionFormField;
   value: string;
   onChange: (value: string) => void;
+  classOptions?: { id: string; label: string }[];
 }) {
   const label = `${field.label}${field.required ? " *" : ""}`;
+  if (field.id === "classWanted" && classOptions.length) {
+    const hasValue = value ? classOptions.some((option) => option.id === value) : true;
+    const options = hasValue ? classOptions : [{ id: value, label: value }, ...classOptions];
+    return <Dropdown label={label} value={value} options={options} onChange={onChange} />;
+  }
   if (field.type === "select") {
     return <Dropdown label={label} value={value} options={field.options.map((option) => ({ id: option, label: option }))} onChange={onChange} />;
   }
@@ -2444,6 +2451,12 @@ export function AdmissionsBoard() {
   const toast = useToast();
   const leads = data?.school?.admissionLeads || [];
   const admissionFields = (data?.school?.admissionForm || []).filter((field) => field.visible);
+  const classOptions = (data?.classes || [])
+    .map((klass) => {
+      const label = klass.label || [klass.name, klass.section].filter(Boolean).join("-") || klass.id;
+      return { id: label, label };
+    })
+    .filter((option) => option.id);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("ALL");
   const [selectedId, setSelectedId] = useState(leads[0]?.id || "");
@@ -2644,6 +2657,7 @@ export function AdmissionsBoard() {
                     field={field}
                     value={walkInValues[field.id] || ""}
                     onChange={(value) => setWalkInValues((current) => ({ ...current, [field.id]: value }))}
+                    classOptions={classOptions}
                   />
                 </View>
               ))}
@@ -2701,7 +2715,16 @@ export function AdmissionsBoard() {
                       <Field label="Email"><Input value={draft.email} onChangeText={(v) => setDraft((old) => ({ ...old, email: v }))} /></Field>
                     </View>
                   </View>
-                  <Field label="Class interested"><Input value={draft.classWanted} onChangeText={(v) => setDraft((old) => ({ ...old, classWanted: v }))} /></Field>
+                  {classOptions.length ? (
+                    <Dropdown
+                      label="Class interested"
+                      value={draft.classWanted}
+                      options={classOptions.some((option) => option.id === draft.classWanted) || !draft.classWanted ? classOptions : [{ id: draft.classWanted, label: draft.classWanted }, ...classOptions]}
+                      onChange={(v) => setDraft((old) => ({ ...old, classWanted: v }))}
+                    />
+                  ) : (
+                    <Field label="Class interested"><Input value={draft.classWanted} onChangeText={(v) => setDraft((old) => ({ ...old, classWanted: v }))} /></Field>
+                  )}
                   <Field label="Message"><Input multiline value={draft.message} onChangeText={(v) => setDraft((old) => ({ ...old, message: v }))} /></Field>
                 </View>
               ) : (
