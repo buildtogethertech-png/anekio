@@ -167,6 +167,7 @@ export function TeacherDeskBoard() {
   const first = (user?.name || "").split(" ")[0] || "there";
   const day = todaySlots(data ?? { kind: "TEACHER" });
   const next = nextPeriod(day.periods);
+  const upcoming = nextScheduledPeriod(data ?? { kind: "TEACHER" });
   const rest = remainingPeriods(day.periods, next);
   const todos = (data?.todos ?? []).filter((t) => examTodoKind(t) !== "skip");
   const roster = data?.roster ?? [];
@@ -358,11 +359,15 @@ export function TeacherDeskBoard() {
           ? closed.hint
           : "No lesson scheduled now";
     if (phoneDashboard) {
-      const headline = closed ? "School is off today" : next ? next.subject : day.periods.length ? "Done for today" : "No class now";
+      const headline = next ? next.subject : "No class now";
       const subline = closed
-        ? `Next working day: ${nextWorkingDayLabel()}`
+        ? upcoming
+          ? `Next: ${upcoming.dayLabel} · ${upcoming.subject}${upcoming.start ? ` · ${upcoming.start}` : ""}${upcoming.classLabel ? ` · ${upcoming.classLabel}` : ""}`
+          : `Next working day: ${nextWorkingDayLabel()}`
         : next
           ? `${next.period || "Now"}${next.start ? ` · ${next.start}${next.end ? `-${next.end}` : ""}` : ""}${next.classLabel ? ` · ${next.classLabel}` : ""}`
+          : upcoming
+            ? `Next: ${upcoming.dayLabel} · ${upcoming.subject}${upcoming.start ? ` · ${upcoming.start}` : ""}${upcoming.classLabel ? ` · ${upcoming.classLabel}` : ""}`
           : day.periods.length
             ? "All scheduled lessons are complete"
             : "Use the quick actions below";
@@ -1671,6 +1676,44 @@ function todaySlots(data: RecordPayload) {
     })
     .sort((a, b) => (hmToMin(a.start) ?? 0) - (hmToMin(b.start) ?? 0));
   return { label, periods };
+}
+
+function nextScheduledPeriod(data: RecordPayload) {
+  const table = data.timetable;
+  if (!table) return null;
+  const today = ymd(new Date());
+  const now = new Date();
+  const nowMins = now.getHours() * 60 + now.getMinutes();
+  for (let offset = 0; offset <= 14; offset += 1) {
+    const date = addDays(today, offset);
+    const weekday = jsToWeekday(new Date(`${date}T00:00:00`).getDay());
+    const dayLabel = offset === 0
+      ? "Today"
+      : new Date(`${date}T00:00:00`).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
+    const periods = (table.slots ?? [])
+      .filter((s) => s.weekday === weekday && s.subject && s.subject !== "—")
+      .map((s) => {
+        const p = (table.periods ?? []).find((x) => x.id === s.periodId || x.name === s.period);
+        return {
+          period: s.period,
+          start: p?.start || "",
+          end: p?.end || "",
+          subject: s.subject,
+          teacher: s.teacher,
+          room: s.room,
+          classLabel: s.classLabel || "",
+          dayLabel,
+        };
+      })
+      .sort((a, b) => (hmToMin(a.start) ?? 0) - (hmToMin(b.start) ?? 0));
+    const hit = periods.find((period) => {
+      if (offset > 0) return true;
+      const end = hmToMin(period.end) ?? hmToMin(period.start);
+      return end == null || end > nowMins;
+    });
+    if (hit) return hit;
+  }
+  return null;
 }
 
 function nextPeriod(periods: ReturnType<typeof todaySlots>["periods"]) {
