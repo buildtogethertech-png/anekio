@@ -373,7 +373,7 @@ export function DeskBoard() {
   const desk = data?.desk;
   if (!desk) return <Empty title="The desk" body="Loading the school pulse." />;
   const desktop = width >= 900;
-  const canSeeFees = can(user, "fees.view") || can(user, "school.edit");
+  const canSeeFees = can(user, "fees.view");
   const subjectLoadPending = desk.subjectLoadPending ?? 0;
   const overdue = desk.overdueCount ?? 0;
   const series = desk.series ?? [];
