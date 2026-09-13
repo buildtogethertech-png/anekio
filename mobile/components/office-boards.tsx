@@ -2415,19 +2415,12 @@ function AdmissionFieldControl({
   field,
   value,
   onChange,
-  classOptions = [],
 }: {
   field: AdmissionFormField;
   value: string;
   onChange: (value: string) => void;
-  classOptions?: { id: string; label: string }[];
 }) {
   const label = `${field.label}${field.required ? " *" : ""}`;
-  if (field.id === "classWanted" && classOptions.length) {
-    const hasValue = value ? classOptions.some((option) => option.id === value) : true;
-    const options = hasValue ? classOptions : [{ id: value, label: value }, ...classOptions];
-    return <Dropdown label={label} value={value} options={options} onChange={onChange} />;
-  }
   if (field.type === "select") {
     return <Dropdown label={label} value={value} options={field.options.map((option) => ({ id: option, label: option }))} onChange={onChange} />;
   }
@@ -2685,7 +2678,6 @@ export function AdmissionsBoard() {
                     field={field}
                     value={walkInValues[field.id] || ""}
                     onChange={(value) => setWalkInValues((current) => ({ ...current, [field.id]: value }))}
-                    classOptions={classOptions}
                   />
                 </View>
               ))}
