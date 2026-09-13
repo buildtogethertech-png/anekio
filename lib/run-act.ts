@@ -67,6 +67,7 @@ import {
   setTeacherResourcesCore,
   updateAdmissionLeadCore,
   saveAdmissionFormCore,
+  saveStaffOnboardingFormCore,
   createAdmissionLeadCore,
 } from "./core-actions";
 import {
@@ -204,6 +205,9 @@ export async function runAct(
       break;
     case "saveAdmissionForm":
       await saveAdmissionFormCore(user, body as never);
+      break;
+    case "saveStaffOnboardingForm":
+      await saveStaffOnboardingFormCore(user, body as never);
       break;
     case "createAdmissionLead":
       return { ok: true, ...(await createAdmissionLeadCore(user, body)) };

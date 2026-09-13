@@ -47,7 +47,7 @@ import {
 } from "./school-session";
 import { placeFields, parseMonthlySalary, requireJoinedOn, STAFF_FIRST_PASSWORD, todayJoinedOn } from "./staff-profile";
 import { assertManagerChoice, defaultManagerIdForRole, managerIdForNewUser, teamClassIds } from "./reports";
-import { admissionFormFields, admissionFormJson, admissionLeadInput } from "./admission-form";
+import { admissionFormFields, admissionFormJson, admissionLeadInput, staffOnboardingFormJson } from "./admission-form";
 
 function need(user: AccessUser, ...keys: string[]) {
   if (!keys.some((k) => can(user, k))) throw new Error("No access.");
@@ -1907,6 +1907,16 @@ export async function saveAdmissionFormCore(user: AccessUser, input: { fields?: 
     where: { id: "school" },
     update: { admissionFormJson: fields },
     create: { id: "school", admissionFormJson: fields },
+  });
+}
+
+export async function saveStaffOnboardingFormCore(user: AccessUser, input: { fields?: unknown }) {
+  needSchoolScope(user, "school.edit");
+  const fields = staffOnboardingFormJson(input.fields);
+  await prisma.schoolConfig.upsert({
+    where: { id: "school" },
+    update: { staffOnboardingFormJson: fields },
+    create: { id: "school", staffOnboardingFormJson: fields },
   });
 }
 

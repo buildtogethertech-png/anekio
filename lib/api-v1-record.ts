@@ -37,7 +37,7 @@ import { parseSubjectCatalog, parseWeekdays, weekCapacity, WEEKDAY_SHORT } from 
 import { ensureSchoolSessions } from "./school-session";
 import { documentStudioBundle } from "./document-studio";
 import { CONTEST_TYPE_LABEL, daysLate, formatInr, LEVEL_LABEL, PATH_LABEL, percent, publicOrigin } from "./utils";
-import { admissionCustomValues, admissionFormFields } from "./admission-form";
+import { admissionCustomValues, admissionFormFields, staffOnboardingFormFields } from "./admission-form";
 import { subscriptionLockForUser } from "./anekio-site";
 
 function inDate(value: Date | string) {
@@ -1271,6 +1271,7 @@ async function officePayload(user: AccessUser) {
       sessionLabel: current.label,
       admissionCharge: config?.admissionCharge || 0,
       admissionForm: admissionFormFields(config?.admissionFormJson),
+      staffOnboardingForm: staffOnboardingFormFields(config?.staffOnboardingFormJson),
       whatsappCommunityUrl: config?.whatsappCommunityUrl || "",
       website: {
         enabled: config?.websiteEnabled || false,

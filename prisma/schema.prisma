@@ -821,6 +821,7 @@ model SchoolConfig {
   websiteAdmissionOpen  Boolean                   @default(true)
   websiteAdmissionNote  String                    @default("Admissions are open. Submit an enquiry and our office will contact you.")
   admissionFormJson     String                    @default("[]")
+  staffOnboardingFormJson String                  @default("[]")
   admissionCharge       Int                       @default(0)
   sessionStart          String                    @default("")
   sessionEnd            String                    @default("")

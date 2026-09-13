@@ -611,6 +611,7 @@ export type RecordPayload = {
     sessionLabel?: string;
     admissionCharge?: number;
     admissionForm?: AdmissionFormField[];
+    staffOnboardingForm?: AdmissionFormField[];
     whatsappCommunityUrl?: string;
     website?: {
       enabled: boolean;

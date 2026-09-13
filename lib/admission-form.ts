@@ -19,6 +19,7 @@ export type AdmissionFormField = {
 
 const BUILTIN_IDS = ["studentName", "classWanted", "guardianName", "phone", "email", "message"] as const;
 export type AdmissionBuiltinId = (typeof BUILTIN_IDS)[number];
+const STAFF_ONBOARDING_BUILTIN_IDS = ["staffName", "phone", "email", "role", "department", "joiningDate", "qualification", "address"] as const;
 
 export const DEFAULT_ADMISSION_FORM: AdmissionFormField[] = [
   { id: "studentName", label: "Student name", type: "text", required: true, visible: true, options: [], builtin: true },
@@ -27,6 +28,17 @@ export const DEFAULT_ADMISSION_FORM: AdmissionFormField[] = [
   { id: "phone", label: "Phone", type: "phone", required: true, visible: true, options: [], builtin: true },
   { id: "email", label: "Email", type: "email", required: false, visible: true, options: [], builtin: true },
   { id: "message", label: "Message", type: "textarea", required: false, visible: true, options: [], builtin: true },
+];
+
+export const DEFAULT_STAFF_ONBOARDING_FORM: AdmissionFormField[] = [
+  { id: "staffName", label: "Staff name", type: "text", required: true, visible: true, options: [], builtin: true },
+  { id: "phone", label: "Phone", type: "phone", required: true, visible: true, options: [], builtin: true },
+  { id: "email", label: "Email", type: "email", required: false, visible: true, options: [], builtin: true },
+  { id: "role", label: "Role", type: "select", required: true, visible: true, options: ["Teacher", "Office staff", "Support staff"], builtin: true },
+  { id: "department", label: "Department", type: "text", required: false, visible: true, options: [], builtin: true },
+  { id: "joiningDate", label: "Joining date", type: "date", required: true, visible: true, options: [], builtin: true },
+  { id: "qualification", label: "Qualification", type: "text", required: false, visible: true, options: [], builtin: true },
+  { id: "address", label: "Address", type: "textarea", required: false, visible: true, options: [], builtin: true },
 ];
 
 function cleanOptions(value: unknown) {
@@ -45,22 +57,22 @@ function customId(value: unknown, index: number) {
   return clean.startsWith("custom_") ? clean : `custom_${clean || index + 1}`;
 }
 
-export function admissionFormFields(value: unknown): AdmissionFormField[] {
+function formFields(value: unknown, defaults: AdmissionFormField[], builtinIds: readonly string[]): AdmissionFormField[] {
   let parsed = value;
   if (typeof value === "string") {
     try {
       parsed = JSON.parse(value);
     } catch {
-      return DEFAULT_ADMISSION_FORM.map((field) => ({ ...field, options: [...field.options] }));
+      return defaults.map((field) => ({ ...field, options: [...field.options] }));
     }
   }
   if (!Array.isArray(parsed) || !parsed.length) {
-    return DEFAULT_ADMISSION_FORM.map((field) => ({ ...field, options: [...field.options] }));
+    return defaults.map((field) => ({ ...field, options: [...field.options] }));
   }
 
   const incoming = parsed.filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === "object");
   const byId = new Map(incoming.map((row) => [String(row.id || ""), row]));
-  const builtins = DEFAULT_ADMISSION_FORM.map((fallback) => {
+  const builtins = defaults.map((fallback) => {
     const row = byId.get(fallback.id);
     const type = ADMISSION_FIELD_TYPES.includes(String(row?.type || "") as AdmissionFieldType)
       ? (String(row?.type) as AdmissionFieldType)
@@ -77,7 +89,7 @@ export function admissionFormFields(value: unknown): AdmissionFormField[] {
     };
   });
 
-  const used = new Set<string>(BUILTIN_IDS);
+  const used = new Set<string>(builtinIds);
   const custom = incoming
     .filter((row) => !used.has(String(row.id || "")))
     .slice(0, 14)
@@ -108,8 +120,8 @@ export function admissionFormFields(value: unknown): AdmissionFormField[] {
   return [...builtins, ...custom].map((field) => ({ ...field, required: field.visible && field.required }));
 }
 
-export function admissionFormJson(value: unknown) {
-  const fields = admissionFormFields(value);
+function formJson(value: unknown, defaults: AdmissionFormField[], builtinIds: readonly string[]) {
+  const fields = formFields(value, defaults, builtinIds);
   for (const field of fields) {
     if (["select", "radio", "multi"].includes(field.type) && field.visible && !field.options.length) {
       throw new Error(`${field.label} needs at least one option.`);
@@ -119,6 +131,22 @@ export function admissionFormJson(value: unknown) {
     }
   }
   return JSON.stringify(fields);
+}
+
+export function admissionFormFields(value: unknown): AdmissionFormField[] {
+  return formFields(value, DEFAULT_ADMISSION_FORM, BUILTIN_IDS);
+}
+
+export function admissionFormJson(value: unknown) {
+  return formJson(value, DEFAULT_ADMISSION_FORM, BUILTIN_IDS);
+}
+
+export function staffOnboardingFormFields(value: unknown): AdmissionFormField[] {
+  return formFields(value, DEFAULT_STAFF_ONBOARDING_FORM, STAFF_ONBOARDING_BUILTIN_IDS);
+}
+
+export function staffOnboardingFormJson(value: unknown) {
+  return formJson(value, DEFAULT_STAFF_ONBOARDING_FORM, STAFF_ONBOARDING_BUILTIN_IDS);
 }
 
 export function admissionCustomValues(value: unknown): Record<string, string> {
