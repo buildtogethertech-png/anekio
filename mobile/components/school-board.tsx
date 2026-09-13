@@ -382,6 +382,24 @@ function fileTypeSummary(field: AdmissionFormField) {
   return "JPG, PNG, PDF";
 }
 
+function schoolClassOptions(classes?: RecordPayload["classes"]) {
+  return [...new Set((classes || []).map((row) => row.label || [row.name, row.section].filter(Boolean).join("-")).filter(Boolean))];
+}
+
+function admissionFormWithClassOptions(fields: AdmissionFormField[], classes?: RecordPayload["classes"]) {
+  const classOptions = schoolClassOptions(classes);
+  return fields.map((field) => {
+    if (field.id !== "classWanted") return { ...field, options: [...field.options] };
+    const options = field.options.length ? field.options : classOptions;
+    if (!classOptions.length && !field.options.length) return { ...field, options: [] };
+    return {
+      ...field,
+      type: field.type === "text" ? "select" : field.type,
+      options: [...options],
+    };
+  });
+}
+
 export function SchoolBoard() {
   const { data, reload } = useRecord();
   const { token, user } = useSession();
@@ -399,7 +417,7 @@ export function SchoolBoard() {
   const [tab, setTab] = useState<Tab>(linked?.id ?? "identity");
   const [door, setDoor] = useState<Door>(linked?.group ?? linkedGroup ?? "School Setup");
   const [level, setLevel] = useState<Level>(linked ? "page" : linkedGroup ? "group" : "doors");
-  const [form, setForm] = useState<SchoolForm>(blankForm(s));
+  const [form, setForm] = useState<SchoolForm>(blankForm(s, data?.classes));
   const [holiday, setHoliday] = useState({ date: "", name: "" });
   const [addOpen, setAddOpen] = useState(false);
   const [classOpen, setClassOpen] = useState(false);
@@ -438,7 +456,7 @@ export function SchoolBoard() {
 
   useEffect(() => {
     if (!s) return;
-    setForm(blankForm(s));
+    setForm(blankForm(s, data?.classes));
     setBands(s.policy?.bands?.length ? s.policy.bands : DEFAULT_GRADE_BANDS);
     setPassPercent(String(s.policy?.passPercent ?? 33));
     setShowRank(Boolean(s.policy?.showRank));
@@ -446,7 +464,7 @@ export function SchoolBoard() {
     setPlan(normalizeExamPlan(s.plan));
     setCalendarSessionId((current) => current || s.sessionId || "");
     if (data?.leaveTypes?.length) setLeaveTypes(normalizeLeaveTypes(data.leaveTypes));
-  }, [s, data?.leaveTypes]);
+  }, [s, data?.classes, data?.leaveTypes]);
 
   const sessions = s?.sessions ?? [];
   const calendarSession = sessions.find((row) => row.id === calendarSessionId) ?? sessions.find((row) => row.current) ?? sessions[0];
@@ -676,6 +694,7 @@ export function SchoolBoard() {
         ? DOOR_LEDE[door]
         : current.hint;
   const editingAdmissionField = form.admissionForm.find((field) => field.id === editingAdmissionFieldId);
+  const admissionClassOptions = schoolClassOptions(data?.classes);
 
   return (
     <View>
@@ -2062,16 +2081,23 @@ export function SchoolBoard() {
               options={[...ADMISSION_FIELD_TYPE_OPTIONS]}
               onChange={(type) => {
                 const nextType = type as AdmissionFormField["type"];
+                const choiceType = ["select", "radio", "multi"].includes(nextType);
+                const seededOptions = editingAdmissionField.id === "classWanted" && !editingAdmissionField.options.length
+                  ? admissionClassOptions
+                  : editingAdmissionField.options;
                 patchAdmissionField(editingAdmissionField.id, {
                   type: nextType,
-                  options: ["select", "radio", "multi"].includes(nextType) ? editingAdmissionField.options : [],
+                  options: choiceType ? seededOptions : [],
                   fileType: nextType === "file" ? editingAdmissionField.fileType || "image_pdf" : undefined,
                   maxFileSizeMb: nextType === "file" ? editingAdmissionField.maxFileSizeMb || 5 : undefined,
                 });
               }}
             />
             {["select", "radio", "multi"].includes(editingAdmissionField.type) ? (
-              <Field label="Options" hint="One option per line">
+              <Field
+                label="Options"
+                hint={editingAdmissionField.id === "classWanted" ? "One class per line. Defaults come from School setup classes." : "One option per line"}
+              >
                 <Input
                   multiline
                   value={editingAdmissionField.options.join("\n")}
@@ -2249,7 +2275,7 @@ export function SchoolBoard() {
   );
 }
 
-function blankForm(s?: RecordPayload["school"]): SchoolForm {
+function blankForm(s?: RecordPayload["school"], classes?: RecordPayload["classes"]): SchoolForm {
   const website = (s as unknown as { website?: {
     enabled?: boolean;
     slug?: string;
@@ -2305,7 +2331,10 @@ function blankForm(s?: RecordPayload["school"]): SchoolForm {
     websiteFacilities: (website?.facilities || ["Digital classrooms", "Library", "Computer lab", "Sports", "Transport"]).join("\n"),
     websiteAdmissionOpen: website?.admissionOpen ?? true,
     websiteAdmissionNote: website?.admissionNote || "Admissions are open. Submit an enquiry and our office will contact you.",
-    admissionForm: s?.admissionForm?.length ? s.admissionForm.map((field) => ({ ...field, options: [...field.options] })) : DEFAULT_ADMISSION_FIELDS.map((field) => ({ ...field, options: [] })),
+    admissionForm: admissionFormWithClassOptions(
+      s?.admissionForm?.length ? s.admissionForm : DEFAULT_ADMISSION_FIELDS,
+      classes
+    ),
     admissionCharge: String(s?.admissionCharge || 0),
     sessionStart: s?.sessionStart || "",
     sessionEnd: s?.sessionEnd || "",
