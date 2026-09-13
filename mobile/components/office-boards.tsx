@@ -2449,6 +2449,7 @@ export function AdmissionsBoard() {
   const { data, reload } = useRecord();
   const { token, user } = useSession();
   const toast = useToast();
+  const router = useRouter();
   const leads = data?.school?.admissionLeads || [];
   const admissionFields = (data?.school?.admissionForm || []).filter((field) => field.visible);
   const classOptions = (data?.classes || [])
@@ -2542,6 +2543,11 @@ export function AdmissionsBoard() {
     } catch (e) {
       toast.show(e instanceof Error ? e.message : "Could not add walk-in lead.");
     }
+  }
+
+  function openAdmissionFormSettings() {
+    setWalkInOpen(false);
+    router.push({ pathname: "/school", params: { tab: "website" } } as never);
   }
 
   const timelineEvents = groupAdmissionTimelineEvents(selected
@@ -2655,9 +2661,22 @@ export function AdmissionsBoard() {
       </View>
       <Modal open={walkInOpen} wide title="Add walk-in lead" onClose={() => setWalkInOpen(false)}>
         <View className="gap-4">
-          <Text className="text-sm leading-5 text-ink-700">
-            Record an enquiry received at the school office. It will enter the same admissions pipeline with source Walk-in.
-          </Text>
+          <View className="flex-row flex-wrap items-start justify-between gap-3">
+            <Text className="min-w-0 flex-1 text-sm leading-5 text-ink-700">
+              Record an enquiry received at the school office. It will enter the same admissions pipeline with source Walk-in.
+            </Text>
+            {can(user, "school.edit") ? (
+              <Pressable
+                accessibilityRole="link"
+                accessibilityLabel="Change admission form fields"
+                onPress={openAdmissionFormSettings}
+                className="flex-row items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-3 py-2"
+              >
+                <Ionicons name="settings-outline" size={16} color="#1d4ed8" />
+                <Text className="text-xs font-semibold text-blue-700">Change form</Text>
+              </Pressable>
+            ) : null}
+          </View>
           {admissionFields.length ? (
             <View className="flex-row flex-wrap gap-3">
               {admissionFields.map((field) => (
