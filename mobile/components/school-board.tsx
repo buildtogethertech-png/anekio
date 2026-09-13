@@ -319,6 +319,69 @@ const DEFAULT_ADMISSION_FIELDS: AdmissionFormField[] = [
   { id: "message", label: "Message", type: "textarea", required: false, visible: true, options: [], builtin: true },
 ];
 
+const ADMISSION_FIELD_TYPE_OPTIONS = [
+  { id: "text", label: "Short text" },
+  { id: "textarea", label: "Long text" },
+  { id: "email", label: "Email" },
+  { id: "phone", label: "Phone" },
+  { id: "number", label: "Number" },
+  { id: "date", label: "Date" },
+  { id: "select", label: "Dropdown" },
+  { id: "radio", label: "Single choice" },
+  { id: "multi", label: "Multiple choice" },
+  { id: "checkbox", label: "Checkbox" },
+  { id: "file", label: "File upload" },
+] as const;
+
+const ADMISSION_FILE_TYPE_OPTIONS = [
+  { id: "image_pdf", label: "Image or PDF" },
+  { id: "pdf", label: "PDF only" },
+  { id: "image", label: "Image only" },
+] as const;
+
+const COMMON_ADMISSION_DOCUMENTS = [
+  { label: "Birth certificate", fileType: "image_pdf" },
+  { label: "Student photo", fileType: "image" },
+  { label: "Transfer certificate", fileType: "pdf" },
+  { label: "Previous marksheet", fileType: "image_pdf" },
+  { label: "Parent ID proof", fileType: "image_pdf" },
+  { label: "Address proof", fileType: "image_pdf" },
+] as const;
+
+function admissionFieldId(label: string) {
+  return `custom_${label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "field"}_${Date.now()}`;
+}
+
+function newAdmissionField(overrides: Partial<AdmissionFormField> = {}): AdmissionFormField {
+  const type = overrides.type || "text";
+  return {
+    id: overrides.id || admissionFieldId(overrides.label || "field"),
+    label: overrides.label || "New field",
+    type,
+    required: Boolean(overrides.required),
+    visible: overrides.visible ?? true,
+    options: overrides.options || [],
+    builtin: false,
+    helpText: overrides.helpText || "",
+    fileType: type === "file" ? overrides.fileType || "image_pdf" : undefined,
+    maxFileSizeMb: type === "file" ? overrides.maxFileSizeMb || 5 : undefined,
+  };
+}
+
+function fieldError(field: AdmissionFormField) {
+  if (!field.visible) return "";
+  if (!field.label.trim()) return "Field label is required.";
+  if (["select", "radio", "multi"].includes(field.type) && !field.options.length) return "Add at least one option.";
+  if (field.type === "file" && !field.fileType) return "Choose accepted file types.";
+  return "";
+}
+
+function fileTypeSummary(field: AdmissionFormField) {
+  if (field.fileType === "image") return "JPG, PNG";
+  if (field.fileType === "pdf") return "PDF";
+  return "JPG, PNG, PDF";
+}
+
 export function SchoolBoard() {
   const { data, reload } = useRecord();
   const { token, user } = useSession();
@@ -349,6 +412,8 @@ export function SchoolBoard() {
   const [showRank, setShowRank] = useState(Boolean(s?.policy?.showRank));
   const [reportCardPaidMonths, setReportCardPaidMonths] = useState(String(s?.policy?.reportCardPaidMonths ?? 0));
   const [uploadingAsset, setUploadingAsset] = useState("");
+  const [selectedDocs, setSelectedDocs] = useState<string[]>([]);
+  const [editingAdmissionFieldId, setEditingAdmissionFieldId] = useState("");
   const [savingYearPlan, setSavingYearPlan] = useState(false);
   const [plan, setPlan] = useState<ExamPlanDraft[]>(normalizeExamPlan(s?.plan));
   const [leaveTypes, setLeaveTypes] = useState<LeaveTypeDraft[]>(normalizeLeaveTypes(data?.leaveTypes));
@@ -424,6 +489,54 @@ export function SchoolBoard() {
       ...row,
       admissionForm: row.admissionForm.map((field) => field.id === id ? { ...field, ...change } : field),
     }));
+  }
+
+  function openNewAdmissionField(overrides: Partial<AdmissionFormField> = {}) {
+    const next = newAdmissionField(overrides);
+    patch("admissionForm", [...form.admissionForm, next]);
+    setEditingAdmissionFieldId(next.id);
+  }
+
+  function duplicateAdmissionField(field: AdmissionFormField) {
+    const copy = newAdmissionField({
+      ...field,
+      id: undefined,
+      label: `${field.label} copy`,
+      builtin: false,
+      options: [...field.options],
+    });
+    patch("admissionForm", [...form.admissionForm, copy]);
+    setEditingAdmissionFieldId(copy.id);
+  }
+
+  function moveAdmissionField(id: string, direction: -1 | 1) {
+    const index = form.admissionForm.findIndex((field) => field.id === id);
+    const nextIndex = index + direction;
+    if (index < 0 || nextIndex < 0 || nextIndex >= form.admissionForm.length) return;
+    const next = [...form.admissionForm];
+    const [field] = next.splice(index, 1);
+    next.splice(nextIndex, 0, field);
+    patch("admissionForm", next);
+  }
+
+  function addSelectedDocuments() {
+    const existing = new Set(form.admissionForm.map((field) => field.label.trim().toLowerCase()));
+    const docs = COMMON_ADMISSION_DOCUMENTS.filter((doc) => selectedDocs.includes(doc.label) && !existing.has(doc.label.toLowerCase()));
+    if (!docs.length) {
+      toast.show("Selected documents are already added.");
+      return;
+    }
+    patch("admissionForm", [
+      ...form.admissionForm,
+      ...docs.map((doc) => newAdmissionField({
+        label: doc.label,
+        type: "file",
+        required: true,
+        fileType: doc.fileType as AdmissionFormField["fileType"],
+        helpText: doc.fileType === "image" ? "Upload a clear image." : "Upload a readable document.",
+      })),
+    ]);
+    setSelectedDocs([]);
   }
 
   async function run(op: string, body: Record<string, unknown>, ok: string) {
@@ -561,6 +674,7 @@ export function SchoolBoard() {
       : level === "group"
         ? DOOR_LEDE[door]
         : current.hint;
+  const editingAdmissionField = form.admissionForm.find((field) => field.id === editingAdmissionFieldId);
 
   return (
     <View>
@@ -1569,9 +1683,13 @@ export function SchoolBoard() {
                         https://{form.websiteSlug || "demo"}.anekio.com
                       </Text>
                     </View>
-                    <Button variant={form.websiteEnabled ? "primary" : "ghost"} onPress={() => patch("websiteEnabled", !form.websiteEnabled)}>
-                      {form.websiteEnabled ? "Website on" : "Website off"}
-                    </Button>
+                    <View className="flex-row items-center gap-3 rounded-md border border-blue-200 bg-white px-3 py-2">
+                      <View className="items-end">
+                        <Text className="text-xs font-semibold text-blue-950">Website</Text>
+                        <Badge tone={form.websiteEnabled ? "leaf" : "ink"}>{form.websiteEnabled ? "On" : "Off"}</Badge>
+                      </View>
+                      <Switch on={form.websiteEnabled} onPress={() => patch("websiteEnabled", !form.websiteEnabled)} />
+                    </View>
                   </View>
                 </View>
                 <View className="flex-row flex-wrap gap-3">
@@ -1669,64 +1787,114 @@ export function SchoolBoard() {
                         This form is used on the public admissions website and when the office adds a walk-in lead.
                       </Text>
                     </View>
-                    <Button
-                      variant="ghost"
-                      onPress={() => {
-                        const id = `custom_${Date.now()}`;
-                        patch("admissionForm", [...form.admissionForm, { id, label: "New field", type: "text", required: false, visible: true, options: [], builtin: false }]);
-                      }}
-                    >
+                    <Button variant="ghost" onPress={() => openNewAdmissionField()}>
                       Add field
                     </Button>
                   </View>
-                  <View className="mt-4 gap-3">
-                    {form.admissionForm.map((field) => (
-                      <View key={field.id} className="rounded-md border border-ink-200 bg-white p-3">
-                        <View className="flex-row flex-wrap items-end gap-3">
-                          <View className="min-w-[210px] flex-1">
-                            <Field label="Field label">
-                              <Input value={field.label} onChangeText={(label) => patchAdmissionField(field.id, { label })} />
-                            </Field>
-                          </View>
-                          <View className="min-w-[180px] flex-1">
-                            <Dropdown
-                              label="Input type"
-                              value={field.type}
-                              options={[
-                                { id: "text", label: "Short text" },
-                                { id: "textarea", label: "Long text" },
-                                { id: "email", label: "Email" },
-                                { id: "phone", label: "Phone" },
-                                { id: "number", label: "Number" },
-                                { id: "date", label: "Date" },
-                                { id: "select", label: "Dropdown" },
-                              ]}
-                              onChange={(type) => patchAdmissionField(field.id, { type: type as AdmissionFormField["type"], options: type === "select" ? field.options : [] })}
+                  <View className="mt-4 rounded-md border border-blue-100 bg-white p-3">
+                    <View className="flex-row flex-wrap items-center justify-between gap-2">
+                      <View className="min-w-0 flex-1">
+                        <Text className="text-sm font-semibold text-ink-900">Common documents</Text>
+                        <Text className="mt-1 text-[11px] leading-4 text-ink-700">Select proofs to request during enquiry.</Text>
+                      </View>
+                      <Button variant="ghost" disabled={!selectedDocs.length} onPress={addSelectedDocuments}>
+                        Add {selectedDocs.length || ""}
+                      </Button>
+                    </View>
+                    <View className="mt-3 flex-row flex-wrap gap-2">
+                      {COMMON_ADMISSION_DOCUMENTS.map((doc) => {
+                        const selected = selectedDocs.includes(doc.label);
+                        const added = form.admissionForm.some((field) => field.label.trim().toLowerCase() === doc.label.toLowerCase());
+                        return (
+                          <Pressable
+                            key={doc.label}
+                            disabled={added}
+                            onPress={() => setSelectedDocs((rows) => selected ? rows.filter((row) => row !== doc.label) : [...rows, doc.label])}
+                            className={`flex-row items-center gap-1 rounded-md border px-2.5 py-1.5 ${
+                              added ? "border-ink-100 bg-ink-50" : selected ? "border-blue-300 bg-blue-50" : "border-ink-200 bg-white"
+                            }`}
+                          >
+                            <Ionicons
+                              name={added ? "checkmark-done-outline" : selected ? "checkbox-outline" : "square-outline"}
+                              size={15}
+                              color={added ? "#64748b" : selected ? "#1d4ed8" : "#3d4f66"}
                             />
+                            <Text className={`text-[11px] font-medium ${added ? "text-ink-500" : selected ? "text-blue-900" : "text-ink-800"}`}>
+                              {doc.label}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                  <View className="mt-4 overflow-hidden rounded-md border border-ink-200 bg-white">
+                    <View className="flex-row flex-wrap items-center justify-between gap-2 border-b border-ink-100 bg-ink-50 px-3 py-2.5">
+                      <View>
+                        <Text className="text-sm font-semibold text-ink-900">Form fields</Text>
+                        <Text className="mt-0.5 text-[11px] text-ink-700">{form.admissionForm.filter((field) => field.visible).length} shown to parents</Text>
+                      </View>
+                      <Button variant="ghost" onPress={() => openNewAdmissionField()} className="py-2">
+                        Add field
+                      </Button>
+                    </View>
+                    {!form.admissionForm.length ? (
+                      <View className="items-center p-5">
+                        <Ionicons name="document-text-outline" size={26} color="#64748b" />
+                        <Text className="mt-2 text-sm font-semibold text-ink-900">No fields yet</Text>
+                        <Button variant="ghost" className="mt-3" onPress={() => openNewAdmissionField()}>
+                          Add field
+                        </Button>
+                      </View>
+                    ) : null}
+                    {form.admissionForm.map((field, index) => (
+                      <View key={field.id} className="border-b border-ink-100 px-3 py-2.5 last:border-b-0">
+                        <View className={phone ? "gap-2" : "flex-row items-center gap-3"}>
+                          <View className="flex-row gap-1">
+                            <Pressable
+                              accessibilityLabel={`Move ${field.label} up`}
+                              disabled={index === 0}
+                              onPress={() => moveAdmissionField(field.id, -1)}
+                              className="h-8 w-8 items-center justify-center rounded-md border border-ink-200 bg-white"
+                            >
+                              <Ionicons name="chevron-up" size={16} color={index === 0 ? "#94a3b8" : "#3d4f66"} />
+                            </Pressable>
+                            <Pressable
+                              accessibilityLabel={`Move ${field.label} down`}
+                              disabled={index === form.admissionForm.length - 1}
+                              onPress={() => moveAdmissionField(field.id, 1)}
+                              className="h-8 w-8 items-center justify-center rounded-md border border-ink-200 bg-white"
+                            >
+                              <Ionicons name="chevron-down" size={16} color={index === form.admissionForm.length - 1 ? "#94a3b8" : "#3d4f66"} />
+                            </Pressable>
                           </View>
-                          {!field.builtin ? (
-                            <Button variant="ghost" onPress={() => patch("admissionForm", form.admissionForm.filter((row) => row.id !== field.id))}>
-                              Remove
-                            </Button>
-                          ) : null}
-                        </View>
-                        {field.type === "select" ? (
-                          <Field label="Dropdown options" hint="One option per line">
-                            <Input
-                              multiline
-                              value={field.options.join("\n")}
-                              onChangeText={(value) => patchAdmissionField(field.id, { options: value.split(/\n|,/).map((option) => option.trim()).filter(Boolean) })}
-                            />
-                          </Field>
-                        ) : null}
-                        <View className="mt-3 flex-row flex-wrap items-center gap-5">
+                          <Pressable onPress={() => setEditingAdmissionFieldId(field.id)} className="min-w-0 flex-1">
+                            <View className="flex-row flex-wrap items-center gap-2">
+                              <Text className="text-sm font-semibold text-ink-900">{field.label || "Untitled field"}</Text>
+                              <Badge tone={field.visible ? "clay" : "ink"}>{field.visible ? "Shown" : "Hidden"}</Badge>
+                              {field.required ? <Badge tone="warn">Required</Badge> : null}
+                              {fieldError(field) ? <Badge tone="danger">Fix</Badge> : null}
+                            </View>
+                            <Text className="mt-1 text-[11px] text-ink-700" numberOfLines={1}>
+                              {ADMISSION_FIELD_TYPE_OPTIONS.find((option) => option.id === field.type)?.label || field.type}
+                              {field.type === "file" ? ` · ${fileTypeSummary(field)} · ${field.maxFileSizeMb || 5} MB` : ""}
+                              {field.helpText ? ` · ${field.helpText}` : ""}
+                            </Text>
+                          </Pressable>
                           <View className="flex-row items-center gap-2">
-                            <Switch on={field.visible} onPress={() => patchAdmissionField(field.id, { visible: !field.visible, required: field.visible ? false : field.required })} />
-                            <Text className="text-xs font-medium text-ink-800">Show field</Text>
-                          </View>
-                          <View className="flex-row items-center gap-2">
-                            <Switch disabled={!field.visible} on={field.required} onPress={() => patchAdmissionField(field.id, { required: !field.required })} />
-                            <Text className="text-xs font-medium text-ink-800">Required</Text>
+                            <Pressable
+                              accessibilityLabel={`${field.visible ? "Hide" : "Show"} ${field.label}`}
+                              onPress={() => patchAdmissionField(field.id, { visible: !field.visible, required: field.visible ? false : field.required })}
+                              className={`h-8 w-8 items-center justify-center rounded-md border ${field.visible ? "border-blue-200 bg-blue-50" : "border-ink-200 bg-white"}`}
+                            >
+                              <Ionicons name={field.visible ? "eye-outline" : "eye-off-outline"} size={16} color={field.visible ? "#1d4ed8" : "#64748b"} />
+                            </Pressable>
+                            <Pressable
+                              accessibilityLabel={`Edit ${field.label}`}
+                              onPress={() => setEditingAdmissionFieldId(field.id)}
+                              className="h-8 w-8 items-center justify-center rounded-md border border-ink-200 bg-white"
+                            >
+                              <Ionicons name="create-outline" size={16} color="#3d4f66" />
+                            </Pressable>
                           </View>
                         </View>
                       </View>
@@ -1791,6 +1959,120 @@ export function SchoolBoard() {
         </View>
       </Card>
       )}
+
+      <Modal open={Boolean(editingAdmissionField)} title="Edit admission field" onClose={() => setEditingAdmissionFieldId("")}>
+        {editingAdmissionField ? (
+          <View className="gap-3">
+            <Field label="Field label">
+              <Input
+                value={editingAdmissionField.label}
+                onChangeText={(label) => patchAdmissionField(editingAdmissionField.id, { label })}
+              />
+            </Field>
+            <Dropdown
+              label="Input type"
+              value={editingAdmissionField.type}
+              options={[...ADMISSION_FIELD_TYPE_OPTIONS]}
+              onChange={(type) => {
+                const nextType = type as AdmissionFormField["type"];
+                patchAdmissionField(editingAdmissionField.id, {
+                  type: nextType,
+                  options: ["select", "radio", "multi"].includes(nextType) ? editingAdmissionField.options : [],
+                  fileType: nextType === "file" ? editingAdmissionField.fileType || "image_pdf" : undefined,
+                  maxFileSizeMb: nextType === "file" ? editingAdmissionField.maxFileSizeMb || 5 : undefined,
+                });
+              }}
+            />
+            {["select", "radio", "multi"].includes(editingAdmissionField.type) ? (
+              <Field label="Options" hint="One option per line">
+                <Input
+                  multiline
+                  value={editingAdmissionField.options.join("\n")}
+                  onChangeText={(value) =>
+                    patchAdmissionField(editingAdmissionField.id, {
+                      options: value.split(/\n|,/).map((option) => option.trim()).filter(Boolean),
+                    })
+                  }
+                />
+              </Field>
+            ) : null}
+            {editingAdmissionField.type === "file" ? (
+              <View className="flex-row flex-wrap gap-3">
+                <View className="min-w-[180px] flex-1">
+                  <Dropdown
+                    label="Accepted files"
+                    value={editingAdmissionField.fileType || "image_pdf"}
+                    options={[...ADMISSION_FILE_TYPE_OPTIONS]}
+                    onChange={(fileType) => patchAdmissionField(editingAdmissionField.id, { fileType: fileType as AdmissionFormField["fileType"] })}
+                  />
+                </View>
+                <View className="min-w-[150px] flex-1">
+                  <Field label="Max size (MB)">
+                    <Input
+                      keyboardType="number-pad"
+                      value={String(editingAdmissionField.maxFileSizeMb || 5)}
+                      onChangeText={(value) =>
+                        patchAdmissionField(editingAdmissionField.id, {
+                          maxFileSizeMb: Math.min(12, Math.max(1, Number(value.replace(/[^0-9]/g, "")) || 1)),
+                        })
+                      }
+                    />
+                  </Field>
+                </View>
+              </View>
+            ) : null}
+            <Field label="Help text">
+              <Input
+                value={editingAdmissionField.helpText || ""}
+                placeholder={editingAdmissionField.type === "file" ? `Accepted: ${fileTypeSummary(editingAdmissionField)} · up to ${editingAdmissionField.maxFileSizeMb || 5} MB` : "Optional parent guidance"}
+                onChangeText={(helpText) => patchAdmissionField(editingAdmissionField.id, { helpText })}
+              />
+            </Field>
+            <View className="flex-row flex-wrap items-center gap-5">
+              <View className="flex-row items-center gap-2">
+                <Switch
+                  on={editingAdmissionField.visible}
+                  onPress={() =>
+                    patchAdmissionField(editingAdmissionField.id, {
+                      visible: !editingAdmissionField.visible,
+                      required: editingAdmissionField.visible ? false : editingAdmissionField.required,
+                    })
+                  }
+                />
+                <Text className="text-xs font-medium text-ink-800">Show field</Text>
+              </View>
+              <View className="flex-row items-center gap-2">
+                <Switch
+                  disabled={!editingAdmissionField.visible}
+                  on={editingAdmissionField.required}
+                  onPress={() => patchAdmissionField(editingAdmissionField.id, { required: !editingAdmissionField.required })}
+                />
+                <Text className="text-xs font-medium text-ink-800">Required</Text>
+              </View>
+            </View>
+            {fieldError(editingAdmissionField) ? <Text className="text-xs font-medium text-red-700">{fieldError(editingAdmissionField)}</Text> : null}
+            <View className="mt-2 flex-row flex-wrap items-center justify-between gap-2 border-t border-ink-100 pt-3">
+              <View className="flex-row flex-wrap gap-2">
+                <Button variant="ghost" onPress={() => duplicateAdmissionField(editingAdmissionField)}>
+                  Duplicate
+                </Button>
+                {!editingAdmissionField.builtin ? (
+                  <Button
+                    variant="ghost"
+                    onPress={() => {
+                      patch("admissionForm", form.admissionForm.filter((row) => row.id !== editingAdmissionField.id));
+                      setEditingAdmissionFieldId("");
+                    }}
+                  >
+                    Delete
+                  </Button>
+                ) : null}
+              </View>
+              <Button onPress={() => setEditingAdmissionFieldId("")}>Done</Button>
+            </View>
+          </View>
+        ) : null}
+      </Modal>
 
       <Modal open={addOpen} title="Add session" onClose={() => setAddOpen(false)}>
         <View className="gap-3">

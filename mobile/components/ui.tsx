@@ -143,6 +143,8 @@ export function Switch({
 }) {
   return (
     <Pressable
+      accessibilityRole="switch"
+      accessibilityState={{ checked: on, disabled }}
       disabled={disabled}
       onPress={onPress}
       className={`h-6 w-10 justify-center rounded-full ${on ? "bg-clay-500" : "bg-ink-200"} ${disabled ? "opacity-50" : ""}`}
