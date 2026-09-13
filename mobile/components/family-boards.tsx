@@ -381,18 +381,6 @@ export function TeacherDeskBoard() {
               </View>
               {!closed && data?.classTeacher && !data.markedToday ? <Badge tone="danger">Pending</Badge> : null}
             </View>
-            <View className="mt-4 flex-row flex-wrap gap-2">
-              {data?.staffAttendanceSelf ? (
-                <View className="min-w-[130px] flex-1">
-                  <StaffAttendanceQrButton token={token} disabled={Boolean(todayClosed)} compact onMessage={toast.show} />
-                </View>
-              ) : null}
-              <View className="min-w-[130px] flex-1">
-                <Button variant={data?.classTeacher && !data.markedToday && !closed ? "primary" : "ghost"} onPress={() => router.push("/attendance")}>
-                  Attendance
-                </Button>
-              </View>
-            </View>
           </View>
           <View className="border-t border-ink-100 bg-ink-50 px-4 py-3">
             <View className="flex-row items-center justify-between gap-3">
@@ -451,6 +439,79 @@ export function TeacherDeskBoard() {
     );
   }
 
+  function PhoneActionTile({ icon, label, route, danger }: { icon: keyof typeof Ionicons.glyphMap; label: string; route: string; danger?: boolean }) {
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        onPress={() => router.push(route as never)}
+        className="min-w-[72px] flex-1 items-center rounded-md border border-ink-100 bg-white px-2 py-3"
+      >
+        <Ionicons name={icon} size={20} color={danger ? "#b91c1c" : "#2855F6"} />
+        <Text className={`mt-1 text-xs font-medium ${danger ? "text-red-700" : "text-ink-900"}`}>{label}</Text>
+      </Pressable>
+    );
+  }
+
+  function phoneQuickActions() {
+    if (!phoneDashboard) return null;
+    return (
+      <View className="mb-3 flex-row gap-2">
+        {data?.staffAttendanceSelf ? (
+          <StaffAttendanceQrButton token={token} disabled={Boolean(todayClosed)} tile onMessage={toast.show} />
+        ) : null}
+        <PhoneActionTile icon="checkmark-circle-outline" label="Attend" route="/attendance" danger={Boolean(data?.classTeacher && !data.markedToday && !todayClosed)} />
+        <PhoneActionTile icon="people-outline" label="Class" route="/class" />
+        <PhoneActionTile icon="document-text-outline" label="Marks" route="/exams" danger={Boolean(overdueTodos)} />
+        <PhoneActionTile icon="calendar-outline" label="Leave" route="/leave" />
+      </View>
+    );
+  }
+
+  function phoneNeedsAttentionCard() {
+    if (!phoneDashboard) return null;
+    const attention: { title: string; hint: string; route: string; tone?: "danger" | "warn" | "ink" }[] = [];
+    if (data?.classTeacher && !data.markedToday && !todayClosed) {
+      attention.push({ title: "Class register pending", hint: "Mark attendance before office follows up.", route: "/attendance", tone: "danger" });
+    }
+    for (const name of lateToday.slice(0, 2)) {
+      attention.push({ title: name, hint: "Late today. Check if parent follow-up is needed.", route: "/class", tone: "warn" });
+    }
+    for (const name of outToday.slice(0, 2)) {
+      attention.push({ title: name, hint: "Absent today. Review before calling home.", route: "/class", tone: "danger" });
+    }
+    for (const todo of dashboardTodos.slice(0, 2)) {
+      if (examTodoTone(todo) === "overdue") attention.push({ title: todo.title.replace(/^Take exam · /, ""), hint: todo.hint, route: "/exams", tone: "danger" });
+    }
+    const shown = attention.slice(0, 4);
+    return (
+      <Card className="mb-3">
+        <View className="flex-row items-center justify-between border-b border-ink-100 px-4 py-3">
+          <View>
+            <Text className="text-sm font-semibold text-ink-900">Needs attention</Text>
+            <Text className="mt-0.5 text-xs text-ink-700">{shown.length ? `${shown.length} items` : "No urgent student issue"}</Text>
+          </View>
+          <Pressable onPress={() => router.push(shown[0]?.route as never || "/class")}>
+            <Text className="text-sm font-medium text-clay-600">Open</Text>
+          </Pressable>
+        </View>
+        {shown.length ? (
+          shown.map((item, index) => (
+            <Pressable key={`${item.title}-${index}`} onPress={() => router.push(item.route as never)} className="flex-row items-center gap-3 border-t border-ink-100 px-4 py-3">
+              <View className={`h-2.5 w-2.5 rounded-full ${item.tone === "danger" ? "bg-red-500" : item.tone === "warn" ? "bg-amber-500" : "bg-ink-300"}`} />
+              <View className="min-w-0 flex-1">
+                <Text className="text-sm font-medium text-ink-900" numberOfLines={1}>{item.title}</Text>
+                <Text className="mt-1 text-xs text-ink-700" numberOfLines={1}>{item.hint}</Text>
+              </View>
+            </Pressable>
+          ))
+        ) : (
+          <Text className="px-4 py-4 text-sm text-ink-700">Students and tasks that need action will appear here.</Text>
+        )}
+      </Card>
+    );
+  }
+
   function phoneWorkCard() {
     if (!phoneDashboard) return null;
     const top = dashboardTodos.slice(0, 4);
@@ -484,55 +545,15 @@ export function TeacherDeskBoard() {
     );
   }
 
-  function phoneStatStrip() {
+  function phoneSummaryStrip() {
     if (!phoneDashboard) return null;
-    const stats = [
-      {
-        label: data?.classTeacher ? "Students" : "Classes",
-        value: String(data?.classTeacher ? data.studentCount || roster.length : taughtClasses.length),
-        route: "/class",
-        tone: "text-clay-600",
-      },
-      {
-        label: "Avg",
-        value: classAtt ? `${classAtt.pct}%` : data?.markedToday ? `${Math.max(0, 100 - Math.round((outToday.length / Math.max(1, data.studentCount || roster.length)) * 100))}%` : "--",
-        route: "/attendance",
-        tone: "text-green-700",
-      },
-      {
-        label: "Lessons",
-        value: String(weekSlots.length),
-        route: "/timetable",
-        tone: "text-violet-700",
-      },
-      {
-        label: "Work",
-        value: String(todos.length),
-        route: "/exams",
-        tone: overdueTodos ? "text-red-700" : "text-amber-800",
-      },
-    ];
     const peopleLabel = data?.classTeacher ? "students" : "classes";
     return (
-      <View className="mb-3 rounded-md border border-ink-100 bg-white px-4 py-3">
+      <Pressable onPress={() => router.push("/class")} className="mb-3 rounded-md border border-ink-100 bg-white px-4 py-3">
         <Text className="text-xs text-ink-700">
-          {`${stats[0].value} ${peopleLabel} · ${todos.length} pending · ${weekSlots.length} lessons this week`}
+          {`${data?.classTeacher ? data.studentCount || roster.length : taughtClasses.length} ${peopleLabel} · ${todos.length} pending · ${weekSlots.length} lessons this week${classAtt ? ` · ${classAtt.pct}% attendance` : ""}`}
         </Text>
-        <View className="mt-3 flex-row">
-        {stats.map((stat, index) => (
-          <Pressable
-            key={stat.label}
-            accessibilityRole="button"
-            accessibilityLabel={`${stat.label}: ${stat.value}`}
-            onPress={() => router.push(stat.route as never)}
-            className={`flex-1 ${index ? "border-l border-ink-100 pl-3" : ""}`}
-          >
-            <Text className="text-[10px] font-medium uppercase tracking-wide text-ink-700">{stat.label}</Text>
-            <Text className={`mt-1 text-lg font-semibold ${stat.tone}`}>{stat.value}</Text>
-          </Pressable>
-        ))}
-        </View>
-      </View>
+      </Pressable>
     );
   }
 
@@ -548,9 +569,7 @@ export function TeacherDeskBoard() {
             {phoneDashboard ? "Today" : greeting}
           </Text>
           {phoneDashboard ? (
-            <Text className="mt-1 text-sm text-ink-700">
-              {data?.classTeacher && data.classLabel ? `Class ${data.classLabel} · ${data.studentCount || roster.length} students` : `${taughtSubjects.length || 0} subjects`}
-            </Text>
+            <Text className="mt-1 text-sm text-ink-700">{todayClosed ? `Next: ${nextWorkingDayLabel()}` : next ? "Class in progress" : "Quick actions ready"}</Text>
           ) : null}
         </View>
         {!phoneDashboard ? <Text className="text-xs text-ink-700">{todayClosed ? "Closed day" : data?.markedToday ? "Register marked" : "Needs attention"}</Text> : null}
@@ -558,7 +577,11 @@ export function TeacherDeskBoard() {
 
       {todayFocusCard()}
 
-      {phoneStatStrip()}
+      {phoneQuickActions()}
+
+      {phoneNeedsAttentionCard()}
+
+      {phoneSummaryStrip()}
 
       {!phoneDashboard ? <View className={`mb-4 ${wideDashboard ? "flex-row gap-3" : "flex-row flex-wrap gap-3"}`}>
         {[

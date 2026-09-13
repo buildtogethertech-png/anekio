@@ -1,5 +1,5 @@
 import { createElement, useEffect, useRef, useState } from "react";
-import { Image, Platform, Text, View } from "react-native";
+import { Image, Platform, Pressable, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { act } from "../lib/mutate";
 import { Badge, Button, Field, Input, Modal } from "./ui";
@@ -59,11 +59,13 @@ export function StaffAttendanceQrButton({
   token,
   disabled,
   compact,
+  tile,
   onMessage,
 }: {
   token: string | null;
   disabled?: boolean;
   compact?: boolean;
+  tile?: boolean;
   onMessage: (message: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -85,9 +87,22 @@ export function StaffAttendanceQrButton({
 
   return (
     <>
-      <Button variant="ghost" disabled={disabled || busy} onPress={() => void generate()} className={compact ? "shrink-0 px-2 py-2" : undefined}>
-        {busy ? "Generating..." : compact ? "Show QR" : "Show attendance QR"}
-      </Button>
+      {tile ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Show attendance QR"
+          disabled={disabled || busy}
+          onPress={() => void generate()}
+          className={`min-w-[72px] flex-1 items-center rounded-md border border-ink-100 bg-white px-2 py-3 ${disabled || busy ? "opacity-50" : ""}`}
+        >
+          <Ionicons name="qr-code-outline" size={20} color="#2855F6" />
+          <Text className="mt-1 text-xs font-medium text-ink-900">{busy ? "Wait" : "QR"}</Text>
+        </Pressable>
+      ) : (
+        <Button variant="ghost" disabled={disabled || busy} onPress={() => void generate()} className={compact ? "shrink-0 px-2 py-2" : undefined}>
+          {busy ? "Generating..." : compact ? "Show QR" : "Show attendance QR"}
+        </Button>
+      )}
       <Modal open={open} title="My attendance QR" onClose={() => setOpen(false)} footer={<Button onPress={() => setOpen(false)}>Done</Button>}>
         {qr ? (
           <View className="items-center gap-4">
