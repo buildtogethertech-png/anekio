@@ -470,8 +470,16 @@ export function Toast({ message, onDone }: { message: string; onDone: () => void
     return (
       <View
         pointerEvents="box-none"
-        className="fixed inset-x-0 bottom-0 z-50 items-center px-4"
-        style={{ paddingBottom: bottom } as StyleProp<ViewStyle>}
+        className="items-center px-4"
+        style={
+          {
+            position: "fixed",
+            left: 0,
+            right: 0,
+            bottom,
+            zIndex: 50,
+          } as StyleProp<ViewStyle>
+        }
       >
         <View pointerEvents="auto" className="w-full max-w-sm">
           {body}
