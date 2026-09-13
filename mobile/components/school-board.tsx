@@ -364,23 +364,6 @@ const DEFAULT_STAFF_ONBOARDING_FIELDS = [
 
 const DEFAULT_STAFF_ONBOARDING_DOCUMENTS = ["Photo", "ID proof", "Address proof", "Qualification certificate", "Experience letter"] as const;
 
-function csvCell(value: string) {
-  return `"${value.replace(/"/g, '""')}"`;
-}
-
-function downloadCsvTemplate(filename: string, headers: string[]) {
-  if (typeof document === "undefined") return false;
-  const csv = `${headers.map(csvCell).join(",")}\n`;
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
-  URL.revokeObjectURL(url);
-  return true;
-}
-
 function admissionFieldId(label: string) {
   return `custom_${label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "field"}_${Date.now()}`;
 }
@@ -600,18 +583,6 @@ export function SchoolBoard() {
       })),
     ]);
     setSelectedDocs([]);
-  }
-
-  function downloadStaffOnboardingTemplate() {
-    const headers = [
-      ...DEFAULT_STAFF_ONBOARDING_FIELDS.map((field) => field.label),
-      ...DEFAULT_STAFF_ONBOARDING_DOCUMENTS.map((label) => `${label} file`),
-    ];
-    if (downloadCsvTemplate("staff-onboarding-template.csv", headers)) {
-      toast.show("Staff onboarding template downloaded.");
-      return;
-    }
-    toast.show("Template download is available on web.");
   }
 
   async function run(op: string, body: Record<string, unknown>, ok: string) {
@@ -1983,9 +1954,6 @@ export function SchoolBoard() {
                         </View>
                         <View className="mt-4 flex-row flex-wrap gap-2">
                           <Button onPress={() => setAdmissionFormOpen(true)}>Edit form</Button>
-                          <Button variant="ghost" disabled>
-                            Download template
-                          </Button>
                         </View>
                       </View>
                     </View>
@@ -2006,12 +1974,7 @@ export function SchoolBoard() {
                           </View>
                         </View>
                         <View className="mt-4 flex-row flex-wrap gap-2">
-                          <Button variant="ghost" onPress={() => setStaffFormOpen(true)}>
-                            View form
-                          </Button>
-                          <Button variant="ghost" onPress={downloadStaffOnboardingTemplate}>
-                            Download template
-                          </Button>
+                          <Button onPress={() => setStaffFormOpen(true)}>Edit form</Button>
                         </View>
                       </View>
                     </View>
@@ -2239,10 +2202,7 @@ export function SchoolBoard() {
             </View>
           </View>
           <View className="flex-row justify-end gap-2">
-            <Button variant="ghost" onPress={downloadStaffOnboardingTemplate}>
-              Download template
-            </Button>
-            <Button onPress={() => setStaffFormOpen(false)}>Done</Button>
+            <Button onPress={() => setStaffFormOpen(false)}>Save</Button>
           </View>
         </View>
       </Modal>
