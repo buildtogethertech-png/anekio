@@ -328,7 +328,6 @@ export function DeskBoard() {
   const desk = data?.desk;
   if (!desk) return <Empty title="The desk" body="Loading the school pulse." />;
   const desktop = width >= 900;
-  const empty = desk.emptyPeriods;
   const subjectLoadPending = desk.subjectLoadPending ?? 0;
   const overdue = desk.overdueCount ?? 0;
   const series = desk.series ?? [];
@@ -404,7 +403,6 @@ export function DeskBoard() {
 
       <View className="flex-row flex-wrap gap-3">
         {[
-          { label: "Teacher coverage gaps", value: String(empty), hint: empty ? "Needs teacher" : "All assigned", route: "/timetable", danger: empty > 0 },
           {
             label: "Subject load pending",
             value: String(subjectLoadPending),
@@ -416,7 +414,7 @@ export function DeskBoard() {
           { label: "Teacher absent", value: String(desk.teacherAbsent ?? 0), hint: "Assigned today", route: "/staff", danger: (desk.teacherAbsent ?? 0) > 0 },
           { label: "Fees overdue", value: String(overdue), hint: desk.dueNow || "₹0 pending", route: "/fees", danger: overdue > 0 },
         ].map((metric) => (
-          <Pressable key={metric.label} className={desktop ? "w-[18.8%]" : "w-[47%]"} onPress={() => router.push(metric.route as never)}>
+          <Pressable key={metric.label} className={desktop ? "w-[23.5%]" : "w-[47%]"} onPress={() => router.push(metric.route as never)}>
             <Card className="min-h-[124px] p-4">
               <View className="flex-row items-center justify-between gap-2">
                 <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">{metric.label}</Text>
