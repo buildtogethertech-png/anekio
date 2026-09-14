@@ -210,6 +210,32 @@ describe("school onboarding imports", () => {
   it("generates a student workbook with one tab per class section", async () => {
     const ExcelJS = (await import("exceljs")).default;
     const { onboardingSpreadsheetTemplate, onboardingBundle } = await import("../../lib/onboarding");
+    await prisma.schoolConfig.upsert({
+      where: { id: "school" },
+      update: {
+        admissionFormJson: JSON.stringify([
+          { id: "studentName", label: "Student full name", type: "text", required: true, visible: true, options: [], builtin: true },
+          { id: "classWanted", label: "Class interested", type: "text", required: true, visible: true, options: [], builtin: true },
+          { id: "guardianName", label: "Guardian full name", type: "text", required: true, visible: true, options: [], builtin: true },
+          { id: "phone", label: "Guardian WhatsApp", type: "phone", required: true, visible: true, options: [], builtin: true },
+          { id: "email", label: "Guardian email", type: "email", required: false, visible: true, options: [], builtin: true },
+          { id: "message", label: "Admission note", type: "textarea", required: false, visible: true, options: [], builtin: true },
+          { id: "custom_transport", label: "Transport needed", type: "checkbox", required: false, visible: true, options: [], builtin: false },
+        ]),
+      },
+      create: {
+        id: "school",
+        admissionFormJson: JSON.stringify([
+          { id: "studentName", label: "Student full name", type: "text", required: true, visible: true, options: [], builtin: true },
+          { id: "classWanted", label: "Class interested", type: "text", required: true, visible: true, options: [], builtin: true },
+          { id: "guardianName", label: "Guardian full name", type: "text", required: true, visible: true, options: [], builtin: true },
+          { id: "phone", label: "Guardian WhatsApp", type: "phone", required: true, visible: true, options: [], builtin: true },
+          { id: "email", label: "Guardian email", type: "email", required: false, visible: true, options: [], builtin: true },
+          { id: "message", label: "Admission note", type: "textarea", required: false, visible: true, options: [], builtin: true },
+          { id: "custom_transport", label: "Transport needed", type: "checkbox", required: false, visible: true, options: [], builtin: false },
+        ]),
+      },
+    });
     await prisma.class.upsert({
       where: { id: "class-7-b" },
       update: { name: "7", section: "B", archivedAt: null },
@@ -233,12 +259,14 @@ describe("school onboarding imports", () => {
 
     const sheet = workbook.getWorksheet("7-B")!;
     expect((sheet.getRow(1).values as unknown[]).slice(1)).toEqual([
-      "Student name",
+      "Student full name",
       "Date of birth",
-      "Class",
-      "Parent name",
-      "Parent mobile",
-      "Parent email",
+      "Class interested",
+      "Guardian full name",
+      "Guardian WhatsApp",
+      "Guardian email",
+      "Admission note",
+      "Transport needed",
       "Example only",
     ]);
     expect(sheet.getRow(2).getCell(3).value).toBe("7-B");
@@ -247,7 +275,7 @@ describe("school onboarding imports", () => {
       let count = 0;
       worksheet.eachRow((row, rowNumber) => {
         if (rowNumber <= 2) return;
-        if (String(row.getCell(7).value || "").trim()) return;
+        if (String(row.getCell(9).value || "").trim()) return;
         if (String(row.getCell(1).value || "").trim()) count += 1;
       });
       return total + count;
@@ -262,7 +290,7 @@ describe("school onboarding imports", () => {
       let count = 0;
       worksheet.eachRow((row, rowNumber) => {
         if (rowNumber <= 2) return;
-        if (String(row.getCell(7).value || "").trim()) return;
+        if (String(row.getCell(9).value || "").trim()) return;
         if (String(row.getCell(1).value || "").trim()) count += 1;
       });
       return total + count;
@@ -273,6 +301,36 @@ describe("school onboarding imports", () => {
   it("generates a staff workbook with role and class dropdowns", async () => {
     const ExcelJS = (await import("exceljs")).default;
     const { onboardingSpreadsheetTemplate, onboardingBundle } = await import("../../lib/onboarding");
+    await prisma.schoolConfig.upsert({
+      where: { id: "school" },
+      update: {
+        staffOnboardingFormJson: JSON.stringify([
+          { id: "staffName", label: "Staff full name", type: "text", required: true, visible: true, options: [], builtin: true },
+          { id: "phone", label: "Staff mobile", type: "phone", required: true, visible: true, options: [], builtin: true },
+          { id: "email", label: "Work email", type: "email", required: false, visible: true, options: [], builtin: true },
+          { id: "role", label: "Access role", type: "select", required: true, visible: true, options: ["TEACHER"], builtin: true },
+          { id: "department", label: "Department", type: "text", required: false, visible: true, options: [], builtin: true },
+          { id: "joiningDate", label: "Joining date", type: "date", required: true, visible: true, options: [], builtin: true },
+          { id: "qualification", label: "Highest qualification", type: "text", required: false, visible: true, options: [], builtin: true },
+          { id: "address", label: "Current address", type: "textarea", required: false, visible: true, options: [], builtin: true },
+          { id: "custom_emergency", label: "Emergency contact", type: "phone", required: false, visible: true, options: [], builtin: false },
+        ]),
+      },
+      create: {
+        id: "school",
+        staffOnboardingFormJson: JSON.stringify([
+          { id: "staffName", label: "Staff full name", type: "text", required: true, visible: true, options: [], builtin: true },
+          { id: "phone", label: "Staff mobile", type: "phone", required: true, visible: true, options: [], builtin: true },
+          { id: "email", label: "Work email", type: "email", required: false, visible: true, options: [], builtin: true },
+          { id: "role", label: "Access role", type: "select", required: true, visible: true, options: ["TEACHER"], builtin: true },
+          { id: "department", label: "Department", type: "text", required: false, visible: true, options: [], builtin: true },
+          { id: "joiningDate", label: "Joining date", type: "date", required: true, visible: true, options: [], builtin: true },
+          { id: "qualification", label: "Highest qualification", type: "text", required: false, visible: true, options: [], builtin: true },
+          { id: "address", label: "Current address", type: "textarea", required: false, visible: true, options: [], builtin: true },
+          { id: "custom_emergency", label: "Emergency contact", type: "phone", required: false, visible: true, options: [], builtin: false },
+        ]),
+      },
+    });
 
     const bundle = await onboardingBundle(user);
     const staffTemplate = bundle.templates.find((template) => template.kind === "teachers");
@@ -290,20 +348,24 @@ describe("school onboarding imports", () => {
     await workbook.xlsx.load(arrayBuffer);
     const sheet = workbook.getWorksheet("Staff")!;
     expect((sheet.getRow(1).values as unknown[]).slice(1)).toEqual([
-      "Name",
-      "Mobile",
-      "Email",
-      "Role",
+      "Staff full name",
+      "Staff mobile",
+      "Work email",
+      "Access role",
       "Class teacher of",
       "Monthly salary",
-      "Qualification",
+      "Highest qualification",
+      "Joining date",
+      "Current address",
+      "Department",
+      "Emergency contact",
       "Example only",
     ]);
     expect(sheet.getCell("D2").dataValidation).toMatchObject({ type: "list" });
     expect(sheet.getCell("E2").dataValidation).toMatchObject({ type: "list" });
     const blankRows = sheet.getRows(2, sheet.rowCount - 1) || [];
     const blankNames = blankRows
-      .filter((row) => !String(row.getCell(8).value || "").trim())
+      .filter((row) => !String(row.getCell(12).value || "").trim())
       .map((row) => String(row.getCell(1).value || ""))
       .filter(Boolean);
     expect(blankNames).toEqual([]);

@@ -11,6 +11,7 @@ import { readUpload } from "./uploads";
 import { parseWeekdays } from "./schedule";
 import { examPlanWeight, parseExamPlan } from "./exams";
 import { currentTenantOrg, runWithoutTenant } from "./tenant-context";
+import { admissionFormFields, staffOnboardingFormFields, type AdmissionFormField } from "./admission-form";
 
 const ONBOARDING_STATE_ID = "school";
 function onboardingStateId(orgId: string) {
@@ -208,6 +209,137 @@ type ExamMarkColumn = { key: string; examId: string; classId: string; classLabel
 type OpeningBalanceStudent = Prisma.StudentGetPayload<{ include: { class: true } }>;
 type OpeningBalanceInvoice = Prisma.FeeInvoiceGetPayload<{ include: { payments: true } }>;
 const OPENING_BALANCE_HEADERS = ["Admission number", "Student name", "Class", "Backlog invoice amount", "Invoice date", "Due date", "Invoices already generated till", "Example only"];
+
+type ConfiguredImportForms = {
+  admission: AdmissionFormField[];
+  staff: AdmissionFormField[];
+};
+
+function visibleFields(fields: AdmissionFormField[]) {
+  return fields.filter((field) => field.visible && field.type !== "file");
+}
+
+function uniqueHeaders(headers: string[]) {
+  const used = new Map<string, number>();
+  return headers.map((header) => {
+    const clean = String(header || "").trim() || "Field";
+    const key = normalizeHeader(clean);
+    const count = used.get(key) || 0;
+    used.set(key, count + 1);
+    return count ? `${clean} ${count + 1}` : clean;
+  });
+}
+
+function configuredImportValue(row: ImportRow, fields: AdmissionFormField[], id: string, ...fallbacks: string[]) {
+  const field = fields.find((item) => item.id === id);
+  return sheetCell(row, ...(field?.label ? [field.label] : []), ...fallbacks);
+}
+
+async function configuredImportForms(): Promise<ConfiguredImportForms> {
+  const config = await prisma.schoolConfig.findUnique({
+    where: { id: "school" },
+    select: { admissionFormJson: true, staffOnboardingFormJson: true },
+  });
+  return {
+    admission: admissionFormFields(config?.admissionFormJson),
+    staff: staffOnboardingFormFields(config?.staffOnboardingFormJson),
+  };
+}
+
+function studentImportHeaders(fields: AdmissionFormField[]) {
+  const byId = new Map(visibleFields(fields).map((field) => [field.id, field]));
+  const builtins = [
+    byId.get("studentName")?.label || "Student name",
+    "Date of birth",
+    byId.get("classWanted")?.label || "Class",
+    byId.get("guardianName")?.label || "Parent name",
+    byId.get("phone")?.label || "Parent mobile",
+    byId.get("email")?.label || "Parent email",
+  ];
+  const custom = visibleFields(fields)
+    .filter((field) => !field.builtin || field.id === "message")
+    .map((field) => field.label);
+  return uniqueHeaders([...builtins, ...custom, "Example only"]);
+}
+
+function studentTemplateRow(
+  fields: AdmissionFormField[],
+  values: {
+    name: CsvCell;
+    dob: CsvCell;
+    classLabel: CsvCell;
+    parentName: CsvCell;
+    parentMobile: CsvCell;
+    parentEmail: CsvCell;
+    message?: CsvCell;
+    custom?: Record<string, CsvCell>;
+    example?: CsvCell;
+  }
+) {
+  const custom = visibleFields(fields)
+    .filter((field) => !field.builtin || field.id === "message")
+    .map((field) => field.id === "message" ? (values.message || "") : (values.custom?.[field.id] || ""));
+  return [values.name, values.dob, values.classLabel, values.parentName, values.parentMobile, values.parentEmail, ...custom, values.example || ""];
+}
+
+function staffImportHeaders(fields: AdmissionFormField[]) {
+  const byId = new Map(visibleFields(fields).map((field) => [field.id, field]));
+  const builtins = [
+    byId.get("staffName")?.label || "Name",
+    byId.get("phone")?.label || "Mobile",
+    byId.get("email")?.label || "Email",
+    byId.get("role")?.label || "Role",
+    "Class teacher of",
+    "Monthly salary",
+    byId.get("qualification")?.label || "Qualification",
+    byId.get("joiningDate")?.label || "Joining date",
+    byId.get("address")?.label || "Address",
+  ];
+  const custom = visibleFields(fields)
+    .filter((field) => !field.builtin || field.id === "department")
+    .map((field) => field.label);
+  return uniqueHeaders([...builtins, ...custom, "Example only"]);
+}
+
+function staffTemplateRow(
+  fields: AdmissionFormField[],
+  values: {
+    name: CsvCell;
+    mobile: CsvCell;
+    email: CsvCell;
+    role: CsvCell;
+    classTeacherOf?: CsvCell;
+    salary?: CsvCell;
+    qualification?: CsvCell;
+    joiningDate?: CsvCell;
+    address?: CsvCell;
+    department?: CsvCell;
+    custom?: Record<string, CsvCell>;
+    example?: CsvCell;
+  }
+) {
+  const custom = visibleFields(fields)
+    .filter((field) => !field.builtin || field.id === "department")
+    .map((field) => field.id === "department" ? (values.department || "") : (values.custom?.[field.id] || ""));
+  return [
+    values.name,
+    values.mobile,
+    values.email,
+    values.role,
+    values.classTeacherOf || "",
+    values.salary || "",
+    values.qualification || "",
+    values.joiningDate || "",
+    values.address || "",
+    ...custom,
+    values.example || "",
+  ];
+}
+
+function headerIndex(headers: CsvCell[], ...labels: string[]) {
+  const normalized = labels.map((label) => normalizeHeader(label)).filter(Boolean);
+  return headers.findIndex((header) => normalized.includes(normalizeHeader(header)));
+}
 
 function csvBuffer(rows: CsvCell[][]) {
   const encoded = rows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(","));
@@ -432,55 +564,67 @@ async function csvRowsFor(kind: ImportKind): Promise<CsvCell[][]> {
   }
 
   if (kind === "students") {
-    const students = await prisma.student.findMany({
-      include: { class: true, parent: { include: { user: true } } },
-      orderBy: { name: "asc" },
-    });
+    const [students, forms] = await Promise.all([
+      prisma.student.findMany({
+        include: { class: true, parent: { include: { user: true } } },
+        orderBy: { name: "asc" },
+      }),
+      configuredImportForms(),
+    ]);
     return [
-      ["Anekio student ID", "Admission number", "Student name", "Date of birth", "Class", "Parent name", "Parent mobile", "Parent email", "Example only"],
-      ["", "", "Aarav Sharma (example)", "2015-04-12", classLabels[0] || "1-A", "Neha Sharma", "9876543210", "parent@example.com", "YES"],
+      ["Anekio student ID", "Admission number", ...studentImportHeaders(forms.admission)],
+      ["", "", ...studentTemplateRow(forms.admission, { name: "Aarav Sharma (example)", dob: "2015-04-12", classLabel: classLabels[0] || "1-A", parentName: "Neha Sharma", parentMobile: "9876543210", parentEmail: "parent@example.com", message: "Interested in admission.", example: "YES" })],
       ...students.map((student) => [
         student.id,
         student.admissionNo,
-        student.name,
-        dateText(student.dateOfBirth),
-        `${student.class.name}-${student.class.section}`,
-        student.parent.user.name,
-        student.parent.phone || student.parent.user.phone || "",
-        student.parent.user.email.endsWith("@local.anekio.invalid") ? "" : student.parent.user.email,
-        "",
+        ...studentTemplateRow(forms.admission, {
+          name: student.name,
+          dob: dateText(student.dateOfBirth),
+          classLabel: `${student.class.name}-${student.class.section}`,
+          parentName: student.parent.user.name,
+          parentMobile: student.parent.phone || student.parent.user.phone || "",
+          parentEmail: student.parent.user.email.endsWith("@local.anekio.invalid") ? "" : student.parent.user.email,
+        }),
       ]),
     ];
   }
 
   if (kind === "teachers") {
     await ensureAccessRoles();
-    const [teachers, staffMembers] = await Promise.all([
+    const [teachers, staffMembers, forms] = await Promise.all([
       prisma.teacher.findMany({ include: { user: { include: { role: true } }, class: true }, orderBy: { user: { name: "asc" } } }),
       prisma.staffMember.findMany({ include: { user: { include: { role: true } }, role: true }, orderBy: { name: "asc" } }),
+      configuredImportForms(),
     ]);
     return [
-      ["Name", "Mobile", "Email", "Role", "Class teacher of", "Monthly salary", "Qualification", "Example only"],
-      ["Meera Singh (example)", "9876543211", "teacher@example.com", "TEACHER", classLabels[0] || "1-A", 30000, "B.Ed, Mathematics", "YES"],
+      staffImportHeaders(forms.staff),
+      staffTemplateRow(forms.staff, { name: "Meera Singh (example)", mobile: "9876543211", email: "teacher@example.com", role: "TEACHER", classTeacherOf: classLabels[0] || "1-A", salary: 30000, qualification: "B.Ed, Mathematics", joiningDate: dateText(new Date()), address: "", department: "Teaching", example: "YES" }),
       ...teachers.map((teacher) => [
-        teacher.user.name,
-        teacher.user.phone || "",
-        teacher.user.email.endsWith("@local.anekio.invalid") ? "" : teacher.user.email,
-        roleLabel(teacher.user.role),
-        teacher.class ? `${teacher.class.name}-${teacher.class.section}` : "",
-        teacher.monthlySalary,
-        teacher.qualification || "",
-        "",
+        ...staffTemplateRow(forms.staff, {
+          name: teacher.user.name,
+          mobile: teacher.user.phone || "",
+          email: teacher.user.email.endsWith("@local.anekio.invalid") ? "" : teacher.user.email,
+          role: roleLabel(teacher.user.role),
+          classTeacherOf: teacher.class ? `${teacher.class.name}-${teacher.class.section}` : "",
+          salary: teacher.monthlySalary,
+          qualification: teacher.qualification || "",
+          joiningDate: teacher.joinedOn,
+          address: teacher.address,
+          department: "Teaching",
+        }),
       ]),
       ...staffMembers.map((staff) => [
-        staff.name,
-        staff.phone || staff.user?.phone || "",
-        staff.user?.email && !staff.user.email.endsWith("@local.anekio.invalid") && !staff.user.email.endsWith("@mobile.local") ? staff.user.email : "",
-        staff.role || staff.user?.role ? roleLabel((staff.role || staff.user?.role)!) : "ADMIN",
-        "",
-        staff.monthlySalary,
-        staff.title || "",
-        "",
+        ...staffTemplateRow(forms.staff, {
+          name: staff.name,
+          mobile: staff.phone || staff.user?.phone || "",
+          email: staff.user?.email && !staff.user.email.endsWith("@local.anekio.invalid") && !staff.user.email.endsWith("@mobile.local") ? staff.user.email : "",
+          role: staff.role || staff.user?.role ? roleLabel((staff.role || staff.user?.role)!) : "ADMIN",
+          salary: staff.monthlySalary,
+          qualification: staff.title || "",
+          joiningDate: staff.joinedOn,
+          address: staff.address,
+          department: staff.title || "",
+        }),
       ]),
     ];
   }
@@ -747,8 +891,8 @@ function roleLookupKey(value: string) {
   return normalizeHeader(value);
 }
 
-function resolveStaffImportRole(roles: StaffImportRole[], row: ImportRow) {
-  const raw = sheetCell(row, "Role", "Role ID", "Role slug") || "TEACHER";
+function resolveStaffImportRole(roles: StaffImportRole[], row: ImportRow, fields: AdmissionFormField[] = []) {
+  const raw = configuredImportValue(row, fields, "role", "Role", "Role ID", "Role slug") || "TEACHER";
   const key = roleLookupKey(raw);
   return roles.find((role) => [role.id, role.slug, role.name, roleLabel(role)].some((value) => roleLookupKey(value) === key)) || null;
 }
@@ -828,7 +972,13 @@ export async function onboardingSpreadsheetTemplate(user: AccessUser, rawKind: s
     };
   }
   if (kind !== "students") {
-    const blankRows = blankRowsFor(kind, labels);
+    const forms = kind === "teachers" ? await configuredImportForms() : null;
+    const blankRows = kind === "teachers"
+      ? [
+        staffImportHeaders(forms!.staff),
+        staffTemplateRow(forms!.staff, { name: "Meera Singh (example)", mobile: "9876543211", email: "teacher@example.com", role: "TEACHER", classTeacherOf: labels[0] || "1-A", salary: 30000, qualification: "B.Ed, Mathematics", joiningDate: dateText(new Date()), address: "", department: "Teaching", example: "YES" }),
+      ]
+      : blankRowsFor(kind, labels);
     const rows = options.sampleData && kind === "teachers"
       ? blankRows
       : options.sampleData || !blankRows.length
@@ -837,7 +987,21 @@ export async function onboardingSpreadsheetTemplate(user: AccessUser, rawKind: s
     if (kind === "teachers") {
       const roles = await staffImportRoles();
       if (options.sampleData) {
-        rows.push(...sampleStaffRows(labels, roles));
+        rows.push(...sampleStaffRows(labels, roles).map((row) =>
+          staffTemplateRow(forms!.staff, {
+            name: row[0],
+            mobile: row[1],
+            email: row[2],
+            role: row[3],
+            classTeacherOf: row[4],
+            salary: row[5],
+            qualification: row[6],
+            joiningDate: dateText(new Date()),
+            address: "",
+            department: row[6],
+            example: row[7],
+          })
+        ));
       }
     }
     const sheet = workbook.addWorksheet(TEMPLATE_DETAILS[kind].sheet);
@@ -855,11 +1019,13 @@ export async function onboardingSpreadsheetTemplate(user: AccessUser, rawKind: s
       labels.forEach((label, index) => { lists.getCell(index + 2, 2).value = label; });
       const roleEnd = Math.max(2, roles.length + 1);
       const classEnd = Math.max(2, labels.length + 1);
-      const headers = (rows[0] || []).map((header) => normalizeHeader(header));
-      const roleColumn = headers.indexOf("role") + 1;
+      const headers = rows[0] || [];
+      const roleColumn = kind === "teachers" && forms
+        ? headerIndex(headers, forms.staff.find((field) => field.id === "role")?.label || "", "Role") + 1
+        : headerIndex(headers, "Role") + 1;
       const classColumn = kind === "teachers"
-        ? headers.indexOf(normalizeHeader("Class teacher of")) + 1
-        : headers.indexOf("class") + 1;
+        ? headerIndex(headers, "Class teacher of") + 1
+        : headerIndex(headers, "Class") + 1;
       for (let rowNumber = 2; rowNumber <= 250; rowNumber += 1) {
         if (roleColumn > 0) {
           sheet.getCell(rowNumber, roleColumn).dataValidation = {
@@ -884,7 +1050,8 @@ export async function onboardingSpreadsheetTemplate(user: AccessUser, rawKind: s
       buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
     };
   }
-  const headers = ["Student name", "Date of birth", "Class", "Parent name", "Parent mobile", "Parent email", "Example only"];
+  const forms = await configuredImportForms();
+  const headers = studentImportHeaders(forms.admission);
   const samplesByClass = new Map<string, ReturnType<typeof sampleStudentRows>>();
   if (options.sampleData) {
     sampleStudentRows(labels).forEach((row) => {
@@ -896,9 +1063,9 @@ export async function onboardingSpreadsheetTemplate(user: AccessUser, rawKind: s
   labels.forEach((label, index) => {
     const sheet = workbook.addWorksheet(label);
     sheet.addRow(headers);
-    sheet.addRow([index === 0 ? "Aarav Sharma (example)" : "", "2015-04-12", label, "Neha Sharma", "9876543210", "parent@example.com", "YES"]);
+    sheet.addRow(studentTemplateRow(forms.admission, { name: index === 0 ? "Aarav Sharma (example)" : "", dob: "2015-04-12", classLabel: label, parentName: "Neha Sharma", parentMobile: "9876543210", parentEmail: "parent@example.com", message: "Interested in admission.", example: "YES" }));
     (samplesByClass.get(label) || []).forEach((row) => {
-      sheet.addRow([row.name, row.dob, row.classLabel, row.parentName, row.parentMobile, row.parentEmail, ""]);
+      sheet.addRow(studentTemplateRow(forms.admission, { name: row.name, dob: row.dob, classLabel: row.classLabel, parentName: row.parentName, parentMobile: row.parentMobile, parentEmail: row.parentEmail }));
     });
     applyHeaderStyle(sheet);
     sheet.columns = headers.map((header) => ({ header, key: normalizeHeader(header), width: Math.max(18, header.length + 2) }));
@@ -1086,6 +1253,7 @@ function resolveStaffAttendancePerson(row: ImportRow, people: StaffAttendancePer
 async function validateRows(kind: ImportKind, rows: ImportRow[]) {
   const errors: string[] = [];
   const roles = kind === "teachers" ? await staffImportRoles() : [];
+  const forms = kind === "students" || kind === "teachers" ? await configuredImportForms() : null;
   const students = kind === "opening_balances" || kind === "students" || kind === "attendance"
     ? await prisma.student.findMany({ select: { id: true, admissionNo: true } })
     : [];
@@ -1123,16 +1291,16 @@ async function validateRows(kind: ImportKind, rows: ImportRow[]) {
       return;
     }
     if (kind === "students") {
-      const name = sheetCell(row, "Student name", "Name");
+      const name = configuredImportValue(row, forms!.admission, "studentName", "Student name", "Name");
       const dob = sheetCell(row, "Date of birth", "DOB");
-      const klass = parseClass(sheetCell(row, "Class"));
-      const phone = normalizeMobile(sheetCell(row, "Parent mobile", "Parent phone"));
+      const klass = parseClass(configuredImportValue(row, forms!.admission, "classWanted", "Class"));
+      const phone = normalizeMobile(configuredImportValue(row, forms!.admission, "phone", "Parent mobile", "Parent phone"));
       const studentId = sheetCell(row, "Anekio student ID");
       const admissionNo = sheetCell(row, "Admission number", "Admission no").toLowerCase();
       if (!name) errors.push(rowError(row, "student name is required."));
       if (!validDate(dob)) errors.push(rowError(row, "date of birth must be YYYY-MM-DD."));
       if (!klass) errors.push(rowError(row, "class must be a value like 1-A."));
-      if (!sheetCell(row, "Parent name")) errors.push(rowError(row, "parent name is required."));
+      if (!configuredImportValue(row, forms!.admission, "guardianName", "Parent name")) errors.push(rowError(row, "parent name is required."));
       if (!phone) errors.push(rowError(row, "parent mobile must be a 10-digit number."));
       if (studentId && !studentIds.has(studentId)) errors.push(rowError(row, "Anekio student ID was not found."));
       if (!studentId && admissionNo && admissionNos.has(admissionNo)) {
@@ -1190,9 +1358,9 @@ async function validateRows(kind: ImportKind, rows: ImportRow[]) {
       return;
     }
     if (kind === "teachers") {
-      if (!sheetCell(row, "Teacher name", "Name")) errors.push(rowError(row, "name is required."));
-      if (!normalizeMobile(sheetCell(row, "Mobile", "Phone"))) errors.push(rowError(row, "mobile must be a 10-digit number."));
-      if (!resolveStaffImportRole(roles, row)) errors.push(rowError(row, "role must be one of the office or teacher roles."));
+      if (!configuredImportValue(row, forms!.staff, "staffName", "Teacher name", "Staff name", "Name")) errors.push(rowError(row, "name is required."));
+      if (!normalizeMobile(configuredImportValue(row, forms!.staff, "phone", "Mobile", "Phone"))) errors.push(rowError(row, "mobile must be a 10-digit number."));
+      if (!resolveStaffImportRole(roles, row, forms!.staff)) errors.push(rowError(row, "role must be one of the office or teacher roles."));
       const classText = sheetCell(row, "Class teacher of", "Class teacher", "Class");
       const klass = classText ? parseClass(classText) : null;
       if (classText && !klass) errors.push(rowError(row, "class teacher value must look like 1-A."));
@@ -1352,17 +1520,18 @@ async function applyStudents(
   rows: ImportRow[],
   setup: { orgId: string; roleId: string; password: string; admission: number }
 ) {
+  const forms = await configuredImportForms();
   let created = 0;
   let updated = 0;
   let nextAdmission = setup.admission;
   for (const row of rows) {
-    const klass = parseClass(sheetCell(row, "Class"))!;
+    const klass = parseClass(configuredImportValue(row, forms.admission, "classWanted", "Class"))!;
     const existingClass = await db.class.findFirst({ where: { name: klass.name, section: klass.section } });
     const classRow = existingClass
       ? await db.class.update({ where: { id: existingClass.id }, data: { archivedAt: null } })
       : await db.class.create({ data: { name: klass.name, section: klass.section } });
-    const phone = normalizeMobile(sheetCell(row, "Parent mobile", "Parent phone"));
-    const suppliedEmail = sheetCell(row, "Parent email").toLowerCase();
+    const phone = normalizeMobile(configuredImportValue(row, forms.admission, "phone", "Parent mobile", "Parent phone"));
+    const suppliedEmail = configuredImportValue(row, forms.admission, "email", "Parent email").toLowerCase();
     const email = suppliedEmail || placeholderEmail("parent", phone);
     const user = await db.user.findFirst({ where: { orgId: setup.orgId, OR: [{ email }, { phone }] }, include: { parent: true } });
     let parentId = user?.parent?.id || "";
@@ -1373,7 +1542,7 @@ async function applyStudents(
         parentUser = await db.user.create({
           data: {
             orgId: setup.orgId,
-            name: sheetCell(row, "Parent name"),
+            name: configuredImportValue(row, forms.admission, "guardianName", "Parent name"),
             email,
             phone,
             password: setup.password,
@@ -1387,7 +1556,7 @@ async function applyStudents(
       }
       parentId = parentUser.parent!.id;
     } else if (user) {
-      await db.user.update({ where: { id: user.id }, data: { name: sheetCell(row, "Parent name") || user.name } });
+      await db.user.update({ where: { id: user.id }, data: { name: configuredImportValue(row, forms.admission, "guardianName", "Parent name") || user.name } });
     }
     const studentId = sheetCell(row, "Anekio student ID");
     let admissionNo = sheetCell(row, "Admission number", "Admission no");
@@ -1404,7 +1573,7 @@ async function applyStudents(
     }
     const data = {
       orgId: setup.orgId,
-      name: sheetCell(row, "Student name", "Name"),
+      name: configuredImportValue(row, forms.admission, "studentName", "Student name", "Name"),
       admissionNo,
       dateOfBirth: new Date(`${sheetCell(row, "Date of birth", "DOB")}T00:00:00`),
       classId: classRow.id,
@@ -1426,22 +1595,26 @@ async function applyTeachers(
   rows: ImportRow[],
   setup: { orgId: string; password: string; employee: number; staffEmployee: number; roles: StaffImportRole[] }
 ) {
+  const forms = await configuredImportForms();
   let created = 0;
   let updated = 0;
   let nextEmployee = setup.employee;
   let nextStaffEmployee = setup.staffEmployee;
   for (const row of rows) {
-    const role = resolveStaffImportRole(setup.roles, row);
+    const role = resolveStaffImportRole(setup.roles, row, forms.staff);
     if (!role) throw new Error(rowError(row, "role no longer exists."));
-    const name = sheetCell(row, "Teacher name", "Name");
-    const phone = normalizeMobile(sheetCell(row, "Mobile", "Phone"));
-    const email = sheetCell(row, "Email").toLowerCase() || (role.portal === "TEACHER" ? placeholderEmail("teacher", phone) : staffPlaceholderEmail(phone));
+    const name = configuredImportValue(row, forms.staff, "staffName", "Teacher name", "Staff name", "Name");
+    const phone = normalizeMobile(configuredImportValue(row, forms.staff, "phone", "Mobile", "Phone"));
+    const email = configuredImportValue(row, forms.staff, "email", "Email").toLowerCase() || (role.portal === "TEACHER" ? placeholderEmail("teacher", phone) : staffPlaceholderEmail(phone));
     const teacherId = sheetCell(row, "Anekio teacher ID");
     let employeeId = sheetCell(row, "Employee ID");
     const classText = sheetCell(row, "Class teacher of", "Class teacher", "Class");
     const klass = classText ? parseClass(classText) : null;
     const classRow = klass ? await ensureClassForImport(db, klass) : null;
     const salary = monthlySalaryFrom(row, role.portal === "TEACHER" ? 30000 : 25000);
+    const joinedOn = configuredImportValue(row, forms.staff, "joiningDate", "Joining date");
+    const address = configuredImportValue(row, forms.staff, "address", "Address");
+    const qualification = configuredImportValue(row, forms.staff, "qualification", "Qualification");
 
     if (role.portal === "TEACHER") {
       const existing = teacherId
@@ -1459,7 +1632,7 @@ async function applyTeachers(
         await db.user.update({ where: { id: existing.userId }, data: { orgId: setup.orgId, name, email, phone, roleId: role.id } });
         await db.teacher.update({
           where: { id: existing.id },
-          data: { orgId: setup.orgId, employeeId, monthlySalary: salary, qualification: sheetCell(row, "Qualification") || null, ...(classRow ? { classId: classRow.id } : {}) },
+          data: { orgId: setup.orgId, employeeId, monthlySalary: salary, qualification: qualification || null, ...(joinedOn ? { joinedOn } : {}), ...(address ? { address } : {}), ...(classRow ? { classId: classRow.id } : {}) },
         });
         if (classRow) {
           await db.teacherClass.upsert({
@@ -1485,7 +1658,9 @@ async function applyTeachers(
                   orgId: setup.orgId,
                   employeeId,
                   monthlySalary: salary,
-                  qualification: sheetCell(row, "Qualification") || null,
+                  qualification: qualification || null,
+                  ...(joinedOn ? { joinedOn } : {}),
+                  ...(address ? { address } : {}),
                   ...(classRow ? { classId: classRow.id } : {}),
                 },
               },
@@ -1514,7 +1689,7 @@ async function applyTeachers(
         if (existing.userId) await db.user.update({ where: { id: existing.userId }, data: { orgId: setup.orgId, name, email, phone, roleId: role.id } });
         await db.staffMember.update({
           where: { id: existing.id },
-          data: { orgId: setup.orgId, name, title: role.name, phone, employeeId, roleId: role.id, monthlySalary: salary, kind: "OFFICE", archivedAt: null },
+          data: { orgId: setup.orgId, name, title: role.name, phone, employeeId, roleId: role.id, monthlySalary: salary, ...(joinedOn ? { joinedOn } : {}), ...(address ? { address } : {}), kind: "OFFICE", archivedAt: null },
         });
         updated += 1;
       } else {
@@ -1527,7 +1702,7 @@ async function applyTeachers(
               phone,
               password: setup.password,
               roleId: role.id,
-              staffMember: { create: { orgId: setup.orgId, name, title: role.name, phone, employeeId, roleId: role.id, monthlySalary: salary, kind: "OFFICE" } },
+              staffMember: { create: { orgId: setup.orgId, name, title: role.name, phone, employeeId, roleId: role.id, monthlySalary: salary, ...(joinedOn ? { joinedOn } : {}), ...(address ? { address } : {}), kind: "OFFICE" } },
             },
           });
         } catch (error) {
