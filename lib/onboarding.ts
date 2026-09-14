@@ -12,6 +12,7 @@ import { parseWeekdays } from "./schedule";
 import { examPlanWeight, parseExamPlan } from "./exams";
 import { currentTenantOrg, runWithoutTenant } from "./tenant-context";
 import { admissionFormFields, staffOnboardingFormFields, type AdmissionFormField } from "./admission-form";
+import { assignStudentRollNumber } from "./student-rolls";
 
 const ONBOARDING_STATE_ID = "school";
 function onboardingStateId(orgId: string) {
@@ -1581,9 +1582,11 @@ async function applyStudents(
     };
     if (existing) {
       await db.student.update({ where: { id: existing.id }, data });
+      await assignStudentRollNumber(db, { studentId: existing.id, classId: classRow.id, orgId: setup.orgId });
       updated += 1;
     } else {
-      await db.student.create({ data });
+      const student = await db.student.create({ data });
+      await assignStudentRollNumber(db, { studentId: student.id, classId: classRow.id, orgId: setup.orgId });
       created += 1;
     }
   }

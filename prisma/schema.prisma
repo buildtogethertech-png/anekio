@@ -179,35 +179,35 @@ model RoleGrant {
 }
 
 model User {
-  id               String                 @id @default(cuid())
+  id               String                  @id @default(cuid())
   email            String
   password         String
   name             String
   phone            String?
   pushToken        String?
   roleId           String
-  role             Role                   @relation(fields: [roleId], references: [id])
+  role             Role                    @relation(fields: [roleId], references: [id])
   managerId        String?
-  manager          User?                  @relation("ReportsTo", fields: [managerId], references: [id], onDelete: SetNull)
-  reports          User[]                 @relation("ReportsTo")
-  createdAt        DateTime               @default(now())
+  manager          User?                   @relation("ReportsTo", fields: [managerId], references: [id], onDelete: SetNull)
+  reports          User[]                  @relation("ReportsTo")
+  createdAt        DateTime                @default(now())
   teacher          Teacher?
   parent           Parent?
   student          Student?
   applications     Application[]
-  grantsMade       Grant[]                @relation("NominatedBy")
+  grantsMade       Grant[]                 @relation("NominatedBy")
   papers           ExamPaper[]
-  attendance       Attendance[]           @relation("MarkedBy")
+  attendance       Attendance[]            @relation("MarkedBy")
   staffMember      StaffMember?
   noticesPosted    Notice[]
   noticeRecipients NoticeRecipient[]
   leaveRequests    LeaveRequest[]
-  coverAssignments SubstituteAssignment[] @relation("CoverAssignedBy")
+  coverAssignments SubstituteAssignment[]  @relation("CoverAssignedBy")
   authChallenges   AuthChallenge[]
-  googleDrive       GoogleDriveConnection?
-  onboardingSheets  OnboardingGoogleSheet[]
-  orgId             String?
-  org               SaasOrg?                @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  googleDrive      GoogleDriveConnection?
+  onboardingSheets OnboardingGoogleSheet[]
+  orgId            String?
+  org              SaasOrg?                @relation(fields: [orgId], references: [id], onDelete: SetNull)
 
   @@unique([orgId, email])
   @@unique([orgId, phone])
@@ -297,12 +297,13 @@ model Parent {
 }
 
 model Class {
-  id                String             @id @default(cuid())
+  id                String                   @id @default(cuid())
   orgId             String?
   name              String
   section           String
   archivedAt        DateTime?
   students          Student[]
+  enrollments       StudentClassEnrollment[]
   teachers          Teacher[]
   subjects          Subject[]
   exams             Exam[]
@@ -313,7 +314,7 @@ model Class {
   slots             TimetableSlot[]
   teacherLinks      TeacherClass[]
   teacherSkills     TeacherSkill[]
-  whatsappGroupUrl  String             @default("")
+  whatsappGroupUrl  String                   @default("")
   noticeLinks       NoticeClass[]
 
   @@unique([orgId, name, section])
@@ -321,15 +322,15 @@ model Class {
 }
 
 model Student {
-  id                  String            @id @default(cuid())
+  id                  String                   @id @default(cuid())
   orgId               String?
-  userId              String?           @unique
-  user                User?             @relation(fields: [userId], references: [id])
+  userId              String?                  @unique
+  user                User?                    @relation(fields: [userId], references: [id])
   parentId            String
-  parent              Parent            @relation(fields: [parentId], references: [id])
+  parent              Parent                   @relation(fields: [parentId], references: [id])
   classId             String
-  class               Class             @relation(fields: [classId], references: [id])
-  admissionNo         String            @unique
+  class               Class                    @relation(fields: [classId], references: [id])
+  admissionNo         String                   @unique
   name                String
   dateOfBirth         DateTime
   interests           StudentInterest[]
@@ -344,8 +345,29 @@ model Student {
   applications        Application[]
   leaveRequests       LeaveRequest[]
   notices             Notice[]
-  payToken            String?           @unique
-  feeGeneratedThrough String            @default("")
+  payToken            String?                  @unique
+  feeGeneratedThrough String                   @default("")
+  enrollments         StudentClassEnrollment[]
+}
+
+model StudentClassEnrollment {
+  id         String        @id @default(cuid())
+  orgId      String?
+  studentId  String
+  student    Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  classId    String
+  class      Class         @relation(fields: [classId], references: [id], onDelete: Cascade)
+  sessionId  String
+  session    SchoolSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  rollNumber Int
+  active     Boolean       @default(true)
+  joinedAt   DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  @@unique([studentId, sessionId])
+  @@unique([sessionId, classId, rollNumber])
+  @@index([orgId])
+  @@index([classId, sessionId])
 }
 
 model StudentFeeAddOn {
@@ -585,26 +607,26 @@ model AdmissionFeeLine {
 }
 
 model FeeTemplate {
-  id            String         @id @default(cuid())
-  orgId         String?
-  org           SaasOrg?       @relation(fields: [orgId], references: [id], onDelete: SetNull)
-  classId       String
-  class         Class          @relation(fields: [classId], references: [id], onDelete: Cascade)
-  sessionId     String?
-  session       SchoolSession? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  name          String         @default("Monthly fee")
-  startsPeriod  String         @default("")
-  endsPeriod    String         @default("")
-  dueDay        Int            @default(10)
-  lateGraceDays Int            @default(0)
-  lateKind      String         @default("")
-  lateAmount    Int            @default(0)
-  lateIntervalCount Int        @default(1)
-  lateIntervalUnit  String     @default("DAY")
-  lateAfter10   Int            @default(0)
-  lateAfter20   Int            @default(0)
-  lines         FeeLine[]
-  invoices      FeeInvoice[]
+  id                String         @id @default(cuid())
+  orgId             String?
+  org               SaasOrg?       @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  classId           String
+  class             Class          @relation(fields: [classId], references: [id], onDelete: Cascade)
+  sessionId         String?
+  session           SchoolSession? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  name              String         @default("Monthly fee")
+  startsPeriod      String         @default("")
+  endsPeriod        String         @default("")
+  dueDay            Int            @default(10)
+  lateGraceDays     Int            @default(0)
+  lateKind          String         @default("")
+  lateAmount        Int            @default(0)
+  lateIntervalCount Int            @default(1)
+  lateIntervalUnit  String         @default("DAY")
+  lateAfter10       Int            @default(0)
+  lateAfter20       Int            @default(0)
+  lines             FeeLine[]
+  invoices          FeeInvoice[]
 
   @@index([classId, sessionId])
   @@index([startsPeriod, endsPeriod])
@@ -622,38 +644,39 @@ model FeeLine {
   amount     Int
   scope      String      @default("ALL")
   sortOrder  Int         @default(0)
+
   @@index([orgId])
 }
 
 model FeeInvoice {
-  id               String        @id @default(cuid())
-  orgId            String?
-  org              SaasOrg?      @relation(fields: [orgId], references: [id], onDelete: SetNull)
-  studentId        String
-  student          Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  classId          String?
-  class            Class?        @relation(fields: [classId], references: [id])
-  templateId       String?
-  template         FeeTemplate?  @relation(fields: [templateId], references: [id])
-  period           String        @default("")
-  kind             String        @default("RECURRING")
-  generatedThrough String        @default("")
-  title            String
-  amount           Int
-  linesJson        String        @default("[]")
-  dueDate          DateTime
-  lateGraceDays    Int           @default(0)
-  lateKind         String        @default("")
-  lateAmount       Int           @default(0)
-  lateIntervalCount Int          @default(1)
-  lateIntervalUnit  String       @default("DAY")
-  lateFeePerDay    Int           @default(0)
-  lateAfter10      Int           @default(0)
-  lateAfter20      Int           @default(0)
-  shareToken       String?       @unique
-  status           InvoiceStatus @default(DUE)
-  payments         Payment[]
-  reminders        FeeReminder[]
+  id                String        @id @default(cuid())
+  orgId             String?
+  org               SaasOrg?      @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  studentId         String
+  student           Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  classId           String?
+  class             Class?        @relation(fields: [classId], references: [id])
+  templateId        String?
+  template          FeeTemplate?  @relation(fields: [templateId], references: [id])
+  period            String        @default("")
+  kind              String        @default("RECURRING")
+  generatedThrough  String        @default("")
+  title             String
+  amount            Int
+  linesJson         String        @default("[]")
+  dueDate           DateTime
+  lateGraceDays     Int           @default(0)
+  lateKind          String        @default("")
+  lateAmount        Int           @default(0)
+  lateIntervalCount Int           @default(1)
+  lateIntervalUnit  String        @default("DAY")
+  lateFeePerDay     Int           @default(0)
+  lateAfter10       Int           @default(0)
+  lateAfter20       Int           @default(0)
+  shareToken        String?       @unique
+  status            InvoiceStatus @default(DUE)
+  payments          Payment[]
+  reminders         FeeReminder[]
 
   @@unique([studentId, period])
   @@index([orgId])
@@ -666,8 +689,8 @@ model SchoolOnboardingState {
   updatedAt           DateTime                 @updatedAt
   imports             SchoolOnboardingImport[]
   googleSheets        OnboardingGoogleSheet[]
-  orgId              String?
-  org                SaasOrg?                 @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  orgId               String?
+  org                 SaasOrg?                 @relation(fields: [orgId], references: [id], onDelete: SetNull)
 
   @@index([orgId])
 }
@@ -738,6 +761,7 @@ model Payment {
   proofPath String?
   notes     String?
   paidAt    DateTime      @default(now())
+
   @@index([orgId])
 }
 
@@ -749,6 +773,7 @@ model FeeReminder {
   invoice   FeeInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   sentAt    DateTime   @default(now())
   message   String
+
   @@index([orgId])
 }
 
@@ -771,70 +796,70 @@ model Application {
 }
 
 model SchoolConfig {
-  id                    String                    @id @default(cuid())
-  orgId                 String?                   @unique
-  org                   SaasOrg?                  @relation(fields: [orgId], references: [id], onDelete: SetNull)
-  weekdays              String                    @default("[1,2,3,4,5,6]")
-  name                  String                    @default("Anekio School")
-  address               String                    @default("")
-  city                  String                    @default("")
-  state                 String                    @default("")
-  pincode               String                    @default("")
-  phone                 String                    @default("")
-  email                 String                    @default("")
-  affiliation           String                    @default("")
-  gstin                 String                    @default("")
-  pan                   String                    @default("")
-  upiId                 String                    @default("")
-  bankName              String                    @default("")
-  bankAccountName       String                    @default("")
-  bankAccountNumber     String                    @default("")
-  bankIfsc              String                    @default("")
-  payGateway            String                    @default("NONE")
-  payTestMode           Boolean                   @default(true)
-  razorpayKeyId         String                    @default("")
-  razorpayKeySecret     String                    @default("")
-  razorpayWebhookSecret String                    @default("")
-  cashfreeAppId         String                    @default("")
-  cashfreeSecretKey     String                    @default("")
-  billdeskMerchantId    String                    @default("")
-  billdeskClientId      String                    @default("")
-  billdeskSecret        String                    @default("")
-  aisensyApiKey         String                    @default("")
-  aisensyCampaign       String                    @default("fee_reminder")
-  resendApiKey          String                    @default("")
-  resendFromEmail       String                    @default("")
-  signatory             String                    @default("")
-  logoPath              String                    @default("")
-  signPath              String                    @default("")
-  stampPath             String                    @default("")
-  invoiceStyle          String                    @default("classic")
-  websiteEnabled        Boolean                   @default(false)
-  websiteSlug           String?                   @unique
-  websiteTheme          String                    @default("blue")
-  websiteHeroTitle      String                    @default("")
-  websiteHeroSubtitle   String                    @default("")
-  websiteAbout          String                    @default("")
-  websiteHighlights     String                    @default("[\"CBSE aligned learning\",\"Safe campus\",\"Smart parent updates\",\"Admissions open\"]")
-  websiteFacilities     String                    @default("[\"Digital classrooms\",\"Library\",\"Computer lab\",\"Sports\",\"Transport\"]")
-  websiteGallery        String                    @default("[]")
-  websiteAdmissionOpen  Boolean                   @default(true)
-  websiteAdmissionNote  String                    @default("Admissions are open. Submit an enquiry and our office will contact you.")
-  admissionFormJson     String                    @default("[]")
-  staffOnboardingFormJson String                  @default("[]")
-  admissionCharge       Int                       @default(0)
-  sessionStart          String                    @default("")
-  sessionEnd            String                    @default("")
-  gradeBandsJson        String                    @default("[{\"min\":91,\"grade\":\"A1\"},{\"min\":81,\"grade\":\"A2\"},{\"min\":71,\"grade\":\"B1\"},{\"min\":61,\"grade\":\"B2\"},{\"min\":51,\"grade\":\"C1\"},{\"min\":41,\"grade\":\"C2\"},{\"min\":33,\"grade\":\"D\"},{\"min\":0,\"grade\":\"E\"}]")
-  passPercent           Int                       @default(33)
-  showRank              Boolean                   @default(false)
-  reportCardPaidMonths  Int                       @default(0)
-  whatsappCommunityUrl  String                    @default("")
-  subjectCatalog        String                    @default("[\"English\",\"Mathematics\",\"Hindi\",\"Science\",\"Social Science\",\"Computer\"]")
-  payrollJson           String                    @default("{\"presentCredit\":1,\"absentCredit\":0,\"paidLeaveCredit\":1,\"unpaidLeaveCredit\":0,\"halfDayCredit\":0.5,\"lateCredit\":1}")
-  documentTemplates     DocumentTemplate[]
-  documentVersions      DocumentTemplateVersion[]
-  issuedDocuments       IssuedDocument[]
+  id                      String                    @id @default(cuid())
+  orgId                   String?                   @unique
+  org                     SaasOrg?                  @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  weekdays                String                    @default("[1,2,3,4,5,6]")
+  name                    String                    @default("Anekio School")
+  address                 String                    @default("")
+  city                    String                    @default("")
+  state                   String                    @default("")
+  pincode                 String                    @default("")
+  phone                   String                    @default("")
+  email                   String                    @default("")
+  affiliation             String                    @default("")
+  gstin                   String                    @default("")
+  pan                     String                    @default("")
+  upiId                   String                    @default("")
+  bankName                String                    @default("")
+  bankAccountName         String                    @default("")
+  bankAccountNumber       String                    @default("")
+  bankIfsc                String                    @default("")
+  payGateway              String                    @default("NONE")
+  payTestMode             Boolean                   @default(true)
+  razorpayKeyId           String                    @default("")
+  razorpayKeySecret       String                    @default("")
+  razorpayWebhookSecret   String                    @default("")
+  cashfreeAppId           String                    @default("")
+  cashfreeSecretKey       String                    @default("")
+  billdeskMerchantId      String                    @default("")
+  billdeskClientId        String                    @default("")
+  billdeskSecret          String                    @default("")
+  aisensyApiKey           String                    @default("")
+  aisensyCampaign         String                    @default("fee_reminder")
+  resendApiKey            String                    @default("")
+  resendFromEmail         String                    @default("")
+  signatory               String                    @default("")
+  logoPath                String                    @default("")
+  signPath                String                    @default("")
+  stampPath               String                    @default("")
+  invoiceStyle            String                    @default("classic")
+  websiteEnabled          Boolean                   @default(false)
+  websiteSlug             String?                   @unique
+  websiteTheme            String                    @default("blue")
+  websiteHeroTitle        String                    @default("")
+  websiteHeroSubtitle     String                    @default("")
+  websiteAbout            String                    @default("")
+  websiteHighlights       String                    @default("[\"CBSE aligned learning\",\"Safe campus\",\"Smart parent updates\",\"Admissions open\"]")
+  websiteFacilities       String                    @default("[\"Digital classrooms\",\"Library\",\"Computer lab\",\"Sports\",\"Transport\"]")
+  websiteGallery          String                    @default("[]")
+  websiteAdmissionOpen    Boolean                   @default(true)
+  websiteAdmissionNote    String                    @default("Admissions are open. Submit an enquiry and our office will contact you.")
+  admissionFormJson       String                    @default("[]")
+  staffOnboardingFormJson String                    @default("[]")
+  admissionCharge         Int                       @default(0)
+  sessionStart            String                    @default("")
+  sessionEnd              String                    @default("")
+  gradeBandsJson          String                    @default("[{\"min\":91,\"grade\":\"A1\"},{\"min\":81,\"grade\":\"A2\"},{\"min\":71,\"grade\":\"B1\"},{\"min\":61,\"grade\":\"B2\"},{\"min\":51,\"grade\":\"C1\"},{\"min\":41,\"grade\":\"C2\"},{\"min\":33,\"grade\":\"D\"},{\"min\":0,\"grade\":\"E\"}]")
+  passPercent             Int                       @default(33)
+  showRank                Boolean                   @default(false)
+  reportCardPaidMonths    Int                       @default(0)
+  whatsappCommunityUrl    String                    @default("")
+  subjectCatalog          String                    @default("[\"English\",\"Mathematics\",\"Hindi\",\"Science\",\"Social Science\",\"Computer\"]")
+  payrollJson             String                    @default("{\"presentCredit\":1,\"absentCredit\":0,\"paidLeaveCredit\":1,\"unpaidLeaveCredit\":0,\"halfDayCredit\":0.5,\"lateCredit\":1}")
+  documentTemplates       DocumentTemplate[]
+  documentVersions        DocumentTemplateVersion[]
+  issuedDocuments         IssuedDocument[]
 
   @@index([orgId])
 }
@@ -986,9 +1011,9 @@ model Notice {
 model NoticeRecipient {
   noticeId String
   orgId    String?
-  notice   Notice @relation(fields: [noticeId], references: [id], onDelete: Cascade)
+  notice   Notice  @relation(fields: [noticeId], references: [id], onDelete: Cascade)
   userId   String
-  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([noticeId, userId])
   @@index([userId])
@@ -997,7 +1022,7 @@ model NoticeRecipient {
 model NoticeAudience {
   noticeId String
   orgId    String?
-  notice   Notice @relation(fields: [noticeId], references: [id], onDelete: Cascade)
+  notice   Notice  @relation(fields: [noticeId], references: [id], onDelete: Cascade)
   portal   Portal
 
   @@id([noticeId, portal])
@@ -1006,9 +1031,9 @@ model NoticeAudience {
 model NoticeClass {
   noticeId String
   orgId    String?
-  notice   Notice @relation(fields: [noticeId], references: [id], onDelete: Cascade)
+  notice   Notice  @relation(fields: [noticeId], references: [id], onDelete: Cascade)
   classId  String
-  class    Class  @relation(fields: [classId], references: [id], onDelete: Cascade)
+  class    Class   @relation(fields: [classId], references: [id], onDelete: Cascade)
 
   @@id([noticeId, classId])
 }
@@ -1084,16 +1109,17 @@ model SchoolHoliday {
 }
 
 model SchoolSession {
-  id           String          @id @default(cuid())
-  orgId        String?
-  label        String
-  startsOn     String
-  endsOn       String
-  current      Boolean         @default(false)
-  examPlanJson String          @default("")
-  holidays     SchoolHoliday[]
-  templates    FeeTemplate[]
-  examSeries   ExamSeries[]
+  id                 String                   @id @default(cuid())
+  orgId              String?
+  label              String
+  startsOn           String
+  endsOn             String
+  current            Boolean                  @default(false)
+  examPlanJson       String                   @default("")
+  holidays           SchoolHoliday[]
+  templates          FeeTemplate[]
+  examSeries         ExamSeries[]
+  studentEnrollments StudentClassEnrollment[]
 }
 
 model StaffMember {
@@ -1211,40 +1237,40 @@ model TimetableSlot {
 }
 
 model SaasOrg {
-  id                 String               @id @default(cuid())
+  id                 String                  @id @default(cuid())
   schoolName         String
   ownerName          String
   ownerEmail         String
-  ownerCountryCode   String               @default("+91")
+  ownerCountryCode   String                  @default("+91")
   ownerPhone         String
-  city               String               @default("")
+  city               String                  @default("")
   teacherCount       Int?
   studentCount       Int?
-  plan               String               @default("Monthly school")
-  monthlyPrice       Int                  @default(1000)
-  paymentStatus      String               @default("PENDING")
-  subscriptionStatus String               @default("LEAD")
-  source             String               @default("MANUAL")
-  pipelineStage      String               @default("NEW")
-  lifecycle          String               @default("LEAD")
-  interestedIn       String               @default("")
-  onboardingStatus   String               @default("NOT_STARTED")
+  plan               String                  @default("Monthly school")
+  monthlyPrice       Int                     @default(1000)
+  paymentStatus      String                  @default("PENDING")
+  subscriptionStatus String                  @default("LEAD")
+  source             String                  @default("MANUAL")
+  pipelineStage      String                  @default("NEW")
+  lifecycle          String                  @default("LEAD")
+  interestedIn       String                  @default("")
+  onboardingStatus   String                  @default("NOT_STARTED")
   customerSince      DateTime?
-  loginUrl           String               @default("")
-  apiUrl             String               @default("")
-  notes              String               @default("")
-  followUpStatus     String               @default("NEW")
-  assignedOwner      String               @default("")
+  loginUrl           String                  @default("")
+  apiUrl             String                  @default("")
+  notes              String                  @default("")
+  followUpStatus     String                  @default("NEW")
+  assignedOwner      String                  @default("")
   nextFollowUpOn     DateTime?
-  billingAddress     String               @default("")
-  billingState       String               @default("")
-  billingPincode     String               @default("")
-  gstin              String               @default("")
+  billingAddress     String                  @default("")
+  billingState       String                  @default("")
+  billingPincode     String                  @default("")
+  gstin              String                  @default("")
   subscriptionStart  DateTime?
   renewalOn          DateTime?
   razorpayCustomerId String?
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
   payments           SaasPayment[]
   invoices           SaasInvoice[]
   auditEvents        SaasAuditEvent[]

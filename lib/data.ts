@@ -8,6 +8,7 @@ import { compareExamNearness, eligibleMarksTeacherIds, examWorkStepOrder, teache
 import { parseWeekdays, weekCapacity } from "./schedule";
 import { schoolFromConfig } from "./school";
 import { ensureSchoolSessions } from "./school-session";
+import { ensureCurrentSessionStudentRollNumbers } from "./student-rolls";
 
 export async function getParentWithChildren(userId: string) {
   return prisma.parent.findUnique({
@@ -90,11 +91,13 @@ export async function getStudentBundle(studentId: string) {
 }
 
 export async function getClassRoster(classId: string) {
+  await ensureCurrentSessionStudentRollNumbers();
   return prisma.student.findMany({
     where: { classId },
     include: {
       parent: { include: { user: { select: { name: true, phone: true, email: true } } } },
       interests: true,
+      enrollments: { where: { active: true, session: { current: true } }, select: { rollNumber: true, classId: true } },
       attendance: { orderBy: { date: "desc" }, take: 400 },
       examResults: { include: { exam: { include: { subject: true, series: true } } } },
       feeInvoices: { include: { payments: true }, orderBy: { dueDate: "desc" } },
@@ -668,10 +671,12 @@ export async function getStudentPay(token: string) {
 }
 
 export async function getPeople() {
+  await ensureCurrentSessionStudentRollNumbers();
   const [students, teachers, parents, classes] = await Promise.all([
     prisma.student.findMany({
       include: {
         class: true,
+        enrollments: { where: { active: true, session: { current: true } }, select: { rollNumber: true, classId: true } },
         interests: true,
         parent: { include: { user: true } },
         user: true,

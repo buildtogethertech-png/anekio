@@ -390,6 +390,7 @@ describe("school onboarding imports", () => {
     const sheet = workbook.addWorksheet("8-Z");
     sheet.addRow(["Anekio student ID", "Admission number", "Student name", "Date of birth", "Parent name", "Parent mobile", "Parent email", "Example only"]);
     sheet.addRow(["", "", "Zoya Tab Student", "2014-02-10", "Zara Parent", "9876501234", "", ""]);
+    sheet.addRow(["", "", "Aman Tab Student", "2014-03-11", "Anita Parent", "9876501235", "", ""]);
     const uploadPath = "private/schools/test/onboarding/imports/students-tabs.xlsx";
     await saveUploadPath(
       uploadPath,
@@ -402,13 +403,22 @@ describe("school onboarding imports", () => {
       uploadPath,
       fileName: "students-tabs.xlsx",
     });
-    expect(preview).toMatchObject({ rowCount: 1, validCount: 1, errors: [] });
+    expect(preview).toMatchObject({ rowCount: 2, validCount: 2, errors: [] });
 
     await applyOnboardingImport(user, { batchId: preview.batchId });
     const klass = await prisma.class.findFirstOrThrow({ where: { name: "8", section: "Z" } });
     const student = await prisma.student.findFirstOrThrow({ where: { name: "Zoya Tab Student" } });
     expect(student.classId).toBe(klass.id);
     expect(student.admissionNo).toMatch(/^ANE-\d{5}$/);
+    const rolls = await prisma.studentClassEnrollment.findMany({
+      where: { classId: klass.id },
+      include: { student: true },
+      orderBy: { rollNumber: "asc" },
+    });
+    expect(rolls.map((row) => [row.student.name, row.rollNumber])).toEqual([
+      ["Zoya Tab Student", 1],
+      ["Aman Tab Student", 2],
+    ]);
   });
 
   it("allows a parent contact already used in another organisation", async () => {

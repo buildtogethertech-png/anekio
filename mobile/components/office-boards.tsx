@@ -2004,7 +2004,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                     <View className="min-w-0 flex-1">
                       <Text className="font-medium text-ink-900" numberOfLines={1}>{s.name}</Text>
                       <Text className="mt-0.5 text-xs text-ink-700">
-                        {s.classLabel} · {s.admissionNo}
+                        {s.classLabel}{s.rollNumber ? ` · Roll ${s.rollNumber}` : ""} · {s.admissionNo}
                       </Text>
                     </View>
                     {showFees ? <FeeText label={s.feeLabel} tone={s.feeTone} /> : null}

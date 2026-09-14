@@ -48,6 +48,7 @@ import {
 } from "./exam-events";
 import { eligibleTeacherIdsForExam, ensureExamEvaluator } from "./exam-evaluators";
 import { isQuestionPaperFile } from "./uploads";
+import { assignStudentRollNumber } from "./student-rolls";
 function need(user: AccessUser, ...keys: string[]) {
   if (!keys.some((k) => can(user, k))) throw new Error("No access.");
 }
@@ -1383,8 +1384,9 @@ export async function importPeopleSheetCore(user: AccessUser, input: { kind?: st
         parent = userRow.parent!;
         parentByEmail.set(parentEmail, parent);
       }
-      await prisma.student.create({
+      const student = await prisma.student.create({
         data: {
+          orgId: user.orgId ?? null,
           name,
           admissionNo,
           classId: klass.id,
@@ -1393,6 +1395,7 @@ export async function importPeopleSheetCore(user: AccessUser, input: { kind?: st
           interests: { create: parsePathTags(cell(row, "path")).map((tag) => ({ tag: tag as PathTag })) },
         },
       });
+      await assignStudentRollNumber(prisma, { studentId: student.id, classId: klass.id, orgId: user.orgId ?? null });
       taken.add(admissionNo.toLowerCase());
       created.push(name);
     }

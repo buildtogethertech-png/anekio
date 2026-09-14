@@ -38,6 +38,7 @@ import { PAY_GATEWAYS, type PayGateway } from "./pay-config";
 import { formatQualification, parseSubjectCatalog, parseWeekdays, weekCapacity } from "./schedule";
 import { validateSchoolWebsiteSlug } from "./host-routing";
 import { ensureVercelSchoolWebsiteDomain } from "./vercel-domains";
+import { assignStudentRollNumber } from "./student-rolls";
 import {
   createSchoolSession,
   deleteSchoolSession,
@@ -195,15 +196,19 @@ export async function createStudentCore(
   if (!name || !admissionNo || !input.classId || !input.parentId || !input.dateOfBirth) {
     throw new Error("Missing student fields");
   }
-  await prisma.student.create({
-    data: {
-      name,
-      admissionNo,
-      classId: input.classId,
-      parentId: input.parentId,
-      dateOfBirth: new Date(input.dateOfBirth),
-      interests: { create: tags.map((tag) => ({ tag })) },
-    },
+  await prisma.$transaction(async (tx) => {
+    const student = await tx.student.create({
+      data: {
+        orgId: user.orgId ?? null,
+        name,
+        admissionNo,
+        classId: input.classId,
+        parentId: input.parentId,
+        dateOfBirth: new Date(input.dateOfBirth),
+        interests: { create: tags.map((tag) => ({ tag })) },
+      },
+    });
+    await assignStudentRollNumber(tx, { studentId: student.id, classId: input.classId, orgId: user.orgId ?? null });
   });
 }
 
@@ -347,6 +352,7 @@ export async function admitLeadAsStudentCore(
 
     const student = await tx.student.create({
       data: {
+        orgId: user.orgId ?? null,
         name: studentName,
         admissionNo,
         classId,
@@ -354,6 +360,7 @@ export async function admitLeadAsStudentCore(
         dateOfBirth: born,
       },
     });
+    await assignStudentRollNumber(tx, { studentId: student.id, classId, orgId: user.orgId ?? null });
     if (admissionCharge > 0) {
       await tx.feeInvoice.create({
         data: {
@@ -459,36 +466,39 @@ export async function updateStudentCore(
     }
   }
   await assertPhoneFree(parentPhone, parent.userId);
-  await prisma.student.update({
-    where: { id },
-    data: {
-      name,
-      admissionNo,
-      classId,
-      parentId,
-      dateOfBirth: new Date(dob),
-    },
-  });
-  await prisma.studentInterest.deleteMany({ where: { studentId: id } });
-  if (tags.length) {
-    await prisma.studentInterest.createMany({ data: tags.map((tag) => ({ studentId: id, tag })) });
-  }
-  await prisma.parent.update({
-    where: { id: parentId },
-    data: {
-      phone: parentPhone,
-      address,
-      city,
-      state,
-      pincode,
-      user: {
-        update: {
-          ...(parentName ? { name: parentName } : {}),
-          ...(parentEmail ? { email: parentEmail } : {}),
-          phone: parentPhone,
+  await prisma.$transaction(async (tx) => {
+    await tx.student.update({
+      where: { id },
+      data: {
+        name,
+        admissionNo,
+        classId,
+        parentId,
+        dateOfBirth: new Date(dob),
+      },
+    });
+    await assignStudentRollNumber(tx, { studentId: id, classId, orgId: student.orgId ?? user.orgId ?? null });
+    await tx.studentInterest.deleteMany({ where: { studentId: id } });
+    if (tags.length) {
+      await tx.studentInterest.createMany({ data: tags.map((tag) => ({ studentId: id, tag })) });
+    }
+    await tx.parent.update({
+      where: { id: parentId },
+      data: {
+        phone: parentPhone,
+        address,
+        city,
+        state,
+        pincode,
+        user: {
+          update: {
+            ...(parentName ? { name: parentName } : {}),
+            ...(parentEmail ? { email: parentEmail } : {}),
+            phone: parentPhone,
+          },
         },
       },
-    },
+    });
   });
 }
 

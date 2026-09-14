@@ -419,6 +419,7 @@ export type RecordPayload = {
     name: string;
     classId?: string;
     classLabel: string;
+    rollNumber?: number | null;
     parent: string;
     parentPhone?: string;
     admissionNo: string;
