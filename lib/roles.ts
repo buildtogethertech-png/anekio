@@ -9,6 +9,7 @@ import {
   type AccessUser,
 } from "./permissions";
 import { ensureManagers } from "./reports";
+import { repairSingleOrgLegacyData } from "./legacy-org-repair";
 
 let accessReadyPromise: Promise<void> | null = null;
 
@@ -97,11 +98,18 @@ export async function roleIdBySlug(slug: string) {
 
 export async function loadAccess(userId: string): Promise<AccessUser | null> {
   await ensureAccessRoles();
-  const user = await prisma.user.findUnique({
+  let user = await prisma.user.findUnique({
     where: { id: userId },
     include: { role: { include: { grants: true } } },
   });
   if (!user?.role) return null;
+  if (!user.orgId && (await repairSingleOrgLegacyData())) {
+    user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { role: { include: { grants: true } } },
+    });
+    if (!user?.role) return null;
+  }
   return toAccess(user);
 }
 
