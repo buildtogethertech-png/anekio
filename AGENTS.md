@@ -14,6 +14,7 @@ India-first school product: office, teacher, parent, student. One Expo app (web,
 - Office phone tabs: `mobile/lib/nav-icons.ts`. Sidebar catalog: `lib/nav.ts`. Roles catalog: `lib/permissions.ts` — add a permission before a new screen.
 - Public pay/invoice HTML: `server/pay-html.ts` + `lib/pay-public.ts` (not `lib/data.ts`).
 - Schema: `prisma/schema.prisma` (`db push`, no migrations). Seed overwrites `Anekio-demo-logins.json` and `.csv`.
+- New Prisma models must include audit columns by default: `id`, `createdAt`, `updatedAt`, `createdById`, and `updatedById`, with `createdBy` / `updatedBy` relations to `User`. If a pure join table or legacy-compatible model cannot follow this, document the exception in the Jira ticket before editing the schema.
 
 ## Running and verifying
 
