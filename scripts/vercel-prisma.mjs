@@ -31,7 +31,11 @@ function postgresSchemaPath() {
 if (usesPostgres) {
   const schemaPath = postgresSchemaPath();
   run(prismaBin, ["generate", "--schema", schemaPath]);
-  if (process.env.ANEKIO_DB_PUSH_ON_BUILD === "1") run(prismaBin, ["db", "push", "--schema", schemaPath]);
+  if (process.env.ANEKIO_DB_PUSH_ON_BUILD === "1") {
+    const pushArgs = ["db", "push", "--schema", schemaPath];
+    if (process.env.ANEKIO_DB_PUSH_ACCEPT_DATA_LOSS === "1") pushArgs.push("--accept-data-loss");
+    run(prismaBin, pushArgs);
+  }
   if (process.env.ANEKIO_SEED_ON_BUILD === "1") run(tsxBin, ["prisma/seed.ts"]);
 } else {
   run(prismaBin, ["generate"]);
