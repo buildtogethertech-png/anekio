@@ -29,6 +29,7 @@ import { StaffHoursForm, type StaffHoursFormHandle } from "./staff-hours-form";
 import { StaffTimesheet } from "./staff-timesheet";
 import { OnboardingBoard } from "./onboarding-board";
 import { StaffAttendanceQrButton, StaffAttendanceQrScanButton } from "./staff-attendance-qr";
+import { studentMetaLine } from "../lib/student-label";
 
 function can(user: { permissions: string[] } | null, key: string) {
   return Boolean(user?.permissions.includes(key));
@@ -772,7 +773,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
     if (showFees && feeFilter === "clear" && (s.dueAmount || 0) > 0) return false;
     if (parentNeedle && ![s.parent, s.parentEmail, s.parentPhone].join(" ").toLowerCase().includes(parentNeedle)) return false;
     if (!needle) return true;
-    return [s.name, s.admissionNo, s.parent, s.classLabel, s.parentEmail, s.parentPhone].join(" ").toLowerCase().includes(needle);
+    return [s.name, s.rollNumber, s.admissionNo, s.parent, s.classLabel, s.parentEmail, s.parentPhone].join(" ").toLowerCase().includes(needle);
   });
   const sortedStudents = [...filtered].sort((a, b) => {
     if (studentSort === "class") {
@@ -1143,7 +1144,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                 <Text className="text-2xl font-semibold text-ink-900" numberOfLines={1}>{selected.name}</Text>
                 {showFees ? <FeeText label={selected.feeLabel} tone={selected.feeTone} /> : null}
               </View>
-              <Text className="mt-1 text-sm text-ink-800">{selected.classLabel} · {selected.admissionNo}</Text>
+              <Text className="mt-1 text-sm text-ink-800">{studentMetaLine(selected)}</Text>
               {selected.born ? <Text className="mt-0.5 text-xs text-ink-700">Born {selected.born}</Text> : null}
             </View>
           </View>
@@ -1354,6 +1355,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
         >
           <View className="flex-row flex-wrap gap-x-6">
             <DetailField label="Class" value={selected.classLabel} />
+            <DetailField label="Roll no." value={selected.rollNumber ? String(selected.rollNumber) : "—"} />
             <DetailField label="Admission no." value={selected.admissionNo} />
             <DetailField label="Class teacher" value={classTeacher?.name || "Not assigned"} />
             <View className="min-w-[44%] flex-1 py-2">
@@ -1623,6 +1625,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                       student: {
                         id: selected.id,
                         name: selected.name,
+                        rollNumber: selected.rollNumber,
                         admissionNo: selected.admissionNo,
                         parentName: selected.parent,
                         attendance: selected.attendance ?? [],
@@ -1910,7 +1913,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                         <Text className="text-base font-semibold text-ink-900" numberOfLines={1}>{child.name}</Text>
                         {showFees ? <FeeText label={child.feeLabel} tone={child.feeTone} /> : null}
                       </View>
-                      <Text className="mt-1 text-sm text-ink-800">{child.classLabel} · {child.admissionNo}</Text>
+                      <Text className="mt-1 text-sm text-ink-800">{studentMetaLine(child)}</Text>
                       {child.born ? <Text className="mt-0.5 text-xs text-ink-700">Born {child.born}</Text> : null}
                     </View>
                     {showFees ? <MoneyText amount={child.dueAmount || 0} /> : null}
@@ -2004,7 +2007,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                     <View className="min-w-0 flex-1">
                       <Text className="font-medium text-ink-900" numberOfLines={1}>{s.name}</Text>
                       <Text className="mt-0.5 text-xs text-ink-700">
-                        {s.classLabel}{s.rollNumber ? ` · Roll ${s.rollNumber}` : ""} · {s.admissionNo}
+                        {studentMetaLine(s)}
                       </Text>
                     </View>
                     {showFees ? <FeeText label={s.feeLabel} tone={s.feeTone} /> : null}
@@ -3566,7 +3569,7 @@ export function FeesBoard() {
     .filter((s) => (filter === "overdue" ? (s.overdueCount || 0) > 0 : true))
     .filter((s) => {
       if (!dueSearch) return true;
-      return [s.name, s.classLabel, s.admissionNo, s.parent, s.parentPhone].some((value) => String(value || "").toLowerCase().includes(dueSearch));
+      return [s.name, s.classLabel, s.rollNumber, s.admissionNo, s.parent, s.parentPhone].some((value) => String(value || "").toLowerCase().includes(dueSearch));
     })
     .sort((a, b) => {
       if (dueSort === "name") return a.name.localeCompare(b.name);
@@ -3747,7 +3750,7 @@ export function FeesBoard() {
               <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">Collection profile</Text>
               <Text className="mt-1 text-xl font-semibold text-ink-900">{selectedDueStudent.name}</Text>
               <Text className="mt-0.5 text-xs font-medium text-ink-700">
-                {selectedDueStudent.classLabel || "No class"} · {selectedDueStudent.admissionNo}
+                {studentMetaLine(selectedDueStudent) || "No class"}
               </Text>
             </View>
             <View className="items-end gap-2">
@@ -4188,7 +4191,7 @@ export function FeesBoard() {
                 >
                   <View className="flex-row items-start justify-between gap-3">
                     <View className="min-w-0 flex-1">
-                      <Text className="text-xs font-semibold text-ink-900" numberOfLines={1}>{s.name} · {s.classLabel}</Text>
+                      <Text className="text-xs font-semibold text-ink-900" numberOfLines={1}>{s.name} · {studentMetaLine(s)}</Text>
                       <Text className="mt-0.5 text-xs text-ink-700">{monthsOf(s)} pending · {s.overdueCount || 0} overdue</Text>
                     </View>
                     <Text className="text-xs font-semibold text-amber-800">{compactInr(s.dueAmount || 0)}</Text>
@@ -4604,7 +4607,7 @@ export function FeesBoard() {
                               {s.classLabel ? <Text className="text-xs font-medium text-ink-500">{s.classLabel}</Text> : null}
                             </View>
                             <Text className="mt-1 text-xs text-ink-600">
-                              {s.admissionNo} · {months} {months === 1 ? "month" : "months"} pending
+                              {studentMetaLine(s)} · {months} {months === 1 ? "month" : "months"} pending
                               {oldestOf(s) ? ` · oldest ${oldestOf(s)}` : ""}
                             </Text>
                           </View>

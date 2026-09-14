@@ -31,6 +31,7 @@ export type ReportCardData = {
   student: {
     id: string;
     name: string;
+    rollNumber?: number | null;
     admissionNo?: string;
     parentName?: string;
     attendance?: { status: string }[];
@@ -124,6 +125,7 @@ export function ReportCardSheet({
             {[
               ["Student", data.student.name],
               ["Class", data.classLabel],
+              ["Roll no.", data.student.rollNumber ? String(data.student.rollNumber) : "—"],
               ["Admission no.", data.student.admissionNo || "—"],
               ["Parent", data.student.parentName || "—"],
             ].map(([label, value]) => (

@@ -179,6 +179,10 @@ function staffDepartment(kind: "teacher" | "staff", portal?: string | null) {
   return "Support";
 }
 
+function currentRoll(row: { classId: string; enrollments?: { classId: string; rollNumber: number }[] }) {
+  return row.enrollments?.find((enrollment) => enrollment.classId === row.classId)?.rollNumber || null;
+}
+
 async function staffAttendanceSelf(user: AccessUser) {
   const teacher = await prisma.teacher.findUnique({
     where: { userId: user.id },
@@ -295,6 +299,7 @@ function serializeChild(
     id: child.id,
     name: child.name,
     classLabel: `${child.class.name}-${child.class.section}`,
+    rollNumber: currentRoll(child),
     admissionNo: child.admissionNo,
     born: inDate(child.dateOfBirth),
     email: child.user?.email || "",
@@ -513,7 +518,7 @@ async function parentStudentPayload(user: AccessUser, requestedChildId?: string 
         : null;
     return {
       kind: "STUDENT" as const,
-      children: child ? [{ id: child.id, name: child.name, classLabel: `${child.class.name}-${child.class.section}` }] : [],
+      children: child ? [{ id: child.id, name: child.name, classLabel: `${child.class.name}-${child.class.section}`, rollNumber: currentRoll(child), admissionNo: child.admissionNo }] : [],
       child: child ? serializeChild(child, { timetable, upcoming }) : null,
       upcoming,
       timetable,
@@ -573,6 +578,7 @@ async function parentStudentPayload(user: AccessUser, requestedChildId?: string 
       id: s.id,
       name: s.name,
       classLabel: `${s.class.name}-${s.class.section}`,
+      rollNumber: currentRoll(s),
       admissionNo: s.admissionNo,
       born: inDate(s.dateOfBirth),
       email: s.user?.email || "",
@@ -658,7 +664,7 @@ async function teacherPayload(user: AccessUser) {
         name: s.name,
         classId: s.classId,
         classLabel: desk?.classLabel || "",
-        rollNumber: s.enrollments.find((row) => row.classId === s.classId)?.rollNumber || null,
+        rollNumber: currentRoll(s),
         parent: s.parent.user.name,
         parentPhone: s.parent.phone || s.parent.user.phone || "",
         admissionNo: s.admissionNo,
@@ -702,6 +708,7 @@ async function teacherPayload(user: AccessUser) {
         id: s.id,
         name: s.name,
         admissionNo: s.admissionNo,
+        rollNumber: currentRoll(s),
         today: todayRow ? todayRow.status.toLowerCase() : "not marked",
         dateOfBirth: ymd(s.dateOfBirth),
         parentName: s.parent.user.name,
@@ -1098,7 +1105,7 @@ async function officePayload(user: AccessUser) {
         name: s.name,
         classId: s.classId,
         classLabel: `${s.class.name}-${s.class.section}`,
-        rollNumber: s.enrollments.find((row) => row.classId === s.classId)?.rollNumber || null,
+        rollNumber: currentRoll(s),
         parent: s.parent.user.name,
         parentPhone: s.parent.phone || "",
         admissionNo: s.admissionNo,
@@ -1163,6 +1170,8 @@ async function officePayload(user: AccessUser) {
         name: s.name,
         classId: s.classId,
         classLabel: `${s.class.name}-${s.class.section}`,
+        rollNumber: currentRoll(s),
+        admissionNo: s.admissionNo,
       })),
       childCount: p.students.length,
     })),
@@ -1369,7 +1378,7 @@ async function officePayload(user: AccessUser) {
       classId: e.classId,
       label: `${e.subject.name} · ${e.class.name}-${e.class.section}`,
     })),
-    examStudents: people.students.map((s) => ({ id: s.id, name: s.name, admissionNo: s.admissionNo, classId: s.classId })),
+    examStudents: people.students.map((s) => ({ id: s.id, name: s.name, admissionNo: s.admissionNo, rollNumber: currentRoll(s), classId: s.classId })),
     examPapers: people.classes.flatMap((c) =>
       (c.subjects || []).map((sub) => ({ id: sub.id, name: sub.name, classId: c.id }))
     ),

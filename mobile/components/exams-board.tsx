@@ -233,6 +233,7 @@ export function ExamsBoard() {
           return {
             id: s.id,
             name: s.name,
+            rollNumber: s.rollNumber ?? null,
             admissionNo: s.admissionNo || "",
             marks: row && !row.absent ? row.marks : null,
             absent: Boolean(row?.absent),

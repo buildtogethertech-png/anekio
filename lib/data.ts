@@ -11,6 +11,7 @@ import { ensureSchoolSessions } from "./school-session";
 import { ensureCurrentSessionStudentRollNumbers } from "./student-rolls";
 
 export async function getParentWithChildren(userId: string) {
+  await ensureCurrentSessionStudentRollNumbers();
   return prisma.parent.findUnique({
     where: { userId },
     include: {
@@ -18,6 +19,7 @@ export async function getParentWithChildren(userId: string) {
       students: {
         include: {
           class: true,
+          enrollments: { where: { active: true, session: { current: true } }, select: { rollNumber: true, classId: true } },
           feeInvoices: { include: { payments: true } },
           interests: true,
           user: true,
@@ -40,10 +42,12 @@ export async function getTeacherProfile(userId: string) {
 }
 
 export async function getStudentForUser(userId: string) {
+  await ensureCurrentSessionStudentRollNumbers();
   return prisma.student.findUnique({
     where: { userId },
     include: {
       class: true,
+      enrollments: { where: { active: true, session: { current: true } }, select: { rollNumber: true, classId: true } },
       interests: true,
       parent: { include: { user: true } },
     },
@@ -51,6 +55,7 @@ export async function getStudentForUser(userId: string) {
 }
 
 export async function getStudentBundle(studentId: string) {
+  await ensureCurrentSessionStudentRollNumbers();
   return prisma.student.findUnique({
     where: { id: studentId },
     include: {
@@ -63,6 +68,7 @@ export async function getStudentBundle(studentId: string) {
         },
       },
       interests: true,
+      enrollments: { where: { active: true, session: { current: true } }, select: { rollNumber: true, classId: true } },
       parent: { include: { user: true } },
       user: true,
       attendance: { orderBy: { date: "desc" }, take: 40 },
@@ -348,7 +354,13 @@ export async function getTeacherDesk(userId: string) {
   const classStudents = classIds.length
     ? await prisma.student.findMany({
         where: { classId: { in: classIds } },
-        select: { id: true, name: true, admissionNo: true, classId: true },
+        select: {
+          id: true,
+          name: true,
+          admissionNo: true,
+          classId: true,
+          enrollments: { where: { active: true, session: { current: true } }, select: { rollNumber: true, classId: true } },
+        },
         orderBy: { name: "asc" },
       })
     : [];
@@ -488,6 +500,7 @@ export async function getTeacherDesk(userId: string) {
             id: s.id,
             name: s.name,
             admissionNo: s.admissionNo,
+            rollNumber: s.enrollments.find((row) => row.classId === s.classId)?.rollNumber || null,
             marks: saved && !saved.absent ? saved.marks : null,
             absent: Boolean(saved?.absent),
             correctionNote: saved?.correctionNote || "",

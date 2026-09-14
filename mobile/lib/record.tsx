@@ -156,6 +156,7 @@ export type RecordPayload = {
     id: string;
     name: string;
     classLabel: string;
+    rollNumber?: number | null;
     admissionNo?: string;
     born?: string;
     email?: string;
@@ -176,6 +177,7 @@ export type RecordPayload = {
     id: string;
     name: string;
     classLabel: string;
+    rollNumber?: number | null;
     admissionNo: string;
     born?: string;
     email?: string;
@@ -337,7 +339,7 @@ export type RecordPayload = {
     correctionNote?: string;
     entered?: number;
     canEnterMarks?: boolean;
-    students: { id: string; name: string; admissionNo: string; marks: number | null; absent: boolean; correctionNote?: string; correctionRequested?: boolean }[];
+    students: { id: string; name: string; admissionNo: string; rollNumber?: number | null; marks: number | null; absent: boolean; correctionNote?: string; correctionRequested?: boolean }[];
   }[];
   callHome?: { id: string; name: string; days: number; parentName: string; phone: string; wa: string }[];
   weekPapers?: { id: string; title: string; subject: string; date: string; classLabel: string }[];
@@ -348,6 +350,7 @@ export type RecordPayload = {
     id: string;
     name: string;
     admissionNo?: string;
+    rollNumber?: number | null;
     today: string;
     dateOfBirth?: string;
     parentName?: string;
@@ -493,7 +496,7 @@ export type RecordPayload = {
     name: string;
     email: string;
     phone: string;
-    children: { id: string; name: string; classId?: string; classLabel: string }[] | string;
+    children: { id: string; name: string; classId?: string; classLabel: string; rollNumber?: number | null; admissionNo?: string }[] | string;
     address?: string;
     street?: string;
     city?: string;
@@ -745,7 +748,7 @@ export type RecordPayload = {
     }[];
   };
   examList?: { id: string; title: string; classId?: string; label?: string }[];
-  examStudents?: { id: string; name: string; admissionNo?: string; classId: string }[];
+  examStudents?: { id: string; name: string; admissionNo?: string; rollNumber?: number | null; classId: string }[];
   documentStudio?: {
     categories: { id: string; label: string; hint: string }[];
     types: { id: string; label: string; category: string; hint: string; priority?: boolean }[];

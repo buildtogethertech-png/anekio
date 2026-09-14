@@ -98,11 +98,11 @@ export function marksReviewCsv(input: {
   seriesName: string;
   classLabel: string;
   exams: { id: string; subject: { name: string }; maxMarks: number }[];
-  students: { admissionNo?: string; name: string; id: string }[];
+  students: { rollNumber?: number | null; admissionNo?: string; name: string; id: string }[];
   marks: { examId: string; studentId: string; marks: number; absent?: boolean }[];
 }) {
   const headers = [
-    "Admission Number",
+    "Roll / Admission",
     "Student Name",
     ...input.exams.flatMap((exam) => [`${exam.subject.name} (/${exam.maxMarks})`, `${exam.subject.name} max`]),
     "Total",
@@ -120,7 +120,7 @@ export function marksReviewCsv(input: {
     });
     lines.push(
       [
-        csvEscape(student.admissionNo || ""),
+        csvEscape([student.rollNumber ? `Roll ${student.rollNumber}` : "", student.admissionNo || ""].filter(Boolean).join(" · ")),
         csvEscape(student.name),
         ...cells,
         csvEscape(score.total),
@@ -131,4 +131,3 @@ export function marksReviewCsv(input: {
   }
   return lines.join("\n");
 }
-

@@ -6,6 +6,7 @@ import { featureSearchHits } from "../lib/feature-search";
 import { iconForNav, type IoniconName } from "../lib/nav-icons";
 import { useRecord } from "../lib/record";
 import { useSession } from "../lib/session";
+import { studentMetaLine } from "../lib/student-label";
 
 type SearchHit = {
   id: string;
@@ -30,9 +31,9 @@ export function AppSearch() {
     if (q.length < 2) return [] as SearchHit[];
     const features = featureSearchHits(nav, q, 6);
     const people = (data?.people || [])
-      .filter((p) => p.name.toLowerCase().includes(q) || (p.admissionNo || "").toLowerCase().includes(q))
+      .filter((p) => [p.name, p.classLabel, p.rollNumber, p.admissionNo].some((value) => String(value || "").toLowerCase().includes(q)))
       .slice(0, 5)
-      .map((p) => ({ id: `p:${p.id}`, label: p.name, hint: p.classLabel, href: "/people" }));
+      .map((p) => ({ id: `p:${p.id}`, label: p.name, hint: studentMetaLine(p), href: "/people" }));
     const exams = (data?.examPack?.series || [])
       .flatMap((s) => s.exams.map((e) => ({ series: s.name, exam: e })))
       .filter(({ exam, series }) => exam.subject.name.toLowerCase().includes(q) || series.toLowerCase().includes(q))

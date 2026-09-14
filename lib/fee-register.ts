@@ -43,6 +43,7 @@ export type FeeRegisterSourceInvoice = {
   id: string;
   studentId: string;
   admissionNo: string;
+  rollNumber?: number | null;
   studentName: string;
   classId: string;
   className: string;
@@ -79,6 +80,7 @@ export type FeeRegisterRow = {
   id: string;
   studentId: string;
   admissionNo: string;
+  rollNumber?: number | null;
   studentName: string;
   classId: string;
   className: string;
@@ -312,6 +314,7 @@ export function buildFeeRegister(
       id: invoice.id,
       studentId: invoice.studentId,
       admissionNo: invoice.admissionNo,
+      rollNumber: invoice.rollNumber,
       studentName: invoice.studentName,
       classId: invoice.classId,
       className: invoice.className,
@@ -417,7 +420,16 @@ export async function queryFeeRegister(user: AccessUser, raw: Record<string, unk
   const invoices = await prisma.feeInvoice.findMany({
     where: classWhere,
     include: {
-      student: { select: { id: true, name: true, admissionNo: true, classId: true, class: { select: { name: true, section: true } } } },
+      student: {
+        select: {
+          id: true,
+          name: true,
+          admissionNo: true,
+          classId: true,
+          enrollments: { where: { active: true, session: { current: true } }, select: { rollNumber: true, classId: true } },
+          class: { select: { name: true, section: true } },
+        },
+      },
       template: { select: { id: true, name: true } },
       payments: { select: { amount: true, method: true, paidAt: true }, orderBy: { paidAt: "desc" } },
     },
@@ -451,6 +463,7 @@ export async function queryFeeRegister(user: AccessUser, raw: Record<string, unk
     id: row.id,
     studentId: row.student.id,
     admissionNo: row.student.admissionNo,
+    rollNumber: row.student.enrollments.find((enrollment) => enrollment.classId === row.student.classId)?.rollNumber || null,
     studentName: row.student.name,
     classId: row.student.classId,
     className: row.student.class.name,

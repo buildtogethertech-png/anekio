@@ -53,7 +53,7 @@ export async function marksheetHtmlForUser(
 
   const student = await prisma.student.findUnique({
     where: { id: studentId },
-    include: { class: true, parent: { include: { user: true } }, attendance: { take: 40 } },
+    include: { class: true, parent: { include: { user: true } }, attendance: { take: 40 }, enrollments: { where: { active: true, session: { current: true } }, select: { classId: true, rollNumber: true } } },
   });
   if (!student) throw new Error("Student not found");
 
@@ -131,6 +131,7 @@ export async function marksheetHtmlForUser(
     policy
   );
   const title = examId ? exams[0]?.title || series.name : series.name;
+  const rollNumber = student.enrollments.find((row) => row.classId === student.classId)?.rollNumber || null;
   const place = [school.address, [school.city, school.state, school.pincode].filter(Boolean).join(" ")].filter(Boolean);
   const att = attendancePct(student.attendance.map((row) => ({ status: row.status })));
   const [logo, sign, stamp] = await Promise.all([
@@ -257,6 +258,7 @@ export async function marksheetHtmlForUser(
       <div class="photo-ph">Photo</div>
       <div class="meta">
         <div><b>Student name</b><span>${esc(student.name)}</span><div class="status">${esc(resultLine)}</div></div>
+        <div><b>Roll no</b><span>${esc(rollNumber || "—")}</span></div>
         <div><b>Admission no</b><span>${esc(student.admissionNo)}</span></div>
         <div><b>Class</b><span>${esc(`${student.class.name}-${student.class.section}`)}</span></div>
         <div><b>Parent</b><span>${esc(student.parent?.user.name || "—")}</span></div>

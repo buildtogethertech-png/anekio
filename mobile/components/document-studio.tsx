@@ -8,6 +8,7 @@ import { useAssetUrl } from "../lib/assets";
 import { act } from "../lib/mutate";
 import { useRecord, type DocumentElement, type DocumentElementType, type DocumentLayout, type DocumentTemplateSummary, type RecordPayload } from "../lib/record";
 import { useSession } from "../lib/session";
+import { studentMetaLine } from "../lib/student-label";
 
 type Studio = NonNullable<RecordPayload["documentStudio"]>;
 
@@ -572,7 +573,7 @@ function TemplateEditor({ template, studio, data, onClose, onSaved }: { template
   const selected = draft.layout.elements.find((row) => row.id === selectedId);
   const previewPeople = draft.category === "EMPLOYEE"
     ? (data.staff || []).map((row) => ({ id: `employee:${row.id}`, label: `${row.name} · ${row.role || row.employeeId}` }))
-    : (data.people || []).map((row) => ({ id: `student:${row.id}`, label: `${row.name} · ${row.classLabel}` }));
+    : (data.people || []).map((row) => ({ id: `student:${row.id}`, label: `${row.name} · ${studentMetaLine(row)}` }));
   const sampleStudent = { name: "Aarav Sharma", admissionNo: "ADM-1024", classLabel: "10-A", rollNo: "18", born: "14 Aug 2015", dateOfBirth: "2015-08-14", parent: "Meera Sharma", parentPhone: "9800000042" };
   const sampleEmployee = { name: "Kavita Joshi", employeeId: "EMP-014", role: "Teacher", department: "Academics", joiningDate: "1 Apr 2022" };
   const previewSelection = (() => {
@@ -912,7 +913,7 @@ function IssueModal({ template, data, onClose, onDone }: { template: DocumentTem
   const employeeType = template.category === "EMPLOYEE";
   const options = employeeType
     ? (data.staff || []).map((row) => ({ id: `${row.kind}:${row.id}`, label: `${row.name} · ${row.employeeId || row.role}` }))
-    : (data.people || []).map((row) => ({ id: `student:${row.id}`, label: `${row.name} · ${row.classLabel}` }));
+    : (data.people || []).map((row) => ({ id: `student:${row.id}`, label: `${row.name} · ${studentMetaLine(row)}` }));
   async function issue() {
     const picked = options.find((row) => row.id === target);
     const label = picked?.label.split(" · ")[0] || customLabel.trim();

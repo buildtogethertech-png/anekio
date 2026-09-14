@@ -25,6 +25,7 @@ import { LeaveApplyCard, LeaveDecideList } from "./leave-apply";
 import { ManagerPicker } from "./manager-picker";
 import { TeacherMonthlyRegister } from "./teacher-monthly-register";
 import { StaffAttendanceQrButton } from "./staff-attendance-qr";
+import { studentMetaLine } from "../lib/student-label";
 
 function can(user: { permissions: string[] } | null, key: string) {
   return Boolean(user?.permissions.includes(key));
@@ -83,7 +84,7 @@ function ChildSwitch({ fullWidth = false }: { fullWidth?: boolean } = {}) {
         className="h-[42px] flex-row items-center rounded-lg border border-ink-200 bg-white px-3"
       >
         <Text className="min-w-0 flex-1 text-[13px] font-medium text-ink-900" numberOfLines={1}>
-          {child ? `${child.name} · Class ${child.classLabel}` : "Select child"}
+          {child ? `${child.name} · ${studentMetaLine(child)}` : "Select child"}
         </Text>
         {many ? <Ionicons name={open ? "chevron-up" : "chevron-down"} size={14} color="#64748B" /> : null}
       </Pressable>
@@ -98,7 +99,11 @@ function ChildSwitch({ fullWidth = false }: { fullWidth?: boolean } = {}) {
             <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 220 }}>
               {kids.map((c) => {
                 const on = activeId === c.id;
-                const adm = on && child?.id === c.id ? child.admissionNo : "";
+                const meta = studentMetaLine({
+                  classLabel: c.classLabel,
+                  rollNumber: c.rollNumber ?? (on && child?.id === c.id ? child.rollNumber : null),
+                  admissionNo: c.admissionNo || (on && child?.id === c.id ? child.admissionNo : ""),
+                });
                 return (
                   <Pressable
                     key={c.id}
@@ -113,8 +118,7 @@ function ChildSwitch({ fullWidth = false }: { fullWidth?: boolean } = {}) {
                       {c.name}
                     </Text>
                     <Text className="mt-0.5 text-[12px] text-ink-500">
-                      Class {c.classLabel}
-                      {adm ? ` · ${adm}` : ""}
+                      {meta}
                     </Text>
                   </Pressable>
                 );
@@ -2074,7 +2078,7 @@ export function FamilyHomeBoard() {
               </Text>
               {child ? (
                 <Text className="mt-0.5 text-[12px] font-medium text-ink-700" numberOfLines={1}>
-                  Class {child.classLabel} · {child.admissionNo}
+                  {studentMetaLine(child)}
                 </Text>
               ) : (
                 <Text className="mt-0.5 text-[12px] font-medium text-ink-700">No child linked yet.</Text>
@@ -2867,7 +2871,7 @@ export function FamilyTests() {
               <Card className="overflow-hidden">
                 <View className="px-4 py-4">
                   <Text className="text-[11px] font-medium uppercase tracking-wide text-ink-700">{open.seriesName}</Text>
-                  <Text className="mt-1 text-sm text-ink-800">{child.name}{child.admissionNo ? ` · ${child.admissionNo}` : ""}</Text>
+                  <Text className="mt-1 text-sm text-ink-800">{child.name} · {studentMetaLine(child)}</Text>
                   <Text className="mt-3 text-3xl font-semibold tracking-tight text-ink-900">
                     {total} / {max}
                   </Text>
@@ -3064,6 +3068,7 @@ export function FamilyProfile() {
     ? [
         { label: "Name", value: child?.name || user?.name || "—" },
         { label: "Class", value: child?.classLabel || "—" },
+        { label: "Roll no.", value: child?.rollNumber ? String(child.rollNumber) : "—" },
         { label: "Admission no.", value: child?.admissionNo || "—" },
         { label: "Date of birth", value: child?.born || "—" },
         { label: "Login", value: child?.email || user?.email || "—" },
@@ -3178,6 +3183,7 @@ export function FamilyProfile() {
                 rows={[
                   { label: "Name", value: kid.name },
                   { label: "Class", value: kid.classLabel },
+                  { label: "Roll no.", value: kid.rollNumber ? String(kid.rollNumber) : kid.id === child?.id && child.rollNumber ? String(child.rollNumber) : "—" },
                   { label: "Admission no.", value: kid.admissionNo || (kid.id === child?.id ? child.admissionNo : "") || "—" },
                   { label: "Date of birth", value: kid.born || (kid.id === child?.id ? child.born || "" : "") || "—" },
                   { label: "Student login", value: kid.email || (kid.id === child?.id ? child.email || "" : "") || "—" },

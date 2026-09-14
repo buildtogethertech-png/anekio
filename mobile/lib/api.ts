@@ -51,6 +51,8 @@ export type ChildCard = {
   id: string;
   name: string;
   classLabel: string;
+  rollNumber?: number | null;
+  admissionNo?: string;
   attendancePct: number;
   avgPct: number;
   interests: string[];
@@ -63,7 +65,7 @@ export type HomePayload =
       kicker: string;
       title: string;
       lede: string;
-      children: { id: string; name: string; classLabel: string }[];
+      children: { id: string; name: string; classLabel: string; rollNumber?: number | null; admissionNo?: string }[];
       child: ChildCard | null;
     }
   | {

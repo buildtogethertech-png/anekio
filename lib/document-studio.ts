@@ -1605,6 +1605,7 @@ async function hydrateIssuedDocumentData(
       ...studentIn,
       className: studentIn.className || parts.className,
       sectionName: studentIn.sectionName || parts.sectionName,
+      rollNo: studentIn.rollNo || studentIn.rollNumber || "",
       id: studentIn.id || subjectId,
     },
     staff: {
@@ -1624,6 +1625,7 @@ async function hydrateIssuedDocumentData(
       include: {
         class: { include: { students: { select: { id: true, name: true } }, teachers: { include: { user: true } } } },
         attendance: { select: { status: true } },
+        enrollments: { where: { active: true, session: { current: true } }, select: { classId: true, rollNumber: true } },
       },
     });
     if (dbStudent) {
@@ -1648,6 +1650,7 @@ async function hydrateIssuedDocumentData(
           id: dbStudent.id,
           name: dbStudent.name,
           admissionNo: dbStudent.admissionNo,
+          rollNo: activeRollNumber(dbStudent) || "",
           classLabel,
           className: classParts.className,
           sectionName: classParts.sectionName,
@@ -2012,7 +2015,7 @@ export async function renderActiveFeeInvoiceTemplateHtml(token: string) {
   const invoice = await prisma.feeInvoice.findUnique({
     where: { shareToken: token },
     include: {
-      student: { include: { class: true, parent: { include: { user: true } } } },
+      student: { include: { class: true, parent: { include: { user: true } }, enrollments: { where: { active: true, session: { current: true } }, select: { classId: true, rollNumber: true } } } },
       payments: true,
     },
   });
@@ -2035,6 +2038,7 @@ export async function renderActiveFeeInvoiceTemplateHtml(token: string) {
       id: invoice.student.id,
       name: invoice.student.name,
       admissionNo: invoice.student.admissionNo,
+      rollNo: activeRollNumber(invoice.student) || "",
       classLabel: `${invoice.student.class.name}-${invoice.student.class.section}`,
       parent: invoice.student.parent.user.name,
       parentPhone: invoice.student.parent.phone || invoice.student.parent.user.phone || "",
@@ -2120,11 +2124,15 @@ function paymentReceivedAt(value: Date | string | null | undefined) {
   return `${date.toISOString().slice(0, 10)} ${date.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false })}`;
 }
 
+function activeRollNumber(row: { classId: string; enrollments?: { classId: string; rollNumber: number }[] }) {
+  return row.enrollments?.find((enrollment) => enrollment.classId === row.classId)?.rollNumber || null;
+}
+
 export async function renderActivePaymentReceiptTemplateHtml(token: string) {
   const invoice = await prisma.feeInvoice.findUnique({
     where: { shareToken: token },
     include: {
-      student: { include: { class: true, parent: { include: { user: true } } } },
+      student: { include: { class: true, parent: { include: { user: true } }, enrollments: { where: { active: true, session: { current: true } }, select: { classId: true, rollNumber: true } } } },
       payments: true,
     },
   });
@@ -2172,6 +2180,7 @@ export async function renderActivePaymentReceiptTemplateHtml(token: string) {
       id: invoice.student.id,
       name: invoice.student.name,
       admissionNo: invoice.student.admissionNo,
+      rollNo: activeRollNumber(invoice.student) || "",
       classLabel: `${invoice.student.class.name}-${invoice.student.class.section}`,
       parent: invoice.student.parent.user.name,
       parentPhone: invoice.student.parent.phone || invoice.student.parent.user.phone || "",

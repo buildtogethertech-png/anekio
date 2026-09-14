@@ -7,6 +7,7 @@ import type { RecordPayload } from "../lib/record";
 import { teacherCanEditMarks, workflowLabel } from "../lib/exam-workflow";
 import { openMarksheetPdf } from "../lib/print-html";
 import { Button, Input, Modal } from "./ui";
+import { studentMetaLine } from "../lib/student-label";
 
 type Todo = NonNullable<RecordPayload["todos"]>[number];
 type Sheet = NonNullable<RecordPayload["markSheets"]>[number];
@@ -260,7 +261,7 @@ export function TeacherMarksModal({
     : !needle
       ? sheet.students
       : sheet.students.filter((s) =>
-          [s.name, s.admissionNo].join(" ").toLowerCase().includes(needle)
+          [s.name, s.rollNumber, s.admissionNo].join(" ").toLowerCase().includes(needle)
         );
 
   async function saveTyped(submit = false) {
@@ -512,7 +513,7 @@ export function TeacherMarksModal({
                       <Text className="text-sm font-medium text-ink-900" numberOfLines={1}>
                         {s.name}
                       </Text>
-                      {s.admissionNo ? <Text className="text-[11px] text-ink-700">{s.admissionNo}</Text> : null}
+                      {studentMetaLine(s) ? <Text className="text-[11px] text-ink-700">{studentMetaLine(s)}</Text> : null}
                       {s.correctionRequested && s.correctionNote ? (
                         <Text className="mt-1 text-[11px] text-amber-800">{s.correctionNote}</Text>
                       ) : null}

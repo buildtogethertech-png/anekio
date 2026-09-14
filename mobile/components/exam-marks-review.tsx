@@ -4,6 +4,7 @@ import { act } from "../lib/mutate";
 import { marksReviewCsv, sheetCellState, sheetRowScore, subjectCompletion } from "../lib/exam-marks";
 import { workflowLabel } from "../lib/exam-workflow";
 import { Badge, Button, Chip, ChipScroller, Input, Modal } from "./ui";
+import { studentMetaLine } from "../lib/student-label";
 
 type Exam = {
   id: string;
@@ -23,7 +24,7 @@ type Mark = {
   correctionRequested?: boolean;
 };
 
-type Student = { id: string; name: string; admissionNo?: string; classId: string };
+type Student = { id: string; name: string; admissionNo?: string; rollNumber?: number | null; classId: string };
 
 type HistoryRow = { id: string; action: string; marks: number; absent: boolean; note: string; at: string; actorName: string };
 
@@ -106,12 +107,12 @@ export function ExamMarksReview({
   const rows = [...students]
     .filter((student) => {
       if (!needle) return true;
-      return `${student.name} ${student.admissionNo || ""}`.toLowerCase().includes(needle);
+      return [student.name, student.rollNumber, student.admissionNo].join(" ").toLowerCase().includes(needle);
     })
     .sort((a, b) =>
       sort === "name"
         ? a.name.localeCompare(b.name) || String(a.admissionNo).localeCompare(String(b.admissionNo))
-        : String(a.admissionNo).localeCompare(String(b.admissionNo)) || a.name.localeCompare(b.name)
+        : (a.rollNumber || 0) - (b.rollNumber || 0) || String(a.admissionNo).localeCompare(String(b.admissionNo)) || a.name.localeCompare(b.name)
     );
   const completions = exams.map((exam) => ({ exam, ...subjectCompletion(exam, students.length, marks) }));
   const completeCells = completions.reduce((sum, row) => sum + row.entered, 0);
@@ -283,7 +284,7 @@ export function ExamMarksReview({
                   <View key={student.id} className="flex-row border-b border-ink-50">
                     <View className="w-[108px] justify-center border-r border-ink-100 bg-white px-3 py-2" style={sticky ? { ...sticky, left: 0 } : undefined}>
                       <Text className="text-xs text-ink-800" numberOfLines={1}>
-                        {student.admissionNo || "—"}
+                        {studentMetaLine(student) || "—"}
                       </Text>
                     </View>
                     <View className="w-[156px] justify-center border-r border-ink-100 bg-white px-3 py-2" style={sticky ? { ...sticky, left: 108 } : undefined}>
@@ -353,7 +354,7 @@ export function ExamMarksReview({
           <View className="gap-3">
             <View className="gap-1">
               <Text className="text-sm font-medium text-ink-900">{pickedStudent.name}</Text>
-              <Text className="text-xs text-ink-700">Admission {pickedStudent.admissionNo || "—"}</Text>
+              <Text className="text-xs text-ink-700">{studentMetaLine(pickedStudent) || "—"}</Text>
             </View>
             <Text className="text-sm text-ink-700">
               {seriesName} · {classLabel}

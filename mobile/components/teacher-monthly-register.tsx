@@ -5,11 +5,13 @@ import { Toast, useToast } from "./ui";
 import { act } from "../lib/mutate";
 import { closedReason, holidayOn, weekdayOfYmd, ymd, type SchoolCalendar } from "../lib/calendar";
 import type { IoniconName } from "../lib/nav-icons";
+import { studentMetaLine } from "../lib/student-label";
 
 type RosterStudent = {
   id: string;
   name: string;
   admissionNo?: string;
+  rollNumber?: number | null;
   days?: { date: string; status: string }[];
 };
 
@@ -222,7 +224,7 @@ export function TeacherMonthlyRegister({
 }: {
   classLabel: string;
   roster: RosterStudent[];
-  people?: { id: string; admissionNo?: string }[];
+  people?: { id: string; admissionNo?: string; rollNumber?: number | null }[];
   calendar: SchoolCalendar;
   token: string | null;
   onBack: () => void;
@@ -244,6 +246,10 @@ export function TeacherMonthlyRegister({
     () => Object.fromEntries((people ?? []).map((p) => [p.id, p.admissionNo || ""])),
     [people]
   );
+  const rollNumbers = useMemo(
+    () => Object.fromEntries((people ?? []).map((p) => [p.id, p.rollNumber ?? null])),
+    [people]
+  );
 
   const dates = useMemo(() => daysInMonth(month), [month]);
   const meta = useMemo(
@@ -262,6 +268,8 @@ export function TeacherMonthlyRegister({
   const built = useMemo(() => {
     return roster.map((student) => {
       const adm = student.admissionNo || admission[student.id] || "—";
+      const rollNumber = student.rollNumber ?? rollNumbers[student.id] ?? null;
+      const metaLine = studentMetaLine({ rollNumber, admissionNo: adm === "—" ? "" : adm }) || "—";
       const byDate = new Map((student.days ?? []).map((d) => [d.date, parseMark(d.status)]));
       const marks = meta.map((day) => {
         const key = `${student.id}:${day.date}`;
@@ -274,9 +282,9 @@ export function TeacherMonthlyRegister({
       const leave = counted.filter((m) => m.mark === "LEAVE").length;
       const denom = present + absent;
       const pct = denom ? Math.round((present / denom) * 100) : 0;
-      return { student, adm, marks, present, absent, leave, pct };
+      return { student, adm, rollNumber, metaLine, marks, present, absent, leave, pct };
     });
-  }, [admission, draft, meta, roster]);
+  }, [admission, draft, meta, rollNumbers, roster]);
 
   const focusDate = useMemo(() => {
     if (meta.some((d) => d.today)) return today;
@@ -286,7 +294,7 @@ export function TeacherMonthlyRegister({
   const rows = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return built.filter((row) => {
-      if (needle && !row.student.name.toLowerCase().includes(needle) && !row.adm.toLowerCase().includes(needle)) {
+      if (needle && !row.student.name.toLowerCase().includes(needle) && !row.metaLine.toLowerCase().includes(needle)) {
         return false;
       }
       const focus = row.marks.find((m) => m.day.date === focusDate)?.mark || "";
@@ -365,11 +373,11 @@ export function TeacherMonthlyRegister({
   }
 
   function exportCsv() {
-    const head = ["Admission No.", "Student Name", ...meta.map((d) => `${String(d.n).padStart(2, "0")} ${d.wd}`), "Attendance %"];
+    const head = ["Roll / Admission", "Student Name", ...meta.map((d) => `${String(d.n).padStart(2, "0")} ${d.wd}`), "Attendance %"];
     const lines = [head.join(",")];
     for (const row of built) {
       lines.push(
-        [row.adm, `"${row.student.name.replace(/"/g, '""')}"`, ...row.marks.map((m) => m.letter), `${row.pct}%`].join(",")
+        [`"${row.metaLine.replace(/"/g, '""')}"`, `"${row.student.name.replace(/"/g, '""')}"`, ...row.marks.map((m) => m.letter), `${row.pct}%`].join(",")
       );
     }
     const csv = `\uFEFF${lines.join("\n")}`;
@@ -398,7 +406,7 @@ export function TeacherMonthlyRegister({
     const body = built
       .map(
         (row) =>
-          `<tr><td>${row.adm}</td><td>${row.student.name}</td>${row.marks
+          `<tr><td>${row.metaLine}</td><td>${row.student.name}</td>${row.marks
             .map((m) => `<td>${m.letter}</td>`)
             .join("")}<td>${row.pct}%</td></tr>`
       )
@@ -414,7 +422,7 @@ export function TeacherMonthlyRegister({
       </style></head><body>
       <h1>Monthly Attendance</h1>
       <p>Class: ${classLabel} · ${monthTitle(month)}</p>
-      <table><thead><tr><th>Admission No.</th><th>Student Name</th>${cells}<th>%</th></tr></thead>
+      <table><thead><tr><th>Roll / Admission</th><th>Student Name</th>${cells}<th>%</th></tr></thead>
       <tbody>${body}</tbody></table></body></html>`;
     const frame = window.open("", "_blank");
     if (!frame) {
@@ -440,7 +448,7 @@ export function TeacherMonthlyRegister({
     <View style={{ minWidth: tableWidth }}>
       <View className="flex-row border-b border-ink-200 bg-[#F8FAFC]" style={stickyHead}>
         <View className={`justify-end border-r border-ink-100 bg-[#F8FAFC] ${idPad}`} style={{ width: cols.adm, ...stickyAdm, ...stickyHead, zIndex: 6 }}>
-          <Text className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">{phone ? "Adm" : "Admission No."}</Text>
+          <Text className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">{phone ? "Roll" : "Roll / Admission"}</Text>
         </View>
         <View className={`justify-end border-r border-ink-100 bg-[#F8FAFC] ${idPad}`} style={{ width: cols.name, ...stickyName, ...stickyHead, zIndex: 6 }}>
           <Text className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">{phone ? "Name" : "Student Name"}</Text>
@@ -467,7 +475,7 @@ export function TeacherMonthlyRegister({
       {rows.map((row, index) => (
         <View key={row.student.id} className={`flex-row border-b border-ink-50 ${index % 2 ? "bg-[#FCFDFE]" : "bg-white"}`}>
           <View className={`justify-center border-r border-ink-100 ${idPad}`} style={{ width: cols.adm, backgroundColor: index % 2 ? "#FCFDFE" : "#fff", ...stickyAdm }}>
-            <Text className={`${phone ? "text-[10px]" : "text-[11px]"} text-ink-700`}>{row.adm}</Text>
+            <Text className={`${phone ? "text-[10px]" : "text-[11px]"} text-ink-700`}>{row.metaLine}</Text>
           </View>
           <View className={`justify-center border-r border-ink-100 ${idPad}`} style={{ width: cols.name, backgroundColor: index % 2 ? "#FCFDFE" : "#fff", ...stickyName }}>
             {phone ? (
@@ -742,7 +750,7 @@ export function TeacherMonthlyRegister({
           <TextInput
             value={query}
             onChangeText={setQuery}
-            placeholder="Search student name or admission number..."
+            placeholder="Search student name, roll, or admission number..."
             placeholderTextColor="#94A3B8"
             autoCapitalize="none"
             autoCorrect={false}

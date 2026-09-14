@@ -19,6 +19,7 @@ import { useSession } from "../lib/session";
 import { openMarksheetPdf } from "../lib/print-html";
 import { parentTimetableGroups, parentUpcomingPapers, type ParentUpcomingPaper } from "../lib/parent-examination";
 import { Toast, useToast } from "./ui";
+import { studentMetaLine } from "../lib/student-label";
 
 type IonName = ComponentProps<typeof Ionicons>["name"];
 
@@ -272,7 +273,7 @@ function ParentChildSwitcher({ wide }: { wide: boolean }) {
     node.measureInWindow((x, y, w, h) => placeAndOpen(x, y, w, h));
   }
 
-  const label = child ? `${child.name} · Class ${child.classLabel}` : "Select child";
+  const label = child ? `${child.name} · ${studentMetaLine(child)}` : "Select child";
 
   return (
     <View
@@ -324,7 +325,11 @@ function ParentChildSwitcher({ wide }: { wide: boolean }) {
             <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 240 }}>
               {kids.map((c) => {
                 const on = activeId === c.id;
-                const admission = c.admissionNo || (child?.id === c.id ? child.admissionNo : "");
+                const meta = studentMetaLine({
+                  classLabel: c.classLabel,
+                  rollNumber: c.rollNumber ?? (child?.id === c.id ? child.rollNumber : null),
+                  admissionNo: c.admissionNo || (child?.id === c.id ? child.admissionNo : ""),
+                });
                 return (
                   <Pressable
                     key={c.id}
@@ -342,8 +347,7 @@ function ParentChildSwitcher({ wide }: { wide: boolean }) {
                         {c.name}
                       </Text>
                       <Text className="mt-0.5 text-[12px] text-ink-500">
-                        Class {c.classLabel}
-                        {admission ? ` · ${admission}` : ""}
+                        {meta}
                       </Text>
                     </View>
                     {on ? <Ionicons name="checkmark" size={18} color="#2563EB" /> : null}
@@ -571,9 +575,7 @@ export function ParentExamination() {
                     )}
                   </View>
                   <Text className="mt-1 text-[12px] text-ink-600">
-                    {child.name}
-                    {child.admissionNo ? ` · ${child.admissionNo}` : ""}
-                    {child.classLabel ? ` · Class ${child.classLabel}` : ""}
+                    {child.name} · {studentMetaLine(child)}
                   </Text>
                   <Text className="mt-0.5 text-[12px] text-ink-500">{sessionYear(selected.sessionLabel)}</Text>
                 </View>
@@ -668,9 +670,7 @@ export function ParentExamination() {
               </View>
               {child ? (
                 <Text className="mt-1 text-[12px] text-ink-600">
-                  {child.name}
-                  {child.admissionNo ? ` · ${child.admissionNo}` : ""}
-                  {child.classLabel ? ` · Class ${child.classLabel}` : ""}
+                  {child.name} · {studentMetaLine(child)}
                 </Text>
               ) : null}
               <Text className="mt-2 text-[13px] text-ink-600">Result not available</Text>

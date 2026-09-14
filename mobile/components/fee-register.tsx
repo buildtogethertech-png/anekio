@@ -9,6 +9,7 @@ import { useSession } from "../lib/session";
 import { GeneratePayment } from "./generate-payment";
 import { Select } from "./form";
 import { Badge, Button, Card, Chip, Empty, Field, Input, Modal, PageHeader, Toast, useToast } from "./ui";
+import { studentMetaLine } from "../lib/student-label";
 
 type Status = "paid" | "partial" | "unpaid" | "overdue";
 type ExtraCol = "dueDate" | "daysOverdue" | "lastPayment" | "paymentMode" | "template" | "lateFee";
@@ -17,6 +18,7 @@ type Row = {
   id: string;
   studentId: string;
   admissionNo: string;
+  rollNumber?: number | null;
   studentName: string;
   classId: string;
   className: string;
@@ -343,6 +345,8 @@ export function FeeRegister() {
       name: row.studentName,
       classId: row.classId,
       classLabel: row.classLabel,
+      rollNumber: row.rollNumber,
+      admissionNo: row.admissionNo,
       invoices: history.map((line) => ({
         id: line.invoiceId,
         title: line.label,
@@ -451,7 +455,7 @@ export function FeeRegister() {
             <Ionicons name={payload?.rows.length && selected.length === payload.rows.length ? "checkbox" : "square-outline"} size={16} color="#3d4f66" />
           </Pressable>
         </View>
-        <Head label="Admission No." width={ADM_W} left={CHECK_W} stickyCol />
+        <Head label="Roll / Admission" width={ADM_W} left={CHECK_W} stickyCol />
         <Head label="Student" width={NAME_W} left={CHECK_W + ADM_W} stickyCol />
         <Head label="Class" width={56} />
         <Head label="Section" width={48} />
@@ -483,7 +487,7 @@ export function FeeRegister() {
                 </Pressable>
               </View>
               <Cell width={ADM_W} left={CHECK_W} stickyCol bg={bg}>
-                {row.admissionNo}
+                {studentMetaLine(row) || "—"}
               </Cell>
               <View
                 className="flex-row items-center gap-1 border-r border-ink-100 px-2"
@@ -698,7 +702,7 @@ export function FeeRegister() {
                 <View className="flex-row items-start justify-between gap-2">
                   <View className="min-w-0 flex-1">
                     <Text className="font-semibold text-ink-900">{row.studentName}</Text>
-                    <Text className="mt-0.5 text-xs text-ink-700">{row.admissionNo} · {row.classLabel} · {row.monthLabel}</Text>
+                    <Text className="mt-0.5 text-xs text-ink-700">{studentMetaLine(row)} · {row.monthLabel}</Text>
                   </View>
                   <Badge tone={statusTone(row.status)}>{statusLabel(row.status)}</Badge>
                 </View>
