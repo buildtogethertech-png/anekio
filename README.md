@@ -78,6 +78,24 @@ as a compatibility alias.
 
 Every demo login uses password `12345`. See `Anekio-demo-logins.json`.
 
+## Prisma ERD
+
+Regenerate the domain-split Prisma relation diagrams from `prisma/schema.prisma`:
+
+```bash
+npm run erd:prisma
+```
+
+Open the generated HTML:
+
+```bash
+open /private/tmp/anekio-prisma-erd/anekio-prisma-erd.html
+```
+
+The HTML uses Mermaid from CDN, so the browser needs internet access to render
+the diagrams. The generated Mermaid source files are written beside the HTML in
+`/private/tmp/anekio-prisma-erd/`.
+
 ## Project changes
 
 Use the Jira-first workflow in [`docs/jira-change-workflow.md`](docs/jira-change-workflow.md).

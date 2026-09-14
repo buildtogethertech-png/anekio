@@ -48,6 +48,7 @@
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
     "db:reset": "prisma db push --force-reset && tsx prisma/seed.ts",
+    "erd:prisma": "node scripts/generate-prisma-erd.mjs",
     "jira:setup": "bash scripts/jira-setup.sh",
     "jira:whoami": "bash -c 'unset npm_config_prefix && source \"$HOME/.nvm/nvm.sh\" && nvm use 20 && node scripts/jira.mjs whoami'",
     "jira:projects": "bash -c 'unset npm_config_prefix && source \"$HOME/.nvm/nvm.sh\" && nvm use 20 && node scripts/jira.mjs projects'",
