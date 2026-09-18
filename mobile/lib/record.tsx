@@ -411,6 +411,10 @@ export type RecordPayload = {
     lateIntervalUnit?: string;
     lines: { label: string; kind: string; amount: number; scope?: string }[];
   }[];
+  feeCatalog?: {
+    items: { id: string; kind: "TRANSPORT" | "OTHER"; label: string; amount: number; active: boolean }[];
+    late: { enabled: boolean; amount: number; graceDays: number; rule?: string; intervalCount?: number };
+  };
   admissionFeeLines?: { id: string; classId: string; label: string; amount: number; sortOrder: number }[];
   people?: {
     id: string;
@@ -445,6 +449,7 @@ export type RecordPayload = {
       cadence: string;
       startsPeriod: string;
       endsPeriod: string;
+      active?: boolean;
     }[];
     attendance?: { status: string }[];
     invoiceIds?: string[];
@@ -457,8 +462,10 @@ export type RecordPayload = {
       paid: string;
       remaining: string;
       dueNow?: number;
+      late?: number;
       lateLabel?: string;
       status: string;
+      lines?: { label: string; amount: number }[];
       invoiceUrl?: string;
       receiptUrl?: string;
       receiptNumber?: string;

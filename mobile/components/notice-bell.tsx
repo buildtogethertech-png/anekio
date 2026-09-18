@@ -173,9 +173,11 @@ export function PhoneTopBar() {
   const router = useRouter();
   if (width >= 768) return null;
   return (
-    <View className="flex-row items-center border-b border-ink-200 bg-white px-3 py-2">
+    <View className="z-10 shrink-0 flex-row items-center overflow-hidden border-b border-ink-200 bg-white px-3 py-2">
       <Pressable onPress={() => router.push("/")} className="min-w-0 flex-1 flex-row items-center gap-2 py-1">
-        <Image source={require("../assets/icon.png")} className="h-9 w-9 rounded-xl" />
+        <View className="h-9 w-9 overflow-hidden rounded-xl">
+          <Image source={require("../assets/icon.png")} style={{ width: 36, height: 36 }} />
+        </View>
         <View className="min-w-0 flex-1">
           <Text className="text-base font-bold leading-5 text-ink-900">Anekio</Text>
           <Text className="text-[10px] font-medium leading-3 text-ink-500" numberOfLines={1}>

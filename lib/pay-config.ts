@@ -140,9 +140,46 @@ async function singleReadyGatewayConfig() {
 }
 
 export async function getSchoolPaySecrets(orgId?: string | null): Promise<SchoolPaySecrets> {
-  const scoped = orgId ? await prisma.schoolConfig.findFirst({ where: { orgId } }) : null;
-  const legacy = scoped ? null : await prisma.schoolConfig.findUnique({ where: { id: "school" } });
-  const fallback = !scoped && (!legacy || !gatewayReady(paySecretsFromRow({
+  if (orgId) {
+    const scoped = await prisma.schoolConfig.findFirst({ where: { orgId } });
+    return scoped
+      ? paySecretsFromRow({
+          gateway: asGateway(scoped.payGateway),
+          testMode: scoped.payTestMode,
+          razorpayKeyId: scoped.razorpayKeyId,
+          razorpayKeySecret: scoped.razorpayKeySecret,
+          razorpayWebhookSecret: scoped.razorpayWebhookSecret,
+          cashfreeAppId: scoped.cashfreeAppId,
+          cashfreeSecretKey: scoped.cashfreeSecretKey,
+          billdeskMerchantId: scoped.billdeskMerchantId,
+          billdeskClientId: scoped.billdeskClientId,
+          billdeskSecret: scoped.billdeskSecret,
+          aisensyApiKey: scoped.aisensyApiKey,
+          aisensyCampaign: scoped.aisensyCampaign,
+          resendApiKey: scoped.resendApiKey,
+          resendFromEmail: scoped.resendFromEmail,
+        })
+      : { ...EMPTY_SECRETS };
+  }
+  const legacy = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
+  const fallback =
+    !legacy ||
+    !gatewayReady(
+      paySecretsFromRow({
+        gateway: asGateway(legacy.payGateway),
+        testMode: legacy.payTestMode,
+        razorpayKeyId: legacy.razorpayKeyId,
+        razorpayKeySecret: legacy.razorpayKeySecret,
+        cashfreeAppId: legacy.cashfreeAppId,
+        cashfreeSecretKey: legacy.cashfreeSecretKey,
+        billdeskMerchantId: legacy.billdeskMerchantId,
+        billdeskClientId: legacy.billdeskClientId,
+        billdeskSecret: legacy.billdeskSecret,
+      })
+    )
+      ? await singleReadyGatewayConfig()
+      : null;
+  const row = (legacy && gatewayReady(paySecretsFromRow({
     gateway: asGateway(legacy.payGateway),
     testMode: legacy.payTestMode,
     razorpayKeyId: legacy.razorpayKeyId,
@@ -152,8 +189,9 @@ export async function getSchoolPaySecrets(orgId?: string | null): Promise<School
     billdeskMerchantId: legacy.billdeskMerchantId,
     billdeskClientId: legacy.billdeskClientId,
     billdeskSecret: legacy.billdeskSecret,
-  }))) ? await singleReadyGatewayConfig() : null;
-  const row = scoped || fallback || legacy;
+  }))
+    ? legacy
+    : null) || fallback || legacy;
   const secrets = row
     ? paySecretsFromRow({
         gateway: asGateway(row.payGateway),
@@ -172,14 +210,6 @@ export async function getSchoolPaySecrets(orgId?: string | null): Promise<School
         resendFromEmail: row.resendFromEmail,
       })
     : { ...EMPTY_SECRETS };
-  const envKey = process.env.RAZORPAY_KEY_ID?.trim() || "";
-  const envSecret = process.env.RAZORPAY_KEY_SECRET?.trim() || "";
-  if (envKey && envSecret && (!secrets.razorpayKeyId || !secrets.razorpayKeySecret)) {
-    secrets.razorpayKeyId = envKey;
-    secrets.razorpayKeySecret = envSecret;
-    secrets.razorpayWebhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET?.trim() || secrets.razorpayWebhookSecret;
-    if (secrets.gateway === "NONE") secrets.gateway = "RAZORPAY";
-  }
   return secrets;
 }
 

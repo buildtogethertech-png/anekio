@@ -23,7 +23,7 @@ import { leaveBundleFor } from "./leave";
 import { gradePolicyFrom, marksVisible, parseExamPlan, timetableVisible, ymd, addDays } from "./exams";
 import { parsePayrollRules } from "./payroll";
 import { collapseStaffDaysByDate, staffDayYmd } from "./staff-day";
-import { feeLineTotal, invoiceBalance, paidFeeMonthCount, parseFeeLines, reportCardFeeMonthsRequired, reportCardUnlocked } from "./fees";
+import { feeLineTotal, invoiceBalance, paidFeeMonthCount, parseFeeCatalogState, parseFeeLines, reportCardFeeMonthsRequired, reportCardUnlocked } from "./fees";
 import { studentLetter } from "./letter";
 import { payFormFromSecrets, paySecretsFromRow } from "./pay-config";
 import type { AccessUser } from "./permissions";
@@ -85,6 +85,7 @@ function serializePeopleFeeInvoice(inv: {
   period?: string | null;
   dueDate: Date;
   amount: number;
+  linesJson?: string | null;
   shareToken?: string | null;
   payments: { amount: number; method?: string; reference?: string | null; notes?: string | null; paidAt?: Date }[];
 }) {
@@ -92,6 +93,10 @@ function serializePeopleFeeInvoice(inv: {
   const balance = invoiceBalance({ ...inv, paid: paidAmt });
   const invoiceUrl = inv.shareToken ? `${publicOrigin()}/i/${inv.shareToken}` : "";
   const receiptUrl = inv.shareToken && balance.display === "PAID" ? `${publicOrigin()}/pay/${inv.shareToken}?paid=1` : "";
+  const lines = parseFeeLines(inv.linesJson)
+    .filter((line) => String(line.scope || "ALL").toUpperCase() !== "ADD_ON")
+    .map((line) => ({ label: line.label, amount: Math.max(0, Math.round(Number(line.amount) || 0)) }))
+    .filter((line) => line.label && line.amount > 0);
   return {
     id: inv.id,
     title: inv.title,
@@ -101,8 +106,10 @@ function serializePeopleFeeInvoice(inv: {
     paid: formatInr(paidAmt),
     remaining: balance.remaining ? formatInr(balance.remaining) : "",
     dueNow: balance.dueNow,
+    late: balance.late,
     lateLabel: balance.lateLabel,
     status: balance.display.toLowerCase(),
+    lines,
     invoiceUrl,
     receiptUrl,
     payments: inv.payments.map((payment) => ({
@@ -1080,6 +1087,7 @@ async function officePayload(user: AccessUser) {
       lateIntervalUnit: t.lateIntervalUnit,
       lines: t.lines.map((l) => ({ label: l.label, kind: l.kind, amount: l.amount, scope: l.scope || "ALL" })),
     })),
+    feeCatalog: parseFeeCatalogState(config?.feeCatalogJson),
     people: people.students.map((s) => {
       const totals = s.feeInvoices.reduce(
         (acc, inv) => {

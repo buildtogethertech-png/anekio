@@ -7,6 +7,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  StyleSheet,
   Text,
   TextInput,
   View,
@@ -392,13 +393,13 @@ export function Sheet({
       onRequestClose={close}
     >
       <GestureHandlerRootView style={{ flex: 1, justifyContent: "flex-end" }}>
-        <Pressable className="absolute inset-0" onPress={close}>
-          <Animated.View className="absolute inset-0 bg-black/40" style={dimStyle} />
+        <Pressable accessibilityLabel="Dismiss" onPress={close} style={StyleSheet.absoluteFill}>
+          <Animated.View style={[StyleSheet.absoluteFill, dimStyle, { backgroundColor: "rgba(15, 23, 42, 0.45)" }]} />
         </Pressable>
         <GestureDetector gesture={pan}>
           <Animated.View
-            className="overflow-hidden rounded-t-2xl bg-white"
-            style={[sheetStyle, { maxHeight: maxH, paddingBottom: padBottom }]}
+            className="overflow-hidden rounded-t-2xl"
+            style={[sheetStyle, { maxHeight: maxH, paddingBottom: padBottom, backgroundColor: "#ffffff" }]}
           >
             <View className="h-12 justify-center">
               <GestureDetector gesture={handlePan}>

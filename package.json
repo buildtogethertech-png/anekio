@@ -44,6 +44,7 @@
     "verify": "npm run typecheck && npm run test:coverage && npm run test:e2e && npm run build:web",
     "verify:full": "npm run verify && npm run test:flows",
     "app": "npm --prefix mobile start",
+    "app:tunnel": "npm --prefix mobile exec -- expo start --tunnel",
     "app:web": "npm --prefix mobile run web",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",

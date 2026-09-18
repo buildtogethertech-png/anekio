@@ -6,14 +6,26 @@ import { prisma } from "./prisma";
 import { roleIdBySlug } from "./roles";
 import { reminderCopy } from "./fee-run";
 import {
+  catalogAddOnKind,
+  catalogAddOnLabel,
+  classAddOnKind,
+  classAddOnKey,
+  classAllFeeLines,
+  composeStudentFeeLines,
   dueDateForMonth,
   feeLineTotal,
   feePeriod,
   invoiceBalance,
   invoiceLateStamp,
   monthFeeTitle,
-  parseFeeLines,  
+  parseCatalogAddOnKind,
+  parseFeeCatalogState,
+  studentHasClassAddOn,
+  parseFeeLines,
   periodFromDate,
+  serializeFeeCatalogState,
+  lateStampFromSetup,
+  type FeeCatalogItem,
 } from "./fees";
 import { normalizeMobile } from "./phone";
 import { getResendConfig, sendResendEmail } from "./resend";
@@ -75,27 +87,6 @@ function monthsBetween(startsPeriod: string, endsPeriod: string) {
   return months;
 }
 
-function feeAddOnApplies(
-  addOn: { startsPeriod: string; endsPeriod: string; cadence: string; active: boolean },
-  period: string
-) {
-  if (!addOn.active) return false;
-  if (addOn.startsPeriod && addOn.startsPeriod > period) return false;
-  if (addOn.endsPeriod && addOn.endsPeriod < period) return false;
-  if (addOn.cadence === "ONE_TIME") return addOn.startsPeriod === period;
-  return true;
-}
-
-function feeAddOnLines(
-  addOns: { label: string; kind: string; amount: number; startsPeriod: string; endsPeriod: string; cadence: string; active: boolean }[],
-  period: string
-) {
-  return addOns.filter((addOn) => feeAddOnApplies(addOn, period)).map((addOn) => ({
-    label: addOn.label,
-    kind: "FLAT" as const,
-    amount: addOn.kind === "DISCOUNT" || addOn.kind === "CONCESSION" ? -Math.abs(addOn.amount) : Math.abs(addOn.amount),
-  }));
-}
 
 async function needExamClass(user: AccessUser, classId: string, mode: "mark" | "run" = "mark") {
   need(user, "exams.edit", "marks.enter", "exams.teach");
@@ -180,31 +171,58 @@ export async function saveFeeTemplateCore(
   const endsPeriod = normalizeFeePeriod(input.endsPeriod) || current.endsOn.slice(0, 7);
   if (startsPeriod > endsPeriod) throw new Error("Start month must be before end month");
   const dueDay = Math.min(28, Math.max(1, Number(input.dueDay || 10)));
+  const hasLate = input.lateKind != null && String(input.lateKind).trim() !== "";
   const rawKind = String(input.lateKind || "NONE").toUpperCase();
-  const lateKind = rawKind === "STATIC" || rawKind === "DAILY" || rawKind === "RECURRING" ? rawKind : "NONE";
+  const lateKind =
+    rawKind === "STATIC" || rawKind === "DAILY" || rawKind === "RECURRING" || rawKind === "PERCENT" ? rawKind : "NONE";
   const lateGraceDays = lateKind === "NONE" ? 0 : Math.max(0, Math.round(Number(input.lateGraceDays || 0)));
-  const lateAmount = lateKind === "NONE" ? 0 : Math.max(0, Math.round(Number(input.lateAmount || 0)));
-  const lateIntervalCount = lateKind === "RECURRING" ? Math.max(1, Math.round(Number(input.lateIntervalCount || 1))) : 1;
-  const lateIntervalUnit = lateKind === "RECURRING" && String(input.lateIntervalUnit || "DAY").toUpperCase() === "MONTH" ? "MONTH" : "DAY";
+  const lateAmount = lateKind === "NONE" ? 0 : Math.max(0, Number(input.lateAmount || 0));
+  const lateIntervalCount =
+    lateKind === "RECURRING" || lateKind === "PERCENT" ? Math.max(1, Math.round(Number(input.lateIntervalCount || 1))) : 1;
+  const lateIntervalUnit =
+    (lateKind === "RECURRING" || lateKind === "PERCENT") && String(input.lateIntervalUnit || "DAY").toUpperCase() === "MONTH"
+      ? "MONTH"
+      : "DAY";
   const lateStamp = {
     lateKind,
     lateGraceDays,
-    lateAmount,
+    lateAmount: Math.round(lateAmount),
     lateIntervalCount,
     lateIntervalUnit,
-    lateAfter10: lateKind === "STATIC" ? lateAmount : 0,
+    lateAfter10: lateKind === "STATIC" ? Math.round(lateAmount) : 0,
     lateAfter20: 0,
   };
-  const lines = (Array.isArray(input.lines) ? input.lines : parseFeeLines(JSON.stringify(input.lines || []))).map(
-    (line, i) => ({
-      label: String(line.label || "").trim() || "Line",
+  const catalogLate = parseFeeCatalogState(
+    (await prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { feeCatalogJson: true } }))?.feeCatalogJson
+  ).late;
+  const inheritedLate = lateStampFromSetup(catalogLate).stamp;
+  const drafted = (Array.isArray(input.lines) ? input.lines : parseFeeLines(JSON.stringify(input.lines || []))).map((line) => {
+    const scope = String(line.scope || "ALL").toUpperCase() === "ADD_ON" ? "ADD_ON" : "ALL";
+    return {
+      label: String(line.label || "").trim() || (scope === "ALL" ? "Line" : ""),
       kind: (line.kind === "PERCENT" ? "PERCENT" : "FLAT") as FeeLineKind,
       amount: Math.max(0, Math.round(Number(line.amount) || 0)),
-      scope: String(line.scope || "ALL").toUpperCase() === "ADD_ON" ? "ADD_ON" : "ALL",
-      sortOrder: i,
-      orgId: user.orgId ?? null,
-    })
-  );
+      scope,
+    };
+  });
+  const allLines = drafted.filter((line) => line.scope === "ALL");
+  const seenAddOns = new Set<string>();
+  const addOnLines = drafted.filter((line) => {
+    if (line.scope !== "ADD_ON" || !line.label || line.amount <= 0) return false;
+    const key = classAddOnKey(line.label);
+    if (seenAddOns.has(key)) return false;
+    seenAddOns.add(key);
+    return true;
+  });
+  if (!allLines.length) throw new Error("Add at least one class charge");
+  const lines = [...allLines, ...addOnLines].map((line, i) => ({
+    label: line.label || "Line",
+    kind: line.kind,
+    amount: line.amount,
+    scope: line.scope,
+    sortOrder: i,
+    orgId: user.orgId ?? null,
+  }));
   const editing = templateId
     ? await prisma.feeTemplate.findUnique({ where: { id: templateId } })
     : null;
@@ -220,18 +238,33 @@ export async function saveFeeTemplateCore(
     },
   });
   if (overlap) throw new Error(`This range overlaps ${overlap.startsPeriod || "an earlier setup"} to ${overlap.endsPeriod || "an earlier setup"}.`);
+  const lateData = hasLate ? lateStamp : existing ? {} : inheritedLate;
   if (existing) {
     await prisma.feeLine.deleteMany({ where: { templateId: existing.id } });
     const updated = await prisma.feeTemplate.update({
       where: { id: existing.id },
-      data: { orgId: user.orgId ?? null, name, startsPeriod, endsPeriod, dueDay, ...lateStamp, lines: { create: lines } },
+      data: { orgId: user.orgId ?? null, name, startsPeriod, endsPeriod, dueDay, ...lateData, lines: { create: lines } },
     });
+    await syncClassAddOnAmounts(classId, addOnLines);
     return { id: updated.id };
   } else {
     const created = await prisma.feeTemplate.create({
-      data: { orgId: user.orgId ?? null, classId, sessionId, name, startsPeriod, endsPeriod, dueDay, ...lateStamp, lines: { create: lines } },
+      data: { orgId: user.orgId ?? null, classId, sessionId, name, startsPeriod, endsPeriod, dueDay, ...lateData, lines: { create: lines } },
     });
+    await syncClassAddOnAmounts(classId, addOnLines);
     return { id: created.id };
+  }
+}
+
+async function syncClassAddOnAmounts(classId: string, addOnLines: { label: string; amount: number }[]) {
+  for (const line of addOnLines) {
+    await prisma.studentFeeAddOn.updateMany({
+      where: {
+        student: { classId },
+        OR: [{ kind: classAddOnKind(line.label) }, { kind: "CHARGE", label: line.label }],
+      },
+      data: { amount: line.amount, label: line.label },
+    });
   }
 }
 
@@ -364,9 +397,7 @@ export async function issueClassFeesCore(
   });
   if (template && template.classId !== classId) throw new Error("Template does not belong to this class");
   if (!template || !template.lines.length) throw new Error("Save a fee template first");
-  const drafts = template.lines
-    .filter((l) => l.scope !== "ADD_ON")
-    .map((l) => ({ label: l.label, kind: l.kind, amount: l.amount }));
+  const drafts = classAllFeeLines(template.lines);
   const fallbackPeriod = feePeriod(Number(input.year || new Date().getFullYear()), Number(input.month ?? new Date().getMonth()));
   const startsPeriod = template.startsPeriod || normalizeFeePeriod(input.startsPeriod) || fallbackPeriod;
   const endsPeriod = template.endsPeriod || normalizeFeePeriod(input.endsPeriod) || startsPeriod;
@@ -387,7 +418,7 @@ export async function issueClassFeesCore(
       months
         .filter((month) => month.period > s.feeGeneratedThrough && !have.has(`${s.id}:${month.period}`))
         .map((month) => {
-        const lines = [...drafts, ...feeAddOnLines(s.feeAddOns, month.period)];
+        const lines = composeStudentFeeLines(drafts, s.feeAddOns, month.period);
         const invoiceTotal = feeLineTotal(lines).total;
         return {
         studentId: s.id,
@@ -467,6 +498,172 @@ export async function removeStudentFeeAddOnCore(user: AccessUser, input: { id: s
   const id = String(input.id || "");
   if (!id) throw new Error("Add-on required");
   await prisma.studentFeeAddOn.delete({ where: { id } });
+}
+
+async function loadFeeCatalog() {
+  const config = await prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { feeCatalogJson: true } });
+  return parseFeeCatalogState(config?.feeCatalogJson);
+}
+
+async function writeFeeCatalog(user: AccessUser, state: ReturnType<typeof parseFeeCatalogState>) {
+  await prisma.schoolConfig.upsert({
+    where: { id: "school" },
+    update: { feeCatalogJson: serializeFeeCatalogState(state) },
+    create: { id: "school", orgId: user.orgId ?? null, feeCatalogJson: serializeFeeCatalogState(state) },
+  });
+}
+
+export async function saveFeeCatalogCore(
+  user: AccessUser,
+  input: {
+    items?: { id?: string; kind?: string; label?: string; amount?: number; active?: boolean }[];
+    item?: { id?: string; kind?: string; label?: string; amount?: number; active?: boolean };
+    removeId?: string;
+  }
+) {
+  need(user, "fees.configure");
+  const current = await loadFeeCatalog();
+  let items = current.items;
+  if (Array.isArray(input.items)) {
+    items = parseFeeCatalogState(JSON.stringify({ items: input.items, late: current.late })).items;
+  }
+  const removeId = String(input.removeId || "");
+  if (removeId) items = items.filter((item) => item.id !== removeId);
+  if (input.item) {
+    const kind = String(input.item.kind || "").toUpperCase() === "TRANSPORT" ? "TRANSPORT" : "OTHER";
+    const label = String(input.item.label || "").trim();
+    if (!label) throw new Error("Fee name required");
+    const next = {
+      id: String(input.item.id || "").trim() || crypto.randomUUID(),
+      kind,
+      label,
+      amount: Math.max(0, Math.round(Number(input.item.amount) || 0)),
+      active: input.item.active === false ? false : true,
+    } as const;
+    const index = items.findIndex((item) => item.id === next.id);
+    if (index >= 0) items[index] = next;
+    else items.push(next);
+    await prisma.studentFeeAddOn.updateMany({
+      where: { kind: catalogAddOnKind(next.kind, next.id), active: true },
+      data: { amount: next.amount, label: catalogAddOnLabel(next) },
+    });
+  }
+  await writeFeeCatalog(user, { ...current, items });
+  return { items };
+}
+
+export async function applySessionLateFeeCore(
+  user: AccessUser,
+  input: { enabled?: boolean; amount?: number; graceDays?: number; rule?: string; intervalCount?: number }
+) {
+  need(user, "fees.configure");
+  const mapped = lateStampFromSetup(input);
+  const catalog = await loadFeeCatalog();
+  await writeFeeCatalog(user, { ...catalog, late: mapped.catalog });
+  const { current } = await ensureSchoolSessions();
+  const stamp = mapped.stamp;
+  await prisma.feeTemplate.updateMany({
+    where: { sessionId: current.id },
+    data: {
+      lateKind: stamp.lateKind,
+      lateGraceDays: stamp.lateGraceDays,
+      lateAmount: stamp.lateAmount,
+      lateIntervalCount: stamp.lateIntervalCount,
+      lateIntervalUnit: stamp.lateIntervalUnit,
+      lateAfter10: stamp.lateAfter10,
+      lateAfter20: stamp.lateAfter20,
+    },
+  });
+  return { late: mapped.catalog };
+}
+
+export async function assignStudentFeesCore(
+  user: AccessUser,
+  input: { studentId: string; transportItemId?: string | null; otherItemIds?: string[]; classAddOnLabels?: string[] }
+) {
+  need(user, "people.edit");
+  const studentId = String(input.studentId || "");
+  if (!studentId) throw new Error("Student required");
+  const student = await prisma.student.findUnique({
+    where: { id: studentId },
+    include: { feeAddOns: true },
+  });
+  if (!student) throw new Error("Student not found");
+  const catalog = await loadFeeCatalog();
+  const transportId = String(input.transportItemId || "").trim();
+  const otherIds = [...new Set((input.otherItemIds || []).map(String).filter(Boolean))];
+  const wanted: FeeCatalogItem[] = [];
+  if (transportId) {
+    const item = catalog.items.find((row) => row.id === transportId && row.kind === "TRANSPORT" && row.active);
+    if (!item) throw new Error("Transport option not found");
+    wanted.push(item);
+  }
+  for (const id of otherIds) {
+    const item = catalog.items.find((row) => row.id === id && row.kind === "OTHER" && row.active);
+    if (!item) throw new Error("Other fee not found");
+    wanted.push(item);
+  }
+  if (wanted.filter((item) => item.kind === "TRANSPORT").length > 1) {
+    throw new Error("A student can have only one transport option");
+  }
+  const { current } = await ensureSchoolSessions();
+  const startsPeriod = current.startsOn.slice(0, 7);
+  const endsPeriod = current.endsOn.slice(0, 7);
+  const catalogAddOns = student.feeAddOns.filter((addOn) => parseCatalogAddOnKind(addOn.kind));
+  const wantedKinds = new Set(wanted.map((item) => catalogAddOnKind(item.kind, item.id)));
+  const classTemplate = await prisma.feeTemplate.findFirst({
+    where: { classId: student.classId, OR: [{ sessionId: current.id }, { sessionId: null }] },
+    include: { lines: { orderBy: { sortOrder: "asc" } } },
+    orderBy: { startsPeriod: "desc" },
+  });
+  const classOptions = (classTemplate?.lines || []).filter((line) => String(line.scope || "ALL").toUpperCase() === "ADD_ON" && line.amount > 0);
+  const selectedKeys = new Set(
+    (input.classAddOnLabels || []).map((label) => classAddOnKey(label)).filter((key) => classOptions.some((line) => classAddOnKey(line.label) === key))
+  );
+  const syncClassAddOns = Array.isArray(input.classAddOnLabels);
+  await prisma.$transaction(async (tx) => {
+    for (const addOn of catalogAddOns) {
+      if (!wantedKinds.has(addOn.kind)) await tx.studentFeeAddOn.delete({ where: { id: addOn.id } });
+    }
+    for (const item of wanted) {
+      const kind = catalogAddOnKind(item.kind, item.id);
+      const existing = catalogAddOns.find((addOn) => addOn.kind === kind);
+      const data = {
+        label: catalogAddOnLabel(item),
+        amount: item.amount,
+        cadence: "MONTHLY",
+        startsPeriod: existing?.startsPeriod || startsPeriod,
+        endsPeriod: existing?.endsPeriod || endsPeriod,
+        active: true,
+        orgId: user.orgId ?? null,
+      };
+      if (existing) await tx.studentFeeAddOn.update({ where: { id: existing.id }, data });
+      else await tx.studentFeeAddOn.create({ data: { ...data, studentId, kind } });
+    }
+    if (syncClassAddOns) {
+      for (const option of classOptions) {
+        const key = classAddOnKey(option.label);
+        const kind = classAddOnKind(option.label);
+        const existing = student.feeAddOns.find((addOn) => studentHasClassAddOn([addOn], option.label) && !parseCatalogAddOnKind(addOn.kind));
+        if (selectedKeys.has(key)) {
+          const data = {
+            label: option.label,
+            kind,
+            amount: option.amount,
+            cadence: "MONTHLY",
+            startsPeriod: existing?.startsPeriod || classTemplate?.startsPeriod || startsPeriod,
+            endsPeriod: existing?.endsPeriod || classTemplate?.endsPeriod || endsPeriod,
+            active: true,
+            orgId: user.orgId ?? null,
+          };
+          if (existing) await tx.studentFeeAddOn.update({ where: { id: existing.id }, data });
+          else await tx.studentFeeAddOn.create({ data: { ...data, studentId } });
+        } else if (existing) {
+          await tx.studentFeeAddOn.delete({ where: { id: existing.id } });
+        }
+      }
+    }
+  });
 }
 
 export async function copyExamSeriesCore(user: AccessUser, input: { seriesId: string; classIds?: string[] }) {
