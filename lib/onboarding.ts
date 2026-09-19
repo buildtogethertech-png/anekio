@@ -594,7 +594,17 @@ export async function onboardingBundle(user: AccessUser) {
     prisma.feeInvoice.count({ where: { period: "OPENING" } }),
     prisma.schoolOnboardingImport.findMany({ orderBy: { createdAt: "desc" }, take: 8 }),
   ]);
-  const modules = state ? JSON.parse(state.selectedModulesJson) as string[] : ["students", "fees"];
+  const savedModules = state
+  ? JSON.parse(state.selectedModulesJson)
+  : ["students", "fees"];
+
+const modules: string[] = Array.isArray(savedModules)
+  ? savedModules
+  : [
+      ...(savedModules.modules?.includes("school") ? ["students"] : []),
+      ...(savedModules.modules?.includes("teaching") ? ["teachers"] : []),
+      ...(savedModules.modules?.includes("money") ? ["fees"] : []),
+    ];
   const importDone = new Set(latestImports.filter((row) => row.status === "APPLIED").map((row) => row.kind));
   const wants = (module: string) => modules.includes(module);
   const step = (key: string, number: number, title: string, body: string, complete: boolean, blocked = false, optional = false) => ({
