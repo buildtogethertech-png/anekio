@@ -22,6 +22,8 @@ type OpenMonth = {
   title: string;
   amount: string;
   remaining: string;
+  remainingAmt: number;
+  lateAmt: number;
   dueNow: number;
   lateLabel: string;
   studentId: string;
@@ -42,6 +44,7 @@ type StudentPay = {
     amount: string;
     remaining: string;
     dueNow?: number;
+    late?: number;
     lateLabel?: string;
     status: string;
   }[];
@@ -51,10 +54,21 @@ function rupees(amount: number) {
   return `₹${Math.round(amount).toLocaleString("en-IN")}`;
 }
 
+function moneyOf(value?: string | number) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const n = Number(String(value || "").replace(/[^\d.]/g, ""));
+  return Number.isFinite(n) ? n : 0;
+}
+
 function dueOf(inv: NonNullable<StudentPay["invoices"]>[number]) {
   if (typeof inv.dueNow === "number") return inv.dueNow;
-  const n = Number(String(inv.remaining || "").replace(/[^\d.]/g, ""));
-  return Number.isFinite(n) ? n : 0;
+  return moneyOf(inv.remaining);
+}
+
+function lateOf(inv: NonNullable<StudentPay["invoices"]>[number]) {
+  if (typeof inv.late === "number") return inv.late;
+  const remaining = moneyOf(inv.remaining);
+  return Math.max(0, dueOf(inv) - remaining);
 }
 
 function payRangeLabel(titles: string[]) {
@@ -128,6 +142,8 @@ export function GeneratePayment({
             title: roster.length > 1 ? `${row.name} · ${inv.title}` : inv.title,
             amount: inv.amount,
             remaining: inv.remaining,
+            remainingAmt: moneyOf(inv.remaining),
+            lateAmt: lateOf(inv),
             dueNow: dueOf(inv),
             lateLabel: inv.lateLabel || "",
             studentId: row.id,
@@ -288,9 +304,17 @@ export function GeneratePayment({
     <Modal open={open} title={heading} onClose={onClose} wide>
       {months.length ? (
         <View className="gap-4">
-          <Text className="text-sm text-ink-700">
-            Tick the months to collect. Leave some off to take two or three months only.
-          </Text>
+          <View className="flex-row items-center justify-between">
+            <Text className="text-sm text-ink-700">Tick the months to collect.</Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setPicked(picked.length === months.length ? [] : months.map((m) => m.id))}
+            >
+              <Text className="text-xs font-semibold text-blue-700">
+                {picked.length === months.length ? "Clear all" : "Select all"}
+              </Text>
+            </Pressable>
+          </View>
           <View className="overflow-hidden rounded-md border border-ink-200">
             {months.map((inv, i) => {
               const on = picked.includes(inv.id);
@@ -310,13 +334,14 @@ export function GeneratePayment({
                       }`}
                     />
                     <View className="min-w-0 flex-1">
-                      <Text className="text-sm font-medium text-ink-900">{inv.title}</Text>
-                      {inv.lateLabel ? (
-                        <Text className="mt-0.5 text-xs text-amber-800">{inv.lateLabel}</Text>
-                      ) : null}
+                      <Text numberOfLines={1} className="text-sm font-medium text-ink-900">{inv.title}</Text>
+                      <Text className="mt-0.5 text-xs leading-4 text-ink-600">
+                        Fee {rupees(inv.remainingAmt)}
+                        {inv.lateAmt ? ` · Late ${rupees(inv.lateAmt)}` : ""}
+                      </Text>
                     </View>
                   </View>
-                  <Text className="shrink-0 text-sm text-ink-800">{rupees(inv.dueNow)}</Text>
+                  <Text className="shrink-0 text-sm font-semibold text-ink-900">{rupees(inv.dueNow)}</Text>
                 </Pressable>
               );
             })}

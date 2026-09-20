@@ -91,6 +91,9 @@ import {
   saveExamMarksCore,
   saveFeeTemplateCore,
   saveStudentFeeAddOnCore,
+  saveFeeCatalogCore,
+  applySessionLateFeeCore,
+  assignStudentFeesCore,
   saveSeriesMarksCore,
   sendFeeRemindersCore,
   startNextSchoolSessionCore,
@@ -334,6 +337,13 @@ export async function runAct(
       break;
     case "saveFeeTemplate":
       return { ok: true, ...(await saveFeeTemplateCore(user, body as never)) };
+    case "saveFeeCatalog":
+      return { ok: true, ...(await saveFeeCatalogCore(user, body as never)) };
+    case "applySessionLateFee":
+      return { ok: true, ...(await applySessionLateFeeCore(user, body as never)) };
+    case "assignStudentFees":
+      await assignStudentFeesCore(user, body as never);
+      break;
     case "saveAdmissionFeeSetup":
       return { ok: true, ...(await saveAdmissionFeeSetupCore(user, body as never)) };
     case "saveStudentFeeAddOn":

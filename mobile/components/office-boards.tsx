@@ -30,6 +30,9 @@ import { StaffTimesheet } from "./staff-timesheet";
 import { OnboardingBoard } from "./onboarding-board";
 import { StaffAttendanceQrButton, StaffAttendanceQrScanButton } from "./staff-attendance-qr";
 import { studentMetaLine } from "../lib/student-label";
+import { FeesBoard as RefactoredFeesBoard } from "./fees-board";
+
+export const FeesBoard = RefactoredFeesBoard;
 
 function can(user: { permissions: string[] } | null, key: string) {
   return Boolean(user?.permissions.includes(key));
@@ -2133,7 +2136,6 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
             <StudentAdmitForm
               classes={data?.classes ?? []}
               parents={data?.peopleParents ?? []}
-              feeAddOnOptions={feeAddOnOptions}
               onSubmit={addStudent}
             />
           ) : null}
@@ -3534,7 +3536,7 @@ function periodLabel(period?: string) {
   return new Date(year, month - 1, 1).toLocaleString("en-IN", { month: "long", year: "numeric" });
 }
 
-export function FeesBoard() {
+function LegacyFeesBoard() {
   const { data, reload } = useRecord();
   const { token, user } = useSession();
   const router = useRouter();

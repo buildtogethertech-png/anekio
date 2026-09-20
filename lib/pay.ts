@@ -1,7 +1,7 @@
 import { createBilldeskOrder, captureBilldeskPayment } from "./billdesk";
 import { createCashfreeOrder, captureCashfreePayment } from "./cashfree";
 import { randomUUID } from "node:crypto";
-import { invoiceBalance, unpaidFeeMonths } from "./fees";
+import { invoiceBalance, unpaidFeeMonths, expandOldestUnpaidInvoiceIds } from "./fees";
 import { gatewayReady, getSchoolPaySecrets } from "./pay-config";
 import {
   createFeeOrder,
@@ -17,7 +17,17 @@ export async function invoicesForStudentMonths(studentToken: string, invoiceIds:
     include: { feeInvoices: { include: { payments: true } } },
   });
   if (!student) throw new Error("Pay link is not valid");
-  const wanted = new Set(invoiceIds);
+  const expanded = expandOldestUnpaidInvoiceIds(
+    student.feeInvoices.map((inv) => ({
+      id: inv.id,
+      studentId: student.id,
+      dueDate: inv.dueDate,
+      title: inv.title,
+      dueNow: invoiceBalance(inv).dueNow,
+    })),
+    invoiceIds
+  );
+  const wanted = new Set(expanded);
   const open = student.feeInvoices
     .filter((inv) => wanted.has(inv.id))
     .filter((inv) => invoiceBalance(inv).dueNow > 0)
@@ -161,7 +171,12 @@ export async function createSchoolFeeOrder(
     const student = await prisma.student.findUnique({ where: { payToken: studentToken }, select: { orgId: true } });
     if (!student) throw new Error("Pay link is not valid");
     const pay = await getSchoolPaySecrets(student.orgId);
-    if (!gatewayReady(pay)) throw new Error("School has not connected a payment gateway yet");
+    if (!gatewayReady(pay)) {
+      if (pay.gateway === "NONE") throw new Error("School has not connected a payment gateway yet");
+      if (pay.gateway === "RAZORPAY" && !pay.razorpayKeyId) throw new Error("Add the school's Razorpay Key ID in Admin → School");
+      if (pay.gateway === "RAZORPAY" && !pay.razorpayKeySecret) throw new Error("Add the school's Razorpay secret in Admin → School");
+      throw new Error("School has not connected a payment gateway yet");
+    }
     if (pay.gateway === "RAZORPAY") return createMonthsOrder(studentToken, invoiceIds);
     if (invoiceIds.length === 1) {
       const inv = await prisma.feeInvoice.findUnique({ where: { id: invoiceIds[0] } });
@@ -177,7 +192,12 @@ export async function createSchoolFeeOrder(
   });
   if (!inv) throw new Error("Invoice missing");
   const pay = await getSchoolPaySecrets(inv.orgId || inv.student.orgId);
-  if (!gatewayReady(pay)) throw new Error("School has not connected a payment gateway yet");
+  if (!gatewayReady(pay)) {
+    if (pay.gateway === "NONE") throw new Error("School has not connected a payment gateway yet");
+    if (pay.gateway === "RAZORPAY" && !pay.razorpayKeyId) throw new Error("Add the school's Razorpay Key ID in Admin → School");
+    if (pay.gateway === "RAZORPAY" && !pay.razorpayKeySecret) throw new Error("Add the school's Razorpay secret in Admin → School");
+    throw new Error("School has not connected a payment gateway yet");
+  }
   if (pay.gateway === "CASHFREE") return createCashfreeOrder(token, origin);
   if (pay.gateway === "BILLDESK") return createBilldeskOrder(token, origin);
   return createFeeOrder(token);

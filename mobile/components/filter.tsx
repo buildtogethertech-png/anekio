@@ -159,6 +159,7 @@ export function FilterBar({
   searchValue,
   onSearchChange,
   searchPlaceholder = "Search",
+  hideSearch = false,
   filters,
   values,
   onApply,
@@ -166,6 +167,7 @@ export function FilterBar({
   searchValue: string;
   onSearchChange: (value: string) => void;
   searchPlaceholder?: string;
+  hideSearch?: boolean;
   filters: FilterConfig[];
   values: FilterValues;
   onApply: (values: FilterValues) => void;
@@ -244,9 +246,11 @@ export function FilterBar({
   return (
     <View className="relative z-20 gap-2">
       <View className="z-20 flex-row items-center gap-2">
-        <View className="min-w-0 flex-1">
-          <Input placeholder={searchPlaceholder} value={searchValue} onChangeText={onSearchChange} className="border-ink-100 bg-ink-50" />
-        </View>
+        {hideSearch ? null : (
+          <View className="min-w-0 flex-1">
+            <Input placeholder={searchPlaceholder} value={searchValue} onChangeText={onSearchChange} className="border-ink-100 bg-ink-50" />
+          </View>
+        )}
         <View className="shrink-0">
           <Pressable
             ref={buttonRef}

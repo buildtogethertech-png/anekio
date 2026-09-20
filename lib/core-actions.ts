@@ -2180,12 +2180,15 @@ export async function collectFeeCore(
   });
   if (!invoice) throw new Error("Invoice missing");
   const due = invoiceBalance(invoice).dueNow;
-  const amount = Math.round(Number(input.amount || due));
+  if (due <= 0) throw new Error("This invoice is already paid");
+  const requested = Math.round(Number(input.amount || due));
+  const amount = Math.min(due, requested);
   if (amount <= 0) throw new Error("Invalid payment");
   const method = parsePayMethod(input.method);
+  if (method === "RAZORPAY") throw new Error("Use the pay link so the parent can pay themselves");
   const providedReference = String(input.reference || "").trim() || null;
   assertPayRefs(method, providedReference);
-  const reference = providedReference || `RCPT-${invoice.id.slice(-8).toUpperCase()}`;
+  const reference = providedReference || `RCPT-${invoice.id.slice(-8).toUpperCase()}-${randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase()}`;
   await recordLedgerPayment({
     invoiceId: invoice.id,
     amount,

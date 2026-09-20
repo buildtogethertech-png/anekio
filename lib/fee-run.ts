@@ -1,6 +1,7 @@
 import { InvoiceStatus } from "@prisma/client";
 import { prisma } from "./prisma";
 import {
+  composeStudentFeeLines,
   dueDateForMonth,
   feeLineTotal,
   feePeriod,
@@ -92,18 +93,11 @@ export async function issueDueFeesCore(asOf = new Date(), classId?: string, sess
     if (!template.lines.length) continue;
     const students = await prisma.student.findMany({
       where: { classId: template.classId },
-      select: { id: true, feeGeneratedThrough: true },
+      select: { id: true, feeGeneratedThrough: true, feeAddOns: { where: { active: true } } },
     });
     if (!students.length) continue;
 
-    const drafts = template.lines.map((l) => ({
-      label: l.label,
-      kind: l.kind,
-      amount: l.amount,
-    }));
-    const { total } = feeLineTotal(drafts);
-    const linesJson = JSON.stringify(drafts);
-
+    const classLines = template.lines;
     const existing = await prisma.feeInvoice.findMany({
       where: { studentId: { in: students.map((s) => s.id) } },
       select: { studentId: true, period: true },
@@ -115,6 +109,9 @@ export async function issueDueFeesCore(asOf = new Date(), classId?: string, sess
       for (const month of months) {
         if (month.period <= student.feeGeneratedThrough) continue;
         if (have.has(`${student.id}:${month.period}`)) continue;
+        const drafts = composeStudentFeeLines(classLines, student.feeAddOns, month.period);
+        if (!drafts.length) continue;
+        const { total } = feeLineTotal(drafts);
         rows.push({
           studentId: student.id,
           orgId: template.orgId ?? null,
@@ -123,7 +120,7 @@ export async function issueDueFeesCore(asOf = new Date(), classId?: string, sess
           period: month.period,
           title: monthFeeTitle(month.year, month.monthIndex, template.name),
           amount: total,
-          linesJson,
+          linesJson: JSON.stringify(drafts),
           dueDate: dueDateForMonth(month.year, month.monthIndex, template.dueDay),
           ...invoiceLateStamp(template),
           shareToken: crypto.randomUUID(),
