@@ -30,6 +30,9 @@ import { StaffTimesheet } from "./staff-timesheet";
 import { OnboardingBoard } from "./onboarding-board";
 import { StaffAttendanceQrButton, StaffAttendanceQrScanButton } from "./staff-attendance-qr";
 import { studentMetaLine } from "../lib/student-label";
+import { FeeHistory } from "./fee-history";
+import { FeeRegister } from "./fee-register";
+import { FeesChrome, type FeesTab } from "./fees-chrome";
 
 function can(user: { permissions: string[] } | null, key: string) {
   return Boolean(user?.permissions.includes(key));
@@ -3545,7 +3548,7 @@ export function FeesBoard() {
   const [filter, setFilter] = useState<"all" | "overdue">("all");
   const [dueQuery, setDueQuery] = useState("");
   const [dueSort, setDueSort] = useState<"priority" | "amount" | "name">("priority");
-  const [tab, setTab] = useState<"report" | "due" | "templates">("due");
+  const [tab, setTab] = useState<FeesTab>("due");
   const [feeEditorOpen, setFeeEditorOpen] = useState(false);
   const [selectedDueStudentId, setSelectedDueStudentId] = useState("");
   const [payDueStudentId, setPayDueStudentId] = useState("");
@@ -4027,11 +4030,32 @@ export function FeesBoard() {
     setFeeEditorOpen(true);
   }
 
+  const feeTabCopy: Record<FeesTab, { title: string; lede: string }> = {
+    report: { title: "Fee report", lede: "See collection health, exposure, and follow-up priorities." },
+    due: { title: "Collect fees", lede: "Review pending invoices and record payments." },
+    templates: { title: "Fee setup", lede: "Configure class fees and generate monthly invoices." },
+    history: { title: "Fee history", lede: "Review payments and receipts across students and dates." },
+    register: { title: "Fee register", lede: "Audit invoices, payments, balances, and receipts." },
+  };
+
   return (
-    <View>
+    <View className="min-h-0 flex-1 gap-3">
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
-      <View className="mb-3 gap-1.5 rounded-md border border-ink-100 bg-white p-1.5">
-        <View className="flex-row flex-wrap items-stretch gap-1.5">
+      <FeesChrome
+        title={feeTabCopy[tab].title}
+        lede={feeTabCopy[tab].lede}
+        tab={tab}
+        onReport={() => setTab("report")}
+        onCollect={() => setTab("due")}
+        onSetup={() => setTab("templates")}
+        onHistory={() => setTab("history")}
+        onRegister={() => setTab("register")}
+      />
+      {tab === "history" ? <FeeHistory /> : null}
+      {tab === "register" ? <FeeRegister embedded /> : null}
+      {tab === "report" || tab === "due" || tab === "templates" ? (
+        <View className="gap-1.5 rounded-md border border-ink-100 bg-white p-1.5">
+          <View className="flex-row flex-wrap items-stretch gap-1.5">
           <Pressable
             accessibilityRole="button"
             onPress={() => {
@@ -4060,34 +4084,8 @@ export function FeesBoard() {
             <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-700">Generated through</Text>
             <Text className="text-base font-semibold text-ink-900">{periodLabel(generatedThrough)}</Text>
           </View>
-          <View className="flex-row rounded-md border border-ink-200 bg-white p-0.5">
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => {
-                setTab("report");
-                setFilter("all");
-              }}
-              className={`min-w-[76px] items-center rounded-md px-3 py-1.5 ${tab === "report" ? "bg-clay-500" : "bg-white"}`}
-            >
-              <Text className={`text-sm font-semibold ${tab === "report" ? "text-white" : "text-ink-800"}`}>Report</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setTab("due")}
-              className={`min-w-[76px] items-center rounded-md px-3 py-1.5 ${tab === "due" ? "bg-clay-500" : "bg-white"}`}
-            >
-              <Text className={`text-sm font-semibold ${tab === "due" ? "text-white" : "text-ink-800"}`}>Collect</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setTab("templates")}
-              className={`min-w-[76px] items-center rounded-md px-3 py-1.5 ${tab === "templates" ? "bg-clay-500" : "bg-white"}`}
-            >
-              <Text className={`text-sm font-semibold ${tab === "templates" ? "text-white" : "text-ink-800"}`}>Setup</Text>
-            </Pressable>
           </View>
-        </View>
-        <View className="flex-row flex-wrap gap-1.5">
+          <View className="flex-row flex-wrap gap-1.5">
           <Chip
             label="All classes"
             active={classId === "all"}
@@ -4106,8 +4104,9 @@ export function FeesBoard() {
               }}
             />
           ))}
+          </View>
         </View>
-      </View>
+      ) : null}
       {tab === "report" ? (
         <ScrollView
           className="min-h-0 flex-1"

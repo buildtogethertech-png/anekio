@@ -814,6 +814,24 @@ describe("Express portal API", () => {
       .get("/api/v1/fee-register")
       .set({ Authorization: `Bearer ${parentSession.body.token}` });
     expect(parent.status).toBe(403);
+
+    const historyDenied = await request(app).get("/api/v1/fee-history");
+    expect(historyDenied.status).toBe(401);
+    const history = await request(app)
+      .get("/api/v1/fee-history")
+      .query({ datePreset: "custom", from: "2000-01-01", to: "2099-12-31", pageSize: 25 })
+      .set(officeAuth);
+    expect(history.status).toBe(200);
+    expect(history.body.events.length).toBeGreaterThan(0);
+    expect(history.body.events[0]).toEqual(
+      expect.objectContaining({
+        studentId: fixture.studentId,
+      })
+    );
+    const parentHistory = await request(app)
+      .get("/api/v1/fee-history")
+      .set({ Authorization: `Bearer ${parentSession.body.token}` });
+    expect(parentHistory.status).toBe(403);
   });
 
   it("saves late timing and staff In time so a later record load still has them", async () => {

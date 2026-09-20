@@ -19,6 +19,7 @@ import { serializeUser } from "../lib/http-user";
 import { publicNav, navForPortal } from "../lib/nav";
 import { recordPayload } from "../lib/api-v1-record";
 import { queryFeeRegister } from "../lib/fee-register";
+import { queryFeeHistory } from "../lib/fee-history";
 import { homePayload, serializeNotice } from "../lib/api-v1-home";
 import { noticesForUser } from "../lib/data";
 import { runAct } from "../lib/run-act";
@@ -387,6 +388,18 @@ app.get("/api/v1/fee-register", async (req, res) => {
     res.json(await queryFeeRegister(user, (req.query || {}) as Record<string, unknown>));
   } catch (e) {
     sendError(res, 400, e instanceof Error ? e.message : "Fee register unavailable");
+  }
+});
+
+app.get("/api/v1/fee-history", async (req, res) => {
+  const user = await requireUser(req, res);
+  if (!user) return;
+  if (!(await requireActiveSubscription(user.id, res))) return;
+  if (!hasAny(user, ["fees.view"])) return sendError(res, 403, "No access.");
+  try {
+    res.json(await queryFeeHistory(user, (req.query || {}) as Record<string, unknown>));
+  } catch (e) {
+    sendError(res, 400, e instanceof Error ? e.message : "Fee history unavailable");
   }
 });
 
