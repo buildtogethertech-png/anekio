@@ -1,4 +1,4 @@
-## Anekio
+<!-- ## Anekio
 
 India-first school product: office, teacher, parent, student. One Expo app (web, Android, iOS) and one Express API. How to run is in `README.md`.
 
@@ -43,4 +43,4 @@ India-first school product: office, teacher, parent, student. One Expo app (web,
 - Make code changes only after the Jira ticket exists.
 - After the change, update the Jira ticket with what changed and how it was verified.
 - Commit the change with the Jira ticket key in the commit message, for example `KAN-123: Fix leave creation`.
-- If the user asks for a change without a Jira ticket key, ask for the ticket key or offer to create one before editing.
+- If the user asks for a change without a Jira ticket key, ask for the ticket key or offer to create one before editing. -->
