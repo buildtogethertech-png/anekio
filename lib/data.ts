@@ -19,7 +19,6 @@ export async function getParentWithChildren(userId: string) {
       students: {
         include: {
           class: true,
-          enrollments: { where: { active: true, session: { current: true } }, select: { rollNumber: true, classId: true } },
           feeInvoices: { include: { payments: true } },
           interests: true,
           user: true,
@@ -47,7 +46,6 @@ export async function getStudentForUser(userId: string) {
     where: { userId },
     include: {
       class: true,
-      enrollments: { where: { active: true, session: { current: true } }, select: { rollNumber: true, classId: true } },
       interests: true,
       parent: { include: { user: true } },
     },
@@ -68,12 +66,11 @@ export async function getStudentBundle(studentId: string) {
         },
       },
       interests: true,
-      enrollments: { where: { active: true, session: { current: true } }, select: { rollNumber: true, classId: true } },
       parent: { include: { user: true } },
       user: true,
       attendance: { orderBy: { date: "desc" }, take: 40 },
       examResults: {
-        include: { exam: { include: { subject: true, series: true } } },
+        include: { exam: { include: { subject: true, series: { include: { exams: { select: { workflowStatus: true, resultsPublishedAt: true } } } } } } },
         orderBy: { exam: { date: "desc" } },
       },
       papers: {
@@ -103,7 +100,6 @@ export async function getClassRoster(classId: string) {
     include: {
       parent: { include: { user: { select: { name: true, phone: true, email: true } } } },
       interests: true,
-      enrollments: { where: { active: true, session: { current: true } }, select: { rollNumber: true, classId: true } },
       attendance: { orderBy: { date: "desc" }, take: 400 },
       examResults: { include: { exam: { include: { subject: true, series: true } } } },
       feeInvoices: { include: { payments: true }, orderBy: { dueDate: "desc" } },
@@ -359,7 +355,6 @@ export async function getTeacherDesk(userId: string) {
           name: true,
           admissionNo: true,
           classId: true,
-          enrollments: { where: { active: true, session: { current: true } }, select: { rollNumber: true, classId: true } },
         },
         orderBy: { name: "asc" },
       })
@@ -500,7 +495,7 @@ export async function getTeacherDesk(userId: string) {
             id: s.id,
             name: s.name,
             admissionNo: s.admissionNo,
-            rollNumber: s.enrollments.find((row) => row.classId === s.classId)?.rollNumber || null,
+            rollNumber: s.enrollments?.find((row) => row.classId === s.classId)?.rollNumber || null,
             marks: saved && !saved.absent ? saved.marks : null,
             absent: Boolean(saved?.absent),
             correctionNote: saved?.correctionNote || "",
@@ -689,7 +684,6 @@ export async function getPeople() {
     prisma.student.findMany({
       include: {
         class: true,
-        enrollments: { where: { active: true, session: { current: true } }, select: { rollNumber: true, classId: true } },
         interests: true,
         parent: { include: { user: true } },
         user: true,

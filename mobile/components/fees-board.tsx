@@ -5,6 +5,7 @@ import { useRouter } from "expo-router";
 import { GeneratePayment } from "./generate-payment";
 import { FilterBar, type FilterConfig, type FilterValues } from "./filter";
 import { Button, Card, Field, Input, Modal, Switch, Toast, useToast } from "./ui";
+import { DateField } from "./date-field";
 import { FeeReport } from "./fee-report";
 import { act } from "../lib/mutate";
 import { webOrigin } from "../lib/api";
@@ -13,7 +14,7 @@ import { useSession } from "../lib/session";
 import { inr } from "../lib/payroll";
 
 type Tab = "register" | "report" | "insight" | "setup";
-type SetupPane = "class" | "transport" | "other" | "late";
+type SetupPane = "class" | "transport" | "other" | "late" | "academic";
 type Person = NonNullable<ReturnType<typeof useRecord>["data"]>["people"] extends (infer P)[] | undefined ? P : never;
 type Invoice = NonNullable<Person["invoices"]>[number];
 
@@ -25,6 +26,7 @@ function can(user: { permissions: string[] } | null, key: string) {
 
 const CLASS_CHARGE_SUGGESTIONS = ["Tuition", "Lab", "Books", "Hostel", "Computer", "Exam", "Activity", "Uniform"];
 const CLASS_ADDON_SUGGESTIONS = ["Project", "Picnic", "Workshop", "Smart class", "Sports kit"];
+const ADMISSION_CHARGE_SUGGESTIONS = ["Admission fee", "Prospectus", "Registration", "ID card", "Caution deposit"];
 const TRANSPORT_SUGGESTIONS = ["Route A", "Route B", "Route C", "Van", "Mini bus"];
 const OTHER_FEE_SUGGESTIONS = ["Computer fee", "Exam fee", "Activity", "Uniform", "Smart class", "Annual function"];
 
@@ -113,13 +115,57 @@ function periodRangeLabel(start?: string, end?: string) {
 }
 
 function ordinalDay(day: number) {
-  const value = Math.max(1, Math.min(28, Math.round(day || 10)));
+  const value = Math.max(1, Math.min(30, Math.round(day || 10)));
   const rem = value % 100;
   if (rem >= 11 && rem <= 13) return `${value}th`;
   if (value % 10 === 1) return `${value}st`;
   if (value % 10 === 2) return `${value}nd`;
   if (value % 10 === 3) return `${value}rd`;
   return `${value}th`;
+}
+
+function DueDayCalendar({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: string;
+  disabled?: boolean;
+  onChange: (next: string) => void;
+}) {
+  const selected = Math.max(1, Math.min(30, Math.round(Number(value) || 10)));
+  const rows = [0, 1, 2, 3, 4];
+  return (
+    <View>
+      <View className="overflow-hidden rounded-md border border-ink-200 bg-white p-1.5">
+        {rows.map((row) => (
+          <View key={row} className="flex-row">
+            {Array.from({ length: 6 }, (_, col) => {
+              const day = row * 6 + col + 1;
+              const on = day === selected;
+              return (
+                <Pressable
+                  key={day}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Due on day ${day}`}
+                  disabled={disabled}
+                  onPress={() => onChange(String(day))}
+                  className="flex-1 items-center justify-center py-1"
+                >
+                  <View className={`h-7 w-7 items-center justify-center rounded-full ${on ? "bg-blue-600" : ""}`}>
+                    <Text className={`text-xs font-semibold ${on ? "text-white" : "text-ink-800"}`}>{day}</Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+        ))}
+      </View>
+      <Text className="mt-1.5 text-xs text-ink-600">
+        Due on the {ordinalDay(selected)} each month. Shorter months use the last day.
+      </Text>
+    </View>
+  );
 }
 
 function periodLabel(period?: string) {
@@ -334,9 +380,13 @@ export function FeesBoard() {
   const [editorClassId, setEditorClassId] = useState("");
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [tplName, setTplName] = useState("Monthly fee");
-  const [tplDue, setTplDue] = useState("10");
   const [tplLines, setTplLines] = useState<FeeLineDraft[]>([newFeeLine("Tuition", "")]);
   const [tplAddOnLines, setTplAddOnLines] = useState<FeeLineDraft[]>([]);
+  const [sessionName, setSessionName] = useState("");
+  const [sessionStart, setSessionStart] = useState("");
+  const [sessionEnd, setSessionEnd] = useState("");
+  const [sessionDue, setSessionDue] = useState("10");
+  const [admissionLines, setAdmissionLines] = useState<FeeLineDraft[]>([newFeeLine("Admission fee", "")]);
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [catalogKind, setCatalogKind] = useState<"TRANSPORT" | "OTHER">("TRANSPORT");
   const [catalogId, setCatalogId] = useState("");
@@ -356,7 +406,7 @@ export function FeesBoard() {
   const configure = can(user, "fees.configure");
   const compact = width < 768;
   const currentSession = data?.school?.sessions?.find((row) => row.current) ?? data?.school?.sessions?.[0];
-  const catalog = data?.feeCatalog ?? { items: [], late: { enabled: false, amount: 0, graceDays: 0 } };
+  const catalog = data?.feeCatalog ?? { items: [], late: { enabled: false, amount: 0, graceDays: 0 }, dueDay: 10 };
   const transportItems = catalog.items.filter((item) => item.kind === "TRANSPORT");
   const otherItems = catalog.items.filter((item) => item.kind === "OTHER");
   const classTemplates = useMemo(
@@ -371,6 +421,7 @@ export function FeesBoard() {
   const defaultStartPeriod = currentSession?.startsOn?.slice(0, 7) || currentFeePeriod();
   const defaultEndPeriod = currentSession?.endsOn?.slice(0, 7) || defaultStartPeriod;
   const structureRange = periodRangeLabel(classTemplate?.startsPeriod || defaultStartPeriod, classTemplate?.endsPeriod || defaultEndPeriod);
+  const admissionTotal = admissionLines.reduce((sum, line) => sum + Math.max(0, Math.round(Number(line.amount) || 0)), 0);
   const tplTotal = tplLines.reduce((sum, line) => sum + Math.max(0, Math.round(Number(line.amount) || 0)), 0);
   const classRows = useMemo(
     () =>
@@ -559,7 +610,6 @@ export function FeesBoard() {
   useEffect(() => {
     if (!editorClassId) return;
     setTplName(classTemplate?.name || "Monthly fee");
-    setTplDue(String(classTemplate?.dueDay || 10));
     const allLines = (classTemplate?.lines || []).filter((line) => line.scope !== "ADD_ON");
     const addOnLines = (classTemplate?.lines || []).filter((line) => line.scope === "ADD_ON");
     setTplLines(allLines.length ? allLines.map((line) => newFeeLine(line.label, String(line.amount))) : [newFeeLine("Tuition", "")]);
@@ -580,6 +630,27 @@ export function FeesBoard() {
     setLateRule(rule);
     setLateEvery(String((useCatalog ? fromCatalog.intervalCount : fromTemplate?.lateIntervalCount) || 15));
   }, [catalog.late, templates]);
+
+  useEffect(() => {
+    setSessionName(currentSession?.label || data?.school?.sessionLabel || "");
+    setSessionStart(currentSession?.startsOn || data?.school?.sessionStart || "");
+    setSessionEnd(currentSession?.endsOn || data?.school?.sessionEnd || "");
+    const fromCatalog = catalog.dueDay;
+    const fromTemplate = templates.find((row) => row.dueDay)?.dueDay;
+    setSessionDue(String(fromCatalog || fromTemplate || 10));
+  }, [currentSession?.id, currentSession?.label, currentSession?.startsOn, currentSession?.endsOn, data?.school?.sessionLabel, data?.school?.sessionStart, data?.school?.sessionEnd, catalog.dueDay, templates]);
+
+  useEffect(() => {
+    const rows = data?.admissionFeeLines ?? [];
+    const classId = rows[0]?.classId;
+    const forClass = classId ? rows.filter((row) => row.classId === classId).sort((a, b) => a.sortOrder - b.sortOrder) : [];
+    if (forClass.length) {
+      setAdmissionLines(forClass.map((row) => newFeeLine(row.label, String(row.amount))));
+      return;
+    }
+    const fallback = data?.school?.admissionCharge;
+    setAdmissionLines([newFeeLine("Admission fee", fallback ? String(fallback) : "")]);
+  }, [data?.admissionFeeLines, data?.school?.admissionCharge]);
 
   async function openDueFeeDocument(inv: { id: string; invoiceUrl?: string; receiptUrl?: string }, paid: boolean) {
     const directUrl = paid ? inv.receiptUrl : inv.invoiceUrl;
@@ -636,7 +707,6 @@ export function FeesBoard() {
         name: tplName,
         startsPeriod: classTemplate?.startsPeriod || defaultStartPeriod,
         endsPeriod: classTemplate?.endsPeriod || defaultEndPeriod,
-        dueDay: Number(tplDue),
         lines,
       });
       setSelectedTemplateId(saved.id);
@@ -685,6 +755,46 @@ export function FeesBoard() {
       await reload();
     } catch (error) {
       toast.show(error instanceof Error ? error.message : "Could not save.");
+    }
+  }
+
+  async function saveFeeSession() {
+    try {
+      await act(token, "saveFeeAcademicSession", {
+        label: sessionName.trim(),
+        startsOn: sessionStart,
+        endsOn: sessionEnd,
+      });
+      toast.show("Academic session saved.");
+      await reload();
+    } catch (error) {
+      toast.show(error instanceof Error ? error.message : "Could not save session.");
+    }
+  }
+
+  async function saveFeeDueDay() {
+    try {
+      await act(token, "saveFeeAcademicSession", { dueDay: Number(sessionDue) });
+      toast.show("Due day saved for every class.");
+      await reload();
+    } catch (error) {
+      toast.show(error instanceof Error ? error.message : "Could not save due day.");
+    }
+  }
+
+  async function saveAdmissionFee() {
+    try {
+      const lines = admissionLines
+        .map((line) => ({
+          label: line.label.trim() || "Admission fee",
+          amount: Math.max(0, Math.round(Number(line.amount) || 0)),
+        }))
+        .filter((line) => line.label || line.amount > 0);
+      await act(token, "saveAdmissionFeeSetup", { lines });
+      toast.show("Admission fee saved.");
+      await reload();
+    } catch (error) {
+      toast.show(error instanceof Error ? error.message : "Could not save admission fee.");
     }
   }
 
@@ -811,7 +921,7 @@ export function FeesBoard() {
                 accessibilityRole="button"
                 accessibilityLabel={`${row.person.name} fee detail`}
                 onPress={() => setSelectedDueStudentId(row.person.id)}
-                className={`flex-row border-b border-ink-50 ${active ? "bg-blue-50" : "bg-white"}`}
+                className={`flex-row border-b border-ink-50 ${active ? "bg-blue-50" : "bg-white hover:bg-ink-50"}`}
                 style={{ minHeight: 56, cursor: "pointer" }}
               >
                 <Cell flex={0.95}>{row.person.admissionNo || "—"}</Cell>
@@ -871,7 +981,7 @@ export function FeesBoard() {
       {reportEvents.map((row) => {
         const when = clockLabel(row.paidAt);
         return (
-          <View key={row.key} className="flex-row border-b border-ink-50 bg-white" style={{ minHeight: 56 }}>
+          <View key={row.key} className="flex-row border-b border-ink-50 bg-white hover:bg-ink-50" style={{ minHeight: 56 }}>
             <Cell flex={1.3}>
               <Text numberOfLines={1} className="text-[13px] leading-5 text-ink-900">
                 {when.day}
@@ -1168,8 +1278,9 @@ export function FeesBoard() {
         [
           ["class", "Class Fees"],
           ["transport", "Transport"],
-          ["other", "Other Fees"],
-          ["late", "Late Fee"],
+          ["other", "Other"],
+          ["late", "Fine"],
+          ["academic", "Academic"],
         ] as const
       ).map(([id, label]) => (
         <Pressable
@@ -1223,7 +1334,7 @@ export function FeesBoard() {
               setCatalogActive(item.active);
               setCatalogOpen(true);
             }}
-            className="flex-row border-b border-ink-50 px-3"
+            className="flex-row border-b border-ink-50 px-3 hover:bg-ink-50"
             style={{ minHeight: 48 }}
           >
             <Cell flex={2}>{item.label}</Cell>
@@ -1267,7 +1378,7 @@ export function FeesBoard() {
               setSelectedTemplateId(row.template?.id || "new");
               setFeeEditorOpen(true);
             }}
-            className="flex-row border-b border-ink-50 px-3"
+            className="flex-row border-b border-ink-50 px-3 hover:bg-ink-50"
             style={{ minHeight: 48 }}
           >
             <Cell flex={1.4}>
@@ -1292,10 +1403,120 @@ export function FeesBoard() {
       catalogTable("TRANSPORT")
     ) : setupPane === "other" ? (
       catalogTable("OTHER")
+    ) : setupPane === "academic" ? (
+      <View className="gap-3">
+        <View className="flex-row flex-wrap gap-3">
+          <Card className="min-w-[280px] flex-1 p-4">
+            <Text className="text-sm font-semibold text-ink-900">Academic session</Text>
+            <Text className="mt-1 text-xs text-ink-600">This range is the boundary for the current session. Monthly class fees still use their own start and end months.</Text>
+            <View className="mt-3 gap-3">
+              <Field label="Session name">
+                <Input value={sessionName} onChangeText={setSessionName} placeholder="2026 - 2027" />
+              </Field>
+              <View className="flex-row flex-wrap gap-3">
+                <View className="min-w-[160px] flex-1">
+                  <Field label="Start date">
+                    <DateField value={sessionStart} onChange={setSessionStart} />
+                  </Field>
+                </View>
+                <View className="min-w-[160px] flex-1">
+                  <Field label="End date">
+                    <DateField value={sessionEnd} onChange={setSessionEnd} />
+                  </Field>
+                </View>
+              </View>
+            </View>
+            {configure ? (
+              <View className="mt-4 items-end">
+                <Button onPress={() => void saveFeeSession()}>Save session</Button>
+              </View>
+            ) : null}
+          </Card>
+          <Card className="p-4" style={{ width: compact ? "100%" : 280, flexGrow: compact ? 1 : 0, minWidth: compact ? undefined : 280 }}>
+            <Text className="text-sm font-semibold text-ink-900">Due day</Text>
+            <Text className="mt-1 text-xs text-ink-600">One due day for every class. Applies to newly generated invoices.</Text>
+            <View className="mt-3">
+              <DueDayCalendar value={sessionDue} disabled={!configure} onChange={setSessionDue} />
+            </View>
+            {configure ? (
+              <View className="mt-4 items-end">
+                <Button onPress={() => void saveFeeDueDay()}>Save due day</Button>
+              </View>
+            ) : null}
+          </Card>
+        </View>
+        <Card className="p-4">
+          <Text className="text-sm font-semibold text-ink-900">Admission fee</Text>
+          <Text className="mt-1 text-xs text-ink-600">One-time charge at the start of the academic session. Add each item; the total is the admission fee. Not part of monthly class fees.</Text>
+          <View className="mt-3 gap-2">
+            <View className="flex-row px-1">
+              <Text className="flex-1 text-[11px] font-semibold uppercase tracking-wide text-ink-500">Charge</Text>
+              <Text className="w-32 text-right text-[11px] font-semibold uppercase tracking-wide text-ink-500">Amount</Text>
+              <View className="w-16" />
+            </View>
+            {admissionLines.map((line) => (
+              <View key={line.id} className="flex-row items-center gap-2">
+                <View className="min-w-0 flex-1">
+                  <Input
+                    placeholder="e.g. Prospectus"
+                    value={line.label}
+                    onChangeText={(label) => setAdmissionLines((rows) => rows.map((row) => (row.id === line.id ? { ...row, label } : row)))}
+                  />
+                </View>
+                <View className="w-32">
+                  <Input
+                    keyboardType="number-pad"
+                    value={line.amount}
+                    onChangeText={(amount) => setAdmissionLines((rows) => rows.map((row) => (row.id === line.id ? { ...row, amount } : row)))}
+                  />
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setAdmissionLines((rows) => (rows.length > 1 ? rows.filter((row) => row.id !== line.id) : rows))}
+                  className="w-16 items-center py-2"
+                >
+                  <Text className="text-xs font-semibold text-red-700">Remove</Text>
+                </Pressable>
+              </View>
+            ))}
+            {configure ? (
+              <View className="gap-2 pt-1">
+                <Pressable onPress={() => setAdmissionLines((rows) => [...rows, newFeeLine()])} className="self-start py-1">
+                  <Text className="text-xs font-semibold text-blue-700">+ Add charge</Text>
+                </Pressable>
+                <SuggestionPills
+                  options={ADMISSION_CHARGE_SUGGESTIONS}
+                  used={admissionLines.map((line) => line.label)}
+                  onPick={(label) =>
+                    setAdmissionLines((rows) => {
+                      if (rows.some((row) => row.label.trim().toLowerCase() === label.toLowerCase())) return rows;
+                      const empty = rows.find((row) => !row.label.trim());
+                      if (empty) return rows.map((row) => (row.id === empty.id ? { ...row, label } : row));
+                      return [...rows, newFeeLine(label)];
+                    })
+                  }
+                />
+              </View>
+            ) : null}
+            <View className="mt-2 flex-row items-center justify-between border-t border-ink-100 pt-3">
+              <Text className="text-sm font-semibold text-ink-900">Admission total</Text>
+              <Text className="text-sm font-semibold text-ink-900">{inr(admissionTotal)}</Text>
+            </View>
+          </View>
+          <Text className="mt-2 text-xs text-ink-600">Type: One time · Applicable: at session start</Text>
+          {configure ? (
+            <View className="mt-4 items-end">
+              <Button onPress={() => void saveAdmissionFee()}>Save</Button>
+            </View>
+          ) : null}
+        </Card>
+      </View>
     ) : (
       <Card className="p-4">
-        <Text className="text-sm font-semibold text-ink-900">Late fee</Text>
-        <Text className="mt-1 text-xs text-ink-600">Applies to newly generated invoices. Paid and historical invoices stay unchanged.</Text>
+        <Text className="text-sm font-semibold text-ink-900">Late / fine defaults</Text>
+        <Text className="mt-1 text-xs text-ink-600">
+          One school-wide rule for every class. Applies after the due date on newly generated invoices. Paid and historical invoices stay unchanged.
+        </Text>
         <View className="mt-4 flex-row items-center justify-between">
           <Text className="text-sm text-ink-800">Late fee enabled</Text>
           <Switch on={lateEnabled} disabled={!configure} onPress={() => setLateEnabled((value) => !value)} />
@@ -1505,18 +1726,9 @@ export function FeesBoard() {
             <Text className="text-sm font-semibold text-ink-900">Fee structure</Text>
             {structureRange ? <Text className="mt-1 text-xs text-ink-600">This structure applies {structureRange}</Text> : null}
           </View>
-          <View className="flex-row flex-wrap gap-3">
-            <View className="min-w-[220px] flex-1">
-              <Field label="Name">
-                <Input value={tplName} onChangeText={setTplName} />
-              </Field>
-            </View>
-            <View className="w-28">
-              <Field label="Due day">
-                <Input keyboardType="number-pad" value={tplDue} onChangeText={setTplDue} />
-              </Field>
-            </View>
-          </View>
+          <Field label="Name">
+            <Input value={tplName} onChangeText={setTplName} />
+          </Field>
           <View className="gap-2">
             <View className="flex-row px-1">
               <Text className="flex-1 text-[11px] font-semibold uppercase tracking-wide text-ink-500">Charge</Text>

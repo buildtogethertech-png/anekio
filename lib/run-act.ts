@@ -97,6 +97,7 @@ import {
   saveSeriesMarksCore,
   sendFeeRemindersCore,
   startNextSchoolSessionCore,
+  saveFeeAcademicSessionCore,
   submitExamMarksCore,
   takeExamCore,
   updateExamSeriesPapersCore,
@@ -248,6 +249,8 @@ export async function runAct(
     case "startNextSchoolSession":
       await startNextSchoolSessionCore(user);
       break;
+    case "saveFeeAcademicSession":
+      return { ok: true, ...(await saveFeeAcademicSessionCore(user, body as never)) };
     case "addSchoolHoliday":
       await addSchoolHolidayCore(user, body as never);
       break;

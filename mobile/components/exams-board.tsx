@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Button, Card, Chip, Modal, Toast, useToast } from "./ui";
+import { Button, Card, Chip, Input, Modal, Toast, useToast } from "./ui";
 import {
   ExamScheduleSheet,
   type ExamScheduleSheetHandle,
@@ -21,6 +21,9 @@ import {
   officeSittingProgress,
   officeSittingStatus,
   officeSubmitted,
+  canSendResultsToParents,
+  examSittingDocumentTypes,
+  isHistoryImportPaper,
 } from "../lib/exam-workflow";
 import { useRecord } from "../lib/record";
 import { useSession } from "../lib/session";
@@ -133,6 +136,7 @@ export function ExamsBoard() {
   const [returnNote, setReturnNote] = useState("");
   const [approveExamId, setApproveExamId] = useState("");
   const [publishOpen, setPublishOpen] = useState(false);
+  const [holdUnpaidMonths, setHoldUnpaidMonths] = useState("");
   const [leavingIds, setLeavingIds] = useState<string[]>([]);
   const [approvedFlash, setApprovedFlash] = useState("");
   const [setupFocus, setSetupFocus] = useState<"gallery" | "detail">("gallery");
@@ -148,6 +152,10 @@ export function ExamsBoard() {
   useEffect(() => {
     if (!sessionId && currentSession?.id) setSessionId(currentSession.id);
   }, [sessionId, currentSession?.id]);
+  useEffect(() => {
+    if (!publishOpen) return;
+    setHoldUnpaidMonths(String(pack?.policy?.reportCardUnpaidMonths ?? school?.policy?.reportCardUnpaidMonths ?? ""));
+  }, [publishOpen, pack?.policy?.reportCardUnpaidMonths, school?.policy?.reportCardUnpaidMonths]);
   const session = sessions.find((s) => s.id === sessionId) ?? currentSession;
   const plan =
     (sessionId && pack?.planBySession?.[sessionId]) || school?.plan || [];
@@ -288,7 +296,7 @@ export function ExamsBoard() {
       setPending("");
     }
   }
-  async function publishToParents(examId?: string) {
+  async function publishToParents(examId?: string, holdIfUnpaidMonths?: number, sendToParents = false) {
     if (!series) return;
     const ready = examId
       ? papers.filter((exam) => exam.id === examId)
@@ -299,23 +307,33 @@ export function ExamsBoard() {
       );
       return;
     }
+    const feeHold = holdIfUnpaidMonths != null ? { holdIfUnpaidMonths } : {};
+    const holdNote =
+      holdIfUnpaidMonths && holdIfUnpaidMonths > 0
+        ? ` Families with ${holdIfUnpaidMonths} or more unpaid fee months will see results after they pay.`
+        : "";
+    const sendFlag = sendToParents ? { sendToParents: true } : {};
     if (!examId && allApproved) {
       await run(
         "publishExamResults",
-        { seriesId: series.id },
-        "Results published. Parents can see marks now.",
+        { seriesId: series.id, ...feeHold, ...sendFlag },
+        sendToParents
+          ? `Results sent to parents.${holdNote || " Families can see marks now."}`
+          : "Papers published. Send to parents after every paper is published.",
       );
       return;
     }
     setPending("publishExamResults");
     try {
       for (const exam of ready) {
-        await act(token, "publishExamResults", { examId: exam.id });
+        await act(token, "publishExamResults", { examId: exam.id, ...feeHold, ...sendFlag });
       }
       toast.show(
-        ready.length === 1
-          ? `${ready[0].subject.name} published to parents`
-          : `${ready.length} papers published to parents`,
+        sendToParents
+          ? `Results sent to parents.${holdNote}`
+          : ready.length === 1
+            ? `${ready[0].subject.name} paper published.`
+            : `${ready.length} papers published.`,
       );
       await reload();
     } catch (e) {
@@ -406,9 +424,6 @@ export function ExamsBoard() {
   function marksGranted(exam: (typeof papers)[number]) {
     return Boolean((exam.evaluators || []).length || exam.marksGrantedAt);
   }
-  function isHistoryImportPaper(exam: (typeof papers)[number]) {
-    return !exam.paperAt && Boolean(exam.marksGrantedAt) && (exam.entered ?? 0) > 0;
-  }
   async function openMarksEditor(exam: (typeof papers)[number]) {
     if (exam.workflowStatus === "SUBMITTED") {
       await run("reviewExamMarks", { examId: exam.id }, "Opened for review");
@@ -450,12 +465,8 @@ export function ExamsBoard() {
         subjectType="EXAM_SERIES"
         subjectId={series.id}
         subjectLabel={`${series.name} · ${classLabel}`}
-        allowedTypes={
-          allPublished
-            ? ["REPORT_CARD", "GRADE_SHEET", "PROGRESS_REPORT", "CONSOLIDATED_REPORT"]
-            : ["ADMIT_CARD", "EXAM_DATE_SHEET", "SEATING_PLAN", "DESK_SLIP", "INVIGILATOR_DUTY", "SUBJECT_MARKSHEET"]
-        }
-        label={allPublished ? "Report card" : "Generate documents"}
+        allowedTypes={examSittingDocumentTypes(allPublished)}
+        label={allPublished ? "Issue results" : "Issue admit cards"}
         resultIssue={allPublished}
         batchSubjects={(data.people || [])
           .filter((student) => student.classLabel === classLabel)
@@ -745,7 +756,7 @@ export function ExamsBoard() {
                       </Text>
                     </View>
                     <View className="flex-row flex-wrap items-center gap-2">
-                      {allPublished ? docsButton : null}
+                      {docsButton}
                       {canRun ? (
                         <Button variant="ghost" disabled={Boolean(pending)} onPress={() => openSchedule("edit")} className="anekio-btn h-9 px-3 py-1.5">
                           Edit dates
@@ -758,7 +769,6 @@ export function ExamsBoard() {
                         minWidth={220}
                         panel={
                           <View className="py-1">
-            {allPublished ? null : docsButton}
                             {canRun && series ? (
                               <>
                                 <Pressable
@@ -852,14 +862,14 @@ export function ExamsBoard() {
                       <Pressable
                         accessibilityRole="switch"
                         accessibilityLabel="Publish results to parents"
-                        accessibilityState={{ checked: allPublished, disabled: allPublished || Boolean(pending) }}
-                        disabled={Boolean(pending) || allPublished || !canPublish}
+                        accessibilityState={{ checked: allPublished, disabled: Boolean(pending) || !canPublish || !allPublished }}
+                        disabled={Boolean(pending) || !canPublish || !allPublished}
                         onPress={() => {
-                          if (allApproved) {
+                          if (canSendResultsToParents(papers, canPublish)) {
                             setPublishOpen(true);
                             return;
                           }
-                          toast.show("Approve every paper first, then publish so parents can see the report card.");
+                          toast.show("Publish every paper first, then send results to parents.");
                         }}
                         className={`anekio-switch h-5 w-9 justify-center rounded-full ${allPublished ? "bg-[#10B981]" : "bg-ink-200"}`}
                       >
@@ -867,14 +877,14 @@ export function ExamsBoard() {
                       </Pressable>
                       <Text className="text-[11px] text-ink-700">
                         {allPublished
-                          ? "Visible to parents"
+                          ? "Visible after send"
                           : resultsPublished
-                            ? "Some papers published · full report waits"
+                            ? "Some papers published · send waits for every paper"
                             : "Hidden from parents"}
                       </Text>
-                      {canPublish && allApproved && !allPublished ? (
+                      {canSendResultsToParents(papers, canPublish) ? (
                         <ExamAction busy={pending === "publishExamResults"} onPress={() => setPublishOpen(true)}>
-                          Publish to parents
+                          Send results to parents
                         </ExamAction>
                       ) : null}
                     </View>
@@ -884,13 +894,27 @@ export function ExamsBoard() {
               {allApproved && !allPublished && canPublish ? (
                 <View className="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3">
                   <Text className="text-[13px] font-semibold text-ink-900">✓ {papers.length} / {papers.length} papers approved</Text>
-                  <Text className="mt-0.5 text-[12px] text-ink-700">Results are ready.</Text>
+                  <Text className="mt-0.5 text-[12px] text-ink-700">Lock every paper. Send to parents only after they are all published.</Text>
                   <View className="mt-2 flex-row flex-wrap gap-2">
                     <Button variant="ghost" onPress={() => setDesk("review")}>
                       Preview results
                     </Button>
+                    <ExamAction
+                      busy={pending === "publishExamResults"}
+                      onPress={() => void publishToParents()}
+                    >
+                      Publish papers
+                    </ExamAction>
+                  </View>
+                </View>
+              ) : null}
+              {canSendResultsToParents(papers, canPublish) ? (
+                <View className="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3">
+                  <Text className="text-[13px] font-semibold text-ink-900">Every paper is published</Text>
+                  <Text className="mt-0.5 text-[12px] text-ink-700">Set a fee condition, then send the sitting to parents.</Text>
+                  <View className="mt-2 flex-row flex-wrap gap-2">
                     <ExamAction busy={pending === "publishExamResults"} onPress={() => setPublishOpen(true)}>
-                      Publish results
+                      Send results to parents
                     </ExamAction>
                   </View>
                 </View>
@@ -1101,13 +1125,28 @@ export function ExamsBoard() {
       />
       <ExamConfirm
         open={publishOpen}
-        title={`Publish ${series?.name || "exam"} results`}
-        body={`${approvedPapers.length} papers approved\n${studentCount} students\n\nResults will become visible to parents and students.`}
-        action="Publish results"
+        title={`Send ${series?.name || "exam"} results to parents`}
+        body={`${papers.length} papers published\n${studentCount} students\n\nOnly families who pass the fee condition will see the report card.`}
+        extra={
+          <View className="mt-4 gap-1.5">
+            <Text className="text-xs font-medium text-ink-800">Hold results if unpaid months ≥</Text>
+            <Input
+              keyboardType="number-pad"
+              value={holdUnpaidMonths}
+              onChangeText={setHoldUnpaidMonths}
+              placeholder="0"
+              className="w-24"
+            />
+            <Text className="text-[11px] leading-4 text-ink-600">
+              Example: 3 means a family with 3 or more unpaid fee months cannot see results until they pay. 0 publishes to everyone.
+            </Text>
+          </View>
+        }
+        action="Send results"
         busy={pending === "publishExamResults"}
         onClose={() => setPublishOpen(false)}
         onConfirm={async () => {
-          await publishToParents();
+          await publishToParents(undefined, Math.max(0, Math.floor(Number(holdUnpaidMonths) || 0)), true);
           setPublishOpen(false);
         }}
       />
@@ -1245,9 +1284,13 @@ export function ExamsBoard() {
                       publishedHint={
                         detailExam.workflowStatus === "PUBLISHED"
                           ? allPublished
-                            ? "Report card visible to fee-cleared parents"
+                            ? "This paper is published. Send the sitting to parents when ready."
                             : "This paper is published. The full report card waits until every subject is published."
                           : undefined
+                      }
+                      released={allPublished}
+                      releasedHint={
+                        allPublished ? "Send results to parents with the fee condition." : "Waits until every paper is published."
                       }
                     />
                   )}
@@ -1299,7 +1342,7 @@ export function ExamsBoard() {
                     </Button>
                   ) : null}
                   {canPublish && !isHistoryImportPaper(detailExam) && adminCanPublish(detailExam.workflowStatus) ? (
-                    <ExamAction onPress={() => void publishToParents(detailExam.id)}>Publish results</ExamAction>
+                    <ExamAction onPress={() => void publishToParents(detailExam.id)}>Publish paper</ExamAction>
                   ) : null}
                   {canRun && !isHistoryImportPaper(detailExam) ? (
                     <Button variant="ghost" className="w-full" onPress={() => openSchedule("edit")}>

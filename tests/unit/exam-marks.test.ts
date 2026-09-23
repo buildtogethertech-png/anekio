@@ -179,7 +179,7 @@ describe("master marksheet helpers", () => {
       students: [{ id: "s1", name: "Aarav Sharma", admissionNo: "ADM001" }],
       marks: [{ examId: "e1", studentId: "s1", marks: 18 }],
     });
-    expect(csv).toContain("Admission Number");
+    expect(csv).toContain("Roll / Admission");
     expect(csv).toContain("ADM001");
     expect(csv).toContain("Aarav Sharma");
     expect(csv).toContain("PENDING");

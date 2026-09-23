@@ -6,6 +6,13 @@ import { api, type Notice } from "./api";
 import { act } from "./mutate";
 import { useSession } from "./session";
 import { getSeenNoticeIds, setSeenNoticeIds } from "./storage";
+import {
+  NOTICE_POLL_MS,
+  applyNoticeInboxPoll,
+  initialSeenNoticeIds,
+  markAllNoticeIdsSeen,
+  unreadNoticeCount,
+} from "./notice-seen";
 
 type Inbox = {
   notices: Notice[];
@@ -87,6 +94,7 @@ async function registerPush(token: string) {
 
 export function NoticeInboxProvider({ children }: { children: ReactNode }) {
   const { token, user } = useSession();
+  const userId = user?.id ?? null;
   const router = useRouter();
   const [notices, setNotices] = useState<Notice[]>([]);
   const [seen, setSeen] = useState<Set<string>>(new Set());
@@ -97,21 +105,28 @@ export function NoticeInboxProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(
     async (opts?: { silent?: boolean }) => {
-      if (!token || !user) return;
+      if (!token || !userId) return;
       const payload = await api<{ notices: Notice[] }>("/notices", token);
       const rows = payload.notices;
+      const ids = rows.map((n) => n.id);
       if (!primed.current) {
-        const stored = await getSeenNoticeIds(user.id);
-        const nextSeen = stored ? new Set(stored) : new Set(rows.map((n) => n.id));
-        if (!stored) await setSeenNoticeIds(user.id, [...nextSeen]);
+        const stored = await getSeenNoticeIds(userId);
+        const nextSeen = new Set(initialSeenNoticeIds(stored, ids));
+        if (!stored) await setSeenNoticeIds(userId, [...nextSeen]);
         setSeen(nextSeen);
-        known.current = new Set(rows.map((n) => n.id));
+        known.current = new Set(ids);
         primed.current = true;
         setNotices(rows);
         return;
       }
-      const fresh = rows.filter((n) => !known.current.has(n.id));
-      known.current = new Set(rows.map((n) => n.id));
+      const snapshot = applyNoticeInboxPoll({
+        primed: true,
+        stored: null,
+        known: known.current,
+        noticeIds: ids,
+      });
+      const fresh = rows.filter((n) => snapshot.fresh.includes(n.id));
+      known.current = new Set(ids);
       setNotices(rows);
       if (fresh.length && !opts?.silent) {
         const first = fresh[0];
@@ -121,23 +136,23 @@ export function NoticeInboxProvider({ children }: { children: ReactNode }) {
         );
       }
     },
-    [token, user]
+    [token, userId]
   );
 
   const markAllSeen = useCallback(async () => {
-    if (!user) return;
-    const next = new Set([...seenRef.current, ...known.current]);
+    if (!userId) return;
+    const next = markAllNoticeIdsSeen(seenRef.current, known.current);
     setSeen(next);
-    await setSeenNoticeIds(user.id, [...next]);
-  }, [user]);
+    await setSeenNoticeIds(userId, [...next]);
+  }, [userId]);
 
   const markSeen = useCallback(async (id: string) => {
-    if (!user || !id) return;
+    if (!userId || !id) return;
     const next = new Set(seenRef.current);
     next.add(id);
     setSeen(next);
-    await setSeenNoticeIds(user.id, [...next]);
-  }, [user]);
+    await setSeenNoticeIds(userId, [...next]);
+  }, [userId]);
 
   const isSeen = useCallback((id: string) => seenRef.current.has(id), []);
 
@@ -146,23 +161,35 @@ export function NoticeInboxProvider({ children }: { children: ReactNode }) {
     known.current = new Set();
     setNotices([]);
     setSeen(new Set());
-    if (!token || !user) return;
+    if (!token || !userId) return;
     refresh({ silent: true }).catch(() => undefined);
     registerPush(token).catch(() => undefined);
-  }, [refresh, token, user]);
+  }, [refresh, token, userId]);
 
   useEffect(() => {
-    if (!token || !user) return;
+    if (!token || !userId) return;
     const tick = () => refresh().catch(() => undefined);
-    const id = setInterval(tick, 15000);
+    const id = setInterval(tick, NOTICE_POLL_MS);
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active") tick();
     });
+    const onWebFocus = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      tick();
+    };
+    if (Platform.OS === "web" && typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", onWebFocus);
+      window.addEventListener("focus", onWebFocus);
+    }
     return () => {
       clearInterval(id);
       sub.remove();
+      if (Platform.OS === "web" && typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", onWebFocus);
+        window.removeEventListener("focus", onWebFocus);
+      }
     };
-  }, [refresh, token, user]);
+  }, [refresh, token, userId]);
 
   useEffect(() => {
     let tap: { remove: () => void } | undefined;
@@ -195,7 +222,10 @@ export function NoticeInboxProvider({ children }: { children: ReactNode }) {
     };
   }, [refresh, router]);
 
-  const unread = notices.filter((n) => !seen.has(n.id)).length;
+  const unread = unreadNoticeCount(
+    notices.map((n) => n.id),
+    seen
+  );
   const value = useMemo<Inbox>(
     () => ({ notices, unread, refresh, isSeen, markSeen, markAllSeen }),
     [notices, unread, refresh, isSeen, markSeen, markAllSeen]

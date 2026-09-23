@@ -6,7 +6,7 @@ import { sendAisensyWhatsApp } from "./aisensy";
 import { getPayShareChannels, type PayShareChannelId } from "./comms";
 import { recordLedgerPayment } from "./fee-ledger";
 import { issueDueFeesCore } from "./fee-run";
-import { feePeriod, invoiceBalance, payRangeLabel } from "./fees";
+import { feePeriod, invoiceBalance, parseFeeCatalogState, payRangeLabel, serializeFeeCatalogState } from "./fees";
 import { buildStudentMonthPayPath } from "./pay";
 import { sendResendEmail } from "./resend";
 import { publicOrigin } from "./utils";
@@ -32,7 +32,7 @@ import { addDays, examPlanWeight, parseExamPlan, ymd } from "./exams";
 import { teacherCanEditMarks, teacherMayEnterMarks } from "./exam-workflow";
 import { validateExamMark } from "./exam-marks";
 import { notifySchedulePublished, notifySeriesAssigned } from "./exam-events";
-import { isNoticeKind, normalizeWhatsAppGroupUrl } from "./notices";
+import { storedNoticeKind, normalizeWhatsAppGroupUrl } from "./notices";
 import { notifyNoticePublished, notifyNoticeRecipients } from "./push";
 import { PAY_GATEWAYS, type PayGateway } from "./pay-config";
 import { formatQualification, parseSubjectCatalog, parseWeekdays, weekCapacity } from "./schedule";
@@ -227,9 +227,47 @@ function normalizeAdmissionFeeLines(input: unknown) {
     .map((row) => ({ ...row, label: row.label || "Admission fee" }));
 }
 
-export async function saveAdmissionFeeSetupCore(user: AccessUser, input: { classId?: string; lines?: unknown }) {
+export async function saveAdmissionFeeSetupCore(
+  user: AccessUser,
+  input: { classId?: string; lines?: unknown; amount?: number }
+) {
   need(user, "fees.configure");
   const classId = String(input.classId || "").trim();
+  if (!classId && (input.lines != null || input.amount != null)) {
+    let lines = normalizeAdmissionFeeLines(input.lines);
+    if (!lines.length && input.amount != null) {
+      const amount = Math.max(0, Math.round(Number(input.amount) || 0));
+      if (amount > 0) lines = [{ label: "Admission fee", amount, sortOrder: 0 }];
+    }
+    const amount = lines.reduce((sum, line) => sum + line.amount, 0);
+    const classes = await prisma.class.findMany({
+      where: { archivedAt: null },
+      select: { id: true },
+    });
+    await prisma.$transaction(async (tx) => {
+      await tx.schoolConfig.upsert({
+        where: { id: "school" },
+        update: { admissionCharge: amount },
+        create: { id: "school", orgId: user.orgId ?? null, admissionCharge: amount },
+      });
+      await tx.admissionFeeLine.deleteMany({});
+      if (lines.length && classes.length) {
+        await tx.admissionFeeLine.createMany({
+          data: classes.flatMap((klass) =>
+            lines.map((line) => ({
+              orgId: user.orgId ?? null,
+              classId: klass.id,
+              label: line.label,
+              amount: line.amount,
+              sortOrder: line.sortOrder,
+              active: true,
+            }))
+          ),
+        });
+      }
+    });
+    return { amount, lines };
+  }
   if (!classId) throw new Error("Pick a class first.");
   const klass = await prisma.class.findUnique({ where: { id: classId }, select: { id: true, archivedAt: true } });
   if (!klass || klass.archivedAt) throw new Error("Pick a valid class.");
@@ -1382,7 +1420,7 @@ export async function publishNoticeCore(
   if (!portals.length) throw new Error("Pick who should see this");
   const classIds = input.allClasses ? [] : [...new Set((input.classIds || []).filter(Boolean))];
   if (!input.allClasses && !classIds.length) throw new Error("Pick a class, or All classes");
-  const kind = isNoticeKind(String(input.kind || "")) ? input.kind : "CIRCULAR";
+  const kind = storedNoticeKind(input.kind);
   const notice = await prisma.notice.create({
     data: {
       title,
@@ -2181,9 +2219,10 @@ export async function collectFeeCore(
   if (!invoice) throw new Error("Invoice missing");
   const due = invoiceBalance(invoice).dueNow;
   if (due <= 0) throw new Error("This invoice is already paid");
-  const requested = Math.round(Number(input.amount || due));
+  const omitted = input.amount == null || String(input.amount).trim() === "";
+  const requested = omitted ? due : Math.round(Number(input.amount));
+  if (!Number.isFinite(requested) || requested <= 0) throw new Error("Invalid payment");
   const amount = Math.min(due, requested);
-  if (amount <= 0) throw new Error("Invalid payment");
   const method = parsePayMethod(input.method);
   if (method === "RAZORPAY") throw new Error("Use the pay link so the parent can pay themselves");
   const providedReference = String(input.reference || "").trim() || null;
@@ -2902,12 +2941,21 @@ export async function importSchoolHolidaysCore(user: AccessUser, input: { sessio
 
 export async function saveGradePolicyCore(
   user: AccessUser,
-  input: { passPercent?: number; showRank?: boolean; bands?: { min?: number; grade?: string }[]; reportCardPaidMonths?: number }
+  input: {
+    passPercent?: number;
+    showRank?: boolean;
+    bands?: { min?: number; grade?: string }[];
+    reportCardPaidMonths?: number;
+    reportCardUnpaidMonths?: number;
+    admitCardPendingMonths?: number;
+  }
 ) {
   need(user, "exams.edit", "school.edit");
   const passPercent = Math.max(0, Math.min(100, Math.round(Number(input.passPercent || 33))));
   const showRank = Boolean(input.showRank);
   const reportCardPaidMonths = Math.max(0, Math.min(24, Math.floor(Number(input.reportCardPaidMonths) || 0)));
+  const reportCardUnpaidMonths = Math.max(0, Math.min(24, Math.floor(Number(input.reportCardUnpaidMonths) || 0)));
+  const admitCardPendingMonths = Math.max(0, Math.min(24, Math.floor(Number(input.admitCardPendingMonths) || 0)));
   const cleaned = (Array.isArray(input.bands) ? input.bands : [])
     .map((b) => ({
       min: Math.max(0, Math.min(100, Math.round(Number(b.min) || 0))),
@@ -2915,10 +2963,30 @@ export async function saveGradePolicyCore(
     }))
     .filter((b) => b.grade)
     .sort((a, b) => b.min - a.min);
+  const existing = await prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { feeCatalogJson: true } });
+  const feeCatalogJson = serializeFeeCatalogState({
+    ...parseFeeCatalogState(existing?.feeCatalogJson),
+    resultsUnpaidMonths: reportCardUnpaidMonths,
+  });
   await prisma.schoolConfig.upsert({
     where: { id: "school" },
-    update: { passPercent, showRank, reportCardPaidMonths, gradeBandsJson: JSON.stringify(cleaned) },
-    create: { id: "school", passPercent, showRank, reportCardPaidMonths, gradeBandsJson: JSON.stringify(cleaned) },
+    update: {
+      passPercent,
+      showRank,
+      reportCardPaidMonths,
+      admitCardPendingMonths,
+      gradeBandsJson: JSON.stringify(cleaned),
+      feeCatalogJson,
+    },
+    create: {
+      id: "school",
+      passPercent,
+      showRank,
+      reportCardPaidMonths,
+      admitCardPendingMonths,
+      gradeBandsJson: JSON.stringify(cleaned),
+      feeCatalogJson,
+    },
   });
 }
 

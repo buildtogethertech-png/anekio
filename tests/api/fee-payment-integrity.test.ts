@@ -306,4 +306,154 @@ describe.sequential("fee payment integrity API", () => {
     const response = await act(parentToken, "ensurePayToken", { invoiceId: "missing-other-family" });
     expect(response.status).toBeGreaterThanOrEqual(400);
   });
+
+  it("loads the office fees record after roll-number backfill", async () => {
+    const response = await request(app).get("/api/v1/record").set({ Authorization: `Bearer ${officeToken}` });
+    expect(response.status).toBe(200);
+    expect(response.body.school?.sessionStart).toBeTruthy();
+    expect(response.body.school?.admissionCharge).toBeTypeOf("number");
+  });
+
+  it("saves academic session, one-time admission fee, and class due/fine onto new invoices", async () => {
+    const session = await act(officeToken, "saveFeeAcademicSession", {
+      label: "2026 - 2027",
+      startsOn: "2026-04-01",
+      endsOn: "2027-03-31",
+      dueDay: 10,
+    });
+    expect(session.status).toBe(200);
+    expect(session.body.label).toBe("2026 - 2027");
+    expect(session.body.dueDay).toBe(10);
+
+    const admission = await act(officeToken, "saveAdmissionFeeSetup", { amount: 5000 });
+    expect(admission.status).toBe(200);
+    expect(admission.body.amount).toBe(5000);
+    const config = await prisma.schoolConfig.findUniqueOrThrow({ where: { id: "school" } });
+    expect(config.admissionCharge).toBe(5000);
+    expect(config.sessionStart).toBe("2026-04-01");
+    expect(config.sessionEnd).toBe("2027-03-31");
+
+    const saved = await act(officeToken, "saveFeeTemplate", {
+      classId: fixture.classId,
+      sessionId: "session-2026",
+      name: "Monthly fee",
+      startsPeriod: "2026-06",
+      endsPeriod: "2026-06",
+      dueDay: 10,
+      lateKind: "STATIC",
+      lateGraceDays: 0,
+      lateAmount: 50,
+      lines: [{ label: "Tuition", kind: "FLAT", amount: 3000, scope: "ALL" }],
+    });
+    expect(saved.status).toBe(200);
+
+    const issued = await act(officeToken, "issueClassFees", {
+      classId: fixture.classId,
+      templateId: saved.body.id,
+    });
+    expect(issued.status).toBe(200);
+
+    const june = await prisma.feeInvoice.findFirstOrThrow({
+      where: { studentId: fixture.studentId, period: "2026-06" },
+    });
+    expect(june.amount).toBe(3000);
+    expect(june.dueDate.getFullYear()).toBe(2026);
+    expect(june.dueDate.getMonth()).toBe(5);
+    expect(june.dueDate.getDate()).toBe(10);
+    expect(june.lateKind).toBe("STATIC");
+    expect(june.lateAmount).toBe(50);
+    expect(june.lateGraceDays).toBe(0);
+
+    const existingApril = await prisma.feeInvoice.findUniqueOrThrow({ where: { id: "invoice-anaya-april" } });
+    expect(existingApril.amount).toBe(250000);
+
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 5, 10, 18, 0, 0));
+    expect(invoiceBalance(june).late).toBe(0);
+    vi.setSystemTime(new Date(2026, 5, 11, 10, 0, 0));
+    expect(invoiceBalance(june).late).toBe(50);
+    vi.useRealTimers();
+  });
+
+  it("settles a parent Razorpay checkout that covers more than one child", async () => {
+    await prisma.schoolConfig.update({
+      where: { id: "school" },
+      data: { payGateway: "RAZORPAY", razorpayKeyId: "rzp_test_ok", razorpayKeySecret: "school-secret" },
+    });
+    await prisma.student.create({
+      data: {
+        id: "student-arjun-fix",
+        parentId: "parent-pari",
+        classId: fixture.classId,
+        admissionNo: "ADM-FIX-2",
+        name: "Arjun Fixture",
+        dateOfBirth: new Date("2013-05-10T00:00:00.000Z"),
+      },
+    });
+    await prisma.feeInvoice.create({
+      data: {
+        id: "invoice-arjun-aug",
+        studentId: "student-arjun-fix",
+        classId: fixture.classId,
+        period: "2026-08",
+        title: "August 2026 · Monthly fee",
+        amount: 8600,
+        dueDate: new Date("2026-08-10T00:00:00Z"),
+        lateKind: "STATIC",
+        lateAmount: 100,
+        lateGraceDays: 0,
+        shareToken: "invoice-arjun-aug",
+      },
+    });
+    const siblingDue = invoiceBalance({
+      amount: 8600,
+      dueDate: new Date("2026-08-10T00:00:00Z"),
+      lateKind: "STATIC",
+      lateAmount: 100,
+      lateGraceDays: 0,
+    }).dueNow;
+    const anayaDue = invoiceBalance(await prisma.feeInvoice.findUniqueOrThrow({
+      where: { id: "invoice-anaya-april" },
+      include: { payments: true },
+    })).dueNow;
+    const total = anayaDue + siblingDue;
+    razorpayMock.createOrder.mockClear();
+    razorpayMock.fetchPayment.mockResolvedValue({
+      id: "pay_family_1",
+      status: "captured",
+      amount: total * 100,
+      currency: "INR",
+      order_id: "order_family_1",
+      notes: {
+        studentToken: "pay-anaya-fixture",
+        invoiceIds: "invoice-anaya-april,invoice-arjun-aug",
+      },
+    });
+    const order = await request(app).post("/api/pay/order").send({
+      studentToken: "pay-anaya-fixture",
+      invoiceIds: ["invoice-anaya-april", "invoice-arjun-aug"],
+    });
+    expect(order.status).toBe(200);
+    expect(order.body.amount).toBe(total);
+    const signature = sign("order_family_1", "pay_family_1", "school-secret");
+    const verified = await request(app).post("/api/pay/verify").send({
+      studentToken: "pay-anaya-fixture",
+      invoiceIds: ["invoice-anaya-april", "invoice-arjun-aug"],
+      razorpay_order_id: "order_family_1",
+      razorpay_payment_id: "pay_family_1",
+      razorpay_signature: signature,
+    });
+    expect(verified.status).toBe(200);
+    expect(verified.body.error).toBeUndefined();
+    expect(
+      invoiceBalance(
+        await prisma.feeInvoice.findUniqueOrThrow({ where: { id: "invoice-anaya-april" }, include: { payments: true } })
+      ).dueNow
+    ).toBe(0);
+    expect(
+      invoiceBalance(
+        await prisma.feeInvoice.findUniqueOrThrow({ where: { id: "invoice-arjun-aug" }, include: { payments: true } })
+      ).dueNow
+    ).toBe(0);
+  });
 });

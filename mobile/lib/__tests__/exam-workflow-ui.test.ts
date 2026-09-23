@@ -1,4 +1,4 @@
-import { officePaperAction, officeExamTimeline, officePaperDots, officeSittingProgress, officeSittingStatus, filterMentionTeachers } from "../exam-workflow";
+import { officePaperAction, officeExamTimeline, officePaperDots, officeSittingProgress, officeSittingStatus, filterMentionTeachers, canSendResultsToParents, examSittingDocumentTypes, isHistoryImportPaper } from "../exam-workflow";
 
 describe("office exam presentation", () => {
   it("summarises a sitting without exposing backend statuses", () => {
@@ -22,6 +22,33 @@ describe("office exam presentation", () => {
     expect(officePaperAction("SUBMITTED", true)).toBe("Review");
     expect(officePaperAction("APPROVED", true)).toBe("Publish");
     expect(officePaperAction("PUBLISHED", true)).toBe("View result");
+  });
+
+  it("does not keep Edit marks on a published paper that never had a question paper file", () => {
+    expect(
+      isHistoryImportPaper({
+        paperAt: null,
+        marksGrantedAt: "2026-08-01",
+        entered: 10,
+        workflowStatus: "PUBLISHED",
+      })
+    ).toBe(false);
+    expect(
+      isHistoryImportPaper({
+        paperAt: null,
+        marksGrantedAt: "2026-08-01",
+        entered: 10,
+        workflowStatus: "MARKS_DRAFT",
+      })
+    ).toBe(true);
+  });
+
+  it("only enables send-to-parents after every paper is published", () => {
+    expect(canSendResultsToParents([{ workflowStatus: "APPROVED" }, { workflowStatus: "PUBLISHED" }])).toBe(false);
+    expect(canSendResultsToParents([{ workflowStatus: "PUBLISHED" }, { workflowStatus: "PUBLISHED" }], false)).toBe(false);
+    expect(canSendResultsToParents([{ workflowStatus: "PUBLISHED" }, { workflowStatus: "PUBLISHED" }])).toBe(true);
+    expect(examSittingDocumentTypes(false)).toEqual(["ADMIT_CARD"]);
+    expect(examSittingDocumentTypes(true)[0]).toBe("REPORT_CARD");
   });
 
   it("fills every progress dot when the paper is published", () => {
@@ -55,7 +82,9 @@ describe("office exam presentation", () => {
       approved: false,
       published: false,
     });
-    expect(started.map((row) => row.label)).toEqual([
+    expect(
+      started.map((row) => row.label)
+    ).toEqual([
       "Exam scheduled",
       "Question paper",
       "Exam conducted",
@@ -63,10 +92,12 @@ describe("office exam presentation", () => {
       "Marks entered",
       "Submitted to office",
       "Approved",
-      "Published to parents",
+      "Papers published",
+      "Released to parents",
     ]);
     expect(started.find((row) => row.label === "Question paper")?.kind).toBe("now");
     expect(started.find((row) => row.label === "Exam conducted")?.kind).toBe("wait");
+    expect(started.find((row) => row.label === "Released to parents")?.kind).toBe("wait");
 
     const ready = officeExamTimeline({
       scheduled: true,
@@ -78,7 +109,35 @@ describe("office exam presentation", () => {
       approved: true,
       published: false,
     });
-    expect(ready.find((row) => row.label === "Published to parents")?.kind).toBe("now");
+    expect(ready.find((row) => row.label === "Papers published")?.kind).toBe("now");
+    expect(ready.find((row) => row.label === "Released to parents")?.kind).toBe("wait");
+
+    const locked = officeExamTimeline({
+      scheduled: true,
+      paper: true,
+      conducted: true,
+      marksGranted: true,
+      marksDone: true,
+      submitted: true,
+      approved: true,
+      published: true,
+      released: false,
+    });
+    expect(locked.find((row) => row.label === "Papers published")?.kind).toBe("done");
+    expect(locked.find((row) => row.label === "Released to parents")?.kind).toBe("now");
+
+    const sent = officeExamTimeline({
+      scheduled: true,
+      paper: true,
+      conducted: true,
+      marksGranted: true,
+      marksDone: true,
+      submitted: true,
+      approved: true,
+      published: true,
+      released: true,
+    });
+    expect(sent.every((row) => row.kind === "done")).toBe(true);
   });
 
   it("filters @ teacher mentions to ungranted names", () => {

@@ -1,7 +1,7 @@
 import type { AccessUser } from "./permissions";
 import { prisma } from "./prisma";
 import { attendancePct, gradePolicyFrom, marksVisible, studentSeriesScore } from "./exams";
-import { paidFeeMonthCount, reportCardFeeMonthsRequired, reportCardUnlocked } from "./fees";
+import { reportCardFeeHoldFromConfig } from "./fees";
 import { schoolFromConfig } from "./school";
 import { renderActiveReportCardTemplateHtml } from "./document-studio";
 import { publicOrigin } from "./utils";
@@ -82,13 +82,14 @@ export async function marksheetHtmlForUser(
       include: { payments: true },
     });
     const configForFees = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
-    const required = reportCardFeeMonthsRequired(configForFees);
-    const paidMonths = paidFeeMonthCount(invoices);
-    if (!reportCardUnlocked(paidMonths, required)) {
+    const hold = reportCardFeeHoldFromConfig(invoices, configForFees);
+    if (hold) {
       throw new Error(
-        required === 1
-          ? "This report card is released after one fee month is paid."
-          : `This report card is released after ${required} fee months are paid.`
+        hold.reason === "unpaid"
+          ? `This report card opens after unpaid fee months drop below ${hold.unpaidThreshold}. ${hold.unpaidMonths} month${hold.unpaidMonths === 1 ? "" : "s"} still due.`
+          : hold.requiredMonths === 1
+            ? "This report card is released after one fee month is paid."
+            : `This report card is released after ${hold.requiredMonths} fee months are paid.`
       );
     }
   }

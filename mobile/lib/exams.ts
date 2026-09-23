@@ -5,6 +5,8 @@ export type GradePolicy = {
   passPercent: number;
   showRank: boolean;
   reportCardPaidMonths?: number;
+  reportCardUnpaidMonths?: number;
+  admitCardPendingMonths?: number;
 };
 
 export type ExamPlanItem = {

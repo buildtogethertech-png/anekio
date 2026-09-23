@@ -228,14 +228,40 @@ export async function deleteSchoolSession(id: string) {
   await prisma.schoolSession.delete({ where: { id } });
 }
 
-export async function syncCurrentSessionDates(startsOn: string, endsOn: string) {
+export async function updateCurrentSchoolSession(input: { label?: string; startsOn: string; endsOn: string }) {
+  const startsOn = String(input.startsOn || "").trim();
+  const endsOn = String(input.endsOn || "").trim();
+  const start = parseSchoolDate(startsOn);
+  const end = parseSchoolDate(endsOn);
+  if (!start || !end) throw new Error("Set session start and end dates.");
+  if (end < start) throw new Error("Session end must be after session start.");
+  const { current, sessions } = await ensureSchoolSessions();
+  const overlap = sessions.find((row) => row.id !== current.id && row.startsOn <= endsOn && startsOn <= row.endsOn);
+  if (overlap) throw new Error(`Those dates overlap ${overlap.label}.`);
+  const label = String(input.label || "").trim() || sessionLabel(startsOn, endsOn);
+  await prisma.schoolSession.update({
+    where: { id: current.id },
+    data: { startsOn, endsOn, label },
+  });
+  await prisma.schoolConfig.upsert({
+    where: { id: "school" },
+    update: { sessionStart: startsOn, sessionEnd: endsOn },
+    create: { id: "school", sessionStart: startsOn, sessionEnd: endsOn },
+  });
+  return { id: current.id, label, startsOn, endsOn, current: true };
+}
+
+export async function syncCurrentSessionDates(startsOn: string, endsOn: string, label?: string) {
+  const start = parseSchoolDate(startsOn);
+  const end = parseSchoolDate(endsOn);
+  if (!start || !end) return;
   const { current } = await ensureSchoolSessions();
   await prisma.schoolSession.update({
     where: { id: current.id },
     data: {
       startsOn,
       endsOn,
-      label: sessionLabel(startsOn, endsOn),
+      label: String(label || "").trim() || sessionLabel(startsOn, endsOn),
     },
   });
 }

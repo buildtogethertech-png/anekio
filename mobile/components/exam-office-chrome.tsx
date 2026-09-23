@@ -362,6 +362,7 @@ export function ExamConfirm({
   body,
   action,
   busy,
+  extra,
   onClose,
   onConfirm,
 }: {
@@ -370,6 +371,7 @@ export function ExamConfirm({
   body: string;
   action: string;
   busy?: boolean;
+  extra?: ReactNode;
   onClose: () => void;
   onConfirm: () => void;
 }) {
@@ -380,6 +382,7 @@ export function ExamConfirm({
         <Pressable onPress={() => {}} className="w-full max-w-md rounded-xl border border-ink-200 bg-white p-5" style={cardShadow}>
           <Text className="text-base font-semibold text-ink-900">{title}</Text>
           <Text className="mt-2 text-sm leading-5 text-ink-700">{body}</Text>
+          {extra}
           <View className="mt-4 flex-row justify-end gap-2">
             <Button variant="ghost" onPress={onClose}>
               Cancel
@@ -560,6 +563,8 @@ export function ExamTimeline({
   approvedHint,
   published,
   publishedHint,
+  released,
+  releasedHint,
 }: {
   paper: boolean;
   paperHint?: string;
@@ -579,6 +584,8 @@ export function ExamTimeline({
   approvedHint?: string;
   published: boolean;
   publishedHint?: string;
+  released?: boolean;
+  releasedHint?: string;
 }) {
   const hints: Record<string, string | undefined> = {
     scheduled: scheduledHint,
@@ -590,6 +597,7 @@ export function ExamTimeline({
     correction: correctionHint,
     approved: approvedHint,
     published: publishedHint,
+    released: releasedHint,
   };
   const steps = officeExamTimeline({
     scheduled: Boolean(scheduled),
@@ -601,6 +609,7 @@ export function ExamTimeline({
     correction: Boolean(correction),
     approved,
     published,
+    released: Boolean(released),
   }).map((row) => ({ ...row, hint: hints[row.key] }));
   return (
     <View>

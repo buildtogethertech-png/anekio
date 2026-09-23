@@ -2892,7 +2892,9 @@ export function FamilyTests() {
           title={data?.reportCardHold ? "Report card held for fees" : "No published results yet"}
           body={
             data?.reportCardHold
-              ? `This exam is complete. The report card opens after ${data.reportCardHold.requiredMonths} paid fee month${data.reportCardHold.requiredMonths === 1 ? "" : "s"}. Paid so far: ${data.reportCardHold.paidMonths}.`
+              ? data.reportCardHold.reason === "unpaid"
+                ? `This exam is complete. Pay until unpaid fee months are below ${data.reportCardHold.unpaidThreshold}. ${data.reportCardHold.unpaidMonths} month${data.reportCardHold.unpaidMonths === 1 ? "" : "s"} still due.`
+                : `This exam is complete. The report card opens after ${data.reportCardHold.requiredMonths} paid fee month${data.reportCardHold.requiredMonths === 1 ? "" : "s"}. Paid so far: ${data.reportCardHold.paidMonths}.`
               : "When every subject in an exam is published, one report card with all subjects appears here."
           }
         />

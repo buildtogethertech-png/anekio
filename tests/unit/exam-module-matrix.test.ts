@@ -5,6 +5,9 @@ import {
   subjectCompletion,
   teacherAssignedToPaper,
   validateExamMark,
+  canFinalizeSittingPapers,
+  canSendResultsToParents,
+  examSittingDocumentTypes,
 } from "../../lib/exam-marks";
 import { examLocked, marksVisible, studentSeriesScore } from "../../lib/exams";
 import {
@@ -240,5 +243,15 @@ describe("exam module matrix", () => {
     expect(parentSeesOfficialSeries({ exams: [] })).toBe(false);
     expect(marksVisible({ workflowStatus: "APPROVED", series: { publishedAt: "2026-09-01" } })).toBe(false);
     expect(marksVisible({ resultsPublishedAt: "2026-09-09" })).toBe(true);
+  });
+
+  it("gates send-to-parents and exam document types on the full sitting", () => {
+    expect(canSendResultsToParents([{ workflowStatus: "PUBLISHED" }], false)).toBe(false);
+    expect(canSendResultsToParents([{ workflowStatus: "APPROVED" }, { workflowStatus: "PUBLISHED" }])).toBe(false);
+    expect(canSendResultsToParents([{ workflowStatus: "PUBLISHED" }, { workflowStatus: "PUBLISHED" }])).toBe(true);
+    expect(examSittingDocumentTypes(false)).toEqual(["ADMIT_CARD"]);
+    expect(examSittingDocumentTypes(true)).toContain("REPORT_CARD");
+    expect(canFinalizeSittingPapers([{ workflowStatus: "APPROVED" }])).toBe(true);
+    expect(canFinalizeSittingPapers([{ workflowStatus: "PUBLISHED" }])).toBe(false);
   });
 });

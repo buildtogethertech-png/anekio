@@ -66,12 +66,13 @@ describe("school onboarding imports", () => {
     const studentsTemplate = await onboardingTemplate(user, "students");
     expect(studentsTemplate).toMatchObject({ fileName: "anekio-students.csv", contentType: "text/csv; charset=utf-8" });
     const studentCsv = studentsTemplate.buffer.toString("utf8");
+    expect(studentCsv).toContain("Roll number");
     expect(studentCsv).toContain("Aarav Sharma (example)");
     expect(studentCsv).toContain('"YES"');
     const studentUploadPath = "private/schools/test/onboarding/imports/students.csv";
     await saveUploadPath(
       studentUploadPath,
-      Buffer.from(`${studentCsv}${csvRow(["", "", "Kabir Student", "2015-04-12", "6-A", "Kavita Parent", "9876540099", "", ""])}\r\n`),
+      Buffer.from(`${studentCsv}${csvRow(["", "", "", "Kabir Student", "2015-04-12", "6-A", "Kavita Parent", "9876540099", "", ""])}\r\n`),
       "text/csv"
     );
     const studentPreview = await previewOnboardingImport(user, {
@@ -259,6 +260,7 @@ describe("school onboarding imports", () => {
 
     const sheet = workbook.getWorksheet("7-B")!;
     expect((sheet.getRow(1).values as unknown[]).slice(1)).toEqual([
+      "Roll number",
       "Student full name",
       "Date of birth",
       "Class interested",
@@ -269,14 +271,15 @@ describe("school onboarding imports", () => {
       "Transport needed",
       "Example only",
     ]);
-    expect(sheet.getRow(2).getCell(3).value).toBe("7-B");
+    expect(sheet.getRow(2).getCell(1).value).toBe(1);
+    expect(sheet.getRow(2).getCell(4).value).toBe("7-B");
     expect(sheet.views[0]).toMatchObject({ state: "frozen", ySplit: 1 });
     const blankCount = workbook.worksheets.reduce((total, worksheet) => {
       let count = 0;
       worksheet.eachRow((row, rowNumber) => {
         if (rowNumber <= 2) return;
-        if (String(row.getCell(9).value || "").trim()) return;
-        if (String(row.getCell(1).value || "").trim()) count += 1;
+        if (String(row.getCell(10).value || "").trim()) return;
+        if (String(row.getCell(2).value || "").trim()) count += 1;
       });
       return total + count;
     }, 0);
@@ -286,12 +289,16 @@ describe("school onboarding imports", () => {
     const sampleWorkbook = new ExcelJS.Workbook();
     const sampleArrayBuffer = sampleTemplate.buffer.buffer.slice(sampleTemplate.buffer.byteOffset, sampleTemplate.buffer.byteOffset + sampleTemplate.buffer.byteLength) as ArrayBuffer;
     await sampleWorkbook.xlsx.load(sampleArrayBuffer);
+    const sampleSheet = sampleWorkbook.getWorksheet("6-A")!;
+    expect(String(sampleSheet.getRow(1).getCell(1).value || "")).toBe("Roll number");
+    expect(Number(sampleSheet.getRow(2).getCell(1).value)).toBe(1);
+    expect(String(sampleSheet.getRow(2).getCell(10).value || "")).not.toMatch(/yes/i);
     const sampleCount = sampleWorkbook.worksheets.reduce((total, worksheet) => {
       let count = 0;
       worksheet.eachRow((row, rowNumber) => {
-        if (rowNumber <= 2) return;
-        if (String(row.getCell(9).value || "").trim()) return;
-        if (String(row.getCell(1).value || "").trim()) count += 1;
+        if (rowNumber <= 1) return;
+        if (String(row.getCell(10).value || "").trim()) return;
+        if (String(row.getCell(2).value || "").trim()) count += 1;
       });
       return total + count;
     }, 0);

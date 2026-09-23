@@ -60,7 +60,7 @@ export async function settleMonthPayments(opts: {
   notes?: string | null;
 }) {
   const invoices = await prisma.feeInvoice.findMany({
-    where: { id: { in: opts.invoiceIds } },
+    where: { id: { in: [...new Set(opts.invoiceIds.filter(Boolean))] } },
     include: { payments: true },
     orderBy: { dueDate: "asc" },
   });

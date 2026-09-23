@@ -49,14 +49,40 @@ async function nextRollNumber(db: RollDb, sessionId: string, classId: string) {
 
 export async function assignStudentRollNumber(
   db: RollDb = prisma,
-  input: { studentId: string; classId: string; orgId?: string | null }
+  input: { studentId: string; classId: string; orgId?: string | null; rollNumber?: number | null }
 ) {
   const session = await currentSession(db);
   const existing = await db.studentClassEnrollment.findUnique({
     where: { studentId_sessionId: { studentId: input.studentId, sessionId: session.id } },
   });
-  if (existing?.classId === input.classId) return existing;
-  const rollNumber = await nextRollNumber(db, session.id, input.classId);
+  const requested =
+    input.rollNumber != null && Number.isInteger(input.rollNumber) && input.rollNumber > 0
+      ? input.rollNumber
+      : null;
+  if (requested) {
+    const clash = await db.studentClassEnrollment.findFirst({
+      where: {
+        sessionId: session.id,
+        classId: input.classId,
+        rollNumber: requested,
+        NOT: { studentId: input.studentId },
+      },
+      select: { id: true },
+    });
+    if (clash) throw new Error("That roll number is already used in this class.");
+  }
+  if (existing?.classId === input.classId) {
+    if (!requested || existing.rollNumber === requested) return existing;
+    return db.studentClassEnrollment.update({
+      where: { id: existing.id },
+      data: {
+        rollNumber: requested,
+        active: true,
+        ...(input.orgId !== undefined ? { orgId: input.orgId } : {}),
+      },
+    });
+  }
+  const rollNumber = requested ?? (await nextRollNumber(db, session.id, input.classId));
   if (existing) {
     return db.studentClassEnrollment.update({
       where: { id: existing.id },
@@ -80,19 +106,34 @@ export async function assignStudentRollNumber(
 }
 
 export async function ensureCurrentSessionStudentRollNumbers(db: RollDb = prisma) {
-  const session = await currentSession(db);
-  const students = await db.student.findMany({
-    select: {
-      id: true,
-      orgId: true,
-      classId: true,
-      name: true,
-      enrollments: { where: { sessionId: session.id }, select: { id: true } },
-    },
-    orderBy: [{ classId: "asc" }, { name: "asc" }],
-  });
-  for (const student of students) {
-    if (student.enrollments.length) continue;
-    await assignStudentRollNumber(db, { studentId: student.id, classId: student.classId, orgId: student.orgId });
+  try {
+    const session = await currentSession(db);
+    const [students, enrolled] = await Promise.all([
+      db.student.findMany({
+        select: {
+          id: true,
+          orgId: true,
+          classId: true,
+          name: true,
+        },
+        orderBy: [{ classId: "asc" }, { name: "asc" }],
+      }),
+      db.studentClassEnrollment.findMany({
+        where: { sessionId: session.id },
+        select: { studentId: true },
+      }),
+    ]);
+    const have = new Set(enrolled.map((row) => row.studentId));
+    for (const student of students) {
+      if (have.has(student.id)) continue;
+      await assignStudentRollNumber(db, { studentId: student.id, classId: student.classId, orgId: student.orgId });
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/enrollments|StudentClassEnrollment|studentClassEnrollment|no such table|Unknown (arg|field)/i.test(message)) {
+      console.warn("Skipping roll-number backfill:", message.split("\n")[0]);
+      return;
+    }
+    throw error;
   }
 }

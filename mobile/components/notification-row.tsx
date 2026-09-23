@@ -2,12 +2,12 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import { Pressable, Text, View } from "react-native";
 import type { Notice } from "../lib/api";
-import { classifyNotice, type NoticeKind } from "../lib/notice-kind";
+import { classifyNotice, hrefForNotice, type ClassifiedNoticeKind } from "../lib/notice-kind";
 import type { IoniconName } from "../lib/nav-icons";
 import { useNoticeInbox } from "../lib/notice-inbox";
 import { useSession } from "../lib/session";
 
-const KIND_STYLE: Record<NoticeKind, { icon: IoniconName; color: string; bg: string; label: string; rail: string }> = {
+const KIND_STYLE: Record<ClassifiedNoticeKind, { icon: IoniconName; color: string; bg: string; label: string; rail: string }> = {
   ADMISSION: { icon: "person-add", color: "#7c2d12", bg: "bg-amber-50", label: "Admissions", rail: "bg-amber-500" },
   EXAM: { icon: "document-text", color: "#c2410c", bg: "bg-orange-50", label: "Examination", rail: "bg-orange-500" },
   FEES: { icon: "card", color: "#047857", bg: "bg-emerald-50", label: "Fees", rail: "bg-emerald-600" },
@@ -15,48 +15,11 @@ const KIND_STYLE: Record<NoticeKind, { icon: IoniconName; color: string; bg: str
   ATTENDANCE: { icon: "checkmark-circle", color: "#d97706", bg: "bg-amber-50", label: "Attendance", rail: "bg-yellow-500" },
   LEAVE: { icon: "calendar", color: "#4338ca", bg: "bg-blue-50", label: "Leave", rail: "bg-indigo-600" },
   CIRCULAR: { icon: "megaphone", color: "#1d4ed8", bg: "bg-blue-50", label: "School", rail: "bg-blue-600" },
+  UNKNOWN: { icon: "notifications", color: "#334155", bg: "bg-ink-100", label: "Notice", rail: "bg-ink-400" },
 };
 
 function postedWhen(value: string) {
   return new Date(value).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
-}
-
-export function hrefForNotice(kind: NoticeKind, notice: Notice, navKeys: string[]) {
-  const has = (key: string) => navKeys.includes(key);
-  if (kind === "EXAM") {
-    const key = notice.eventKey || "";
-    const examId = key.startsWith("NT-5:") ? key.split(":")[1] : key.startsWith("EXAM:") ? key.split(":")[1] : "";
-    const seriesId = key.startsWith("SERIES:") ? key.split(":")[1] : "";
-    const event = key.startsWith("NT-5:") ? "PAPER_OVERDUE" : key.split(":")[2] || "";
-    if (has("exams")) {
-      if (/PAPER|EXAM_ASSIGNED|EXAM_TODAY|EXAM_TOMORROW/.test(event) && examId) {
-        const view = /PAPER/.test(event) ? "paper" : /EXAM_TODAY|EXAM_TOMORROW/.test(event) ? "take" : "paper";
-        return `/exams?examId=${encodeURIComponent(examId)}&view=${view}`;
-      }
-      if (/MARKS|RESULT_READY|RESULT_PUBLICATION/.test(event) && examId) {
-        const view = /CORRECTION|ENTRY_OPEN|DUE/.test(event) ? "marks" : "review";
-        return `/exams?examId=${encodeURIComponent(examId)}&view=${view}`;
-      }
-      return "/exams";
-    }
-    if (has("tests")) {
-      if (seriesId) return `/tests?seriesId=${encodeURIComponent(seriesId)}`;
-      return event.includes("SCHEDULE") ? "/tests?view=timetable" : "/tests";
-    }
-    return "/";
-  }
-  if (kind === "ADMISSION") return has("admissions") ? "/admissions" : "/";
-  if (kind === "FEES") return has("fees") ? "/fees" : "/";
-  if (kind === "ATTENDANCE") {
-    const leave = /leave/i.test(`${notice.title} ${notice.body}`);
-    if (leave && has("leave")) return "/leave";
-    if (has("attendance")) return "/attendance";
-    if (leave && has("staff")) return "/staff";
-    return "/";
-  }
-  if (kind === "FEEDBACK") return has("inbox") ? "/inbox" : "/";
-  if (kind === "LEAVE") return has("leave") ? "/leave" : has("staff") ? "/staff" : "/";
-  return has("notices") ? "/notices" : "/";
 }
 
 export function NotificationRow({ notice, unread }: { notice: Notice; unread?: boolean }) {

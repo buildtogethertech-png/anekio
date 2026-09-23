@@ -107,6 +107,10 @@ export async function issueDueFeesCore(asOf = new Date(), classId?: string, sess
     const rows = [];
     for (const student of students) {
       for (const month of months) {
+        const startPeriod = template.startsPeriod || "";
+        const endPeriod = template.endsPeriod || "";
+        if (startPeriod && month.period < startPeriod) continue;
+        if (endPeriod && month.period > endPeriod) continue;
         if (month.period <= student.feeGeneratedThrough) continue;
         if (have.has(`${student.id}:${month.period}`)) continue;
         const drafts = composeStudentFeeLines(classLines, student.feeAddOns, month.period);

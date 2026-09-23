@@ -854,6 +854,8 @@ model SchoolConfig {
   passPercent             Int                       @default(33)
   showRank                Boolean                   @default(false)
   reportCardPaidMonths    Int                       @default(0)
+  reportCardUnpaidMonths  Int                       @default(0)
+  admitCardPendingMonths  Int                       @default(0)
   whatsappCommunityUrl    String                    @default("")
   subjectCatalog          String                    @default("[\"English\",\"Mathematics\",\"Hindi\",\"Science\",\"Social Science\",\"Computer\"]")
   payrollJson             String                    @default("{\"presentCredit\":1,\"absentCredit\":0,\"paidLeaveCredit\":1,\"unpaidLeaveCredit\":0,\"halfDayCredit\":0.5,\"lateCredit\":1}")

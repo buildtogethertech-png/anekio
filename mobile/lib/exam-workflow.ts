@@ -256,6 +256,16 @@ export function officePaperAction(status?: string | null, granted?: boolean) {
   return granted ? "View" : "Allow marks";
 }
 
+export function isHistoryImportPaper(exam: {
+  paperAt?: string | Date | null;
+  marksGrantedAt?: string | Date | null;
+  entered?: number;
+  workflowStatus?: string | null;
+}) {
+  if (exam.workflowStatus === "PUBLISHED" || exam.workflowStatus === "APPROVED") return false;
+  return !exam.paperAt && Boolean(exam.marksGrantedAt) && (exam.entered ?? 0) > 0;
+}
+
 export function officePaperDots(exam: {
   paperAt?: string | null;
   conductedAt?: string | null;
@@ -306,6 +316,7 @@ export function officeExamTimeline(flags: {
   submitted: boolean;
   approved: boolean;
   published: boolean;
+  released?: boolean;
   correction?: boolean;
 }) {
   const correction = Boolean(flags.correction);
@@ -318,7 +329,8 @@ export function officeExamTimeline(flags: {
     { key: "submitted", label: "Submitted to office", done: Boolean(flags.submitted) || correction },
     ...(correction ? [{ key: "correction", label: "Returned for correction", done: false }] : []),
     { key: "approved", label: "Approved", done: Boolean(flags.approved) && !correction },
-    { key: "published", label: "Published to parents", done: Boolean(flags.published) && !correction },
+    { key: "published", label: "Papers published", done: Boolean(flags.published) && !correction },
+    { key: "released", label: "Released to parents", done: Boolean(flags.released) && Boolean(flags.published) && !correction },
   ];
   let sawPending = false;
   return items.map((item) => {
@@ -371,4 +383,23 @@ export function teacherBucket(
   }
   if (examDate && today && examDate > today) return "upcoming";
   return "today";
+}
+
+export function sittingAllPapersPublished(
+  papers: { workflowStatus?: string | null; resultsPublishedAt?: Date | string | null }[]
+) {
+  return Boolean(papers.length) && papers.every((exam) => exam.workflowStatus === "PUBLISHED" || Boolean(exam.resultsPublishedAt));
+}
+
+export function canSendResultsToParents(
+  papers: { workflowStatus?: string | null; resultsPublishedAt?: Date | string | null }[],
+  canPublish = true
+) {
+  return Boolean(canPublish) && sittingAllPapersPublished(papers);
+}
+
+export function examSittingDocumentTypes(allPapersPublished: boolean) {
+  return allPapersPublished
+    ? ["REPORT_CARD", "GRADE_SHEET", "PROGRESS_REPORT", "CONSOLIDATED_REPORT"]
+    : ["ADMIT_CARD"];
 }

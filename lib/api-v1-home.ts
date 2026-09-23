@@ -24,7 +24,7 @@ function examAvg(child: NonNullable<Awaited<ReturnType<typeof getStudentBundle>>
 }
 
 function childCard(child: NonNullable<Awaited<ReturnType<typeof getStudentBundle>>>) {
-  const rollNumber = child.enrollments.find((row) => row.classId === child.classId)?.rollNumber || null;
+  const rollNumber = child.enrollments?.find((row) => row.classId === child.classId)?.rollNumber || null;
   return {
     id: child.id,
     name: child.name,
@@ -66,7 +66,7 @@ export async function homePayload(user: AccessUser, requestedChildId?: string | 
         id: s.id,
         name: s.name,
         classLabel: `${s.class.name}-${s.class.section}`,
-        rollNumber: s.enrollments.find((row) => row.classId === s.classId)?.rollNumber || null,
+        rollNumber: s.enrollments?.find((row) => row.classId === s.classId)?.rollNumber || null,
         admissionNo: s.admissionNo,
       })),
       child: child ? childCard(child) : null,
@@ -76,7 +76,7 @@ export async function homePayload(user: AccessUser, requestedChildId?: string | 
   if (user.portal === "STUDENT") {
     const me = await getStudentForUser(user.id);
     const child = me ? await getStudentBundle(me.id) : null;
-    const rollNumber = child?.enrollments.find((row) => row.classId === child.classId)?.rollNumber || null;
+    const rollNumber = child?.enrollments?.find((row) => row.classId === child.classId)?.rollNumber || null;
     return {
       kind: "STUDENT" as const,
       school,

@@ -21,9 +21,10 @@ import {
 import { isCircularNotice } from "./notices";
 import { leaveBundleFor } from "./leave";
 import { gradePolicyFrom, marksVisible, parseExamPlan, timetableVisible, ymd, addDays } from "./exams";
+import { parentMaySeeExamResult } from "./exam-marks";
 import { parsePayrollRules } from "./payroll";
 import { collapseStaffDaysByDate, staffDayYmd } from "./staff-day";
-import { feeLineTotal, invoiceBalance, paidFeeMonthCount, parseFeeCatalogState, parseFeeLines, reportCardFeeMonthsRequired, reportCardUnlocked } from "./fees";
+import { feeLineTotal, invoiceBalance, parseFeeCatalogState, parseFeeLines, reportCardFeeHoldFromConfig } from "./fees";
 import { studentLetter } from "./letter";
 import { payFormFromSecrets, paySecretsFromRow } from "./pay-config";
 import type { AccessUser } from "./permissions";
@@ -203,7 +204,7 @@ async function staffAttendanceSelf(user: AccessUser) {
   return staff ? { kind: "staff" as const, id: staff.id, name: staff.name, employeeId: staff.employeeId } : null;
 }
 
-function isBellNotice(n: { kind?: string | null; body?: string | null; recipients?: unknown[] }) {
+export function isBellNotice(n: { kind?: string | null; body?: string | null; recipients?: unknown[] }) {
   return isCircularNotice(n) || Boolean(n.recipients?.length);
 }
 
@@ -251,9 +252,10 @@ function serializeChild(
   extras?: {
     timetable?: Awaited<ReturnType<typeof timetableForClass>> | null;
     upcoming?: { title: string; subject: string; date: string }[];
+    hideResults?: boolean;
   }
 ) {
-  const visible = child.examResults.filter((r) => marksVisible(r.exam));
+  const visible = extras?.hideResults ? [] : child.examResults.filter((r) => parentMaySeeExamResult(r.exam));
   const by = new Map<string, { marks: number; max: number; n: number }>();
   for (const r of visible) {
     const name = r.exam.subject.name;
@@ -380,9 +382,8 @@ function serializeReports(
 ) {
   const school = schoolFromConfig(config);
   const policy = gradePolicyFrom(config);
-  const required = reportCardFeeMonthsRequired(config);
-  const paidMonths = paidFeeMonthCount(child.feeInvoices);
-  if (!reportCardUnlocked(paidMonths, required)) return [];
+  const hold = reportCardFeeHoldFromConfig(child.feeInvoices, config);
+  if (hold) return [];
   return published.flatMap((series) => {
     if (!series.exams.length) return [];
     const open = series.exams.filter((e) => marksVisible({ ...e, series: { publishedAt: series.publishedAt } }));
@@ -517,16 +518,12 @@ async function parentStudentPayload(user: AccessUser, requestedChildId?: string 
     ]);
     const leave = await leaveBundleFor({ portal: "STUDENT", studentIds: child ? [child.id] : [] });
     const reports = child ? serializeReports(child, published, config) : [];
-    const required = reportCardFeeMonthsRequired(config);
-    const paidMonths = child ? paidFeeMonthCount(child.feeInvoices) : 0;
     const reportCardHold =
-      child && required > 0 && sittingReportReady(published) && !reportCardUnlocked(paidMonths, required)
-        ? { requiredMonths: required, paidMonths }
-        : null;
+      child && sittingReportReady(published) ? reportCardFeeHoldFromConfig(child.feeInvoices, config) : null;
     return {
       kind: "STUDENT" as const,
       children: child ? [{ id: child.id, name: child.name, classLabel: `${child.class.name}-${child.class.section}`, rollNumber: currentRoll(child), admissionNo: child.admissionNo }] : [],
-      child: child ? serializeChild(child, { timetable, upcoming }) : null,
+      child: child ? serializeChild(child, { timetable, upcoming, hideResults: Boolean(reportCardHold) }) : null,
       upcoming,
       timetable,
       notices: noticeRows,
@@ -561,12 +558,8 @@ async function parentStudentPayload(user: AccessUser, requestedChildId?: string 
   const parentPhone = parent?.phone || parent?.user.phone || "";
   const parentAddress = [parent?.address, parent?.city, parent?.state, parent?.pincode].filter(Boolean).join(", ");
   const reports = child ? serializeReports(child, published, config) : [];
-  const required = reportCardFeeMonthsRequired(config);
-  const paidMonths = child ? paidFeeMonthCount(child.feeInvoices) : 0;
   const reportCardHold =
-    child && required > 0 && sittingReportReady(published) && !reportCardUnlocked(paidMonths, required)
-      ? { requiredMonths: required, paidMonths }
-      : null;
+    child && sittingReportReady(published) ? reportCardFeeHoldFromConfig(child.feeInvoices, config) : null;
   return {
     kind: "PARENT" as const,
     parent: parent
@@ -592,7 +585,7 @@ async function parentStudentPayload(user: AccessUser, requestedChildId?: string 
       interests: s.interests.map((i) => PATH_LABEL[i.tag] || i.tag),
       fees: s.feeInvoices.map(serializeFamilyFeeInvoice),
     })),
-    child: child ? serializeChild(child, { timetable, upcoming }) : null,
+    child: child ? serializeChild(child, { timetable, upcoming, hideResults: Boolean(reportCardHold) }) : null,
     upcoming,
     examTimetable,
     timetable,
@@ -1015,7 +1008,7 @@ async function officePayload(user: AccessUser) {
   return {
     kind: "OFFICE" as const,
     staffAttendanceSelf: await staffAttendanceSelf(user),
-    onboarding: can(user, "onboarding.manage") ? await onboardingBundle(user) : null,
+    onboarding: can(user, "onboarding.manage") && user.orgId ? await onboardingBundle(user) : null,
     desk: {
       label: pulse.label,
       emptyPeriods,
@@ -1095,6 +1088,23 @@ async function officePayload(user: AccessUser) {
       lines: t.lines.map((l) => ({ label: l.label, kind: l.kind, amount: l.amount, scope: l.scope || "ALL" })),
     })),
     feeCatalog: parseFeeCatalogState(config?.feeCatalogJson),
+    admissionFeeLines: await (async () => {
+      try {
+        const rows = await prisma.admissionFeeLine.findMany({
+          where: { active: true },
+          orderBy: [{ classId: "asc" }, { sortOrder: "asc" }],
+        });
+        return rows.map((line) => ({
+          id: line.id,
+          classId: line.classId,
+          label: line.label,
+          amount: line.amount,
+          sortOrder: line.sortOrder,
+        }));
+      } catch {
+        return [];
+      }
+    })(),
     people: people.students.map((s) => {
       const totals = s.feeInvoices.reduce(
         (acc, inv) => {

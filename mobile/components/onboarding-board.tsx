@@ -45,7 +45,7 @@ const FOCUSED_IMPORT_COPY: Record<Template["kind"], { heading: string; descripti
   students: {
     heading: "Choose a student CSV or Excel file",
     description: "Upload student and parent records for review.",
-    requiredColumns: "Student name, Date of birth, Class, Parent name, Parent mobile or Parent email",
+    requiredColumns: "Roll number, Student name, Date of birth, Class, Parent name, Parent mobile or Parent email",
     note: "Blank admission numbers are generated. Parent logins are matched or created from parent email/mobile; review must pass before Apply changes records.",
   },
   teachers: {
