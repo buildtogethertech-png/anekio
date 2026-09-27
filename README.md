@@ -1,5 +1,5 @@
 # Anekio
-
+ 
 India-first education product built around student strength — not marks-as-the-goal.
 
 One Expo app (web, Android, iOS). One Express API. Four portals (parent, teacher, office, student).
