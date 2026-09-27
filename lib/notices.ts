@@ -2,6 +2,7 @@ import type { Portal } from "./permissions";
 
 export const NOTICE_KINDS = ["CIRCULAR", "ADMISSION", "EXAM", "FEES", "FEEDBACK", "ATTENDANCE", "LEAVE"] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
+export type ClassifiedNoticeKind = NoticeKind | "UNKNOWN";
 
 export const NOTICE_KIND_LABEL: Record<NoticeKind, string> = {
   CIRCULAR: "School",
@@ -13,20 +14,35 @@ export const NOTICE_KIND_LABEL: Record<NoticeKind, string> = {
   LEAVE: "Leave",
 };
 
+export const CLASSIFIED_NOTICE_LABEL: Record<ClassifiedNoticeKind, string> = {
+  ...NOTICE_KIND_LABEL,
+  UNKNOWN: "Notice",
+};
+
 export function isNoticeKind(value: string): value is NoticeKind {
   return (NOTICE_KINDS as readonly string[]).includes(value);
 }
 
+/** Map producer aliases onto the catalog. Empty kind stays a circular (legacy rows). */
+export function canonicalizeNoticeKind(raw?: string | null): ClassifiedNoticeKind {
+  const value = String(raw || "").trim().toUpperCase();
+  if (!value) return "CIRCULAR";
+  if (value === "FEE") return "FEES";
+  if (isNoticeKind(value)) return value;
+  return "UNKNOWN";
+}
+
+/** Persist only catalog kinds. Unknown office posts remain circulars. FEE is stored as FEES. */
+export function storedNoticeKind(raw?: string | null): NoticeKind {
+  const kind = canonicalizeNoticeKind(raw);
+  return kind === "UNKNOWN" ? "CIRCULAR" : kind;
+}
+
 export function classifyNotice(n: { kind?: string | null; body?: string | null }) {
-  const body = n.body || "";
-  const stored = isNoticeKind(n.kind || "") ? (n.kind as NoticeKind) : "";
-  const kind: NoticeKind =
-    stored && stored !== "CIRCULAR"
-      ? stored
-      : / added .+ for .+ on /.test(body)
-        ? "EXAM"
-        : stored || "CIRCULAR";
-  return { kind };
+  const canonical = canonicalizeNoticeKind(n.kind);
+  if (canonical !== "CIRCULAR") return { kind: canonical };
+  if (/ added .+ for .+ on /.test(n.body || "")) return { kind: "EXAM" as const };
+  return { kind: "CIRCULAR" as const };
 }
 
 export function isCircularNotice(n: { kind?: string | null; body?: string | null }) {

@@ -203,12 +203,6 @@ function classFromImportRow(row: ImportRow, fields: AdmissionFormField[]) {
   return parsed;
 }
 
-function rollFromImportRow(row: ImportRow) {
-  const raw = sheetCell(row, "Roll", "Roll no", "Roll number", "Roll no.");
-  const value = Math.round(Number(raw));
-  return Number.isFinite(value) && value > 0 ? value : 0;
-}
-
 function sheetCell(row: ImportRow, ...keys: string[]) {
   for (const key of keys) {
     const value = row[normalizeHeader(key)];
@@ -262,10 +256,10 @@ async function configuredImportForms(): Promise<ConfiguredImportForms> {
   };
 }
 
-function studentImportHeaders(fields: AdmissionFormField[]) {
+export function studentImportHeaders(fields: AdmissionFormField[]) {
   const byId = new Map(visibleFields(fields).map((field) => [field.id, field]));
   const builtins = [
-    "Roll",
+    "Roll number",
     byId.get("studentName")?.label || "Student name",
     "Date of birth",
     byId.get("classWanted")?.label || "Class",
@@ -279,10 +273,19 @@ function studentImportHeaders(fields: AdmissionFormField[]) {
   return uniqueHeaders([...builtins, ...custom, "Example only"]);
 }
 
-function studentTemplateRow(
+export function parseRollNumber(raw: string) {
+  const text = String(raw || "").trim();
+  if (!text) return { ok: true as const, value: null as number | null };
+  if (!/^\d{1,4}$/.test(text)) return { ok: false as const, value: null };
+  const value = Number(text);
+  if (!Number.isInteger(value) || value < 1) return { ok: false as const, value: null };
+  return { ok: true as const, value };
+}
+
+export function studentTemplateRow(
   fields: AdmissionFormField[],
   values: {
-    roll?: CsvCell;
+    rollNumber?: CsvCell;
     name: CsvCell;
     dob: CsvCell;
     classLabel: CsvCell;
@@ -297,17 +300,7 @@ function studentTemplateRow(
   const custom = visibleFields(fields)
     .filter((field) => !field.builtin || field.id === "message")
     .map((field) => field.id === "message" ? (values.message || "") : (values.custom?.[field.id] || ""));
-  return [
-    values.roll || "",
-    values.name,
-    values.dob,
-    values.classLabel,
-    values.parentName,
-    values.parentMobile,
-    values.parentEmail,
-    ...custom,
-    values.example || "",
-  ];
+  return [values.rollNumber ?? "", values.name, values.dob, values.classLabel, values.parentName, values.parentMobile, values.parentEmail, ...custom, values.example || ""];
 }
 
 function staffImportHeaders(fields: AdmissionFormField[]) {
@@ -442,12 +435,16 @@ const SAMPLE_LAST_NAMES = [
 
 function sampleStudentRows(labels: string[]) {
   const usableLabels = labels.length ? labels : ["1-A", "2-A", "3-A", "4-A", "5-A"];
+  const rollsByClass = new Map<string, number>();
   return SAMPLE_STUDENT_FIRST_NAMES.map((first, index) => {
     const last = SAMPLE_LAST_NAMES[index % SAMPLE_LAST_NAMES.length];
     const classLabel = usableLabels[index % usableLabels.length];
     const parentFirst = ["Neha", "Rahul", "Pooja", "Amit", "Farah", "Vikram", "Ritu", "Sanjay", "Kavita", "Imran"][index % 10];
+    const rollNumber = (rollsByClass.get(classLabel) || 0) + 1;
+    rollsByClass.set(classLabel, rollNumber);
     return {
       admissionNo: `TEST-${String(index + 1).padStart(3, "0")}`,
+      rollNumber,
       name: `${first} ${last}`,
       dob: `201${index % 7}-${String((index % 12) + 1).padStart(2, "0")}-${String((index % 27) + 1).padStart(2, "0")}`,
       classLabel,
@@ -597,7 +594,7 @@ async function csvRowsFor(kind: ImportKind): Promise<CsvCell[][]> {
         include: {
           class: true,
           parent: { include: { user: true } },
-          enrollments: { orderBy: { updatedAt: "desc" }, take: 1, select: { rollNumber: true } },
+          enrollments: { where: { active: true, session: { current: true } }, select: { classId: true, rollNumber: true } },
         },
         orderBy: { name: "asc" },
       }),
@@ -605,12 +602,12 @@ async function csvRowsFor(kind: ImportKind): Promise<CsvCell[][]> {
     ]);
     return [
       ["Anekio student ID", "Admission number", ...studentImportHeaders(forms.admission)],
-      ["", "", ...studentTemplateRow(forms.admission, { roll: 1, name: "Aarav Sharma (example)", dob: "2015-04-12", classLabel: classLabels[0] || "1-A", parentName: "Neha Sharma", parentMobile: "9876543210", parentEmail: "parent@example.com", message: "Interested in admission.", example: "YES" })],
+      ["", "", ...studentTemplateRow(forms.admission, { rollNumber: 1, name: "Aarav Sharma (example)", dob: "2015-04-12", classLabel: classLabels[0] || "1-A", parentName: "Neha Sharma", parentMobile: "9876543210", parentEmail: "parent@example.com", message: "Interested in admission.", example: "YES" })],
       ...students.map((student) => [
         student.id,
         student.admissionNo,
         ...studentTemplateRow(forms.admission, {
-          roll: student.enrollments[0]?.rollNumber || "",
+          rollNumber: student.enrollments.find((row) => row.classId === student.classId)?.rollNumber || "",
           name: student.name,
           dob: dateText(student.dateOfBirth),
           classLabel: `${student.class.name}-${student.class.section}`,
@@ -1096,9 +1093,11 @@ export async function onboardingSpreadsheetTemplate(user: AccessUser, rawKind: s
   labels.forEach((label, index) => {
     const sheet = workbook.addWorksheet(label);
     sheet.addRow(headers);
-    sheet.addRow(studentTemplateRow(forms.admission, { roll: 1, name: index === 0 ? "Aarav Sharma (example)" : "", dob: "2015-04-12", classLabel: label, parentName: "Neha Sharma", parentMobile: "9876543210", parentEmail: "parent@example.com", message: "Interested in admission.", example: "YES" }));
-    (samplesByClass.get(label) || []).forEach((row, sampleIndex) => {
-      sheet.addRow(studentTemplateRow(forms.admission, { roll: sampleIndex + 2, name: row.name, dob: row.dob, classLabel: row.classLabel, parentName: row.parentName, parentMobile: row.parentMobile, parentEmail: row.parentEmail }));
+    if (!options.sampleData) {
+      sheet.addRow(studentTemplateRow(forms.admission, { rollNumber: 1, name: index === 0 ? "Aarav Sharma (example)" : "", dob: "2015-04-12", classLabel: label, parentName: "Neha Sharma", parentMobile: "9876543210", parentEmail: "parent@example.com", message: "Interested in admission.", example: "YES" }));
+    }
+    (samplesByClass.get(label) || []).forEach((row) => {
+      sheet.addRow(studentTemplateRow(forms.admission, { rollNumber: row.rollNumber, name: row.name, dob: row.dob, classLabel: row.classLabel, parentName: row.parentName, parentMobile: row.parentMobile, parentEmail: row.parentEmail }));
     });
     applyHeaderStyle(sheet);
     sheet.columns = headers.map((header) => ({ header, key: normalizeHeader(header), width: Math.max(18, header.length + 2) }));
@@ -1303,6 +1302,24 @@ async function validateRows(kind: ImportKind, rows: ImportRow[]) {
   const examStudentsById = new Map(examStudents.map((row) => [row.id, row]));
   const examStudentsByAdmission = new Map(examStudents.map((row) => [row.admissionNo.toLowerCase(), row]));
   const classTeacherRows = new Map<string, string>();
+  const rollRows = new Map<string, string>();
+  const rollsInFile = new Map<string, string>();
+  const existingRolls = kind === "students"
+    ? await prisma.studentClassEnrollment.findMany({
+        where: { active: true, session: { current: true } },
+        select: { studentId: true, classId: true, rollNumber: true, class: { select: { name: true, section: true } } },
+      })
+    : [];
+  const existingRollKey = new Set(
+    existingRolls.map((row) => `${row.class.name}-${row.class.section}:${row.rollNumber}:${row.studentId}`)
+  );
+  const existingRollByClass = new Map<string, Set<number>>();
+  for (const row of existingRolls) {
+    const classKey = `${row.class.name}-${row.class.section}`;
+    const set = existingRollByClass.get(classKey) || new Set<number>();
+    set.add(row.rollNumber);
+    existingRollByClass.set(classKey, set);
+  }
 
   if (kind === "exam_marks") {
     if (!examColumns.length) {
@@ -1330,14 +1347,22 @@ async function validateRows(kind: ImportKind, rows: ImportRow[]) {
       const phone = normalizeMobile(configuredImportValue(row, forms!.admission, "phone", "Parent mobile", "Parent phone"));
       const studentId = sheetCell(row, "Anekio student ID");
       const admissionNo = sheetCell(row, "Admission number", "Admission no").toLowerCase();
+      const roll = parseRollNumber(sheetCell(row, "Roll number", "Roll no", "Roll no.", "Roll"));
       if (!name) errors.push(rowError(row, "student name is required."));
       if (!validDate(dob)) errors.push(rowError(row, "date of birth must be YYYY-MM-DD."));
       if (!klass) errors.push(rowError(row, "class must be a value like 1-A."));
       if (!configuredImportValue(row, forms!.admission, "guardianName", "Parent name")) errors.push(rowError(row, "parent name is required."));
       if (!phone) errors.push(rowError(row, "parent mobile must be a 10-digit number."));
+      if (!roll.ok) errors.push(rowError(row, "roll number must be a whole number of 1 or more."));
       if (studentId && !studentIds.has(studentId)) errors.push(rowError(row, "Anekio student ID was not found."));
       if (!studentId && admissionNo && admissionNos.has(admissionNo)) {
         // An admission number is a safe update key, so this row is valid.
+      }
+      if (klass && roll.ok && roll.value) {
+        const rollKey = `${klass.name}-${klass.section}:${roll.value}`;
+        const firstRow = rollRows.get(rollKey);
+        if (firstRow) errors.push(rowError(row, `roll ${roll.value} is already used for ${klass.name}-${klass.section} in row ${firstRow}.`));
+        else rollRows.set(rollKey, row._row);
       }
       return;
     }
@@ -1604,6 +1629,7 @@ async function applyStudents(
         nextAdmission += 1;
       } while (await db.student.findUnique({ where: { admissionNo }, select: { id: true } }));
     }
+    const roll = parseRollNumber(sheetCell(row, "Roll number", "Roll no", "Roll no.", "Roll"));
     const data = {
       orgId: setup.orgId,
       name: configuredImportValue(row, forms.admission, "studentName", "Student name", "Name"),
@@ -1615,7 +1641,7 @@ async function applyStudents(
     if (existing) {
       await db.student.update({ where: { id: existing.id }, data });
       try {
-        await assignStudentRollNumber(db, { studentId: existing.id, classId: classRow.id, orgId: setup.orgId, rollNumber: rollFromImportRow(row) || undefined });
+        await assignStudentRollNumber(db, { studentId: existing.id, classId: classRow.id, orgId: setup.orgId, rollNumber: roll.value });
       } catch (error) {
         throw error instanceof Error ? new Error(rowError(row, error.message)) : error;
       }
@@ -1623,7 +1649,7 @@ async function applyStudents(
     } else {
       const student = await db.student.create({ data });
       try {
-        await assignStudentRollNumber(db, { studentId: student.id, classId: classRow.id, orgId: setup.orgId, rollNumber: rollFromImportRow(row) || undefined });
+        await assignStudentRollNumber(db, { studentId: student.id, classId: classRow.id, orgId: setup.orgId, rollNumber: roll.value });
       } catch (error) {
         throw error instanceof Error ? new Error(rowError(row, error.message)) : error;
       }

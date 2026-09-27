@@ -31,6 +31,7 @@ import { OnboardingBoard } from "./onboarding-board";
 import { StaffAttendanceQrButton, StaffAttendanceQrScanButton } from "./staff-attendance-qr";
 import { studentMetaLine } from "../lib/student-label";
 import { FeesBoard as RefactoredFeesBoard } from "./fees-board";
+import { ManageFeeBody, feeAssignmentFromStudent } from "./manage-fee";
 
 export const FeesBoard = RefactoredFeesBoard;
 
@@ -750,6 +751,11 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
     incoming ? { kind: "student", id: incoming } : null
   );
   const [payOpen, setPayOpen] = useState(false);
+  const [manageFeeOpen, setManageFeeOpen] = useState(false);
+  const [manageFeePending, setManageFeePending] = useState(false);
+  const [manageTransportId, setManageTransportId] = useState("");
+  const [manageOtherIds, setManageOtherIds] = useState<string[]>([]);
+  const [manageClassAddOns, setManageClassAddOns] = useState<string[]>([]);
   const [openCard, setOpenCard] = useState<ReportCardData | null>(null);
   const [add, setAdd] = useState<PeopleKind | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -828,6 +834,9 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   useEffect(() => {
     setFileEdit(false);
   }, [picked?.id, fileTab]);
+  useEffect(() => {
+    setManageFeeOpen(false);
+  }, [picked?.id]);
   const examPack = data?.examPack;
   const classSittings = (examPack?.series ?? []).filter((s) => s.classId === selected?.classId);
   const yearSession =
@@ -1177,6 +1186,21 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                 }}
               >
                 Edit
+              </Button>
+            ) : null}
+            {can(user, "people.edit") && showFees ? (
+              <Button
+                variant="ghost"
+                accessibilityLabel="Manage fee"
+                onPress={() => {
+                  const next = feeAssignmentFromStudent(selected.feeAddOns);
+                  setManageTransportId(next.transportId);
+                  setManageOtherIds(next.otherIds);
+                  setManageClassAddOns(next.classAddOnLabels);
+                  setManageFeeOpen(true);
+                }}
+              >
+                Manage fee
               </Button>
             ) : null}
             <Button variant="ghost" onPress={() => setFileTab("documents")}>Documents</Button>
@@ -1680,7 +1704,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
               subjectType="STUDENT"
               subjectId={selected.id}
               subjectLabel={selected.name}
-              allowedTypes={["STUDENT_ID", "BONAFIDE", "STUDY_CERTIFICATE", "DOB_CERTIFICATE", "CHARACTER_CERTIFICATE", "ATTENDANCE_CERTIFICATE", "PROMOTION_CERTIFICATE", "TRANSFER_CERTIFICATE", "NO_DUES", "GATE_PASS", "LIBRARY_CARD", "TRANSPORT_CARD", "BUS_PASS", "ADMIT_CARD", "REPORT_CARD", "CONSOLIDATED_REPORT", "GRADE_SHEET", "PROGRESS_REPORT", "ACHIEVEMENT_CERTIFICATE", "PARTICIPATION_CERTIFICATE", "MERIT_CERTIFICATE", "FEE_INVOICE", "FEE_CHALLAN", "PAYMENT_RECEIPT", "CONSOLIDATED_RECEIPT", "FEE_STATEMENT", "DUES_NOTICE", "LATE_FEE_NOTICE", "FEE_CLEARANCE", "CUSTOM_LETTER"]}
+              allowedTypes={["STUDENT_ID", "BONAFIDE", "STUDY_CERTIFICATE", "DOB_CERTIFICATE", "CHARACTER_CERTIFICATE", "ATTENDANCE_CERTIFICATE", "PROMOTION_CERTIFICATE", "TRANSFER_CERTIFICATE", "NO_DUES", "GATE_PASS", "LIBRARY_CARD", "TRANSPORT_CARD", "BUS_PASS", "CUSTOM_LETTER"]}
             />
           ) : null}
         </View>
@@ -2121,6 +2145,69 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
           await reload();
         }}
       /> : null}
+
+      <Modal
+        open={manageFeeOpen && Boolean(selected)}
+        title="Manage fee"
+        onClose={() => {
+          if (!manageFeePending) setManageFeeOpen(false);
+        }}
+        footer={
+          <View className="flex-row flex-wrap justify-end gap-2">
+            <Button variant="ghost" disabled={manageFeePending} onPress={() => setManageFeeOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={manageFeePending || !selected}
+              onPress={async () => {
+                if (!selected) return;
+                setManageFeePending(true);
+                try {
+                  await act(token, "assignStudentFees", {
+                    studentId: selected.id,
+                    transportItemId: manageTransportId || null,
+                    otherItemIds: manageOtherIds,
+                    classAddOnLabels: manageClassAddOns,
+                  });
+                  setManageFeeOpen(false);
+                  toast.show("Fee assignment saved.");
+                  await reload();
+                } catch (e) {
+                  toast.show(e instanceof Error ? e.message : "Could not save fees.");
+                } finally {
+                  setManageFeePending(false);
+                }
+              }}
+            >
+              {manageFeePending ? "Saving..." : "Save"}
+            </Button>
+          </View>
+        }
+      >
+        {selected ? (
+          <ManageFeeBody
+            student={selected}
+            templates={data?.feeTemplates}
+            catalog={data?.feeCatalog ?? { items: [], late: { enabled: false, amount: 0, graceDays: 0 }, dueDay: 10 }}
+            session={data?.school?.sessions?.find((row) => row.current) ?? data?.school?.sessions?.[0]}
+            sessionLabel={(data?.school?.sessions?.find((row) => row.current) ?? data?.school?.sessions?.[0])?.label}
+            transportId={manageTransportId}
+            otherIds={manageOtherIds}
+            classAddOnLabels={manageClassAddOns}
+            onTransport={setManageTransportId}
+            onToggleOther={(id) =>
+              setManageOtherIds((cur) => (cur.includes(id) ? cur.filter((row) => row !== id) : [...cur, id]))
+            }
+            onToggleClassAddOn={(label) =>
+              setManageClassAddOns((cur) =>
+                cur.some((row) => row.toLowerCase() === label.toLowerCase())
+                  ? cur.filter((row) => row.toLowerCase() !== label.toLowerCase())
+                  : [...cur, label]
+              )
+            }
+          />
+        ) : null}
+      </Modal>
 
       <Modal open={importOpen} title="Import students and parents" onClose={() => setImportOpen(false)} wide>
         <OnboardingBoard compact focusKinds={["students"]} />

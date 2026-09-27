@@ -644,8 +644,9 @@ export function ParentExamination() {
                 <Text className="text-[16px] font-bold text-ink-900">{selectedSession.name}</Text>
                 <Text className="mt-1 text-[14px] font-semibold text-ink-900">Report card held for fees</Text>
                 <Text className="mt-0.5 text-[12px] leading-4 text-ink-700">
-                  This exam is complete. The report card opens after {hold?.requiredMonths} paid fee month
-                  {hold?.requiredMonths === 1 ? "" : "s"}. Paid so far: {hold?.paidMonths}.
+                  {hold?.reason === "unpaid"
+                    ? `This exam is complete. Pay until unpaid fee months are below ${hold.unpaidThreshold}. ${hold.unpaidMonths} month${hold.unpaidMonths === 1 ? "" : "s"} still due.`
+                    : `This exam is complete. The report card opens after ${hold?.requiredMonths} paid fee month${hold?.requiredMonths === 1 ? "" : "s"}. Paid so far: ${hold?.paidMonths}.`}
                 </Text>
                 <Pressable
                   accessibilityRole="button"

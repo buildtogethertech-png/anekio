@@ -346,6 +346,63 @@ describe.sequential("exam marks API flow", () => {
     expect(blob).not.toContain("Recheck Anaya");
   });
 
+  it("holds parent results when publish uses an unpaid-months fee condition", async () => {
+    await prisma.feeInvoice.createMany({
+      data: [
+        {
+          id: "invoice-hold-may",
+          studentId: fixture.studentId,
+          classId: fixture.classId,
+          period: "2026-05",
+          title: "May fees",
+          amount: 8000,
+          dueDate: new Date("2026-05-10T00:00:00.000Z"),
+          shareToken: "invoice-hold-may",
+        },
+        {
+          id: "invoice-hold-june",
+          studentId: fixture.studentId,
+          classId: fixture.classId,
+          period: "2026-06",
+          title: "June fees",
+          amount: 8000,
+          dueDate: new Date("2026-06-10T00:00:00.000Z"),
+          shareToken: "invoice-hold-june",
+        },
+      ],
+    });
+    const republish = await act(officeToken, "publishExamResults", { examId, holdIfUnpaidMonths: 3 });
+    expectOk(republish, "publish with unpaid hold");
+    const parent = await record(parentToken);
+    expectOk(parent, "parent while fees held");
+    expect(parent.body.child.tests).toEqual([]);
+    expect(parent.body.reports).toEqual([]);
+    expect(parent.body.reportCardHold).toMatchObject({
+      reason: "unpaid",
+      unpaidThreshold: 3,
+    });
+    expect(parent.body.reportCardHold.unpaidMonths).toBeGreaterThanOrEqual(3);
+
+    await prisma.payment.create({
+      data: {
+        id: "pay-hold-clear",
+        invoiceId: "invoice-hold-june",
+        amount: 8000,
+        method: "CASH",
+        reference: "CLEAR-JUNE",
+      },
+    });
+    const afterPay = await record(parentToken);
+    expectOk(afterPay, "parent after paying below threshold");
+    expect(afterPay.body.reportCardHold).toBeNull();
+    expect(afterPay.body.reports).toEqual(
+      expect.arrayContaining([expect.objectContaining({ seriesId, seriesName: "Unit Test 1" })])
+    );
+    expect(afterPay.body.child.tests).toEqual(
+      expect.arrayContaining([expect.objectContaining({ examId, marks: 34 })])
+    );
+  });
+
   it("24. a second official series can exist for the same class without replacing the first", async () => {
     const created = await act(officeToken, "createExamSeries", {
       classId: fixture.classId,

@@ -2,9 +2,10 @@ import crypto from "crypto";
 import Razorpay from "razorpay";
 import { PaymentMethod } from "@prisma/client";
 import { prisma } from "./prisma";
-import { invoiceBalance, payRangeLabel, expandOldestUnpaidInvoiceIds, inrToPaise } from "./fees";
+import { invoiceBalance, payRangeLabel, inrToPaise } from "./fees";
 import { recordLedgerPayment, settleMonthPayments } from "./fee-ledger";
 import { getSchoolPaySecrets } from "./pay-config";
+import { invoicesForStudentMonths } from "./pay-family";
 
 export async function razorpayKeys(orgId?: string | null) {
   const pay = await getSchoolPaySecrets(orgId);
@@ -83,38 +84,15 @@ export async function createFeeOrder(token: string) {
 export async function createMonthsOrder(studentToken: string, invoiceIds: string[]) {
   const student = await prisma.student.findUnique({
     where: { payToken: studentToken },
-    include: {
-      parent: { include: { user: true } },
-      feeInvoices: { include: { payments: true } },
-    },
+    include: { parent: { include: { user: true } } },
   });
   if (!student) throw new Error("Pay link is not valid");
-  const familyInvoices = await prisma.feeInvoice.findMany({
-    where: { student: { parentId: student.parentId } },
-    include: { student: true, payments: true },
-  });
-  const wanted = new Set(
-    expandOldestUnpaidInvoiceIds(
-      familyInvoices.map((inv) => ({
-        id: inv.id,
-        studentId: inv.studentId,
-        dueDate: inv.dueDate,
-        title: inv.title,
-        dueNow: invoiceBalance(inv).dueNow,
-      })),
-      invoiceIds
-    )
-  );
-  const open = familyInvoices
-    .filter((inv) => wanted.has(inv.id))
-    .map((inv) => ({ inv, dueNow: invoiceBalance(inv).dueNow }))
-    .filter((row) => row.dueNow > 0)
-    .sort((a, b) => +a.inv.dueDate - +b.inv.dueDate);
-  if (!open.length) throw new Error("Those months are already paid");
+  const openInvoices = await invoicesForStudentMonths(studentToken, invoiceIds);
+  const open = openInvoices.map((inv) => ({ inv, dueNow: invoiceBalance(inv).dueNow }));
   const amount = open.reduce((sum, row) => sum + row.dueNow, 0);
   const titles = open.map((row) => `${row.inv.student.name} · ${row.inv.title}`);
   const range = payRangeLabel(titles);
-  const periods = open.map((row) => row.inv.period).join(",");
+  const periods = [...new Set(open.map((row) => row.inv.period).filter(Boolean))].join(",");
   const rzp = await getRazorpay(student.orgId);
   const order = await rzp.orders.create({
     amount: inrToPaise(amount),
@@ -193,8 +171,13 @@ export async function captureRazorpayMonths(opts: {
     throw new Error(`Razorpay payment is ${payment.status}`);
   }
   const rupees = Math.round(Number(payment.amount) / 100);
+  const fromNotes = String((payment.notes as { invoiceIds?: string } | null)?.invoiceIds || "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
+  const invoiceIds = [...new Set(fromNotes.length ? fromNotes : opts.invoiceIds.filter(Boolean))];
   return settleMonthPayments({
-    invoiceIds: opts.invoiceIds,
+    invoiceIds,
     amount: rupees,
     method: PaymentMethod.RAZORPAY,
     reference: opts.paymentId,

@@ -456,6 +456,8 @@ export function SchoolBoard() {
   const [passPercent, setPassPercent] = useState(String(s?.policy?.passPercent ?? 33));
   const [showRank, setShowRank] = useState(Boolean(s?.policy?.showRank));
   const [reportCardPaidMonths, setReportCardPaidMonths] = useState(String(s?.policy?.reportCardPaidMonths ?? 0));
+  const [reportCardUnpaidMonths, setReportCardUnpaidMonths] = useState(String(s?.policy?.reportCardUnpaidMonths ?? 0));
+  const [admitCardPendingMonths, setAdmitCardPendingMonths] = useState(String(s?.policy?.admitCardPendingMonths ?? 0));
   const [uploadingAsset, setUploadingAsset] = useState("");
   const [selectedDocs, setSelectedDocs] = useState<string[]>([]);
   const [admissionFormOpen, setAdmissionFormOpen] = useState(false);
@@ -490,6 +492,8 @@ export function SchoolBoard() {
     setPassPercent(String(s.policy?.passPercent ?? 33));
     setShowRank(Boolean(s.policy?.showRank));
     setReportCardPaidMonths(String(s.policy?.reportCardPaidMonths ?? 0));
+    setReportCardUnpaidMonths(String(s.policy?.reportCardUnpaidMonths ?? 0));
+    setAdmitCardPendingMonths(String(s.policy?.admitCardPendingMonths ?? 0));
     setPlan(normalizeExamPlan(s.plan));
     setCalendarSessionId((current) => current || s.sessionId || "");
     if (data?.leaveTypes?.length) setLeaveTypes(normalizeLeaveTypes(data.leaveTypes));
@@ -1392,13 +1396,36 @@ export function SchoolBoard() {
                           className="w-20"
                         />
                       </Field>
+                      <Field label="Hold results if unpaid months ≥" hint="0 publishes to every family. 3 means parents with 3 or more unpaid fee months see results only after they pay.">
+                        <Input
+                          keyboardType="number-pad"
+                          value={reportCardUnpaidMonths}
+                          onChangeText={setReportCardUnpaidMonths}
+                          className="w-20"
+                        />
+                      </Field>
+                      <Field label="Block admit card if unpaid months ≥" hint="0 issues everyone. 3 means a student with 3 or more unpaid fee months cannot get an admit card.">
+                        <Input
+                          keyboardType="number-pad"
+                          value={admitCardPendingMonths}
+                          onChangeText={setAdmitCardPendingMonths}
+                          className="w-20"
+                        />
+                      </Field>
                       {examEdit ? (
                         <Button
                           variant="ghost"
                           onPress={() =>
                             run(
                               "saveGradePolicy",
-                              { passPercent: Number(passPercent), showRank, bands, reportCardPaidMonths: Number(reportCardPaidMonths) || 0 },
+                              {
+                                passPercent: Number(passPercent),
+                                showRank,
+                                bands,
+                                reportCardPaidMonths: Number(reportCardPaidMonths) || 0,
+                                reportCardUnpaidMonths: Number(reportCardUnpaidMonths) || 0,
+                                admitCardPendingMonths: Number(admitCardPendingMonths) || 0,
+                              },
                               "Grade scale saved."
                             )
                           }

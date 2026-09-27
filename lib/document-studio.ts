@@ -5,9 +5,18 @@ import type { AccessUser } from "./permissions";
 import { can } from "./permissions";
 import { prisma } from "./prisma";
 import { formatInr, publicOrigin } from "./utils";
-import { feeLineTotal, invoiceBalance, paidFeeMonthCount, parseFeeLines } from "./fees";
+import {
+  admitCardBlocked,
+  admitCardPendingMonthsRequired,
+  feeLineTotal,
+  invoiceBalance,
+  paidFeeMonthCount,
+  parseFeeLines,
+  reportCardFeeMonthsRequired,
+} from "./fees";
 import { buildStudentMonthPayPath } from "./pay";
 import { notifyNoticePublished } from "./push";
+import { storedNoticeKind } from "./notices";
 import {
   academicYearLabel,
   buildReportCardResults,
@@ -318,8 +327,43 @@ export function pickAttachedReportCardType(
   return preferred.find((type) => available.includes(type)) || available[0] || null;
 }
 
-function isFeeDocumentType(type: string) {
+export function isFeeDocumentType(type: string) {
   return type === "FEE_INVOICE" || type === "PAYMENT_RECEIPT";
+}
+
+export function documentModuleOwner(
+  type: string
+): "fees" | "exams" | "people" | "staff" | "admissions" | "payroll" | "office" {
+  if (isFeeDocumentType(type)) return "fees";
+  if (
+    type === "ADMIT_CARD" ||
+    type === "EXAM_DATE_SHEET" ||
+    type === "REPORT_CARD" ||
+    type === "GRADE_SHEET" ||
+    type === "PROGRESS_REPORT" ||
+    type === "CONSOLIDATED_REPORT"
+  ) {
+    return "exams";
+  }
+  if (type === "STUDENT_ID") return "people";
+  if (type === "EMPLOYEE_ID") return "staff";
+  if (type === "SALARY_SLIP") return "payroll";
+  if (type === "ADMISSION_CONFIRMATION") return "admissions";
+  return "office";
+}
+
+export function examReleaseUsesTemplate(type: string) {
+  return type === "ADMIT_CARD" || type === "REPORT_CARD" || type === "CONSOLIDATED_REPORT";
+}
+
+export function attachesOnSaveDocumentType(type: string) {
+  return (
+    isFeeDocumentType(type) ||
+    type === "ADMIT_CARD" ||
+    type === "EXAM_DATE_SHEET" ||
+    type === "REPORT_CARD" ||
+    type === "CONSOLIDATED_REPORT"
+  );
 }
 
 export function sampleFeePreviewData(type: string): Record<string, unknown> {
@@ -1348,29 +1392,34 @@ export async function saveDocumentTemplateCore(user: AccessUser, input: Record<s
     updatedById: user.id,
   };
   const id = String(input.id || "");
+  let saved;
   if (id && !id.startsWith("builtin:")) {
     const existing = await prisma.documentTemplate.findFirst({ where: { id } });
     if (!existing) throw new Error("Template not found.");
     try {
-      return await prisma.documentTemplate.update({
+      saved = await prisma.documentTemplate.update({
         where: { id },
         data: { ...data, schoolId: existing.schoolId || schoolId, status: existing.status === "ARCHIVED" ? "DRAFT" : existing.status },
       });
     } catch (error) {
       throw friendlyDocumentError(error, "Could not save this template.");
     }
+  } else {
+    try {
+      saved = await prisma.documentTemplate.create({ data: { ...data, createdById: user.id, status: "DRAFT" } });
+    } catch (error) {
+      throw friendlyDocumentError(error, "Could not save this template.");
+    }
   }
-  try {
-    return await prisma.documentTemplate.create({ data: { ...data, createdById: user.id, status: "DRAFT" } });
-  } catch (error) {
-    throw friendlyDocumentError(error, "Could not save this template.");
+  if (attachesOnSaveDocumentType(type)) {
+    await activateSavedDocumentTemplate(user, saved.id);
+    return prisma.documentTemplate.findUniqueOrThrow({ where: { id: saved.id } });
   }
+  return saved;
 }
 
-export async function publishDocumentTemplateCore(user: AccessUser, input: { id?: string }) {
-  need(user, "documents.publish", "school.edit");
+async function activateSavedDocumentTemplate(user: AccessUser, id: string) {
   const schoolId = await schoolIdFor(user);
-  const id = String(input.id || "");
   const row = await prisma.documentTemplate.findFirst({ where: { id }, include: { versions: { orderBy: { version: "desc" as const }, take: 1 } } });
   if (!row) throw new Error("Template not found. Save the draft, then publish again.");
   const layout = withRequiredOfficialElements(row.type, parseDocumentLayout(row.draftJson));
@@ -1405,6 +1454,11 @@ export async function publishDocumentTemplateCore(user: AccessUser, input: { id?
     throw friendlyDocumentError(error, "Could not publish this template.");
   }
   return { id: row.id, version };
+}
+
+export async function publishDocumentTemplateCore(user: AccessUser, input: { id?: string }) {
+  need(user, "documents.publish", "school.edit");
+  return activateSavedDocumentTemplate(user, String(input.id || ""));
 }
 
 export async function archiveDocumentTemplateCore(user: AccessUser, input: { id?: string }) {
@@ -1825,6 +1879,18 @@ export async function issueDocumentCore(user: AccessUser, input: Record<string, 
   const subjectType = String(input.subjectType || "CUSTOM").slice(0, 40);
   const subjectId = String(input.subjectId || "").slice(0, 120);
   if (!subjectId) throw new Error("Choose who or what this document is for.");
+  if (subjectType === "STUDENT" && template.type === "ADMIT_CARD") {
+    const config = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
+    const threshold = admitCardPendingMonthsRequired(config);
+    if (threshold > 0) {
+      const feeStatus = await pendingFeeStatusForStudent(subjectId);
+      if (feeStatus && admitCardBlocked(feeStatus.pendingMonths, threshold)) {
+        throw new Error(
+          `${feeStatus.student.name} has ${feeStatus.pendingMonths} unpaid fee month${feeStatus.pendingMonths === 1 ? "" : "s"}. Admit cards are blocked at ${threshold} unpaid months.`
+        );
+      }
+    }
+  }
   const now = new Date();
   const year = now.getFullYear();
   const count = await prisma.issuedDocument.count({ where: { schoolId, type: template.type, issuedAt: { gte: new Date(year, 0, 1), lt: new Date(year + 1, 0, 1) } } });
@@ -2296,7 +2362,7 @@ async function createBlockedFeeNotice(
     data: {
       title,
       body,
-      kind: "FEE",
+      kind: storedNoticeKind("FEE"),
       priority: "HIGH",
       authorId: user.id,
       studentId: status.student.id,
@@ -2321,8 +2387,21 @@ export async function issueDocumentBatchCore(user: AccessUser, input: Record<str
   const rows = Array.isArray(input.subjects) ? input.subjects.slice(0, 200) : [];
   if (!rows.length) throw new Error("Choose at least one record for the batch.");
   const resolved = await resolveIssuableTemplate(user, String(input.templateId || ""));
-  const blockIfPendingMonths = Math.max(0, Math.floor(Number(input.blockIfPendingMonths) || 0));
-  const requirePaidMonths = Math.max(0, Math.floor(Number(input.requirePaidMonths) || 0));
+  const config = await prisma.schoolConfig.findUnique({
+    where: { id: "school" },
+  });
+  const requestedBlock = Math.max(0, Math.floor(Number(input.blockIfPendingMonths) || 0));
+  const requestedPaid = Math.max(0, Math.floor(Number(input.requirePaidMonths) || 0));
+  const hasRequestedBlock = input.blockIfPendingMonths != null && String(input.blockIfPendingMonths).trim() !== "";
+  const blockIfPendingMonths =
+    resolved.type === "ADMIT_CARD"
+      ? hasRequestedBlock
+        ? requestedBlock
+        : admitCardPendingMonthsRequired(config)
+      : requestedBlock;
+  const requirePaidMonths = isReportCardType(resolved.type)
+    ? Math.max(reportCardFeeMonthsRequired(config), requestedPaid)
+    : requestedPaid;
   const examName = resolved.name || "exam";
   const batchId = `batch_${randomBytes(12).toString("hex")}`;
   const issued: Awaited<ReturnType<typeof issueDocumentCore>>[] = [];

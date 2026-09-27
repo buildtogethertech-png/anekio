@@ -1,3 +1,4 @@
+import { parseFeeCatalogState } from "./fees";
 import { percent } from "./utils";
 
 export type GradeBand = { min: number; grade: string };
@@ -18,6 +19,8 @@ export type GradePolicy = {
   passPercent: number;
   showRank: boolean;
   reportCardPaidMonths: number;
+  reportCardUnpaidMonths?: number;
+  admitCardPendingMonths?: number;
 };
 
 export function parseGradeBands(raw?: string | null): GradeBand[] {
@@ -42,13 +45,22 @@ export function gradePolicyFrom(row?: {
   passPercent?: number | null;
   showRank?: boolean | null;
   reportCardPaidMonths?: number | null;
+  reportCardUnpaidMonths?: number | null;
+  admitCardPendingMonths?: number | null;
+  feeCatalogJson?: string | null;
 } | null): GradePolicy {
   const months = Math.floor(Number(row?.reportCardPaidMonths));
+  const unpaidFromRow = Math.floor(Number(row?.reportCardUnpaidMonths));
+  const unpaidFromCatalog = parseFeeCatalogState(row?.feeCatalogJson).resultsUnpaidMonths;
+  const unpaid = unpaidFromCatalog > 0 ? unpaidFromCatalog : unpaidFromRow;
+  const admitMonths = Math.floor(Number(row?.admitCardPendingMonths));
   return {
     bands: parseGradeBands(row?.gradeBandsJson),
     passPercent: Math.max(0, Math.min(100, Math.round(Number(row?.passPercent) || 33))),
     showRank: Boolean(row?.showRank),
     reportCardPaidMonths: Number.isFinite(months) && months > 0 ? Math.min(24, months) : 0,
+    reportCardUnpaidMonths: Number.isFinite(unpaid) && unpaid > 0 ? Math.min(24, unpaid) : 0,
+    admitCardPendingMonths: Number.isFinite(admitMonths) && admitMonths > 0 ? Math.min(24, admitMonths) : 0,
   };
 }
 

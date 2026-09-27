@@ -12,6 +12,17 @@ import { studentMetaLine } from "../lib/student-label";
 
 type Studio = NonNullable<RecordPayload["documentStudio"]>;
 
+function attachesOnSave(type: string) {
+  return (
+    type === "FEE_INVOICE" ||
+    type === "PAYMENT_RECEIPT" ||
+    type === "ADMIT_CARD" ||
+    type === "EXAM_DATE_SHEET" ||
+    type === "REPORT_CARD" ||
+    type === "CONSOLIDATED_REPORT"
+  );
+}
+
 function attachedZoneForType(type: string) {
   if (type === "FEE_INVOICE" || type === "FEE_CHALLAN" || type === "FEE_STATEMENT" || type === "DUES_NOTICE" || type === "LATE_FEE_NOTICE") return "Fees invoices and parent pay links";
   if (type === "PAYMENT_RECEIPT" || type === "CONSOLIDATED_RECEIPT" || type === "FEE_CLEARANCE") return "Fees payment receipts";
@@ -233,9 +244,9 @@ function TemplateGalleryCard({
         )}
         <Text className="mt-3 text-[11px] font-medium text-ink-600">{template.pageSize}  ·  {template.orientation === "LANDSCAPE" ? "Landscape" : "Portrait"}  ·  {template.layout.elements.length} elements</Text>
         <View className="mt-4 flex-row flex-wrap gap-2">
-          {desktop && design ? <Button variant="ghost" onPress={onEdit}>{template.builtIn ? "Design document" : "Edit"}</Button> : null}
-          {template.status === "ACTIVE" && issueAllowed ? <Button onPress={onIssue}>Issue</Button> : null}
-          {!template.builtIn && publish ? <Button variant="danger" onPress={onArchive}>Archive</Button> : null}
+          {desktop && design ? <Button variant="ghost" onPress={onEdit}>Design document</Button> : null}
+          {!attachesOnSave(template.type) && template.status === "ACTIVE" && issueAllowed ? <Button onPress={onIssue}>Issue</Button> : null}
+          {!attachesOnSave(template.type) && !template.builtIn && publish ? <Button variant="danger" onPress={onArchive}>Archive</Button> : null}
         </View>
       </View>
     </View>
@@ -702,12 +713,13 @@ function TemplateEditor({ template, studio, data, onClose, onSaved }: { template
     setSaving(true);
     setMessage("");
     try {
-      const result = await act<{ ok: true; template: { id: string } }>(token, "saveDocumentTemplate", { id: draft.builtIn ? "" : draft.id, type: draft.type, name: draft.name, description: draft.description, pageSize: draft.pageSize, orientation: draft.orientation, layout: draft.layout });
+      const result = await act<{ ok: true; template: { id: string; status?: string } }>(token, "saveDocumentTemplate", { id: draft.builtIn ? "" : draft.id, type: draft.type, name: draft.name, description: draft.description, pageSize: draft.pageSize, orientation: draft.orientation, layout: draft.layout });
       setDraft((current) => ({ ...current, id: result.template.id, builtIn: false }));
-      if (publish) await act(token, "publishDocumentTemplate", { id: result.template.id });
-      setMessage(publish ? `Published. This design is now attached to ${attachedZoneForType(draft.type)}.` : "Draft saved.");
+      const live = attachesOnSave(draft.type) || publish;
+      if (publish && !attachesOnSave(draft.type)) await act(token, "publishDocumentTemplate", { id: result.template.id });
+      setMessage(live ? `Saved. This design is now used on ${attachedZoneForType(draft.type)}.` : "Draft saved.");
       await onSaved();
-      if (publish) onClose();
+      if (live) onClose();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not save template.");
     } finally {
@@ -815,7 +827,17 @@ function TemplateEditor({ template, studio, data, onClose, onSaved }: { template
     <Modal open title={`Design document · ${draft.name}`} onClose={onClose} studio footer={
       <View className="flex-row flex-wrap items-center justify-between gap-3">
         <Text className={`text-xs ${/could not|required|add |not found|no access|empty|foreign/i.test(message) ? "text-red-700" : "text-green-800"}`}>{message}</Text>
-        <View className="flex-row gap-2"><Button variant="ghost" disabled={previewing} onPress={() => void preview()}>{previewing ? "Preparing…" : "Preview"}</Button><Button variant="ghost" disabled={saving} onPress={() => void save(false)}>Save draft</Button>{canPublish ? <Button disabled={saving} onPress={() => void save(true)}>Publish template</Button> : null}</View>
+        <View className="flex-row gap-2">
+          <Button variant="ghost" disabled={previewing} onPress={() => void preview()}>{previewing ? "Preparing…" : "Preview"}</Button>
+          {attachesOnSave(draft.type) ? (
+            <Button disabled={saving} onPress={() => void save(false)}>{saving ? "Saving…" : "Save"}</Button>
+          ) : (
+            <>
+              <Button variant="ghost" disabled={saving} onPress={() => void save(false)}>Save draft</Button>
+              {canPublish ? <Button disabled={saving} onPress={() => void save(true)}>Publish template</Button> : null}
+            </>
+          )}
+        </View>
       </View>
     }>
       <View className="flex-row items-start gap-3">
@@ -1055,7 +1077,8 @@ function issuableTemplates(studio: RecordPayload["documentStudio"] | undefined, 
     : allowedTypes;
   const active = (studio?.templates || []).filter((row) => row.status === "ACTIVE" && related.includes(row.type));
   const reportOnly = allowedTypes.every((type) => type === "REPORT_CARD" || type.startsWith("REPORT_CARD_") || type === "GRADE_SHEET" || type === "CONSOLIDATED_REPORT" || type === "PROGRESS_REPORT");
-  if (reportOnly) return active.sort((a, b) => a.name.localeCompare(b.name));
+  const admitOnly = allowedTypes.length > 0 && allowedTypes.every((type) => type === "ADMIT_CARD");
+  if (reportOnly || admitOnly) return active.sort((a, b) => a.name.localeCompare(b.name));
   const used = new Set(active.map((row) => row.type));
   const defaults = (studio?.defaults || []).filter((row) => allowedTypes.includes(row.type) && !used.has(row.type));
   for (const row of defaults) used.add(row.type);
@@ -1112,12 +1135,12 @@ export function QuickDocumentButton({
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
   const [blocked, setBlocked] = useState<BlockedDocumentStudent[]>([]);
-  const [blockIfPendingMonths, setBlockIfPendingMonths] = useState("");
-  const [requirePaidMonths, setRequirePaidMonths] = useState(
-    String((data.school?.policy?.reportCardPaidMonths ?? 0) > 0 ? data.school?.policy?.reportCardPaidMonths : "1")
-  );
+  const [blockMonths, setBlockMonths] = useState("");
+  const admitThreshold = data.school?.policy?.admitCardPendingMonths ?? 0;
+  const reportThreshold = data.school?.policy?.reportCardPaidMonths ?? 0;
+  const admitOnly = allowedTypes.length > 0 && allowedTypes.every((type) => type === "ADMIT_CARD");
   const selectedTemplate = templates.find((row) => row.id === templateId) || templates[0];
-  const feeGate = !resultIssue && selectedTemplate?.type === "ADMIT_CARD";
+  const feeGate = !resultIssue && (selectedTemplate?.type === "ADMIT_CARD" || admitOnly);
   const reportGate = Boolean(
     resultIssue ||
       (selectedTemplate?.type &&
@@ -1127,11 +1150,18 @@ export function QuickDocumentButton({
           selectedTemplate.type === "REPORT_CARD" ||
           selectedTemplate.type.startsWith("REPORT_CARD_")))
   );
+  const unpaidBlock = Math.max(0, Math.floor(Number(blockMonths) || 0));
   useEffect(() => {
     if (!open) return;
-    const preferred = templates.find((row) => row.type === "REPORT_CARD") || templates[0];
+    const preferred =
+      (resultIssue ? templates.find((row) => row.type === "REPORT_CARD") : templates.find((row) => row.type === "ADMIT_CARD")) ||
+      templates[0];
     if (preferred && !templates.some((row) => row.id === templateId)) setTemplateId(preferred.id);
-  }, [open, templates, templateId]);
+  }, [open, templates, templateId, resultIssue]);
+  useEffect(() => {
+    if (!open || !feeGate) return;
+    setBlockMonths(String(admitThreshold > 0 ? admitThreshold : 1));
+  }, [open, feeGate, admitThreshold]);
   if (!(can(user, "documents.issue") || can(user, "school.edit"))) return null;
 
   async function issue() {
@@ -1146,8 +1176,8 @@ export function QuickDocumentButton({
       if (batchSubjects?.length) {
         const result = await act<{ ok: true; combinedUrl: string; issued: unknown[]; blocked: BlockedDocumentStudent[] }>(token, "issueDocumentBatch", {
           templateId: template.id,
-          blockIfPendingMonths: feeGate ? Number(blockIfPendingMonths) || 0 : 0,
-          requirePaidMonths: reportGate ? Number(requirePaidMonths) || 0 : 0,
+          blockIfPendingMonths: feeGate ? unpaidBlock : 0,
+          requirePaidMonths: reportGate ? reportThreshold : 0,
           subjects: batchSubjects.map((row) => {
             const batchStudent = data.people?.find((person) => person.id === row.subjectId);
             const batchEmployee = data.staff?.find((person) => person.id === row.subjectId);
@@ -1164,8 +1194,8 @@ export function QuickDocumentButton({
         if (result.blocked?.length) {
           setMessage(
             reportGate
-              ? `${result.issued.length} report cards sent. ${result.blocked.length} parents skipped — paid fee months below ${Number(requirePaidMonths) || 0}.`
-              : `${result.issued.length} issued. ${result.blocked.length} blocked because pending fee months were ≥ ${Number(blockIfPendingMonths) || 0}.`
+              ? `${result.issued.length} report cards sent. ${result.blocked.length} parents skipped — paid fee months below ${reportThreshold}.`
+              : `${result.issued.length} issued. ${result.blocked.length} blocked because unpaid fee months were ≥ ${unpaidBlock}.`
           );
         }
         if (!result.blocked?.length) setOpen(false);
@@ -1202,7 +1232,7 @@ export function QuickDocumentButton({
   return (
     <>
       <Button variant="ghost" onPress={() => setOpen(true)}>{label}</Button>
-      <Modal open={open} title={resultIssue ? `Issue results for ${subjectLabel}` : `Issue for ${subjectLabel}`} onClose={() => setOpen(false)} footer={<View className="items-end"><Button disabled={pending || !templates.length} onPress={() => void issue()}>{pending ? "Issuing…" : "Issue and open"}</Button></View>}>
+      <Modal open={open} title={resultIssue ? `Issue results for ${subjectLabel}` : admitOnly ? `Issue admit cards for ${subjectLabel}` : `Issue for ${subjectLabel}`} onClose={() => setOpen(false)} footer={<View className="items-end"><Button disabled={pending || !templates.length} onPress={() => void issue()}>{pending ? "Issuing…" : "Issue and open"}</Button></View>}>
         <View className="gap-4">
           {batchSubjects?.length ? (
             <View className="rounded-md border border-blue-200 bg-blue-50 p-3">
@@ -1210,21 +1240,27 @@ export function QuickDocumentButton({
               <Text className="mt-1 text-xs leading-5 text-blue-900">
                 {resultIssue || reportGate
                   ? "This sends the sitting report card only. Set the paid-months rule below. Parents below that number are skipped and notified."
-                  : "Anekio will create one immutable issue record per eligible student and open one combined printable file."}
+                  : admitOnly || feeGate
+                    ? "This issues admit cards only. Students with unpaid fee months at or above the rule below are skipped."
+                    : "Anekio will create one immutable issue record per eligible student and open one combined printable file."}
               </Text>
             </View>
           ) : null}
-          {resultIssue ? (
+          {resultIssue || admitOnly ? (
             templates.length ? (
               <View className="rounded-md border border-ink-200 bg-white px-3 py-2.5">
-                <Text className="text-sm font-semibold text-ink-900">{selectedTemplate?.name || "Report card"}</Text>
+                <Text className="text-sm font-semibold text-ink-900">{selectedTemplate?.name || (admitOnly ? "Admit card" : "Report card")}</Text>
                 <Text className="mt-0.5 text-xs text-ink-700">Published template attached to this sitting</Text>
               </View>
             ) : (
               <View className="rounded-md border border-amber-300 bg-amber-50 p-3">
-                <Text className="text-sm font-semibold text-amber-900">Report card template required</Text>
-                <Text className="mt-1 text-xs leading-5 text-amber-900">The result is published, but no Student Report Card design has been published yet.</Text>
-                <Pressable className="mt-2" onPress={() => { setOpen(false); router.push({ pathname: "/school", params: { tab: "documents", document: "REPORT_CARD" } } as never); }}>
+                <Text className="text-sm font-semibold text-amber-900">{admitOnly && !resultIssue ? "Admit card template required" : "Report card template required"}</Text>
+                <Text className="mt-1 text-xs leading-5 text-amber-900">
+                  {admitOnly && !resultIssue
+                    ? "Publish a Student admit card design in Document Studio first."
+                    : "The result is published, but no Student Report Card design has been published yet."}
+                </Text>
+                <Pressable className="mt-2" onPress={() => { setOpen(false); router.push({ pathname: "/school", params: { tab: "documents", document: admitOnly && !resultIssue ? "ADMIT_CARD" : "REPORT_CARD" } } as never); }}>
                   <Text className="text-xs font-semibold text-amber-950">Open Document Studio</Text>
                 </Pressable>
               </View>
@@ -1253,14 +1289,29 @@ export function QuickDocumentButton({
             </View>
           )}
           {batchSubjects?.length && reportGate ? (
-            <Field label="Send only if paid months ≥" hint="Example: 3 means only parents whose child has paid at least 3 fee months get this report card. Enter 0 to send to everyone.">
-              <Input keyboardType="number-pad" value={requirePaidMonths} onChangeText={setRequirePaidMonths} placeholder="3" />
-            </Field>
+            <View className="rounded-md border border-amber-200 bg-amber-50 p-3">
+              <Text className="text-sm font-semibold text-amber-950">Fee rule for results</Text>
+              <Text className="mt-1 text-xs leading-5 text-amber-900">
+                {reportThreshold > 0
+                  ? `Parents receive this report card only if the child has paid at least ${reportThreshold} fee month${reportThreshold === 1 ? "" : "s"}. Change this in School → Exams.`
+                  : "No paid-months rule is set. Every family in this class will receive the report card. Set a threshold in School → Exams if needed."}
+              </Text>
+            </View>
           ) : null}
           {batchSubjects?.length && feeGate ? (
-            <Field label="Block if pending months ≥" hint="Example: 2 means students with 2 or more unpaid fee months will not get this document. Clear or enter 0 to issue everyone.">
-              <Input keyboardType="number-pad" value={blockIfPendingMonths} onChangeText={setBlockIfPendingMonths} placeholder="2" />
-            </Field>
+            <View className="rounded-md border border-amber-200 bg-amber-50 p-3">
+              <Text className="text-sm font-semibold text-amber-950">Skip students with unpaid fees</Text>
+              <Text className="mt-1 text-xs leading-5 text-amber-900">
+                {unpaidBlock > 0
+                  ? `A student with ${unpaidBlock} or more unpaid fee months will not get an admit card.`
+                  : "0 issues an admit card to every student, even if fees are unpaid."}
+              </Text>
+              <View className="mt-3 w-24">
+                <Field label="Unpaid months ≥">
+                  <Input keyboardType="number-pad" value={blockMonths} onChangeText={setBlockMonths} placeholder="1" />
+                </Field>
+              </View>
+            </View>
           ) : null}
           {message ? <Text className="text-sm text-red-700">{message}</Text> : null}
           {blocked.length ? (

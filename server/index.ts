@@ -411,7 +411,11 @@ app.get("/api/v1/record", async (req, res) => {
     "timetable.teach",
   ]);
   if (!allowed) return sendError(res, 403, "No access.");
-  res.json(await recordPayload(user, typeof req.query.childId === "string" ? req.query.childId : null));
+  try {
+    res.json(await recordPayload(user, typeof req.query.childId === "string" ? req.query.childId : null));
+  } catch (e) {
+    sendError(res, 500, e instanceof Error ? e.message : "Request failed.");
+  }
 });
 
 app.get("/api/v1/onboarding/template", async (req, res) => {
@@ -1135,7 +1139,7 @@ app.post("/api/pay/webhook", async (req, res) => {
           entity?: {
             id?: string;
             order_id?: string;
-            notes?: { token?: string; invoiceId?: string; studentToken?: string; periods?: string };
+            notes?: { token?: string; invoiceId?: string; studentToken?: string; periods?: string; invoiceIds?: string };
           };
         };
       };
@@ -1143,8 +1147,14 @@ app.post("/api/pay/webhook", async (req, res) => {
     if (event.event !== "payment.captured") return res.json({ ok: true });
     const entity = event.payload?.payment?.entity;
     const paymentId = entity?.id || "";
-    if (entity?.notes?.studentToken && entity?.notes?.periods) {
-      const months = await invoicesFromPeriods(entity.notes.studentToken, entity.notes.periods);
+    if (entity?.notes?.studentToken && (entity?.notes?.invoiceIds || entity?.notes?.periods)) {
+      const invoiceIds = String(entity.notes.invoiceIds || "")
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean);
+      const months = invoiceIds.length
+        ? await prisma.feeInvoice.findMany({ where: { id: { in: invoiceIds } }, select: { id: true } })
+        : await invoicesFromPeriods(entity.notes.studentToken, entity.notes.periods || "");
       if (paymentId && months.length) {
         await captureRazorpayMonths({
           invoiceIds: months.map((m) => m.id),

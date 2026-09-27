@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   applicableMonthlyFee,
+  clampFeeDueDay,
   catalogAddOnKind,
   catalogAddOnLabel,
   classAddOnKind,
+  feeTemplateLateWrite,
+  lateStampFromSetup,
   composeStudentFeeLines,
   parseCatalogAddOnKind,
   parseFeeCatalogState,
@@ -228,5 +231,13 @@ describe("fee catalog and student assignment", () => {
       rule: "RECURRING_MONTH",
       intervalCount: 1,
     });
+    expect(parsed.dueDay).toBe(10);
+  });
+
+  it("clamps due day 0 to 10 and values above 30 to 30", () => {
+    expect(clampFeeDueDay(0)).toBe(10);
+    expect(clampFeeDueDay(99)).toBe(30);
+    expect(clampFeeDueDay(1)).toBe(1);
+    expect(feeTemplateLateWrite(lateStampFromSetup({ enabled: false }).stamp)).not.toHaveProperty("lateFeePerDay");
   });
 });

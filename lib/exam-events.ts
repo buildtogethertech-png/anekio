@@ -1,7 +1,7 @@
 import { Prisma, type Portal } from "@prisma/client";
 import { paperSetterId } from "./exams";
 import { parentSeesOfficialSeries } from "./exam-marks";
-import { paidFeeMonthCount, reportCardFeeMonthsRequired, reportCardUnlocked } from "./fees";
+import { reportCardFeeHoldFromConfig } from "./fees";
 import { prisma } from "./prisma";
 import { notifyNoticePublished, notifyNoticeRecipients } from "./push";
 
@@ -377,6 +377,7 @@ export async function notifyResultsPublished(input: {
   exam?: ExamNoticeCtx | null;
   seriesId?: string | null;
   authorId?: string | null;
+  sendToParents?: boolean;
 }) {
   if (input.exam) {
     const userIds = evaluatorNoticeUserIds(input.exam);
@@ -389,7 +390,7 @@ export async function notifyResultsPublished(input: {
         authorId: input.authorId,
       });
     }
-    await notifySittingReportCardsIfReady(input.exam.seriesId, input.authorId);
+    if (input.sendToParents) await notifySittingReportCardsIfReady(input.exam.seriesId, input.authorId);
     return;
   }
   if (!input.seriesId) return;
@@ -420,7 +421,7 @@ export async function notifyResultsPublished(input: {
       authorId: input.authorId,
     });
   }
-  await notifySittingReportCardsIfReady(series.id, input.authorId);
+  if (input.sendToParents) await notifySittingReportCardsIfReady(series.id, input.authorId);
 }
 
 export async function notifySittingReportCardsIfReady(seriesId?: string | null, authorId?: string | null) {
@@ -434,7 +435,6 @@ export async function notifySittingReportCardsIfReady(seriesId?: string | null, 
   });
   if (!series?.exams.length || !parentSeesOfficialSeries(series)) return;
   const config = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
-  const required = reportCardFeeMonthsRequired(config);
   const students = await prisma.student.findMany({
     where: { classId: series.classId },
     include: {
@@ -445,9 +445,12 @@ export async function notifySittingReportCardsIfReady(seriesId?: string | null, 
   });
   const classLabel = `${series.class.name}-${series.class.section}`;
   let released = 0;
+  let held = 0;
   for (const student of students) {
-    const paidMonths = paidFeeMonthCount(student.feeInvoices);
-    if (!reportCardUnlocked(paidMonths, required)) continue;
+    if (reportCardFeeHoldFromConfig(student.feeInvoices, config)) {
+      held += 1;
+      continue;
+    }
     const userIds = [...new Set([student.parent?.user.id, student.user?.id].filter(Boolean))] as string[];
     if (!userIds.length) continue;
     const result = await emitExactExamNotice({
@@ -470,8 +473,8 @@ export async function notifySittingReportCardsIfReady(seriesId?: string | null, 
       eventKey: examEventKey(["SERIES", series.id, "REPORT_CARD_OFFICE"]),
       title: `${series.name} report cards ready`,
       body:
-        required > 0
-          ? `Every subject in ${series.name} · ${classLabel} is published. Report cards went to families with at least ${required} paid fee month${required === 1 ? "" : "s"} (${released} sent).`
+        held > 0
+          ? `Every subject in ${series.name} · ${classLabel} is published. Report cards went to ${released} families; ${held} are held until fees are cleared.`
           : `Every subject in ${series.name} · ${classLabel} is published. Report cards are available to families (${released} sent).`,
       userIds: officeIds,
       authorId,

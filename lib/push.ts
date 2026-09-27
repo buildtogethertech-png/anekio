@@ -58,11 +58,17 @@ export async function notifyNoticePublished(input: {
     channelId: "notices",
   }));
   for (let i = 0; i < messages.length; i += 100) {
-    await fetch(EXPO_PUSH, {
-      method: "POST",
-      headers: { Accept: "application/json", "Content-Type": "application/json" },
-      body: JSON.stringify(messages.slice(i, i + 100)),
-    });
+    try {
+      const response = await fetch(EXPO_PUSH, {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify(messages.slice(i, i + 100)),
+        signal: AbortSignal.timeout(EXACT_RECIPIENT_PUSH_TIMEOUT_MS),
+      });
+      if (!response.ok) throw new Error(`Expo push failed with HTTP ${response.status}`);
+    } catch {
+      // Broadcast push is best-effort; the Notice row is already persisted.
+    }
   }
 }
 

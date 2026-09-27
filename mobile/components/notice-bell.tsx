@@ -3,12 +3,12 @@ import { useRouter } from "expo-router";
 import { useState } from "react";
 import { ActivityIndicator, Image, Modal, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { hrefForNotice } from "./notification-row";
-import { classifyNotice, NOTICE_KIND_LABEL, type NoticeKind } from "../lib/notice-kind";
+import { hrefForNotice } from "../lib/notice-kind";
+import { classifyNotice, CLASSIFIED_NOTICE_LABEL, noticeBellVisible, type ClassifiedNoticeKind } from "../lib/notice-kind";
 import { useNoticeInbox } from "../lib/notice-inbox";
 import { useSession } from "../lib/session";
 
-const TAG_STYLE: Record<NoticeKind, string> = {
+const TAG_STYLE: Record<ClassifiedNoticeKind, string> = {
   ADMISSION: "bg-amber-100 text-amber-900",
   EXAM: "bg-orange-100 text-orange-900",
   FEES: "bg-emerald-100 text-emerald-900",
@@ -16,6 +16,7 @@ const TAG_STYLE: Record<NoticeKind, string> = {
   ATTENDANCE: "bg-yellow-100 text-yellow-900",
   LEAVE: "bg-indigo-100 text-indigo-900",
   CIRCULAR: "bg-blue-100 text-blue-800",
+  UNKNOWN: "bg-slate-100 text-slate-700",
 };
 
 function postedWhen(value: string) {
@@ -37,7 +38,7 @@ export function NoticeBell() {
   const [open, setOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  if (!nav.some((n) => n.key === "notices")) return null;
+  if (!noticeBellVisible(nav)) return null;
 
   const unread = inbox?.unread ?? 0;
   const rows = inbox?.notices ?? [];
@@ -128,7 +129,7 @@ export function NoticeBell() {
                     <Pressable
                       key={notice.id}
                       accessibilityRole="button"
-                      accessibilityLabel={`${NOTICE_KIND_LABEL[kind]}. ${notice.title}`}
+                      accessibilityLabel={`${CLASSIFIED_NOTICE_LABEL[kind]}. ${notice.title}`}
                       onPress={async () => {
                         await inbox?.markSeen(notice.id);
                         setOpen(false);
@@ -140,7 +141,7 @@ export function NoticeBell() {
                         <View className="min-w-0 flex-1">
                           <View className="flex-row items-center gap-2">
                             <Text className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${TAG_STYLE[kind]}`}>
-                              {NOTICE_KIND_LABEL[kind]}
+                              {CLASSIFIED_NOTICE_LABEL[kind]}
                             </Text>
                             {unreadRow ? <View className="h-2 w-2 rounded-full bg-blue-600" /> : null}
                             <Text className="ml-auto text-xs text-ink-500">{postedWhen(notice.createdAt)}</Text>

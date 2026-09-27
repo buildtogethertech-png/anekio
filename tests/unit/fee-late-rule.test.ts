@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { invoiceBalance, invoiceLateStamp, latePolicyLabel, lateStampFromSetup } from "../../lib/fees";
+import { invoiceBalance, invoiceLateStamp, latePolicyLabel, lateStampFromSetup, dueDateForMonth } from "../../lib/fees";
 
 describe("fee late rules", () => {
   afterEach(() => {
@@ -28,6 +28,41 @@ describe("fee late rules", () => {
       lateAmount: 100,
     });
     expect(afterGraceEnds.late).toBe(100);
+  });
+
+  it("builds the monthly due date from period plus due day", () => {
+    const due = dueDateForMonth(2026, 3, 10);
+    expect(due.getFullYear()).toBe(2026);
+    expect(due.getMonth()).toBe(3);
+    expect(due.getDate()).toBe(10);
+  });
+
+  it("clamps due day 30 to the last day of shorter months", () => {
+    const february = dueDateForMonth(2026, 1, 30);
+    expect(february.getFullYear()).toBe(2026);
+    expect(february.getMonth()).toBe(1);
+    expect(february.getDate()).toBe(28);
+    expect(dueDateForMonth(2026, 3, 30).getDate()).toBe(30);
+  });
+
+  it("does not add a fine on the due date and adds it the next day", () => {
+    vi.useFakeTimers();
+    const due = new Date(2026, 3, 10);
+    const invoice = {
+      amount: 3000,
+      dueDate: due,
+      lateKind: "STATIC",
+      lateGraceDays: 0,
+      lateAmount: 50,
+    };
+
+    vi.setSystemTime(new Date(2026, 3, 10, 18, 0, 0));
+    expect(invoiceBalance(invoice).late).toBe(0);
+
+    vi.setSystemTime(new Date(2026, 3, 11, 10, 0, 0));
+    const afterDue = invoiceBalance(invoice);
+    expect(afterDue.late).toBe(50);
+    expect(afterDue.dueNow).toBe(3050);
   });
 
   it("charges recurring day intervals from the day after grace", () => {

@@ -17,9 +17,11 @@ import {
   feePeriod,
   invoiceBalance,
   invoiceLateStamp,
+  feeTemplateLateWrite,
   monthFeeTitle,
   parseCatalogAddOnKind,
   parseFeeCatalogState,
+  clampFeeDueDay,
   studentHasClassAddOn,
   parseFeeLines,
   periodFromDate,
@@ -30,7 +32,7 @@ import {
 import { normalizeMobile } from "./phone";
 import { getResendConfig, sendResendEmail } from "./resend";
 import { cell, parseClassLabel, parseCsv, parseDob, parsePathTags } from "./sheet";
-import { ensureSchoolSessions, startNextSchoolSession, syncCurrentSessionDates } from "./school-session";
+import { ensureSchoolSessions, startNextSchoolSession, updateCurrentSchoolSession } from "./school-session";
 import { todayJoinedOn } from "./staff-profile";
 import { feePayUrl } from "./utils";
 import { addDays, paperSetterId, ymd } from "./exams";
@@ -143,6 +145,46 @@ export async function startNextSchoolSessionCore(user: AccessUser) {
   await startNextSchoolSession();
 }
 
+export async function saveFeeAcademicSessionCore(
+  user: AccessUser,
+  input: {
+    label?: string;
+    startsOn?: string;
+    endsOn?: string;
+    sessionName?: string;
+    sessionStart?: string;
+    sessionEnd?: string;
+    dueDay?: number;
+  }
+) {
+  need(user, "fees.configure");
+  const startsOn = String(input.startsOn ?? input.sessionStart ?? "").trim();
+  const endsOn = String(input.endsOn ?? input.sessionEnd ?? "").trim();
+  const session =
+    startsOn && endsOn
+      ? await updateCurrentSchoolSession({
+          label: input.label ?? input.sessionName,
+          startsOn,
+          endsOn,
+        })
+      : await (async () => {
+          const { current } = await ensureSchoolSessions();
+          return { id: current.id, label: current.label, startsOn: current.startsOn, endsOn: current.endsOn, current: true };
+        })();
+  if (input.dueDay == null || String(input.dueDay).trim() === "") {
+    const catalog = await loadFeeCatalog();
+    return { ...session, dueDay: catalog.dueDay };
+  }
+  const dueDay = clampFeeDueDay(input.dueDay);
+  const catalog = await loadFeeCatalog();
+  await writeFeeCatalog(user, { ...catalog, dueDay });
+  await prisma.feeTemplate.updateMany({
+    where: { sessionId: session.id },
+    data: { dueDay },
+  });
+  return { ...session, dueDay };
+}
+
 export async function saveFeeTemplateCore(
   user: AccessUser,
   input: {
@@ -171,7 +213,10 @@ export async function saveFeeTemplateCore(
   const startsPeriod = normalizeFeePeriod(input.startsPeriod) || current.startsOn.slice(0, 7);
   const endsPeriod = normalizeFeePeriod(input.endsPeriod) || current.endsOn.slice(0, 7);
   if (startsPeriod > endsPeriod) throw new Error("Start month must be before end month");
-  const dueDay = Math.min(28, Math.max(1, Number(input.dueDay || 10)));
+  const catalogDue = parseFeeCatalogState(
+    (await prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { feeCatalogJson: true } }))?.feeCatalogJson
+  ).dueDay;
+  const dueDay = clampFeeDueDay(input.dueDay != null && String(input.dueDay).trim() !== "" ? input.dueDay : catalogDue);
   const hasLate = input.lateKind != null && String(input.lateKind).trim() !== "";
   const rawKind = String(input.lateKind || "NONE").toUpperCase();
   const lateKind =
@@ -239,7 +284,7 @@ export async function saveFeeTemplateCore(
     },
   });
   if (overlap) throw new Error(`This range overlaps ${overlap.startsPeriod || "an earlier setup"} to ${overlap.endsPeriod || "an earlier setup"}.`);
-  const lateData = hasLate ? lateStamp : existing ? {} : inheritedLate;
+  const lateData = hasLate ? lateStamp : existing ? {} : feeTemplateLateWrite(inheritedLate);
   if (existing) {
     await prisma.feeLine.deleteMany({ where: { templateId: existing.id } });
     const updated = await prisma.feeTemplate.update({
@@ -576,21 +621,6 @@ export async function applySessionLateFeeCore(
     },
   });
   return { late: mapped.catalog };
-}
-
-export async function saveFeeAcademicSessionCore(user: AccessUser, input: { startsOn?: string; endsOn?: string }) {
-  need(user, "fees.configure");
-  const startsOn = String(input.startsOn || "").trim();
-  const endsOn = String(input.endsOn || "").trim();
-  if (!startsOn || !endsOn) throw new Error("Pick the session start and end.");
-  if (endsOn < startsOn) throw new Error("Session end must be after session start.");
-  await prisma.schoolConfig.upsert({
-    where: { id: "school" },
-    update: { sessionStart: startsOn, sessionEnd: endsOn },
-    create: { id: "school", sessionStart: startsOn, sessionEnd: endsOn },
-  });
-  await syncCurrentSessionDates(startsOn, endsOn);
-  return { startsOn, endsOn };
 }
 
 export async function applySessionDueDayCore(user: AccessUser, input: { dueDay?: number }) {
@@ -1326,24 +1356,28 @@ export async function approveExamMarksCore(user: AccessUser, input: { examId?: s
 
 export async function publishExamResultsCore(
   user: AccessUser,
-  input: { examId?: string; seriesId?: string }
+  input: { examId?: string; seriesId?: string; holdIfUnpaidMonths?: number; sendToParents?: boolean }
 ) {
   need(user, "exams.publish");
   const examId = String(input.examId || "");
   const seriesId = String(input.seriesId || "");
+  const sendToParents = Boolean(input.sendToParents);
   if (examId) {
     const exam = await prisma.exam.findUnique({ where: { id: examId }, include: { evaluators: true } });
     if (!exam) throw new Error("Exam not found");
-    if (!adminCanPublish(exam.workflowStatus)) {
-      throw new Error("Approve the mark sheet before publishing results.");
+    if (exam.workflowStatus !== "PUBLISHED") {
+      if (!adminCanPublish(exam.workflowStatus)) {
+        throw new Error("Approve the mark sheet before publishing results.");
+      }
+      assertExamTransition(exam.workflowStatus, "PUBLISHED");
+      await prisma.exam.update({
+        where: { id: exam.id },
+        data: { workflowStatus: "PUBLISHED", resultsPublishedAt: new Date() },
+      });
+      const ctx = await loadExamNoticeCtx(exam.id);
+      if (ctx) await notifyResultsPublished({ exam: ctx, authorId: user.id, sendToParents });
     }
-    assertExamTransition(exam.workflowStatus, "PUBLISHED");
-    await prisma.exam.update({
-      where: { id: exam.id },
-      data: { workflowStatus: "PUBLISHED", resultsPublishedAt: new Date() },
-    });
-    const ctx = await loadExamNoticeCtx(exam.id);
-    if (ctx) await notifyResultsPublished({ exam: ctx, authorId: user.id });
+    await persistResultsUnpaidHold(user, input.holdIfUnpaidMonths);
     return { published: 1 };
   }
   if (!seriesId) throw new Error("Exam or series required");
@@ -1366,8 +1400,16 @@ export async function publishExamResultsCore(
     where: { seriesId, workflowStatus: "APPROVED" },
     data: { workflowStatus: "PUBLISHED", resultsPublishedAt: now },
   });
-  await notifyResultsPublished({ seriesId, authorId: user.id });
+  await persistResultsUnpaidHold(user, input.holdIfUnpaidMonths);
+  if (sendToParents) await notifyResultsPublished({ seriesId, authorId: user.id, sendToParents: true });
   return { published: series.exams.length };
+}
+
+async function persistResultsUnpaidHold(user: AccessUser, holdIfUnpaidMonths?: number) {
+  if (holdIfUnpaidMonths == null || String(holdIfUnpaidMonths).trim() === "") return;
+  const resultsUnpaidMonths = Math.max(0, Math.min(24, Math.floor(Number(holdIfUnpaidMonths) || 0)));
+  const current = await loadFeeCatalog();
+  await writeFeeCatalog(user, { ...current, resultsUnpaidMonths });
 }
 
 export async function importExamMarksCore(user: AccessUser, input: { examId?: string; csv?: string }) {

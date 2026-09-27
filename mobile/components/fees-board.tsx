@@ -328,9 +328,10 @@ export function FeesBoard() {
   const [editorClassId, setEditorClassId] = useState("");
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [tplName, setTplName] = useState("Monthly fee");
-  const [tplDue, setTplDue] = useState("10");
   const [tplLines, setTplLines] = useState<FeeLineDraft[]>([newFeeLine("Tuition", "")]);
   const [tplAddOnLines, setTplAddOnLines] = useState<FeeLineDraft[]>([]);
+  const [admissionClassId, setAdmissionClassId] = useState("");
+  const [admissionLines, setAdmissionLines] = useState<FeeLineDraft[]>([newFeeLine("Admission fee", "")]);
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [catalogKind, setCatalogKind] = useState<"TRANSPORT" | "OTHER">("TRANSPORT");
   const [catalogId, setCatalogId] = useState("");
@@ -342,8 +343,6 @@ export function FeesBoard() {
   const [lateGrace, setLateGrace] = useState("5");
   const [lateRule, setLateRule] = useState("RECURRING_MONTH");
   const [lateEvery, setLateEvery] = useState("15");
-  const [admissionLines, setAdmissionLines] = useState<FeeLineDraft[]>([newFeeLine("Admission fee", "")]);
-  const [admissionClassId, setAdmissionClassId] = useState("");
   const [sessionStart, setSessionStart] = useState("");
   const [sessionEnd, setSessionEnd] = useState("");
   const [sessionDueDay, setSessionDueDay] = useState(10);
@@ -355,7 +354,7 @@ export function FeesBoard() {
   const configure = can(user, "fees.configure");
   const compact = width < 768;
   const currentSession = data?.school?.sessions?.find((row) => row.current) ?? data?.school?.sessions?.[0];
-  const catalog = data?.feeCatalog ?? { items: [], late: { enabled: false, amount: 0, graceDays: 0 } };
+  const catalog = data?.feeCatalog ?? { items: [], late: { enabled: false, amount: 0, graceDays: 0 }, dueDay: 10 };
   const transportItems = catalog.items.filter((item) => item.kind === "TRANSPORT");
   const otherItems = catalog.items.filter((item) => item.kind === "OTHER");
   const classTemplates = useMemo(
@@ -370,6 +369,7 @@ export function FeesBoard() {
   const defaultStartPeriod = currentSession?.startsOn?.slice(0, 7) || currentFeePeriod();
   const defaultEndPeriod = currentSession?.endsOn?.slice(0, 7) || defaultStartPeriod;
   const structureRange = periodRangeLabel(classTemplate?.startsPeriod || defaultStartPeriod, classTemplate?.endsPeriod || defaultEndPeriod);
+  const admissionTotal = admissionLines.reduce((sum, line) => sum + Math.max(0, Math.round(Number(line.amount) || 0)), 0);
   const tplTotal = tplLines.reduce((sum, line) => sum + Math.max(0, Math.round(Number(line.amount) || 0)), 0);
   const admissionByClass = useMemo(() => {
     const totals = new Map<string, number>();
@@ -379,7 +379,6 @@ export function FeesBoard() {
     }
     return totals;
   }, [data?.admissionFeeLines]);
-  const admissionTotal = admissionLines.reduce((sum, line) => sum + Math.max(0, Math.round(Number(line.amount) || 0)), 0);
   const classRows = useMemo(
     () =>
       [...classes]
@@ -567,7 +566,6 @@ export function FeesBoard() {
   useEffect(() => {
     if (!editorClassId) return;
     setTplName(classTemplate?.name || "Monthly fee");
-    setTplDue(String(classTemplate?.dueDay || 10));
     const allLines = (classTemplate?.lines || []).filter((line) => line.scope !== "ADD_ON");
     const addOnLines = (classTemplate?.lines || []).filter((line) => line.scope === "ADD_ON");
     setTplLines(allLines.length ? allLines.map((line) => newFeeLine(line.label, String(line.amount))) : [newFeeLine("Tuition", "")]);
@@ -610,8 +608,8 @@ export function FeesBoard() {
     setSessionStart(currentSession?.startsOn || data?.school?.sessionStart || "");
     setSessionEnd(currentSession?.endsOn || data?.school?.sessionEnd || "");
     const sessionTemplates = templates.filter((row) => !currentSession || row.sessionId === currentSession.id || !row.sessionId);
-    setSessionDueDay(sessionTemplates[0]?.dueDay || 10);
-  }, [currentSession?.id, currentSession?.startsOn, currentSession?.endsOn, data?.school?.sessionStart, data?.school?.sessionEnd, templates]);
+    setSessionDueDay(sessionTemplates[0]?.dueDay || catalog.dueDay || 10);
+  }, [currentSession?.id, currentSession?.startsOn, currentSession?.endsOn, data?.school?.sessionStart, data?.school?.sessionEnd, templates, catalog.dueDay]);
 
   async function openDueFeeDocument(inv: { id: string; invoiceUrl?: string; receiptUrl?: string }, paid: boolean) {
     const directUrl = paid ? inv.receiptUrl : inv.invoiceUrl;
@@ -668,7 +666,6 @@ export function FeesBoard() {
         name: tplName,
         startsPeriod: classTemplate?.startsPeriod || defaultStartPeriod,
         endsPeriod: classTemplate?.endsPeriod || defaultEndPeriod,
-        dueDay: Number(tplDue),
         lines,
       });
       setSelectedTemplateId(saved.id);
@@ -883,7 +880,7 @@ export function FeesBoard() {
                 accessibilityRole="button"
                 accessibilityLabel={`${row.person.name} fee detail`}
                 onPress={() => setSelectedDueStudentId(row.person.id)}
-                className={`flex-row border-b border-ink-50 ${active ? "bg-blue-50" : "bg-white"}`}
+                className={`flex-row border-b border-ink-50 ${active ? "bg-blue-50" : "bg-white hover:bg-ink-50"}`}
                 style={{ minHeight: 56, cursor: "pointer" }}
               >
                 <Cell flex={0.95}>{row.person.admissionNo || "—"}</Cell>
@@ -943,7 +940,7 @@ export function FeesBoard() {
       {reportEvents.map((row) => {
         const when = clockLabel(row.paidAt);
         return (
-          <View key={row.key} className="flex-row border-b border-ink-50 bg-white" style={{ minHeight: 56 }}>
+          <View key={row.key} className="flex-row border-b border-ink-50 bg-white hover:bg-ink-50" style={{ minHeight: 56 }}>
             <Cell flex={1.3}>
               <Text numberOfLines={1} className="text-[13px] leading-5 text-ink-900">
                 {when.day}
@@ -1241,8 +1238,8 @@ export function FeesBoard() {
           ["academic", "Academic"],
           ["class", "Class Fees"],
           ["transport", "Transport"],
-          ["other", "Other Fees"],
-          ["late", "Late Fee"],
+          ["other", "Other"],
+          ["late", "Fine"],
         ] as const
       ).map(([id, label]) => (
         <Pressable
@@ -1296,7 +1293,7 @@ export function FeesBoard() {
               setCatalogActive(item.active);
               setCatalogOpen(true);
             }}
-            className="flex-row border-b border-ink-50 px-3"
+            className="flex-row border-b border-ink-50 px-3 hover:bg-ink-50"
             style={{ minHeight: 48 }}
           >
             <Cell flex={2}>{item.label}</Cell>
@@ -1507,7 +1504,7 @@ export function FeesBoard() {
               setSelectedTemplateId(row.template?.id || "new");
               setFeeEditorOpen(true);
             }}
-            className="flex-row border-b border-ink-50 px-3"
+            className="flex-row border-b border-ink-50 px-3 hover:bg-ink-50"
             style={{ minHeight: 48 }}
           >
             <Cell flex={1.4}>
@@ -1534,8 +1531,10 @@ export function FeesBoard() {
       catalogTable("OTHER")
     ) : (
       <Card className="p-4">
-        <Text className="text-sm font-semibold text-ink-900">Late fee</Text>
-        <Text className="mt-1 text-xs text-ink-600">Applies to newly generated invoices. Paid and historical invoices stay unchanged.</Text>
+        <Text className="text-sm font-semibold text-ink-900">Late / fine defaults</Text>
+        <Text className="mt-1 text-xs text-ink-600">
+          One school-wide rule for every class. Applies after the due date on newly generated invoices. Paid and historical invoices stay unchanged.
+        </Text>
         <View className="mt-4 flex-row items-center justify-between">
           <Text className="text-sm text-ink-800">Late fee enabled</Text>
           <Switch on={lateEnabled} disabled={!configure} onPress={() => setLateEnabled((value) => !value)} />
@@ -1745,18 +1744,9 @@ export function FeesBoard() {
             <Text className="text-sm font-semibold text-ink-900">Fee structure</Text>
             {structureRange ? <Text className="mt-1 text-xs text-ink-600">This structure applies {structureRange}</Text> : null}
           </View>
-          <View className="flex-row flex-wrap gap-3">
-            <View className="min-w-[220px] flex-1">
-              <Field label="Name">
-                <Input value={tplName} onChangeText={setTplName} />
-              </Field>
-            </View>
-            <View className="w-28">
-              <Field label="Due day">
-                <Input keyboardType="number-pad" value={tplDue} onChangeText={setTplDue} />
-              </Field>
-            </View>
-          </View>
+          <Field label="Name">
+            <Input value={tplName} onChangeText={setTplName} />
+          </Field>
           <View className="gap-2">
             <View className="flex-row px-1">
               <Text className="flex-1 text-[11px] font-semibold uppercase tracking-wide text-ink-500">Charge</Text>

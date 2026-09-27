@@ -257,9 +257,15 @@ export type RecordPayload = {
     exams: { id: string; title: string; maxMarks: number; date: string; subject: { id?: string; name: string } }[];
     marks: { examId: string; studentId: string; marks: number; absent?: boolean; remarks?: string | null }[];
     classmates: { id: string; name: string }[];
-    policy: { bands: { min: number; grade: string }[]; passPercent: number; showRank: boolean; reportCardPaidMonths?: number };
+    policy: { bands: { min: number; grade: string }[]; passPercent: number; showRank: boolean; reportCardPaidMonths?: number; reportCardUnpaidMonths?: number; admitCardPendingMonths?: number };
   }[];
-  reportCardHold?: { requiredMonths: number; paidMonths: number } | null;
+  reportCardHold?: {
+    requiredMonths: number;
+    paidMonths: number;
+    unpaidMonths?: number;
+    unpaidThreshold?: number;
+    reason?: "paid" | "unpaid";
+  } | null;
   timetable?: {
     weekdays: { n: number; label: string }[];
     periods: { id: string; name: string; start: string; end: string; isBreak?: boolean; sortOrder?: number }[];
@@ -419,6 +425,7 @@ export type RecordPayload = {
   feeCatalog?: {
     items: { id: string; kind: "TRANSPORT" | "OTHER"; label: string; amount: number; active: boolean }[];
     late: { enabled: boolean; amount: number; graceDays: number; rule?: string; intervalCount?: number };
+    dueDay?: number;
   };
   admissionFeeLines?: { id: string; classId: string; label: string; amount: number; sortOrder: number }[];
   people?: {
@@ -665,7 +672,7 @@ export type RecordPayload = {
     subjectCatalog?: string[];
     sessions?: { id: string; label: string; startsOn: string; endsOn: string; current: boolean }[];
     holidays?: { id: string; sessionId?: string; date: string; name: string }[];
-    policy?: { bands: { min: number; grade: string }[]; passPercent: number; showRank: boolean; reportCardPaidMonths?: number };
+    policy?: { bands: { min: number; grade: string }[]; passPercent: number; showRank: boolean; reportCardPaidMonths?: number; reportCardUnpaidMonths?: number; admitCardPendingMonths?: number };
     plan?: { id: string; name: string; kind: string; weight: number; maxMarks: number; expectedPeriod?: string }[];
     documentsReady?: {
       feeInvoice: boolean;
@@ -716,7 +723,7 @@ export type RecordPayload = {
       signatory?: string;
       invoiceStyle?: string;
     };
-    policy: { bands: { min: number; grade: string }[]; passPercent: number; showRank: boolean; reportCardPaidMonths?: number };
+    policy: { bands: { min: number; grade: string }[]; passPercent: number; showRank: boolean; reportCardPaidMonths?: number; reportCardUnpaidMonths?: number; admitCardPendingMonths?: number };
     planBySession: Record<string, { id: string; name: string; kind: string; weight: number; maxMarks: number; expectedPeriod?: string }[]>;
     series: {
       id: string;

@@ -18,7 +18,6 @@ export default function Notices() {
   const { token, user } = useSession();
   const inbox = useNoticeInbox();
   const refreshInbox = inbox?.refresh;
-  const markInboxSeen = inbox?.markAllSeen;
   const { data } = useRecord();
   const toast = useToast();
   const [notices, setNotices] = useState<Notice[] | null>(null);
@@ -34,10 +33,9 @@ export default function Notices() {
   const load = useCallback(async () => {
     if (!token) return;
     const payload = await api<{ notices: Notice[] }>("/notices", token);
-    setNotices(payload.notices);
+    setNotices(payload.notices.filter(isCircularNotice));
     await refreshInbox?.({ silent: true });
-    await markInboxSeen?.();
-  }, [token, refreshInbox, markInboxSeen]);
+  }, [token, refreshInbox]);
 
   useEffect(() => {
     load().catch((e) => setError(e instanceof Error ? e.message : "Could not load."));
@@ -157,11 +155,11 @@ export default function Notices() {
             </View>
           </Card>
         ) : null}
-        {notices && !notices.filter(isCircularNotice).length ? (
+        {notices && !notices.length ? (
           <Empty title="No notices" body="When the office posts a circular, it shows up here." />
         ) : null}
         <View className="gap-3">
-          {(notices ?? []).filter(isCircularNotice).map((n) => (
+          {(notices ?? []).map((n) => (
             <Card key={n.id} className="p-4">
               <View className="flex-row items-start justify-between gap-2">
                 <Text className="flex-1 font-medium text-ink-900">{n.title}</Text>

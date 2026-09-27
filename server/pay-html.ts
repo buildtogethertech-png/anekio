@@ -285,6 +285,7 @@ function schoolContext(opts: {
 
 function invoiceCard(row: {
   title: string;
+  studentName?: string;
   dueDate: Date | string;
   dueNow: number;
   remaining: number;
@@ -303,6 +304,7 @@ function invoiceCard(row: {
     <div class="invoice-top">
       <div>
         <div class="invoice-title">${escapeHtml(row.title)}</div>
+        ${row.studentName ? `<div class="small">${escapeHtml(row.studentName)}</div>` : ""}
         <div class="small">Due ${escapeHtml(dateLabel(row.dueDate))}</div>
         <span class="status ${statusClass}">${escapeHtml(status)}</span>
       </div>
@@ -449,17 +451,24 @@ export async function renderStudentPayPage(token: string, monthsRaw: string, inv
   const wanted = new Set(monthsRaw.split(",").map((p) => p.trim()).filter(Boolean));
   const wantedIds = new Set(invoiceIdsRaw.split(",").map((p) => p.trim()).filter(Boolean));
   const invoiceSource = wantedIds.size
-    ? data.student.parent.students.flatMap((student) => student.feeInvoices)
-    : data.student.feeInvoices;
+    ? data.student.parent.students.flatMap((student) => student.feeInvoices.map((inv) => ({ inv, studentName: student.name })))
+    : data.student.feeInvoices.map((inv) => ({ inv, studentName: data.student.name }));
+  const seen = new Set<string>();
   const selected = invoiceSource
-    .filter((inv) => wantedIds.size ? wantedIds.has(inv.id) : !wanted.size || wanted.has(inv.period) || wanted.has(inv.id))
-    .map((inv) => {
+    .filter(({ inv }) => (wantedIds.size ? wantedIds.has(inv.id) : !wanted.size || wanted.has(inv.period) || wanted.has(inv.id)))
+    .filter(({ inv }) => {
+      if (seen.has(inv.id)) return false;
+      seen.add(inv.id);
+      return true;
+    })
+    .map(({ inv, studentName }) => {
       const b = invoiceBalance(inv);
       const latestPayment = [...inv.payments].sort((a, b) => +b.paidAt - +a.paidAt)[0];
       return {
         id: inv.id,
         period: inv.period || inv.id,
         title: inv.title,
+        studentName,
         amount: inv.amount,
         dueDate: inv.dueDate,
         dueNow: b.dueNow,
@@ -474,7 +483,7 @@ export async function renderStudentPayPage(token: string, monthsRaw: string, inv
         latestReference: paymentReferenceBase(latestPayment?.reference),
       };
     })
-    .sort((a, b) => a.period.localeCompare(b.period) || a.title.localeCompare(b.title));
+    .sort((a, b) => a.period.localeCompare(b.period) || a.title.localeCompare(b.title) || a.studentName.localeCompare(b.studentName));
   const months = selected.filter((row) => row.dueNow > 0);
   const dueNow = months.reduce((n, m) => n + m.dueNow, 0);
   const canCombine = pay.gateway === "RAZORPAY" || months.length <= 1;
@@ -529,7 +538,7 @@ export async function renderStudentPayPage(token: string, monthsRaw: string, inv
       ready
         ? checkoutScript({
             studentToken: token,
-            invoiceIds: months.map((m) => m.id),
+            invoiceIds: [...new Set(months.map((m) => m.id))],
             schoolName: school.name,
             amountLabel: formatInr(dueNow),
             provider: pay.gateway,

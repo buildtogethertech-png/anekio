@@ -282,6 +282,27 @@ export function invoiceLateStamp(row: {
   };
 }
 
+/** FeeTemplate has no lateFeePerDay column — invoices keep that field via invoiceLateStamp. */
+export function feeTemplateLateWrite(stamp: {
+  lateKind: string;
+  lateGraceDays: number;
+  lateAmount: number;
+  lateIntervalCount: number;
+  lateIntervalUnit: string;
+  lateAfter10: number;
+  lateAfter20: number;
+}) {
+  return {
+    lateKind: stamp.lateKind,
+    lateGraceDays: stamp.lateGraceDays,
+    lateAmount: stamp.lateAmount,
+    lateIntervalCount: stamp.lateIntervalCount,
+    lateIntervalUnit: stamp.lateIntervalUnit,
+    lateAfter10: stamp.lateAfter10,
+    lateAfter20: stamp.lateAfter20,
+  };
+}
+
 export function latePolicyLabel(row: {
   lateKind?: string | null;
   lateGraceDays?: number | null;
@@ -344,14 +365,71 @@ export function paidFeeMonthCount(
   return (invoices || []).filter((invoice) => invoiceBalance(invoice).dueNow <= 0).length;
 }
 
+export function unpaidFeeMonthCount(
+  invoices: Parameters<typeof invoiceBalance>[0][] | null | undefined
+) {
+  return (invoices || []).filter((invoice) => invoiceBalance(invoice).dueNow > 0).length;
+}
+
 export function reportCardFeeMonthsRequired(row?: { reportCardPaidMonths?: number | null } | null) {
   const n = Math.floor(Number(row?.reportCardPaidMonths));
   if (!Number.isFinite(n) || n < 0) return 0;
   return Math.min(24, n);
 }
 
+export function reportCardUnpaidMonthsRequired(row?: { reportCardUnpaidMonths?: number | null } | null) {
+  const n = Math.floor(Number(row?.reportCardUnpaidMonths));
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.min(24, n);
+}
+
 export function reportCardUnlocked(paidMonths: number, requiredMonths: number) {
   return requiredMonths <= 0 || paidMonths >= requiredMonths;
+}
+
+export function reportCardFeeHold(
+  invoices: Parameters<typeof invoiceBalance>[0][] | null | undefined,
+  config?: { reportCardPaidMonths?: number | null; reportCardUnpaidMonths?: number | null } | null
+) {
+  const paidMonths = paidFeeMonthCount(invoices);
+  const unpaidMonths = unpaidFeeMonthCount(invoices);
+  const requiredMonths = reportCardFeeMonthsRequired(config);
+  const unpaidThreshold = reportCardUnpaidMonthsRequired(config);
+  const paidHold = requiredMonths > 0 && paidMonths < requiredMonths;
+  const unpaidHold = unpaidThreshold > 0 && unpaidMonths >= unpaidThreshold;
+  if (!paidHold && !unpaidHold) return null;
+  return {
+    requiredMonths,
+    paidMonths,
+    unpaidMonths,
+    unpaidThreshold,
+    reason: unpaidHold ? ("unpaid" as const) : ("paid" as const),
+  };
+}
+
+export function reportCardFeeHoldFromConfig(
+  invoices: Parameters<typeof invoiceBalance>[0][] | null | undefined,
+  config?: {
+    reportCardPaidMonths?: number | null;
+    reportCardUnpaidMonths?: number | null;
+    feeCatalogJson?: string | null;
+  } | null
+) {
+  const catalog = parseFeeCatalogState(config?.feeCatalogJson).resultsUnpaidMonths;
+  return reportCardFeeHold(invoices, {
+    reportCardPaidMonths: config?.reportCardPaidMonths,
+    reportCardUnpaidMonths: catalog > 0 ? catalog : config?.reportCardUnpaidMonths,
+  });
+}
+
+export function admitCardPendingMonthsRequired(row?: { admitCardPendingMonths?: number | null } | null) {
+  const n = Math.floor(Number(row?.admitCardPendingMonths));
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.min(24, n);
+}
+
+export function admitCardBlocked(pendingMonths: number, threshold: number) {
+  return threshold > 0 && pendingMonths >= threshold;
 }
 
 export function groupStudentFees<
@@ -448,12 +526,20 @@ export type FeeCatalogLate = {
 export type FeeCatalogState = {
   items: FeeCatalogItem[];
   late: FeeCatalogLate;
+  dueDay: number;
+  resultsUnpaidMonths: number;
 };
 
 const EMPTY_FEE_CATALOG: FeeCatalogState = {
   items: [],
   late: { enabled: false, amount: 0, graceDays: 0, rule: "RECURRING_MONTH", intervalCount: 1 },
+  dueDay: 10,
+  resultsUnpaidMonths: 0,
 };
+
+export function clampFeeDueDay(day?: number | null) {
+  return Math.min(30, Math.max(1, Math.round(Number(day) || 10)));
+}
 
 export function catalogAddOnKind(kind: FeeCatalogKind, id: string) {
   return `${kind}:${id}`;
@@ -501,9 +587,11 @@ export function studentHasClassAddOn(
 
 export function parseFeeCatalogState(raw?: string | null): FeeCatalogState {
   try {
-    const parsed = JSON.parse(raw || "{}") as { items?: unknown; late?: Partial<FeeCatalogLate> } | FeeCatalogItem[];
+    const parsed = JSON.parse(raw || "{}") as { items?: unknown; late?: Partial<FeeCatalogLate>; dueDay?: number; resultsUnpaidMonths?: number } | FeeCatalogItem[];
     const rows = Array.isArray(parsed) ? parsed : parsed.items;
     const late = Array.isArray(parsed) ? undefined : parsed.late;
+    const dueDay = Array.isArray(parsed) ? undefined : parsed.dueDay;
+    const resultsUnpaidMonths = Array.isArray(parsed) ? undefined : parsed.resultsUnpaidMonths;
     const items = (Array.isArray(rows) ? rows : [])
       .map((row) => {
         const item = row as Partial<FeeCatalogItem>;
@@ -529,6 +617,8 @@ export function parseFeeCatalogState(raw?: string | null): FeeCatalogState {
         rule: String(late?.rule || "RECURRING_MONTH"),
         intervalCount: Math.max(1, Math.round(Number(late?.intervalCount) || 1)),
       },
+      dueDay: clampFeeDueDay(dueDay),
+      resultsUnpaidMonths: reportCardUnpaidMonthsRequired({ reportCardUnpaidMonths: resultsUnpaidMonths }),
     };
   } catch {
     return { ...EMPTY_FEE_CATALOG, items: [] };
@@ -538,6 +628,8 @@ export function parseFeeCatalogState(raw?: string | null): FeeCatalogState {
 export function serializeFeeCatalogState(state: FeeCatalogState) {
   return JSON.stringify({
     items: state.items,
+    dueDay: clampFeeDueDay(state.dueDay),
+    resultsUnpaidMonths: reportCardUnpaidMonthsRequired({ reportCardUnpaidMonths: state.resultsUnpaidMonths }),
     late: {
       enabled: Boolean(state.late.enabled) && state.late.amount > 0,
       amount: Math.max(0, Number(state.late.amount) || 0),

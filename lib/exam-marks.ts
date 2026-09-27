@@ -23,8 +23,47 @@ export function teacherAssignedToPaper(
   return fromJoin.includes(teacherId);
 }
 
-export function parentSeesOfficialSeries(series: { exams: { workflowStatus?: string | null; resultsPublishedAt?: Date | string | null }[] }) {
+export function parentSeesOfficialSeries(series: {
+  exams: { workflowStatus?: string | null; resultsPublishedAt?: Date | string | null }[];
+}) {
   return Boolean(series.exams.length) && series.exams.every((exam) => exam.workflowStatus === "PUBLISHED" || Boolean(exam.resultsPublishedAt));
+}
+
+export function sittingAllPapersPublished(
+  papers: { workflowStatus?: string | null; resultsPublishedAt?: Date | string | null }[]
+) {
+  return parentSeesOfficialSeries({ exams: papers });
+}
+
+export function canFinalizeSittingPapers(
+  papers: { workflowStatus?: string | null }[]
+) {
+  if (!papers.length) return false;
+  const locked = papers.every((paper) => paper.workflowStatus === "APPROVED" || paper.workflowStatus === "PUBLISHED");
+  return locked && papers.some((paper) => paper.workflowStatus === "APPROVED");
+}
+
+export function canSendResultsToParents(
+  papers: { workflowStatus?: string | null; resultsPublishedAt?: Date | string | null }[],
+  canPublish = true
+) {
+  return Boolean(canPublish) && sittingAllPapersPublished(papers);
+}
+
+export function examSittingDocumentTypes(allPapersPublished: boolean) {
+  return allPapersPublished
+    ? ["REPORT_CARD", "GRADE_SHEET", "PROGRESS_REPORT", "CONSOLIDATED_REPORT"]
+    : ["ADMIT_CARD"];
+}
+
+export function parentMaySeeExamResult(
+  exam: { workflowStatus?: string | null; resultsPublishedAt?: Date | string | null; series?: { exams?: { workflowStatus?: string | null; resultsPublishedAt?: Date | string | null }[] } | null }
+) {
+  const published = exam.workflowStatus === "PUBLISHED" || Boolean(exam.resultsPublishedAt);
+  if (!published) return false;
+  const siblings = exam.series?.exams;
+  if (!siblings?.length) return true;
+  return parentSeesOfficialSeries({ exams: siblings });
 }
 
 export type SheetMark = {

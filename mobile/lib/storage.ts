@@ -85,7 +85,7 @@ export async function getSeenNoticeIds(userId: string) {
 }
 
 export async function setSeenNoticeIds(userId: string, ids: string[]) {
-  await writeStore(NOTICES_SEEN_KEY, JSON.stringify({ userId, ids: ids.slice(0, 200) }));
+  await writeStore(NOTICES_SEEN_KEY, JSON.stringify({ userId, ids: ids.slice(-2000) }));
 }
 
 export type LauncherPosition = { x: number; y: number };

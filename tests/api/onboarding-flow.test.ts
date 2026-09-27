@@ -66,6 +66,7 @@ describe("school onboarding imports", () => {
     const studentsTemplate = await onboardingTemplate(user, "students");
     expect(studentsTemplate).toMatchObject({ fileName: "anekio-students.csv", contentType: "text/csv; charset=utf-8" });
     const studentCsv = studentsTemplate.buffer.toString("utf8");
+    expect(studentCsv).toContain("Roll number");
     expect(studentCsv).toContain("Aarav Sharma (example)");
     expect(studentCsv).toContain('"YES"');
     const studentUploadPath = "private/schools/test/onboarding/imports/students.csv";
@@ -259,7 +260,7 @@ describe("school onboarding imports", () => {
 
     const sheet = workbook.getWorksheet("7-B")!;
     expect((sheet.getRow(1).values as unknown[]).slice(1)).toEqual([
-      "Roll",
+      "Roll number",
       "Student full name",
       "Date of birth",
       "Class interested",
@@ -288,10 +289,14 @@ describe("school onboarding imports", () => {
     const sampleWorkbook = new ExcelJS.Workbook();
     const sampleArrayBuffer = sampleTemplate.buffer.buffer.slice(sampleTemplate.buffer.byteOffset, sampleTemplate.buffer.byteOffset + sampleTemplate.buffer.byteLength) as ArrayBuffer;
     await sampleWorkbook.xlsx.load(sampleArrayBuffer);
+    const sampleSheet = sampleWorkbook.getWorksheet("6-A")!;
+    expect(String(sampleSheet.getRow(1).getCell(1).value || "")).toBe("Roll number");
+    expect(Number(sampleSheet.getRow(2).getCell(1).value)).toBe(1);
+    expect(String(sampleSheet.getRow(2).getCell(10).value || "")).not.toMatch(/yes/i);
     const sampleCount = sampleWorkbook.worksheets.reduce((total, worksheet) => {
       let count = 0;
       worksheet.eachRow((row, rowNumber) => {
-        if (rowNumber <= 2) return;
+        if (rowNumber <= 1) return;
         if (String(row.getCell(10).value || "").trim()) return;
         if (String(row.getCell(2).value || "").trim()) count += 1;
       });

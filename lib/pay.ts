@@ -1,7 +1,7 @@
 import { createBilldeskOrder, captureBilldeskPayment } from "./billdesk";
 import { createCashfreeOrder, captureCashfreePayment } from "./cashfree";
 import { randomUUID } from "node:crypto";
-import { invoiceBalance, unpaidFeeMonths, expandOldestUnpaidInvoiceIds } from "./fees";
+import { invoiceBalance, unpaidFeeMonths } from "./fees";
 import { gatewayReady, getSchoolPaySecrets } from "./pay-config";
 import {
   createFeeOrder,
@@ -10,31 +10,9 @@ import {
   captureRazorpayMonths,
 } from "./razorpay";
 import { prisma } from "./prisma";
+import { invoicesForStudentMonths } from "./pay-family";
 
-export async function invoicesForStudentMonths(studentToken: string, invoiceIds: string[]) {
-  const student = await prisma.student.findUnique({
-    where: { payToken: studentToken },
-    include: { feeInvoices: { include: { payments: true } } },
-  });
-  if (!student) throw new Error("Pay link is not valid");
-  const expanded = expandOldestUnpaidInvoiceIds(
-    student.feeInvoices.map((inv) => ({
-      id: inv.id,
-      studentId: student.id,
-      dueDate: inv.dueDate,
-      title: inv.title,
-      dueNow: invoiceBalance(inv).dueNow,
-    })),
-    invoiceIds
-  );
-  const wanted = new Set(expanded);
-  const open = student.feeInvoices
-    .filter((inv) => wanted.has(inv.id))
-    .filter((inv) => invoiceBalance(inv).dueNow > 0)
-    .sort((a, b) => +a.dueDate - +b.dueDate);
-  if (!open.length) throw new Error("Those months are already paid");
-  return open;
-}
+export { invoicesForStudentMonths };
 
 export async function buildStudentMonthPayPath(
   studentId: string,

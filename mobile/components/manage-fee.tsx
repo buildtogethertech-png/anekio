@@ -22,6 +22,34 @@ export function studentHasClassAddOn(addOns: { kind?: string | null; label?: str
   });
 }
 
+export function catalogKindId(kind?: string | null) {
+  const match = /^(TRANSPORT|OTHER):(.+)$/i.exec(String(kind || "").trim());
+  if (!match) return null;
+  return { kind: match[1].toUpperCase() as "TRANSPORT" | "OTHER", id: match[2] };
+}
+
+export function feeAssignmentFromStudent(addOns?: { kind?: string | null; label?: string | null }[] | null) {
+  let transportId = "";
+  const otherIds: string[] = [];
+  const classAddOnLabels: string[] = [];
+  for (const addOn of addOns || []) {
+    const parsed = catalogKindId(addOn.kind);
+    if (parsed?.kind === "TRANSPORT") {
+      transportId = parsed.id;
+      continue;
+    }
+    if (parsed?.kind === "OTHER") {
+      otherIds.push(parsed.id);
+      continue;
+    }
+    const kind = String(addOn.kind || "").toUpperCase();
+    if (kind === "DISCOUNT" || kind === "CONCESSION") continue;
+    const label = String(addOn.label || "").trim();
+    if (label) classAddOnLabels.push(label);
+  }
+  return { transportId, otherIds, classAddOnLabels };
+}
+
 export function ManageFeeBody({
   student,
   templates,

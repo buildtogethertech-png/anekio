@@ -2,11 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   LIBRARY_DOCUMENT_TYPE_IDS,
   defaultLayout,
+  isFeeDocumentType,
+  attachesOnSaveDocumentType,
   libraryBuiltInTemplates,
   libraryDocumentCategories,
   libraryDocumentTypes,
   pickAttachedReportCardType,
   attachedZoneForDocumentType,
+  documentModuleOwner,
+  examReleaseUsesTemplate,
 } from "../../lib/document-studio";
 
 describe("document studio library", () => {
@@ -163,6 +167,17 @@ describe("document studio library", () => {
     expect(attachedZoneForDocumentType("SALARY_SLIP")).toBe("Staff payroll salary slips");
     expect(attachedZoneForDocumentType("ADMIT_CARD")).toBe("Exams · admit cards");
     expect(attachedZoneForDocumentType("REPORT_CARD")).toBe("Examination downloads and Exams");
+    expect(isFeeDocumentType("FEE_INVOICE")).toBe(true);
+    expect(isFeeDocumentType("PAYMENT_RECEIPT")).toBe(true);
+    expect(isFeeDocumentType("STUDENT_ID")).toBe(false);
+    expect(attachesOnSaveDocumentType("ADMIT_CARD")).toBe(true);
+    expect(attachesOnSaveDocumentType("REPORT_CARD")).toBe(true);
+    expect(attachesOnSaveDocumentType("STUDENT_ID")).toBe(false);
+    expect(documentModuleOwner("FEE_INVOICE")).toBe("fees");
+    expect(documentModuleOwner("ADMIT_CARD")).toBe("exams");
+    expect(documentModuleOwner("REPORT_CARD")).toBe("exams");
+    expect(examReleaseUsesTemplate("ADMIT_CARD")).toBe(true);
+    expect(examReleaseUsesTemplate("FEE_INVOICE")).toBe(false);
   });
 
   it("attaches the published report-card family template to sitting and paper downloads", () => {
