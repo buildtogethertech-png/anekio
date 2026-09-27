@@ -7,6 +7,7 @@ import { FilterBar, type FilterConfig, type FilterValues } from "./filter";
 import { Button, Card, Field, Input, Modal, Switch, Toast, useToast } from "./ui";
 import { DateField } from "./date-field";
 import { FeeReport } from "./fee-report";
+import { Select } from "./form/select";
 import { act } from "../lib/mutate";
 import { webOrigin } from "../lib/api";
 import { useRecord } from "../lib/record";
@@ -386,6 +387,7 @@ export function FeesBoard() {
   const [sessionStart, setSessionStart] = useState("");
   const [sessionEnd, setSessionEnd] = useState("");
   const [sessionDue, setSessionDue] = useState("10");
+  const [admissionClassId, setAdmissionClassId] = useState("");
   const [admissionLines, setAdmissionLines] = useState<FeeLineDraft[]>([newFeeLine("Admission fee", "")]);
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [catalogKind, setCatalogKind] = useState<"TRANSPORT" | "OTHER">("TRANSPORT");
@@ -641,16 +643,25 @@ export function FeesBoard() {
   }, [currentSession?.id, currentSession?.label, currentSession?.startsOn, currentSession?.endsOn, data?.school?.sessionLabel, data?.school?.sessionStart, data?.school?.sessionEnd, catalog.dueDay, templates]);
 
   useEffect(() => {
-    const rows = data?.admissionFeeLines ?? [];
-    const classId = rows[0]?.classId;
-    const forClass = classId ? rows.filter((row) => row.classId === classId).sort((a, b) => a.sortOrder - b.sortOrder) : [];
-    if (forClass.length) {
-      setAdmissionLines(forClass.map((row) => newFeeLine(row.label, String(row.amount))));
+    const classList = data?.classes ?? [];
+    const sorted = [...classList].sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+    const selected =
+      admissionClassId && classList.some((row) => row.id === admissionClassId) ? admissionClassId : sorted[0]?.id || "";
+    if (selected !== admissionClassId) {
+      setAdmissionClassId(selected);
       return;
     }
-    const fallback = data?.school?.admissionCharge;
+    const rows = (data?.admissionFeeLines ?? [])
+      .filter((row) => row.classId === selected)
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+    if (rows.length) {
+      setAdmissionLines(rows.map((row) => newFeeLine(row.label, String(row.amount))));
+      return;
+    }
+    const anyClassSaved = (data?.admissionFeeLines ?? []).length > 0;
+    const fallback = !selected || anyClassSaved ? "" : data?.school?.admissionCharge;
     setAdmissionLines([newFeeLine("Admission fee", fallback ? String(fallback) : "")]);
-  }, [data?.admissionFeeLines, data?.school?.admissionCharge]);
+  }, [admissionClassId, data?.classes, data?.admissionFeeLines, data?.school?.admissionCharge]);
 
   async function openDueFeeDocument(inv: { id: string; invoiceUrl?: string; receiptUrl?: string }, paid: boolean) {
     const directUrl = paid ? inv.receiptUrl : inv.invoiceUrl;
@@ -783,6 +794,10 @@ export function FeesBoard() {
   }
 
   async function saveAdmissionFee() {
+    if (!admissionClassId) {
+      toast.show("Pick a class first.");
+      return;
+    }
     try {
       const lines = admissionLines
         .map((line) => ({
@@ -790,7 +805,7 @@ export function FeesBoard() {
           amount: Math.max(0, Math.round(Number(line.amount) || 0)),
         }))
         .filter((line) => line.label || line.amount > 0);
-      await act(token, "saveAdmissionFeeSetup", { lines });
+      await act(token, "saveAdmissionFeeSetup", { classId: admissionClassId, lines });
       toast.show("Admission fee saved.");
       await reload();
     } catch (error) {
@@ -1448,6 +1463,17 @@ export function FeesBoard() {
         <Card className="p-4">
           <Text className="text-sm font-semibold text-ink-900">Admission fee</Text>
           <Text className="mt-1 text-xs text-ink-600">One-time charge at the start of the academic session. Add each item; the total is the admission fee. Not part of monthly class fees.</Text>
+          <View className="mt-3 max-w-sm">
+            <Select
+              label="Class"
+              value={admissionClassId}
+              options={[...classes]
+                .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }))
+                .map((row) => ({ id: row.id, label: row.label }))}
+              onChange={setAdmissionClassId}
+              placeholder="Pick a class"
+            />
+          </View>
           <View className="mt-3 gap-2">
             <View className="flex-row px-1">
               <Text className="flex-1 text-[11px] font-semibold uppercase tracking-wide text-ink-500">Charge</Text>

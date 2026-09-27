@@ -557,6 +557,31 @@ describe.sequential("fees module lifecycle API", () => {
     expect((await prisma.feeInvoice.findUniqueOrThrow({ where: { id: invoices[0].id } })).amount).toBe(5000);
   });
 
+  it("keeps a different one-time admission fee on each class", async () => {
+    const classA = await prisma.class.create({ data: { id: "class-adm-a", name: "9", section: "A" } });
+    const classB = await prisma.class.create({ data: { id: "class-adm-b", name: "9", section: "B" } });
+    const savedA = await act(officeToken, "saveAdmissionFeeSetup", {
+      classId: classA.id,
+      lines: [
+        { label: "Admission fee", amount: 3000 },
+        { label: "ID card", amount: 100 },
+      ],
+    });
+    expect(savedA.status).toBe(200);
+    const savedB = await act(officeToken, "saveAdmissionFeeSetup", {
+      classId: classB.id,
+      lines: [{ label: "Admission fee", amount: 8000 }],
+    });
+    expect(savedB.status).toBe(200);
+    const rowsA = await prisma.admissionFeeLine.findMany({ where: { classId: classA.id }, orderBy: { sortOrder: "asc" } });
+    const rowsB = await prisma.admissionFeeLine.findMany({ where: { classId: classB.id }, orderBy: { sortOrder: "asc" } });
+    expect(rowsA.map((row) => [row.label, row.amount])).toEqual([
+      ["Admission fee", 3000],
+      ["ID card", 100],
+    ]);
+    expect(rowsB.map((row) => [row.label, row.amount])).toEqual([["Admission fee", 8000]]);
+  });
+
   it("blocks parent, student, and teacher from office fee writes", async () => {
     for (const [token, op] of [
       [parentToken, "saveFeeTemplate"],
