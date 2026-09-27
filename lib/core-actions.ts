@@ -6,7 +6,7 @@ import { sendAisensyWhatsApp } from "./aisensy";
 import { getPayShareChannels, type PayShareChannelId } from "./comms";
 import { recordLedgerPayment } from "./fee-ledger";
 import { issueDueFeesCore } from "./fee-run";
-import { feePeriod, invoiceBalance, payRangeLabel } from "./fees";
+import { feePeriod, invoiceBalance, payRangeLabel, pickAdmissionFeeLines } from "./fees";
 import { buildStudentMonthPayPath } from "./pay";
 import { sendResendEmail } from "./resend";
 import { publicOrigin } from "./utils";
@@ -229,16 +229,36 @@ function normalizeAdmissionFeeLines(input: unknown) {
 
 export async function saveAdmissionFeeSetupCore(user: AccessUser, input: { classId?: string; lines?: unknown }) {
   need(user, "fees.configure");
-  const classId = String(input.classId || "").trim();
-  if (!classId) throw new Error("Pick a class first.");
-  const klass = await prisma.class.findUnique({ where: { id: classId }, select: { id: true, archivedAt: true } });
-  if (!klass || klass.archivedAt) throw new Error("Pick a valid class.");
   const lines = normalizeAdmissionFeeLines(input.lines);
-  await prisma.$transaction([
-    prisma.admissionFeeLine.deleteMany({ where: { classId } }),
-    ...lines.map((line) => prisma.admissionFeeLine.create({ data: { orgId: user.orgId ?? null, classId, ...line } })),
-  ]);
-  return { lines };
+  const classId = String(input.classId || "").trim();
+  const orgId = user.orgId ?? null;
+  const orgFilter = orgId ? { orgId } : { orgId: null };
+  const total = lines.reduce((sum, line) => sum + line.amount, 0);
+  const classes = await prisma.class.findMany({
+    where: { archivedAt: null, ...(orgId ? { orgId } : {}) },
+    select: { id: true },
+  });
+  if (!classes.length) throw new Error("Add a class in Settings first.");
+  const targetIds = classId ? classes.filter((row) => row.id === classId).map((row) => row.id) : classes.map((row) => row.id);
+  if (classId && !targetIds.length) throw new Error("Pick a valid class.");
+  await prisma.$transaction(async (tx) => {
+    await tx.admissionFeeLine.deleteMany({
+      where: classId ? { ...orgFilter, classId } : orgFilter,
+    });
+    if (lines.length) {
+      await tx.admissionFeeLine.createMany({
+        data: targetIds.flatMap((id) => lines.map((line) => ({ orgId, classId: id, ...line }))),
+      });
+    }
+    if (!classId) {
+      await tx.schoolConfig.upsert({
+        where: { id: "school" },
+        update: { admissionCharge: total },
+        create: { id: "school", admissionCharge: total },
+      });
+    }
+  });
+  return { lines, classIds: targetIds };
 }
 
 export async function admitLeadAsStudentCore(
@@ -288,19 +308,23 @@ export async function admitLeadAsStudentCore(
     const klass = await tx.class.findUnique({ where: { id: classId } });
     if (!klass || klass.archivedAt) throw new Error("Pick a valid class.");
     const config = await tx.schoolConfig.findUnique({ where: { id: "school" } });
+    const orgFilter = user.orgId ? { orgId: user.orgId } : { orgId: null };
     const classAdmissionRows = await tx.admissionFeeLine.findMany({
       where: { classId, active: true },
       orderBy: { sortOrder: "asc" },
     });
-    const configuredAdmissionLines = classAdmissionRows
-      .map((line) => ({ label: line.label, kind: "FLAT" as const, amount: Math.max(0, line.amount) }))
-      .filter((line) => line.label && line.amount > 0);
-    const legacyAdmissionCharge = Math.max(0, config?.admissionCharge || 0);
-    const admissionLines = configuredAdmissionLines.length
-      ? configuredAdmissionLines
-      : legacyAdmissionCharge > 0
-        ? [{ label: "Admission fee", kind: "FLAT" as const, amount: legacyAdmissionCharge }]
-        : [];
+    const fallbackRows = classAdmissionRows.length
+      ? []
+      : await tx.admissionFeeLine.findMany({
+          where: { ...orgFilter, active: true },
+          orderBy: [{ classId: "asc" }, { sortOrder: "asc" }],
+        });
+    const sharedClassId = fallbackRows[0]?.classId;
+    const admissionLines = pickAdmissionFeeLines(
+      [],
+      classAdmissionRows.length ? classAdmissionRows : fallbackRows.filter((row) => row.classId === sharedClassId),
+      config?.admissionCharge || 0
+    );
     const admissionCharge = admissionLines.reduce((sum, line) => sum + line.amount, 0);
     const missingLeadRequirements = missingAdmissionLeadRequirements(config?.admissionFormJson, lead);
     if (missingLeadRequirements.length) {

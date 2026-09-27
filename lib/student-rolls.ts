@@ -49,14 +49,27 @@ async function nextRollNumber(db: RollDb, sessionId: string, classId: string) {
 
 export async function assignStudentRollNumber(
   db: RollDb = prisma,
-  input: { studentId: string; classId: string; orgId?: string | null }
+  input: { studentId: string; classId: string; orgId?: string | null; rollNumber?: number }
 ) {
   const session = await currentSession(db);
   const existing = await db.studentClassEnrollment.findUnique({
     where: { studentId_sessionId: { studentId: input.studentId, sessionId: session.id } },
   });
-  if (existing?.classId === input.classId) return existing;
-  const rollNumber = await nextRollNumber(db, session.id, input.classId);
+  const requested = Math.round(Number(input.rollNumber) || 0);
+  if (existing?.classId === input.classId && (!requested || existing.rollNumber === requested)) return existing;
+  if (requested > 0) {
+    const clash = await db.studentClassEnrollment.findFirst({
+      where: {
+        sessionId: session.id,
+        classId: input.classId,
+        rollNumber: requested,
+        NOT: { studentId: input.studentId },
+      },
+      select: { id: true },
+    });
+    if (clash) throw new Error(`Roll ${requested} is already used in this class.`);
+  }
+  const rollNumber = requested > 0 ? requested : await nextRollNumber(db, session.id, input.classId);
   if (existing) {
     return db.studentClassEnrollment.update({
       where: { id: existing.id },

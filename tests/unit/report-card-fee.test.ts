@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { paidFeeMonthCount, reportCardFeeMonthsRequired, reportCardUnlocked } from "../../lib/fees";
+import { paidFeeMonthCount, pickAdmissionFeeLines, reportCardFeeMonthsRequired, reportCardUnlocked } from "../../lib/fees";
 import { evaluatorNoticeUserIds } from "../../lib/exam-events";
 
 describe("report card fee months", () => {
@@ -18,6 +18,22 @@ describe("report card fee months", () => {
     expect(reportCardUnlocked(0, 0)).toBe(true);
     expect(reportCardUnlocked(2, 3)).toBe(false);
     expect(reportCardUnlocked(3, 3)).toBe(true);
+  });
+});
+
+describe("school-wide admission fee", () => {
+  it("uses school-wide lines for every class", () => {
+    expect(
+      pickAdmissionFeeLines(
+        [{ label: "Admission fee", amount: 500 }],
+        [{ label: "Class override", amount: 900 }],
+        200
+      )
+    ).toEqual([{ label: "Admission fee", kind: "FLAT", amount: 500 }]);
+    expect(pickAdmissionFeeLines([], [{ label: "Prospectus", amount: 200 }], 0)).toEqual([
+      { label: "Prospectus", kind: "FLAT", amount: 200 },
+    ]);
+    expect(pickAdmissionFeeLines([], [], 0)).toEqual([]);
   });
 });
 

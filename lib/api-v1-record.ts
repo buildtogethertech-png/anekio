@@ -1094,6 +1094,18 @@ async function officePayload(user: AccessUser) {
       lateIntervalUnit: t.lateIntervalUnit,
       lines: t.lines.map((l) => ({ label: l.label, kind: l.kind, amount: l.amount, scope: l.scope || "ALL" })),
     })),
+    admissionFeeLines: (
+      await prisma.admissionFeeLine.findMany({
+        where: { active: true },
+        orderBy: [{ classId: "asc" }, { sortOrder: "asc" }],
+      })
+    ).map((line) => ({
+      id: line.id,
+      classId: line.classId || "",
+      label: line.label,
+      amount: line.amount,
+      sortOrder: line.sortOrder,
+    })),
     feeCatalog: parseFeeCatalogState(config?.feeCatalogJson),
     people: people.students.map((s) => {
       const totals = s.feeInvoices.reduce(

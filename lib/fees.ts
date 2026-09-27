@@ -48,6 +48,25 @@ export function feeLineTotal(lines: FeeLineDraft[]) {
   return { rows, taxable, total };
 }
 
+export type AdmissionFeeCharge = { label: string; kind: "FLAT"; amount: number };
+
+export function pickAdmissionFeeLines(
+  schoolWide: { label: string; amount: number }[],
+  classLines: { label: string; amount: number }[] = [],
+  legacyCharge = 0
+): AdmissionFeeCharge[] {
+  const source = (schoolWide.length ? schoolWide : classLines)
+    .map((line) => ({
+      label: String(line.label || "").trim() || "Admission fee",
+      kind: "FLAT" as const,
+      amount: Math.max(0, Math.round(Number(line.amount) || 0)),
+    }))
+    .filter((line) => line.amount > 0);
+  if (source.length) return source;
+  const amount = Math.max(0, Math.round(Number(legacyCharge) || 0));
+  return amount > 0 ? [{ label: "Admission fee", kind: "FLAT", amount }] : [];
+}
+
 export function lateFromSlabs(days: number, policy: {
   lateKind?: string | null;
   lateGraceDays?: number | null;

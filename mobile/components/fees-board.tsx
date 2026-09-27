@@ -5,15 +5,18 @@ import { useRouter } from "expo-router";
 import { GeneratePayment } from "./generate-payment";
 import { FilterBar, type FilterConfig, type FilterValues } from "./filter";
 import { Button, Card, Field, Input, Modal, Switch, Toast, useToast } from "./ui";
+import { DateField } from "./date-field";
+import { Select } from "./form/select";
 import { FeeReport } from "./fee-report";
 import { act } from "../lib/mutate";
 import { webOrigin } from "../lib/api";
+import { datesForSessionYear, ordinalDay, SESSION_YEAR_OPTIONS, sessionYearId } from "../lib/fee-setup";
 import { useRecord } from "../lib/record";
 import { useSession } from "../lib/session";
 import { inr } from "../lib/payroll";
 
 type Tab = "register" | "report" | "insight" | "setup";
-type SetupPane = "class" | "transport" | "other" | "late";
+type SetupPane = "academic" | "class" | "transport" | "other" | "late";
 type Person = NonNullable<ReturnType<typeof useRecord>["data"]>["people"] extends (infer P)[] | undefined ? P : never;
 type Invoice = NonNullable<Person["invoices"]>[number];
 
@@ -27,6 +30,7 @@ const CLASS_CHARGE_SUGGESTIONS = ["Tuition", "Lab", "Books", "Hostel", "Computer
 const CLASS_ADDON_SUGGESTIONS = ["Project", "Picnic", "Workshop", "Smart class", "Sports kit"];
 const TRANSPORT_SUGGESTIONS = ["Route A", "Route B", "Route C", "Van", "Mini bus"];
 const OTHER_FEE_SUGGESTIONS = ["Computer fee", "Exam fee", "Activity", "Uniform", "Smart class", "Annual function"];
+const ADMISSION_SUGGESTIONS = ["Prospectus", "Registration", "ID card", "Caution deposit"];
 
 function SuggestionPills({
   options,
@@ -110,16 +114,6 @@ function periodRangeLabel(start?: string, end?: string) {
   };
   if (!end || !/^\d{4}-\d{2}$/.test(end) || end === start) return format(start, true);
   return start.slice(0, 4) === end.slice(0, 4) ? `${format(start, false)}–${format(end, true)}` : `${format(start, true)} – ${format(end, true)}`;
-}
-
-function ordinalDay(day: number) {
-  const value = Math.max(1, Math.min(28, Math.round(day || 10)));
-  const rem = value % 100;
-  if (rem >= 11 && rem <= 13) return `${value}th`;
-  if (value % 10 === 1) return `${value}st`;
-  if (value % 10 === 2) return `${value}nd`;
-  if (value % 10 === 3) return `${value}rd`;
-  return `${value}th`;
 }
 
 function periodLabel(period?: string) {
@@ -330,7 +324,7 @@ export function FeesBoard() {
   const [selectedDueStudentId, setSelectedDueStudentId] = useState("");
   const [payDueStudentId, setPayDueStudentId] = useState("");
   const [feeEditorOpen, setFeeEditorOpen] = useState(false);
-  const [setupPane, setSetupPane] = useState<SetupPane>("class");
+  const [setupPane, setSetupPane] = useState<SetupPane>("academic");
   const [editorClassId, setEditorClassId] = useState("");
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [tplName, setTplName] = useState("Monthly fee");
@@ -348,6 +342,11 @@ export function FeesBoard() {
   const [lateGrace, setLateGrace] = useState("5");
   const [lateRule, setLateRule] = useState("RECURRING_MONTH");
   const [lateEvery, setLateEvery] = useState("15");
+  const [admissionLines, setAdmissionLines] = useState<FeeLineDraft[]>([newFeeLine("Admission fee", "")]);
+  const [admissionClassId, setAdmissionClassId] = useState("");
+  const [sessionStart, setSessionStart] = useState("");
+  const [sessionEnd, setSessionEnd] = useState("");
+  const [sessionDueDay, setSessionDueDay] = useState(10);
 
   const people = data?.people ?? [];
   const classes = data?.classes ?? [];
@@ -372,6 +371,15 @@ export function FeesBoard() {
   const defaultEndPeriod = currentSession?.endsOn?.slice(0, 7) || defaultStartPeriod;
   const structureRange = periodRangeLabel(classTemplate?.startsPeriod || defaultStartPeriod, classTemplate?.endsPeriod || defaultEndPeriod);
   const tplTotal = tplLines.reduce((sum, line) => sum + Math.max(0, Math.round(Number(line.amount) || 0)), 0);
+  const admissionByClass = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const line of data?.admissionFeeLines || []) {
+      if (!line.classId) continue;
+      totals.set(line.classId, (totals.get(line.classId) || 0) + Math.max(0, Math.round(Number(line.amount) || 0)));
+    }
+    return totals;
+  }, [data?.admissionFeeLines]);
+  const admissionTotal = admissionLines.reduce((sum, line) => sum + Math.max(0, Math.round(Number(line.amount) || 0)), 0);
   const classRows = useMemo(
     () =>
       [...classes]
@@ -581,6 +589,30 @@ export function FeesBoard() {
     setLateEvery(String((useCatalog ? fromCatalog.intervalCount : fromTemplate?.lateIntervalCount) || 15));
   }, [catalog.late, templates]);
 
+  useEffect(() => {
+    if (admissionClassId && classes.some((row) => row.id === admissionClassId)) return;
+    if (classes[0]?.id) setAdmissionClassId(classes[0].id);
+  }, [classes, admissionClassId]);
+
+  useEffect(() => {
+    if (!admissionClassId) return;
+    const source = (data?.admissionFeeLines || [])
+      .filter((row) => row.classId === admissionClassId)
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+    if (source.length) {
+      setAdmissionLines(source.map((row) => newFeeLine(row.label, String(row.amount))));
+      return;
+    }
+    setAdmissionLines([newFeeLine("Admission fee", "")]);
+  }, [admissionClassId, data?.admissionFeeLines]);
+
+  useEffect(() => {
+    setSessionStart(currentSession?.startsOn || data?.school?.sessionStart || "");
+    setSessionEnd(currentSession?.endsOn || data?.school?.sessionEnd || "");
+    const sessionTemplates = templates.filter((row) => !currentSession || row.sessionId === currentSession.id || !row.sessionId);
+    setSessionDueDay(sessionTemplates[0]?.dueDay || 10);
+  }, [currentSession?.id, currentSession?.startsOn, currentSession?.endsOn, data?.school?.sessionStart, data?.school?.sessionEnd, templates]);
+
   async function openDueFeeDocument(inv: { id: string; invoiceUrl?: string; receiptUrl?: string }, paid: boolean) {
     const directUrl = paid ? inv.receiptUrl : inv.invoiceUrl;
     if (directUrl) {
@@ -682,6 +714,46 @@ export function FeesBoard() {
         intervalCount: Math.max(1, Math.round(Number(lateEvery) || 15)),
       });
       toast.show("Late fee saved for new invoices.");
+      await reload();
+    } catch (error) {
+      toast.show(error instanceof Error ? error.message : "Could not save.");
+    }
+  }
+
+  async function saveAdmissionFee(applyToAll = false) {
+    try {
+      if (!applyToAll && !admissionClassId) {
+        toast.show("Pick a class card first.");
+        return;
+      }
+      const lines = admissionLines
+        .map((line) => ({
+          label: line.label.trim() || "Admission fee",
+          amount: Math.max(0, Math.round(Number(line.amount) || 0)),
+        }))
+        .filter((line) => line.amount > 0);
+      await act(token, "saveAdmissionFeeSetup", applyToAll ? { lines } : { classId: admissionClassId, lines });
+      toast.show(applyToAll ? "One-time admission fee saved for every class." : "One-time admission fee saved for this class.");
+      await reload();
+    } catch (error) {
+      toast.show(error instanceof Error ? error.message : "Could not save.");
+    }
+  }
+
+  async function saveAcademicSession() {
+    try {
+      await act(token, "saveFeeAcademicSession", { startsOn: sessionStart, endsOn: sessionEnd });
+      toast.show("Academic session saved.");
+      await reload();
+    } catch (error) {
+      toast.show(error instanceof Error ? error.message : "Could not save.");
+    }
+  }
+
+  async function saveSessionDueDay() {
+    try {
+      await act(token, "applySessionDueDay", { dueDay: sessionDueDay });
+      toast.show("Due day saved for this session.");
       await reload();
     } catch (error) {
       toast.show(error instanceof Error ? error.message : "Could not save.");
@@ -1166,6 +1238,7 @@ export function FeesBoard() {
     <View className="mb-3 flex-row flex-wrap gap-1 rounded-md border border-ink-200 bg-white p-0.5 self-start">
       {(
         [
+          ["academic", "Academic"],
           ["class", "Class Fees"],
           ["transport", "Transport"],
           ["other", "Other Fees"],
@@ -1247,7 +1320,174 @@ export function FeesBoard() {
   };
 
   const setupBody =
-    setupPane === "class" ? (
+    setupPane === "academic" ? (
+      <View className="overflow-hidden rounded-md border border-ink-100 bg-white p-4">
+        <View className="flex-row flex-wrap items-start justify-between gap-6">
+          <View className="min-w-[280px] flex-1 gap-3">
+            <Text className="text-sm font-semibold text-ink-900">Academic</Text>
+            <Text className="text-xs leading-5 text-ink-600">Session dates, monthly due day, and one-time admission fee.</Text>
+            <View className="max-w-[240px]">
+              <Select
+                label="Academic session"
+                value={sessionYearId(sessionStart, sessionEnd)}
+                options={SESSION_YEAR_OPTIONS}
+                placeholder="Pick session"
+                onChange={(id) => {
+                  const next = datesForSessionYear(id, sessionStart, sessionEnd);
+                  setSessionStart(next.startsOn);
+                  setSessionEnd(next.endsOn);
+                }}
+              />
+            </View>
+            <View className="flex-row flex-wrap gap-3">
+              <View className="min-w-[200px] flex-1">
+                <Field label="Starts">
+                  <DateField value={sessionStart} onChange={setSessionStart} />
+                </Field>
+              </View>
+              <View className="min-w-[200px] flex-1">
+                <Field label="Ends">
+                  <DateField value={sessionEnd} onChange={setSessionEnd} />
+                </Field>
+              </View>
+            </View>
+            {configure ? (
+              <View className="items-start">
+                <Button onPress={() => void saveAcademicSession()}>Save session</Button>
+              </View>
+            ) : null}
+          </View>
+          <View className="gap-2 self-start" style={{ width: 168, flexShrink: 0 }}>
+            <Text className="text-xs font-medium text-ink-700">Due day</Text>
+            <View className="flex-row flex-wrap" style={{ width: 168 }}>
+              {Array.from({ length: 31 }, (_, index) => index + 1).map((day) => {
+                const on = sessionDueDay === day;
+                return (
+                  <Pressable
+                    key={day}
+                    accessibilityRole="button"
+                    onPress={() => setSessionDueDay(day)}
+                    className="items-center justify-center"
+                    style={{ width: 28, height: 28 }}
+                  >
+                    <View className={`h-6 w-6 items-center justify-center rounded-full ${on ? "bg-blue-600" : ""}`}>
+                      <Text className={`text-[11px] font-semibold ${on ? "text-white" : "text-ink-800"}`}>{day}</Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Text className="text-[11px] leading-4 text-ink-600">
+              {ordinalDay(sessionDueDay)} each month.
+            </Text>
+            {configure ? (
+              <View className="self-start">
+                <Button onPress={() => void saveSessionDueDay()}>Save due day</Button>
+              </View>
+            ) : null}
+          </View>
+        </View>
+        <View className="mt-5 border-t border-ink-100 pt-4">
+          <Text className="text-sm font-semibold text-ink-900">Admission fee</Text>
+          <Text className="mt-1 text-xs leading-5 text-ink-600">
+            One-time charge at the start of the academic session. Pick a class card, then set that class’s admission fee. This is not a monthly class fee.
+          </Text>
+          {classRows.length ? (
+            <View className="mt-3 flex-row flex-wrap gap-2">
+              {classRows.map((row) => {
+                const selected = admissionClassId === row.klass.id;
+                const total = admissionByClass.get(row.klass.id) || 0;
+                return (
+                  <Pressable
+                    key={row.klass.id}
+                    accessibilityRole="button"
+                    onPress={() => setAdmissionClassId(row.klass.id)}
+                    className={`min-w-[140px] flex-1 rounded-md border px-3 py-3 ${selected ? "border-clay-500 bg-blue-50" : "border-ink-200 bg-white"}`}
+                    style={{ maxWidth: 220 }}
+                  >
+                    <Text className={`text-sm font-semibold ${selected ? "text-ink-900" : "text-ink-800"}`}>{row.klass.label}</Text>
+                    <Text className={`mt-1 text-base font-semibold ${total ? "text-ink-900" : "text-ink-500"}`}>
+                      {total ? inr(total) : "Not set"}
+                    </Text>
+                    <Text className="mt-0.5 text-[11px] text-ink-600">One-time</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : (
+            <Text className="mt-3 text-sm text-ink-600">Add classes in Settings first, then set each class’s one-time admission fee here.</Text>
+          )}
+          <View className="mt-4 gap-2">
+            <View className="flex-row px-1">
+              <Text className="flex-1 text-[11px] font-semibold uppercase tracking-wide text-ink-500">Charge</Text>
+              <Text className="w-32 text-right text-[11px] font-semibold uppercase tracking-wide text-ink-500">Amount</Text>
+              <View className="w-16" />
+            </View>
+            {admissionLines.map((line) => (
+              <View key={line.id} className="flex-row items-center gap-2">
+                <View className="min-w-0 flex-1">
+                  <Input
+                    placeholder="e.g. Admission fee"
+                    value={line.label}
+                    onChangeText={(label) => setAdmissionLines((rows) => rows.map((row) => (row.id === line.id ? { ...row, label } : row)))}
+                  />
+                </View>
+                <View className="w-32">
+                  <Input
+                    keyboardType="number-pad"
+                    value={line.amount}
+                    onChangeText={(amount) => setAdmissionLines((rows) => rows.map((row) => (row.id === line.id ? { ...row, amount } : row)))}
+                  />
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setAdmissionLines((rows) => (rows.length > 1 ? rows.filter((row) => row.id !== line.id) : rows))}
+                  className="w-16 items-center py-2"
+                >
+                  <Text className="text-xs font-semibold text-red-700">Remove</Text>
+                </Pressable>
+              </View>
+            ))}
+            {configure ? (
+              <View className="gap-2 pt-1">
+                <Pressable onPress={() => setAdmissionLines((rows) => [...rows, newFeeLine("Admission fee", "")])} className="self-start py-1">
+                  <Text className="text-xs font-semibold text-blue-700">+ Add charge</Text>
+                </Pressable>
+                <SuggestionPills
+                  options={ADMISSION_SUGGESTIONS}
+                  used={admissionLines.map((line) => line.label)}
+                  onPick={(label) =>
+                    setAdmissionLines((rows) => {
+                      if (rows.some((row) => row.label.trim().toLowerCase() === label.toLowerCase())) return rows;
+                      const empty = rows.find((row) => !row.label.trim());
+                      if (empty) return rows.map((row) => (row.id === empty.id ? { ...row, label } : row));
+                      return [...rows, newFeeLine(label)];
+                    })
+                  }
+                />
+              </View>
+            ) : null}
+            <View className="mt-2 flex-row items-center justify-between border-t border-ink-100 pt-3">
+              <View>
+                <Text className="text-sm font-semibold text-ink-900">Admission total</Text>
+                <Text className="mt-0.5 text-xs text-ink-600">
+                  Type: One time · {classes.find((row) => row.id === admissionClassId)?.label || "Selected class"}
+                </Text>
+              </View>
+              <Text className="text-sm font-semibold text-ink-900">{inr(admissionTotal)}</Text>
+            </View>
+            {configure ? (
+              <View className="mt-3 flex-row flex-wrap justify-end gap-2">
+                <Button variant="ghost" onPress={() => void saveAdmissionFee(true)}>
+                  Save for all classes
+                </Button>
+                <Button onPress={() => void saveAdmissionFee()}>Save</Button>
+              </View>
+            ) : null}
+          </View>
+        </View>
+      </View>
+    ) : setupPane === "class" ? (
       <View className="overflow-hidden rounded-md border border-ink-100 bg-white">
         <View className="border-b border-ink-100 px-3 py-2.5">
           <Text className="text-sm font-semibold text-ink-900">Class fees</Text>

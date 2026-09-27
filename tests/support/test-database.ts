@@ -92,3 +92,35 @@ export function createTestDatabase(): TestDatabase {
     cleanup: () => rmSync(directory, { recursive: true, force: true }),
   };
 }
+
+/** Copy prisma/dev.db without sqlite3. Call clearCopiedDatabase after Prisma connects. */
+export function createCopiedDevDatabase(): TestDatabase {
+  const { directory, databasePath, databaseUrl, developmentDatabasePath } = isolatedSqliteFile();
+  if (!existsSync(developmentDatabasePath)) {
+    throw new Error("prisma/dev.db is required as the read-only SQLite schema template");
+  }
+  copyFileSync(developmentDatabasePath, databasePath);
+  process.env.TEST_DATABASE_URL = databaseUrl;
+  process.env.DATABASE_URL = databaseUrl;
+  return {
+    databasePath,
+    databaseUrl,
+    directory,
+    cleanup: () => rmSync(directory, { recursive: true, force: true }),
+  };
+}
+
+export async function clearCopiedDatabase(prisma: {
+  $executeRawUnsafe: (query: string) => Promise<unknown>;
+  $queryRawUnsafe: (query: string) => Promise<unknown>;
+}) {
+  await prisma.$executeRawUnsafe("PRAGMA foreign_keys=OFF");
+  const tables = (await prisma.$queryRawUnsafe(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+  )) as { name: string }[];
+  for (const { name } of tables) {
+    if (name === "_prisma_migrations") continue;
+    await prisma.$executeRawUnsafe(`DELETE FROM "${name.replaceAll('"', '""')}"`);
+  }
+  await prisma.$executeRawUnsafe("PRAGMA foreign_keys=ON");
+}

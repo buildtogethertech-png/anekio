@@ -30,7 +30,7 @@ import {
 import { normalizeMobile } from "./phone";
 import { getResendConfig, sendResendEmail } from "./resend";
 import { cell, parseClassLabel, parseCsv, parseDob, parsePathTags } from "./sheet";
-import { ensureSchoolSessions, startNextSchoolSession } from "./school-session";
+import { ensureSchoolSessions, startNextSchoolSession, syncCurrentSessionDates } from "./school-session";
 import { todayJoinedOn } from "./staff-profile";
 import { feePayUrl } from "./utils";
 import { addDays, paperSetterId, ymd } from "./exams";
@@ -576,6 +576,32 @@ export async function applySessionLateFeeCore(
     },
   });
   return { late: mapped.catalog };
+}
+
+export async function saveFeeAcademicSessionCore(user: AccessUser, input: { startsOn?: string; endsOn?: string }) {
+  need(user, "fees.configure");
+  const startsOn = String(input.startsOn || "").trim();
+  const endsOn = String(input.endsOn || "").trim();
+  if (!startsOn || !endsOn) throw new Error("Pick the session start and end.");
+  if (endsOn < startsOn) throw new Error("Session end must be after session start.");
+  await prisma.schoolConfig.upsert({
+    where: { id: "school" },
+    update: { sessionStart: startsOn, sessionEnd: endsOn },
+    create: { id: "school", sessionStart: startsOn, sessionEnd: endsOn },
+  });
+  await syncCurrentSessionDates(startsOn, endsOn);
+  return { startsOn, endsOn };
+}
+
+export async function applySessionDueDayCore(user: AccessUser, input: { dueDay?: number }) {
+  need(user, "fees.configure");
+  const dueDay = Math.min(31, Math.max(1, Math.round(Number(input.dueDay) || 10)));
+  const { current } = await ensureSchoolSessions();
+  await prisma.feeTemplate.updateMany({
+    where: { OR: [{ sessionId: current.id }, { sessionId: null }] },
+    data: { dueDay },
+  });
+  return { dueDay };
 }
 
 export async function assignStudentFeesCore(
