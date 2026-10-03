@@ -243,6 +243,38 @@ describe("Express portal API", () => {
     }
   });
 
+  it("creates a due admission invoice when payment is deferred", async () => {
+    const line = await prisma.admissionFeeLine.create({
+      data: { classId: fixture.classId, label: "Admission", amount: 12500, sortOrder: 0 },
+    });
+    const session = await login(fixture.users.office.email);
+    const auth = { Authorization: `Bearer ${session.body.token}` };
+    try {
+      const created = await request(app)
+        .post("/api/v1/act")
+        .set(auth)
+        .send({
+          op: "createStudent",
+          name: "Deferred Admission Payment Student",
+          classId: fixture.classId,
+          parentId: "parent-pari",
+          dateOfBirth: "2015-06-15",
+        });
+
+      expect(created.status).toBe(200);
+      expect(created.body).toMatchObject({ ok: true, admissionCharge: 12500, admissionCollected: false });
+      const invoice = await prisma.feeInvoice.findUniqueOrThrow({
+        where: { id: created.body.admissionInvoiceId },
+        include: { payments: true },
+      });
+      expect(invoice).toMatchObject({ title: "One-time admission fee", amount: 12500, status: "DUE" });
+      expect(invoice.payments).toEqual([]);
+    } finally {
+      await prisma.admissionFeeLine.delete({ where: { id: line.id } });
+      await prisma.student.deleteMany({ where: { name: "Deferred Admission Payment Student" } });
+    }
+  });
+
   it("keeps admission numbers unique within each school, not across schools", async () => {
     const orgIds = ["org-admission-a", "org-admission-b"];
     await prisma.saasOrg.createMany({

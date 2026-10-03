@@ -131,10 +131,23 @@ export function StudentAdmitForm({
         <View className="flex-row items-center justify-between gap-3">
           <View className="min-w-0 flex-1">
             <Text className="text-sm font-semibold text-ink-900">Collect admission fee now</Text>
-            <Text className="mt-0.5 text-xs leading-4 text-ink-700">Create the configured one-time admission invoice and record the payment with this admission.</Text>
+            <Text className="mt-0.5 text-xs leading-4 text-ink-700">The admission invoice is created either way. Turn this on only when payment is being collected now.</Text>
           </View>
           <Switch on={form.collectAdmissionFee} onPress={() => patch({ collectAdmissionFee: !form.collectAdmissionFee })} />
         </View>
+        {!form.collectAdmissionFee ? (
+          <View className="rounded-lg border border-amber-200 bg-white px-3 py-2.5">
+            <View className="flex-row items-center justify-between gap-3">
+              <Text className="text-xs font-semibold text-ink-900">Invoice created after admission</Text>
+              <Text className="text-sm font-bold text-amber-900">{rupees(admissionTotal)}</Text>
+            </View>
+            <Text className="mt-1 text-xs leading-4 text-ink-700">
+              {selectedAdmissionLines.length
+                ? `A pending one-time invoice for ${selectedClass?.label || "this class"} will be created. Collect it later from Fees.`
+                : `No admission fee is configured for ${selectedClass?.label || "this class"}, so no admission invoice will be created.`}
+            </Text>
+          </View>
+        ) : null}
         {form.collectAdmissionFee ? (
           <View className="gap-3 border-t border-amber-200 pt-3">
             <View className="overflow-hidden rounded-lg border border-amber-200 bg-white">

@@ -210,16 +210,12 @@ export async function createStudentCore(
   for (let attempt = 0; attempt < 10; attempt += 1) {
     try {
       return await prisma.$transaction(async (tx) => {
-        const config = collectAdmissionFee ? await tx.schoolConfig.findUnique({ where: { id: "school" } }) : null;
-        const admissionRows = collectAdmissionFee
-          ? await tx.admissionFeeLine.findMany({
-              where: { classId: input.classId, active: true },
-              orderBy: { sortOrder: "asc" },
-            })
-          : [];
-        const admissionLines = collectAdmissionFee
-          ? pickAdmissionFeeLines([], admissionRows, config?.admissionCharge || 0)
-          : [];
+        const config = await tx.schoolConfig.findUnique({ where: { id: "school" } });
+        const admissionRows = await tx.admissionFeeLine.findMany({
+          where: { classId: input.classId, active: true },
+          orderBy: { sortOrder: "asc" },
+        });
+        const admissionLines = pickAdmissionFeeLines([], admissionRows, config?.admissionCharge || 0);
         const admissionCharge = admissionLines.reduce((sum, line) => sum + line.amount, 0);
         if (collectAdmissionFee && admissionCharge <= 0) {
           throw new Error("Set an admission fee for this class before collecting it.");
@@ -248,7 +244,7 @@ export async function createStudentCore(
           },
         });
         await assignStudentRollNumber(tx, { studentId: student.id, classId: input.classId, orgId: user.orgId ?? null });
-        const admissionInvoice = collectAdmissionFee
+        const admissionInvoice = admissionCharge > 0
           ? await tx.feeInvoice.create({
               data: {
                 orgId: user.orgId ?? null,
@@ -259,20 +255,29 @@ export async function createStudentCore(
                 amount: admissionCharge,
                 linesJson: JSON.stringify(admissionLines),
                 dueDate: new Date(),
-                status: "PAID",
-                payments: {
-                  create: {
-                    orgId: user.orgId ?? null,
-                    amount: admissionCharge,
-                    method: paymentMethod,
-                    reference: paymentReference || `RCPT-${student.id.slice(-8).toUpperCase()}-${randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase()}`,
-                    notes: "Collected while adding student",
-                  },
-                },
+                status: collectAdmissionFee ? "PAID" : "DUE",
+                ...(collectAdmissionFee
+                  ? {
+                      payments: {
+                        create: {
+                          orgId: user.orgId ?? null,
+                          amount: admissionCharge,
+                          method: paymentMethod,
+                          reference: paymentReference || `RCPT-${student.id.slice(-8).toUpperCase()}-${randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase()}`,
+                          notes: "Collected while adding student",
+                        },
+                      },
+                    }
+                  : {}),
               },
             })
           : null;
-        return { admissionNo: student.admissionNo, admissionInvoiceId: admissionInvoice?.id, admissionCharge };
+        return {
+          admissionNo: student.admissionNo,
+          admissionInvoiceId: admissionInvoice?.id,
+          admissionCharge,
+          admissionCollected: collectAdmissionFee && admissionCharge > 0,
+        };
       });
     } catch (error) {
       const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
