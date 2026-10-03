@@ -1631,35 +1631,28 @@ export function FeesBoard() {
           {dueStudentPanel}
         </View>
       ) : tab === "insight" ? (
-        <View className="relative min-h-0 flex-1">
-          <FeeReport
-            people={people}
-            classes={classes}
-            sessions={data?.school?.sessions ?? []}
-            refreshing={refreshing}
-            onOpenPayment={(inv, paid) => void openDueFeeDocument(inv, paid)}
-            onOpenStudent={(studentId) => {
-              setSelectedDueStudentId(studentId);
-            }}
-          />
+        <View className="min-h-0 flex-1 flex-row overflow-hidden rounded-xl border border-ink-100 bg-white">
+          <View className="min-w-0 flex-1">
+            <FeeReport
+              people={people}
+              classes={classes}
+              sessions={data?.school?.sessions ?? []}
+              refreshing={refreshing}
+              onOpenPayment={(inv, paid) => void openDueFeeDocument(inv, paid)}
+              onOpenStudent={(studentId) => {
+                setSelectedDueStudentId(studentId);
+              }}
+            />
+          </View>
           {!compact && selectedDueStudent ? (
-            <>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Close student panel"
-                onPress={() => setSelectedDueStudentId("")}
-                className="absolute inset-0"
-                style={{ backgroundColor: "rgba(15, 23, 42, 0.16)", zIndex: 30 }}
-              />
-              <View className="absolute bottom-0 right-0 top-0 overflow-hidden border-l border-ink-200 bg-white" style={{ width: 520, zIndex: 40 }}>
-                {dueStudentPanel}
-              </View>
-            </>
+            <View className="min-h-0 overflow-hidden border-l border-ink-200 bg-white" style={{ width: 480 }}>
+              {dueStudentPanel}
+            </View>
           ) : null}
         </View>
       ) : (
-        <View className="relative min-h-0 flex-1">
-          <View className="min-h-0 flex-1 overflow-hidden rounded-md border border-ink-100 bg-white">
+        <View className="min-h-0 flex-1 flex-row overflow-hidden rounded-xl border border-ink-100 bg-white">
+          <View className="min-w-0 flex-1 overflow-hidden bg-white">
             {compact ? (
               <ScrollView>
                 {(tab === "register" ? registerRows : reportEvents).map((row) =>
@@ -1703,21 +1696,9 @@ export function FeesBoard() {
             )}
           </View>
           {!compact && tab === "register" && selectedDueStudent ? (
-            <>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Close student panel"
-                onPress={() => setSelectedDueStudentId("")}
-                className="absolute inset-0"
-                style={{ backgroundColor: "rgba(15, 23, 42, 0.16)", zIndex: 30 }}
-              />
-              <View
-                className="absolute bottom-0 right-0 top-0 overflow-hidden border-l border-ink-200 bg-white"
-                style={{ width: 520, zIndex: 40 }}
-              >
-                {dueStudentPanel}
-              </View>
-            </>
+            <View className="min-h-0 overflow-hidden border-l border-ink-200 bg-white" style={{ width: 480 }}>
+              {dueStudentPanel}
+            </View>
           ) : null}
         </View>
       )}
