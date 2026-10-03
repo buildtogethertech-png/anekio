@@ -403,7 +403,11 @@ export async function issueClassFeesCore(
   const startsPeriod = template.startsPeriod || normalizeFeePeriod(input.startsPeriod) || fallbackPeriod;
   const endsPeriod = template.endsPeriod || normalizeFeePeriod(input.endsPeriod) || startsPeriod;
   if (startsPeriod > endsPeriod) throw new Error("Start month must be before end month");
-  const months = monthsBetween(startsPeriod, endsPeriod);
+  const now = new Date();
+  const lastCompletedMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const lastCompletedPeriod = feePeriod(lastCompletedMonth.getFullYear(), lastCompletedMonth.getMonth());
+  const issueThrough = endsPeriod < lastCompletedPeriod ? endsPeriod : lastCompletedPeriod;
+  const months = startsPeriod <= issueThrough ? monthsBetween(startsPeriod, issueThrough) : [];
   const students = await prisma.student.findMany({
     where: { classId },
     select: { id: true, feeGeneratedThrough: true, feeAddOns: { where: { active: true } } },
@@ -414,8 +418,7 @@ export async function issueClassFeesCore(
     select: { studentId: true, period: true },
   });
   const have = new Set(already.map((i) => `${i.studentId}:${i.period}`));
-  await prisma.feeInvoice.createMany({
-    data: students.flatMap((s) =>
+  const invoices = students.flatMap((s) =>
       months
         .filter((month) => month.period > s.feeGeneratedThrough && !have.has(`${s.id}:${month.period}`))
         .map((month) => {
@@ -435,8 +438,9 @@ export async function issueClassFeesCore(
         shareToken: randomUUID(),
         status: InvoiceStatus.DUE,
         };
-      })),
-  });
+      }));
+  const result = invoices.length ? await prisma.feeInvoice.createMany({ data: invoices }) : { count: 0 };
+  return { issued: result.count, through: issueThrough };
 }
 
 export async function createInvoiceCore(

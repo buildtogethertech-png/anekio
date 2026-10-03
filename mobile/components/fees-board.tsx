@@ -765,8 +765,8 @@ export function FeesBoard() {
       return;
     }
     try {
-      await act(token, "issueClassFees", { classId: classIdToIssue, templateId });
-      toast.show("Invoices generated.");
+      const result = await act<{ ok: true; issued: number; through: string }>(token, "issueClassFees", { classId: classIdToIssue, templateId });
+      toast.show(result.issued ? `${result.issued} invoice${result.issued === 1 ? "" : "s"} generated through ${periodLabel(result.through)}.` : "No completed fee months to generate yet.");
       await reload();
     } catch (error) {
       toast.show(error instanceof Error ? error.message : "Could not issue.");

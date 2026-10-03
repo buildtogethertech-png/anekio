@@ -331,8 +331,7 @@ export async function runAct(
       await issueDueFeesCoreApi(user, body as never);
       break;
     case "issueClassFees":
-      await issueClassFeesCore(user, body as never);
-      break;
+      return { ok: true, ...(await issueClassFeesCore(user, body as never)) };
     case "createInvoice":
       await createInvoiceCore(user, body as never);
       break;

@@ -139,6 +139,33 @@ describe("school onboarding imports", () => {
     expect(periods).toEqual(["2026-04", "2026-09", "OPENING"]);
   });
 
+  it("issues monthly invoices only through the last completed month", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2027-10-03T10:00:00+05:30"));
+    try {
+      const { issueClassFeesCore } = await import("../../lib/core-office");
+      const template = await prisma.feeTemplate.create({
+        data: {
+          classId: "class-6-a",
+          sessionId: "session-2026",
+          name: "Future monthly fee",
+          startsPeriod: "2027-09",
+          endsPeriod: "2028-02",
+          lines: { create: [{ label: "Tuition", amount: 5000 }] },
+        },
+      });
+
+      const result = await issueClassFeesCore(user, { classId: "class-6-a", templateId: template.id });
+      expect(result).toMatchObject({ issued: 2, through: "2027-09" });
+      expect(await prisma.feeInvoice.findMany({
+        where: { templateId: template.id },
+        select: { period: true },
+      })).toEqual([{ period: "2027-09" }, { period: "2027-09" }]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("requires working days and holiday calendar before attendance history imports", async () => {
     const { onboardingBundle } = await import("../../lib/onboarding");
 
