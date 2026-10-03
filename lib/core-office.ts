@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import { randomUUID } from "node:crypto";
 import { FeeLineKind, InvoiceStatus, PaperType, PathTag } from "@prisma/client";
 import { sendAisensyWhatsApp, getAisensyConfig } from "./aisensy";
 import { can, type AccessUser } from "./permissions";
@@ -281,7 +282,7 @@ async function deliverFeeReminder(invoiceId: string) {
   if (dueNow <= 0) throw new Error("This month is already paid. Nudge another open bill.");
   let token = invoice.shareToken;
   if (!token) {
-    token = crypto.randomUUID();
+    token = randomUUID();
     await prisma.feeInvoice.update({ where: { id: invoice.id }, data: { shareToken: token } });
   }
   const payUrl = feePayUrl(token);
@@ -431,7 +432,7 @@ export async function issueClassFeesCore(
           linesJson: JSON.stringify(lines),
           dueDate: dueDateForMonth(month.year, month.monthIndex, template.dueDay),
         ...invoiceLateStamp(template),
-        shareToken: crypto.randomUUID(),
+        shareToken: randomUUID(),
         status: InvoiceStatus.DUE,
         };
       })),
@@ -457,7 +458,7 @@ export async function createInvoiceCore(
       dueDate,
       lateFeePerDay: Number(input.lateFeePerDay || 50),
       status: InvoiceStatus.DUE,
-      shareToken: crypto.randomUUID(),
+      shareToken: randomUUID(),
     },
   });
 }
@@ -534,7 +535,7 @@ export async function saveFeeCatalogCore(
     const label = String(input.item.label || "").trim();
     if (!label) throw new Error("Fee name required");
     const next = {
-      id: String(input.item.id || "").trim() || crypto.randomUUID(),
+      id: String(input.item.id || "").trim() || randomUUID(),
       kind,
       label,
       amount: Math.max(0, Math.round(Number(input.item.amount) || 0)),
