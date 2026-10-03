@@ -118,15 +118,17 @@ npx eas-cli submit --platform android --profile production
 
 Before submitting, increment the app version/build number according to the Expo/EAS versioning policy (`mobile/eas.json` uses `appVersionSource: remote`) and test the AAB through an internal testing track in Google Play.
 
-### Internal APK for testers
+### Internal APKs for testing
 
-The preview profile makes an installable APK, not an AAB:
+Use these installable APKs for testing before release. They are all **internal** EAS builds and cannot be submitted to Google Play. The Play Store release remains the `production` `.aab` profile above.
 
-```bash
-npm run build-apk
-```
+| APK | Command from repository root | Connects to | Use it for |
+| --- | --- | --- | --- |
+| Development | `npm run build-apk:development` | your Metro development server | native development-client testing; start Metro separately with `npm run app` |
+| Staging | `npm run build-apk:staging` | `https://app.staging.anekio.com` | QA against the isolated staging backend |
+| Production test | `npm run build-apk:production` | `https://app.anekio.com` | final smoke test against production before Play submission |
 
-It currently points to the preview API URL configured in `mobile/eas.json`. Use this for internal testers only, not the Play Store.
+Each command prints an Expo build URL. Wait for **Finished**, open the URL, and download/install the APK on an Android device. The legacy `npm run build-apk` command remains a preview APK build.
 
 ## After release
 
