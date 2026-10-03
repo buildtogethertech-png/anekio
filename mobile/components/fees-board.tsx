@@ -948,10 +948,10 @@ export function FeesBoard() {
         <Head label="Adm no." flex={1} />
         <Head label="Student" flex={1.6} />
         <Head label="Class" flex={0.8} />
-        <Head label="Fee" flex={2.2} />
+        <Head label="Fee" flex={1.9} />
         <Head label="Amount" flex={1} right />
         <Head label="Mode" flex={0.9} />
-        <Head label="Receipt" flex={1} />
+        <Head label="Documents" flex={1.7} />
       </View>
       {reportEvents.map((row) => {
         const when = clockLabel(row.paidAt);
@@ -970,22 +970,36 @@ export function FeesBoard() {
               </Text>
             </Cell>
             <Cell flex={0.8}>{row.classLabel}</Cell>
-            <Cell flex={2.2}>{row.fee}</Cell>
+            <Cell flex={1.9}>{row.fee}</Cell>
             <Cell flex={1} right>
               {row.amount}
             </Cell>
             <Cell flex={0.9}>{row.mode}</Cell>
-            <Cell flex={1}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`Download receipt for ${row.studentName}`}
-                onPress={() => {
-                  void openDueFeeDocument({ id: row.invoiceId, invoiceUrl: row.invoiceUrl, receiptUrl: row.receiptUrl }, true);
-                }}
-                className="self-start rounded-md border border-ink-200 bg-white px-2.5 py-1"
-              >
-                <Text className="text-xs font-semibold text-blue-700">Download</Text>
-              </Pressable>
+            <Cell flex={1.7}>
+              <View className="flex-row flex-wrap gap-1.5">
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open invoice for ${row.studentName}`}
+                  onPress={() => {
+                    void openDueFeeDocument({ id: row.invoiceId, invoiceUrl: row.invoiceUrl, receiptUrl: row.receiptUrl }, false);
+                  }}
+                  className="flex-row items-center gap-1 rounded-md bg-indigo-50 px-2 py-1"
+                >
+                  <Ionicons name="document-text-outline" size={13} color="#4338ca" />
+                  <Text className="text-[11px] font-semibold text-indigo-800">Invoice</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open receipt for ${row.studentName}`}
+                  onPress={() => {
+                    void openDueFeeDocument({ id: row.invoiceId, invoiceUrl: row.invoiceUrl, receiptUrl: row.receiptUrl }, true);
+                  }}
+                  className="flex-row items-center gap-1 rounded-md bg-emerald-50 px-2 py-1"
+                >
+                  <Ionicons name="receipt-outline" size={13} color="#047857" />
+                  <Text className="text-[11px] font-semibold text-emerald-800">Receipt</Text>
+                </Pressable>
+              </View>
             </Cell>
           </View>
         );
