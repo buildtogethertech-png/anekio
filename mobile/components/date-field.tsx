@@ -6,7 +6,8 @@ import { closedCaption, prettyDay } from "../lib/calendar";
 import { Popover } from "./form/popover";
 
 const WEEKDAY_LONG = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-const DESKTOP_CALENDAR_SIZE = { width: 304, height: 318 };
+const DESKTOP_CALENDAR_SIZE = { width: 304, height: 390 };
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 type CalendarMark = {
   disabled?: boolean;
   disableTouchEvent?: boolean;
@@ -59,6 +60,8 @@ export function DateField({
   const selected = fromYmd(value) || new Date();
   const [open, setOpen] = useState(false);
   const [cursor, setCursor] = useState(() => new Date(selected.getFullYear(), selected.getMonth(), 1));
+  const [picker, setPicker] = useState<"calendar" | "month" | "year">("calendar");
+  const [yearPage, setYearPage] = useState(() => selected.getFullYear() - 5);
   const beforeMin = Boolean(min && value && value < min);
   const futureSelected = Boolean(max && value && value > max);
   const reason = beforeMin ? "Before start" : futureSelected ? "Future" : value ? closedReason?.(value) || "" : "";
@@ -88,9 +91,81 @@ export function DateField({
     return marks;
   }, [closedReason, cursor, max, min, value]);
 
+  const monthYearPicker = (
+    <View className="px-2 pt-2">
+      <View className="flex-row items-center justify-center gap-2">
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Choose month"
+          onPress={() => setPicker((current) => (current === "month" ? "calendar" : "month"))}
+          className={`rounded-md px-2.5 py-1.5 ${picker === "month" ? "bg-blue-50" : "bg-ink-50"}`}
+        >
+          <Text className="text-xs font-semibold text-ink-900">{MONTHS[cursor.getMonth()]}</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Choose year"
+          onPress={() => {
+            setYearPage(cursor.getFullYear() - 5);
+            setPicker((current) => (current === "year" ? "calendar" : "year"));
+          }}
+          className={`rounded-md px-2.5 py-1.5 ${picker === "year" ? "bg-blue-50" : "bg-ink-50"}`}
+        >
+          <Text className="text-xs font-semibold text-ink-900">{cursor.getFullYear()}</Text>
+        </Pressable>
+      </View>
+      {picker === "month" ? (
+        <View className="mt-2 flex-row flex-wrap gap-1">
+          {MONTHS.map((month, index) => (
+            <Pressable
+              key={month}
+              accessibilityRole="button"
+              onPress={() => {
+                setCursor(new Date(cursor.getFullYear(), index, 1));
+                setPicker("calendar");
+              }}
+              className={`w-[30%] rounded-md px-1 py-2 ${cursor.getMonth() === index ? "bg-blue-600" : "bg-ink-50"}`}
+            >
+              <Text className={`text-center text-xs font-medium ${cursor.getMonth() === index ? "text-white" : "text-ink-800"}`}>{month.slice(0, 3)}</Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+      {picker === "year" ? (
+        <View className="mt-2">
+          <View className="mb-1 flex-row items-center justify-between">
+            <Pressable accessibilityRole="button" accessibilityLabel="Earlier years" onPress={() => setYearPage((year) => year - 12)} className="rounded-md p-1.5">
+              <Ionicons name="chevron-back" size={16} color="#1e3a5f" />
+            </Pressable>
+            <Text className="text-xs font-semibold text-ink-800">{yearPage} – {yearPage + 11}</Text>
+            <Pressable accessibilityRole="button" accessibilityLabel="Later years" onPress={() => setYearPage((year) => year + 12)} className="rounded-md p-1.5">
+              <Ionicons name="chevron-forward" size={16} color="#1e3a5f" />
+            </Pressable>
+          </View>
+          <View className="flex-row flex-wrap gap-1">
+            {Array.from({ length: 12 }, (_, index) => yearPage + index).map((year) => (
+              <Pressable
+                key={year}
+                accessibilityRole="button"
+                onPress={() => {
+                  setCursor(new Date(year, cursor.getMonth(), 1));
+                  setPicker("calendar");
+                }}
+                className={`w-[30%] rounded-md px-1 py-2 ${cursor.getFullYear() === year ? "bg-blue-600" : "bg-ink-50"}`}
+              >
+                <Text className={`text-center text-xs font-medium ${cursor.getFullYear() === year ? "text-white" : "text-ink-800"}`}>{year}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+      ) : null}
+    </View>
+  );
+
   const calendar = (
     <View className="rounded-lg bg-white px-1 py-1">
-      <Calendar
+      {monthYearPicker}
+      {picker === "calendar" ? <Calendar
         style={{ width: DESKTOP_CALENDAR_SIZE.width }}
         current={toYmd(cursor)}
         firstDay={0}
@@ -156,12 +231,13 @@ export function DateField({
             },
           },
         } as CalendarTheme}
-      />
+      /> : null}
     </View>
   );
 
   function toggle() {
     setCursor(new Date(selected.getFullYear(), selected.getMonth(), 1));
+    setPicker("calendar");
     setOpen((v) => !v);
   }
 
