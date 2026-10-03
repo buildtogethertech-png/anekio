@@ -15,7 +15,7 @@ const razorpayMock = vi.hoisted(() => ({
     amount: 25000000,
     currency: "INR",
     order_id: "order_test",
-    notes: { invoiceId: "invoice-anaya-april", token: "invoice-anaya-april" },
+    notes: { invoiceId: "invoice-anaya-april", token: "invoice-anaya-april" } as Record<string, string>,
   })),
 }));
 
