@@ -364,6 +364,7 @@ export function FeesBoard() {
   const defaultEndPeriod = currentSession?.endsOn?.slice(0, 7) || defaultStartPeriod;
   const structureRange = periodRangeLabel(tplStartPeriod || defaultStartPeriod, tplEndPeriod || defaultEndPeriod);
   const tplTotal = tplLines.reduce((sum, line) => sum + Math.max(0, Math.round(Number(line.amount) || 0)), 0);
+  const tplAddOnTotal = tplAddOnLines.reduce((sum, line) => sum + Math.max(0, Math.round(Number(line.amount) || 0)), 0);
   const admissionByClass = useMemo(() => {
     const totals = new Map<string, number>();
     for (const line of data?.admissionFeeLines || []) {
@@ -1814,7 +1815,10 @@ export function FeesBoard() {
                 <Text className="text-sm font-semibold text-ink-900">Monthly charges</Text>
                 <Text className="mt-0.5 text-xs text-ink-600">Included every month during this schedule.</Text>
               </View>
-              <Text className="text-sm font-semibold text-clay-600">{inr(tplTotal)}</Text>
+              <View className="items-end gap-1">
+                <View className="rounded-full bg-blue-100 px-2.5 py-1"><Text className="text-[11px] font-semibold text-blue-800">Monthly</Text></View>
+                <Text className="text-sm font-semibold text-clay-600">{inr(tplTotal)}</Text>
+              </View>
             </View>
             <View className="flex-row px-1">
               <Text className="flex-1 text-[11px] font-semibold uppercase tracking-wide text-ink-500">Charge</Text>
@@ -1876,8 +1880,11 @@ export function FeesBoard() {
                 <Text className="text-sm font-semibold text-ink-900">Admission fee</Text>
                 <Text className="mt-0.5 text-xs leading-5 text-ink-600">A one-time invoice created when a student joins this class. It never includes monthly charges.</Text>
               </View>
-              <View className="rounded-full bg-amber-100 px-2.5 py-1">
-                <Text className="text-[11px] font-semibold text-amber-900">One time</Text>
+              <View className="items-end gap-1">
+                <View className="rounded-full bg-amber-100 px-2.5 py-1">
+                  <Text className="text-[11px] font-semibold text-amber-900">One time</Text>
+                </View>
+                <Text className="text-sm font-semibold text-amber-900">{inr(admissionTotal)}</Text>
               </View>
             </View>
             <View className="mt-1 flex-row px-1">
@@ -1929,12 +1936,27 @@ export function FeesBoard() {
                 />
               </View>
             ) : null}
+            <View className="mt-2 flex-row items-center justify-between rounded-lg bg-amber-100/50 px-3 py-2.5">
+              <Text className="text-sm font-semibold text-ink-900">Admission total</Text>
+              <Text className="text-sm font-semibold text-ink-900">{inr(admissionTotal)}</Text>
+            </View>
           </View>
           <View className="gap-2 rounded-xl border border-ink-100 bg-white p-4">
-            <Text className="text-sm font-semibold text-ink-900">Optional class add-ons</Text>
-            <Text className="text-xs leading-5 text-ink-600">
-              Optional for this class only. Students opt in from Manage Fees — they are not billed automatically.
-            </Text>
+            <View className="flex-row items-start justify-between gap-3">
+              <View className="min-w-0 flex-1">
+                <Text className="text-sm font-semibold text-ink-900">Optional monthly charges</Text>
+                <Text className="mt-0.5 text-xs leading-5 text-ink-600">Students opt in from Manage Fees; only opted-in students are billed each month.</Text>
+              </View>
+              <View className="items-end gap-1">
+                <View className="rounded-full bg-violet-100 px-2.5 py-1"><Text className="text-[11px] font-semibold text-violet-800">Optional</Text></View>
+                <Text className="text-sm font-semibold text-violet-800">{inr(tplAddOnTotal)}</Text>
+              </View>
+            </View>
+            <View className="mt-1 flex-row px-1">
+              <Text className="flex-1 text-[11px] font-semibold uppercase tracking-wide text-ink-500">Charge</Text>
+              <Text className="w-32 text-right text-[11px] font-semibold uppercase tracking-wide text-ink-500">Amount</Text>
+              <View className="w-16" />
+            </View>
             {tplAddOnLines.map((line) => (
               <View key={line.id} className="flex-row items-center gap-2">
                 <View className="min-w-0 flex-1">
@@ -1979,6 +2001,10 @@ export function FeesBoard() {
                 />
               </View>
             ) : null}
+            <View className="mt-2 flex-row items-center justify-between rounded-lg bg-violet-50 px-3 py-2.5">
+              <Text className="text-sm font-semibold text-ink-900">Optional monthly total</Text>
+              <Text className="text-sm font-semibold text-ink-900">{inr(tplAddOnTotal)}</Text>
+            </View>
           </View>
         </View>
       </Modal>
