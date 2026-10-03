@@ -48,8 +48,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "7e9a8f9a-cfab-40a4-bc43-f8b4b5cac82b"
+        "projectId": "c81e3cb5-d728-4ac2-b626-718b3efc2b53"
       }
-    }
+    },
+    "owner": "buildtogether"
   }
 }
