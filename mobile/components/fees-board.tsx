@@ -1776,11 +1776,11 @@ export function FeesBoard() {
           <View className="rounded-xl border border-ink-100 bg-ink-50/70 p-4">
             <View className="flex-row items-start justify-between gap-3">
               <View className="min-w-0 flex-1">
-                <Text className="text-sm font-semibold text-ink-900">Fee schedule</Text>
+                <Text className="text-sm font-semibold text-ink-900">Class fee structure</Text>
                 <Text className="mt-1 text-xs leading-5 text-ink-600">Set when this structure applies. Class fee periods cannot overlap.</Text>
               </View>
               <View className="rounded-full bg-blue-100 px-2.5 py-1">
-                <Text className="text-[11px] font-semibold text-blue-800">Monthly</Text>
+                <Text className="text-[11px] font-semibold text-blue-800">All fee types</Text>
               </View>
             </View>
           </View>
