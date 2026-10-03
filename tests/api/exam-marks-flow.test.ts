@@ -430,4 +430,30 @@ describe.sequential("exam marks API flow", () => {
     const parent = await record(parentToken);
     expect(parent.body.reports.map((row: { seriesName: string }) => row.seriesName)).toEqual(["Unit Test 1"]);
   });
+
+  it("creates a past exam without Routine teachers so marks can be imported", async () => {
+    const created = await act(officeToken, "createExamSeries", {
+      classId: fixture.classId,
+      sessionId: "session-2026",
+      planItemId: "unit2",
+      history: true,
+      papers: [
+        {
+          subjectId: "subject-mathematics",
+          maxMarks: 40,
+          date: "2025-01-15",
+          paperDueOn: "2025-01-08",
+          copiesDueOn: "2025-01-22",
+          resultOn: "2025-01-29",
+        },
+      ],
+    });
+    expectOk(created, "createExamSeries history");
+    const series = await prisma.examSeries.findFirstOrThrow({
+      where: { classId: fixture.classId, planItemId: "unit2" },
+      include: { exams: true },
+    });
+    expect(series.exams).toHaveLength(1);
+    expect(series.exams[0].teacherId).toBeNull();
+  });
 });

@@ -1,33 +1,55 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useState } from "react";
 import { Redirect, useRouter } from "expo-router";
-import { Linking, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { Image, Linking, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button, Input } from "../components/ui";
+import { apiBase } from "../lib/api";
 import { useSession, type AuthAccountChoice } from "../lib/session";
 
-type LoginMode = "password" | "otp" | "forgot";
+type LoginMode = "password" | "otp" | "forgot" | "trial";
 
-function marketingPricingUrl() {
-  if (typeof window === "undefined") return "https://anekio.com/#pricing";
-  const { hostname, protocol } = window.location;
-  if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname === "127.0.0.1") {
-    return "http://localhost:4000/#pricing";
+async function startTrial(input: {
+  schoolName: string;
+  ownerName: string;
+  ownerEmail: string;
+  ownerPhone: string;
+  city: string;
+  studentCount: string;
+}) {
+  const url = `${apiBase()}/api/saas/trial`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+  } catch {
+    throw new Error("Can't reach the API. Keep npm run api running.");
   }
-  if (hostname === "app.staging.anekio.com") return "https://staging.anekio.com/#pricing";
-  if (hostname === "app.anekio.com") return "https://anekio.com/#pricing";
-  return `${protocol}//${hostname.replace(/^app\./, "")}#pricing`;
+  const data = (await res.json().catch(() => ({}))) as {
+    error?: string;
+    login?: string;
+    password?: string;
+    loginUrl?: string;
+  };
+  if (!res.ok) {
+    const error = new Error(data.error || "Could not create the school.") as Error & { loginUrl?: string };
+    error.loginUrl = data.loginUrl;
+    throw error;
+  }
+  if (!data.login || !data.password) throw new Error("School created, but login details were missing. Try signing in with your phone.");
+  return { login: data.login, password: data.password };
 }
 
-function Brand() {
+function Brand({ inverse = false }: { inverse?: boolean }) {
   return (
     <View className="flex-row items-center gap-3">
-      <View className="h-10 w-10 items-center justify-center rounded-md bg-clay-500">
-        <Text className="text-lg font-bold text-white">A</Text>
-      </View>
+      <Image source={require("../assets/icon.png")} accessibilityLabel="Anekio" style={{ width: 44, height: 44, borderRadius: 12 }} />
       <View>
-        <Text className="text-lg font-semibold text-ink-900">Anekio</Text>
-        <Text className="text-[11px] text-ink-700">School ERP</Text>
+        <Text className={`text-lg font-semibold ${inverse ? "text-white" : "text-ink-900"}`}>Anekio</Text>
+        <Text className={`text-xs ${inverse ? "text-blue-100" : "text-ink-700"}`}>School operations, in one place</Text>
       </View>
     </View>
   );
@@ -47,7 +69,8 @@ export default function Login() {
     resetPassword,
   } = useSession();
   const router = useRouter();
-  const { height } = useWindowDimensions();
+  const { height, width } = useWindowDimensions();
+  const isWideLayout = width >= 900;
   const showDevelopment = typeof __DEV__ !== "undefined" && __DEV__;
   const [mode, setMode] = useState<LoginMode>("password");
   const [login, setLogin] = useState(showDevelopment ? "admin@school.test" : "");
@@ -61,6 +84,12 @@ export default function Login() {
   const [developmentCode, setDevelopmentCode] = useState("");
   const [accountChoices, setAccountChoices] = useState<AuthAccountChoice[]>([]);
   const [pending, setPending] = useState(false);
+  const [schoolName, setSchoolName] = useState("");
+  const [ownerName, setOwnerName] = useState("");
+  const [ownerEmail, setOwnerEmail] = useState("");
+  const [ownerPhone, setOwnerPhone] = useState("");
+  const [city, setCity] = useState("");
+  const [studentCount, setStudentCount] = useState("");
 
   if (user) return <Redirect href="/(app)" />;
 
@@ -127,6 +156,45 @@ export default function Login() {
     }
   }
 
+  async function onCreateSchool() {
+    if (!schoolName.trim() || !ownerName.trim() || !ownerEmail.trim() || !ownerPhone.trim() || !city.trim()) {
+      setError("Fill school name, your name, email, phone, and city.");
+      return;
+    }
+    setPending(true);
+    clearFeedback();
+    try {
+      const created = await startTrial({
+        schoolName: schoolName.trim(),
+        ownerName: ownerName.trim(),
+        ownerEmail: ownerEmail.trim(),
+        ownerPhone: ownerPhone.trim(),
+        city: city.trim(),
+        studentCount: studentCount.trim(),
+      });
+      setLogin(created.login);
+      setPassword(created.password);
+      const choices = await signIn(created.login, created.password);
+      if (choices?.length) {
+        chooseMode("password");
+        setAccountChoices(choices);
+        setNotice("Your school is ready. Choose which account to open.");
+        return;
+      }
+      router.replace("/(app)");
+    } catch (exception) {
+      const alreadyRegistered = exception && typeof exception === "object" && "loginUrl" in exception;
+      setError(exception instanceof Error ? exception.message : "We could not create the school.");
+      if (alreadyRegistered) {
+        chooseMode("password");
+        setLogin(ownerPhone.trim() || ownerEmail.trim());
+        setPassword("12345");
+      }
+    } finally {
+      setPending(false);
+    }
+  }
+
   async function onResetPassword() {
     if (password !== confirmPassword) {
       setError("The new passwords do not match.");
@@ -145,70 +213,90 @@ export default function Login() {
     }
   }
 
-  const heading = mode === "forgot" ? "Reset your password" : "Welcome back";
+  const heading = mode === "forgot" ? "Reset your password" : mode === "trial" ? "Create your school" : "Welcome back";
   const subheading =
     mode === "forgot"
       ? "We will verify your registered email before you choose a new password."
-      : "Sign in to your school workspace.";
+      : mode === "trial"
+        ? "Fill these details to open a new Anekio workspace and sign in."
+        : "Sign in to your school workspace.";
 
-  return (
-    <SafeAreaView className="flex-1 bg-[#EEF3F8]" testID="login-screen">
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ minHeight: Math.max(height, 680) }}>
-        <View className="flex-1 items-center justify-center px-4 py-6 sm:px-6">
-          <View
-            className="w-full border border-[#D8E2EC] bg-white px-6 py-8 sm:px-10 sm:py-10"
-            style={{
-              maxWidth: 500,
-              borderRadius: 8,
-              shadowColor: "#0F2942",
-              shadowOpacity: 0.08,
-              shadowRadius: 24,
-              shadowOffset: { width: 0, height: 12 },
-              elevation: 3,
-            }}
+  const form = (
+    <View className={isWideLayout ? "w-[470px] px-10 py-12" : "w-full px-6 pb-9 pt-8"}>
+      <View>
+        {mode === "forgot" || mode === "trial" ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Back to sign in"
+            onPress={() => chooseMode("password")}
+            className="mb-7 flex-row items-center gap-2 self-start"
           >
-            <Brand />
+            <Ionicons name="arrow-back" size={18} color="#2563EB" />
+            <Text className="text-sm font-semibold text-clay-600">Back to sign in</Text>
+          </Pressable>
+        ) : null}
 
-            <View className="mt-9">
-                {mode === "forgot" ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Back to sign in"
-                    onPress={() => chooseMode("password")}
-                    className="mb-7 flex-row items-center gap-2 self-start"
-                  >
-                    <Ionicons name="arrow-back" size={18} color="#1D4ED8" />
-                    <Text className="text-sm font-semibold text-clay-600">Back to sign in</Text>
-                  </Pressable>
-                ) : null}
+        <Text className="text-[30px] font-semibold tracking-tight text-ink-900">{heading}</Text>
+        <Text className="mt-2 text-[15px] leading-6 text-ink-700">{subheading}</Text>
 
-                <Text className="text-[28px] font-semibold text-ink-900">{heading}</Text>
-                <Text className="mt-2 text-sm leading-6 text-ink-700">{subheading}</Text>
+        {mode !== "forgot" && mode !== "trial" ? (
+          <View className="mt-8 flex-row rounded-xl border border-[#E2E8F0] bg-[#F5F8FC] p-1" accessibilityRole="tablist">
+            {([
+              ["password", "Password"],
+              ["otp", "Email OTP"],
+            ] as const).map(([id, label]) => {
+              const active = mode === id;
+              return (
+                <Pressable
+                  key={id}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: active }}
+                  onPress={() => chooseMode(id)}
+                  className={`h-11 flex-1 items-center justify-center rounded-lg ${active ? "bg-white" : ""}`}
+                  style={active ? { shadowColor: "#102A56", shadowOpacity: 0.08, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1 } : undefined}
+                >
+                  <Text className={`text-sm font-semibold ${active ? "text-ink-900" : "text-ink-700"}`}>{label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
 
-                {mode !== "forgot" ? (
-                  <View className="mt-7 flex-row rounded-md bg-ink-100 p-1" accessibilityRole="tablist">
-                    {([
-                      ["password", "Password"],
-                      ["otp", "Email OTP"],
-                    ] as const).map(([id, label]) => {
-                      const active = mode === id;
-                      return (
-                        <Pressable
-                          key={id}
-                          accessibilityRole="tab"
-                          accessibilityState={{ selected: active }}
-                          onPress={() => chooseMode(id)}
-                          className={`h-10 flex-1 items-center justify-center rounded ${active ? "bg-white" : ""}`}
-                          style={active ? { shadowColor: "#102A56", shadowOpacity: 0.08, shadowRadius: 5, elevation: 1 } : undefined}
-                        >
-                          <Text className={`text-sm font-semibold ${active ? "text-ink-900" : "text-ink-700"}`}>{label}</Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                ) : null}
-
-                <View className="mt-6 gap-4">
+        <View className="mt-6 gap-5">
+          {mode === "trial" ? (
+            <>
+              <View>
+                <FieldLabel>School name</FieldLabel>
+                <Input value={schoolName} onChangeText={setSchoolName} placeholder="VidyaPith Public School" className="h-14 text-base" />
+              </View>
+              <View>
+                <FieldLabel>Your name</FieldLabel>
+                <Input value={ownerName} onChangeText={setOwnerName} placeholder="Principal / Owner" className="h-14 text-base" />
+              </View>
+              <View>
+                <FieldLabel>Work email</FieldLabel>
+                <Input autoCapitalize="none" keyboardType="email-address" value={ownerEmail} onChangeText={setOwnerEmail} placeholder="owner@school.in" className="h-14 text-base" />
+              </View>
+              <View>
+                <FieldLabel>Phone</FieldLabel>
+                <Input keyboardType="phone-pad" value={ownerPhone} onChangeText={setOwnerPhone} placeholder="98765 43210" className="h-14 text-base" />
+              </View>
+              <View>
+                <FieldLabel>City</FieldLabel>
+                <Input value={city} onChangeText={setCity} placeholder="Bengaluru" className="h-14 text-base" />
+              </View>
+              <View>
+                <FieldLabel>Number of students</FieldLabel>
+                <Input keyboardType="number-pad" value={studentCount} onChangeText={setStudentCount} placeholder="480" className="h-14 text-base" />
+              </View>
+              {error ? <Text className="text-sm text-red-700">{error}</Text> : null}
+              {notice ? <Text className="text-sm text-ink-700">{notice}</Text> : null}
+              <Button accessibilityLabel="Create my school" onPress={() => void onCreateSchool()} disabled={pending} className="h-14 justify-center">
+                {pending ? "Creating your school..." : "Create my school"}
+              </Button>
+            </>
+          ) : (
+            <>
                   <View>
                     <FieldLabel>{mode === "otp" || mode === "forgot" ? "Registered email or mobile" : "Email or mobile number"}</FieldLabel>
                     <View className="relative justify-center">
@@ -225,7 +313,7 @@ export default function Login() {
                           setAccountChoices([]);
                         }}
                         placeholder="name@school.com or mobile number"
-                        className="h-12 pl-10"
+                        className="h-14 pl-11 text-base"
                       />
                     </View>
                   </View>
@@ -251,13 +339,13 @@ export default function Login() {
                           }}
                           onSubmitEditing={() => onPasswordSignIn()}
                           placeholder="Enter your password"
-                          className="h-12 px-10"
+                          className="h-14 px-11 text-base"
                         />
                         <Pressable
                           accessibilityRole="button"
                           accessibilityLabel={showPassword ? "Hide password" : "Show password"}
                           onPress={() => setShowPassword((current) => !current)}
-                          className="absolute right-2 z-10 h-9 w-9 items-center justify-center"
+                          className="absolute right-2 z-10 h-10 w-10 items-center justify-center"
                         >
                           <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={19} color="#64748B" />
                         </Pressable>
@@ -332,7 +420,7 @@ export default function Login() {
                   ) : null}
 
                   {mode === "password" ? (
-                    <Button testID="login-submit" accessibilityLabel="Sign in" onPress={() => onPasswordSignIn()} disabled={pending || !login || !password} className="h-12 justify-center">
+                    <Button testID="login-submit" accessibilityLabel="Sign in" onPress={() => onPasswordSignIn()} disabled={pending || !login || !password} className="h-14 justify-center">
                       {pending ? "Signing in..." : "Sign in securely"}
                     </Button>
                   ) : codeSent ? (
@@ -340,39 +428,99 @@ export default function Login() {
                       accessibilityLabel={mode === "forgot" ? "Reset password" : "Verify and sign in"}
                       onPress={mode === "forgot" ? onResetPassword : onCodeSignIn}
                       disabled={pending || code.length !== 6 || (mode === "forgot" && (!password || !confirmPassword))}
-                      className="h-12 justify-center"
+                      className="h-14 justify-center"
                     >
                       {pending ? "Verifying..." : mode === "forgot" ? "Reset password" : "Verify and sign in"}
                     </Button>
                   ) : (
-                    <Button accessibilityLabel="Send verification code" onPress={onRequestCode} disabled={pending || !login} className="h-12 justify-center">
+                    <Button accessibilityLabel="Send verification code" onPress={onRequestCode} disabled={pending || !login} className="h-14 justify-center">
                       {pending ? "Sending code..." : "Send verification code"}
                     </Button>
                   )}
 
-                  {mode !== "password" && codeSent ? (
-                    <Pressable disabled={pending} onPress={onRequestCode} className="items-center py-1">
-                      <Text className="text-xs font-semibold text-clay-600">Send a new code</Text>
-                    </Pressable>
-                  ) : null}
-                </View>
+          {mode !== "password" && codeSent ? (
+            <Pressable disabled={pending} onPress={onRequestCode} className="items-center py-1">
+              <Text className="text-xs font-semibold text-clay-600">Send a new code</Text>
+            </Pressable>
+          ) : null}
+            </>
+          )}
+        </View>
 
-                <View className="mt-7 border-t border-ink-200 pt-5">
-                  <View className="flex-row flex-wrap items-center justify-center gap-1">
-                    <Text className="text-xs text-ink-700">Setting up a new school?</Text>
-                    <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(marketingPricingUrl())}>
-                      <Text className="text-xs font-semibold text-clay-600">View plans and start a trial</Text>
-                    </Pressable>
-                  </View>
-                  <View className="mt-5 flex-row items-center justify-center gap-2">
-                    <Ionicons name="shield-checkmark-outline" size={15} color="#047857" />
-                    <Text className="text-[11px] text-ink-700">Secure sign-in · Never share your password or OTP</Text>
-                  </View>
-                  <Pressable accessibilityRole="link" onPress={() => void Linking.openURL("mailto:support@anekio.com")} className="mt-3 items-center">
-                    <Text className="text-[11px] text-ink-700">Need help? support@anekio.com</Text>
-                  </Pressable>
-                </View>
+        <View className="mt-8 border-t border-ink-200 pt-5">
+          <View className="flex-row flex-wrap items-center justify-center gap-1">
+            {mode === "trial" ? (
+              <>
+                <Text className="text-xs text-ink-700">Already have a school?</Text>
+                <Pressable accessibilityRole="button" onPress={() => chooseMode("password")}>
+                  <Text className="text-xs font-semibold text-clay-600">Sign in</Text>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <Text className="text-xs text-ink-700">New to Anekio?</Text>
+                <Pressable accessibilityRole="button" onPress={() => chooseMode("trial")}>
+                  <Text className="text-xs font-semibold text-clay-600">Create a new school</Text>
+                </Pressable>
+              </>
+            )}
+          </View>
+          <Pressable accessibilityRole="link" onPress={() => void Linking.openURL("mailto:support@anekio.com")} className="mt-3 items-center">
+            <Text className="text-xs text-ink-700">Need help? <Text className="font-medium text-clay-600">support@anekio.com</Text></Text>
+          </Pressable>
+          <View className="mt-5 flex-row items-center gap-3 rounded-xl border border-blue-100 bg-blue-50/70 px-3 py-3">
+            <View className="h-8 w-8 items-center justify-center rounded-lg bg-white">
+              <Ionicons name="shield-checkmark-outline" size={18} color="#1D4ED8" />
             </View>
+            <View className="min-w-0 flex-1">
+              <Text className="text-xs font-semibold text-ink-900">Secure school access</Text>
+              <Text className="mt-0.5 text-[11px] leading-4 text-ink-700">Your password and school data stay protected.</Text>
+            </View>
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+
+  return (
+    <SafeAreaView className="flex-1 bg-[#F4F7FB]" testID="login-screen">
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ minHeight: Math.max(height, 680) }}>
+        <View className={`flex-1 items-center ${isWideLayout ? "justify-center px-4 py-5 sm:px-6 sm:py-8" : "justify-start"}`}>
+          {!isWideLayout ? (
+            <View className="w-full bg-[#173B77] px-6 pb-20 pt-10">
+              <Brand inverse />
+              <Text className="mt-9 text-[27px] font-semibold leading-8 tracking-tight text-white">Your school, ready for the day.</Text>
+              <Text className="mt-2 text-sm leading-6 text-blue-100">Sign in to continue where your team left off.</Text>
+            </View>
+          ) : null}
+          <View
+            className={`w-full overflow-hidden bg-white ${isWideLayout ? "flex-row border border-[#DFE7F1]" : "-mt-8 rounded-t-[28px]"}`}
+            style={isWideLayout ? {
+              maxWidth: 960,
+              borderRadius: 16,
+              shadowColor: "#0F2942",
+              shadowOpacity: 0.1,
+              shadowRadius: 28,
+              shadowOffset: { width: 0, height: 14 },
+              elevation: 4,
+            } : undefined}
+          >
+            {isWideLayout ? (
+              <View className="w-[490px] justify-between bg-[#173B77] px-12 py-12">
+                <View>
+                  <Brand inverse />
+                  <View className="mt-20">
+                    <Text className="text-[34px] font-semibold leading-[42px] tracking-tight text-white">Run every school day with clarity.</Text>
+                    <Text className="mt-4 max-w-[330px] text-[15px] leading-6 text-blue-100">Admissions, fees, attendance and communication—one shared workspace for your school team.</Text>
+                  </View>
+                </View>
+                <View className="flex-row items-center gap-2">
+                  <Ionicons name="shield-checkmark-outline" size={17} color="#93C5FD" />
+                  <Text className="text-xs text-blue-100">Secure access for your school team</Text>
+                </View>
+              </View>
+            ) : null}
+            {form}
           </View>
         </View>
       </ScrollView>

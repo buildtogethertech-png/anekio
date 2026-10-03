@@ -148,8 +148,7 @@ export async function runAct(
   const op = actOp(body);
   switch (op) {
     case "createStudent":
-      await createStudentCore(user, body as never);
-      break;
+      return { ok: true, ...(await createStudentCore(user, body as never)) };
     case "admitLeadAsStudent":
       return { ok: true, ...(await admitLeadAsStudentCore(user, body as never)) };
     case "updateStudent":
@@ -332,8 +331,7 @@ export async function runAct(
       await issueDueFeesCoreApi(user, body as never);
       break;
     case "issueClassFees":
-      await issueClassFeesCore(user, body as never);
-      break;
+      return { ok: true, ...(await issueClassFeesCore(user, body as never)) };
     case "createInvoice":
       await createInvoiceCore(user, body as never);
       break;

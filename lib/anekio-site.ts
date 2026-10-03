@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 import { prisma } from "./prisma";
 import { normalizeMobile } from "./phone";
 import { roleIdBySlug } from "./roles";
-import { captureWebsiteLead, createDemo, fulfillPaidSubscription } from "./saas-crm";
+import { captureWebsiteLead, createDemo, createTrialSubscription, ensureOnboardingTasks, fulfillPaidSubscription, startOnboarding } from "./saas-crm";
 import { getSitePricing } from "./saas-pricing";
 
 const PRODUCT_NAME = "Anekio";
@@ -259,25 +259,27 @@ function adminUrl() {
   return "/anekio-admin";
 }
 
-function shouldProvisionLocalTrial() {
-  return process.env.NODE_ENV !== "production" && process.env.ANEKIO_PROVISION_TRIAL_WORKSPACE !== "false";
+function shouldProvisionTrialWorkspace() {
+  return process.env.ANEKIO_PROVISION_TRIAL_WORKSPACE !== "false";
 }
 
-async function provisionLocalTrialWorkspace(org: { id: string; schoolName: string; ownerName: string; ownerEmail: string; ownerPhone: string; city: string; billingState: string; gstin: string }) {
-  if (!shouldProvisionLocalTrial()) return null;
+function trialAdminPassword() {
+  if (process.env.NODE_ENV === "production") return crypto.randomBytes(4).toString("hex");
+  return "12345";
+}
+
+async function provisionTrialWorkspace(org: { id: string; schoolName: string; ownerName: string; ownerEmail: string; ownerPhone: string; city: string; billingState: string; gstin: string }) {
+  if (!shouldProvisionTrialWorkspace()) return null;
   const phone = normalizeMobile(org.ownerPhone) || org.ownerPhone;
   const email = normalEmail(org.ownerEmail);
   if (!phone || !email) return null;
   const roleId = await roleIdBySlug("ADMIN");
-  const password = "12345";
-  const hashed = await bcrypt.hash(password, 10);
-  // A fresh local/test fixture may still contain the legacy singleton config.
-  // Claim that unowned row for the first trial; once it belongs to an org,
-  // every later trial receives its own config key.
+  const configId = `school:${org.id}`;
+  const ownedConfig = await prisma.schoolConfig.findFirst({ where: { orgId: org.id }, select: { id: true } });
   const legacyConfig = await prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { orgId: true } });
-  const configId = legacyConfig && !legacyConfig.orgId ? "school" : `school:${org.id}`;
+  const upsertId = ownedConfig?.id || (legacyConfig && !legacyConfig.orgId ? "school" : configId);
   await prisma.schoolConfig.upsert({
-    where: { id: configId },
+    where: { id: upsertId },
     update: {
       orgId: org.id,
       name: org.schoolName,
@@ -288,7 +290,7 @@ async function provisionLocalTrialWorkspace(org: { id: string; schoolName: strin
       email,
     },
     create: {
-      id: configId,
+      id: upsertId,
       orgId: org.id,
       name: org.schoolName,
       city: org.city,
@@ -298,30 +300,36 @@ async function provisionLocalTrialWorkspace(org: { id: string; schoolName: strin
       email,
     },
   });
-  const existing = await prisma.user.findFirst({
-    where: { OR: [{ email }, { phone }] },
-    include: { role: true },
+  const existingInOrg = await prisma.user.findFirst({
+    where: { orgId: org.id, OR: [{ email }, { phone }] },
   });
-  if (existing) {
-    await prisma.user.update({
-      where: { id: existing.id },
-      data: { name: org.ownerName, email, phone, password: hashed, roleId, orgId: org.id },
+  if (existingInOrg) {
+    await prisma.saasOrg.update({
+      where: { id: org.id },
+      data: { loginUrl: "/login", apiUrl: "/api/v1" },
     });
-  } else {
-    await prisma.user.create({
-      data: { name: org.ownerName, email, phone, password: hashed, roleId, orgId: org.id },
-    });
+    return { login: phone, password: "", created: false as const };
   }
+  const password = trialAdminPassword();
+  const hashed = await bcrypt.hash(password, 10);
+  await prisma.user.create({
+    data: { name: org.ownerName, email, phone, password: hashed, roleId, orgId: org.id },
+  });
+  const activeSubscription = await prisma.saasSubscription.findFirst({
+    where: { orgId: org.id, status: { in: ["TRIAL", "ACTIVE"] } },
+  });
+  if (!activeSubscription) await createTrialSubscription(org.id);
+  await ensureOnboardingTasks(org.id);
+  await startOnboarding(org.id, email);
   await prisma.saasOrg.update({
     where: { id: org.id },
     data: {
       loginUrl: "/login",
       apiUrl: "/api/v1",
       onboardingStatus: "IN_PROGRESS",
-      lifecycle: "CUSTOMER",
     },
   });
-  return { login: phone, password };
+  return { login: phone, password, created: true as const };
 }
 
 function shell(title: string, description: string, body: string, extraHead = "", bodyClass = "") {
@@ -820,7 +828,7 @@ export async function marketingHtml(message = "") {
                 <div class="eyebrow">Welcome to Anekio</div>
                 <h2 class="start-heading">Your ${trial}-day trial has started.</h2>
                 <p class="lead" id="trial-ready" style="max-width:none"></p>
-                <a class="btn primary" href="/">Open Anekio ERP →</a>
+                <a class="btn primary" id="trial-open" href="/login">Open Anekio ERP →</a>
               </div>
             </div>
             <div class="journey" data-journey="pay" hidden>
@@ -1047,6 +1055,14 @@ export async function marketingHtml(message = "") {
       });
     }
 
+    function appLoginUrl() {
+      var host = location.hostname;
+      var port = location.port;
+      if ((host === "localhost" || host === "127.0.0.1") && port === "4000") return "http://localhost:8081/login";
+      if (host === "anekio.com" || host === "www.anekio.com") return "https://app.anekio.com/login";
+      if (host === "staging.anekio.com") return "https://app.staging.anekio.com/login";
+      return "/login";
+    }
     var trialForm = document.getElementById("trial-form");
     if (trialForm) {
       trialForm.addEventListener("submit", function (e) {
@@ -1059,14 +1075,28 @@ export async function marketingHtml(message = "") {
           body: body.toString()
         }).then(function (res) { return res.json().then(function (data) { return { res: res, data: data }; }); })
           .then(function (out) {
-            if (!out.res.ok) throw new Error((out.data && out.data.error) || "Could not start trial.");
+            if (!out.res.ok) {
+              var fail = new Error((out.data && out.data.error) || "Could not start trial.");
+              fail.loginUrl = out.data && out.data.loginUrl;
+              throw fail;
+            }
             var org = out.data.org || {};
-            document.getElementById("trial-ready").textContent = "School: " + (org.schoolName || "") + ". Admin: " + (org.ownerName || "") + ".";
+            var login = out.data.login || org.ownerPhone || "";
+            var password = out.data.password || "";
+            var ready = document.getElementById("trial-ready");
+            if (ready) {
+              ready.textContent = password
+                ? ("Your school is ready. Sign in with " + login + " and password " + password + ".")
+                : ("School: " + (org.schoolName || "") + ". Admin: " + (org.ownerName || "") + ".");
+            }
+            var open = document.getElementById("trial-open");
+            if (open) open.setAttribute("href", appLoginUrl());
             setTimeout(function () { gotoStep("trial", 3); }, 900);
           })
           .catch(function (err) {
             gotoStep("trial", 1);
             alert(err.message || "Could not start trial.");
+            if (err.loginUrl) location.href = appLoginUrl();
           });
       });
     }
@@ -1218,7 +1248,13 @@ export async function createSaasDemoEnquiry(input: DemoEnquiryInput) {
 export async function createSaasTrial(input: EnquiryInput) {
   const pricing = await getSitePricing();
   const existing = await findSaasOrgByContact(input);
-  if (existing) throw new ExistingTrialSignupError();
+  if (existing) {
+    const existingLogin = await provisionTrialWorkspace(existing);
+    if (existingLogin?.created) {
+      return { ...existing, login: existingLogin.login, password: existingLogin.password, loginUrl: "/login" };
+    }
+    throw new ExistingTrialSignupError();
+  }
   const org = await createSaasEnquiry({
     ...input,
     notes: [`${pricing.trialDays}-day free trial requested`, text(input.notes)].filter(Boolean).join(" · "),
@@ -1235,31 +1271,37 @@ export async function createSaasTrial(input: EnquiryInput) {
     },
   });
   await captureWebsiteLead(trial.id, "TRIAL");
-  await provisionLocalTrialWorkspace(trial);
-  return trial;
+  const workspace = await provisionTrialWorkspace(trial);
+  return {
+    ...trial,
+    login: workspace?.login || "",
+    password: workspace?.password || "",
+    loginUrl: "/login",
+  };
 }
 
 export function trialStartedHtml(org: Awaited<ReturnType<typeof createSaasTrial>>) {
-  const localLogin = shouldProvisionLocalTrial()
-    ? `<span>Local workspace login: ${escapeHtml(org.ownerPhone)} / 12345.</span>`
-    : "";
+  const loginLine = org.login && org.password
+    ? `<span>Sign in with ${escapeHtml(org.login)} and password ${escapeHtml(org.password)}.</span>`
+    : org.login
+      ? `<span>Sign in at /login with ${escapeHtml(org.login)}.</span>`
+      : "";
   return shell(
     "Free trial started | Anekio",
-    "Your Anekio free trial request has been received.",
+    "Your Anekio school workspace is ready.",
     `<main class="wrap" style="min-height:100vh;display:grid;place-items:center;padding:40px 0">
       <section class="form-shell" style="max-width:760px;width:100%">
         <div class="form-content" style="grid-template-columns:1fr">
           <div>
-            <div class="eyebrow">Trial request received</div>
-            <h1 style="font-size:52px;margin-bottom:12px">${escapeHtml(org.plan)} is ready to start.</h1>
-            <p class="lead">Thanks, ${escapeHtml(org.ownerName)}. We have saved the trial request for ${escapeHtml(org.schoolName)} and will help you open the workspace.</p>
+            <div class="eyebrow">Trial started</div>
+            <h1 style="font-size:52px;margin-bottom:12px">${escapeHtml(org.plan)} is ready.</h1>
+            <p class="lead">Thanks, ${escapeHtml(org.ownerName)}. ${escapeHtml(org.schoolName)} now has its own Anekio workspace.</p>
             <div class="check-list">
               <span>No payment is needed for the trial.</span>
-              <span>Your school details are saved for setup.</span>
-              <span>Our team will contact you on ${escapeHtml(org.ownerPhone)}.</span>
-              ${localLogin}
+              <span>You can sign in as the school administrator.</span>
+              ${loginLine}
             </div>
-            <a class="btn primary" href="/">Back to Anekio</a>
+            <a class="btn primary" href="/login">Open Anekio ERP →</a>
           </div>
         </div>
       </section>

@@ -188,6 +188,157 @@ describe("Express portal API", () => {
     expect(response.body).toEqual({ ok: true });
   });
 
+  it("assigns incrementing admission numbers when office adds students", async () => {
+    const session = await login(fixture.users.office.email);
+    const auth = { Authorization: `Bearer ${session.body.token}` };
+    const base = {
+      op: "createStudent",
+      classId: fixture.classId,
+      parentId: "parent-pari",
+      dateOfBirth: "2015-06-15",
+      dateOfJoining: "2026-04-01",
+    };
+
+    const first = await request(app).post("/api/v1/act").set(auth).send({ ...base, name: "Auto Number One" });
+    const second = await request(app).post("/api/v1/act").set(auth).send({ ...base, name: "Auto Number Two" });
+
+    expect(first.status).toBe(200);
+    expect(first.body).toMatchObject({ ok: true, admissionNo: "ANE-00002" });
+    expect(second.status).toBe(200);
+    expect(second.body).toMatchObject({ ok: true, admissionNo: "ANE-00003" });
+    expect(await prisma.student.findFirst({ where: { admissionNo: "ANE-00003" } })).toMatchObject({ name: "Auto Number Two" });
+    const firstStudent = await prisma.student.findFirstOrThrow({ where: { name: "Auto Number One" } });
+    const firstEnrollment = await prisma.studentClassEnrollment.findFirstOrThrow({ where: { studentId: firstStudent.id } });
+    expect(firstEnrollment.joinedAt.toISOString().slice(0, 10)).toBe("2026-04-01");
+  });
+
+  it("collects the configured admission fee while adding a student", async () => {
+    const line = await prisma.admissionFeeLine.create({
+      data: { classId: fixture.classId, label: "Admission", amount: 12500, sortOrder: 0 },
+    });
+    const session = await login(fixture.users.office.email);
+    const auth = { Authorization: `Bearer ${session.body.token}` };
+    try {
+      const created = await request(app)
+        .post("/api/v1/act")
+        .set(auth)
+        .send({
+          op: "createStudent",
+          name: "Admission Payment Student",
+          classId: fixture.classId,
+          parentId: "parent-pari",
+          dateOfBirth: "2015-06-15",
+          dateOfJoining: "2026-04-01",
+          collectAdmissionFee: true,
+          paymentMethod: "UPI",
+          paymentReference: "UTR-ADMISSION-001",
+        });
+
+      expect(created.status).toBe(200);
+      expect(created.body).toMatchObject({ ok: true, admissionCharge: 12500 });
+      const invoice = await prisma.feeInvoice.findUniqueOrThrow({
+        where: { id: created.body.admissionInvoiceId },
+        include: { payments: true },
+      });
+      expect(invoice).toMatchObject({ title: "One-time admission fee", amount: 12500, status: "PAID" });
+      expect(invoice.payments).toEqual([expect.objectContaining({ amount: 12500, method: "UPI", reference: "UTR-ADMISSION-001" })]);
+    } finally {
+      await prisma.admissionFeeLine.delete({ where: { id: line.id } });
+      await prisma.student.deleteMany({ where: { name: "Admission Payment Student" } });
+    }
+  });
+
+  it("creates a due admission invoice when payment is deferred", async () => {
+    const line = await prisma.admissionFeeLine.create({
+      data: { classId: fixture.classId, label: "Admission", amount: 12500, sortOrder: 0 },
+    });
+    const session = await login(fixture.users.office.email);
+    const auth = { Authorization: `Bearer ${session.body.token}` };
+    try {
+      const created = await request(app)
+        .post("/api/v1/act")
+        .set(auth)
+        .send({
+          op: "createStudent",
+          name: "Deferred Admission Payment Student",
+          classId: fixture.classId,
+          parentId: "parent-pari",
+          dateOfBirth: "2015-06-15",
+          dateOfJoining: "2026-04-01",
+        });
+
+      expect(created.status).toBe(200);
+      expect(created.body).toMatchObject({ ok: true, admissionCharge: 12500, admissionCollected: false });
+      const invoice = await prisma.feeInvoice.findUniqueOrThrow({
+        where: { id: created.body.admissionInvoiceId },
+        include: { payments: true },
+      });
+      expect(invoice).toMatchObject({ title: "One-time admission fee", amount: 12500, status: "DUE" });
+      expect(invoice.payments).toEqual([]);
+    } finally {
+      await prisma.admissionFeeLine.delete({ where: { id: line.id } });
+      await prisma.student.deleteMany({ where: { name: "Deferred Admission Payment Student" } });
+    }
+  });
+
+  it("creates a new parent while adding a student", async () => {
+    const phone = "9800000123";
+    const session = await login(fixture.users.office.email);
+    const auth = { Authorization: `Bearer ${session.body.token}` };
+    try {
+      const created = await request(app)
+        .post("/api/v1/act")
+        .set(auth)
+        .send({
+          op: "createStudent",
+          name: "Student With New Parent",
+          classId: fixture.classId,
+          dateOfBirth: "2015-06-15",
+          dateOfJoining: "2026-04-01",
+          parentId: "__new__",
+          parentName: "New Parent",
+          parentPhone: phone,
+        });
+
+      expect(created.status).toBe(200);
+      const parentUser = await prisma.user.findFirstOrThrow({ where: { phone }, include: { parent: true } });
+      expect(parentUser).toMatchObject({ name: "New Parent", parent: { phone } });
+      expect(await prisma.student.findFirst({ where: { name: "Student With New Parent" } })).toMatchObject({ parentId: parentUser.parent?.id });
+    } finally {
+      await prisma.student.deleteMany({ where: { name: "Student With New Parent" } });
+      await prisma.user.deleteMany({ where: { phone } });
+    }
+  });
+
+  it("keeps admission numbers unique within each school, not across schools", async () => {
+    const orgIds = ["org-admission-a", "org-admission-b"];
+    await prisma.saasOrg.createMany({
+      data: orgIds.map((id) => ({
+        id,
+        schoolName: id,
+        ownerName: "Fixture owner",
+        ownerEmail: `${id}@school.test`,
+        ownerPhone: "9876500000",
+      })),
+    });
+    try {
+      await prisma.student.createMany({
+        data: orgIds.map((orgId, index) => ({
+          orgId,
+          parentId: "parent-pari",
+          classId: fixture.classId,
+          admissionNo: "ANE-00001",
+          name: `Tenant student ${index + 1}`,
+          dateOfBirth: new Date("2015-06-15T00:00:00.000Z"),
+        })),
+      });
+      expect(await prisma.student.count({ where: { admissionNo: "ANE-00001", orgId: { in: orgIds } } })).toBe(2);
+    } finally {
+      await prisma.student.deleteMany({ where: { orgId: { in: orgIds } } });
+      await prisma.saasOrg.deleteMany({ where: { id: { in: orgIds } } });
+    }
+  });
+
   it("validates, reserves, and saves school website slugs", async () => {
     const original = await prisma.schoolConfig.findUniqueOrThrow({ where: { id: "school" } });
     const { id: _id, ...originalData } = original;

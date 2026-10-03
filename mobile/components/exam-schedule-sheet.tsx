@@ -142,9 +142,9 @@ export const ExamScheduleSheet = forwardRef<
     pending?: boolean;
     confirmLabel?: string;
     hideConfirm?: boolean;
-    onOpenRoutine?: () => void;
+    onOpenStaff?: () => void;
     onHistoryModeChange?: (on: boolean) => void;
-    onSave: (papers: SchedulePaper[]) => void;
+    onSave: (papers: SchedulePaper[], meta?: { history?: boolean }) => void;
   }
 >(function ExamScheduleSheet(
   {
@@ -158,7 +158,7 @@ export const ExamScheduleSheet = forwardRef<
     pending,
     confirmLabel,
     hideConfirm,
-    onOpenRoutine,
+    onOpenStaff,
     onHistoryModeChange,
     onSave,
   },
@@ -292,12 +292,16 @@ export const ExamScheduleSheet = forwardRef<
   }
 
   function save() {
-    const unassigned = rows.filter((row) => !row.teacherId);
-    if (unassigned.length) {
-      setError(
-        `Schedule not saved. Assign teachers to ${unassigned.map((row) => row.name).join(", ")} in Routine first.`
-      );
-      return;
+    const looksPast = rows.every((row) => row.date && row.date < ymd(new Date()));
+    const history = historyMode || looksPast;
+    if (!history) {
+      const unassigned = rows.filter((row) => !row.teacherId);
+      if (unassigned.length) {
+        setError(
+          `Schedule not saved. Assign teachers to ${unassigned.map((row) => row.name).join(", ")} on Staff first (class and subject).`
+        );
+        return;
+      }
     }
     if (rows.some((row) => !row.date)) {
       setError("Every paper needs an exam date.");
@@ -318,7 +322,8 @@ export const ExamScheduleSheet = forwardRef<
         paperDueOn: row.paperDueOn,
         copiesDueOn: row.copiesDueOn,
         resultOn: resultDate,
-      }))
+      })),
+      { history: history }
     );
   }
 
@@ -355,22 +360,22 @@ export const ExamScheduleSheet = forwardRef<
           </View>
           <View className="min-w-0 flex-1">
             <Text className="text-sm font-semibold text-ink-900">Past exam / history import</Text>
-            <Text className="mt-0.5 text-xs leading-4 text-ink-700">Use past dates so this exam is ready for old marks import.</Text>
+            <Text className="mt-0.5 text-xs leading-4 text-ink-700">Past papers only need dates and student marks. Teachers come from Staff class and subject assignment, not Routine.</Text>
           </View>
         </Pressable>
       ) : null}
 
-      {rows.some((row) => !row.teacherId) ? (
+      {rows.some((row) => !row.teacherId) && !historyMode && !rows.every((row) => row.date && row.date < ymd(new Date())) ? (
         <View className="flex-row flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3">
           <View className="min-w-0 flex-1">
             <Text className="text-sm font-semibold text-amber-900">Teacher assignment needed</Text>
             <Text className="mt-0.5 text-xs leading-4 text-amber-900">
-              {rows.filter((row) => !row.teacherId).map((row) => row.name).join(", ")} {rows.filter((row) => !row.teacherId).length === 1 ? "has" : "have"} no teacher. The assigned teacher checks the paper and enters marks.
+              {rows.filter((row) => !row.teacherId).map((row) => row.name).join(", ")} {rows.filter((row) => !row.teacherId).length === 1 ? "has" : "have"} no teacher. Assign the class and subject on Staff.
             </Text>
           </View>
-          {onOpenRoutine ? (
-            <Pressable accessibilityRole="button" onPress={onOpenRoutine} className="rounded-md border border-amber-400 bg-white px-3 py-2">
-              <Text className="text-xs font-semibold text-amber-900">Open Routine</Text>
+          {onOpenStaff ? (
+            <Pressable accessibilityRole="button" onPress={onOpenStaff} className="rounded-md border border-amber-400 bg-white px-3 py-2">
+              <Text className="text-xs font-semibold text-amber-900">Open Staff</Text>
             </Pressable>
           ) : null}
         </View>

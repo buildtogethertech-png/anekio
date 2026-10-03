@@ -439,6 +439,14 @@ async function main() {
             admissionNo,
             name: kidName,
             dateOfBirth: born,
+            enrollments: {
+              create: {
+                classId: klass.id,
+                sessionId: session.id,
+                rollNumber: kidNo,
+                joinedAt: session.startsOn,
+              },
+            },
             interests: { create: [{ tag: kidNo % 2 ? PathTag.ARTS : PathTag.SCIENCE }] },
           },
         });

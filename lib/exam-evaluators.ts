@@ -3,6 +3,21 @@ import { eligibleMarksTeacherIds, examEvaluatorIds, grantedEvaluatorIds } from "
 
 export { examEvaluatorIds, grantedEvaluatorIds, eligibleMarksTeacherIds };
 
+export async function teacherIdsBySubjectName(classId: string, subjectNames: string[]) {
+  const names = [...new Set(subjectNames.map((name) => name.trim()).filter(Boolean))];
+  if (!names.length) return new Map<string, string>();
+  const skills = await prisma.teacherSkill.findMany({
+    where: { classId, subjectName: { in: names } },
+    select: { teacherId: true, subjectName: true },
+    orderBy: { id: "asc" },
+  });
+  const map = new Map<string, string>();
+  for (const row of skills) {
+    if (!map.has(row.subjectName)) map.set(row.subjectName, row.teacherId);
+  }
+  return map;
+}
+
 export async function eligibleTeacherIdsForExam(examId: string) {
   const exam = await prisma.exam.findUnique({
     where: { id: examId },

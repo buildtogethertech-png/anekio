@@ -187,6 +187,40 @@ describe.sequential("fee setup API", () => {
     expect(template?.lines.filter((line) => line.scope === "ADD_ON").map((line) => line.label)).toEqual(["Project"]);
   });
 
+  it("allows consecutive class fee structures but rejects overlapping periods", async () => {
+    const next = await act(officeToken, "saveFeeTemplate", {
+      classId: fixture.classId,
+      name: "Revised monthly fee",
+      startsPeriod: "2027-04",
+      endsPeriod: "2027-06",
+      dueDay: 10,
+      lines: [{ label: "Tuition", amount: 5500, scope: "ALL" }],
+    });
+    expect(next.status).toBe(200);
+
+    const overlap = await act(officeToken, "saveFeeTemplate", {
+      classId: fixture.classId,
+      name: "Overlapping fee",
+      startsPeriod: "2027-06",
+      endsPeriod: "2027-08",
+      dueDay: 10,
+      lines: [{ label: "Tuition", amount: 6000, scope: "ALL" }],
+    });
+    expect(overlap.status).toBe(400);
+    expect(overlap.body.error).toMatch(/overlap/i);
+
+    const duplicate = await act(officeToken, "saveFeeTemplate", {
+      classId: fixture.classId,
+      name: "Duplicate fee",
+      startsPeriod: "2027-04",
+      endsPeriod: "2027-06",
+      dueDay: 10,
+      lines: [{ label: "Tuition", amount: 5500, scope: "ALL" }],
+    });
+    expect(duplicate.status).toBe(400);
+    expect(duplicate.body.error).toMatch(/overlap/i);
+  });
+
   it("saves transport and other catalog fees", async () => {
     const transport = await act(officeToken, "saveFeeCatalog", {
       item: { kind: "TRANSPORT", label: "Route A", amount: 800 },

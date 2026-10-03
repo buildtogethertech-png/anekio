@@ -1003,7 +1003,7 @@ app.post("/api/saas/enquiry", async (req, res) => {
 
 app.post("/api/saas/trial", async (req, res) => {
   try {
-    const org = await createSaasTrial(req.body || {});
+    const { login, password, loginUrl, ...org } = await createSaasTrial(req.body || {});
     const leadUrl = `${requestOrigin(req).replace(/\/$/, "")}/anekio-admin?view=lead&id=${encodeURIComponent(org.id)}`;
     try {
       await sendSaasEmailEvent({
@@ -1018,7 +1018,7 @@ app.post("/api/saas/trial", async (req, res) => {
           ownerPhone: org.ownerPhone,
           city: org.city,
           trialDays: String(org.plan.match(/\d+/)?.[0] || "7"),
-          loginUrl: `${requestOrigin(req).replace(/\/$/, "")}${org.loginUrl || "/login"}`,
+          loginUrl: `${requestOrigin(req).replace(/\/$/, "")}${loginUrl || "/login"}`,
           leadUrl,
         },
       });
@@ -1026,9 +1026,9 @@ app.post("/api/saas/trial", async (req, res) => {
       console.error("Trial onboarding email delivery setup failed", error instanceof Error ? error.message : error);
     }
     if (!String(req.headers.accept || "").includes("application/json")) {
-      return res.type("html").send(trialStartedHtml(org));
+      return res.type("html").send(trialStartedHtml({ ...org, login, password, loginUrl }));
     }
-    res.json({ ok: true, org });
+    res.json({ ok: true, org, login, password, loginUrl });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Could not start trial.";
     const status = e instanceof ExistingTrialSignupError ? e.status : 400;

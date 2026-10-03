@@ -49,7 +49,7 @@ async function nextRollNumber(db: RollDb, sessionId: string, classId: string) {
 
 export async function assignStudentRollNumber(
   db: RollDb = prisma,
-  input: { studentId: string; classId: string; orgId?: string | null; rollNumber?: number | null }
+  input: { studentId: string; classId: string; orgId?: string | null; rollNumber?: number | null; joinedAt?: Date }
 ) {
   const session = await currentSession(db);
   const existing = await db.studentClassEnrollment.findUnique({
@@ -91,6 +91,7 @@ export async function assignStudentRollNumber(
         rollNumber,
         active: true,
         ...(input.orgId !== undefined ? { orgId: input.orgId } : {}),
+        ...(input.joinedAt ? { joinedAt: input.joinedAt } : {}),
       },
     });
   }
@@ -101,6 +102,7 @@ export async function assignStudentRollNumber(
       classId: input.classId,
       sessionId: session.id,
       rollNumber,
+      ...(input.joinedAt ? { joinedAt: input.joinedAt } : {}),
     },
   });
 }

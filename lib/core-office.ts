@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import { randomUUID } from "node:crypto";
 import { FeeLineKind, InvoiceStatus, PaperType, PathTag } from "@prisma/client";
 import { sendAisensyWhatsApp, getAisensyConfig } from "./aisensy";
 import { can, type AccessUser } from "./permissions";
@@ -60,7 +61,7 @@ import {
   notifyResultsPublished,
   notifySeriesAssigned,
 } from "./exam-events";
-import { eligibleTeacherIdsForExam, ensureExamEvaluator } from "./exam-evaluators";
+import { eligibleTeacherIdsForExam, ensureExamEvaluator, teacherIdsBySubjectName } from "./exam-evaluators";
 import { isQuestionPaperFile } from "./uploads";
 import { assignStudentRollNumber } from "./student-rolls";
 function need(user: AccessUser, ...keys: string[]) {
@@ -273,22 +274,21 @@ export async function saveFeeTemplateCore(
     ? await prisma.feeTemplate.findUnique({ where: { id: templateId } })
     : null;
   if (editing && (editing.classId !== classId || editing.sessionId !== sessionId)) throw new Error("Template does not belong to this class");
-  const existing = editing || await prisma.feeTemplate.findFirst({ where: { classId, sessionId, startsPeriod, endsPeriod } });
   const overlap = await prisma.feeTemplate.findFirst({
     where: {
       classId,
       sessionId,
-      ...(existing ? { NOT: { id: existing.id } } : {}),
+      ...(editing ? { NOT: { id: editing.id } } : {}),
       startsPeriod: { lte: endsPeriod },
       endsPeriod: { gte: startsPeriod },
     },
   });
   if (overlap) throw new Error(`This range overlaps ${overlap.startsPeriod || "an earlier setup"} to ${overlap.endsPeriod || "an earlier setup"}.`);
-  const lateData = hasLate ? lateStamp : existing ? {} : feeTemplateLateWrite(inheritedLate);
-  if (existing) {
-    await prisma.feeLine.deleteMany({ where: { templateId: existing.id } });
+  const lateData = hasLate ? lateStamp : editing ? {} : feeTemplateLateWrite(inheritedLate);
+  if (editing) {
+    await prisma.feeLine.deleteMany({ where: { templateId: editing.id } });
     const updated = await prisma.feeTemplate.update({
-      where: { id: existing.id },
+      where: { id: editing.id },
       data: { orgId: user.orgId ?? null, name, startsPeriod, endsPeriod, dueDay, ...lateData, lines: { create: lines } },
     });
     await syncClassAddOnAmounts(classId, addOnLines);
@@ -327,7 +327,7 @@ async function deliverFeeReminder(invoiceId: string) {
   if (dueNow <= 0) throw new Error("This month is already paid. Nudge another open bill.");
   let token = invoice.shareToken;
   if (!token) {
-    token = crypto.randomUUID();
+    token = randomUUID();
     await prisma.feeInvoice.update({ where: { id: invoice.id }, data: { shareToken: token } });
   }
   const payUrl = feePayUrl(token);
@@ -448,10 +448,19 @@ export async function issueClassFeesCore(
   const startsPeriod = template.startsPeriod || normalizeFeePeriod(input.startsPeriod) || fallbackPeriod;
   const endsPeriod = template.endsPeriod || normalizeFeePeriod(input.endsPeriod) || startsPeriod;
   if (startsPeriod > endsPeriod) throw new Error("Start month must be before end month");
-  const months = monthsBetween(startsPeriod, endsPeriod);
+  const now = new Date();
+  const lastCompletedMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const lastCompletedPeriod = feePeriod(lastCompletedMonth.getFullYear(), lastCompletedMonth.getMonth());
+  const issueThrough = endsPeriod < lastCompletedPeriod ? endsPeriod : lastCompletedPeriod;
+  const months = startsPeriod <= issueThrough ? monthsBetween(startsPeriod, issueThrough) : [];
   const students = await prisma.student.findMany({
     where: { classId },
-    select: { id: true, feeGeneratedThrough: true, feeAddOns: { where: { active: true } } },
+    select: {
+      id: true,
+      feeGeneratedThrough: true,
+      feeAddOns: { where: { active: true } },
+      enrollments: { where: { sessionId: current.id }, select: { joinedAt: true }, take: 1 },
+    },
   });
   if (!students.length) throw new Error("This class has no students. Add them on Students, then issue.");
   const already = await prisma.feeInvoice.findMany({
@@ -459,10 +468,13 @@ export async function issueClassFeesCore(
     select: { studentId: true, period: true },
   });
   const have = new Set(already.map((i) => `${i.studentId}:${i.period}`));
-  await prisma.feeInvoice.createMany({
-    data: students.flatMap((s) =>
+  const invoices = students.flatMap((s) =>
       months
-        .filter((month) => month.period > s.feeGeneratedThrough && !have.has(`${s.id}:${month.period}`))
+        .filter((month) => {
+          const joinedAt = s.enrollments[0]?.joinedAt;
+          const joiningPeriod = joinedAt ? feePeriod(joinedAt.getFullYear(), joinedAt.getMonth()) : startsPeriod;
+          return month.period >= joiningPeriod && month.period > s.feeGeneratedThrough && !have.has(`${s.id}:${month.period}`);
+        })
         .map((month) => {
         const lines = composeStudentFeeLines(drafts, s.feeAddOns, month.period);
         const invoiceTotal = feeLineTotal(lines).total;
@@ -477,11 +489,12 @@ export async function issueClassFeesCore(
           linesJson: JSON.stringify(lines),
           dueDate: dueDateForMonth(month.year, month.monthIndex, template.dueDay),
         ...invoiceLateStamp(template),
-        shareToken: crypto.randomUUID(),
+        shareToken: randomUUID(),
         status: InvoiceStatus.DUE,
         };
-      })),
-  });
+      }));
+  const result = invoices.length ? await prisma.feeInvoice.createMany({ data: invoices }) : { count: 0 };
+  return { issued: result.count, through: issueThrough };
 }
 
 export async function createInvoiceCore(
@@ -503,7 +516,7 @@ export async function createInvoiceCore(
       dueDate,
       lateFeePerDay: Number(input.lateFeePerDay || 50),
       status: InvoiceStatus.DUE,
-      shareToken: crypto.randomUUID(),
+      shareToken: randomUUID(),
     },
   });
 }
@@ -580,7 +593,7 @@ export async function saveFeeCatalogCore(
     const label = String(input.item.label || "").trim();
     if (!label) throw new Error("Fee name required");
     const next = {
-      id: String(input.item.id || "").trim() || crypto.randomUUID(),
+      id: String(input.item.id || "").trim() || randomUUID(),
       kind,
       label,
       amount: Math.max(0, Math.round(Number(input.item.amount) || 0)),
@@ -883,12 +896,15 @@ export async function updateExamSeriesPapersCore(
     where: { classId: series.classId, id: { in: papers.map((p) => p.subjectId) } },
   });
   const byId = new Map(subjects.map((s) => [s.id, s]));
+  const skillTeachers = await teacherIdsBySubjectName(series.classId, subjects.map((subject) => subject.name));
+  const today = ymd(new Date());
+  const history = papers.every((paper) => paper.date && paper.date < today) || series.exams.every((exam) => ymd(exam.date) < today);
   for (const paper of papers) {
     const subject = byId.get(paper.subjectId);
     if (!subject) continue;
     const existing = series.exams.find((e) => e.subjectId === paper.subjectId);
-    const teacherId = paper.teacherId || existing?.teacherId || subject.teacherId;
-    if (!teacherId) throw new Error("Schedule not saved. Assign a teacher to every subject in Routine first; teachers are needed for checking and entering marks.");
+    const teacherId = paper.teacherId || existing?.teacherId || skillTeachers.get(subject.name) || (history ? null : subject.teacherId) || null;
+    if (!teacherId && !history) throw new Error(`Schedule not saved. Assign teachers to ${subject.name} on Staff first (class and subject).`);
     const stamp = examDateFields({
       ...paper,
       teacherId,
@@ -1571,7 +1587,7 @@ export async function grantExamMarksCore(user: AccessUser, input: { examId?: str
   }
   const eligible = await eligibleTeacherIdsForExam(examId);
   if (!canGrantMarksEntry(teacherId, eligible)) {
-    throw new Error("Only a teacher of this subject can be given marks entry. Assign them on Routine first.");
+    throw new Error("Only a teacher of this subject can be given marks entry. Assign them to this class and subject on Staff first.");
   }
   await ensureExamEvaluator(examId, teacherId);
   await prisma.exam.update({

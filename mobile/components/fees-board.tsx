@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Linking, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { GeneratePayment } from "./generate-payment";
 import { FilterBar, type FilterConfig, type FilterValues } from "./filter";
 import { Button, Card, Field, Input, Modal, Switch, Toast, useToast } from "./ui";
-import { DateField } from "./date-field";
+import { DateField, MonthField } from "./date-field";
 import { Select } from "./form/select";
 import { FeeReport } from "./fee-report";
 import { act } from "../lib/mutate";
@@ -21,6 +21,11 @@ type Person = NonNullable<ReturnType<typeof useRecord>["data"]>["people"] extend
 type Invoice = NonNullable<Person["invoices"]>[number];
 
 type FeeLineDraft = { id: string; label: string; amount: string; scope: "ALL" | "ADD_ON" };
+
+function feeTabFromParam(value: string | string[] | undefined): Tab {
+  const tab = Array.isArray(value) ? value[0] : value;
+  return tab === "report" || tab === "insight" || tab === "setup" ? tab : "register";
+}
 
 function can(user: { permissions: string[] } | null, key: string) {
   return Boolean(user?.permissions.includes(key));
@@ -308,10 +313,11 @@ export function FeesBoard() {
   const { data, reload, refreshing } = useRecord();
   const { token, user } = useSession();
   const router = useRouter();
+  const params = useLocalSearchParams<{ tab?: string | string[] }>();
   const toast = useToast();
   const { width } = useWindowDimensions();
   const didInitialRefresh = useRef(false);
-  const [tab, setTab] = useState<Tab>("register");
+  const [tab, setTab] = useState<Tab>(() => feeTabFromParam(params.tab));
   const [query, setQuery] = useState("");
   const [classId, setClassId] = useState("all");
   const [section, setSection] = useState("");
@@ -324,10 +330,12 @@ export function FeesBoard() {
   const [selectedDueStudentId, setSelectedDueStudentId] = useState("");
   const [payDueStudentId, setPayDueStudentId] = useState("");
   const [feeEditorOpen, setFeeEditorOpen] = useState(false);
-  const [setupPane, setSetupPane] = useState<SetupPane>("academic");
+  const [setupPane, setSetupPane] = useState<SetupPane>("class");
   const [editorClassId, setEditorClassId] = useState("");
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [tplName, setTplName] = useState("Monthly fee");
+  const [tplStartPeriod, setTplStartPeriod] = useState("");
+  const [tplEndPeriod, setTplEndPeriod] = useState("");
   const [tplLines, setTplLines] = useState<FeeLineDraft[]>([newFeeLine("Tuition", "")]);
   const [tplAddOnLines, setTplAddOnLines] = useState<FeeLineDraft[]>([]);
   const [admissionClassId, setAdmissionClassId] = useState("");
@@ -347,6 +355,15 @@ export function FeesBoard() {
   const [sessionEnd, setSessionEnd] = useState("");
   const [sessionDueDay, setSessionDueDay] = useState(10);
 
+  useEffect(() => {
+    setTab(feeTabFromParam(params.tab));
+  }, [params.tab]);
+
+  function selectTab(next: Tab) {
+    setTab(next);
+    router.replace({ pathname: "/fees", params: { tab: next } } as never);
+  }
+
   const people = data?.people ?? [];
   const classes = data?.classes ?? [];
   const templates = data?.feeTemplates ?? [];
@@ -357,20 +374,17 @@ export function FeesBoard() {
   const catalog = data?.feeCatalog ?? { items: [], late: { enabled: false, amount: 0, graceDays: 0 }, dueDay: 10 };
   const transportItems = catalog.items.filter((item) => item.kind === "TRANSPORT");
   const otherItems = catalog.items.filter((item) => item.kind === "OTHER");
+  const classTemplate =
+    selectedTemplateId === "new" ? null : templates.find((row) => row.id === selectedTemplateId && (!currentSession || row.sessionId === currentSession.id || !row.sessionId)) || null;
   const classTemplates = useMemo(
-    () =>
-      templates
-        .filter((row) => row.classId === editorClassId && (!currentSession || row.sessionId === currentSession.id || !row.sessionId))
-        .sort((a, b) => (b.startsPeriod || "").localeCompare(a.startsPeriod || "")),
+    () => templates.filter((row) => row.classId === editorClassId && (!currentSession || row.sessionId === currentSession.id || !row.sessionId)),
     [templates, editorClassId, currentSession?.id]
   );
-  const classTemplate =
-    selectedTemplateId === "new" ? null : classTemplates.find((row) => row.id === selectedTemplateId) || classTemplates[0] || null;
   const defaultStartPeriod = currentSession?.startsOn?.slice(0, 7) || currentFeePeriod();
   const defaultEndPeriod = currentSession?.endsOn?.slice(0, 7) || defaultStartPeriod;
-  const structureRange = periodRangeLabel(classTemplate?.startsPeriod || defaultStartPeriod, classTemplate?.endsPeriod || defaultEndPeriod);
-  const admissionTotal = admissionLines.reduce((sum, line) => sum + Math.max(0, Math.round(Number(line.amount) || 0)), 0);
+  const structureRange = periodRangeLabel(tplStartPeriod || defaultStartPeriod, tplEndPeriod || defaultEndPeriod);
   const tplTotal = tplLines.reduce((sum, line) => sum + Math.max(0, Math.round(Number(line.amount) || 0)), 0);
+  const tplAddOnTotal = tplAddOnLines.reduce((sum, line) => sum + Math.max(0, Math.round(Number(line.amount) || 0)), 0);
   const admissionByClass = useMemo(() => {
     const totals = new Map<string, number>();
     for (const line of data?.admissionFeeLines || []) {
@@ -379,6 +393,17 @@ export function FeesBoard() {
     }
     return totals;
   }, [data?.admissionFeeLines]);
+  const admissionTotal = admissionLines.reduce((sum, line) => sum + Math.max(0, Math.round(Number(line.amount) || 0)), 0);
+  const feeStructures = useMemo(
+    () =>
+      templates
+        .filter((row) => !currentSession || row.sessionId === currentSession.id || !row.sessionId)
+        .sort((a, b) => {
+          const classOrder = (classes.find((row) => row.id === a.classId)?.label || "").localeCompare(classes.find((row) => row.id === b.classId)?.label || "", undefined, { numeric: true });
+          return classOrder || (a.startsPeriod || "").localeCompare(b.startsPeriod || "");
+        }),
+    [templates, classes, currentSession?.id]
+  );
   const classRows = useMemo(
     () =>
       [...classes]
@@ -564,13 +589,23 @@ export function FeesBoard() {
   }, [editorClassId, classTemplates]);
 
   useEffect(() => {
-    if (!editorClassId) return;
+    if (!feeEditorOpen) return;
     setTplName(classTemplate?.name || "Monthly fee");
+    setTplStartPeriod(classTemplate?.startsPeriod || defaultStartPeriod);
+    setTplEndPeriod(classTemplate?.endsPeriod || defaultEndPeriod);
     const allLines = (classTemplate?.lines || []).filter((line) => line.scope !== "ADD_ON");
     const addOnLines = (classTemplate?.lines || []).filter((line) => line.scope === "ADD_ON");
     setTplLines(allLines.length ? allLines.map((line) => newFeeLine(line.label, String(line.amount))) : [newFeeLine("Tuition", "")]);
     setTplAddOnLines(addOnLines.map((line) => newFeeLine(line.label, String(line.amount), "ADD_ON")));
-  }, [editorClassId, selectedTemplateId, classTemplate]);
+  }, [feeEditorOpen, selectedTemplateId, classTemplate, defaultStartPeriod, defaultEndPeriod]);
+
+  useEffect(() => {
+    if (!feeEditorOpen || !editorClassId) return;
+    const savedLines = (data?.admissionFeeLines || [])
+      .filter((line) => line.classId === editorClassId)
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+    setAdmissionLines(savedLines.length ? savedLines.map((line) => newFeeLine(line.label, String(line.amount))) : [newFeeLine("Admission fee", "")]);
+  }, [feeEditorOpen, editorClassId, data?.admissionFeeLines]);
 
   useEffect(() => {
     const fromCatalog = catalog.late;
@@ -588,25 +623,6 @@ export function FeesBoard() {
   }, [catalog.late, templates]);
 
   useEffect(() => {
-    if (admissionClassId && classes.some((row) => row.id === admissionClassId)) return;
-    if (classes[0]?.id) setAdmissionClassId(classes[0].id);
-  }, [classes, admissionClassId]);
-
-  useEffect(() => {
-    if (!admissionClassId) return;
-    const source = (data?.admissionFeeLines || [])
-      .filter((row) => row.classId === admissionClassId)
-      .sort((a, b) => a.sortOrder - b.sortOrder);
-    if (source.length) {
-      setAdmissionLines(source.map((row) => newFeeLine(row.label, String(row.amount))));
-      return;
-    }
-    setAdmissionLines([newFeeLine("Admission fee", "")]);
-  }, [admissionClassId, data?.admissionFeeLines]);
-
-  useEffect(() => {
-    setSessionStart(currentSession?.startsOn || data?.school?.sessionStart || "");
-    setSessionEnd(currentSession?.endsOn || data?.school?.sessionEnd || "");
     const sessionTemplates = templates.filter((row) => !currentSession || row.sessionId === currentSession.id || !row.sessionId);
     setSessionDueDay(sessionTemplates[0]?.dueDay || catalog.dueDay || 10);
   }, [currentSession?.id, currentSession?.startsOn, currentSession?.endsOn, data?.school?.sessionStart, data?.school?.sessionEnd, templates, catalog.dueDay]);
@@ -637,7 +653,10 @@ export function FeesBoard() {
   }
 
   async function saveFeeTemplate() {
-    if (!editorClassId) return;
+    if (!editorClassId) {
+      toast.show("Choose a class.");
+      return;
+    }
     try {
       const lines = [
         ...tplLines.map((line) => ({
@@ -664,10 +683,15 @@ export function FeesBoard() {
         classId: editorClassId,
         sessionId: currentSession?.id,
         name: tplName,
-        startsPeriod: classTemplate?.startsPeriod || defaultStartPeriod,
-        endsPeriod: classTemplate?.endsPeriod || defaultEndPeriod,
+        startsPeriod: tplStartPeriod,
+        endsPeriod: tplEndPeriod,
+        dueDay: sessionDueDay,
         lines,
       });
+      const admissionFeeLines = admissionLines
+        .map((line) => ({ label: line.label.trim() || "Admission fee", amount: Math.max(0, Math.round(Number(line.amount) || 0)) }))
+        .filter((line) => line.amount > 0);
+      await act(token, "saveAdmissionFeeSetup", { classId: editorClassId, lines: admissionFeeLines });
       setSelectedTemplateId(saved.id);
       setFeeEditorOpen(false);
       toast.show("Class fee saved.");
@@ -717,17 +741,23 @@ export function FeesBoard() {
     }
   }
 
+  function openNewClassFee() {
+    setEditorClassId("");
+    setSelectedTemplateId("new");
+    setFeeEditorOpen(true);
+  }
+
+  function openClassFee(templateId: string, classId: string) {
+    setEditorClassId(classId);
+    setSelectedTemplateId(templateId);
+    setFeeEditorOpen(true);
+  }
+
   async function saveAdmissionFee(applyToAll = false) {
     try {
-      if (!applyToAll && !admissionClassId) {
-        toast.show("Pick a class card first.");
-        return;
-      }
+      if (!applyToAll && !admissionClassId) throw new Error("Pick a class card first.");
       const lines = admissionLines
-        .map((line) => ({
-          label: line.label.trim() || "Admission fee",
-          amount: Math.max(0, Math.round(Number(line.amount) || 0)),
-        }))
+        .map((line) => ({ label: line.label.trim() || "Admission fee", amount: Math.max(0, Math.round(Number(line.amount) || 0)) }))
         .filter((line) => line.amount > 0);
       await act(token, "saveAdmissionFeeSetup", applyToAll ? { lines } : { classId: admissionClassId, lines });
       toast.show(applyToAll ? "One-time admission fee saved for every class." : "One-time admission fee saved for this class.");
@@ -763,8 +793,8 @@ export function FeesBoard() {
       return;
     }
     try {
-      await act(token, "issueClassFees", { classId: classIdToIssue, templateId });
-      toast.show("Invoices generated.");
+      const result = await act<{ ok: true; issued: number; through: string }>(token, "issueClassFees", { classId: classIdToIssue, templateId });
+      toast.show(result.issued ? `${result.issued} invoice${result.issued === 1 ? "" : "s"} generated through ${periodLabel(result.through)}.` : "No completed fee months to generate yet.");
       await reload();
     } catch (error) {
       toast.show(error instanceof Error ? error.message : "Could not issue.");
@@ -772,7 +802,7 @@ export function FeesBoard() {
   }
 
   const modeTabs = (
-    <View className="flex-row rounded-md border border-ink-200 bg-white p-0.5">
+    <View className="flex-row rounded-xl border border-ink-200 bg-white p-1 shadow-sm">
       {(
         [
           ["register", "Register"],
@@ -784,8 +814,8 @@ export function FeesBoard() {
         <Pressable
           key={id}
           accessibilityRole="button"
-          onPress={() => setTab(id)}
-          className={`min-w-[76px] items-center rounded-md px-3 py-1.5 ${tab === id ? "bg-clay-500" : "bg-white"}`}
+          onPress={() => selectTab(id)}
+          className={`min-w-[76px] items-center rounded-lg px-3 py-2 ${tab === id ? "bg-clay-500" : "bg-white"}`}
         >
           <Text className={`text-sm font-semibold ${tab === id ? "text-white" : "text-ink-800"}`}>{label}</Text>
         </Pressable>
@@ -794,31 +824,37 @@ export function FeesBoard() {
   );
 
   const metricChips = (
-    <View className="flex-row flex-wrap items-center gap-1.5">
+    <View className="flex-row flex-wrap gap-2">
       {(
         [
-          ["Outstanding", compactInr(summary.outstanding), "text-amber-900"],
-          ["Overdue", compactInr(summary.overdue), "text-red-700"],
-          ["Collected", compactInr(summary.collected), "text-green-800"],
-          ["Students", String(summary.students), "text-ink-900"],
-          ["Pending", String(summary.pending), "text-ink-800"],
+          ["Outstanding", compactInr(summary.outstanding), "text-amber-900", "border-amber-100 bg-amber-50/40"],
+          ["Overdue", compactInr(summary.overdue), "text-red-700", "border-red-100 bg-red-50/50"],
+          ["Collected", compactInr(summary.collected), "text-green-800", "border-green-100 bg-green-50/40"],
+          ["Students with dues", String(summary.students), "text-ink-900", "border-ink-100 bg-white"],
         ] as const
-      ).map(([label, value, tone]) => (
-        <View key={label} className="rounded-md border border-ink-100 bg-white px-2.5 py-1.5">
-          <Text className="text-[9px] font-semibold uppercase tracking-wide text-ink-500">{label}</Text>
-          <Text className={`text-[13px] font-semibold ${tone}`}>{value}</Text>
+      ).map(([label, value, tone, surface]) => (
+        <View key={label} className={`min-w-[112px] rounded-xl border px-3 py-2.5 ${surface}`}>
+          <Text className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">{label}</Text>
+          <Text className={`mt-0.5 text-[16px] font-bold ${tone}`}>{value}</Text>
         </View>
       ))}
     </View>
   );
 
   const toolbar = (
-    <View className="mb-2 flex-row flex-wrap items-center gap-2">
+    <View className="mb-3 gap-3">
+      <View className="flex-row flex-wrap items-start justify-between gap-3">
+        <View>
+          <Text className="text-[22px] font-bold tracking-tight text-ink-900">Fees</Text>
+          <Text className="mt-0.5 text-sm text-ink-600">
+            {tab === "register" ? `${summary.pending} fee periods need attention across ${summary.students} students.` : tab === "report" ? "Review every payment and receipt in one place." : tab === "insight" ? "Collection performance for the current academic session." : "Configure the school’s fee structure."}
+          </Text>
+        </View>
+        {modeTabs}
+      </View>
       {tab !== "insight" && tab !== "setup" ? metricChips : null}
       <View className="min-w-[220px] flex-1">
-        {tab === "setup" ? (
-          <Text className="text-sm text-ink-700">Configure the school’s fee structure</Text>
-        ) : tab === "insight" ? (
+        {tab === "setup" ? null : tab === "insight" ? (
           <Text className="text-sm text-ink-700">Collected is payment date. Billed and outstanding are invoices.</Text>
         ) : (
           <FilterBar
@@ -847,24 +883,18 @@ export function FeesBoard() {
           />
         )}
       </View>
-      {modeTabs}
     </View>
   );
 
   const registerTable = (
     <View className="w-full">
-      <View className="flex-row border-b border-ink-200" style={stickyHead}>
-        <Head label="Adm no." flex={0.95} />
-        <Head label="Student" flex={1.5} />
-        <Head label="Class" flex={0.65} />
+      <View className="flex-row border-b border-ink-200 bg-slate-50/70" style={stickyHead}>
+        <Head label="Student" flex={2.15} />
+        <Head label="Amount due" flex={1.15} right />
+        <Head label="Status" flex={0.9} />
         <Head label="Fee period" flex={1.25} />
-        <Head label="Months due" flex={0.85} />
-        <Head label="Fee" flex={0.8} right />
-        <Head label="Late fine" flex={0.8} right />
-        <Head label="Total due" flex={0.9} right />
-        <Head label="Due date" flex={0.85} right />
-        <Head label="Status" flex={0.85} />
-        <Head label="Last payment" flex={1.35} />
+        <Head label="Last payment" flex={1.45} right />
+        <Head label="" flex={0.32} right />
       </View>
       {refreshing && !registerRows.length
         ? Array.from({ length: 8 }).map((_, index) => (
@@ -880,44 +910,57 @@ export function FeesBoard() {
                 accessibilityRole="button"
                 accessibilityLabel={`${row.person.name} fee detail`}
                 onPress={() => setSelectedDueStudentId(row.person.id)}
-                className={`flex-row border-b border-ink-50 ${active ? "bg-blue-50" : "bg-white hover:bg-ink-50"}`}
-                style={{ minHeight: 56, cursor: "pointer" }}
+                className={`flex-row border-b border-ink-100 ${active ? "bg-blue-50" : "bg-white hover:bg-slate-50"}`}
+                style={{ minHeight: 68, cursor: "pointer" }}
               >
-                <Cell flex={0.95}>{row.person.admissionNo || "—"}</Cell>
-                <Cell flex={1.5}>
+                <Cell flex={2.15}>
                   <Text numberOfLines={1} className="text-[13px] font-semibold leading-5 text-clay-600">
                     {row.person.name}
                   </Text>
-                </Cell>
-                <Cell flex={0.65}>{row.person.classLabel}</Cell>
-                <Cell flex={1.25}>{row.period}</Cell>
-                <Cell flex={0.85}>{row.months ? `${row.months} month${row.months === 1 ? "" : "s"}` : "—"}</Cell>
-                <Cell flex={0.8} right>
-                  {row.dueNow ? compactInr(row.fee) : "—"}
-                </Cell>
-                <Cell flex={0.8} right>
-                  {row.late ? compactInr(row.late) : "—"}
-                </Cell>
-                <Cell flex={0.9} right>
-                  <Text numberOfLines={1} className={`text-[13px] font-semibold leading-5 ${row.dueNow ? "text-amber-900" : "text-green-700"}`}>
-                    {row.dueNow ? compactInr(row.dueNow) : "No dues"}
+                  <Text numberOfLines={1} className="mt-0.5 text-[11px] text-ink-500">
+                    {row.person.classLabel} · {row.person.admissionNo || "No admission no."}
                   </Text>
                 </Cell>
-                <Cell flex={0.85} right>
-                  {row.dueDate}
+                <Cell flex={1.15} right>
+                  <Text numberOfLines={1} className={`text-[14px] font-bold leading-5 ${row.dueNow ? "text-amber-900" : "text-green-700"}`}>
+                    {row.dueNow ? compactInr(row.dueNow) : "No dues"}
+                  </Text>
+                  <Text numberOfLines={1} className="mt-0.5 text-[11px] text-ink-500">
+                    {row.late ? `${compactInr(row.fee)} + ${compactInr(row.late)} late` : compactInr(row.fee)}
+                  </Text>
                 </Cell>
-                <Cell flex={0.85}>
+                <Cell flex={0.9}>
                   <Text
                     numberOfLines={1}
-                    className={`text-[13px] font-medium leading-5 ${
-                      row.status.id === "paid" ? "text-green-700" : row.status.id === "overdue" ? "text-amber-800" : "text-ink-800"
+                    className={`self-start rounded-full px-2 py-1 text-[11px] font-semibold ${
+                      row.status.id === "paid"
+                        ? "bg-green-50 text-green-700"
+                        : row.status.id === "overdue"
+                          ? "bg-red-50 text-red-700"
+                          : "bg-amber-50 text-amber-800"
                     }`}
                   >
                     {row.status.label}
                   </Text>
                 </Cell>
+                <Cell flex={1.25}>
+                  <Text numberOfLines={1} className="text-[13px] font-medium text-ink-900">{row.period}</Text>
+                  <Text numberOfLines={1} className="mt-0.5 text-[11px] text-ink-500">
+                    {row.months ? `${row.months} month${row.months === 1 ? "" : "s"} · due ${row.dueDate}` : `Due ${row.dueDate}`}
+                  </Text>
+                </Cell>
                 <Cell flex={1.35} right>
-                  {row.lastPayment ? `${row.lastPayment.date} · ${row.lastPayment.mode} · ${row.lastPayment.amount}` : "—"}
+                  {row.lastPayment ? (
+                    <>
+                      <Text numberOfLines={1} className="text-[12px] font-medium text-ink-900">{row.lastPayment.amount}</Text>
+                      <Text numberOfLines={1} className="mt-0.5 text-[11px] text-ink-500">{row.lastPayment.date} · {row.lastPayment.mode}</Text>
+                    </>
+                  ) : (
+                    <Text className="text-[12px] text-ink-400">No payment yet</Text>
+                  )}
+                </Cell>
+                <Cell flex={0.32} right>
+                  <Ionicons name="chevron-forward" size={16} color="#94a3b8" />
                 </Cell>
               </Pressable>
             );
@@ -932,10 +975,10 @@ export function FeesBoard() {
         <Head label="Adm no." flex={1} />
         <Head label="Student" flex={1.6} />
         <Head label="Class" flex={0.8} />
-        <Head label="Fee" flex={2.2} />
+        <Head label="Fee" flex={1.9} />
         <Head label="Amount" flex={1} right />
         <Head label="Mode" flex={0.9} />
-        <Head label="Receipt" flex={1} />
+        <Head label="Documents" flex={1.7} />
       </View>
       {reportEvents.map((row) => {
         const when = clockLabel(row.paidAt);
@@ -954,22 +997,36 @@ export function FeesBoard() {
               </Text>
             </Cell>
             <Cell flex={0.8}>{row.classLabel}</Cell>
-            <Cell flex={2.2}>{row.fee}</Cell>
+            <Cell flex={1.9}>{row.fee}</Cell>
             <Cell flex={1} right>
               {row.amount}
             </Cell>
             <Cell flex={0.9}>{row.mode}</Cell>
-            <Cell flex={1}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`Download receipt for ${row.studentName}`}
-                onPress={() => {
-                  void openDueFeeDocument({ id: row.invoiceId, invoiceUrl: row.invoiceUrl, receiptUrl: row.receiptUrl }, true);
-                }}
-                className="self-start rounded-md border border-ink-200 bg-white px-2.5 py-1"
-              >
-                <Text className="text-xs font-semibold text-blue-700">Download</Text>
-              </Pressable>
+            <Cell flex={1.7}>
+              <View className="flex-row flex-wrap gap-1.5">
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open invoice for ${row.studentName}`}
+                  onPress={() => {
+                    void openDueFeeDocument({ id: row.invoiceId, invoiceUrl: row.invoiceUrl, receiptUrl: row.receiptUrl }, false);
+                  }}
+                  className="flex-row items-center gap-1 rounded-md bg-indigo-50 px-2 py-1"
+                >
+                  <Ionicons name="document-text-outline" size={13} color="#4338ca" />
+                  <Text className="text-[11px] font-semibold text-indigo-800">Invoice</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open receipt for ${row.studentName}`}
+                  onPress={() => {
+                    void openDueFeeDocument({ id: row.invoiceId, invoiceUrl: row.invoiceUrl, receiptUrl: row.receiptUrl }, true);
+                  }}
+                  className="flex-row items-center gap-1 rounded-md bg-emerald-50 px-2 py-1"
+                >
+                  <Ionicons name="receipt-outline" size={13} color="#047857" />
+                  <Text className="text-[11px] font-semibold text-emerald-800">Receipt</Text>
+                </Pressable>
+              </View>
             </Cell>
           </View>
         );
@@ -1235,11 +1292,10 @@ export function FeesBoard() {
     <View className="mb-3 flex-row flex-wrap gap-1 rounded-md border border-ink-200 bg-white p-0.5 self-start">
       {(
         [
-          ["academic", "Academic"],
           ["class", "Class Fees"],
           ["transport", "Transport"],
-          ["other", "Other"],
-          ["late", "Fine"],
+          ["other", "Other Fees"],
+          ["late", "Settings"],
         ] as const
       ).map(([id, label]) => (
         <Pressable
@@ -1486,42 +1542,44 @@ export function FeesBoard() {
       </View>
     ) : setupPane === "class" ? (
       <View className="overflow-hidden rounded-md border border-ink-100 bg-white">
-        <View className="border-b border-ink-100 px-3 py-2.5">
-          <Text className="text-sm font-semibold text-ink-900">Class fees</Text>
-          <Text className="mt-0.5 text-xs text-ink-600">Configure the standard fee charged to each class. Optional fees are assigned per student.</Text>
+        <View className="flex-row items-center justify-between gap-3 border-b border-ink-100 px-3 py-3">
+          <View className="min-w-0 flex-1">
+            <Text className="text-sm font-semibold text-ink-900">Class fees</Text>
+            <Text className="mt-0.5 text-xs text-ink-600">Add a new structure whenever the fee changes. Periods for the same class cannot overlap.</Text>
+          </View>
+          {configure ? <Button onPress={openNewClassFee}>Add class fee</Button> : null}
         </View>
         <View className="flex-row border-b border-ink-200 px-3">
-          <Head label="Class" flex={1.4} />
-          <Head label="Monthly" flex={1} right />
-          <Head label="Due" flex={0.8} />
-          <Head label="Status" flex={0.8} />
+          <Head label="Class" flex={1.2} />
+          <Head label="Monthly fee" flex={1} right />
+          <Head label="Applies" flex={1.4} />
+          <Head label="Due" flex={0.7} />
         </View>
-        {classRows.map((row) => (
+        {feeStructures.map((template) => {
+          const monthly = (template.lines || []).filter((line) => line.scope !== "ADD_ON").reduce((sum, line) => sum + Math.max(0, Math.round(Number(line.amount) || 0)), 0);
+          return (
           <Pressable
-            key={row.klass.id}
-            onPress={() => {
-              setEditorClassId(row.klass.id);
-              setSelectedTemplateId(row.template?.id || "new");
-              setFeeEditorOpen(true);
-            }}
-            className="flex-row border-b border-ink-50 px-3 hover:bg-ink-50"
+            key={template.id}
+            disabled={!configure}
+            onPress={() => openClassFee(template.id, template.classId)}
+            className="flex-row border-b border-ink-50 px-3"
             style={{ minHeight: 48 }}
           >
-            <Cell flex={1.4}>
-              <Text className="text-[13px] font-semibold text-ink-900">{row.klass.label}</Text>
+            <Cell flex={1.2}>
+              <Text className="text-[13px] font-semibold text-ink-900">{classes.find((row) => row.id === template.classId)?.label || "Class"}</Text>
+              <Text className="mt-0.5 text-[11px] text-ink-600">{template.name}</Text>
             </Cell>
             <Cell flex={1} right>
-              {row.active ? inr(row.monthly) : "—"}
+              {inr(monthly)}
             </Cell>
-            <Cell flex={0.8}>{row.active ? ordinalDay(row.dueDay) : "—"}</Cell>
-            <Cell flex={0.8}>
-              <Text className={`text-[13px] ${row.active ? "text-green-700" : "text-ink-500"}`}>{row.active ? "Active" : "Not set"}</Text>
-            </Cell>
+            <Cell flex={1.4}>{periodRangeLabel(template.startsPeriod, template.endsPeriod)}</Cell>
+            <Cell flex={0.7}>{ordinalDay(template.dueDay || 10)}</Cell>
           </Pressable>
-        ))}
-        {!classRows.length ? (
+          );
+        })}
+        {!feeStructures.length ? (
           <View className="px-3 py-6">
-            <Text className="text-sm text-ink-600">No classes in the class master yet.</Text>
+            <Text className="text-sm text-ink-600">No class fee structures yet. Add one to start billing a class.</Text>
           </View>
         ) : null}
       </View>
@@ -1530,6 +1588,30 @@ export function FeesBoard() {
     ) : setupPane === "other" ? (
       catalogTable("OTHER")
     ) : (
+      <View className="gap-4">
+      <Card className="p-4">
+        <Text className="text-sm font-semibold text-ink-900">Billing settings</Text>
+        <Text className="mt-1 text-xs leading-5 text-ink-600">Choose the monthly due day for new and current class fee structures.</Text>
+        <View className="mt-4 flex-row flex-wrap gap-1.5">
+          {Array.from({ length: 31 }, (_, index) => index + 1).map((day) => {
+            const active = sessionDueDay === day;
+            return (
+              <Pressable
+                key={day}
+                accessibilityRole="button"
+                onPress={() => setSessionDueDay(day)}
+                className={`h-9 w-9 items-center justify-center rounded-lg ${active ? "bg-clay-500" : "border border-ink-200 bg-white"}`}
+              >
+                <Text className={`text-xs font-semibold ${active ? "text-white" : "text-ink-800"}`}>{day}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <View className="mt-4 flex-row items-center justify-between rounded-lg bg-ink-50 px-3 py-2.5">
+          <Text className="text-sm text-ink-700">New monthly invoices are due on the {ordinalDay(sessionDueDay)}.</Text>
+          {configure ? <Button onPress={() => void saveSessionDueDay()}>Save due day</Button> : null}
+        </View>
+      </Card>
       <Card className="p-4">
         <Text className="text-sm font-semibold text-ink-900">Late / fine defaults</Text>
         <Text className="mt-1 text-xs text-ink-600">
@@ -1601,6 +1683,7 @@ export function FeesBoard() {
           </View>
         ) : null}
       </Card>
+      </View>
     );
 
   return (
@@ -1617,35 +1700,28 @@ export function FeesBoard() {
           {dueStudentPanel}
         </View>
       ) : tab === "insight" ? (
-        <View className="relative min-h-0 flex-1">
-          <FeeReport
-            people={people}
-            classes={classes}
-            sessions={data?.school?.sessions ?? []}
-            refreshing={refreshing}
-            onOpenPayment={(inv, paid) => void openDueFeeDocument(inv, paid)}
-            onOpenStudent={(studentId) => {
-              setSelectedDueStudentId(studentId);
-            }}
-          />
+        <View className="min-h-0 flex-1 flex-row overflow-hidden rounded-xl border border-ink-100 bg-white">
+          <View className="min-w-0 flex-1">
+            <FeeReport
+              people={people}
+              classes={classes}
+              sessions={data?.school?.sessions ?? []}
+              refreshing={refreshing}
+              onOpenPayment={(inv, paid) => void openDueFeeDocument(inv, paid)}
+              onOpenStudent={(studentId) => {
+                setSelectedDueStudentId(studentId);
+              }}
+            />
+          </View>
           {!compact && selectedDueStudent ? (
-            <>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Close student panel"
-                onPress={() => setSelectedDueStudentId("")}
-                className="absolute inset-0"
-                style={{ backgroundColor: "rgba(15, 23, 42, 0.16)", zIndex: 30 }}
-              />
-              <View className="absolute bottom-0 right-0 top-0 overflow-hidden border-l border-ink-200 bg-white" style={{ width: 520, zIndex: 40 }}>
-                {dueStudentPanel}
-              </View>
-            </>
+            <View className="min-h-0 overflow-hidden border-l border-ink-200 bg-white" style={{ width: 480 }}>
+              {dueStudentPanel}
+            </View>
           ) : null}
         </View>
       ) : (
-        <View className="relative min-h-0 flex-1">
-          <View className="min-h-0 flex-1 overflow-hidden rounded-md border border-ink-100 bg-white">
+        <View className="min-h-0 flex-1 flex-row overflow-hidden rounded-xl border border-ink-100 bg-white">
+          <View className="min-w-0 flex-1 overflow-hidden bg-white">
             {compact ? (
               <ScrollView>
                 {(tab === "register" ? registerRows : reportEvents).map((row) =>
@@ -1689,21 +1765,9 @@ export function FeesBoard() {
             )}
           </View>
           {!compact && tab === "register" && selectedDueStudent ? (
-            <>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Close student panel"
-                onPress={() => setSelectedDueStudentId("")}
-                className="absolute inset-0"
-                style={{ backgroundColor: "rgba(15, 23, 42, 0.16)", zIndex: 30 }}
-              />
-              <View
-                className="absolute bottom-0 right-0 top-0 overflow-hidden border-l border-ink-200 bg-white"
-                style={{ width: 520, zIndex: 40 }}
-              >
-                {dueStudentPanel}
-              </View>
-            </>
+            <View className="min-h-0 overflow-hidden border-l border-ink-200 bg-white" style={{ width: 480 }}>
+              {dueStudentPanel}
+            </View>
           ) : null}
         </View>
       )}
@@ -1739,15 +1803,56 @@ export function FeesBoard() {
           </View>
         }
       >
-        <View className="gap-4">
-          <View>
-            <Text className="text-sm font-semibold text-ink-900">Fee structure</Text>
-            {structureRange ? <Text className="mt-1 text-xs text-ink-600">This structure applies {structureRange}</Text> : null}
+        <View className="gap-5 pb-1">
+          <View className="rounded-xl border border-ink-100 bg-ink-50/70 p-4">
+            <View className="flex-row items-start justify-between gap-3">
+              <View className="min-w-0 flex-1">
+                <Text className="text-sm font-semibold text-ink-900">Class fee structure</Text>
+                <Text className="mt-1 text-xs leading-5 text-ink-600">Set when this structure applies. Class fee periods cannot overlap.</Text>
+              </View>
+              <View className="rounded-full bg-blue-100 px-2.5 py-1">
+                <Text className="text-[11px] font-semibold text-blue-800">All fee types</Text>
+              </View>
+            </View>
+          </View>
+          <View className="-mt-2 flex-row flex-wrap gap-3">
+            <View className="min-w-[220px] flex-1">
+              <Select
+                label="Class"
+                value={editorClassId}
+                options={classes.map((row) => ({ id: row.id, label: row.label }))}
+                placeholder="Choose class"
+                onChange={setEditorClassId}
+              />
+            </View>
           </View>
           <Field label="Name">
             <Input value={tplName} onChangeText={setTplName} />
           </Field>
-          <View className="gap-2">
+          <View className="flex-row flex-wrap gap-3">
+            <View className="min-w-[160px] flex-1">
+              <Field label="Starts">
+                <MonthField placeholder={defaultStartPeriod} value={tplStartPeriod} onChange={setTplStartPeriod} />
+              </Field>
+            </View>
+            <View className="min-w-[160px] flex-1">
+              <Field label="Ends">
+                <MonthField placeholder={defaultEndPeriod} value={tplEndPeriod} onChange={setTplEndPeriod} />
+              </Field>
+            </View>
+          </View>
+          {structureRange ? <Text className="-mt-2 text-xs font-medium text-ink-700">Applies {structureRange}</Text> : null}
+          <View className="gap-2 rounded-xl border border-ink-100 bg-white p-4">
+            <View className="flex-row items-center justify-between gap-3">
+              <View>
+                <Text className="text-sm font-semibold text-ink-900">Monthly charges</Text>
+                <Text className="mt-0.5 text-xs text-ink-600">Included every month during this schedule.</Text>
+              </View>
+              <View className="items-end gap-1">
+                <View className="rounded-full bg-blue-100 px-2.5 py-1"><Text className="text-[11px] font-semibold text-blue-800">Monthly</Text></View>
+                <Text className="text-sm font-semibold text-clay-600">{inr(tplTotal)}</Text>
+              </View>
+            </View>
             <View className="flex-row px-1">
               <Text className="flex-1 text-[11px] font-semibold uppercase tracking-wide text-ink-500">Charge</Text>
               <Text className="w-32 text-right text-[11px] font-semibold uppercase tracking-wide text-ink-500">Amount</Text>
@@ -1797,16 +1902,94 @@ export function FeesBoard() {
                 />
               </View>
             ) : null}
-            <View className="mt-2 flex-row items-center justify-between border-t border-ink-100 pt-3">
+            <View className="mt-2 flex-row items-center justify-between rounded-lg bg-ink-50 px-3 py-2.5">
               <Text className="text-sm font-semibold text-ink-900">Monthly total</Text>
               <Text className="text-sm font-semibold text-ink-900">{inr(tplTotal)}</Text>
             </View>
           </View>
-          <View className="gap-2 border-t border-ink-100 pt-4">
-            <Text className="text-sm font-semibold text-ink-900">Class add-ons</Text>
-            <Text className="text-xs text-ink-600">
-              Optional for this class only. Students opt in from Manage Fees — they are not billed automatically.
-            </Text>
+          <View className="gap-2 rounded-xl border border-amber-100 bg-amber-50/50 p-4">
+            <View className="flex-row items-start justify-between gap-3">
+              <View className="min-w-0 flex-1">
+                <Text className="text-sm font-semibold text-ink-900">Admission fee</Text>
+                <Text className="mt-0.5 text-xs leading-5 text-ink-600">A one-time invoice created when a student joins this class. It never includes monthly charges.</Text>
+              </View>
+              <View className="items-end gap-1">
+                <View className="rounded-full bg-amber-100 px-2.5 py-1">
+                  <Text className="text-[11px] font-semibold text-amber-900">One time</Text>
+                </View>
+                <Text className="text-sm font-semibold text-amber-900">{inr(admissionTotal)}</Text>
+              </View>
+            </View>
+            <View className="mt-1 flex-row px-1">
+              <Text className="flex-1 text-[11px] font-semibold uppercase tracking-wide text-ink-500">Charge</Text>
+              <Text className="w-32 text-right text-[11px] font-semibold uppercase tracking-wide text-ink-500">Amount</Text>
+              <View className="w-16" />
+            </View>
+            {admissionLines.map((line) => (
+              <View key={line.id} className="flex-row items-center gap-2">
+                <View className="min-w-0 flex-1">
+                  <Input
+                    placeholder="e.g. Admission fee"
+                    value={line.label}
+                    onChangeText={(label) => setAdmissionLines((rows) => rows.map((row) => (row.id === line.id ? { ...row, label } : row)))}
+                  />
+                </View>
+                <View className="w-32">
+                  <Input
+                    keyboardType="number-pad"
+                    value={line.amount}
+                    onChangeText={(amount) => setAdmissionLines((rows) => rows.map((row) => (row.id === line.id ? { ...row, amount } : row)))}
+                  />
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setAdmissionLines((rows) => (rows.length > 1 ? rows.filter((row) => row.id !== line.id) : rows))}
+                  className="w-16 items-center py-2"
+                >
+                  <Text className="text-xs font-semibold text-red-700">Remove</Text>
+                </Pressable>
+              </View>
+            ))}
+            {configure ? (
+              <View className="gap-2 pt-1">
+                <Pressable onPress={() => setAdmissionLines((rows) => [...rows, newFeeLine("Admission fee", "")])} className="self-start py-1">
+                  <Text className="text-xs font-semibold text-blue-700">+ Add admission charge</Text>
+                </Pressable>
+                <SuggestionPills
+                  options={ADMISSION_SUGGESTIONS}
+                  used={admissionLines.map((line) => line.label)}
+                  onPick={(label) =>
+                    setAdmissionLines((rows) => {
+                      if (rows.some((row) => row.label.trim().toLowerCase() === label.toLowerCase())) return rows;
+                      const empty = rows.find((row) => !row.label.trim());
+                      if (empty) return rows.map((row) => (row.id === empty.id ? { ...row, label } : row));
+                      return [...rows, newFeeLine(label, "")];
+                    })
+                  }
+                />
+              </View>
+            ) : null}
+            <View className="mt-2 flex-row items-center justify-between rounded-lg bg-amber-100/50 px-3 py-2.5">
+              <Text className="text-sm font-semibold text-ink-900">Admission total</Text>
+              <Text className="text-sm font-semibold text-ink-900">{inr(admissionTotal)}</Text>
+            </View>
+          </View>
+          <View className="gap-2 rounded-xl border border-ink-100 bg-white p-4">
+            <View className="flex-row items-start justify-between gap-3">
+              <View className="min-w-0 flex-1">
+                <Text className="text-sm font-semibold text-ink-900">Optional monthly charges</Text>
+                <Text className="mt-0.5 text-xs leading-5 text-ink-600">Students opt in from Manage Fees; only opted-in students are billed each month.</Text>
+              </View>
+              <View className="items-end gap-1">
+                <View className="rounded-full bg-violet-100 px-2.5 py-1"><Text className="text-[11px] font-semibold text-violet-800">Optional</Text></View>
+                <Text className="text-sm font-semibold text-violet-800">{inr(tplAddOnTotal)}</Text>
+              </View>
+            </View>
+            <View className="mt-1 flex-row px-1">
+              <Text className="flex-1 text-[11px] font-semibold uppercase tracking-wide text-ink-500">Charge</Text>
+              <Text className="w-32 text-right text-[11px] font-semibold uppercase tracking-wide text-ink-500">Amount</Text>
+              <View className="w-16" />
+            </View>
             {tplAddOnLines.map((line) => (
               <View key={line.id} className="flex-row items-center gap-2">
                 <View className="min-w-0 flex-1">
@@ -1851,6 +2034,10 @@ export function FeesBoard() {
                 />
               </View>
             ) : null}
+            <View className="mt-2 flex-row items-center justify-between rounded-lg bg-violet-50 px-3 py-2.5">
+              <Text className="text-sm font-semibold text-ink-900">Optional monthly total</Text>
+              <Text className="text-sm font-semibold text-ink-900">{inr(tplAddOnTotal)}</Text>
+            </View>
           </View>
         </View>
       </Modal>

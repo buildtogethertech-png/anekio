@@ -344,16 +344,14 @@ export function ExamsBoard() {
   }
   function openSchedule(mode: "create" | "edit", planItemId?: string) {
     if (!klass?.subjects?.length) {
-      toast.show(
-        "Add subjects on The week first. Exam papers need a subject list.",
-      );
+      toast.show("Add subjects for this class first. Exam papers need a subject list.");
       return;
     }
     setSchedulePlanId(planItemId || nextSitting?.id || "");
     setHistoryMode(false);
     setSheet(mode);
   }
-  async function savePapers(papers: SchedulePaper[]) {
+  async function savePapers(papers: SchedulePaper[], meta?: { history?: boolean }) {
     if (sheet === "edit" && series) {
       if (
         await run(
@@ -375,6 +373,7 @@ export function ExamsBoard() {
         planItemId: creatingItem?.id || "",
         name: creatingItem?.name || "Exam",
         papers,
+        history: Boolean(meta?.history),
       },
       `${creatingItem?.name || "Exam"} scheduled.`,
     );
@@ -1071,9 +1070,9 @@ export function ExamsBoard() {
             pending={Boolean(pending)}
             hideConfirm
             onHistoryModeChange={setHistoryMode}
-            onOpenRoutine={() => {
+            onOpenStaff={() => {
               setSheet("");
-              router.push("/timetable");
+              router.push("/staff");
             }}
             onSave={savePapers}
           />

@@ -4,7 +4,7 @@ import type { Express } from "express";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { seedPortalFixture } from "../support/factories";
-import { createTestDatabase, type TestDatabase } from "../support/test-database";
+import { createPushedTestDatabase, type TestDatabase } from "../support/test-database";
 
 let database: TestDatabase;
 let prisma: PrismaClient;
@@ -12,13 +12,13 @@ let app: Express;
 
 describe("trial signup provisioning", () => {
   beforeAll(async () => {
-    database = createTestDatabase();
+    database = createPushedTestDatabase();
     process.env.ANEKIO_PROVISION_TRIAL_WORKSPACE = "true";
     vi.resetModules();
     prisma = (await import("../../lib/prisma")).prisma;
     await seedPortalFixture(prisma);
     app = (await import("../../server/index")).default;
-  }, 30_000);
+  }, 120_000);
 
   afterAll(async () => {
     delete process.env.ANEKIO_PROVISION_TRIAL_WORKSPACE;
@@ -26,7 +26,7 @@ describe("trial signup provisioning", () => {
     database?.cleanup();
   });
 
-  it("creates a local admin login for a trial owner", async () => {
+  it("creates a school org and admin login for a trial owner", async () => {
     const { createSaasTrial } = await import("../../lib/anekio-site");
     const trial = await createSaasTrial({
       schoolName: "Bright Valley School",
@@ -37,18 +37,27 @@ describe("trial signup provisioning", () => {
       state: "Bihar",
     });
 
-    expect(trial).toMatchObject({ schoolName: "Bright Valley School", subscriptionStatus: "TRIAL" });
+    expect(trial).toMatchObject({
+      schoolName: "Bright Valley School",
+      subscriptionStatus: "TRIAL",
+      login: "9708608971",
+      password: "12345",
+    });
     const user = await prisma.user.findFirstOrThrow({
-      where: { OR: [{ email: "nisha@example.com" }, { phone: "9708608971" }] },
+      where: { orgId: trial.id, OR: [{ email: "nisha@example.com" }, { phone: "9708608971" }] },
       include: { role: true },
     });
-    expect(user).toMatchObject({ name: "Nisha Owner", phone: "9708608971", role: { slug: "ADMIN" } });
+    expect(user).toMatchObject({ name: "Nisha Owner", phone: "9708608971", orgId: trial.id, role: { slug: "ADMIN" } });
     await expect(bcrypt.compare("12345", user.password)).resolves.toBe(true);
-    await expect(prisma.schoolConfig.findUniqueOrThrow({ where: { id: "school" } })).resolves.toMatchObject({
+    await expect(prisma.schoolConfig.findFirstOrThrow({ where: { orgId: trial.id } })).resolves.toMatchObject({
       name: "Bright Valley School",
       phone: "9708608971",
       email: "nisha@example.com",
     });
+
+    const login = await request(app).post("/api/v1/login").send({ login: "9708608971", password: "12345" });
+    expect(login.status).toBe(200);
+    expect(login.body.user).toMatchObject({ email: "nisha@example.com", role: "ADMIN" });
   });
 
   it("returns a login path when trial contact already exists", async () => {
@@ -64,6 +73,11 @@ describe("trial signup provisioning", () => {
         state: "Jharkhand",
       });
     expect(first.status).toBe(200);
+    expect(first.body).toMatchObject({
+      login: "9708608972",
+      password: "12345",
+      loginUrl: "/login",
+    });
 
     const duplicate = await request(app)
       .post("/api/saas/trial")
@@ -82,6 +96,30 @@ describe("trial signup provisioning", () => {
       error: "This email or phone is already registered with Anekio. Please log in to continue.",
       loginUrl: "/login",
     });
+  });
+
+  it("creates a new org admin without taking over another school's user", async () => {
+    const fixtureAdmin = await prisma.user.findFirstOrThrow({ where: { email: "office.fixture@school.test" } });
+    const response = await request(app)
+      .post("/api/saas/trial")
+      .set("Accept", "application/json")
+      .send({
+        schoolName: "Second Valley School",
+        ownerName: "Second Owner",
+        ownerEmail: "office.fixture@school.test",
+        ownerPhone: "9708608974",
+        city: "Delhi",
+        state: "Delhi",
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.org.id).not.toBe(fixtureAdmin.orgId);
+    const trialAdmin = await prisma.user.findFirstOrThrow({
+      where: { orgId: response.body.org.id, email: "office.fixture@school.test" },
+    });
+    expect(trialAdmin.id).not.toBe(fixtureAdmin.id);
+    const original = await prisma.user.findUniqueOrThrow({ where: { id: fixtureAdmin.id } });
+    expect(original.orgId).toBe(fixtureAdmin.orgId);
   });
 
   it("creates onboarding email deliveries for new trial signups", async () => {

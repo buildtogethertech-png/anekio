@@ -36,6 +36,13 @@ India-first school product: office, teacher, parent, student. One Expo app (web,
 - Agents have treated this as Next.js on `:3000` because of leftover `.next/`, `NEXTAUTH_*`, and those `href`s. Do not restore that stack.
 - Do not hand-edit `Anekio-demo-logins.*` or `mobile/.expo/types/router.d.ts`.
 
+## UI quality bar
+
+- When designing or changing product UI, aim for the clarity and hierarchy of premium SaaS products such as Linear, Jira, Stripe, and Ramp without copying their branding or layouts.
+- Prioritize the user’s primary decision and action; use progressive disclosure for secondary detail rather than equal-weight dense tables.
+- Lists must be scannable: establish a clear page heading, one primary action, meaningful status treatment, and a small number of visually prioritized columns. Keep row detail available through secondary text or a detail panel.
+- Preserve responsive Expo behavior and accessibility while raising visual polish; do not trade usability for decorative styling.
+
 ## Project change workflow
 
 - For every requested project change, create or identify a Jira ticket before changing code.

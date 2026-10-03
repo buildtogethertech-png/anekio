@@ -535,7 +535,7 @@ export function ExamTeacherMention({
           ) : null}
           {open && query && !matches.length ? (
             <Text className="mt-1 text-[11px] text-ink-500">
-              Only teachers of {subject} can be added. Assign them on Routine first.
+              Only teachers of {subject} can be added. Assign them to this class and subject on Staff first.
             </Text>
           ) : null}
         </View>

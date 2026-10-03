@@ -30,6 +30,7 @@ import { loadSchoolCalendar } from "./leave";
 import { earliestStaffInAt, staffDayInstant, staffDayWindow, staffDayYmd } from "./staff-day";
 import { addDays, examPlanWeight, parseExamPlan, ymd } from "./exams";
 import { teacherCanEditMarks, teacherMayEnterMarks } from "./exam-workflow";
+import { teacherIdsBySubjectName } from "./exam-evaluators";
 import { validateExamMark } from "./exam-marks";
 import { notifySchedulePublished, notifySeriesAssigned } from "./exam-events";
 import { storedNoticeKind, normalizeWhatsAppGroupUrl } from "./notices";
@@ -182,34 +183,153 @@ export async function createStudentCore(
   user: AccessUser,
   input: {
     name: string;
-    admissionNo: string;
     classId: string;
-    parentId: string;
+    parentId?: string;
+    parentName?: string;
+    parentPhone?: string;
     dateOfBirth: string;
+    dateOfJoining: string;
     tags?: string[];
+    collectAdmissionFee?: boolean;
+    paymentMethod?: string;
+    paymentReference?: string;
   }
 ) {
   need(user, "people.edit");
   const name = input.name.trim();
-  const admissionNo = input.admissionNo.trim();
+  const dateOfJoining = String(input.dateOfJoining || "");
+  const requestedParentId = String(input.parentId || "").trim();
+  const existingParentId = requestedParentId === "__new__" ? "" : requestedParentId;
+  const parentName = String(input.parentName || "").trim();
+  const parentPhone = existingParentId ? "" : requireMobile(String(input.parentPhone || ""), "the parent");
   const tags = (input.tags || []).filter((t): t is PathTag => PATH_TAGS.includes(t as PathTag));
-  if (!name || !admissionNo || !input.classId || !input.parentId || !input.dateOfBirth) {
+  const collectAdmissionFee = Boolean(input.collectAdmissionFee);
+  const paymentMethod = parsePayMethod(input.paymentMethod);
+  const paymentReference = String(input.paymentReference || "").trim() || null;
+  if (!name || !input.classId || !input.dateOfBirth || !dateOfJoining || (!existingParentId && (!parentName || !parentPhone))) {
     throw new Error("Missing student fields");
   }
-  await prisma.$transaction(async (tx) => {
-    const student = await tx.student.create({
-      data: {
-        orgId: user.orgId ?? null,
-        name,
-        admissionNo,
-        classId: input.classId,
-        parentId: input.parentId,
-        dateOfBirth: new Date(input.dateOfBirth),
-        interests: { create: tags.map((tag) => ({ tag })) },
-      },
-    });
-    await assignStudentRollNumber(tx, { studentId: student.id, classId: input.classId, orgId: user.orgId ?? null });
-  });
+  if (collectAdmissionFee) {
+    need(user, "fees.collect");
+    assertPayRefs(paymentMethod, paymentReference);
+  }
+
+  // Admission numbers are assigned on the server so every entry point follows
+  // the same sequence. Retry a unique conflict in the unlikely case of concurrent admissions.
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    try {
+      return await prisma.$transaction(async (tx) => {
+        let parentId = existingParentId;
+        if (parentId) {
+          const parent = await tx.parent.findFirst({ where: { id: parentId }, select: { id: true } });
+          if (!parent) throw new Error("Pick a valid parent.");
+        } else {
+          const parentUser = await tx.user.findFirst({ where: { phone: parentPhone }, include: { parent: true } });
+          if (parentUser && !parentUser.parent) throw new Error("That number already belongs to a non-parent account.");
+          if (parentUser?.parent) {
+            parentId = parentUser.parent.id;
+          } else {
+            const createdParent = await tx.user.create({
+              data: {
+                orgId: user.orgId ?? null,
+                name: parentName,
+                email: `parent.${parentPhone}@mobile.local`,
+                password: await bcrypt.hash("12345", 10),
+                roleId: await roleIdBySlug("PARENT"),
+                phone: parentPhone,
+                parent: { create: { orgId: user.orgId ?? null, phone: parentPhone } },
+              },
+              include: { parent: true },
+            });
+            parentId = createdParent.parent?.id || "";
+          }
+        }
+        if (!parentId) throw new Error("Could not prepare the parent.");
+        const config = await tx.schoolConfig.findUnique({ where: { id: "school" } });
+        const admissionRows = await tx.admissionFeeLine.findMany({
+          where: { classId: input.classId, active: true },
+          orderBy: { sortOrder: "asc" },
+        });
+        const admissionLines = pickAdmissionFeeLines([], admissionRows, config?.admissionCharge || 0);
+        const admissionCharge = admissionLines.reduce((sum, line) => sum + line.amount, 0);
+        if (collectAdmissionFee && admissionCharge <= 0) {
+          throw new Error("Set an admission fee for this class before collecting it.");
+        }
+        const existing = await tx.student.findMany({ select: { admissionNo: true } });
+        let nextNumber = Math.max(
+          0,
+          ...existing
+            .map((student) => Number(student.admissionNo.replace(/\D/g, "")))
+            .filter((number) => Number.isFinite(number))
+        ) + 1;
+        let admissionNo = `ANE-${String(nextNumber).padStart(5, "0")}`;
+        while (await tx.student.findFirst({ where: { admissionNo }, select: { id: true } })) {
+          nextNumber += 1;
+          admissionNo = `ANE-${String(nextNumber).padStart(5, "0")}`;
+        }
+        const student = await tx.student.create({
+          data: {
+            orgId: user.orgId ?? null,
+            name,
+            admissionNo,
+            classId: input.classId,
+            parentId,
+            dateOfBirth: new Date(input.dateOfBirth),
+            interests: { create: tags.map((tag) => ({ tag })) },
+          },
+        });
+        await assignStudentRollNumber(tx, {
+          studentId: student.id,
+          classId: input.classId,
+          orgId: user.orgId ?? null,
+          joinedAt: new Date(dateOfJoining),
+        });
+        const admissionInvoice = admissionCharge > 0
+          ? await tx.feeInvoice.create({
+              data: {
+                orgId: user.orgId ?? null,
+                studentId: student.id,
+                classId: input.classId,
+                period: `ADMISSION-${student.id}`,
+                title: "One-time admission fee",
+                amount: admissionCharge,
+                linesJson: JSON.stringify(admissionLines),
+                dueDate: new Date(),
+                status: collectAdmissionFee ? "PAID" : "DUE",
+                ...(collectAdmissionFee
+                  ? {
+                      payments: {
+                        create: {
+                          orgId: user.orgId ?? null,
+                          amount: admissionCharge,
+                          method: paymentMethod,
+                          reference: paymentReference || `RCPT-${student.id.slice(-8).toUpperCase()}-${randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase()}`,
+                          notes: "Collected while adding student",
+                        },
+                      },
+                    }
+                  : {}),
+              },
+            })
+          : null;
+        return {
+          admissionNo: student.admissionNo,
+          admissionInvoiceId: admissionInvoice?.id,
+          admissionCharge,
+          admissionCollected: collectAdmissionFee && admissionCharge > 0,
+        };
+      });
+    } catch (error) {
+      const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
+      const message = error instanceof Error ? error.message : String(error);
+      // Neon/Prisma versions do not consistently expose meta.target, so rely on
+      // the stable error code and message instead of one constraint's metadata.
+      if (attempt < 9 && (code === "P2002" || message.includes("Unique constraint failed"))) continue;
+      throw error;
+    }
+  }
+
+  throw new Error("Could not assign an admission number");
 }
 
 function normalizeAdmissionFeeLines(input: unknown) {
@@ -344,7 +464,7 @@ export async function admitLeadAsStudentCore(
     if (admissionCharge > 0 && paymentMethod !== "CASH" && !paymentReference) {
       throw new Error("Enter the payment reference for the one-time admission fee.");
     }
-    const existingStudent = await tx.student.findUnique({ where: { admissionNo } });
+    const existingStudent = await tx.student.findFirst({ where: { admissionNo } });
     if (existingStudent) throw new Error("That admission number is already used.");
 
     const emailOwner = await tx.user.findFirst({ where: { email: parentEmail }, include: { parent: true } });
@@ -3088,6 +3208,7 @@ export async function createExamSeriesCore(
     planItemId?: string;
     papers?: SeriesPaperInput[];
     startsOn?: string;
+    history?: boolean;
   }
 ) {
   const classId = String(input.classId || "");
@@ -3106,7 +3227,7 @@ export async function createExamSeriesCore(
     where: { classId },
     orderBy: { name: "asc" },
   });
-  if (!subjects.length) throw new Error("Add subjects on Routine first. Exam papers need a subject list.");
+  if (!subjects.length) throw new Error("Add subjects for this class first. Exam papers need a subject list.");
 
   let papers = (Array.isArray(input.papers) ? input.papers : [])
     .map((row) => {
@@ -3157,22 +3278,29 @@ export async function createExamSeriesCore(
 
   if (!papers.length) throw new Error("Pick at least one subject");
   const byId = new Map(subjects.map((s) => [s.id, s]));
+  const skillTeachers = await teacherIdsBySubjectName(classId, subjects.map((subject) => subject.name));
+  const today = ymd(new Date());
+  const history = Boolean(input.history) || papers.every((paper) => paper.date && paper.date < today);
+  function resolvedTeacher(subjectId: string, requested?: string | null) {
+    const subject = byId.get(subjectId);
+    return requested || (subject ? skillTeachers.get(subject.name) : undefined) || (history ? null : subject?.teacherId) || null;
+  }
   papers = papers.map((p) => {
-    const subject = byId.get(p.subjectId);
-    const teacherId = p.teacherId || subject?.teacherId || null;
+    const teacherId = resolvedTeacher(p.subjectId, p.teacherId);
     return { ...p, teacherId, setterId: p.setterId || teacherId };
   });
   const covered = new Set(papers.map((p) => p.subjectId));
-  const lastDate = papers.map((p) => p.date).filter(Boolean).sort().at(-1) || ymd(new Date());
+  const lastDate = papers.map((p) => p.date).filter(Boolean).sort().at(-1) || today;
   let extra = 1;
   for (const subject of subjects) {
     if (covered.has(subject.id)) continue;
     const examDate = addDays(lastDate, extra);
     extra += 1;
+    const teacherId = resolvedTeacher(subject.id, null);
     papers.push({
       subjectId: subject.id,
-      teacherId: subject.teacherId,
-      setterId: subject.teacherId,
+      teacherId,
+      setterId: teacherId,
       maxMarks: item?.maxMarks ?? papers[0]?.maxMarks ?? 80,
       date: examDate,
       paperDueOn: addDays(examDate, -7),
@@ -3180,8 +3308,11 @@ export async function createExamSeriesCore(
       resultOn: addDays(examDate, 14),
     });
   }
-  if (papers.some((p) => !p.teacherId)) {
-    throw new Error("Schedule not saved. Assign a teacher to every subject in Routine first; teachers are needed for checking and entering marks.");
+  if (!history) {
+    const missing = [...new Set(papers.filter((p) => !p.teacherId).map((p) => byId.get(p.subjectId)?.name).filter(Boolean))];
+    if (missing.length) {
+      throw new Error(`Schedule not saved. Assign teachers to ${missing.join(", ")} on Staff first (class and subject).`);
+    }
   }
   const clash = await prisma.examSeries.findFirst({ where: { classId, sessionId, name } });
   if (clash) throw new Error(`${name} already exists for this class and session.`);
@@ -3209,8 +3340,8 @@ export async function createExamSeriesCore(
               maxMarks: p.maxMarks,
               ...examDateFields({
                 ...p,
-                teacherId: p.teacherId || subject.teacherId,
-                setterId: p.setterId || p.teacherId || subject.teacherId,
+                teacherId: p.teacherId,
+                setterId: p.setterId || p.teacherId,
               }),
             },
           ];
