@@ -196,6 +196,7 @@ describe("Express portal API", () => {
       classId: fixture.classId,
       parentId: "parent-pari",
       dateOfBirth: "2015-06-15",
+      dateOfJoining: "2026-04-01",
     };
 
     const first = await request(app).post("/api/v1/act").set(auth).send({ ...base, name: "Auto Number One" });
@@ -206,6 +207,9 @@ describe("Express portal API", () => {
     expect(second.status).toBe(200);
     expect(second.body).toMatchObject({ ok: true, admissionNo: "ANE-00003" });
     expect(await prisma.student.findFirst({ where: { admissionNo: "ANE-00003" } })).toMatchObject({ name: "Auto Number Two" });
+    const firstStudent = await prisma.student.findFirstOrThrow({ where: { name: "Auto Number One" } });
+    const firstEnrollment = await prisma.studentClassEnrollment.findFirstOrThrow({ where: { studentId: firstStudent.id } });
+    expect(firstEnrollment.joinedAt.toISOString().slice(0, 10)).toBe("2026-04-01");
   });
 
   it("collects the configured admission fee while adding a student", async () => {
@@ -224,6 +228,7 @@ describe("Express portal API", () => {
           classId: fixture.classId,
           parentId: "parent-pari",
           dateOfBirth: "2015-06-15",
+          dateOfJoining: "2026-04-01",
           collectAdmissionFee: true,
           paymentMethod: "UPI",
           paymentReference: "UTR-ADMISSION-001",
@@ -259,6 +264,7 @@ describe("Express portal API", () => {
           classId: fixture.classId,
           parentId: "parent-pari",
           dateOfBirth: "2015-06-15",
+          dateOfJoining: "2026-04-01",
         });
 
       expect(created.status).toBe(200);
@@ -288,6 +294,7 @@ describe("Express portal API", () => {
           name: "Student With New Parent",
           classId: fixture.classId,
           dateOfBirth: "2015-06-15",
+          dateOfJoining: "2026-04-01",
           parentId: "__new__",
           parentName: "New Parent",
           parentPhone: phone,

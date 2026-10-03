@@ -58,7 +58,7 @@ describe("school onboarding imports", () => {
     database?.cleanup();
   });
 
-  it("generates admission IDs, imports one opening balance, and starts recurring fees after its cut-off", async () => {
+  it("generates admission IDs, imports one opening balance, and does not backfill fees before enrolment", async () => {
     const { onboardingTemplate, previewOnboardingImport, applyOnboardingImport } = await import("../../lib/onboarding");
     const { issueClassFeesCore } = await import("../../lib/core-office");
     const { saveUploadPath } = await import("../../lib/uploads");
@@ -136,7 +136,7 @@ describe("school onboarding imports", () => {
       select: { period: true },
       orderBy: { period: "asc" },
     })).map((invoice) => invoice.period);
-    expect(periods).toEqual(["2026-04", "2026-09", "OPENING"]);
+    expect(periods).toEqual(["2026-04", "OPENING"]);
   });
 
   it("issues monthly invoices only through the last completed month", async () => {
@@ -144,6 +144,27 @@ describe("school onboarding imports", () => {
     vi.setSystemTime(new Date("2027-10-03T10:00:00+05:30"));
     try {
       const { issueClassFeesCore } = await import("../../lib/core-office");
+      const currentSession = await prisma.schoolSession.findFirstOrThrow({ where: { current: true } });
+      const joinedThisMonth = await prisma.student.create({
+        data: {
+          orgId: user.orgId,
+          parentId: "parent-pari",
+          classId: "class-6-a",
+          admissionNo: "ANE-JOINING-CUTOFF",
+          name: "Joining Cutoff Student",
+          dateOfBirth: new Date("2015-06-15T00:00:00.000Z"),
+        },
+      });
+      await prisma.studentClassEnrollment.create({
+        data: {
+          orgId: user.orgId,
+          studentId: joinedThisMonth.id,
+          classId: "class-6-a",
+          sessionId: currentSession.id,
+          rollNumber: 99,
+          joinedAt: new Date("2027-10-02T00:00:00.000Z"),
+        },
+      });
       const template = await prisma.feeTemplate.create({
         data: {
           classId: "class-6-a",
@@ -156,11 +177,15 @@ describe("school onboarding imports", () => {
       });
 
       const result = await issueClassFeesCore(user, { classId: "class-6-a", templateId: template.id });
-      expect(result).toMatchObject({ issued: 2, through: "2027-09" });
-      expect(await prisma.feeInvoice.findMany({
+      expect(result.through).toBe("2027-09");
+      const invoices = await prisma.feeInvoice.findMany({
         where: { templateId: template.id },
         select: { period: true },
-      })).toEqual([{ period: "2027-09" }, { period: "2027-09" }]);
+      });
+      expect(invoices.length).toBeGreaterThan(0);
+      expect(result.issued).toBe(invoices.length);
+      expect(invoices.every((invoice) => invoice.period === "2027-09")).toBe(true);
+      expect(await prisma.feeInvoice.count({ where: { templateId: template.id, studentId: joinedThisMonth.id } })).toBe(0);
     } finally {
       vi.useRealTimers();
     }

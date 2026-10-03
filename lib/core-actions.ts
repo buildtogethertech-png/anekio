@@ -187,6 +187,7 @@ export async function createStudentCore(
     parentName?: string;
     parentPhone?: string;
     dateOfBirth: string;
+    dateOfJoining: string;
     tags?: string[];
     collectAdmissionFee?: boolean;
     paymentMethod?: string;
@@ -195,6 +196,7 @@ export async function createStudentCore(
 ) {
   need(user, "people.edit");
   const name = input.name.trim();
+  const dateOfJoining = String(input.dateOfJoining || "");
   const requestedParentId = String(input.parentId || "").trim();
   const existingParentId = requestedParentId === "__new__" ? "" : requestedParentId;
   const parentName = String(input.parentName || "").trim();
@@ -203,7 +205,7 @@ export async function createStudentCore(
   const collectAdmissionFee = Boolean(input.collectAdmissionFee);
   const paymentMethod = parsePayMethod(input.paymentMethod);
   const paymentReference = String(input.paymentReference || "").trim() || null;
-  if (!name || !input.classId || !input.dateOfBirth || (!existingParentId && (!parentName || !parentPhone))) {
+  if (!name || !input.classId || !input.dateOfBirth || !dateOfJoining || (!existingParentId && (!parentName || !parentPhone))) {
     throw new Error("Missing student fields");
   }
   if (collectAdmissionFee) {
@@ -275,7 +277,12 @@ export async function createStudentCore(
             interests: { create: tags.map((tag) => ({ tag })) },
           },
         });
-        await assignStudentRollNumber(tx, { studentId: student.id, classId: input.classId, orgId: user.orgId ?? null });
+        await assignStudentRollNumber(tx, {
+          studentId: student.id,
+          classId: input.classId,
+          orgId: user.orgId ?? null,
+          joinedAt: new Date(dateOfJoining),
+        });
         const admissionInvoice = admissionCharge > 0
           ? await tx.feeInvoice.create({
               data: {

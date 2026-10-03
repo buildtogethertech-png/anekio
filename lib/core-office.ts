@@ -410,7 +410,12 @@ export async function issueClassFeesCore(
   const months = startsPeriod <= issueThrough ? monthsBetween(startsPeriod, issueThrough) : [];
   const students = await prisma.student.findMany({
     where: { classId },
-    select: { id: true, feeGeneratedThrough: true, feeAddOns: { where: { active: true } } },
+    select: {
+      id: true,
+      feeGeneratedThrough: true,
+      feeAddOns: { where: { active: true } },
+      enrollments: { where: { sessionId: current.id }, select: { joinedAt: true }, take: 1 },
+    },
   });
   if (!students.length) throw new Error("This class has no students. Add them on Students, then issue.");
   const already = await prisma.feeInvoice.findMany({
@@ -420,7 +425,11 @@ export async function issueClassFeesCore(
   const have = new Set(already.map((i) => `${i.studentId}:${i.period}`));
   const invoices = students.flatMap((s) =>
       months
-        .filter((month) => month.period > s.feeGeneratedThrough && !have.has(`${s.id}:${month.period}`))
+        .filter((month) => {
+          const joinedAt = s.enrollments[0]?.joinedAt;
+          const joiningPeriod = joinedAt ? feePeriod(joinedAt.getFullYear(), joinedAt.getMonth()) : startsPeriod;
+          return month.period >= joiningPeriod && month.period > s.feeGeneratedThrough && !have.has(`${s.id}:${month.period}`);
+        })
         .map((month) => {
         const lines = composeStudentFeeLines(drafts, s.feeAddOns, month.period);
         const invoiceTotal = feeLineTotal(lines).total;

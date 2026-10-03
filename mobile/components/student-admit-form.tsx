@@ -28,6 +28,7 @@ function rupees(amount: number) {
 export type StudentAdmitPayload = {
   name: string;
   dateOfBirth: string;
+  dateOfJoining: string;
   classId: string;
   parentId: string;
   parentName: string;
@@ -43,6 +44,7 @@ function emptyForm(classes: { id: string }[]): StudentAdmitPayload {
   return {
     name: "",
     dateOfBirth: "",
+    dateOfJoining: "",
     classId: classes[0]?.id || "",
     parentId: "",
     parentName: "",
@@ -87,7 +89,7 @@ export function StudentAdmitForm({
   async function save() {
     if (busy) return;
     const hasExistingParent = Boolean(form.parentId && form.parentId !== "__new__");
-    if (!form.name.trim() || !form.dateOfBirth || !form.classId || (!hasExistingParent && (!form.parentName.trim() || !form.parentPhone.trim()))) {
+    if (!form.name.trim() || !form.dateOfBirth || !form.dateOfJoining || !form.classId || (!hasExistingParent && (!form.parentName.trim() || !form.parentPhone.trim()))) {
       return;
     }
     setBusy(true);
@@ -108,6 +110,9 @@ export function StudentAdmitForm({
       </Field>
       <Field label="Date of birth">
         <DateField value={form.dateOfBirth} onChange={(dateOfBirth) => patch({ dateOfBirth })} />
+      </Field>
+      <Field label="Date of joining">
+        <DateField value={form.dateOfJoining} onChange={(dateOfJoining) => patch({ dateOfJoining })} />
       </Field>
       {classes.length ? (
         <Select
@@ -223,7 +228,7 @@ export function StudentAdmitForm({
         })}
       </View>
       <Text className="text-xs text-ink-600">After adding the student, opt them into class add-ons from Manage Fees.</Text>
-      <Button disabled={busy || !classes.length || !parents.length} onPress={save}>
+      <Button disabled={busy || !classes.length} onPress={save}>
         Add student
       </Button>
     </View>
