@@ -21,6 +21,10 @@ const PATH_TAGS = [
   { id: "ARTS", label: "Arts" },
 ] as const;
 
+function rupees(amount: number) {
+  return `₹${amount.toLocaleString("en-IN")}`;
+}
+
 export type StudentAdmitPayload = {
   name: string;
   dateOfBirth: string;
@@ -56,14 +60,21 @@ function parentOption(p: { id: string; name: string; phone?: string }) {
 export function StudentAdmitForm({
   classes,
   parents,
+  admissionFeeLines,
   onSubmit,
 }: {
   classes: { id: string; label: string }[];
   parents: { id: string; name: string; phone?: string }[];
+  admissionFeeLines: { id: string; classId: string; label: string; amount: number; sortOrder: number }[];
   onSubmit: (values: StudentAdmitPayload) => Promise<void>;
 }) {
   const [form, setForm] = useState(() => emptyForm(classes));
   const [busy, setBusy] = useState(false);
+  const selectedClass = classes.find((row) => row.id === form.classId);
+  const selectedAdmissionLines = admissionFeeLines
+    .filter((line) => line.classId === form.classId && line.amount > 0)
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+  const admissionTotal = selectedAdmissionLines.reduce((sum, line) => sum + line.amount, 0);
 
   function patch(part: Partial<StudentAdmitPayload>) {
     setForm((prev) => ({ ...prev, ...part }));
@@ -126,6 +137,29 @@ export function StudentAdmitForm({
         </View>
         {form.collectAdmissionFee ? (
           <View className="gap-3 border-t border-amber-200 pt-3">
+            <View className="overflow-hidden rounded-lg border border-amber-200 bg-white">
+              <View className="flex-row items-center justify-between border-b border-amber-100 bg-amber-50 px-3 py-2">
+                <View>
+                  <Text className="text-xs font-semibold text-ink-900">Admission fee summary</Text>
+                  <Text className="mt-0.5 text-[11px] text-ink-700">{selectedClass?.label || "Select a class"} · one time only</Text>
+                </View>
+                <Text className="text-base font-bold text-amber-900">{rupees(admissionTotal)}</Text>
+              </View>
+              {selectedAdmissionLines.length ? (
+                <View className="px-3 py-1">
+                  {selectedAdmissionLines.map((line) => (
+                    <View key={line.id} className="flex-row items-center justify-between border-b border-ink-100 py-2 last:border-b-0">
+                      <Text className="text-xs text-ink-700">{line.label}</Text>
+                      <Text className="text-xs font-semibold text-ink-900">{rupees(line.amount)}</Text>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <View className="px-3 py-2">
+                  <Text className="text-xs leading-4 text-amber-900">No admission fee is configured for {selectedClass?.label || "this class"}. Set it up in Fees → Setup before collecting it.</Text>
+                </View>
+              )}
+            </View>
             <Select
               label="Payment method"
               value={form.paymentMethod}
@@ -142,6 +176,7 @@ export function StudentAdmitForm({
                 <Input value={form.paymentReference} onChangeText={(paymentReference) => patch({ paymentReference })} />
               </Field>
             ) : null}
+            <Text className="text-[11px] leading-4 text-ink-700">On Add student, Anekio creates a paid one-time admission invoice and records this {form.paymentMethod === "CASH" ? "cash payment" : `${form.paymentMethod} payment`}. Monthly fees are not included.</Text>
           </View>
         ) : null}
       </View>

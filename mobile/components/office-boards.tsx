@@ -2136,6 +2136,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
             <StudentAdmitForm
               classes={data?.classes ?? []}
               parents={data?.peopleParents ?? []}
+              admissionFeeLines={data?.admissionFeeLines ?? []}
               onSubmit={addStudent}
             />
           ) : null}
