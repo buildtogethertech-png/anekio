@@ -324,11 +324,13 @@ export function FeesBoard() {
   const [selectedDueStudentId, setSelectedDueStudentId] = useState("");
   const [payDueStudentId, setPayDueStudentId] = useState("");
   const [feeEditorOpen, setFeeEditorOpen] = useState(false);
-  const [setupPane, setSetupPane] = useState<SetupPane>("academic");
+  const [setupPane, setSetupPane] = useState<SetupPane>("class");
   const [editorClassId, setEditorClassId] = useState("");
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [tplName, setTplName] = useState("Monthly fee");
   const [tplDue, setTplDue] = useState("10");
+  const [tplStartPeriod, setTplStartPeriod] = useState("");
+  const [tplEndPeriod, setTplEndPeriod] = useState("");
   const [tplLines, setTplLines] = useState<FeeLineDraft[]>([newFeeLine("Tuition", "")]);
   const [tplAddOnLines, setTplAddOnLines] = useState<FeeLineDraft[]>([]);
   const [catalogOpen, setCatalogOpen] = useState(false);
@@ -358,18 +360,11 @@ export function FeesBoard() {
   const catalog = data?.feeCatalog ?? { items: [], late: { enabled: false, amount: 0, graceDays: 0 } };
   const transportItems = catalog.items.filter((item) => item.kind === "TRANSPORT");
   const otherItems = catalog.items.filter((item) => item.kind === "OTHER");
-  const classTemplates = useMemo(
-    () =>
-      templates
-        .filter((row) => row.classId === editorClassId && (!currentSession || row.sessionId === currentSession.id || !row.sessionId))
-        .sort((a, b) => (b.startsPeriod || "").localeCompare(a.startsPeriod || "")),
-    [templates, editorClassId, currentSession?.id]
-  );
   const classTemplate =
-    selectedTemplateId === "new" ? null : classTemplates.find((row) => row.id === selectedTemplateId) || classTemplates[0] || null;
+    selectedTemplateId === "new" ? null : templates.find((row) => row.id === selectedTemplateId && (!currentSession || row.sessionId === currentSession.id || !row.sessionId)) || null;
   const defaultStartPeriod = currentSession?.startsOn?.slice(0, 7) || currentFeePeriod();
   const defaultEndPeriod = currentSession?.endsOn?.slice(0, 7) || defaultStartPeriod;
-  const structureRange = periodRangeLabel(classTemplate?.startsPeriod || defaultStartPeriod, classTemplate?.endsPeriod || defaultEndPeriod);
+  const structureRange = periodRangeLabel(tplStartPeriod || defaultStartPeriod, tplEndPeriod || defaultEndPeriod);
   const tplTotal = tplLines.reduce((sum, line) => sum + Math.max(0, Math.round(Number(line.amount) || 0)), 0);
   const admissionByClass = useMemo(() => {
     const totals = new Map<string, number>();
@@ -380,6 +375,16 @@ export function FeesBoard() {
     return totals;
   }, [data?.admissionFeeLines]);
   const admissionTotal = admissionLines.reduce((sum, line) => sum + Math.max(0, Math.round(Number(line.amount) || 0)), 0);
+  const feeStructures = useMemo(
+    () =>
+      templates
+        .filter((row) => !currentSession || row.sessionId === currentSession.id || !row.sessionId)
+        .sort((a, b) => {
+          const classOrder = (classes.find((row) => row.id === a.classId)?.label || "").localeCompare(classes.find((row) => row.id === b.classId)?.label || "", undefined, { numeric: true });
+          return classOrder || (a.startsPeriod || "").localeCompare(b.startsPeriod || "");
+        }),
+    [templates, classes, currentSession?.id]
+  );
   const classRows = useMemo(
     () =>
       [...classes]
@@ -558,21 +563,16 @@ export function FeesBoard() {
   }, [tab]);
 
   useEffect(() => {
-    if (!editorClassId) return;
-    setSelectedTemplateId((current) =>
-      current && (current === "new" || classTemplates.some((row) => row.id === current)) ? current : classTemplates[0]?.id || "new"
-    );
-  }, [editorClassId, classTemplates]);
-
-  useEffect(() => {
-    if (!editorClassId) return;
+    if (!feeEditorOpen) return;
     setTplName(classTemplate?.name || "Monthly fee");
     setTplDue(String(classTemplate?.dueDay || 10));
+    setTplStartPeriod(classTemplate?.startsPeriod || defaultStartPeriod);
+    setTplEndPeriod(classTemplate?.endsPeriod || defaultEndPeriod);
     const allLines = (classTemplate?.lines || []).filter((line) => line.scope !== "ADD_ON");
     const addOnLines = (classTemplate?.lines || []).filter((line) => line.scope === "ADD_ON");
     setTplLines(allLines.length ? allLines.map((line) => newFeeLine(line.label, String(line.amount))) : [newFeeLine("Tuition", "")]);
     setTplAddOnLines(addOnLines.map((line) => newFeeLine(line.label, String(line.amount), "ADD_ON")));
-  }, [editorClassId, selectedTemplateId, classTemplate]);
+  }, [feeEditorOpen, selectedTemplateId, classTemplate, defaultStartPeriod, defaultEndPeriod]);
 
   useEffect(() => {
     const fromCatalog = catalog.late;
@@ -588,30 +588,6 @@ export function FeesBoard() {
     setLateRule(rule);
     setLateEvery(String((useCatalog ? fromCatalog.intervalCount : fromTemplate?.lateIntervalCount) || 15));
   }, [catalog.late, templates]);
-
-  useEffect(() => {
-    if (admissionClassId && classes.some((row) => row.id === admissionClassId)) return;
-    if (classes[0]?.id) setAdmissionClassId(classes[0].id);
-  }, [classes, admissionClassId]);
-
-  useEffect(() => {
-    if (!admissionClassId) return;
-    const source = (data?.admissionFeeLines || [])
-      .filter((row) => row.classId === admissionClassId)
-      .sort((a, b) => a.sortOrder - b.sortOrder);
-    if (source.length) {
-      setAdmissionLines(source.map((row) => newFeeLine(row.label, String(row.amount))));
-      return;
-    }
-    setAdmissionLines([newFeeLine("Admission fee", "")]);
-  }, [admissionClassId, data?.admissionFeeLines]);
-
-  useEffect(() => {
-    setSessionStart(currentSession?.startsOn || data?.school?.sessionStart || "");
-    setSessionEnd(currentSession?.endsOn || data?.school?.sessionEnd || "");
-    const sessionTemplates = templates.filter((row) => !currentSession || row.sessionId === currentSession.id || !row.sessionId);
-    setSessionDueDay(sessionTemplates[0]?.dueDay || 10);
-  }, [currentSession?.id, currentSession?.startsOn, currentSession?.endsOn, data?.school?.sessionStart, data?.school?.sessionEnd, templates]);
 
   async function openDueFeeDocument(inv: { id: string; invoiceUrl?: string; receiptUrl?: string }, paid: boolean) {
     const directUrl = paid ? inv.receiptUrl : inv.invoiceUrl;
@@ -639,7 +615,10 @@ export function FeesBoard() {
   }
 
   async function saveFeeTemplate() {
-    if (!editorClassId) return;
+    if (!editorClassId) {
+      toast.show("Choose a class.");
+      return;
+    }
     try {
       const lines = [
         ...tplLines.map((line) => ({
@@ -666,8 +645,8 @@ export function FeesBoard() {
         classId: editorClassId,
         sessionId: currentSession?.id,
         name: tplName,
-        startsPeriod: classTemplate?.startsPeriod || defaultStartPeriod,
-        endsPeriod: classTemplate?.endsPeriod || defaultEndPeriod,
+        startsPeriod: tplStartPeriod,
+        endsPeriod: tplEndPeriod,
         dueDay: Number(tplDue),
         lines,
       });
@@ -720,17 +699,23 @@ export function FeesBoard() {
     }
   }
 
+  function openNewClassFee() {
+    setEditorClassId("");
+    setSelectedTemplateId("new");
+    setFeeEditorOpen(true);
+  }
+
+  function openClassFee(templateId: string, classId: string) {
+    setEditorClassId(classId);
+    setSelectedTemplateId(templateId);
+    setFeeEditorOpen(true);
+  }
+
   async function saveAdmissionFee(applyToAll = false) {
     try {
-      if (!applyToAll && !admissionClassId) {
-        toast.show("Pick a class card first.");
-        return;
-      }
+      if (!applyToAll && !admissionClassId) throw new Error("Pick a class card first.");
       const lines = admissionLines
-        .map((line) => ({
-          label: line.label.trim() || "Admission fee",
-          amount: Math.max(0, Math.round(Number(line.amount) || 0)),
-        }))
+        .map((line) => ({ label: line.label.trim() || "Admission fee", amount: Math.max(0, Math.round(Number(line.amount) || 0)) }))
         .filter((line) => line.amount > 0);
       await act(token, "saveAdmissionFeeSetup", applyToAll ? { lines } : { classId: admissionClassId, lines });
       toast.show(applyToAll ? "One-time admission fee saved for every class." : "One-time admission fee saved for this class.");
@@ -1265,7 +1250,6 @@ export function FeesBoard() {
     <View className="mb-3 flex-row flex-wrap gap-1 rounded-md border border-ink-200 bg-white p-0.5 self-start">
       {(
         [
-          ["academic", "Academic"],
           ["class", "Class Fees"],
           ["transport", "Transport"],
           ["other", "Other Fees"],
@@ -1516,42 +1500,44 @@ export function FeesBoard() {
       </View>
     ) : setupPane === "class" ? (
       <View className="overflow-hidden rounded-md border border-ink-100 bg-white">
-        <View className="border-b border-ink-100 px-3 py-2.5">
-          <Text className="text-sm font-semibold text-ink-900">Class fees</Text>
-          <Text className="mt-0.5 text-xs text-ink-600">Configure the standard fee charged to each class. Optional fees are assigned per student.</Text>
+        <View className="flex-row items-center justify-between gap-3 border-b border-ink-100 px-3 py-3">
+          <View className="min-w-0 flex-1">
+            <Text className="text-sm font-semibold text-ink-900">Class fees</Text>
+            <Text className="mt-0.5 text-xs text-ink-600">Add a new structure whenever the fee changes. Periods for the same class cannot overlap.</Text>
+          </View>
+          {configure ? <Button onPress={openNewClassFee}>Add class fee</Button> : null}
         </View>
         <View className="flex-row border-b border-ink-200 px-3">
-          <Head label="Class" flex={1.4} />
-          <Head label="Monthly" flex={1} right />
-          <Head label="Due" flex={0.8} />
-          <Head label="Status" flex={0.8} />
+          <Head label="Class" flex={1.2} />
+          <Head label="Monthly fee" flex={1} right />
+          <Head label="Applies" flex={1.4} />
+          <Head label="Due" flex={0.7} />
         </View>
-        {classRows.map((row) => (
+        {feeStructures.map((template) => {
+          const monthly = (template.lines || []).filter((line) => line.scope !== "ADD_ON").reduce((sum, line) => sum + Math.max(0, Math.round(Number(line.amount) || 0)), 0);
+          return (
           <Pressable
-            key={row.klass.id}
-            onPress={() => {
-              setEditorClassId(row.klass.id);
-              setSelectedTemplateId(row.template?.id || "new");
-              setFeeEditorOpen(true);
-            }}
+            key={template.id}
+            disabled={!configure}
+            onPress={() => openClassFee(template.id, template.classId)}
             className="flex-row border-b border-ink-50 px-3"
             style={{ minHeight: 48 }}
           >
-            <Cell flex={1.4}>
-              <Text className="text-[13px] font-semibold text-ink-900">{row.klass.label}</Text>
+            <Cell flex={1.2}>
+              <Text className="text-[13px] font-semibold text-ink-900">{classes.find((row) => row.id === template.classId)?.label || "Class"}</Text>
+              <Text className="mt-0.5 text-[11px] text-ink-600">{template.name}</Text>
             </Cell>
             <Cell flex={1} right>
-              {row.active ? inr(row.monthly) : "—"}
+              {inr(monthly)}
             </Cell>
-            <Cell flex={0.8}>{row.active ? ordinalDay(row.dueDay) : "—"}</Cell>
-            <Cell flex={0.8}>
-              <Text className={`text-[13px] ${row.active ? "text-green-700" : "text-ink-500"}`}>{row.active ? "Active" : "Not set"}</Text>
-            </Cell>
+            <Cell flex={1.4}>{periodRangeLabel(template.startsPeriod, template.endsPeriod)}</Cell>
+            <Cell flex={0.7}>{ordinalDay(template.dueDay || 10)}</Cell>
           </Pressable>
-        ))}
-        {!classRows.length ? (
+          );
+        })}
+        {!feeStructures.length ? (
           <View className="px-3 py-6">
-            <Text className="text-sm text-ink-600">No classes in the class master yet.</Text>
+            <Text className="text-sm text-ink-600">No class fee structures yet. Add one to start billing a class.</Text>
           </View>
         ) : null}
       </View>
@@ -1751,9 +1737,18 @@ export function FeesBoard() {
         <View className="gap-4">
           <View>
             <Text className="text-sm font-semibold text-ink-900">Fee structure</Text>
-            {structureRange ? <Text className="mt-1 text-xs text-ink-600">This structure applies {structureRange}</Text> : null}
+            <Text className="mt-1 text-xs text-ink-600">Each class can have consecutive fee structures, but their periods cannot overlap.</Text>
           </View>
           <View className="flex-row flex-wrap gap-3">
+            <View className="min-w-[220px] flex-1">
+              <Select
+                label="Class"
+                value={editorClassId}
+                options={classes.map((row) => ({ id: row.id, label: row.label }))}
+                placeholder="Choose class"
+                onChange={setEditorClassId}
+              />
+            </View>
             <View className="min-w-[220px] flex-1">
               <Field label="Name">
                 <Input value={tplName} onChangeText={setTplName} />
@@ -1765,6 +1760,19 @@ export function FeesBoard() {
               </Field>
             </View>
           </View>
+          <View className="flex-row flex-wrap gap-3">
+            <View className="min-w-[160px] flex-1">
+              <Field label="Starts (YYYY-MM)">
+                <Input placeholder={defaultStartPeriod} value={tplStartPeriod} onChangeText={setTplStartPeriod} />
+              </Field>
+            </View>
+            <View className="min-w-[160px] flex-1">
+              <Field label="Ends (YYYY-MM)">
+                <Input placeholder={defaultEndPeriod} value={tplEndPeriod} onChangeText={setTplEndPeriod} />
+              </Field>
+            </View>
+          </View>
+          {structureRange ? <Text className="-mt-1 text-xs text-ink-600">Applies {structureRange}</Text> : null}
           <View className="gap-2">
             <View className="flex-row px-1">
               <Text className="flex-1 text-[11px] font-semibold uppercase tracking-wide text-ink-500">Charge</Text>

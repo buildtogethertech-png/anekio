@@ -228,22 +228,21 @@ export async function saveFeeTemplateCore(
     ? await prisma.feeTemplate.findUnique({ where: { id: templateId } })
     : null;
   if (editing && (editing.classId !== classId || editing.sessionId !== sessionId)) throw new Error("Template does not belong to this class");
-  const existing = editing || await prisma.feeTemplate.findFirst({ where: { classId, sessionId, startsPeriod, endsPeriod } });
   const overlap = await prisma.feeTemplate.findFirst({
     where: {
       classId,
       sessionId,
-      ...(existing ? { NOT: { id: existing.id } } : {}),
+      ...(editing ? { NOT: { id: editing.id } } : {}),
       startsPeriod: { lte: endsPeriod },
       endsPeriod: { gte: startsPeriod },
     },
   });
   if (overlap) throw new Error(`This range overlaps ${overlap.startsPeriod || "an earlier setup"} to ${overlap.endsPeriod || "an earlier setup"}.`);
-  const lateData = hasLate ? lateStamp : existing ? {} : inheritedLate;
-  if (existing) {
-    await prisma.feeLine.deleteMany({ where: { templateId: existing.id } });
+  const lateData = hasLate ? lateStamp : editing ? {} : inheritedLate;
+  if (editing) {
+    await prisma.feeLine.deleteMany({ where: { templateId: editing.id } });
     const updated = await prisma.feeTemplate.update({
-      where: { id: existing.id },
+      where: { id: editing.id },
       data: { orgId: user.orgId ?? null, name, startsPeriod, endsPeriod, dueDay, ...lateData, lines: { create: lines } },
     });
     await syncClassAddOnAmounts(classId, addOnLines);
