@@ -5,7 +5,7 @@ import { useRouter } from "expo-router";
 import { GeneratePayment } from "./generate-payment";
 import { FilterBar, type FilterConfig, type FilterValues } from "./filter";
 import { Button, Card, Field, Input, Modal, Switch, Toast, useToast } from "./ui";
-import { DateField } from "./date-field";
+import { DateField, MonthField } from "./date-field";
 import { Select } from "./form/select";
 import { FeeReport } from "./fee-report";
 import { act } from "../lib/mutate";
@@ -327,8 +327,6 @@ export function FeesBoard() {
   const [setupPane, setSetupPane] = useState<SetupPane>("class");
   const [editorClassId, setEditorClassId] = useState("");
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
-  const [tplName, setTplName] = useState("Monthly fee");
-  const [tplDue, setTplDue] = useState("10");
   const [tplStartPeriod, setTplStartPeriod] = useState("");
   const [tplEndPeriod, setTplEndPeriod] = useState("");
   const [tplLines, setTplLines] = useState<FeeLineDraft[]>([newFeeLine("Tuition", "")]);
@@ -564,8 +562,6 @@ export function FeesBoard() {
 
   useEffect(() => {
     if (!feeEditorOpen) return;
-    setTplName(classTemplate?.name || "Monthly fee");
-    setTplDue(String(classTemplate?.dueDay || 10));
     setTplStartPeriod(classTemplate?.startsPeriod || defaultStartPeriod);
     setTplEndPeriod(classTemplate?.endsPeriod || defaultEndPeriod);
     const allLines = (classTemplate?.lines || []).filter((line) => line.scope !== "ADD_ON");
@@ -596,6 +592,11 @@ export function FeesBoard() {
     setLateRule(rule);
     setLateEvery(String((useCatalog ? fromCatalog.intervalCount : fromTemplate?.lateIntervalCount) || 15));
   }, [catalog.late, templates]);
+
+  useEffect(() => {
+    const sessionTemplates = templates.filter((row) => !currentSession || row.sessionId === currentSession.id || !row.sessionId);
+    setSessionDueDay(sessionTemplates[0]?.dueDay || 10);
+  }, [currentSession?.id, templates]);
 
   async function openDueFeeDocument(inv: { id: string; invoiceUrl?: string; receiptUrl?: string }, paid: boolean) {
     const directUrl = paid ? inv.receiptUrl : inv.invoiceUrl;
@@ -652,10 +653,10 @@ export function FeesBoard() {
         templateId: classTemplate?.id,
         classId: editorClassId,
         sessionId: currentSession?.id,
-        name: tplName,
+        name: "Monthly fee",
         startsPeriod: tplStartPeriod,
         endsPeriod: tplEndPeriod,
-        dueDay: Number(tplDue),
+        dueDay: sessionDueDay,
         lines,
       });
       const admissionFeeLines = admissionLines
@@ -1265,7 +1266,7 @@ export function FeesBoard() {
           ["class", "Class Fees"],
           ["transport", "Transport"],
           ["other", "Other Fees"],
-          ["late", "Late Fee"],
+          ["late", "Settings"],
         ] as const
       ).map(([id, label]) => (
         <Pressable
@@ -1558,6 +1559,30 @@ export function FeesBoard() {
     ) : setupPane === "other" ? (
       catalogTable("OTHER")
     ) : (
+      <View className="gap-4">
+      <Card className="p-4">
+        <Text className="text-sm font-semibold text-ink-900">Billing settings</Text>
+        <Text className="mt-1 text-xs leading-5 text-ink-600">Choose the monthly due day for new and current class fee structures.</Text>
+        <View className="mt-4 flex-row flex-wrap gap-1.5">
+          {Array.from({ length: 31 }, (_, index) => index + 1).map((day) => {
+            const active = sessionDueDay === day;
+            return (
+              <Pressable
+                key={day}
+                accessibilityRole="button"
+                onPress={() => setSessionDueDay(day)}
+                className={`h-9 w-9 items-center justify-center rounded-lg ${active ? "bg-clay-500" : "border border-ink-200 bg-white"}`}
+              >
+                <Text className={`text-xs font-semibold ${active ? "text-white" : "text-ink-800"}`}>{day}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <View className="mt-4 flex-row items-center justify-between rounded-lg bg-ink-50 px-3 py-2.5">
+          <Text className="text-sm text-ink-700">New monthly invoices are due on the {ordinalDay(sessionDueDay)}.</Text>
+          {configure ? <Button onPress={() => void saveSessionDueDay()}>Save due day</Button> : null}
+        </View>
+      </Card>
       <Card className="p-4">
         <Text className="text-sm font-semibold text-ink-900">Late fee</Text>
         <Text className="mt-1 text-xs text-ink-600">Applies to newly generated invoices. Paid and historical invoices stay unchanged.</Text>
@@ -1627,6 +1652,7 @@ export function FeesBoard() {
           </View>
         ) : null}
       </Card>
+      </View>
     );
 
   return (
@@ -1768,26 +1794,16 @@ export function FeesBoard() {
                 onChange={setEditorClassId}
               />
             </View>
-            <View className="min-w-[220px] flex-1">
-              <Field label="Name">
-                <Input value={tplName} onChangeText={setTplName} />
-              </Field>
-            </View>
-            <View className="w-28">
-              <Field label="Due day">
-                <Input keyboardType="number-pad" value={tplDue} onChangeText={setTplDue} />
-              </Field>
-            </View>
           </View>
           <View className="flex-row flex-wrap gap-3">
             <View className="min-w-[160px] flex-1">
-              <Field label="Starts (YYYY-MM)">
-                <Input placeholder={defaultStartPeriod} value={tplStartPeriod} onChangeText={setTplStartPeriod} />
+              <Field label="Starts">
+                <MonthField placeholder={defaultStartPeriod} value={tplStartPeriod} onChange={setTplStartPeriod} />
               </Field>
             </View>
             <View className="min-w-[160px] flex-1">
-              <Field label="Ends (YYYY-MM)">
-                <Input placeholder={defaultEndPeriod} value={tplEndPeriod} onChangeText={setTplEndPeriod} />
+              <Field label="Ends">
+                <MonthField placeholder={defaultEndPeriod} value={tplEndPeriod} onChange={setTplEndPeriod} />
               </Field>
             </View>
           </View>

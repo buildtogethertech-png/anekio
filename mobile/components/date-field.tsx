@@ -225,3 +225,94 @@ export function DateField({
     </View>
   );
 }
+
+export function MonthField({
+  value,
+  onChange,
+  placeholder = "Pick a month",
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  placeholder?: string;
+}) {
+  const { width } = useWindowDimensions();
+  const phone = width < 768;
+  const valid = /^\d{4}-\d{2}$/.test(value);
+  const selected = valid ? new Date(Number(value.slice(0, 4)), Number(value.slice(5, 7)) - 1, 1) : new Date();
+  const [open, setOpen] = useState(false);
+  const [cursor, setCursor] = useState(() => new Date(selected.getFullYear(), selected.getMonth(), 1));
+  const label = valid ? selected.toLocaleString("en-IN", { month: "long", year: "numeric" }) : placeholder;
+  const selectedDate = valid ? `${value}-01` : "";
+
+  function toggle() {
+    setCursor(new Date(selected.getFullYear(), selected.getMonth(), 1));
+    setOpen((current) => !current);
+  }
+
+  const calendar = (
+    <View className="rounded-lg bg-white px-1 py-1">
+      <Calendar
+        style={{ width: DESKTOP_CALENDAR_SIZE.width }}
+        current={toYmd(cursor)}
+        hideExtraDays
+        markedDates={selectedDate ? { [selectedDate]: { selected: true, selectedColor: "#2456d6", selectedTextColor: "#ffffff" } } : {}}
+        onMonthChange={(date: DateData) => setCursor(new Date(date.year, date.month - 1, 1))}
+        onDayPress={(date: DateData) => {
+          onChange(date.dateString.slice(0, 7));
+          setOpen(false);
+        }}
+        renderArrow={(direction: "left" | "right") => (
+          <View className="h-7 w-7 items-center justify-center rounded-full bg-ink-50">
+            <Ionicons name={direction === "left" ? "chevron-back" : "chevron-forward"} size={17} color="#1e3a5f" />
+          </View>
+        )}
+        theme={{
+          calendarBackground: "#ffffff",
+          textSectionTitleColor: "#52667d",
+          selectedDayBackgroundColor: "#2456d6",
+          selectedDayTextColor: "#ffffff",
+          todayTextColor: "#2456d6",
+          dayTextColor: "#102a43",
+          monthTextColor: "#102a43",
+          arrowColor: "#1e3a5f",
+          textDayFontSize: 13,
+          textMonthFontSize: 15,
+          textDayHeaderFontSize: 11,
+          textDayFontWeight: "500",
+          textMonthFontWeight: "700",
+        } as CalendarTheme}
+      />
+    </View>
+  );
+
+  const trigger = (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={toggle}
+      className="min-h-[44px] w-full flex-row items-center gap-2 rounded-md border border-ink-200 bg-white px-3 py-2.5"
+    >
+      <Text className={`min-w-0 flex-1 text-sm ${valid ? "text-ink-900" : "text-ink-700"}`} numberOfLines={1}>{label}</Text>
+      <Ionicons name="calendar-outline" size={18} color="#3d4f66" />
+    </Pressable>
+  );
+
+  return (
+    <View className="w-full">
+      {phone ? (
+        <>
+          {trigger}
+          <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+            <Pressable className="flex-1 items-center justify-center bg-black/40 px-4 py-8" onPress={() => setOpen(false)}>
+              <Pressable className="w-full max-w-md rounded-[10px] border border-ink-200 bg-white" onPress={() => {}}>{calendar}</Pressable>
+            </Pressable>
+          </Modal>
+        </>
+      ) : (
+        <Popover open={open} onClose={() => setOpen(false)} panel={calendar} maxHeight={DESKTOP_CALENDAR_SIZE.height} width={DESKTOP_CALENDAR_SIZE.width} align="end" fixedHeight={DESKTOP_CALENDAR_SIZE.height}>
+          {trigger}
+        </Popover>
+      )}
+    </View>
+  );
+}
