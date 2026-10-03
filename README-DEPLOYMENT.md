@@ -41,8 +41,13 @@ It runs, in order:
 ```bash
 npm run typecheck
 npm run build:web
-npx vercel deploy --prod
+npx vercel deploy --prod --build-env ANEKIO_DB_PUSH_ON_BUILD=1
 ```
+
+The schema-sync flag is supplied only to that deployment; it is not saved as a
+Vercel project environment variable. This keeps additive Prisma schema changes
+in sync with the released API. If Prisma reports a potentially destructive
+change, the deployment stops before going live and requires explicit review.
 
 The command prints a Vercel deployment URL. Wait until it is **Ready**, then check the live health endpoint with the authenticated Vercel CLI:
 
@@ -65,7 +70,7 @@ Configure production values in **Vercel Project Settings → Environment Variabl
 - `CRON_SECRET` for scheduled requests
 - S3 configuration when uploads use S3: `UPLOADS_DRIVER=s3`, `AWS_REGION`, `AWS_ROLE_ARN`, `AWS_S3_PRIVATE_BUCKET`, and `AWS_S3_PUBLIC_BUCKET`
 
-The Vercel build runs `scripts/vercel-prisma.mjs`. With a Postgres `DATABASE_URL`, it generates a Postgres Prisma client. It only changes the production schema when `ANEKIO_DB_PUSH_ON_BUILD=1` is configured. Enable that only for an intentional, reviewed schema release; never set `ANEKIO_DB_PUSH_ACCEPT_DATA_LOSS=1` unless data loss was explicitly approved. Do not set `ANEKIO_SEED_ON_BUILD=1` in production.
+The Vercel build runs `scripts/vercel-prisma.mjs`. With a Postgres `DATABASE_URL`, it generates a Postgres Prisma client. `npm run deploy:production` supplies `ANEKIO_DB_PUSH_ON_BUILD=1` only for that one deployment, so the production schema stays aligned with the released code. Never set `ANEKIO_DB_PUSH_ACCEPT_DATA_LOSS=1` unless data loss was explicitly approved. Do not set `ANEKIO_SEED_ON_BUILD=1` in production.
 
 ### Rollback
 

@@ -41,7 +41,7 @@
   "build-apk:production": "npm --prefix mobile run build:apk:production",
     "deploy-staging": "bash scripts/deploy-staging.sh",
     "deploy:staging": "npm run deploy-staging",
-    "deploy:production": "bash -c 'unset npm_config_prefix && source \"$HOME/.nvm/nvm.sh\" && nvm use 20 && npm run typecheck && npm run build-app && npx vercel deploy --prod'",
+    "deploy:production": "bash scripts/deploy-production.sh",
     "verify:quick": "npm run typecheck && npm test && npm run build:web",
     "verify:pr": "npm run verify:quick && npm run test:e2e",
     "verify": "npm run typecheck && npm run test:coverage && npm run test:e2e && npm run build:web",
