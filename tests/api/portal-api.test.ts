@@ -208,6 +208,41 @@ describe("Express portal API", () => {
     expect(await prisma.student.findFirst({ where: { admissionNo: "ANE-00003" } })).toMatchObject({ name: "Auto Number Two" });
   });
 
+  it("collects the configured admission fee while adding a student", async () => {
+    const line = await prisma.admissionFeeLine.create({
+      data: { classId: fixture.classId, label: "Admission", amount: 12500, sortOrder: 0 },
+    });
+    const session = await login(fixture.users.office.email);
+    const auth = { Authorization: `Bearer ${session.body.token}` };
+    try {
+      const created = await request(app)
+        .post("/api/v1/act")
+        .set(auth)
+        .send({
+          op: "createStudent",
+          name: "Admission Payment Student",
+          classId: fixture.classId,
+          parentId: "parent-pari",
+          dateOfBirth: "2015-06-15",
+          collectAdmissionFee: true,
+          paymentMethod: "UPI",
+          paymentReference: "UTR-ADMISSION-001",
+        });
+
+      expect(created.status).toBe(200);
+      expect(created.body).toMatchObject({ ok: true, admissionCharge: 12500 });
+      const invoice = await prisma.feeInvoice.findUniqueOrThrow({
+        where: { id: created.body.admissionInvoiceId },
+        include: { payments: true },
+      });
+      expect(invoice).toMatchObject({ title: "One-time admission fee", amount: 12500, status: "PAID" });
+      expect(invoice.payments).toEqual([expect.objectContaining({ amount: 12500, method: "UPI", reference: "UTR-ADMISSION-001" })]);
+    } finally {
+      await prisma.admissionFeeLine.delete({ where: { id: line.id } });
+      await prisma.student.deleteMany({ where: { name: "Admission Payment Student" } });
+    }
+  });
+
   it("keeps admission numbers unique within each school, not across schools", async () => {
     const orgIds = ["org-admission-a", "org-admission-b"];
     await prisma.saasOrg.createMany({

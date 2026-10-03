@@ -186,13 +186,23 @@ export async function createStudentCore(
     parentId: string;
     dateOfBirth: string;
     tags?: string[];
+    collectAdmissionFee?: boolean;
+    paymentMethod?: string;
+    paymentReference?: string;
   }
 ) {
   need(user, "people.edit");
   const name = input.name.trim();
   const tags = (input.tags || []).filter((t): t is PathTag => PATH_TAGS.includes(t as PathTag));
+  const collectAdmissionFee = Boolean(input.collectAdmissionFee);
+  const paymentMethod = parsePayMethod(input.paymentMethod);
+  const paymentReference = String(input.paymentReference || "").trim() || null;
   if (!name || !input.classId || !input.parentId || !input.dateOfBirth) {
     throw new Error("Missing student fields");
+  }
+  if (collectAdmissionFee) {
+    need(user, "fees.collect");
+    assertPayRefs(paymentMethod, paymentReference);
   }
 
   // Admission numbers are assigned on the server so every entry point follows
@@ -200,6 +210,20 @@ export async function createStudentCore(
   for (let attempt = 0; attempt < 10; attempt += 1) {
     try {
       return await prisma.$transaction(async (tx) => {
+        const config = collectAdmissionFee ? await tx.schoolConfig.findUnique({ where: { id: "school" } }) : null;
+        const admissionRows = collectAdmissionFee
+          ? await tx.admissionFeeLine.findMany({
+              where: { classId: input.classId, active: true },
+              orderBy: { sortOrder: "asc" },
+            })
+          : [];
+        const admissionLines = collectAdmissionFee
+          ? pickAdmissionFeeLines([], admissionRows, config?.admissionCharge || 0)
+          : [];
+        const admissionCharge = admissionLines.reduce((sum, line) => sum + line.amount, 0);
+        if (collectAdmissionFee && admissionCharge <= 0) {
+          throw new Error("Set an admission fee for this class before collecting it.");
+        }
         const existing = await tx.student.findMany({ select: { admissionNo: true } });
         let nextNumber = Math.max(
           0,
@@ -224,7 +248,31 @@ export async function createStudentCore(
           },
         });
         await assignStudentRollNumber(tx, { studentId: student.id, classId: input.classId, orgId: user.orgId ?? null });
-        return { admissionNo: student.admissionNo };
+        const admissionInvoice = collectAdmissionFee
+          ? await tx.feeInvoice.create({
+              data: {
+                orgId: user.orgId ?? null,
+                studentId: student.id,
+                classId: input.classId,
+                period: `ADMISSION-${student.id}`,
+                title: "One-time admission fee",
+                amount: admissionCharge,
+                linesJson: JSON.stringify(admissionLines),
+                dueDate: new Date(),
+                status: "PAID",
+                payments: {
+                  create: {
+                    orgId: user.orgId ?? null,
+                    amount: admissionCharge,
+                    method: paymentMethod,
+                    reference: paymentReference || `RCPT-${student.id.slice(-8).toUpperCase()}-${randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase()}`,
+                    notes: "Collected while adding student",
+                  },
+                },
+              },
+            })
+          : null;
+        return { admissionNo: student.admissionNo, admissionInvoiceId: admissionInvoice?.id, admissionCharge };
       });
     } catch (error) {
       const code = error && typeof error === "object" && "code" in error ? error.code : undefined;

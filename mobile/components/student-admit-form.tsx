@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Text, View } from "react-native";
 import { Button, Chip, DateField, Field, Input, Select } from "./form";
+import { Switch } from "./ui";
 
 export type StudentFeeAddOnPayload = {
   id?: string;
@@ -27,6 +28,9 @@ export type StudentAdmitPayload = {
   parentId: string;
   tags: string[];
   feeAddOns: StudentFeeAddOnPayload[];
+  collectAdmissionFee: boolean;
+  paymentMethod: string;
+  paymentReference: string;
 };
 
 function emptyForm(classes: { id: string }[]): StudentAdmitPayload {
@@ -37,6 +41,9 @@ function emptyForm(classes: { id: string }[]): StudentAdmitPayload {
     parentId: "",
     tags: [],
     feeAddOns: [],
+    collectAdmissionFee: false,
+    paymentMethod: "CASH",
+    paymentReference: "",
   };
 }
 
@@ -108,6 +115,35 @@ export function StudentAdmitForm({
       )}
       <View className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
         <Text className="text-xs font-medium text-ink-800">Admission number is assigned automatically when you add the student.</Text>
+      </View>
+      <View className="gap-3 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+        <View className="flex-row items-center justify-between gap-3">
+          <View className="min-w-0 flex-1">
+            <Text className="text-sm font-semibold text-ink-900">Collect admission fee now</Text>
+            <Text className="mt-0.5 text-xs leading-4 text-ink-700">Create the configured one-time admission invoice and record the payment with this admission.</Text>
+          </View>
+          <Switch on={form.collectAdmissionFee} onPress={() => patch({ collectAdmissionFee: !form.collectAdmissionFee })} />
+        </View>
+        {form.collectAdmissionFee ? (
+          <View className="gap-3 border-t border-amber-200 pt-3">
+            <Select
+              label="Payment method"
+              value={form.paymentMethod}
+              options={[
+                { id: "CASH", label: "Cash" },
+                { id: "UPI", label: "UPI" },
+                { id: "BANK", label: "Bank transfer" },
+                { id: "CHEQUE", label: "Cheque" },
+              ]}
+              onChange={(paymentMethod) => patch({ paymentMethod })}
+            />
+            {form.paymentMethod !== "CASH" ? (
+              <Field label={form.paymentMethod === "CHEQUE" ? "Cheque number" : "UTR / reference number"}>
+                <Input value={form.paymentReference} onChangeText={(paymentReference) => patch({ paymentReference })} />
+              </Field>
+            ) : null}
+          </View>
+        ) : null}
       </View>
       <Text className="pt-1 text-xs font-medium text-ink-700">Path · optional</Text>
       <View className="flex-row flex-wrap gap-2">
