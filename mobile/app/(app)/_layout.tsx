@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { Redirect, Slot, Tabs, useRouter } from "expo-router";
+import { Redirect, Slot, Tabs, useGlobalSearchParams, usePathname, useRouter } from "expo-router";
 import { ActivityIndicator, Modal, PanResponder, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -10,7 +10,44 @@ import { NoticeBell } from "../../components/notice-bell";
 import { OnboardingBoard } from "../../components/onboarding-board";
 import { RecordProvider, useRecord } from "../../lib/record";
 import { useSession } from "../../lib/session";
-import { getLauncherPosition, setLauncherPosition, type LauncherPosition } from "../../lib/storage";
+import { getLastWorkspaceRoute, getLauncherPosition, setLastWorkspaceRoute, setLauncherPosition, type LauncherPosition } from "../../lib/storage";
+
+const RESUMABLE_PATHS = new Set([
+  "/",
+  "/notices",
+  "/inbox",
+  "/people",
+  "/onboarding",
+  "/admissions",
+  "/staff",
+  "/school",
+  "/timetable",
+  "/fees",
+  "/exams",
+  "/roles",
+  "/subscription",
+  "/attendance",
+  "/class",
+  "/leave",
+  "/subjects",
+  "/tests",
+  "/papers",
+  "/path",
+  "/letter",
+  "/uploads",
+  "/profile",
+]);
+
+const RESUMABLE_PARAMS = new Set(["tab", "group", "student", "view", "examId", "seriesId", "document"]);
+
+function resumableRoute(pathname: string, params: Record<string, string | string[] | undefined>) {
+  if (!RESUMABLE_PATHS.has(pathname)) return null;
+  const query = Object.entries(params)
+    .flatMap(([key, value]) => (RESUMABLE_PARAMS.has(key) && typeof value === "string" && value ? [[key, value] as const] : []))
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+    .join("&");
+  return query ? `${pathname}?${query}` : pathname;
+}
 
 function ProfileChip() {
   const { user } = useSession();
@@ -299,8 +336,27 @@ function Sidebar() {
 
 export default function AppLayout() {
   const { ready, user } = useSession();
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useGlobalSearchParams();
   const { width } = useWindowDimensions();
   const wide = width >= 768;
+  const restoredUserId = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!user) return;
+    if (pathname === "/" && restoredUserId.current !== user.id) return;
+    const route = resumableRoute(pathname, params);
+    if (route) void setLastWorkspaceRoute(user.id, route);
+  }, [params, pathname, user]);
+
+  useEffect(() => {
+    if (!user || restoredUserId.current === user.id || pathname !== "/") return;
+    restoredUserId.current = user.id;
+    void getLastWorkspaceRoute(user.id).then((route) => {
+      if (route && route !== "/") router.replace(route as never);
+    });
+  }, [pathname, router, user]);
 
   if (!ready) {
     return (

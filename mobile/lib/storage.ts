@@ -4,6 +4,7 @@ import * as SecureStore from "expo-secure-store";
 const KEY = "anekio.token";
 const CHILD_KEY = "anekio.child";
 const LAUNCHER_POSITION_KEY = "anekio.launcherPosition";
+const LAST_WORKSPACE_KEY = "anekio.lastWorkspace";
 
 export async function getToken() {
   if (Platform.OS === "web") {
@@ -104,4 +105,16 @@ export async function getLauncherPosition() {
 
 export async function setLauncherPosition(position: LauncherPosition) {
   await writeStore(LAUNCHER_POSITION_KEY, JSON.stringify(position));
+}
+
+function workspaceKey(userId: string) {
+  return `${LAST_WORKSPACE_KEY}.${userId}`;
+}
+
+export async function getLastWorkspaceRoute(userId: string) {
+  return readStore(workspaceKey(userId));
+}
+
+export async function setLastWorkspaceRoute(userId: string, route: string) {
+  await writeStore(workspaceKey(userId), route);
 }

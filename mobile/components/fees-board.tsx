@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Linking, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { GeneratePayment } from "./generate-payment";
 import { FilterBar, type FilterConfig, type FilterValues } from "./filter";
 import { Button, Card, Field, Input, Modal, Switch, Toast, useToast } from "./ui";
@@ -21,6 +21,11 @@ type Person = NonNullable<ReturnType<typeof useRecord>["data"]>["people"] extend
 type Invoice = NonNullable<Person["invoices"]>[number];
 
 type FeeLineDraft = { id: string; label: string; amount: string; scope: "ALL" | "ADD_ON" };
+
+function feeTabFromParam(value: string | string[] | undefined): Tab {
+  const tab = Array.isArray(value) ? value[0] : value;
+  return tab === "report" || tab === "insight" || tab === "setup" ? tab : "register";
+}
 
 function can(user: { permissions: string[] } | null, key: string) {
   return Boolean(user?.permissions.includes(key));
@@ -308,10 +313,11 @@ export function FeesBoard() {
   const { data, reload, refreshing } = useRecord();
   const { token, user } = useSession();
   const router = useRouter();
+  const params = useLocalSearchParams<{ tab?: string | string[] }>();
   const toast = useToast();
   const { width } = useWindowDimensions();
   const didInitialRefresh = useRef(false);
-  const [tab, setTab] = useState<Tab>("register");
+  const [tab, setTab] = useState<Tab>(() => feeTabFromParam(params.tab));
   const [query, setQuery] = useState("");
   const [classId, setClassId] = useState("all");
   const [section, setSection] = useState("");
@@ -347,6 +353,15 @@ export function FeesBoard() {
   const [sessionStart, setSessionStart] = useState("");
   const [sessionEnd, setSessionEnd] = useState("");
   const [sessionDueDay, setSessionDueDay] = useState(10);
+
+  useEffect(() => {
+    setTab(feeTabFromParam(params.tab));
+  }, [params.tab]);
+
+  function selectTab(next: Tab) {
+    setTab(next);
+    router.replace({ pathname: "/fees", params: { tab: next } } as never);
+  }
 
   const people = data?.people ?? [];
   const classes = data?.classes ?? [];
@@ -786,7 +801,7 @@ export function FeesBoard() {
         <Pressable
           key={id}
           accessibilityRole="button"
-          onPress={() => setTab(id)}
+          onPress={() => selectTab(id)}
           className={`min-w-[76px] items-center rounded-lg px-3 py-2 ${tab === id ? "bg-clay-500" : "bg-white"}`}
         >
           <Text className={`text-sm font-semibold ${tab === id ? "text-white" : "text-ink-800"}`}>{label}</Text>
