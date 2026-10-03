@@ -575,6 +575,14 @@ export function FeesBoard() {
   }, [feeEditorOpen, selectedTemplateId, classTemplate, defaultStartPeriod, defaultEndPeriod]);
 
   useEffect(() => {
+    if (!feeEditorOpen || !editorClassId) return;
+    const savedLines = (data?.admissionFeeLines || [])
+      .filter((line) => line.classId === editorClassId)
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+    setAdmissionLines(savedLines.length ? savedLines.map((line) => newFeeLine(line.label, String(line.amount))) : [newFeeLine("Admission fee", "")]);
+  }, [feeEditorOpen, editorClassId, data?.admissionFeeLines]);
+
+  useEffect(() => {
     const fromCatalog = catalog.late;
     const fromTemplate = templates.find((row) => row.lateKind && row.lateKind !== "NONE" && row.lateAmount > 0);
     const useCatalog = Boolean(fromCatalog?.enabled);
@@ -650,6 +658,10 @@ export function FeesBoard() {
         dueDay: Number(tplDue),
         lines,
       });
+      const admissionFeeLines = admissionLines
+        .map((line) => ({ label: line.label.trim() || "Admission fee", amount: Math.max(0, Math.round(Number(line.amount) || 0)) }))
+        .filter((line) => line.amount > 0);
+      await act(token, "saveAdmissionFeeSetup", { classId: editorClassId, lines: admissionFeeLines });
       setSelectedTemplateId(saved.id);
       setFeeEditorOpen(false);
       toast.show("Class fee saved.");
@@ -1827,6 +1839,61 @@ export function FeesBoard() {
               <Text className="text-sm font-semibold text-ink-900">Monthly total</Text>
               <Text className="text-sm font-semibold text-ink-900">{inr(tplTotal)}</Text>
             </View>
+          </View>
+          <View className="gap-2 border-t border-ink-100 pt-4">
+            <Text className="text-sm font-semibold text-ink-900">Admission fee</Text>
+            <Text className="text-xs leading-5 text-ink-600">
+              One-time only. When a student is admitted to this class, Anekio creates this admission invoice and does not include the monthly fee above.
+            </Text>
+            <View className="mt-1 flex-row px-1">
+              <Text className="flex-1 text-[11px] font-semibold uppercase tracking-wide text-ink-500">Charge</Text>
+              <Text className="w-32 text-right text-[11px] font-semibold uppercase tracking-wide text-ink-500">Amount</Text>
+              <View className="w-16" />
+            </View>
+            {admissionLines.map((line) => (
+              <View key={line.id} className="flex-row items-center gap-2">
+                <View className="min-w-0 flex-1">
+                  <Input
+                    placeholder="e.g. Admission fee"
+                    value={line.label}
+                    onChangeText={(label) => setAdmissionLines((rows) => rows.map((row) => (row.id === line.id ? { ...row, label } : row)))}
+                  />
+                </View>
+                <View className="w-32">
+                  <Input
+                    keyboardType="number-pad"
+                    value={line.amount}
+                    onChangeText={(amount) => setAdmissionLines((rows) => rows.map((row) => (row.id === line.id ? { ...row, amount } : row)))}
+                  />
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setAdmissionLines((rows) => (rows.length > 1 ? rows.filter((row) => row.id !== line.id) : rows))}
+                  className="w-16 items-center py-2"
+                >
+                  <Text className="text-xs font-semibold text-red-700">Remove</Text>
+                </Pressable>
+              </View>
+            ))}
+            {configure ? (
+              <View className="gap-2 pt-1">
+                <Pressable onPress={() => setAdmissionLines((rows) => [...rows, newFeeLine("Admission fee", "")])} className="self-start py-1">
+                  <Text className="text-xs font-semibold text-blue-700">+ Add admission charge</Text>
+                </Pressable>
+                <SuggestionPills
+                  options={ADMISSION_SUGGESTIONS}
+                  used={admissionLines.map((line) => line.label)}
+                  onPick={(label) =>
+                    setAdmissionLines((rows) => {
+                      if (rows.some((row) => row.label.trim().toLowerCase() === label.toLowerCase())) return rows;
+                      const empty = rows.find((row) => !row.label.trim());
+                      if (empty) return rows.map((row) => (row.id === empty.id ? { ...row, label } : row));
+                      return [...rows, newFeeLine(label, "")];
+                    })
+                  }
+                />
+              </View>
+            ) : null}
           </View>
           <View className="gap-2 border-t border-ink-100 pt-4">
             <Text className="text-sm font-semibold text-ink-900">Class add-ons</Text>
