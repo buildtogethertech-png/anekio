@@ -205,7 +205,36 @@ describe("Express portal API", () => {
     expect(first.body).toMatchObject({ ok: true, admissionNo: "ANE-00002" });
     expect(second.status).toBe(200);
     expect(second.body).toMatchObject({ ok: true, admissionNo: "ANE-00003" });
-    expect(await prisma.student.findUnique({ where: { admissionNo: "ANE-00003" } })).toMatchObject({ name: "Auto Number Two" });
+    expect(await prisma.student.findFirst({ where: { admissionNo: "ANE-00003" } })).toMatchObject({ name: "Auto Number Two" });
+  });
+
+  it("keeps admission numbers unique within each school, not across schools", async () => {
+    const orgIds = ["org-admission-a", "org-admission-b"];
+    await prisma.saasOrg.createMany({
+      data: orgIds.map((id) => ({
+        id,
+        schoolName: id,
+        ownerName: "Fixture owner",
+        ownerEmail: `${id}@school.test`,
+        ownerPhone: "9876500000",
+      })),
+    });
+    try {
+      await prisma.student.createMany({
+        data: orgIds.map((orgId, index) => ({
+          orgId,
+          parentId: "parent-pari",
+          classId: fixture.classId,
+          admissionNo: "ANE-00001",
+          name: `Tenant student ${index + 1}`,
+          dateOfBirth: new Date("2015-06-15T00:00:00.000Z"),
+        })),
+      });
+      expect(await prisma.student.count({ where: { admissionNo: "ANE-00001", orgId: { in: orgIds } } })).toBe(2);
+    } finally {
+      await prisma.student.deleteMany({ where: { orgId: { in: orgIds } } });
+      await prisma.saasOrg.deleteMany({ where: { id: { in: orgIds } } });
+    }
   });
 
   it("validates, reserves, and saves school website slugs", async () => {

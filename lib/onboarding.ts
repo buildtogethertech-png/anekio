@@ -1532,9 +1532,9 @@ async function applyClasses(db: OnboardingDb, rows: ImportRow[]) {
   return { created, updated };
 }
 
-async function nextCodes() {
+async function nextCodes(orgId: string | null) {
   const [students, teachers, staffMembers] = await runWithoutTenant(() => Promise.all([
-    prisma.student.findMany({ select: { admissionNo: true } }),
+    prisma.student.findMany({ where: { orgId }, select: { admissionNo: true } }),
     prisma.teacher.findMany({ select: { employeeId: true } }),
     prisma.staffMember.findMany({ select: { employeeId: true } }),
   ]));
@@ -1596,13 +1596,13 @@ async function applyStudents(
     const existing = studentId
       ? await db.student.findUnique({ where: { id: studentId } })
       : admissionNo
-        ? await db.student.findUnique({ where: { admissionNo } })
+        ? await db.student.findFirst({ where: { admissionNo, orgId: setup.orgId } })
         : null;
     if (!admissionNo) {
       do {
         admissionNo = `ANE-${String(nextAdmission).padStart(5, "0")}`;
         nextAdmission += 1;
-      } while (await db.student.findUnique({ where: { admissionNo }, select: { id: true } }));
+      } while (await db.student.findFirst({ where: { admissionNo, orgId: setup.orgId }, select: { id: true } }));
     }
     const data = {
       orgId: setup.orgId,
@@ -1788,7 +1788,7 @@ async function applyOpeningBalances(db: OnboardingDb, rows: ImportRow[], orgId?:
     const admissionNo = sheetCell(row, "Admission number", "Admission no");
     const student = studentId
       ? await db.student.findUnique({ where: { id: studentId } })
-      : await db.student.findUnique({ where: { admissionNo } });
+      : await db.student.findFirst({ where: { admissionNo, orgId: orgId ?? null } });
     if (!student) throw new Error(rowError(row, "student no longer exists."));
     const amount = Math.round(Number(sheetCell(row, "Backlog invoice amount", "Opening due amount", "Previous system due", "Due amount", "Amount")));
     const generatedThrough = sheetCell(row, "Invoices already generated till", "Invoices generated till", "Last invoice month", "Generated through", "Last generated month");
@@ -1849,7 +1849,7 @@ async function applyAttendance(db: OnboardingDb, rows: ImportRow[], user: Access
     const admissionNo = sheetCell(row, "Admission number", "Admission no");
     const student = studentId
       ? await db.student.findUnique({ where: { id: studentId }, select: { id: true } })
-      : await db.student.findUnique({ where: { admissionNo }, select: { id: true } });
+      : await db.student.findFirst({ where: { admissionNo, orgId: user.orgId ?? null }, select: { id: true } });
     if (!student) throw new Error(rowError(row, "student no longer exists."));
     for (const cell of attendanceCells(row)) {
       const status = parseAttendanceMark(cell.value);
@@ -1979,7 +1979,7 @@ export async function applyOnboardingImport(user: AccessUser, input: { batchId?:
   const kind = asKind(batch.kind);
   const rows = JSON.parse(batch.rowsJson) as ImportRow[];
   try {
-    const codes = kind === "students" || kind === "teachers" ? await nextCodes() : null;
+    const codes = kind === "students" || kind === "teachers" ? await nextCodes(orgId) : null;
     const peopleSetup = kind === "students"
       ? { orgId, roleId: await roleIdBySlug("PARENT"), password: await bcrypt.hash("12345", 10), admission: codes!.admission }
       : kind === "teachers"

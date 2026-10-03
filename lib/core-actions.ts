@@ -208,7 +208,7 @@ export async function createStudentCore(
             .filter((number) => Number.isFinite(number))
         ) + 1;
         let admissionNo = `ANE-${String(nextNumber).padStart(5, "0")}`;
-        while (await tx.student.findUnique({ where: { admissionNo }, select: { id: true } })) {
+        while (await tx.student.findFirst({ where: { admissionNo }, select: { id: true } })) {
           nextNumber += 1;
           admissionNo = `ANE-${String(nextNumber).padStart(5, "0")}`;
         }
@@ -364,7 +364,7 @@ export async function admitLeadAsStudentCore(
     if (admissionCharge > 0 && paymentMethod !== "CASH" && !paymentReference) {
       throw new Error("Enter the payment reference for the one-time admission fee.");
     }
-    const existingStudent = await tx.student.findUnique({ where: { admissionNo } });
+    const existingStudent = await tx.student.findFirst({ where: { admissionNo } });
     if (existingStudent) throw new Error("That admission number is already used.");
 
     const emailOwner = await tx.user.findFirst({ where: { email: parentEmail }, include: { parent: true } });

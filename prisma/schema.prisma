@@ -330,7 +330,7 @@ model Student {
   parent              Parent                   @relation(fields: [parentId], references: [id])
   classId             String
   class               Class                    @relation(fields: [classId], references: [id])
-  admissionNo         String                   @unique
+  admissionNo         String
   name                String
   dateOfBirth         DateTime
   interests           StudentInterest[]
@@ -348,6 +348,8 @@ model Student {
   payToken            String?                  @unique
   feeGeneratedThrough String                   @default("")
   enrollments         StudentClassEnrollment[]
+
+  @@unique([orgId, admissionNo])
 }
 
 model StudentClassEnrollment {
