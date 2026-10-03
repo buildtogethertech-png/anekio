@@ -1,7 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useState } from "react";
 import { Redirect, useRouter } from "expo-router";
-import { Linking, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { Image, Linking, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button, Input } from "../components/ui";
 import { useSession, type AuthAccountChoice } from "../lib/session";
@@ -22,9 +22,7 @@ function marketingPricingUrl() {
 function Brand({ inverse = false }: { inverse?: boolean }) {
   return (
     <View className="flex-row items-center gap-3">
-      <View className="h-11 w-11 items-center justify-center rounded-xl bg-clay-500">
-        <Text className="text-lg font-bold text-white">A</Text>
-      </View>
+      <Image source={require("../assets/icon.png")} accessibilityLabel="Anekio" style={{ width: 44, height: 44, borderRadius: 12 }} />
       <View>
         <Text className={`text-lg font-semibold ${inverse ? "text-white" : "text-ink-900"}`}>Anekio</Text>
         <Text className={`text-xs ${inverse ? "text-blue-100" : "text-ink-700"}`}>School operations, in one place</Text>
@@ -193,7 +191,7 @@ export default function Login() {
           </View>
         ) : null}
 
-        <View className="mt-6 gap-4">
+        <View className="mt-6 gap-5">
                   <View>
                     <FieldLabel>{mode === "otp" || mode === "forgot" ? "Registered email or mobile" : "Email or mobile number"}</FieldLabel>
                     <View className="relative justify-center">
@@ -210,7 +208,7 @@ export default function Login() {
                           setAccountChoices([]);
                         }}
                         placeholder="name@school.com or mobile number"
-                        className="h-12 pl-10"
+                        className="h-14 pl-11 text-base"
                       />
                     </View>
                   </View>
@@ -236,13 +234,13 @@ export default function Login() {
                           }}
                           onSubmitEditing={() => onPasswordSignIn()}
                           placeholder="Enter your password"
-                          className="h-12 px-10"
+                          className="h-14 px-11 text-base"
                         />
                         <Pressable
                           accessibilityRole="button"
                           accessibilityLabel={showPassword ? "Hide password" : "Show password"}
                           onPress={() => setShowPassword((current) => !current)}
-                          className="absolute right-2 z-10 h-9 w-9 items-center justify-center"
+                          className="absolute right-2 z-10 h-10 w-10 items-center justify-center"
                         >
                           <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={19} color="#64748B" />
                         </Pressable>
@@ -317,7 +315,7 @@ export default function Login() {
                   ) : null}
 
                   {mode === "password" ? (
-                    <Button testID="login-submit" accessibilityLabel="Sign in" onPress={() => onPasswordSignIn()} disabled={pending || !login || !password} className="h-12 justify-center">
+                    <Button testID="login-submit" accessibilityLabel="Sign in" onPress={() => onPasswordSignIn()} disabled={pending || !login || !password} className="h-14 justify-center">
                       {pending ? "Signing in..." : "Sign in securely"}
                     </Button>
                   ) : codeSent ? (
@@ -325,12 +323,12 @@ export default function Login() {
                       accessibilityLabel={mode === "forgot" ? "Reset password" : "Verify and sign in"}
                       onPress={mode === "forgot" ? onResetPassword : onCodeSignIn}
                       disabled={pending || code.length !== 6 || (mode === "forgot" && (!password || !confirmPassword))}
-                      className="h-12 justify-center"
+                      className="h-14 justify-center"
                     >
                       {pending ? "Verifying..." : mode === "forgot" ? "Reset password" : "Verify and sign in"}
                     </Button>
                   ) : (
-                    <Button accessibilityLabel="Send verification code" onPress={onRequestCode} disabled={pending || !login} className="h-12 justify-center">
+                    <Button accessibilityLabel="Send verification code" onPress={onRequestCode} disabled={pending || !login} className="h-14 justify-center">
                       {pending ? "Sending code..." : "Send verification code"}
                     </Button>
                   )}
@@ -352,6 +350,15 @@ export default function Login() {
           <Pressable accessibilityRole="link" onPress={() => void Linking.openURL("mailto:support@anekio.com")} className="mt-3 items-center">
             <Text className="text-xs text-ink-700">Need help? <Text className="font-medium text-clay-600">support@anekio.com</Text></Text>
           </Pressable>
+          <View className="mt-5 flex-row items-center gap-3 rounded-xl border border-blue-100 bg-blue-50/70 px-3 py-3">
+            <View className="h-8 w-8 items-center justify-center rounded-lg bg-white">
+              <Ionicons name="shield-checkmark-outline" size={18} color="#1D4ED8" />
+            </View>
+            <View className="min-w-0 flex-1">
+              <Text className="text-xs font-semibold text-ink-900">Secure school access</Text>
+              <Text className="mt-0.5 text-[11px] leading-4 text-ink-700">Your password and school data stay protected.</Text>
+            </View>
+          </View>
         </View>
       </View>
     </View>
