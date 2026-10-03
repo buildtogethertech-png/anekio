@@ -288,6 +288,7 @@ describe("Express portal API", () => {
           name: "Student With New Parent",
           classId: fixture.classId,
           dateOfBirth: "2015-06-15",
+          parentId: "__new__",
           parentName: "New Parent",
           parentPhone: phone,
         });

@@ -195,7 +195,8 @@ export async function createStudentCore(
 ) {
   need(user, "people.edit");
   const name = input.name.trim();
-  const existingParentId = String(input.parentId || "").trim();
+  const requestedParentId = String(input.parentId || "").trim();
+  const existingParentId = requestedParentId === "__new__" ? "" : requestedParentId;
   const parentName = String(input.parentName || "").trim();
   const parentPhone = existingParentId ? "" : requireMobile(String(input.parentPhone || ""), "the parent");
   const tags = (input.tags || []).filter((t): t is PathTag => PATH_TAGS.includes(t as PathTag));
