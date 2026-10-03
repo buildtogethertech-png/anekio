@@ -1746,12 +1746,19 @@ export function FeesBoard() {
           </View>
         }
       >
-        <View className="gap-4">
-          <View>
-            <Text className="text-sm font-semibold text-ink-900">Fee structure</Text>
-            <Text className="mt-1 text-xs text-ink-600">Each class can have consecutive fee structures, but their periods cannot overlap.</Text>
+        <View className="gap-5 pb-1">
+          <View className="rounded-xl border border-ink-100 bg-ink-50/70 p-4">
+            <View className="flex-row items-start justify-between gap-3">
+              <View className="min-w-0 flex-1">
+                <Text className="text-sm font-semibold text-ink-900">Fee schedule</Text>
+                <Text className="mt-1 text-xs leading-5 text-ink-600">Set when this structure applies. Class fee periods cannot overlap.</Text>
+              </View>
+              <View className="rounded-full bg-blue-100 px-2.5 py-1">
+                <Text className="text-[11px] font-semibold text-blue-800">Monthly</Text>
+              </View>
+            </View>
           </View>
-          <View className="flex-row flex-wrap gap-3">
+          <View className="-mt-2 flex-row flex-wrap gap-3">
             <View className="min-w-[220px] flex-1">
               <Select
                 label="Class"
@@ -1784,8 +1791,15 @@ export function FeesBoard() {
               </Field>
             </View>
           </View>
-          {structureRange ? <Text className="-mt-1 text-xs text-ink-600">Applies {structureRange}</Text> : null}
-          <View className="gap-2">
+          {structureRange ? <Text className="-mt-2 text-xs font-medium text-ink-700">Applies {structureRange}</Text> : null}
+          <View className="gap-2 rounded-xl border border-ink-100 bg-white p-4">
+            <View className="flex-row items-center justify-between gap-3">
+              <View>
+                <Text className="text-sm font-semibold text-ink-900">Monthly charges</Text>
+                <Text className="mt-0.5 text-xs text-ink-600">Included every month during this schedule.</Text>
+              </View>
+              <Text className="text-sm font-semibold text-clay-600">{inr(tplTotal)}</Text>
+            </View>
             <View className="flex-row px-1">
               <Text className="flex-1 text-[11px] font-semibold uppercase tracking-wide text-ink-500">Charge</Text>
               <Text className="w-32 text-right text-[11px] font-semibold uppercase tracking-wide text-ink-500">Amount</Text>
@@ -1835,16 +1849,21 @@ export function FeesBoard() {
                 />
               </View>
             ) : null}
-            <View className="mt-2 flex-row items-center justify-between border-t border-ink-100 pt-3">
+            <View className="mt-2 flex-row items-center justify-between rounded-lg bg-ink-50 px-3 py-2.5">
               <Text className="text-sm font-semibold text-ink-900">Monthly total</Text>
               <Text className="text-sm font-semibold text-ink-900">{inr(tplTotal)}</Text>
             </View>
           </View>
-          <View className="gap-2 border-t border-ink-100 pt-4">
-            <Text className="text-sm font-semibold text-ink-900">Admission fee</Text>
-            <Text className="text-xs leading-5 text-ink-600">
-              One-time only. When a student is admitted to this class, Anekio creates this admission invoice and does not include the monthly fee above.
-            </Text>
+          <View className="gap-2 rounded-xl border border-amber-100 bg-amber-50/50 p-4">
+            <View className="flex-row items-start justify-between gap-3">
+              <View className="min-w-0 flex-1">
+                <Text className="text-sm font-semibold text-ink-900">Admission fee</Text>
+                <Text className="mt-0.5 text-xs leading-5 text-ink-600">A one-time invoice created when a student joins this class. It never includes monthly charges.</Text>
+              </View>
+              <View className="rounded-full bg-amber-100 px-2.5 py-1">
+                <Text className="text-[11px] font-semibold text-amber-900">One time</Text>
+              </View>
+            </View>
             <View className="mt-1 flex-row px-1">
               <Text className="flex-1 text-[11px] font-semibold uppercase tracking-wide text-ink-500">Charge</Text>
               <Text className="w-32 text-right text-[11px] font-semibold uppercase tracking-wide text-ink-500">Amount</Text>
@@ -1895,9 +1914,9 @@ export function FeesBoard() {
               </View>
             ) : null}
           </View>
-          <View className="gap-2 border-t border-ink-100 pt-4">
-            <Text className="text-sm font-semibold text-ink-900">Class add-ons</Text>
-            <Text className="text-xs text-ink-600">
+          <View className="gap-2 rounded-xl border border-ink-100 bg-white p-4">
+            <Text className="text-sm font-semibold text-ink-900">Optional class add-ons</Text>
+            <Text className="text-xs leading-5 text-ink-600">
               Optional for this class only. Students opt in from Manage Fees — they are not billed automatically.
             </Text>
             {tplAddOnLines.map((line) => (
