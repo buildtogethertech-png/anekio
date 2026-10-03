@@ -283,6 +283,11 @@ type PeopleKind = "student" | "teacher" | "parent";
 type StudentTab = "overview" | "fees" | "attendance" | "reports" | "documents";
 type StudentSort = "name" | "class" | "due";
 
+function studentTabFromParam(value: string | string[] | undefined): StudentTab {
+  const tab = Array.isArray(value) ? value[0] : value;
+  return tab === "fees" || tab === "attendance" || tab === "reports" || tab === "documents" ? tab : "overview";
+}
+
 const PATH_OPTIONS = [
   { id: "OLYMPIAD", label: "Olympiad" },
   { id: "SPORTS", label: "Sports" },
@@ -738,8 +743,9 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   const { width } = useWindowDimensions();
   const wide = width >= 768;
   const toast = useToast();
-  const params = useLocalSearchParams<{ student?: string | string[] }>();
+  const params = useLocalSearchParams<{ student?: string | string[]; tab?: string | string[] }>();
   const incoming = Array.isArray(params.student) ? params.student[0] : params.student;
+  const incomingTab = studentTabFromParam(params.tab);
   const [q, setQ] = useState("");
   const [kind, setKind] = useState<PeopleKind>("student");
   const [classIds, setClassIds] = useState<string[]>([]);
@@ -753,7 +759,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   const [openCard, setOpenCard] = useState<ReportCardData | null>(null);
   const [add, setAdd] = useState<PeopleKind | null>(null);
   const [importOpen, setImportOpen] = useState(false);
-  const [fileTab, setFileTab] = useState<StudentTab>("overview");
+  const [fileTab, setFileTab] = useState<StudentTab>(() => incomingTab);
   const [fileEdit, setFileEdit] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
   const [edit, setEdit] = useState<Record<string, any>>({});
@@ -814,17 +820,29 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       : null;
   const selected = selectedStudent;
 
+  function selectStudent(studentId: string, tab: StudentTab = "overview") {
+    setKind("student");
+    setPicked({ kind: "student", id: studentId });
+    setFileTab(tab);
+    router.replace({ pathname: "/people", params: { student: studentId, tab } } as never);
+  }
+
+  function selectStudentTab(tab: StudentTab) {
+    setFileTab(tab);
+    if (selected) router.replace({ pathname: "/people", params: { student: selected.id, tab } } as never);
+  }
+
   useEffect(() => {
-    if (!incoming) return;
+    if (!incoming || !people.length) return;
+    const requested = people.find((student) => student.id === incoming);
+    const fallback = requested || people[0];
     setFeeFilter("due");
     setClassIds([]);
     setKind("student");
-    setPicked({ kind: "student", id: incoming });
-    setFileTab("overview");
-  }, [incoming]);
-  useEffect(() => {
-    setFileTab("overview");
-  }, [picked?.id]);
+    setPicked({ kind: "student", id: fallback.id });
+    setFileTab(incomingTab);
+    if (!requested) router.replace({ pathname: "/people", params: { student: fallback.id, tab: incomingTab } } as never);
+  }, [incoming, incomingTab, people, router]);
   useEffect(() => {
     setFileEdit(false);
   }, [picked?.id, fileTab]);
@@ -906,7 +924,10 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       setPicked(null);
       return;
     }
-    if (next === "student") setPicked(sortedStudents[0] ? { kind: "student", id: sortedStudents[0].id } : null);
+    if (next === "student") {
+      if (sortedStudents[0]) selectStudent(sortedStudents[0].id);
+      else setPicked(null);
+    }
     if (next === "teacher") setPicked(filteredTeachers[0] ? { kind: "teacher", id: filteredTeachers[0].id } : null);
     if (next === "parent") setPicked(filteredParents[0] ? { kind: "parent", id: filteredParents[0].id } : null);
   }
@@ -1176,14 +1197,14 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                     feeAddOns: (selected.feeAddOns ?? []).map((addOn) => ({ ...addOn, amount: String(addOn.amount) })),
                   });
                   setEditTags(pathIds(selected.path));
-                  setFileTab("overview");
+                  selectStudentTab("overview");
                   setFileEdit(true);
                 }}
               >
                 Edit
               </Button>
             ) : null}
-            <Button variant="ghost" onPress={() => setFileTab("documents")}>Documents</Button>
+            <Button variant="ghost" onPress={() => selectStudentTab("documents")}>Documents</Button>
             <Pressable
               disabled={!parentTel}
               onPress={() => parentTel ? void Linking.openURL(parentTel) : undefined}
@@ -1203,7 +1224,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
               { id: "documents", label: "Documents" },
             ]}
             value={fileTab}
-            onChange={(id) => setFileTab(id as StudentTab)}
+            onChange={(id) => selectStudentTab(id as StudentTab)}
           />
         </View>
       </>
@@ -1383,7 +1404,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
         </DetailSection>
         <DetailSection
           title="Documents"
-          action={<Pressable onPress={() => setFileTab("documents")} hitSlop={8}><Text className="text-xs font-medium text-clay-600">View all</Text></Pressable>}
+          action={<Pressable onPress={() => selectStudentTab("documents")} hitSlop={8}><Text className="text-xs font-medium text-clay-600">View all</Text></Pressable>}
         >
           <View className="rounded-md bg-sky-50 p-4">
             <View className="flex-row flex-wrap items-start justify-between gap-3">
@@ -1908,9 +1929,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                 <Pressable
                   key={child.id}
                   onPress={() => {
-                    setKind("student");
-                    setPicked({ kind: "student", id: child.id });
-                    setFileTab("overview");
+                    selectStudent(child.id);
                   }}
                   className="rounded-md border border-ink-100 bg-ink-50 px-3 py-3"
                 >
@@ -1959,8 +1978,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
             <Pressable
               key={c.id}
               onPress={() => {
-                setKind("student");
-                setPicked({ kind: "student", id: c.id });
+                selectStudent(c.id);
               }}
               className="flex-row items-center justify-between border-b border-ink-100 py-2.5"
             >
@@ -2003,7 +2021,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                 return (
                   <Pressable
                     key={`student-${s.id}`}
-                    onPress={() => setPicked({ kind: "student", id: s.id })}
+                    onPress={() => selectStudent(s.id)}
                     className={`mx-2 mb-1 flex-row items-center gap-3 rounded-md px-3 py-2.5 ${
                       on ? "bg-blue-50" : "bg-white"
                     }`}
