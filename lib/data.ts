@@ -16,9 +16,10 @@ export async function getParentWithChildren(userId: string) {
     where: { userId },
     include: {
       user: true,
-      students: {
+          students: {
         include: {
           class: true,
+          enrollments: { where: { active: true, session: { current: true } }, select: { rollNumber: true, classId: true } },
           feeInvoices: { include: { payments: true } },
           interests: true,
           user: true,
@@ -46,6 +47,7 @@ export async function getStudentForUser(userId: string) {
     where: { userId },
     include: {
       class: true,
+      enrollments: { where: { active: true, session: { current: true } }, select: { rollNumber: true, classId: true } },
       interests: true,
       parent: { include: { user: true } },
     },
@@ -65,6 +67,7 @@ export async function getStudentBundle(studentId: string) {
           },
         },
       },
+      enrollments: { where: { active: true, session: { current: true } }, select: { rollNumber: true, classId: true } },
       interests: true,
       parent: { include: { user: true } },
       user: true,
@@ -99,6 +102,7 @@ export async function getClassRoster(classId: string) {
     where: { classId },
     include: {
       parent: { include: { user: { select: { name: true, phone: true, email: true } } } },
+      enrollments: { where: { active: true, session: { current: true } }, select: { rollNumber: true, classId: true } },
       interests: true,
       attendance: { orderBy: { date: "desc" }, take: 400 },
       examResults: { include: { exam: { include: { subject: true, series: true } } } },
@@ -355,6 +359,7 @@ export async function getTeacherDesk(userId: string) {
           name: true,
           admissionNo: true,
           classId: true,
+          enrollments: { where: { active: true, session: { current: true } }, select: { rollNumber: true, classId: true } },
         },
         orderBy: { name: "asc" },
       })
@@ -684,6 +689,7 @@ export async function getPeople() {
     prisma.student.findMany({
       include: {
         class: true,
+        enrollments: { where: { active: true, session: { current: true } }, select: { rollNumber: true, classId: true } },
         interests: true,
         parent: { include: { user: true } },
         user: true,

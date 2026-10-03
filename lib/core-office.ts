@@ -161,17 +161,13 @@ export async function saveFeeAcademicSessionCore(
   need(user, "fees.configure");
   const startsOn = String(input.startsOn ?? input.sessionStart ?? "").trim();
   const endsOn = String(input.endsOn ?? input.sessionEnd ?? "").trim();
-  const session =
-    startsOn && endsOn
-      ? await updateCurrentSchoolSession({
-          label: input.label ?? input.sessionName,
-          startsOn,
-          endsOn,
-        })
-      : await (async () => {
-          const { current } = await ensureSchoolSessions();
-          return { id: current.id, label: current.label, startsOn: current.startsOn, endsOn: current.endsOn, current: true };
-        })();
+  if (!startsOn || !endsOn) throw new Error("Pick the session start and end.");
+  if (endsOn < startsOn) throw new Error("Session end must be after session start.");
+  const session = await updateCurrentSchoolSession({
+    label: input.label ?? input.sessionName,
+    startsOn,
+    endsOn,
+  });
   if (input.dueDay == null || String(input.dueDay).trim() === "") {
     const catalog = await loadFeeCatalog();
     return { ...session, dueDay: catalog.dueDay };

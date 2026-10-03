@@ -34,14 +34,18 @@ export function storedNoticeKind(raw?: string | null): NoticeKind {
   return kind === "UNKNOWN" ? "CIRCULAR" : kind;
 }
 
-export function classifyNotice(n: { kind?: string | null; body?: string | null }) {
+export function classifyNotice(n: { kind?: string | null; title?: string | null; body?: string | null }) {
   const canonical = canonicalizeNoticeKind(n.kind);
   if (canonical !== "CIRCULAR") return { kind: canonical };
+  const text = `${n.title || ""} ${n.body || ""}`;
+  if (/ added .+ for .+ on /.test(n.body || "") || /fees pending|admit card blocked/i.test(text)) {
+    return { kind: (/fees pending|admit card blocked/i.test(text) ? "FEES" : "EXAM") as "FEES" | "EXAM" };
+  }
   if (/ added .+ for .+ on /.test(n.body || "")) return { kind: "EXAM" as const };
   return { kind: "CIRCULAR" as const };
 }
 
-export function isCircularNotice(n: { kind?: string | null; body?: string | null }) {
+export function isCircularNotice(n: { kind?: string | null; title?: string | null; body?: string | null }) {
   return classifyNotice(n).kind === "CIRCULAR";
 }
 

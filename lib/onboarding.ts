@@ -1457,6 +1457,27 @@ async function validateRows(kind: ImportKind, rows: ImportRow[]) {
   return errors;
 }
 
+async function writeOnboardingState(
+  id: string,
+  orgId: string,
+  data: { selectedModulesJson?: string } = {},
+  mode: "ensure" | "save" = "save"
+) {
+  return runWithoutTenant(async () => {
+    const existing = await prisma.schoolOnboardingState.findUnique({ where: { id } });
+    if (existing) {
+      if (mode === "ensure" && existing.orgId === orgId) return existing;
+      return prisma.schoolOnboardingState.update({
+        where: { id },
+        data: mode === "ensure" ? { orgId } : { orgId, ...data },
+      });
+    }
+    return prisma.schoolOnboardingState.create({
+      data: { id, orgId, ...data },
+    });
+  });
+}
+
 export async function ensureOnboardingState(user: AccessUser) {
   const orgId = await onboardingOrgId(user);
   const id = onboardingStateId(orgId);
@@ -1466,12 +1487,14 @@ export async function ensureOnboardingState(user: AccessUser) {
       select: { orgId: true, selectedModulesJson: true },
     })
   );
-  const selectedModulesJson = legacy && (!legacy.orgId || legacy.orgId === orgId) ? legacy.selectedModulesJson : undefined;
-  return prisma.schoolOnboardingState.upsert({
-    where: { id },
-    update: { orgId },
-    create: { id, orgId, ...(selectedModulesJson ? { selectedModulesJson } : {}) },
-  });
+  const selectedModulesJson =
+    legacy && (!legacy.orgId || legacy.orgId === orgId) ? legacy.selectedModulesJson : undefined;
+  return writeOnboardingState(
+    id,
+    orgId,
+    selectedModulesJson ? { selectedModulesJson } : {},
+    "ensure"
+  );
 }
 
 async function onboardingOrgId(user: AccessUser) {
@@ -2049,11 +2072,7 @@ export async function saveOnboardingPlan(user: AccessUser, input: { modules?: un
   const modules = requested.length ? DEFAULT_ONBOARDING_MODULES : current.modules;
   const selectedModulesJson = serializePlanState({ modules, manualSteps: current.manualSteps });
   const orgId = await onboardingOrgId(user);
-  const saved = await prisma.schoolOnboardingState.upsert({
-    where: { id: state.id },
-    update: { orgId, selectedModulesJson },
-    create: { id: state.id, orgId, selectedModulesJson },
-  });
+  const saved = await writeOnboardingState(state.id, orgId, { selectedModulesJson });
   return parsePlanState(saved.selectedModulesJson);
 }
 
@@ -2067,10 +2086,8 @@ export async function toggleOnboardingStep(user: AccessUser, input: { key?: unkn
   if (input.complete === false) manual.delete(key);
   else manual.add(key);
   const orgId = await onboardingOrgId(user);
-  const saved = await prisma.schoolOnboardingState.upsert({
-    where: { id: state.id },
-    update: { orgId, selectedModulesJson: serializePlanState({ modules: current.modules, manualSteps: [...manual] }) },
-    create: { id: state.id, orgId, selectedModulesJson: serializePlanState({ modules: current.modules, manualSteps: [...manual] }) },
+  const saved = await writeOnboardingState(state.id, orgId, {
+    selectedModulesJson: serializePlanState({ modules: current.modules, manualSteps: [...manual] }),
   });
   return parsePlanState(saved.selectedModulesJson);
 }
