@@ -182,7 +182,6 @@ export async function createStudentCore(
   user: AccessUser,
   input: {
     name: string;
-    admissionNo: string;
     classId: string;
     parentId: string;
     dateOfBirth: string;
@@ -191,25 +190,53 @@ export async function createStudentCore(
 ) {
   need(user, "people.edit");
   const name = input.name.trim();
-  const admissionNo = input.admissionNo.trim();
   const tags = (input.tags || []).filter((t): t is PathTag => PATH_TAGS.includes(t as PathTag));
-  if (!name || !admissionNo || !input.classId || !input.parentId || !input.dateOfBirth) {
+  if (!name || !input.classId || !input.parentId || !input.dateOfBirth) {
     throw new Error("Missing student fields");
   }
-  await prisma.$transaction(async (tx) => {
-    const student = await tx.student.create({
-      data: {
-        orgId: user.orgId ?? null,
-        name,
-        admissionNo,
-        classId: input.classId,
-        parentId: input.parentId,
-        dateOfBirth: new Date(input.dateOfBirth),
-        interests: { create: tags.map((tag) => ({ tag })) },
-      },
-    });
-    await assignStudentRollNumber(tx, { studentId: student.id, classId: input.classId, orgId: user.orgId ?? null });
-  });
+
+  // Admission numbers are assigned on the server so every entry point follows
+  // the same sequence. Retry a collision in the unlikely case of concurrent admissions.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await prisma.$transaction(async (tx) => {
+        const existing = await tx.student.findMany({ select: { admissionNo: true } });
+        let nextNumber = Math.max(
+          0,
+          ...existing
+            .map((student) => Number(student.admissionNo.replace(/\D/g, "")))
+            .filter((number) => Number.isFinite(number))
+        ) + 1;
+        let admissionNo = `ANE-${String(nextNumber).padStart(5, "0")}`;
+        while (await tx.student.findUnique({ where: { admissionNo }, select: { id: true } })) {
+          nextNumber += 1;
+          admissionNo = `ANE-${String(nextNumber).padStart(5, "0")}`;
+        }
+        const student = await tx.student.create({
+          data: {
+            orgId: user.orgId ?? null,
+            name,
+            admissionNo,
+            classId: input.classId,
+            parentId: input.parentId,
+            dateOfBirth: new Date(input.dateOfBirth),
+            interests: { create: tags.map((tag) => ({ tag })) },
+          },
+        });
+        await assignStudentRollNumber(tx, { studentId: student.id, classId: input.classId, orgId: user.orgId ?? null });
+        return { admissionNo: student.admissionNo };
+      });
+    } catch (error) {
+      const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
+      const target = error && typeof error === "object" && "meta" in error
+        ? String((error.meta as { target?: unknown } | undefined)?.target || "")
+        : "";
+      if (attempt < 2 && code === "P2002" && target.includes("admissionNo")) continue;
+      throw error;
+    }
+  }
+
+  throw new Error("Could not assign an admission number");
 }
 
 function normalizeAdmissionFeeLines(input: unknown) {

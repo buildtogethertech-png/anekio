@@ -188,6 +188,26 @@ describe("Express portal API", () => {
     expect(response.body).toEqual({ ok: true });
   });
 
+  it("assigns incrementing admission numbers when office adds students", async () => {
+    const session = await login(fixture.users.office.email);
+    const auth = { Authorization: `Bearer ${session.body.token}` };
+    const base = {
+      op: "createStudent",
+      classId: fixture.classId,
+      parentId: "parent-pari",
+      dateOfBirth: "2015-06-15",
+    };
+
+    const first = await request(app).post("/api/v1/act").set(auth).send({ ...base, name: "Auto Number One" });
+    const second = await request(app).post("/api/v1/act").set(auth).send({ ...base, name: "Auto Number Two" });
+
+    expect(first.status).toBe(200);
+    expect(first.body).toMatchObject({ ok: true, admissionNo: "ANE-00002" });
+    expect(second.status).toBe(200);
+    expect(second.body).toMatchObject({ ok: true, admissionNo: "ANE-00003" });
+    expect(await prisma.student.findUnique({ where: { admissionNo: "ANE-00003" } })).toMatchObject({ name: "Auto Number Two" });
+  });
+
   it("validates, reserves, and saves school website slugs", async () => {
     const original = await prisma.schoolConfig.findUniqueOrThrow({ where: { id: "school" } });
     const { id: _id, ...originalData } = original;

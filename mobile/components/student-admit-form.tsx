@@ -22,7 +22,6 @@ const PATH_TAGS = [
 
 export type StudentAdmitPayload = {
   name: string;
-  admissionNo: string;
   dateOfBirth: string;
   classId: string;
   parentId: string;
@@ -33,7 +32,6 @@ export type StudentAdmitPayload = {
 function emptyForm(classes: { id: string }[]): StudentAdmitPayload {
   return {
     name: "",
-    admissionNo: "",
     dateOfBirth: "",
     classId: classes[0]?.id || "",
     parentId: "",
@@ -66,7 +64,7 @@ export function StudentAdmitForm({
 
   async function save() {
     if (busy) return;
-    if (!form.name.trim() || !form.admissionNo.trim() || !form.dateOfBirth || !form.classId || !form.parentId) {
+    if (!form.name.trim() || !form.dateOfBirth || !form.classId || !form.parentId) {
       return;
     }
     setBusy(true);
@@ -108,9 +106,9 @@ export function StudentAdmitForm({
       ) : (
         <Text className="text-sm text-ink-700">Add a parent first, then come back.</Text>
       )}
-      <Field label="Admission no.">
-        <Input value={form.admissionNo} onChangeText={(admissionNo) => patch({ admissionNo })} />
-      </Field>
+      <View className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
+        <Text className="text-xs font-medium text-ink-800">Admission number is assigned automatically when you add the student.</Text>
+      </View>
       <Text className="pt-1 text-xs font-medium text-ink-700">Path · optional</Text>
       <View className="flex-row flex-wrap gap-2">
         {PATH_TAGS.map((t) => {

@@ -963,10 +963,10 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
 
   async function addStudent(values: StudentAdmitPayload) {
     try {
-      await act(token, "createStudent", values);
+      const result = await act<{ admissionNo: string }>(token, "createStudent", values);
       setAdd(null);
       setForm({});
-      toast.show("Student added.");
+      toast.show(`Student added · ${result.admissionNo}`);
       await reload();
     } catch (e) {
       toast.show(e instanceof Error ? e.message : "Could not save.");
