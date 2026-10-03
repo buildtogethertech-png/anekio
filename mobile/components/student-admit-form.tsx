@@ -30,6 +30,8 @@ export type StudentAdmitPayload = {
   dateOfBirth: string;
   classId: string;
   parentId: string;
+  parentName: string;
+  parentPhone: string;
   tags: string[];
   feeAddOns: StudentFeeAddOnPayload[];
   collectAdmissionFee: boolean;
@@ -43,6 +45,8 @@ function emptyForm(classes: { id: string }[]): StudentAdmitPayload {
     dateOfBirth: "",
     classId: classes[0]?.id || "",
     parentId: "",
+    parentName: "",
+    parentPhone: "",
     tags: [],
     feeAddOns: [],
     collectAdmissionFee: false,
@@ -82,7 +86,8 @@ export function StudentAdmitForm({
 
   async function save() {
     if (busy) return;
-    if (!form.name.trim() || !form.dateOfBirth || !form.classId || !form.parentId) {
+    const hasExistingParent = Boolean(form.parentId && form.parentId !== "__new__");
+    if (!form.name.trim() || !form.dateOfBirth || !form.classId || (!hasExistingParent && (!form.parentName.trim() || !form.parentPhone.trim()))) {
       return;
     }
     setBusy(true);
@@ -114,16 +119,24 @@ export function StudentAdmitForm({
       ) : (
         <Text className="text-sm text-ink-700">Add a class first, then come back.</Text>
       )}
-      {parents.length ? (
-        <Select
-          label="Parent"
-          value={form.parentId}
-          options={parents.map(parentOption)}
-          onChange={(parentId) => patch({ parentId })}
-        />
-      ) : (
-        <Text className="text-sm text-ink-700">Add a parent first, then come back.</Text>
-      )}
+      <Select
+        label="Parent"
+        value={form.parentId}
+        options={[{ id: "__new__", label: "+ Add new parent" }, ...parents.map(parentOption)]}
+        onChange={(parentId) => patch({ parentId })}
+      />
+      {form.parentId === "__new__" ? (
+        <View className="gap-3 rounded-xl border border-blue-100 bg-blue-50/70 p-3">
+          <Text className="text-xs font-semibold text-ink-900">New parent details</Text>
+          <Field label="Parent name">
+            <Input value={form.parentName} onChangeText={(parentName) => patch({ parentName })} autoComplete="name" />
+          </Field>
+          <Field label="Mobile number">
+            <Input value={form.parentPhone} onChangeText={(parentPhone) => patch({ parentPhone })} keyboardType="phone-pad" placeholder="10-digit mobile number" />
+          </Field>
+          <Text className="text-[11px] leading-4 text-ink-700">A parent profile and login will be created with this mobile number.</Text>
+        </View>
+      ) : null}
       <View className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
         <Text className="text-xs font-medium text-ink-800">Admission number is assigned automatically when you add the student.</Text>
       </View>

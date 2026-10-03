@@ -275,6 +275,33 @@ describe("Express portal API", () => {
     }
   });
 
+  it("creates a new parent while adding a student", async () => {
+    const phone = "9800000123";
+    const session = await login(fixture.users.office.email);
+    const auth = { Authorization: `Bearer ${session.body.token}` };
+    try {
+      const created = await request(app)
+        .post("/api/v1/act")
+        .set(auth)
+        .send({
+          op: "createStudent",
+          name: "Student With New Parent",
+          classId: fixture.classId,
+          dateOfBirth: "2015-06-15",
+          parentName: "New Parent",
+          parentPhone: phone,
+        });
+
+      expect(created.status).toBe(200);
+      const parentUser = await prisma.user.findFirstOrThrow({ where: { phone }, include: { parent: true } });
+      expect(parentUser).toMatchObject({ name: "New Parent", parent: { phone } });
+      expect(await prisma.student.findFirst({ where: { name: "Student With New Parent" } })).toMatchObject({ parentId: parentUser.parent?.id });
+    } finally {
+      await prisma.student.deleteMany({ where: { name: "Student With New Parent" } });
+      await prisma.user.deleteMany({ where: { phone } });
+    }
+  });
+
   it("keeps admission numbers unique within each school, not across schools", async () => {
     const orgIds = ["org-admission-a", "org-admission-b"];
     await prisma.saasOrg.createMany({

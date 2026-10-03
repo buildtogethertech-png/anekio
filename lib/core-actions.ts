@@ -183,7 +183,9 @@ export async function createStudentCore(
   input: {
     name: string;
     classId: string;
-    parentId: string;
+    parentId?: string;
+    parentName?: string;
+    parentPhone?: string;
     dateOfBirth: string;
     tags?: string[];
     collectAdmissionFee?: boolean;
@@ -193,11 +195,14 @@ export async function createStudentCore(
 ) {
   need(user, "people.edit");
   const name = input.name.trim();
+  const existingParentId = String(input.parentId || "").trim();
+  const parentName = String(input.parentName || "").trim();
+  const parentPhone = existingParentId ? "" : requireMobile(String(input.parentPhone || ""), "the parent");
   const tags = (input.tags || []).filter((t): t is PathTag => PATH_TAGS.includes(t as PathTag));
   const collectAdmissionFee = Boolean(input.collectAdmissionFee);
   const paymentMethod = parsePayMethod(input.paymentMethod);
   const paymentReference = String(input.paymentReference || "").trim() || null;
-  if (!name || !input.classId || !input.parentId || !input.dateOfBirth) {
+  if (!name || !input.classId || !input.dateOfBirth || (!existingParentId && (!parentName || !parentPhone))) {
     throw new Error("Missing student fields");
   }
   if (collectAdmissionFee) {
@@ -210,6 +215,32 @@ export async function createStudentCore(
   for (let attempt = 0; attempt < 10; attempt += 1) {
     try {
       return await prisma.$transaction(async (tx) => {
+        let parentId = existingParentId;
+        if (parentId) {
+          const parent = await tx.parent.findFirst({ where: { id: parentId }, select: { id: true } });
+          if (!parent) throw new Error("Pick a valid parent.");
+        } else {
+          const parentUser = await tx.user.findFirst({ where: { phone: parentPhone }, include: { parent: true } });
+          if (parentUser && !parentUser.parent) throw new Error("That number already belongs to a non-parent account.");
+          if (parentUser?.parent) {
+            parentId = parentUser.parent.id;
+          } else {
+            const createdParent = await tx.user.create({
+              data: {
+                orgId: user.orgId ?? null,
+                name: parentName,
+                email: `parent.${parentPhone}@mobile.local`,
+                password: await bcrypt.hash("12345", 10),
+                roleId: await roleIdBySlug("PARENT"),
+                phone: parentPhone,
+                parent: { create: { orgId: user.orgId ?? null, phone: parentPhone } },
+              },
+              include: { parent: true },
+            });
+            parentId = createdParent.parent?.id || "";
+          }
+        }
+        if (!parentId) throw new Error("Could not prepare the parent.");
         const config = await tx.schoolConfig.findUnique({ where: { id: "school" } });
         const admissionRows = await tx.admissionFeeLine.findMany({
           where: { classId: input.classId, active: true },
@@ -238,7 +269,7 @@ export async function createStudentCore(
             name,
             admissionNo,
             classId: input.classId,
-            parentId: input.parentId,
+            parentId,
             dateOfBirth: new Date(input.dateOfBirth),
             interests: { create: tags.map((tag) => ({ tag })) },
           },
