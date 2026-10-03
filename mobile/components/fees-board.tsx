@@ -775,7 +775,7 @@ export function FeesBoard() {
   }
 
   const modeTabs = (
-    <View className="flex-row rounded-md border border-ink-200 bg-white p-0.5">
+    <View className="flex-row rounded-xl border border-ink-200 bg-white p-1 shadow-sm">
       {(
         [
           ["register", "Register"],
@@ -788,7 +788,7 @@ export function FeesBoard() {
           key={id}
           accessibilityRole="button"
           onPress={() => setTab(id)}
-          className={`min-w-[76px] items-center rounded-md px-3 py-1.5 ${tab === id ? "bg-clay-500" : "bg-white"}`}
+          className={`min-w-[76px] items-center rounded-lg px-3 py-2 ${tab === id ? "bg-clay-500" : "bg-white"}`}
         >
           <Text className={`text-sm font-semibold ${tab === id ? "text-white" : "text-ink-800"}`}>{label}</Text>
         </Pressable>
@@ -797,31 +797,37 @@ export function FeesBoard() {
   );
 
   const metricChips = (
-    <View className="flex-row flex-wrap items-center gap-1.5">
+    <View className="flex-row flex-wrap gap-2">
       {(
         [
-          ["Outstanding", compactInr(summary.outstanding), "text-amber-900"],
-          ["Overdue", compactInr(summary.overdue), "text-red-700"],
-          ["Collected", compactInr(summary.collected), "text-green-800"],
-          ["Students", String(summary.students), "text-ink-900"],
-          ["Pending", String(summary.pending), "text-ink-800"],
+          ["Outstanding", compactInr(summary.outstanding), "text-amber-900", "border-amber-100 bg-amber-50/40"],
+          ["Overdue", compactInr(summary.overdue), "text-red-700", "border-red-100 bg-red-50/50"],
+          ["Collected", compactInr(summary.collected), "text-green-800", "border-green-100 bg-green-50/40"],
+          ["Students with dues", String(summary.students), "text-ink-900", "border-ink-100 bg-white"],
         ] as const
-      ).map(([label, value, tone]) => (
-        <View key={label} className="rounded-md border border-ink-100 bg-white px-2.5 py-1.5">
-          <Text className="text-[9px] font-semibold uppercase tracking-wide text-ink-500">{label}</Text>
-          <Text className={`text-[13px] font-semibold ${tone}`}>{value}</Text>
+      ).map(([label, value, tone, surface]) => (
+        <View key={label} className={`min-w-[112px] rounded-xl border px-3 py-2.5 ${surface}`}>
+          <Text className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">{label}</Text>
+          <Text className={`mt-0.5 text-[16px] font-bold ${tone}`}>{value}</Text>
         </View>
       ))}
     </View>
   );
 
   const toolbar = (
-    <View className="mb-2 flex-row flex-wrap items-center gap-2">
+    <View className="mb-3 gap-3">
+      <View className="flex-row flex-wrap items-start justify-between gap-3">
+        <View>
+          <Text className="text-[22px] font-bold tracking-tight text-ink-900">Fees</Text>
+          <Text className="mt-0.5 text-sm text-ink-600">
+            {tab === "register" ? `${summary.pending} fee periods need attention across ${summary.students} students.` : tab === "report" ? "Review every payment and receipt in one place." : tab === "insight" ? "Collection performance for the current academic session." : "Configure the school’s fee structure."}
+          </Text>
+        </View>
+        {modeTabs}
+      </View>
       {tab !== "insight" && tab !== "setup" ? metricChips : null}
       <View className="min-w-[220px] flex-1">
-        {tab === "setup" ? (
-          <Text className="text-sm text-ink-700">Configure the school’s fee structure</Text>
-        ) : tab === "insight" ? (
+        {tab === "setup" ? null : tab === "insight" ? (
           <Text className="text-sm text-ink-700">Collected is payment date. Billed and outstanding are invoices.</Text>
         ) : (
           <FilterBar
@@ -850,24 +856,18 @@ export function FeesBoard() {
           />
         )}
       </View>
-      {modeTabs}
     </View>
   );
 
   const registerTable = (
     <View className="w-full">
-      <View className="flex-row border-b border-ink-200" style={stickyHead}>
-        <Head label="Adm no." flex={0.95} />
-        <Head label="Student" flex={1.5} />
-        <Head label="Class" flex={0.65} />
+      <View className="flex-row border-b border-ink-200 bg-slate-50/70" style={stickyHead}>
+        <Head label="Student" flex={2.15} />
+        <Head label="Amount due" flex={1.15} right />
+        <Head label="Status" flex={0.9} />
         <Head label="Fee period" flex={1.25} />
-        <Head label="Months due" flex={0.85} />
-        <Head label="Fee" flex={0.8} right />
-        <Head label="Late fine" flex={0.8} right />
-        <Head label="Total due" flex={0.9} right />
-        <Head label="Due date" flex={0.85} right />
-        <Head label="Status" flex={0.85} />
-        <Head label="Last payment" flex={1.35} />
+        <Head label="Last payment" flex={1.45} right />
+        <Head label="" flex={0.32} right />
       </View>
       {refreshing && !registerRows.length
         ? Array.from({ length: 8 }).map((_, index) => (
@@ -883,44 +883,57 @@ export function FeesBoard() {
                 accessibilityRole="button"
                 accessibilityLabel={`${row.person.name} fee detail`}
                 onPress={() => setSelectedDueStudentId(row.person.id)}
-                className={`flex-row border-b border-ink-50 ${active ? "bg-blue-50" : "bg-white"}`}
-                style={{ minHeight: 56, cursor: "pointer" }}
+                className={`flex-row border-b border-ink-100 ${active ? "bg-blue-50" : "bg-white hover:bg-slate-50"}`}
+                style={{ minHeight: 68, cursor: "pointer" }}
               >
-                <Cell flex={0.95}>{row.person.admissionNo || "—"}</Cell>
-                <Cell flex={1.5}>
+                <Cell flex={2.15}>
                   <Text numberOfLines={1} className="text-[13px] font-semibold leading-5 text-clay-600">
                     {row.person.name}
                   </Text>
-                </Cell>
-                <Cell flex={0.65}>{row.person.classLabel}</Cell>
-                <Cell flex={1.25}>{row.period}</Cell>
-                <Cell flex={0.85}>{row.months ? `${row.months} month${row.months === 1 ? "" : "s"}` : "—"}</Cell>
-                <Cell flex={0.8} right>
-                  {row.dueNow ? compactInr(row.fee) : "—"}
-                </Cell>
-                <Cell flex={0.8} right>
-                  {row.late ? compactInr(row.late) : "—"}
-                </Cell>
-                <Cell flex={0.9} right>
-                  <Text numberOfLines={1} className={`text-[13px] font-semibold leading-5 ${row.dueNow ? "text-amber-900" : "text-green-700"}`}>
-                    {row.dueNow ? compactInr(row.dueNow) : "No dues"}
+                  <Text numberOfLines={1} className="mt-0.5 text-[11px] text-ink-500">
+                    {row.person.classLabel} · {row.person.admissionNo || "No admission no."}
                   </Text>
                 </Cell>
-                <Cell flex={0.85} right>
-                  {row.dueDate}
+                <Cell flex={1.15} right>
+                  <Text numberOfLines={1} className={`text-[14px] font-bold leading-5 ${row.dueNow ? "text-amber-900" : "text-green-700"}`}>
+                    {row.dueNow ? compactInr(row.dueNow) : "No dues"}
+                  </Text>
+                  <Text numberOfLines={1} className="mt-0.5 text-[11px] text-ink-500">
+                    {row.late ? `${compactInr(row.fee)} + ${compactInr(row.late)} late` : compactInr(row.fee)}
+                  </Text>
                 </Cell>
-                <Cell flex={0.85}>
+                <Cell flex={0.9}>
                   <Text
                     numberOfLines={1}
-                    className={`text-[13px] font-medium leading-5 ${
-                      row.status.id === "paid" ? "text-green-700" : row.status.id === "overdue" ? "text-amber-800" : "text-ink-800"
+                    className={`self-start rounded-full px-2 py-1 text-[11px] font-semibold ${
+                      row.status.id === "paid"
+                        ? "bg-green-50 text-green-700"
+                        : row.status.id === "overdue"
+                          ? "bg-red-50 text-red-700"
+                          : "bg-amber-50 text-amber-800"
                     }`}
                   >
                     {row.status.label}
                   </Text>
                 </Cell>
+                <Cell flex={1.25}>
+                  <Text numberOfLines={1} className="text-[13px] font-medium text-ink-900">{row.period}</Text>
+                  <Text numberOfLines={1} className="mt-0.5 text-[11px] text-ink-500">
+                    {row.months ? `${row.months} month${row.months === 1 ? "" : "s"} · due ${row.dueDate}` : `Due ${row.dueDate}`}
+                  </Text>
+                </Cell>
                 <Cell flex={1.35} right>
-                  {row.lastPayment ? `${row.lastPayment.date} · ${row.lastPayment.mode} · ${row.lastPayment.amount}` : "—"}
+                  {row.lastPayment ? (
+                    <>
+                      <Text numberOfLines={1} className="text-[12px] font-medium text-ink-900">{row.lastPayment.amount}</Text>
+                      <Text numberOfLines={1} className="mt-0.5 text-[11px] text-ink-500">{row.lastPayment.date} · {row.lastPayment.mode}</Text>
+                    </>
+                  ) : (
+                    <Text className="text-[12px] text-ink-400">No payment yet</Text>
+                  )}
+                </Cell>
+                <Cell flex={0.32} right>
+                  <Ionicons name="chevron-forward" size={16} color="#94a3b8" />
                 </Cell>
               </Pressable>
             );
