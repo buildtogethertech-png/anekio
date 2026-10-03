@@ -153,9 +153,8 @@ export default function Login() {
       : "Sign in to your school workspace.";
 
   const form = (
-    <View className={isWideLayout ? "w-[470px] px-10 py-12" : "w-full px-6 py-8 sm:px-8"}>
-      {!isWideLayout ? <Brand /> : null}
-      <View className={isWideLayout ? "" : "mt-9"}>
+    <View className={isWideLayout ? "w-[470px] px-10 py-12" : "w-full px-6 pb-9 pt-8"}>
+      <View>
         {mode === "forgot" ? (
           <Pressable
             accessibilityRole="button"
@@ -345,17 +344,13 @@ export default function Login() {
 
         <View className="mt-8 border-t border-ink-200 pt-5">
           <View className="flex-row flex-wrap items-center justify-center gap-1">
-            <Text className="text-xs text-ink-700">Setting up a new school?</Text>
+            <Text className="text-xs text-ink-700">New to Anekio?</Text>
             <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(marketingPricingUrl())}>
-              <Text className="text-xs font-semibold text-clay-600">View plans and start a trial</Text>
+              <Text className="text-xs font-semibold text-clay-600">Start a trial</Text>
             </Pressable>
           </View>
-          <View className="mt-5 flex-row items-center justify-center gap-2">
-            <Ionicons name="shield-checkmark-outline" size={15} color="#047857" />
-            <Text className="text-[11px] text-ink-700">Secure sign-in · Never share your password or OTP</Text>
-          </View>
           <Pressable accessibilityRole="link" onPress={() => void Linking.openURL("mailto:support@anekio.com")} className="mt-3 items-center">
-            <Text className="text-[11px] text-ink-700">Need help? support@anekio.com</Text>
+            <Text className="text-xs text-ink-700">Need help? <Text className="font-medium text-clay-600">support@anekio.com</Text></Text>
           </Pressable>
         </View>
       </View>
@@ -365,18 +360,25 @@ export default function Login() {
   return (
     <SafeAreaView className="flex-1 bg-[#F4F7FB]" testID="login-screen">
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ minHeight: Math.max(height, 680) }}>
-        <View className="flex-1 items-center justify-center px-4 py-5 sm:px-6 sm:py-8">
+        <View className={`flex-1 items-center ${isWideLayout ? "justify-center px-4 py-5 sm:px-6 sm:py-8" : "justify-start"}`}>
+          {!isWideLayout ? (
+            <View className="w-full bg-[#173B77] px-6 pb-20 pt-10">
+              <Brand inverse />
+              <Text className="mt-9 text-[27px] font-semibold leading-8 tracking-tight text-white">Your school, ready for the day.</Text>
+              <Text className="mt-2 text-sm leading-6 text-blue-100">Sign in to continue where your team left off.</Text>
+            </View>
+          ) : null}
           <View
-            className={`w-full overflow-hidden border border-[#DFE7F1] bg-white ${isWideLayout ? "flex-row" : ""}`}
-            style={{
-              maxWidth: isWideLayout ? 960 : 500,
+            className={`w-full overflow-hidden bg-white ${isWideLayout ? "flex-row border border-[#DFE7F1]" : "-mt-8 rounded-t-[28px]"}`}
+            style={isWideLayout ? {
+              maxWidth: 960,
               borderRadius: 16,
               shadowColor: "#0F2942",
               shadowOpacity: 0.1,
               shadowRadius: 28,
               shadowOffset: { width: 0, height: 14 },
               elevation: 4,
-            }}
+            } : undefined}
           >
             {isWideLayout ? (
               <View className="w-[490px] justify-between bg-[#173B77] px-12 py-12">
