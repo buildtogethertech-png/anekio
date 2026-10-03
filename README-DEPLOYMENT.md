@@ -96,15 +96,10 @@ Android release builds use Expo Application Services (EAS). The production EAS p
    eas login
    ```
 
-2. Ensure the Expo account can access the project ID in [`mobile/app.json`](mobile/app.json).
-3. Set the **production** EAS environment value `EXPO_PUBLIC_API_URL=https://app.anekio.com` (or the current production app URL). Native apps cannot rely on the web app's same-origin API behaviour; without this value they can fall back to a local development address.
+2. Ensure the Expo account can access the project ID in [`mobile/app.json`](mobile/app.json). The app is linked to `@buildtogether/anekio`.
+3. Confirm `EXPO_PUBLIC_API_URL` in the production profile of [`mobile/eas.json`](mobile/eas.json) is the current production app URL. Native apps cannot rely on the web app's same-origin API behaviour; without this value they can fall back to a local development address.
 
-   ```bash
-   cd mobile
-   eas env:create --name EXPO_PUBLIC_API_URL --value https://app.anekio.com --environment production --visibility plaintext
-   ```
-
-   This URL is public build configuration, not a secret. Do not add database, JWT, payment, or email keys to EAS build variables.
+This URL is public build configuration, not a secret. Do not add database, JWT, payment, or email keys to EAS build variables.
 
 ### Build the AAB
 
