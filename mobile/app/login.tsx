@@ -19,15 +19,15 @@ function marketingPricingUrl() {
   return `${protocol}//${hostname.replace(/^app\./, "")}#pricing`;
 }
 
-function Brand() {
+function Brand({ inverse = false }: { inverse?: boolean }) {
   return (
     <View className="flex-row items-center gap-3">
-      <View className="h-10 w-10 items-center justify-center rounded-md bg-clay-500">
+      <View className="h-11 w-11 items-center justify-center rounded-xl bg-clay-500">
         <Text className="text-lg font-bold text-white">A</Text>
       </View>
       <View>
-        <Text className="text-lg font-semibold text-ink-900">Anekio</Text>
-        <Text className="text-[11px] text-ink-700">School ERP</Text>
+        <Text className={`text-lg font-semibold ${inverse ? "text-white" : "text-ink-900"}`}>Anekio</Text>
+        <Text className={`text-xs ${inverse ? "text-blue-100" : "text-ink-700"}`}>School operations, in one place</Text>
       </View>
     </View>
   );
@@ -47,7 +47,8 @@ export default function Login() {
     resetPassword,
   } = useSession();
   const router = useRouter();
-  const { height } = useWindowDimensions();
+  const { height, width } = useWindowDimensions();
+  const isWideLayout = width >= 900;
   const showDevelopment = typeof __DEV__ !== "undefined" && __DEV__;
   const [mode, setMode] = useState<LoginMode>("password");
   const [login, setLogin] = useState(showDevelopment ? "admin@school.test" : "");
@@ -151,64 +152,49 @@ export default function Login() {
       ? "We will verify your registered email before you choose a new password."
       : "Sign in to your school workspace.";
 
-  return (
-    <SafeAreaView className="flex-1 bg-[#EEF3F8]" testID="login-screen">
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ minHeight: Math.max(height, 680) }}>
-        <View className="flex-1 items-center justify-center px-4 py-6 sm:px-6">
-          <View
-            className="w-full border border-[#D8E2EC] bg-white px-6 py-8 sm:px-10 sm:py-10"
-            style={{
-              maxWidth: 500,
-              borderRadius: 8,
-              shadowColor: "#0F2942",
-              shadowOpacity: 0.08,
-              shadowRadius: 24,
-              shadowOffset: { width: 0, height: 12 },
-              elevation: 3,
-            }}
+  const form = (
+    <View className={isWideLayout ? "w-[470px] px-10 py-12" : "w-full px-6 py-8 sm:px-8"}>
+      {!isWideLayout ? <Brand /> : null}
+      <View className={isWideLayout ? "" : "mt-9"}>
+        {mode === "forgot" ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Back to sign in"
+            onPress={() => chooseMode("password")}
+            className="mb-7 flex-row items-center gap-2 self-start"
           >
-            <Brand />
+            <Ionicons name="arrow-back" size={18} color="#2563EB" />
+            <Text className="text-sm font-semibold text-clay-600">Back to sign in</Text>
+          </Pressable>
+        ) : null}
 
-            <View className="mt-9">
-                {mode === "forgot" ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Back to sign in"
-                    onPress={() => chooseMode("password")}
-                    className="mb-7 flex-row items-center gap-2 self-start"
-                  >
-                    <Ionicons name="arrow-back" size={18} color="#1D4ED8" />
-                    <Text className="text-sm font-semibold text-clay-600">Back to sign in</Text>
-                  </Pressable>
-                ) : null}
+        <Text className="text-[30px] font-semibold tracking-tight text-ink-900">{heading}</Text>
+        <Text className="mt-2 text-[15px] leading-6 text-ink-700">{subheading}</Text>
 
-                <Text className="text-[28px] font-semibold text-ink-900">{heading}</Text>
-                <Text className="mt-2 text-sm leading-6 text-ink-700">{subheading}</Text>
+        {mode !== "forgot" ? (
+          <View className="mt-8 flex-row rounded-xl border border-[#E2E8F0] bg-[#F5F8FC] p-1" accessibilityRole="tablist">
+            {([
+              ["password", "Password"],
+              ["otp", "Email OTP"],
+            ] as const).map(([id, label]) => {
+              const active = mode === id;
+              return (
+                <Pressable
+                  key={id}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: active }}
+                  onPress={() => chooseMode(id)}
+                  className={`h-11 flex-1 items-center justify-center rounded-lg ${active ? "bg-white" : ""}`}
+                  style={active ? { shadowColor: "#102A56", shadowOpacity: 0.08, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1 } : undefined}
+                >
+                  <Text className={`text-sm font-semibold ${active ? "text-ink-900" : "text-ink-700"}`}>{label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
 
-                {mode !== "forgot" ? (
-                  <View className="mt-7 flex-row rounded-md bg-ink-100 p-1" accessibilityRole="tablist">
-                    {([
-                      ["password", "Password"],
-                      ["otp", "Email OTP"],
-                    ] as const).map(([id, label]) => {
-                      const active = mode === id;
-                      return (
-                        <Pressable
-                          key={id}
-                          accessibilityRole="tab"
-                          accessibilityState={{ selected: active }}
-                          onPress={() => chooseMode(id)}
-                          className={`h-10 flex-1 items-center justify-center rounded ${active ? "bg-white" : ""}`}
-                          style={active ? { shadowColor: "#102A56", shadowOpacity: 0.08, shadowRadius: 5, elevation: 1 } : undefined}
-                        >
-                          <Text className={`text-sm font-semibold ${active ? "text-ink-900" : "text-ink-700"}`}>{label}</Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                ) : null}
-
-                <View className="mt-6 gap-4">
+        <View className="mt-6 gap-4">
                   <View>
                     <FieldLabel>{mode === "otp" || mode === "forgot" ? "Registered email or mobile" : "Email or mobile number"}</FieldLabel>
                     <View className="relative justify-center">
@@ -350,29 +336,64 @@ export default function Login() {
                     </Button>
                   )}
 
-                  {mode !== "password" && codeSent ? (
-                    <Pressable disabled={pending} onPress={onRequestCode} className="items-center py-1">
-                      <Text className="text-xs font-semibold text-clay-600">Send a new code</Text>
-                    </Pressable>
-                  ) : null}
-                </View>
+          {mode !== "password" && codeSent ? (
+            <Pressable disabled={pending} onPress={onRequestCode} className="items-center py-1">
+              <Text className="text-xs font-semibold text-clay-600">Send a new code</Text>
+            </Pressable>
+          ) : null}
+        </View>
 
-                <View className="mt-7 border-t border-ink-200 pt-5">
-                  <View className="flex-row flex-wrap items-center justify-center gap-1">
-                    <Text className="text-xs text-ink-700">Setting up a new school?</Text>
-                    <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(marketingPricingUrl())}>
-                      <Text className="text-xs font-semibold text-clay-600">View plans and start a trial</Text>
-                    </Pressable>
+        <View className="mt-8 border-t border-ink-200 pt-5">
+          <View className="flex-row flex-wrap items-center justify-center gap-1">
+            <Text className="text-xs text-ink-700">Setting up a new school?</Text>
+            <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(marketingPricingUrl())}>
+              <Text className="text-xs font-semibold text-clay-600">View plans and start a trial</Text>
+            </Pressable>
+          </View>
+          <View className="mt-5 flex-row items-center justify-center gap-2">
+            <Ionicons name="shield-checkmark-outline" size={15} color="#047857" />
+            <Text className="text-[11px] text-ink-700">Secure sign-in · Never share your password or OTP</Text>
+          </View>
+          <Pressable accessibilityRole="link" onPress={() => void Linking.openURL("mailto:support@anekio.com")} className="mt-3 items-center">
+            <Text className="text-[11px] text-ink-700">Need help? support@anekio.com</Text>
+          </Pressable>
+        </View>
+      </View>
+    </View>
+  );
+
+  return (
+    <SafeAreaView className="flex-1 bg-[#F4F7FB]" testID="login-screen">
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ minHeight: Math.max(height, 680) }}>
+        <View className="flex-1 items-center justify-center px-4 py-5 sm:px-6 sm:py-8">
+          <View
+            className={`w-full overflow-hidden border border-[#DFE7F1] bg-white ${isWideLayout ? "flex-row" : ""}`}
+            style={{
+              maxWidth: isWideLayout ? 960 : 500,
+              borderRadius: 16,
+              shadowColor: "#0F2942",
+              shadowOpacity: 0.1,
+              shadowRadius: 28,
+              shadowOffset: { width: 0, height: 14 },
+              elevation: 4,
+            }}
+          >
+            {isWideLayout ? (
+              <View className="w-[490px] justify-between bg-[#173B77] px-12 py-12">
+                <View>
+                  <Brand inverse />
+                  <View className="mt-20">
+                    <Text className="text-[34px] font-semibold leading-[42px] tracking-tight text-white">Run every school day with clarity.</Text>
+                    <Text className="mt-4 max-w-[330px] text-[15px] leading-6 text-blue-100">Admissions, fees, attendance and communication—one shared workspace for your school team.</Text>
                   </View>
-                  <View className="mt-5 flex-row items-center justify-center gap-2">
-                    <Ionicons name="shield-checkmark-outline" size={15} color="#047857" />
-                    <Text className="text-[11px] text-ink-700">Secure sign-in · Never share your password or OTP</Text>
-                  </View>
-                  <Pressable accessibilityRole="link" onPress={() => void Linking.openURL("mailto:support@anekio.com")} className="mt-3 items-center">
-                    <Text className="text-[11px] text-ink-700">Need help? support@anekio.com</Text>
-                  </Pressable>
                 </View>
-            </View>
+                <View className="flex-row items-center gap-2">
+                  <Ionicons name="shield-checkmark-outline" size={17} color="#93C5FD" />
+                  <Text className="text-xs text-blue-100">Secure access for your school team</Text>
+                </View>
+              </View>
+            ) : null}
+            {form}
           </View>
         </View>
       </ScrollView>
