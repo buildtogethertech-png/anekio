@@ -196,8 +196,8 @@ export async function createStudentCore(
   }
 
   // Admission numbers are assigned on the server so every entry point follows
-  // the same sequence. Retry a collision in the unlikely case of concurrent admissions.
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  // the same sequence. Retry a unique conflict in the unlikely case of concurrent admissions.
+  for (let attempt = 0; attempt < 10; attempt += 1) {
     try {
       return await prisma.$transaction(async (tx) => {
         const existing = await tx.student.findMany({ select: { admissionNo: true } });
@@ -228,10 +228,10 @@ export async function createStudentCore(
       });
     } catch (error) {
       const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
-      const target = error && typeof error === "object" && "meta" in error
-        ? String((error.meta as { target?: unknown } | undefined)?.target || "")
-        : "";
-      if (attempt < 2 && code === "P2002" && target.includes("admissionNo")) continue;
+      const message = error instanceof Error ? error.message : String(error);
+      // Neon/Prisma versions do not consistently expose meta.target, so rely on
+      // the stable error code and message instead of one constraint's metadata.
+      if (attempt < 9 && (code === "P2002" || message.includes("Unique constraint failed"))) continue;
       throw error;
     }
   }
