@@ -81,6 +81,7 @@ import {
 import { adminInvoicePdf } from "../lib/saas-invoice-pdf";
 import { sendSaasEmailEvent } from "../lib/saas-email";
 import { updateSitePricing } from "../lib/saas-pricing";
+import { privacyPolicyHtml } from "../lib/privacy-policy";
 import {
   ADMIN_OAUTH_COOKIE,
   ADMIN_SESSION_COOKIE,
@@ -728,6 +729,11 @@ app.get("/", async (req, res, next) => {
 
 app.get(["/features", "/pricing"], async (_req, res) => {
   res.type("html").send(await marketingHtml());
+});
+
+app.get("/privacy", (_req, res) => {
+  res.setHeader("Cache-Control", "public, max-age=3600");
+  res.type("html").send(privacyPolicyHtml());
 });
 
 app.get("/robots.txt", (_req, res) => {

@@ -4,7 +4,7 @@ import { Redirect, useRouter } from "expo-router";
 import { Image, Linking, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button, Input } from "../components/ui";
-import { apiBase } from "../lib/api";
+import { apiBase, webOrigin } from "../lib/api";
 import { useSession, type AuthAccountChoice } from "../lib/session";
 
 type LoginMode = "password" | "otp" | "forgot" | "trial";
@@ -467,6 +467,9 @@ export default function Login() {
           </View>
           <Pressable accessibilityRole="link" onPress={() => void Linking.openURL("mailto:support@anekio.com")} className="mt-3 items-center">
             <Text className="text-xs text-ink-700">Need help? <Text className="font-medium text-clay-600">support@anekio.com</Text></Text>
+          </Pressable>
+          <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(`${webOrigin()}/privacy`)} className="mt-2 items-center">
+            <Text className="text-xs text-ink-700">By continuing, you agree to Anekio’s <Text className="font-medium text-clay-600">Privacy Policy</Text></Text>
           </Pressable>
           <View className="mt-5 flex-row items-center gap-3 rounded-xl border border-blue-100 bg-blue-50/70 px-3 py-3">
             <View className="h-8 w-8 items-center justify-center rounded-lg bg-white">
