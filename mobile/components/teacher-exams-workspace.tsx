@@ -10,6 +10,7 @@ import { ymd } from "../lib/calendar";
 import { useRecord, type RecordPayload } from "../lib/record";
 import { useSession } from "../lib/session";
 import { teacherBucket, teacherCanEditMarks } from "../lib/exam-workflow";
+import { phoneLaneHeading } from "../lib/teacher-exam-lanes";
 
 type Todo = NonNullable<RecordPayload["todos"]>[number];
 type Sheet = NonNullable<RecordPayload["markSheets"]>[number];
@@ -348,8 +349,10 @@ function ExamSummaryCard({
 }) {
   return (
     <Pressable
-      accessibilityRole="button"
+      accessibilityRole="tab"
+      accessibilityState={{ selected }}
       accessibilityLabel={`${card.label}: ${card.value}. ${card.hint}. ${card.tip}`}
+      testID={`teacher-exam-lane-${card.id}`}
       onPress={onPress}
       className={`anekio-exam-card justify-between rounded-[12px] border ${compact ? "h-full w-full px-2.5 py-2" : "min-h-0 min-w-0 flex-1 px-3.5 py-3"}`}
       style={{
@@ -392,7 +395,6 @@ export function TeacherExamsBoard(_props: { uploads?: boolean }) {
   const params = useLocalSearchParams<{ examId?: string; view?: string }>();
   const toast = useToast();
   const { width } = useWindowDimensions();
-  const stacked = width < 1100;
   const compactRows = width < 768;
   const phone = width < 768;
   const [pending, setPending] = useState("");
@@ -403,11 +405,26 @@ export function TeacherExamsBoard(_props: { uploads?: boolean }) {
   const [doneQuery, setDoneQuery] = useState("");
   const [doneKind, setDoneKind] = useState<"all" | "paper" | "take" | "marks">("all");
   const [showAdd, setShowAdd] = useState(false);
-  const [host, setHost] = useState({ title: "", subjectId: data?.subjects?.[0]?.id || "", date: "", maxMarks: "40" });
+  const [host, setHost] = useState({ title: "", subjectId: "", classId: "", date: "", maxMarks: "40" });
   const [sheetId, setSheetId] = useState("");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<EntryFilter>("all");
   const [lane, setLane] = useState<Lane>(null);
+
+  useEffect(() => {
+    if (!data) return;
+    setHost((current) => {
+      const classes = (data.classes || []).filter((row) => (row.subjects || []).length);
+      const classId = classes.some((row) => row.id === current.classId)
+        ? current.classId
+        : classes[0]?.id || "";
+      const subjects = classes.find((row) => row.id === classId)?.subjects || [];
+      const subjectId = subjects.some((row) => row.id === current.subjectId)
+        ? current.subjectId
+        : subjects[0]?.id || "";
+      return { ...current, classId, subjectId };
+    });
+  }, [data]);
 
   const todos = (data?.todos ?? []).filter((t) => examTodoKind(t) !== "skip");
   const doneWork = data?.doneWork ?? [];
@@ -449,11 +466,29 @@ export function TeacherExamsBoard(_props: { uploads?: boolean }) {
   }
 
   async function postClassTest() {
+    const title = host.title.trim();
+    const classId = host.classId || "";
+    const maxMarks = Math.round(Number(host.maxMarks));
+    if (!title || !host.subjectId || !classId || !host.date) {
+      toast.show("Title, subject, class and date are required");
+      return;
+    }
+    if (!Number.isFinite(maxMarks) || maxMarks <= 0) {
+      toast.show("Maximum marks must be more than zero");
+      return;
+    }
     try {
-      await act(token, "hostExam", { ...host, classId: data?.classId, maxMarks: Number(host.maxMarks) });
+      await act(token, "hostExam", {
+        title,
+        subjectId: host.subjectId,
+        classId,
+        date: host.date,
+        maxMarks,
+      });
       toast.show("Class test added. The class has a notification.");
       setShowAdd(false);
-      setHost({ title: "", subjectId: host.subjectId, date: "", maxMarks: "40" });
+      setHost({ title: "", subjectId: host.subjectId, classId, date: "", maxMarks: "40" });
+      setLane("paper");
       await reload();
     } catch (e) {
       toast.show(e instanceof Error ? e.message : "Could not save.");
@@ -548,7 +583,27 @@ export function TeacherExamsBoard(_props: { uploads?: boolean }) {
 
   const rightTodos = lane === "take" ? takeTodos : paperTodos;
   const todayLabel = prettyDate(ymd(new Date()));
-  const canHost = Boolean(data?.classTeacher && data.classId);
+  const canHost = (data?.classes || []).some((row) => (row.subjects || []).length);
+  const selectedLane: Exclude<Lane, null> = lane || "paper";
+  const classChoices = (data?.classes || []).filter((row) => (row.subjects || []).length);
+  const subjectChoices = classChoices.find((row) => row.id === host.classId)?.subjects || [];
+  const phoneHeading = phoneLaneHeading(selectedLane);
+  const laneTodos = (selectedLane === "take" ? takeTodos : paperTodos).filter((todo) => {
+    if (!needle) return true;
+    return `${todo.title} ${todo.hint}`.toLowerCase().includes(needle);
+  });
+  const laneSheets =
+    selectedLane === "marks"
+      ? listed.filter((sheet) => entryBucket(sheet) === "action")
+      : selectedLane === "office"
+        ? listed.filter((sheet) => entryBucket(sheet) === "submitted")
+        : selectedLane === "correction"
+          ? listed.filter((sheet) => entryBucket(sheet) === "correction")
+          : [];
+  const visibleLaneSheets = laneSheets.filter((sheet) => {
+    if (!needle) return true;
+    return `${sheet.seriesName} ${sheet.title} ${sheet.subject} ${sheet.classLabel}`.toLowerCase().includes(needle);
+  });
   const doneNeedle = doneQuery.trim().toLowerCase();
   const completedRows = doneWork.filter((row) => {
     if (doneKind !== "all" && row.kind !== doneKind) return false;
@@ -679,118 +734,104 @@ export function TeacherExamsBoard(_props: { uploads?: boolean }) {
             className={`anekio-exam-btn anekio-class-test-btn flex-row items-center justify-center rounded-[9px] bg-[#2563EB] ${phone ? "h-9 px-2.5 gap-0.5" : "h-10 w-[128px] gap-1"}`}
           >
             <Ionicons name="add" size={16} color="#ffffff" />
-            <Text className={`font-semibold text-white ${phone ? "text-[12px]" : "text-[13px]"}`}>{phone ? "Test" : "Class test"}</Text>
+            <Text className={`font-semibold text-white ${phone ? "text-[12px]" : "text-[13px]"}`}>{phone ? "+ Test" : "Class test"}</Text>
           </Pressable>
         ) : null}
       </View>
 
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
 
-      {stacked ? (
-        <ScrollView className="mt-2 min-h-0 flex-1" contentContainerStyle={{ paddingBottom: 28, gap: 12 }} showsVerticalScrollIndicator={false}>
-          {phone ? (
-            <ScrollView
-              horizontal
-              nestedScrollEnabled
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ gap: 8, paddingRight: 8 }}
-            >
-              {summary.map((card) => (
-                <View key={card.id} style={{ width: 148, height: 72 }}>
-                  <ExamSummaryCard card={card} compact selected={lane === card.id} onPress={() => selectLane(card.id)} />
-                </View>
-              ))}
-            </ScrollView>
-          ) : (
-            <View className="flex-row flex-wrap" style={{ gap: 8 }}>
-              {summary.map((card) => (
-                <View key={card.id} style={{ width: "48%", flexGrow: 1, minWidth: "47%", height: 68 }}>
-                  <ExamSummaryCard card={card} compact selected={lane === card.id} onPress={() => selectLane(card.id)} />
-                </View>
-              ))}
+      <View className="mt-2 min-h-0 flex-1 md:hidden" testID="teacher-exams-phone">
+        <View className="shrink-0 flex-row flex-wrap" style={{ gap: 8 }} testID="teacher-exam-lanes" accessibilityRole="tablist">
+          {summary.map((card) => (
+            <View key={card.id} style={{ width: "31%", flexGrow: 1, minWidth: "30%" }}>
+              <ExamSummaryCard
+                compact
+                card={{
+                  ...card,
+                  label:
+                    card.id === "paper"
+                      ? "Set Paper"
+                      : card.id === "take"
+                        ? "Take Exam"
+                        : card.id === "marks"
+                          ? "Enter Marks"
+                          : card.id === "office"
+                            ? "Sent Office"
+                            : "Correction",
+                }}
+                selected={selectedLane === card.id}
+                onPress={() => selectLane(card.id)}
+              />
             </View>
-          )}
-          <View className="overflow-hidden rounded-[16px] border bg-white" style={{ borderColor: LINE }}>
-            <View className="px-3 pb-2 pt-3">
-              <View className="min-w-0 flex-row items-center gap-2">
-                <View className="h-7 w-7 items-center justify-center rounded-lg bg-[#EFF6FF]">
-                  <Ionicons name="grid-outline" size={14} color="#2563EB" />
-                </View>
-                <Text className="min-w-0 flex-1 text-[15px] font-bold" style={{ color: INK }}>My mark entries</Text>
-              </View>
-              <View className="mt-2 h-9 flex-row items-center gap-2 rounded-[9px] border bg-[#F8FAFC] px-3" style={{ borderColor: LINE }}>
-                <Ionicons name="search-outline" size={15} color="#64748B" />
-                <TextInput value={query} onChangeText={setQuery} placeholder="Search exams..." placeholderTextColor="#94A3B8" className="min-w-0 flex-1 text-[13px] text-slate-900" />
-              </View>
-              <View className="mt-2 flex-row flex-wrap gap-1.5">
-                {([
-                  ["all", `All (${filterCounts.all})`],
-                  ["action", `Action (${filterCounts.action})`],
-                  ["pending", `Pending (${filterCounts.pending})`],
-                  ["submitted", `Sent (${filterCounts.submitted})`],
-                  ["correction", `Fix (${filterCounts.correction})`],
-                ] as const).map(([id, label]) => (
-                  <Pressable
-                    key={id}
-                    onPress={() => selectMarkFilter(id)}
-                    className={`h-7 items-center justify-center rounded-full border px-2.5 ${filter === id ? "border-[#2563EB] bg-[#2563EB]" : "border-[#E2E8F0] bg-white"}`}
-                  >
-                    <Text className={`text-[11px] font-semibold ${filter === id ? "text-white" : "text-slate-800"}`}>{label}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-            <View testID="teacher-mark-entries">
-              {filteredSheets.length ? (
-                filteredSheets.map((sheet) => (
-                  <MarkEntryRow key={sheet.examId} sheet={sheet} compact onOpen={() => openMarks(sheet.examId)} />
-                ))
-              ) : (
-                <View className="items-center px-6 py-6">
-                  <Text className="text-[14px] font-semibold" style={{ color: INK }}>No mark entries yet</Text>
-                  <Text className="mt-1 text-center text-[12px]" style={{ color: MUTED }}>Your assigned exam papers will appear here.</Text>
-                </View>
-              )}
-            </View>
-          </View>
-          <View className="overflow-hidden rounded-[16px] border bg-white" style={{ borderColor: LINE }}>
-            <View className="flex-row items-center justify-between gap-2 px-3 pb-2 pt-3">
+          ))}
+        </View>
+        <View className="mt-3 min-h-0 flex-1 overflow-hidden rounded-[16px] border bg-white" style={{ borderColor: LINE }} testID="teacher-exam-lane-panel">
+          <View className="shrink-0 px-3 pb-2 pt-3">
+            <View className="flex-row items-center justify-between gap-2">
               <View className="min-w-0 flex-1 flex-row items-center gap-2">
                 <View className="h-7 w-7 items-center justify-center rounded-lg bg-[#EFF6FF]">
-                  <Ionicons name="document-text-outline" size={14} color="#2563EB" />
+                  <Ionicons name={selectedLane === "correction" ? "refresh-outline" : selectedLane === "office" ? "send-outline" : selectedLane === "marks" ? "pencil-outline" : selectedLane === "take" ? "clipboard-outline" : "document-text-outline"} size={14} color="#2563EB" />
                 </View>
-                <Text className="min-w-0 flex-1 text-[15px] font-bold" style={{ color: INK }}>{lane === "take" ? "Exams to take" : "Papers to set"}</Text>
+                <View className="min-w-0 flex-1">
+                  <Text className="text-[15px] font-bold" style={{ color: INK }}>{phoneHeading.title}</Text>
+                  <Text className="text-[11px]" style={{ color: MUTED }} numberOfLines={1}>{phoneHeading.hint}</Text>
+                </View>
               </View>
               <Text className="rounded-full bg-[#EFF6FF] px-2 py-0.5 text-[10px] font-semibold text-[#2563EB]">
-                {rightTodos.length} {rightTodos.length === 1 ? "task" : "tasks"}
+                {selectedLane === "paper" || selectedLane === "take"
+                  ? `${laneTodos.length} ${laneTodos.length === 1 ? "task" : "tasks"}`
+                  : `${visibleLaneSheets.length}`}
               </Text>
             </View>
-            <View testID="teacher-papers-to-set">
-              {rightTodos.length ? (
-                rightTodos.map((t) => (
-                  <PaperTaskRow
-                    key={t.id}
-                    todo={t}
-                    compact
-                    pending={pending === t.id || pending === (t.examId || "")}
-                    onTake={examTodoKind(t) === "take" ? () => void takeExam(t.examId || t.id.replace(/^take-/, "")) : undefined}
-                    onDone={examTodoKind(t) === "paper" ? () => void completePaper(t) : undefined}
-                  />
-                ))
-              ) : (
-                <View className="px-4 py-5">
-                  <Text className="text-[13px] font-semibold" style={{ color: INK }}>{lane === "take" ? "No exams to take" : "No papers to set"}</Text>
-                  <Text className="mt-1 text-[12px]" style={{ color: MUTED }}>You're all caught up.</Text>
-                </View>
-              )}
+            <View className="mt-2 h-9 flex-row items-center gap-2 rounded-[9px] border bg-[#F8FAFC] px-3" style={{ borderColor: LINE }}>
+              <Ionicons name="search-outline" size={15} color="#64748B" />
+              <TextInput value={query} onChangeText={setQuery} placeholder="Search exams..." placeholderTextColor="#94A3B8" className="min-w-0 flex-1 text-[13px] text-slate-900" />
             </View>
           </View>
-        </ScrollView>
-      ) : (
-      <View className={`mt-2.5 min-h-0 flex-1 gap-4 ${stacked ? "flex-col" : "flex-row"}`}>
+          <ScrollView className="min-h-0 flex-1" contentContainerStyle={{ paddingBottom: 20 }} nestedScrollEnabled>
+            {selectedLane === "paper" || selectedLane === "take" ? (
+              <View testID="teacher-papers-to-set">
+                {laneTodos.length ? (
+                  laneTodos.map((t) => (
+                    <PaperTaskRow
+                      key={t.id}
+                      todo={t}
+                      compact
+                      pending={pending === t.id || pending === (t.examId || "")}
+                      onTake={examTodoKind(t) === "take" ? () => void takeExam(t.examId || t.id.replace(/^take-/, "")) : undefined}
+                      onDone={examTodoKind(t) === "paper" ? () => void completePaper(t) : undefined}
+                    />
+                  ))
+                ) : (
+                  <View className="px-4 py-5">
+                    <Text className="text-[13px] font-semibold" style={{ color: INK }}>{phoneHeading.empty}</Text>
+                    <Text className="mt-1 text-[12px]" style={{ color: MUTED }}>You're all caught up.</Text>
+                  </View>
+                )}
+              </View>
+            ) : (
+              <View testID="teacher-mark-entries">
+                {visibleLaneSheets.length ? (
+                  visibleLaneSheets.map((sheet) => (
+                    <MarkEntryRow key={sheet.examId} sheet={sheet} compact onOpen={() => openMarks(sheet.examId)} />
+                  ))
+                ) : (
+                  <View className="items-center px-6 py-6">
+                    <Text className="text-[14px] font-semibold" style={{ color: INK }}>{phoneHeading.empty}</Text>
+                    <Text className="mt-1 text-center text-[12px]" style={{ color: MUTED }}>{phoneHeading.hint}</Text>
+                  </View>
+                )}
+              </View>
+            )}
+          </ScrollView>
+        </View>
+      </View>
+
+      <View className="mt-2.5 hidden min-h-0 flex-1 flex-row gap-4 md:flex" testID="teacher-exams-desktop">
         <View
           className="min-h-0 min-w-0"
-          style={{ flexGrow: stacked ? 1.35 : 68, flexShrink: 1, flexBasis: 0, minHeight: 0 }}
+          style={{ flexGrow: 68, flexShrink: 1, flexBasis: 0, minHeight: 0 }}
         >
           <View className="mb-3 h-[90px] shrink-0 flex-row gap-2.5">
             {summary.filter((card) => card.id === "marks" || card.id === "office" || card.id === "correction").map((card) => (
@@ -862,7 +903,7 @@ export function TeacherExamsBoard(_props: { uploads?: boolean }) {
 
         <View
           className="min-h-0 min-w-0"
-          style={{ flexGrow: stacked ? 1 : 32, flexShrink: 1, flexBasis: 0, minHeight: phone ? 220 : 0 }}
+          style={{ flexGrow: 32, flexShrink: 1, flexBasis: 0, minHeight: 0 }}
         >
           {phone ? null : (
             <View className="mb-3 h-[90px] shrink-0 flex-row gap-2.5">
@@ -911,7 +952,6 @@ export function TeacherExamsBoard(_props: { uploads?: boolean }) {
           </View>
         </View>
       </View>
-      )}
 
       <TeacherMarksModal
         sheet={openSheet}
@@ -1000,27 +1040,59 @@ export function TeacherExamsBoard(_props: { uploads?: boolean }) {
         title="Add class test"
         onClose={() => setShowAdd(false)}
         footer={
-          <Button disabled={!host.title.trim() || !host.subjectId || !host.date} onPress={postClassTest}>
+          <Button
+            disabled={!host.title.trim() || !host.subjectId || !host.classId || !host.date || !(Number(host.maxMarks) > 0)}
+            onPress={postClassTest}
+          >
             Post class test
           </Button>
         }
       >
         <Text className="mb-4 text-sm text-ink-700">
-          Parents, students, and teachers of {data?.classLabel || "this class"} will receive a notification.
+          Parents, students, and teachers of {classChoices.find((row) => row.id === host.classId)?.label || "this class"} will receive a notification.
         </Text>
         <View className="gap-4">
           <Field label="Test name">
             <Input value={host.title} onChangeText={(value) => setHost({ ...host, title: value })} placeholder="For example, Unit test 3" />
           </Field>
+          {classChoices.length ? (
+            <Field label="Class">
+              <View className="flex-row flex-wrap gap-2">
+                {classChoices.map((klass) => (
+                  <Chip
+                    key={klass.id}
+                    label={klass.label || "Class"}
+                    active={host.classId === klass.id}
+                    onPress={() => {
+                      const subjects = classChoices.find((row) => row.id === klass.id)?.subjects || [];
+                      setHost({
+                        ...host,
+                        classId: klass.id,
+                        subjectId: subjects[0]?.id || "",
+                      });
+                    }}
+                  />
+                ))}
+              </View>
+            </Field>
+          ) : null}
           <Field label="Subject">
             <View className="flex-row flex-wrap gap-2">
-              {(data?.subjects ?? []).map((subject) => (
+              {subjectChoices.map((subject) => (
                 <Chip key={subject.id} label={subject.name} active={host.subjectId === subject.id} onPress={() => setHost({ ...host, subjectId: subject.id })} />
               ))}
             </View>
           </Field>
           <Field label="Test date">
             <DateField value={host.date} onChange={(date) => setHost({ ...host, date })} />
+          </Field>
+          <Field label="Maximum marks">
+            <Input
+              value={host.maxMarks}
+              keyboardType="number-pad"
+              onChangeText={(value) => setHost({ ...host, maxMarks: value.replace(/[^\d]/g, "") })}
+              placeholder="40"
+            />
           </Field>
         </View>
       </Modal>

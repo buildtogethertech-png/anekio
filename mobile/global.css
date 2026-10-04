@@ -333,6 +333,25 @@ body,
 .anekio-exam-card:active {
   transform: scale(0.99);
 }
+@media (max-width: 767px) {
+  [data-testid="teacher-exams-phone"] {
+    display: flex !important;
+    flex-direction: column;
+    min-height: 0;
+    flex: 1;
+  }
+  [data-testid="teacher-exams-desktop"] {
+    display: none !important;
+  }
+}
+@media (min-width: 768px) {
+  [data-testid="teacher-exams-phone"] {
+    display: none !important;
+  }
+  [data-testid="teacher-exams-desktop"] {
+    display: flex !important;
+  }
+}
 .anekio-exam-btn {
   cursor: pointer;
   transition: transform 160ms ease, background-color 160ms ease, border-color 160ms ease, color 160ms ease;

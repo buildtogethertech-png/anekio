@@ -22,6 +22,7 @@ import { isCircularNotice } from "./notices";
 import { leaveBundleFor } from "./leave";
 import { gradePolicyFrom, marksVisible, parseExamPlan, timetableVisible, ymd, addDays } from "./exams";
 import { parentMaySeeExamResult } from "./exam-marks";
+import { teacherClassTestChoices } from "./exam-evaluators";
 import { parsePayrollRules } from "./payroll";
 import { collapseStaffDaysByDate, staffDayYmd } from "./staff-day";
 import { feeLineTotal, invoiceBalance, parseFeeCatalogState, parseFeeLines, reportCardFeeHoldFromConfig } from "./fees";
@@ -613,9 +614,7 @@ async function teacherPayload(user: AccessUser) {
   const { config, periods } = await getScheduleSetup();
   const weekdays = parseWeekdays(config?.weekdays);
   const slots = teacher ? await getTeacherTimetable(teacher.id) : [];
-  const subjects = teacher?.classId
-    ? await prisma.subject.findMany({ where: { classId: teacher.classId }, orderBy: { name: "asc" } })
-    : [];
+  const hostClasses = teacher ? await teacherClassTestChoices(teacher.id) : [];
   const peopleExamPack = teacher?.classId ? await getPeopleExamPack() : null;
   const seeFees = can(user, "fees.view");
   return {
@@ -635,15 +634,12 @@ async function teacherPayload(user: AccessUser) {
     needsAttention: desk?.needsAttention ?? [],
     breakout: desk?.breakout ?? 0,
     notices: noticeRows,
-    subjects: subjects.map((s) => ({ id: s.id, name: s.name })),
-    classes: teacher?.classId
-      ? [{
-          id: teacher.classId,
-          label: desk?.classLabel || "",
-          students: roster.length,
-          subjects: subjects.map((s) => ({ id: s.id, name: s.name, teacherId: s.teacherId || "" })),
-        }]
-      : [],
+    subjects: hostClasses.flatMap((row) => row.subjects),
+    classes: hostClasses.map((row) => ({
+      id: row.id,
+      label: row.label,
+      subjects: row.subjects,
+    })),
     people: roster.map((s) => {
       const totals = seeFees
         ? s.feeInvoices.reduce(

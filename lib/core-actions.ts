@@ -30,7 +30,7 @@ import { loadSchoolCalendar } from "./leave";
 import { earliestStaffInAt, staffDayInstant, staffDayWindow, staffDayYmd } from "./staff-day";
 import { addDays, examPlanWeight, parseExamPlan, ymd } from "./exams";
 import { teacherCanEditMarks, teacherMayEnterMarks } from "./exam-workflow";
-import { teacherIdsBySubjectName } from "./exam-evaluators";
+import { teacherIdsBySubjectName, teacherMayHostClassTest } from "./exam-evaluators";
 import { validateExamMark } from "./exam-marks";
 import { notifySchedulePublished, notifySeriesAssigned } from "./exam-events";
 import { storedNoticeKind, normalizeWhatsAppGroupUrl } from "./notices";
@@ -2446,31 +2446,35 @@ export async function enterMarksCore(
 
 export async function hostExamCore(
   user: AccessUser,
-  input: { title: string; subjectId: string; classId: string; date: string; maxMarks?: number }
+  input: { title: string; subjectId: string; classId: string; date: string; maxMarks?: number; teacherId?: string; setterId?: string }
 ) {
   need(user, "exams.edit", "exams.teach");
   const classId = String(input.classId || "");
   const subjectId = String(input.subjectId || "");
-  const title = String(input.title || "").trim() || "Exam";
+  const title = String(input.title || "").trim();
   const day = String(input.date || "").slice(0, 10);
-  if (!classId || !subjectId || !day) throw new Error("Title, subject, class and date are required");
+  const maxMarks = Math.round(Number(input.maxMarks ?? 40));
+  if (!title || !classId || !subjectId || !day) throw new Error("Title, subject, class and date are required");
+  if (!Number.isFinite(maxMarks) || maxMarks <= 0) throw new Error("Maximum marks must be more than zero");
   const teacher =
     user.portal === "TEACHER" ? await prisma.teacher.findUnique({ where: { userId: user.id } }) : null;
-  if (user.portal === "TEACHER" && (!teacher?.classId || teacher.classId !== classId)) {
-    throw new Error("Not your class");
-  }
   const [klass, subject] = await Promise.all([
     prisma.class.findUnique({ where: { id: classId }, select: { name: true, section: true } }),
-    prisma.subject.findUnique({ where: { id: subjectId }, select: { name: true } }),
+    prisma.subject.findUnique({ where: { id: subjectId }, select: { name: true, classId: true } }),
   ]);
-  if (!klass || !subject) throw new Error("Class or subject missing");
+  if (!klass || !subject || subject.classId !== classId) throw new Error("Class or subject missing");
+  if (user.portal === "TEACHER") {
+    if (!teacher?.id || !(await teacherMayHostClassTest(teacher.id, classId, subjectId))) {
+      throw new Error("Not your class or subject");
+    }
+  }
   await prisma.exam.create({
     data: {
       title,
       subjectId,
       classId,
       date: new Date(day),
-      maxMarks: Number(input.maxMarks || 40),
+      maxMarks,
       teacherId: teacher?.id || null,
       setterId: teacher?.id || null,
       workflowStatus: "SCHEDULED",
