@@ -328,6 +328,15 @@ describe.sequential("fees module lifecycle API", () => {
         payToken: "pay-gold-child",
       },
     });
+    await prisma.studentClassEnrollment.create({
+      data: {
+        studentId: child.id,
+        classId: goldClass.id,
+        sessionId: "session-2026",
+        rollNumber: 41,
+        joinedAt: new Date("2026-04-01T00:00:00.000Z"),
+      },
+    });
     const saved = await act(officeToken, "saveFeeTemplate", {
       classId: goldClass.id,
       sessionId: "session-2026",
@@ -435,7 +444,10 @@ describe.sequential("fees module lifecycle API", () => {
         { label: "Books", amount: 800, scope: "ALL" },
       ],
     });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-06-02T06:30:00.000Z"));
     const mayIssue = await act(officeToken, "issueClassFees", { classId: goldClass.id, templateId: saved.body.id });
+    vi.useRealTimers();
     expect(mayIssue.status).toBe(200);
     const may = await prisma.feeInvoice.findFirstOrThrow({ where: { studentId: child.id, period: "2026-05" } });
     expect(may.amount).toBe(9800);

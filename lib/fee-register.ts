@@ -51,6 +51,7 @@ export type FeeRegisterSourceInvoice = {
   period: string;
   title: string;
   dueDate: Date | string;
+  generatedThrough?: string | null;
   amount: number;
   templateId?: string | null;
   templateName?: string | null;
@@ -184,10 +185,37 @@ function periodInRange(period: string, from?: string, to?: string) {
   return true;
 }
 
-function inSession(period: string, startsOn?: string, endsOn?: string) {
+function isMonthlyFeePeriod(period: string) {
+  return /^\d{4}-(0[1-9]|1[0-2])$/.test(period);
+}
+
+function openingBelongsToSession(
+  invoice: { dueDate?: Date | string; generatedThrough?: string | null },
+  startsOn?: string,
+  endsOn?: string
+) {
+  const startDay = (startsOn || "").slice(0, 10);
+  const endDay = (endsOn || "").slice(0, 10);
+  const startMonth = (startsOn || "").slice(0, 7);
+  const endMonth = (endsOn || "").slice(0, 7);
+  const due = invoice.dueDate ? ymdOf(invoice.dueDate) : "";
+  const through = String(invoice.generatedThrough || "").trim();
+  if (due && startDay && endDay && due >= startDay && due <= endDay) return true;
+  if (through && startMonth && endMonth && through >= startMonth && through <= endMonth) return true;
+  return !startDay && !endDay;
+}
+
+function inSession(
+  period: string,
+  startsOn?: string,
+  endsOn?: string,
+  invoice?: { dueDate?: Date | string; generatedThrough?: string | null }
+) {
   if (!startsOn && !endsOn) return true;
+  if (period === "OPENING") return openingBelongsToSession(invoice || {}, startsOn, endsOn);
   const start = (startsOn || "").slice(0, 7);
   const end = (endsOn || "").slice(0, 7);
+  if (!isMonthlyFeePeriod(period)) return false;
   return periodInRange(period, start || undefined, end || undefined);
 }
 
@@ -280,8 +308,8 @@ export function buildFeeRegister(
     if (filter.classId && invoice.classId !== filter.classId) continue;
     if (filter.section && invoice.section !== filter.section) continue;
     if (filter.period && invoice.period !== filter.period) continue;
-    if (!periodInRange(invoice.period, filter.periodFrom, filter.periodTo)) continue;
-    if (!inSession(invoice.period, opts?.sessionStart, opts?.sessionEnd)) continue;
+    if (isMonthlyFeePeriod(invoice.period) && !periodInRange(invoice.period, filter.periodFrom, filter.periodTo)) continue;
+    if (!inSession(invoice.period, opts?.sessionStart, opts?.sessionEnd, invoice)) continue;
     if (filter.templateId && invoice.templateId !== filter.templateId) continue;
     if (q && !`${invoice.studentName} ${invoice.admissionNo}`.toLowerCase().includes(q)) continue;
     if (admission && !invoice.admissionNo.toLowerCase().includes(admission)) continue;
@@ -471,6 +499,7 @@ export async function queryFeeRegister(user: AccessUser, raw: Record<string, unk
     period: row.period,
     title: row.title,
     dueDate: row.dueDate,
+    generatedThrough: row.generatedThrough,
     amount: row.amount,
     templateId: row.templateId,
     templateName: row.template?.name || "",

@@ -58,9 +58,13 @@ describe.sequential("fee setup API", () => {
 
   it("requires both session dates and rejects an end before start", async () => {
     const missing = await act(officeToken, "saveFeeAcademicSession", { startsOn: "2026-04-01" });
+    const missingStart = await act(officeToken, "saveFeeAcademicSession", { endsOn: "2027-03-31" });
     const inverted = await act(officeToken, "saveFeeAcademicSession", { startsOn: "2027-04-01", endsOn: "2026-03-31" });
+    const sameDay = await act(officeToken, "saveFeeAcademicSession", { startsOn: "2026-04-01", endsOn: "2026-04-01" });
     expect(missing.body.error).toMatch(/start and end/i);
+    expect(missingStart.status).toBe(400);
     expect(inverted.body.error).toMatch(/after session start/i);
+    expect(sameDay.status).toBe(200);
   });
 
   it("saves the academic session onto school config and the current session", async () => {
@@ -110,6 +114,25 @@ describe.sequential("fee setup API", () => {
 
     const low = await act(officeToken, "applySessionDueDay", { dueDay: 0 });
     expect(low.body.dueDay).toBe(10);
+  });
+
+  it("clamps a template due day of 31 to 30 while applySessionDueDay still accepts 31", async () => {
+    const saved = await act(officeToken, "saveFeeTemplate", {
+      classId: "class-6-b",
+      sessionId: "session-2026",
+      name: "Due-day split",
+      startsPeriod: "2027-11",
+      endsPeriod: "2027-11",
+      dueDay: 31,
+      lines: [{ label: "Tuition", amount: 100, scope: "ALL" }],
+    });
+    expect(saved.status).toBe(200);
+    expect((await prisma.feeTemplate.findUniqueOrThrow({ where: { id: saved.body.id } })).dueDay).toBe(30);
+
+    const applied = await act(officeToken, "applySessionDueDay", { dueDay: 31 });
+    expect(applied.status).toBe(200);
+    expect(applied.body.dueDay).toBe(31);
+    expect((await prisma.feeTemplate.findUniqueOrThrow({ where: { id: saved.body.id } })).dueDay).toBe(31);
   });
 
   it("saves admission fee for one class without touching the other", async () => {

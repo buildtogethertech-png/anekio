@@ -20,6 +20,7 @@ function invoice(partial: {
   title?: string;
   amount: number;
   dueDate: string;
+  generatedThrough?: string | null;
   payments?: { amount: number; method: string; paidAt: string }[];
   templateId?: string;
 }) {
@@ -32,9 +33,12 @@ function invoice(partial: {
     templateId: partial.templateId || "tpl",
     templateName: "Monthly fee",
     payments: partial.payments || [],
+    generatedThrough: partial.generatedThrough ?? null,
     ...partial,
   };
 }
+
+const session = { sessionStart: "2026-04-01", sessionEnd: "2027-03-31" } as const;
 
 describe("fee register", () => {
   it("formats lakhs compactly and month labels from period", () => {
@@ -129,6 +133,156 @@ describe("fee register", () => {
     expect(overdue.rows.map((row) => row.studentName)).toEqual(["Dev Kumar"]);
     expect(overdue.rows[0]?.status).toBe("overdue");
     expect(overdue.rows[0]?.balance).toBe(10000);
+  });
+
+  it("includes an OPENING invoice in the active session Register", () => {
+    const built = buildFeeRegister(
+      [
+        invoice({
+          id: "opening-1",
+          studentId: "opening-child",
+          studentName: "Opening Child",
+          admissionNo: "TEST-OPENING-001",
+          period: "OPENING",
+          title: "Backlog invoice",
+          amount: 12345,
+          dueDate: "2026-09-10",
+          generatedThrough: "2026-08",
+        }),
+      ],
+      [],
+      { page: 1, pageSize: 50 },
+      session
+    );
+    expect(built.rows.map((row) => row.period)).toEqual(["OPENING"]);
+    expect(built.summary.billed).toBe(12345);
+    expect(built.summary.outstanding).toBe(12345);
+    expect(built.summary.paid).toBe(0);
+  });
+
+  it("keeps April–March monthly invoices in the same session as OPENING", () => {
+    const invoices = [
+      invoice({
+        id: "opening-1",
+        studentId: "opening-child",
+        studentName: "Opening Child",
+        admissionNo: "TEST-OPENING-001",
+        period: "OPENING",
+        title: "Backlog invoice",
+        amount: 12345,
+        dueDate: "2026-09-10",
+        generatedThrough: "2026-08",
+      }),
+      invoice({ id: "apr", studentId: "opening-child", studentName: "Opening Child", admissionNo: "TEST-OPENING-001", period: "2026-04", amount: 2000, dueDate: "2026-04-10" }),
+      invoice({ id: "mar", studentId: "opening-child", studentName: "Opening Child", admissionNo: "TEST-OPENING-001", period: "2027-03", amount: 2000, dueDate: "2027-03-10" }),
+      invoice({ id: "prev", studentId: "opening-child", studentName: "Opening Child", admissionNo: "TEST-OPENING-001", period: "2026-03", amount: 2000, dueDate: "2026-03-10" }),
+      invoice({ id: "next", studentId: "opening-child", studentName: "Opening Child", admissionNo: "TEST-OPENING-001", period: "2027-04", amount: 2000, dueDate: "2027-04-10" }),
+    ];
+    const built = buildFeeRegister(invoices, [], { page: 1, pageSize: 50 }, session);
+    expect(built.rows.map((row) => row.period).sort()).toEqual(["2026-04", "2027-03", "OPENING"]);
+    expect(built.summary.billed).toBe(16345);
+  });
+
+  it("counts a paid OPENING invoice in collected totals", () => {
+    const once = buildFeeRegister(
+      [
+        invoice({
+          id: "opening-1",
+          studentId: "opening-child",
+          studentName: "Opening Child",
+          period: "OPENING",
+          title: "Backlog invoice",
+          amount: 12345,
+          dueDate: "2026-09-10",
+          generatedThrough: "2026-08",
+          payments: [{ amount: 12345, method: "CASH", paidAt: "2026-09-12" }],
+        }),
+      ],
+      [],
+      { page: 1, pageSize: 50 },
+      session
+    );
+    expect(once.rows).toHaveLength(1);
+    expect(once.rows[0]?.status).toBe("paid");
+    expect(once.summary.billed).toBe(12345);
+    expect(once.summary.paid).toBe(12345);
+    expect(once.summary.outstanding).toBe(0);
+  });
+
+  it("shows remaining balance for a partially paid OPENING invoice", () => {
+    const built = buildFeeRegister(
+      [
+        invoice({
+          id: "opening-1",
+          studentId: "opening-child",
+          studentName: "Opening Child",
+          period: "OPENING",
+          title: "Backlog invoice",
+          amount: 12345,
+          dueDate: "2026-12-10",
+          generatedThrough: "2026-08",
+          payments: [{ amount: 5000, method: "CASH", paidAt: "2026-09-12" }],
+        }),
+      ],
+      [],
+      { page: 1, pageSize: 50 },
+      session
+    );
+    expect(built.rows[0]?.status).toBe("partial");
+    expect(built.rows[0]?.balance).toBe(7345);
+    expect(built.summary.paid).toBe(5000);
+    expect(built.summary.outstanding).toBe(7345);
+  });
+
+  it("does not treat admission invoices as monthly session rows", () => {
+    const built = buildFeeRegister(
+      [
+        invoice({
+          id: "adm",
+          studentId: "opening-child",
+          studentName: "Opening Child",
+          period: "ADMISSION-student-opening-001",
+          title: "One-time admission fee",
+          amount: 10000,
+          dueDate: "2026-06-01",
+        }),
+        invoice({
+          id: "opening-1",
+          studentId: "opening-child",
+          studentName: "Opening Child",
+          period: "OPENING",
+          title: "Backlog invoice",
+          amount: 12345,
+          dueDate: "2026-09-10",
+          generatedThrough: "2026-08",
+        }),
+      ],
+      [],
+      { page: 1, pageSize: 50 },
+      session
+    );
+    expect(built.rows.map((row) => row.period)).toEqual(["OPENING"]);
+  });
+
+  it("excludes an OPENING invoice that belongs to another session", () => {
+    const built = buildFeeRegister(
+      [
+        invoice({
+          id: "old-opening",
+          studentId: "alumni",
+          studentName: "Alumni",
+          period: "OPENING",
+          title: "Backlog invoice",
+          amount: 8000,
+          dueDate: "2025-03-10",
+          generatedThrough: "2025-03",
+        }),
+      ],
+      [],
+      { page: 1, pageSize: 50 },
+      session
+    );
+    expect(built.rows).toEqual([]);
   });
 
   it("parses query filters and paginates without inventing fee math", () => {

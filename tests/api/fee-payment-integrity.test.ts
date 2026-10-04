@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
 import type { Express } from "express";
 import request from "supertest";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { seedPortalFixture, type PortalFixture } from "../support/factories";
 import { createPushedTestDatabase, type TestDatabase } from "../support/test-database";
 import { invoiceBalance } from "../../lib/fees";
@@ -68,6 +68,10 @@ describe.sequential("fee payment integrity API", () => {
   afterAll(async () => {
     await prisma?.$disconnect();
     database?.cleanup();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("does not start Razorpay when gateway is NONE", async () => {
@@ -333,6 +337,18 @@ describe.sequential("fee payment integrity API", () => {
     expect(config.sessionStart).toBe("2026-04-01");
     expect(config.sessionEnd).toBe("2027-03-31");
 
+    await prisma.studentClassEnrollment.upsert({
+      where: { studentId_sessionId: { studentId: fixture.studentId, sessionId: "session-2026" } },
+      create: {
+        studentId: fixture.studentId,
+        classId: fixture.classId,
+        sessionId: "session-2026",
+        rollNumber: 1,
+        joinedAt: new Date("2026-04-01T00:00:00.000Z"),
+      },
+      update: { joinedAt: new Date("2026-04-01T00:00:00.000Z"), classId: fixture.classId, active: true },
+    });
+
     const saved = await act(officeToken, "saveFeeTemplate", {
       classId: fixture.classId,
       sessionId: "session-2026",
@@ -347,10 +363,13 @@ describe.sequential("fee payment integrity API", () => {
     });
     expect(saved.status).toBe(200);
 
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-07-02T06:30:00.000Z"));
     const issued = await act(officeToken, "issueClassFees", {
       classId: fixture.classId,
       templateId: saved.body.id,
     });
+    vi.useRealTimers();
     expect(issued.status).toBe(200);
 
     const june = await prisma.feeInvoice.findFirstOrThrow({
