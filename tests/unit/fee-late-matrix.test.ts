@@ -149,6 +149,23 @@ describe("fee late matrix against implemented invoiceBalance", () => {
     expect(settled.dueNow).toBe(0);
     expect(settled.display).toBe("PAID");
   });
+
+  it("keeps a PAID invoice at zero late when viewed six months later", () => {
+    vi.setSystemTime(new Date(2026, 9, 20, 10, 0, 0));
+    const balance = invoiceBalance({
+      amount: 5000,
+      paid: 5000,
+      status: "PAID",
+      dueDate: dueApr10(),
+      lateKind: "DAILY",
+      lateAmount: 10,
+      lateGraceDays: 0,
+    });
+    expect(balance.remaining).toBe(0);
+    expect(balance.late).toBe(0);
+    expect(balance.dueNow).toBe(0);
+    expect(balance.display).toBe("PAID");
+  });
 });
 
 describe("fee reminder copy", () => {

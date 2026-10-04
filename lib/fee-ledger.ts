@@ -24,29 +24,40 @@ export async function recordLedgerPayment(data: {
   proofPath?: string | null;
   notes?: string | null;
 }) {
-  if (data.reference) {
-    const dup = await prisma.payment.findFirst({
-      where: {
+  const payment = await prisma.$transaction(async (tx) => {
+    if (data.reference) {
+      const dup = await tx.payment.findFirst({
+        where: {
+          method: data.method,
+          OR: [
+            { invoiceId: data.invoiceId, reference: data.reference },
+            { reference: data.reference },
+            { reference: { startsWith: `${data.reference}:` } },
+          ],
+        },
+      });
+      if (dup) return dup;
+    }
+    const invoice = await tx.feeInvoice.findUnique({
+      where: { id: data.invoiceId },
+      include: { payments: true },
+    });
+    if (!invoice) throw new Error("Invoice missing");
+    const due = invoiceBalance(invoice).dueNow;
+    if (due <= 0) throw new Error("This invoice is already paid");
+    const amount = Math.min(Math.max(0, Math.round(Number(data.amount) || 0)), due);
+    if (!Number.isFinite(amount) || amount <= 0) throw new Error("Invalid payment");
+    return tx.payment.create({
+      data: {
+        invoiceId: data.invoiceId,
+        orgId: invoice.orgId ?? null,
+        amount,
         method: data.method,
-        OR: [
-          { invoiceId: data.invoiceId, reference: data.reference },
-          { reference: data.reference },
-          { reference: { startsWith: `${data.reference}:` } },
-        ],
+        reference: data.reference ?? null,
+        proofPath: data.proofPath ?? null,
+        notes: data.notes ?? null,
       },
     });
-    if (dup) return dup;
-  }
-  const payment = await prisma.payment.create({
-    data: {
-      invoiceId: data.invoiceId,
-      orgId: (await prisma.feeInvoice.findUnique({ where: { id: data.invoiceId }, select: { orgId: true } }))?.orgId ?? null,
-      amount: data.amount,
-      method: data.method,
-      reference: data.reference ?? null,
-      proofPath: data.proofPath ?? null,
-      notes: data.notes ?? null,
-    },
   });
   await refreshInvoiceStatus(data.invoiceId);
   return payment;

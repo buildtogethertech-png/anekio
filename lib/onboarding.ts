@@ -169,6 +169,64 @@ function validDate(value: string) {
   return !Number.isNaN(new Date(`${value}T00:00:00`).getTime());
 }
 
+function currentMonthPeriod(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function admissionLookupKey(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function parseOpeningBacklogAmount(raw: string): { error: string } | { amount: number } {
+  const text = raw.trim();
+  if (!text) return { error: "backlog invoice amount is required." };
+  if (!/^\d+$/.test(text)) return { error: "backlog invoice amount must be a whole number of rupees." };
+  const amount = Number(text);
+  if (!Number.isFinite(amount) || amount < 0) return { error: "backlog invoice amount must be zero or more." };
+  return { amount };
+}
+
+function cutoffFitsSession(through: string, startsOn?: string | null, endsOn?: string | null, asOf = new Date()) {
+  if (!validPeriod(through)) return false;
+  const start = (startsOn || "").slice(0, 7);
+  const end = (endsOn || "").slice(0, 7);
+  if (start && through < start) return false;
+  if (end && through > end) return false;
+  if (through > currentMonthPeriod(asOf)) return false;
+  return true;
+}
+
+async function publishedFeeDocumentTypes(orgId: string) {
+  const rows = await prisma.documentTemplate.findMany({
+    where: { orgId, status: "ACTIVE", type: { in: ["FEE_INVOICE", "PAYMENT_RECEIPT"] } },
+    select: { type: true },
+  });
+  return new Set(rows.map((row) => row.type));
+}
+
+async function openingDocumentErrors(orgId: string) {
+  const published = await publishedFeeDocumentTypes(orgId);
+  const errors: string[] = [];
+  if (!published.has("FEE_INVOICE")) errors.push("Publish the fee invoice template before importing opening balances.");
+  if (!published.has("PAYMENT_RECEIPT")) errors.push("Publish the payment receipt template before importing opening balances.");
+  return errors;
+}
+
+async function findStudentForOpening(db: OnboardingDb | typeof prisma, input: { studentId: string; admissionNo: string; orgId?: string | null }) {
+  if (input.studentId) {
+    return db.student.findUnique({ where: { id: input.studentId } });
+  }
+  const wanted = admissionLookupKey(input.admissionNo);
+  if (!wanted) return null;
+  const students = await db.student.findMany({
+    where: { orgId: input.orgId ?? null },
+    select: { id: true, admissionNo: true, classId: true, feeGeneratedThrough: true },
+  });
+  const match = students.find((row) => admissionLookupKey(row.admissionNo) === wanted);
+  if (!match) return null;
+  return db.student.findUnique({ where: { id: match.id } });
+}
+
 function addDaysYmd(value: string, days: number) {
   const date = new Date(`${value}T00:00:00`);
   date.setDate(date.getDate() + days);
@@ -1298,7 +1356,11 @@ async function validateRows(kind: ImportKind, rows: ImportRow[]) {
     : new Map<string, { id: string; classId: string; maxMarks: number }>();
   const staffPeople = kind === "staff_attendance" ? await staffAttendancePeople() : [];
   const studentIds = new Set(students.map((row) => row.id));
-  const admissionNos = new Set(students.map((row) => row.admissionNo.toLowerCase()));
+  const admissionNos = new Set(students.map((row) => admissionLookupKey(row.admissionNo)));
+  const openingAdmissionRows = new Map<string, string>();
+  const currentSessionRange = kind === "opening_balances"
+    ? await prisma.schoolSession.findFirst({ where: { current: true }, select: { startsOn: true, endsOn: true } })
+    : null;
   const examStudentsById = new Map(examStudents.map((row) => [row.id, row]));
   const examStudentsByAdmission = new Map(examStudents.map((row) => [row.admissionNo.toLowerCase(), row]));
   const classTeacherRows = new Map<string, string>();
@@ -1441,18 +1503,26 @@ async function validateRows(kind: ImportKind, rows: ImportRow[]) {
       return;
     }
     const studentId = sheetCell(row, "Anekio student ID");
-    const admissionNo = sheetCell(row, "Admission number", "Admission no").toLowerCase();
-    const amount = Number(sheetCell(row, "Backlog invoice amount", "Opening due amount", "Previous system due", "Due amount", "Amount"));
+    const admissionNo = admissionLookupKey(sheetCell(row, "Admission number", "Admission no"));
+    const parsedAmount = parseOpeningBacklogAmount(sheetCell(row, "Backlog invoice amount", "Opening due amount", "Previous system due", "Due amount", "Amount"));
     const invoiceDate = sheetCell(row, "Invoice date", "Generated date");
     const dueDate = sheetCell(row, "Due date");
     const through = sheetCell(row, "Invoices already generated till", "Invoices generated till", "Last invoice month", "Generated through", "Last generated month");
     if ((!studentId || !studentIds.has(studentId)) && (!admissionNo || !admissionNos.has(admissionNo))) {
       errors.push(rowError(row, "student ID or admission number was not found."));
     }
-    if (!Number.isFinite(amount) || amount < 0) errors.push(rowError(row, "backlog invoice amount must be zero or more."));
+    if (admissionNo) {
+      const firstRow = openingAdmissionRows.get(admissionNo);
+      if (firstRow) errors.push(rowError(row, "Duplicate admission number in import file"));
+      else openingAdmissionRows.set(admissionNo, row._row);
+    }
+    if ("error" in parsedAmount) errors.push(rowError(row, parsedAmount.error));
     if (invoiceDate && !validDate(invoiceDate)) errors.push(rowError(row, "invoice date must be YYYY-MM-DD."));
     if (!validDate(dueDate)) errors.push(rowError(row, "due date must be YYYY-MM-DD."));
     if (!validPeriod(through)) errors.push(rowError(row, "invoices already generated till must be YYYY-MM."));
+    else if (!cutoffFitsSession(through, currentSessionRange?.startsOn, currentSessionRange?.endsOn)) {
+      errors.push(rowError(row, "invoices already generated till must fall inside the current session and cannot be after the current month."));
+    }
   });
   return errors;
 }
@@ -1527,9 +1597,12 @@ export async function previewOnboardingRows(
   const kind = asKind(input.kind);
   const rows = input.rows;
   if (!rows.length) throw new Error("No data rows found. Add school data below the example row, or copy it and clear Example only.");
-  const errors = await validateRows(kind, rows);
-  const state = await ensureOnboardingState(user);
   const orgId = await onboardingOrgId(user);
+  const errors = [
+    ...(kind === "opening_balances" ? await openingDocumentErrors(orgId) : []),
+    ...(await validateRows(kind, rows)),
+  ];
+  const state = await ensureOnboardingState(user);
   const batch = await prisma.schoolOnboardingImport.create({
     data: {
       orgId,
@@ -1835,11 +1908,11 @@ async function applyOpeningBalances(db: OnboardingDb, rows: ImportRow[], orgId?:
   for (const row of rows) {
     const studentId = sheetCell(row, "Anekio student ID");
     const admissionNo = sheetCell(row, "Admission number", "Admission no");
-    const student = studentId
-      ? await db.student.findUnique({ where: { id: studentId } })
-      : await db.student.findFirst({ where: { admissionNo, orgId: orgId ?? null } });
+    const student = await findStudentForOpening(db, { studentId, admissionNo, orgId: orgId ?? null });
     if (!student) throw new Error(rowError(row, "student no longer exists."));
-    const amount = Math.round(Number(sheetCell(row, "Backlog invoice amount", "Opening due amount", "Previous system due", "Due amount", "Amount")));
+    const parsedAmount = parseOpeningBacklogAmount(sheetCell(row, "Backlog invoice amount", "Opening due amount", "Previous system due", "Due amount", "Amount"));
+    if ("error" in parsedAmount) throw new Error(rowError(row, parsedAmount.error));
+    const amount = parsedAmount.amount;
     const generatedThrough = sheetCell(row, "Invoices already generated till", "Invoices generated till", "Last invoice month", "Generated through", "Last generated month");
     const dueDate = new Date(`${sheetCell(row, "Due date")}T00:00:00`);
     const existing = await db.feeInvoice.findUnique({
@@ -2027,6 +2100,10 @@ export async function applyOnboardingImport(user: AccessUser, input: { batchId?:
   if (errors.length && batch.status !== "FAILED") throw new Error("Fix the review errors and upload the template again.");
   const kind = asKind(batch.kind);
   const rows = JSON.parse(batch.rowsJson) as ImportRow[];
+  if (kind === "opening_balances") {
+    const documentErrors = await openingDocumentErrors(orgId);
+    if (documentErrors.length) throw new Error(documentErrors.join(" "));
+  }
   try {
     const codes = kind === "students" || kind === "teachers" ? await nextCodes(orgId) : null;
     const peopleSetup = kind === "students"
@@ -2221,7 +2298,7 @@ export async function onboardingBundle(user: AccessUser) {
     step("collection_account", "money", 20, "Bank and collection account", "Add UPI, bank account, or the school's payment gateway before asking parents to pay.", hasUpi || hasBank || hasGateway, false, "Collection details appear on pay pages, invoices, receipts, and office collection workflows.", { href: "/school?tab=collect", label: "Open collection setup" }),
     step("fee_invoice_document", "money", 21, "Fee invoice template", "Save and publish the fee invoice template before the first billing cycle.", hasInvoiceDocument, !hasInvoiceDocument, "Fee invoice template is required before fee setup can continue.", { href: "/school?tab=documents&document=FEE_INVOICE", label: "Open invoice template" }, false),
     step("payment_receipt_document", "money", 22, "Payment receipt template", "Save and publish the payment receipt template before the first billing cycle.", hasReceiptDocument, !hasReceiptDocument, "Payment receipt template is required before fee setup can continue.", { href: "/school?tab=documents&document=PAYMENT_RECEIPT", label: "Open receipt template" }, false),
-    step("opening_balances", "money", 23, "First time fee import", "Put any previous-system dues in a backlog invoice and tell Anekio the last month already invoiced.", importDone.has("opening_balances") || (studentCount > 0 && openingCount >= studentCount), studentCount === 0, "Opening balances prevent missed old dues and duplicate first invoices.", { href: "/fees", label: "Open fees" }),
+    step("opening_balances", "money", 23, "First time fee import", "Put any previous-system dues in a backlog invoice and tell Anekio the last month already invoiced.", importDone.has("opening_balances") || (studentCount > 0 && openingCount >= studentCount), studentCount === 0 || !hasFeeDocuments, studentCount === 0 ? "Students are required before first-time fee import." : !hasFeeDocuments ? "Publish the fee invoice and payment receipt templates before first-time fee import." : "Opening balances prevent missed old dues and duplicate first invoices.", { href: "/fees", label: "Open fees" }),
     step("recurring_fees", "money", 24, "Recurring fee rules", "Set class fee ranges. New invoices begin after each student's imported cut-off month.", templateCount > 0, classCount === 0, "Recurring fee rules are needed before monthly billing can run correctly.", { href: "/fees", label: "Open fees" }),
     step("review", "money", 25, "Review and launch", "Check counts, spot-check families, fees, exams, staff, and templates, then hand the workspace to the school.", false, classCount === 0 || studentCount === 0 || !hasImportantDocuments, !hasImportantDocuments ? "Save and publish the important student, staff, exam, invoice, and receipt templates before launch review." : "Review catches missing setup before the school starts using the workspace live.", { href: "/school", label: "Open school setup" }, false),
   ];
@@ -2236,8 +2313,8 @@ export async function onboardingBundle(user: AccessUser) {
       kind,
       title: TEMPLATE_DETAILS[kind].title,
       fileName: xlsxFileName(kind),
-      disabled: (kind === "opening_balances" && studentCount === 0) || (kind === "attendance" && (studentCount === 0 || classCount === 0 || !hasWorkingDays || !hasHolidayCalendar)) || (kind === "staff_attendance" && (staffCount === 0 || !hasWorkingDays || !hasHolidayCalendar)) || (kind === "exam_marks" && (studentCount === 0 || !hasExamPlan || !hasExamHistory)),
-      prerequisite: kind === "opening_balances" ? "Students" : kind === "attendance" ? "Classes, students, working days, and holiday calendar" : kind === "staff_attendance" ? "Staff, working days, and holiday calendar" : kind === "exam_marks" ? "Year exam plan, setup exams, and students" : "Class labels can be created from the sheet",
+      disabled: (kind === "opening_balances" && (studentCount === 0 || !hasFeeDocuments)) || (kind === "attendance" && (studentCount === 0 || classCount === 0 || !hasWorkingDays || !hasHolidayCalendar)) || (kind === "staff_attendance" && (staffCount === 0 || !hasWorkingDays || !hasHolidayCalendar)) || (kind === "exam_marks" && (studentCount === 0 || !hasExamPlan || !hasExamHistory)),
+      prerequisite: kind === "opening_balances" ? (studentCount === 0 ? "Students" : !hasFeeDocuments ? "Fee invoice and payment receipt templates" : "Students") : kind === "attendance" ? "Classes, students, working days, and holiday calendar" : kind === "staff_attendance" ? "Staff, working days, and holiday calendar" : kind === "exam_marks" ? "Year exam plan, setup exams, and students" : "Class labels can be created from the sheet",
     })),
     imports: latestImports.map((row) => ({
       id: row.id,

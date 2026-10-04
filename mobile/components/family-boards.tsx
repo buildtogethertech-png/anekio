@@ -190,7 +190,7 @@ export function TeacherDeskBoard() {
     [data?.calendar, data?.timetable?.weekdays]
   );
   const todayClosed = closedReason(ymd(new Date()), calendar);
-  const pinRegister = Boolean(data?.classTeacher && !data.markedToday && !todayClosed && new Date().getHours() < 10);
+  const homeroomLabel = data?.classTeacher && data.classLabel ? data.classLabel : "";
   const { width } = useWindowDimensions();
   const wideDashboard = width >= 1000;
   const phoneDashboard = width < 768;
@@ -349,11 +349,17 @@ export function TeacherDeskBoard() {
   function todayFocusCard() {
     const closed = todayClosed ? closedDayVoice(todayClosed) : null;
     const registerText = closed
-      ? "Register closed"
+      ? homeroomLabel
+        ? `${homeroomLabel} register closed`
+        : "Register closed"
       : data?.markedToday
-        ? "Class register marked"
+        ? homeroomLabel
+          ? `${homeroomLabel} register marked`
+          : "Class register marked"
         : data?.classTeacher
-          ? "Class register pending"
+          ? homeroomLabel
+            ? `${homeroomLabel} register pending`
+            : "Class register pending"
           : "No class register";
     const scheduleText = next
       ? `${next.subject}${next.start ? ` · ${next.start}${next.end ? `-${next.end}` : ""}` : ""}${next.classLabel ? ` · ${next.classLabel}` : ""}`
@@ -576,7 +582,9 @@ export function TeacherDeskBoard() {
       <Card className="mb-3 p-0">
         <View className="border-b border-ink-100 px-4 py-3">
           <Text className="text-sm font-semibold text-ink-900">Snapshot</Text>
-          <Text className="mt-0.5 text-xs text-ink-700">Class and week at a glance</Text>
+          <Text className="mt-0.5 text-xs text-ink-700">
+            {homeroomLabel ? `Your class ${homeroomLabel}` : "Week at a glance"}
+          </Text>
         </View>
         <View className="flex-row flex-wrap">
           {stats.map((stat, index) => (
@@ -604,8 +612,8 @@ export function TeacherDeskBoard() {
 
   return (
     <View>
-      <View className={phoneDashboard ? "mb-3" : "mb-4 flex-row flex-wrap items-end justify-between gap-2"}>
-        <View>
+      <View className={phoneDashboard ? "mb-3 flex-row items-end justify-between gap-3" : "mb-4 flex-row flex-wrap items-end justify-between gap-2"}>
+        <View className="min-w-0 flex-1">
           <Text className="text-xs font-medium uppercase tracking-wide text-clay-600">{phoneDashboard ? "Teacher" : "Teacher desk"}</Text>
           <Text className={phoneDashboard ? "mt-1 text-3xl font-semibold text-ink-900" : "mt-1 text-xl font-semibold text-ink-900"}>
             {phoneDashboard ? "Today" : greeting}
@@ -614,7 +622,14 @@ export function TeacherDeskBoard() {
             <Text className="mt-1 text-sm text-ink-700">{todayClosed ? `Next: ${nextWorkingDayLabel()}` : next ? "Class in progress" : "Quick actions ready"}</Text>
           ) : null}
         </View>
-        {!phoneDashboard ? <Text className="text-xs text-ink-700">{todayClosed ? "Closed day" : data?.markedToday ? "Register marked" : "Needs attention"}</Text> : null}
+        {phoneDashboard && homeroomLabel ? (
+          <View className="mb-0.5 items-end">
+            <Text className="text-[11px] font-medium uppercase tracking-wide text-ink-700">Class teacher</Text>
+            <Text className="mt-0.5 text-xl font-semibold text-ink-900">{homeroomLabel}</Text>
+          </View>
+        ) : !phoneDashboard ? (
+          <Text className="text-xs text-ink-700">{todayClosed ? "Closed day" : data?.markedToday ? "Register marked" : "Needs attention"}</Text>
+        ) : null}
       </View>
 
       {todayFocusCard()}

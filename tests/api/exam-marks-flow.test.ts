@@ -13,6 +13,7 @@ let fixture: PortalFixture;
 let officeToken = "";
 let teacherToken = "";
 let otherTeacherToken = "";
+let rahulToken = "";
 let parentToken = "";
 let examId = "";
 let seriesId = "";
@@ -66,6 +67,33 @@ describe.sequential("exam marks API flow", () => {
       },
     });
     await prisma.class.create({ data: { id: "class-6-b", name: "6", section: "B" } });
+    await prisma.class.create({ data: { id: "class-1-a", name: "1", section: "A" } });
+    await prisma.class.create({ data: { id: "class-2-a", name: "2", section: "A" } });
+    await prisma.user.create({
+      data: {
+        id: "user-teacher-rahul",
+        email: "rahul.teacher@school.test",
+        password: hashed,
+        name: "Rahul Subject",
+        roleId: teacherRole.id,
+        teacher: { create: { id: "teacher-rahul", employeeId: "T-FIX-3" } },
+      },
+    });
+    await prisma.subject.create({
+      data: { id: "subject-1a-math", name: "Mathematics", classId: "class-1-a", teacherId: "teacher-rahul", weightage: 6 },
+    });
+    await prisma.subject.create({
+      data: { id: "subject-2a-science", name: "Science", classId: "class-2-a", teacherId: "teacher-rahul", weightage: 6 },
+    });
+    await prisma.subject.create({
+      data: { id: "subject-1a-science", name: "Science", classId: "class-1-a", weightage: 6 },
+    });
+    await prisma.subject.create({
+      data: { id: "subject-6b-english", name: "English", classId: "class-6-b", weightage: 4 },
+    });
+    await prisma.teacherSkill.create({
+      data: { teacherId: "teacher-rahul", classId: "class-6-b", subjectName: "English" },
+    });
     await prisma.student.create({
       data: {
         id: classmateId,
@@ -90,6 +118,7 @@ describe.sequential("exam marks API flow", () => {
     officeToken = (await login(fixture.users.office.email)).body.token;
     teacherToken = (await login(fixture.users.teacher.email)).body.token;
     otherTeacherToken = (await login("other.teacher@school.test")).body.token;
+    rahulToken = (await login("rahul.teacher@school.test")).body.token;
     parentToken = (await login(fixture.users.parent.email)).body.token;
   }, 120_000);
 
@@ -455,5 +484,141 @@ describe.sequential("exam marks API flow", () => {
     });
     expect(series.exams).toHaveLength(1);
     expect(series.exams[0].teacherId).toBeNull();
+  });
+
+  it("lets the class teacher host a class test and ignores a spoofed teacherId", async () => {
+    const missing = await act(teacherToken, "hostExam", {
+      title: "",
+      subjectId: "subject-mathematics",
+      classId: fixture.classId,
+      date: "2026-09-12",
+      maxMarks: 40,
+    });
+    expect(missing.status).toBe(400);
+
+    const created = await act(teacherToken, "hostExam", {
+      title: "Friday class test",
+      subjectId: "subject-mathematics",
+      classId: fixture.classId,
+      date: "2026-09-12",
+      maxMarks: 25,
+      teacherId: "teacher-sandeep",
+      setterId: "teacher-sandeep",
+    });
+    expectOk(created, "hostExam");
+    const exam = await prisma.exam.findFirstOrThrow({
+      where: { title: "Friday class test", classId: fixture.classId, seriesId: null },
+    });
+    expect(exam.teacherId).toBe("teacher-tara");
+    expect(exam.setterId).toBe("teacher-tara");
+    expect(exam.maxMarks).toBe(25);
+    expect(exam.workflowStatus).toBe("SCHEDULED");
+
+    const desk = await record(teacherToken);
+    expect(desk.body.todos).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          examId: exam.id,
+          kind: "paper",
+          hint: expect.stringMatching(/Friday class test · 6-A/i),
+        }),
+      ])
+    );
+  });
+
+  it("does not let another teacher host a class test for someone else's section", async () => {
+    const blocked = await act(otherTeacherToken, "hostExam", {
+      title: "Impersonated test",
+      subjectId: "subject-mathematics",
+      classId: fixture.classId,
+      date: "2026-09-13",
+      maxMarks: 40,
+      teacherId: "teacher-tara",
+    });
+    expect(blocked.status).toBe(400);
+    expect(String(blocked.body.error)).toMatch(/not your class or subject/i);
+  });
+
+  it("lets an assigned subject teacher host a class test without being the homeroom teacher", async () => {
+    const created = await act(rahulToken, "hostExam", {
+      title: "1-A Maths class test",
+      subjectId: "subject-1a-math",
+      classId: "class-1-a",
+      date: "2026-09-14",
+      maxMarks: 20,
+      teacherId: "teacher-tara",
+      setterId: "teacher-tara",
+    });
+    expectOk(created, "rahul hostExam subject assignment");
+    const exam = await prisma.exam.findFirstOrThrow({
+      where: { title: "1-A Maths class test", classId: "class-1-a", seriesId: null },
+    });
+    expect(exam.teacherId).toBe("teacher-rahul");
+    expect(exam.setterId).toBe("teacher-rahul");
+    expect(exam.maxMarks).toBe(20);
+    expect(exam.workflowStatus).toBe("SCHEDULED");
+  });
+
+  it("lets a teacher host a class test for a TeacherSkill assignment", async () => {
+    const created = await act(rahulToken, "hostExam", {
+      title: "6-B English class test",
+      subjectId: "subject-6b-english",
+      classId: "class-6-b",
+      date: "2026-09-15",
+      maxMarks: 30,
+    });
+    expectOk(created, "rahul hostExam skill assignment");
+    const exam = await prisma.exam.findFirstOrThrow({
+      where: { title: "6-B English class test", classId: "class-6-b", seriesId: null },
+    });
+    expect(exam.teacherId).toBe("teacher-rahul");
+    expect(exam.setterId).toBe("teacher-rahul");
+  });
+
+  it("rejects a class test when the teacher is not assigned to that subject", async () => {
+    const blocked = await act(rahulToken, "hostExam", {
+      title: "1-A Science class test",
+      subjectId: "subject-1a-science",
+      classId: "class-1-a",
+      date: "2026-09-16",
+      maxMarks: 20,
+    });
+    expect(blocked.status).toBe(400);
+    expect(String(blocked.body.error)).toMatch(/not your class or subject/i);
+  });
+
+  it("returns only assigned classes and subjects for class tests; unassigned teachers get none", async () => {
+    const rahul = await record(rahulToken);
+    expect(rahul.body.classes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "class-1-a",
+          label: "1-A",
+          subjects: expect.arrayContaining([expect.objectContaining({ id: "subject-1a-math", name: "Mathematics" })]),
+        }),
+        expect.objectContaining({
+          id: "class-2-a",
+          label: "2-A",
+          subjects: [expect.objectContaining({ id: "subject-2a-science", name: "Science" })],
+        }),
+        expect.objectContaining({
+          id: "class-6-b",
+          label: "6-B",
+          subjects: [expect.objectContaining({ id: "subject-6b-english", name: "English" })],
+        }),
+      ])
+    );
+    const mathClass = rahul.body.classes.find((row: { id: string }) => row.id === "class-1-a");
+    expect(mathClass.subjects.map((row: { name: string }) => row.name)).not.toContain("Science");
+    const sandeep = await record(otherTeacherToken);
+    expect(sandeep.body.classes || []).toEqual([]);
+    const blocked = await act(otherTeacherToken, "hostExam", {
+      title: "No assignment test",
+      subjectId: "subject-mathematics",
+      classId: fixture.classId,
+      date: "2026-09-17",
+      maxMarks: 40,
+    });
+    expect(blocked.status).toBe(400);
   });
 });
