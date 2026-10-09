@@ -57,7 +57,7 @@ function Brand({ inverse = false, compact = false, centered = false, markSize, w
 }
 
 function FieldLabel({ children }: { children: string }) {
-  return <Text className="mb-1.5 text-xs font-semibold text-ink-800">{children}</Text>;
+  return <Text className="mb-2 text-[13px] font-semibold text-[#172B4D]">{children}</Text>;
 }
 
 export default function Login() {
@@ -242,10 +242,10 @@ export default function Login() {
           </Pressable>
         ) : null}
 
-        <Text className={`${isWideLayout ? "text-[30px]" : "text-[26px]"} font-semibold tracking-tight text-ink-900`}>{heading}</Text>
-        <Text className="mt-1.5 text-[15px] leading-5 text-ink-700">{subheading}</Text>
+        <Text className={`${isWideLayout ? "text-[30px]" : "text-[29px]"} font-bold tracking-tight text-[#102A5C]`}>{heading}</Text>
+        <Text className="mt-2 text-[16px] leading-6 text-[#52627A]">{subheading}</Text>
 
-        <View className={`${isWideLayout ? "mt-6 gap-5" : "mt-5 gap-4"}`}>
+        <View className={`${isWideLayout ? "mt-6 gap-5" : "mt-7 gap-5"}`}>
           {mode === "trial" ? (
             <>
               <View>
@@ -296,7 +296,7 @@ export default function Login() {
                           setAccountChoices([]);
                         }}
                         placeholder="name@school.com or mobile number"
-                        className="h-12 pl-11 text-base"
+                        className="h-14 rounded-2xl border-[#D6DEEA] pl-11 text-base"
                       />
                     </View>
                   </View>
@@ -322,7 +322,7 @@ export default function Login() {
                           }}
                           onSubmitEditing={() => onPasswordSignIn()}
                           placeholder="Enter your password"
-                          className="h-12 px-11 text-base"
+                          className="h-14 rounded-2xl border-[#D6DEEA] px-11 text-base"
                         />
                         <Pressable
                           accessibilityRole="button"
@@ -403,7 +403,7 @@ export default function Login() {
                   ) : null}
 
                   {mode === "password" ? (
-                    <Button testID="login-submit" accessibilityLabel="Sign in" onPress={() => onPasswordSignIn()} disabled={pending || !login || !password} className="h-12 justify-center">
+                      <Button testID="login-submit" accessibilityLabel="Sign in" onPress={() => onPasswordSignIn()} disabled={pending || !login || !password} className="h-14 justify-center rounded-full bg-[#2955DB] shadow-lg shadow-blue-300">
                       {pending ? "Signing in..." : "Sign in securely"}
                     </Button>
                   ) : codeSent && !resetLinkSent ? (
@@ -422,7 +422,7 @@ export default function Login() {
                   )}
 
                   {mode === "password" ? (
-                    <Pressable accessibilityRole="button" onPress={() => chooseMode("otp")} className="items-center py-1.5">
+                    <Pressable accessibilityRole="button" onPress={() => chooseMode("otp")} className="items-center py-2">
                       <Text className="text-xs font-medium text-ink-700">Prefer a code? <Text className="font-semibold text-clay-600">Use email OTP</Text></Text>
                     </Pressable>
                   ) : mode === "otp" && !codeSent ? (
@@ -440,7 +440,7 @@ export default function Login() {
           )}
         </View>
 
-        <View className="mt-6 border-t border-ink-200 pt-4">
+        <View className="mt-7 border-t border-[#DCE3ED] pt-5">
           <View className="flex-row flex-wrap items-center justify-center gap-1">
             {mode === "trial" ? (
               <>
@@ -479,17 +479,26 @@ export default function Login() {
   );
 
   return (
-    <SafeAreaView className="flex-1 bg-[#F4F7FB]" testID="login-screen">
+    <SafeAreaView className="flex-1 bg-[#F5F7FC]" testID="login-screen">
       <ScrollView
         keyboardShouldPersistTaps="handled"
         scrollEnabled={!balancedPhoneLayout}
         contentContainerStyle={{ minHeight: balancedPhoneLayout ? height : Math.max(height, 680), flexGrow: 1 }}
       >
-        <View className={`flex-1 items-center ${isWideLayout ? "justify-center px-4 py-5 sm:px-6 sm:py-8" : balancedPhoneLayout ? "justify-center px-5 py-9" : "justify-start px-5 py-6"}`}>
+        <View className={`flex-1 items-center overflow-hidden ${isWideLayout ? "justify-center px-4 py-5 sm:px-6 sm:py-8" : balancedPhoneLayout ? "justify-center px-6 py-8" : "justify-start px-6 py-7"}`}>
+          {!isWideLayout ? (
+            <View pointerEvents="none" className="absolute inset-0">
+              <View className="absolute -right-12 -top-8 h-36 w-36 rounded-full bg-[#E6ECFA]" />
+              <View className="absolute -left-8 top-[190px] h-20 w-20 rounded-full border border-[#DFE9F8]" />
+              <View className="absolute right-4 top-[270px] h-4 w-4 rotate-45 rounded-sm bg-[#CDEFEA]" />
+              <Ionicons name="sparkles-outline" size={23} color="#9CB9DE" style={{ position: "absolute", left: 28, top: 134 }} />
+              <Ionicons name="star" size={12} color="#F0B58B" style={{ position: "absolute", right: 45, top: 410 }} />
+            </View>
+          ) : null}
           <View
             className="w-full"
           >
-            {!isWideLayout ? <View className="mb-10 items-center"><Brand compact markSize={54} wordSize={26} /></View> : null}
+            {!isWideLayout ? <View className="mb-11 items-center"><Brand compact centered markSize={68} wordSize={34} /></View> : null}
             <View
               className={`w-full overflow-hidden ${isWideLayout ? "flex-row border border-[#DFE7F1] bg-white" : ""}`}
               style={isWideLayout ? {
