@@ -517,7 +517,7 @@ export default function Login() {
           <View
             className="w-full"
           >
-            {!isWideLayout ? <View className="mb-10 items-center" style={{ minHeight: 150 }}><Brand compact centered markSize={96} wordSize={42} /></View> : null}
+            {!isWideLayout ? <View className="mb-10 items-center" style={{ minHeight: 172 }}><Brand compact centered markSize={112} wordSize={36} /></View> : null}
             <View
               className={`w-full overflow-hidden ${isWideLayout ? "flex-row border border-[#DFE7F1] bg-white" : ""}`}
               style={isWideLayout ? {
