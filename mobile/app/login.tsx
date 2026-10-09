@@ -495,7 +495,7 @@ export default function Login() {
                   className="self-center rounded-[22px] border border-[#E0E8F4] bg-white px-7 py-4"
                   style={{ shadowColor: "#0F2942", shadowOpacity: 0.05, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 1 }}
                 >
-                  <Brand compact centered markSize={64} />
+                  <Brand compact markSize={42} />
                 </View>
               </View>
             ) : null}
