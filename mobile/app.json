@@ -22,7 +22,11 @@
     },
     "android": {
       "package": "in.anekio.school",
-      "usesCleartextTraffic": true
+      "usesCleartextTraffic": true,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/anekio-mark-transparent.png",
+        "backgroundColor": "#F4F7FB"
+      }
     },
     "web": {
       "bundler": "metro",
