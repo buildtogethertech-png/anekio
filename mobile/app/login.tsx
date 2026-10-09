@@ -43,13 +43,13 @@ async function startTrial(input: {
   return { login: data.login, password: data.password };
 }
 
-function Brand({ inverse = false, compact = false, markSize }: { inverse?: boolean; compact?: boolean; markSize?: number }) {
+function Brand({ inverse = false, compact = false, centered = false, markSize }: { inverse?: boolean; compact?: boolean; centered?: boolean; markSize?: number }) {
   const size = markSize ?? (compact ? 30 : 38);
   return (
-    <View className="flex-row items-center gap-2.5">
+    <View className={centered ? "items-center" : "flex-row items-center gap-2.5"}>
       <Image source={require("../assets/anekio-mark-transparent.png")} accessibilityLabel="Anekio" style={{ width: size, height: size }} />
-      <View>
-        <Text className={`text-lg font-bold lowercase tracking-tight ${inverse ? "text-white" : "text-ink-900"}`}>anekio</Text>
+      <View className={centered ? "mt-2 items-center" : ""}>
+        <Text className={`${centered ? "text-2xl" : "text-lg"} font-bold lowercase tracking-tight ${inverse ? "text-white" : "text-ink-900"}`}>anekio</Text>
         {!compact ? <Text className={`text-xs ${inverse ? "text-blue-100" : "text-ink-700"}`}>Connecting school & parents</Text> : null}
       </View>
     </View>
@@ -489,7 +489,7 @@ export default function Login() {
           <View
             className="w-full"
           >
-            {!isWideLayout ? <View className="mb-8 px-1"><Brand compact markSize={48} /></View> : null}
+            {!isWideLayout ? <View className="mb-8 px-1"><Brand compact centered markSize={64} /></View> : null}
             <View
               className={`w-full overflow-hidden bg-white ${isWideLayout ? "flex-row border border-[#DFE7F1]" : "rounded-2xl border border-[#DFE7F1]"}`}
               style={isWideLayout ? {
