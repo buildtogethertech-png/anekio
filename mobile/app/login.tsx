@@ -43,13 +43,13 @@ async function startTrial(input: {
   return { login: data.login, password: data.password };
 }
 
-function Brand({ inverse = false }: { inverse?: boolean }) {
+function Brand({ inverse = false, compact = false }: { inverse?: boolean; compact?: boolean }) {
   return (
     <View className="flex-row items-center gap-2.5">
-      <Image source={require("../assets/anekio-mark-transparent.png")} accessibilityLabel="Anekio" style={{ width: 38, height: 38 }} />
+      <Image source={require("../assets/anekio-mark-transparent.png")} accessibilityLabel="Anekio" style={{ width: compact ? 30 : 38, height: compact ? 30 : 38 }} />
       <View>
         <Text className={`text-lg font-bold lowercase tracking-tight ${inverse ? "text-white" : "text-ink-900"}`}>anekio</Text>
-        <Text className={`text-xs ${inverse ? "text-blue-100" : "text-ink-700"}`}>Connecting school & parents</Text>
+        {!compact ? <Text className={`text-xs ${inverse ? "text-blue-100" : "text-ink-700"}`}>Connecting school & parents</Text> : null}
       </View>
     </View>
   );
@@ -216,7 +216,7 @@ export default function Login() {
     }
   }
 
-  const heading = mode === "forgot" ? "Reset your password" : mode === "trial" ? "Create your school" : "Welcome back";
+  const heading = mode === "forgot" ? "Reset your password" : mode === "trial" ? "Create your school" : mode === "otp" ? "Sign in with a code" : "Welcome back";
   const subheading =
     mode === "forgot"
       ? "We will verify your registered email before you choose a new password."
@@ -241,29 +241,6 @@ export default function Login() {
 
         <Text className={`${isWideLayout ? "text-[30px]" : "text-[26px]"} font-semibold tracking-tight text-ink-900`}>{heading}</Text>
         <Text className="mt-1.5 text-[15px] leading-5 text-ink-700">{subheading}</Text>
-
-        {mode !== "forgot" && mode !== "trial" ? (
-          <View className={`${isWideLayout ? "mt-8" : "mt-6"} flex-row rounded-xl border border-[#E2E8F0] bg-[#F5F8FC] p-1`} accessibilityRole="tablist">
-            {([
-              ["password", "Password"],
-              ["otp", "Email OTP"],
-            ] as const).map(([id, label]) => {
-              const active = mode === id;
-              return (
-                <Pressable
-                  key={id}
-                  accessibilityRole="tab"
-                  accessibilityState={{ selected: active }}
-                  onPress={() => chooseMode(id)}
-                  className={`h-10 flex-1 items-center justify-center rounded-lg ${active ? "bg-white" : ""}`}
-                  style={active ? { shadowColor: "#102A56", shadowOpacity: 0.08, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1 } : undefined}
-                >
-                  <Text className={`text-sm font-semibold ${active ? "text-ink-900" : "text-ink-700"}`}>{label}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        ) : null}
 
         <View className={`${isWideLayout ? "mt-6 gap-5" : "mt-5 gap-4"}`}>
           {mode === "trial" ? (
@@ -441,6 +418,16 @@ export default function Login() {
                     </Button>
                   )}
 
+                  {mode === "password" ? (
+                    <Pressable accessibilityRole="button" onPress={() => chooseMode("otp")} className="items-center py-1.5">
+                      <Text className="text-xs font-medium text-ink-700">Prefer a code? <Text className="font-semibold text-clay-600">Use email OTP</Text></Text>
+                    </Pressable>
+                  ) : mode === "otp" && !codeSent ? (
+                    <Pressable accessibilityRole="button" onPress={() => chooseMode("password")} className="items-center py-1.5">
+                      <Text className="text-xs font-semibold text-clay-600">Use password instead</Text>
+                    </Pressable>
+                  ) : null}
+
           {mode !== "password" && codeSent && !resetLinkSent ? (
             <Pressable disabled={pending} onPress={onRequestCode} className="items-center py-1">
               <Text className="text-xs font-semibold text-clay-600">Send a new code</Text>
@@ -493,7 +480,7 @@ export default function Login() {
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ minHeight: Math.max(height, 680) }}>
         <View className={`flex-1 items-center ${isWideLayout ? "justify-center px-4 py-5 sm:px-6 sm:py-8" : "justify-start px-5 py-6"}`}>
           {!isWideLayout ? (
-            <View className="mb-4 w-full px-1"><Brand /></View>
+            <View className="mb-5 w-full px-1"><Brand compact /></View>
           ) : null}
           <View
             className={`w-full overflow-hidden bg-white ${isWideLayout ? "flex-row border border-[#DFE7F1]" : "rounded-2xl border border-[#DFE7F1]"}`}
