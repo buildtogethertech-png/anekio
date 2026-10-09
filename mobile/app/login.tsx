@@ -91,6 +91,8 @@ export default function Login() {
   const [ownerPhone, setOwnerPhone] = useState("");
   const [city, setCity] = useState("");
   const [studentCount, setStudentCount] = useState("");
+  const balancedPhoneLayout =
+    !isWideLayout && height >= 760 && mode === "password" && !accountChoices.length && !error && !notice;
 
   if (user) return <Redirect href="/(app)" />;
 
@@ -477,10 +479,14 @@ export default function Login() {
 
   return (
     <SafeAreaView className="flex-1 bg-[#F4F7FB]" testID="login-screen">
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ minHeight: Math.max(height, 680) }}>
-        <View className={`flex-1 items-center ${isWideLayout ? "justify-center px-4 py-5 sm:px-6 sm:py-8" : "justify-start px-5 py-6"}`}>
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        scrollEnabled={!balancedPhoneLayout}
+        contentContainerStyle={{ minHeight: balancedPhoneLayout ? height : Math.max(height, 680), flexGrow: 1 }}
+      >
+        <View className={`flex-1 items-center ${isWideLayout ? "justify-center px-4 py-5 sm:px-6 sm:py-8" : balancedPhoneLayout ? "justify-between px-5 py-9" : "justify-start px-5 py-6"}`}>
           {!isWideLayout ? (
-            <View className="mb-5 w-full px-1"><Brand compact /></View>
+            <View className={`${balancedPhoneLayout ? "" : "mb-5"} w-full px-1`}><Brand compact /></View>
           ) : null}
           <View
             className={`w-full overflow-hidden bg-white ${isWideLayout ? "flex-row border border-[#DFE7F1]" : "rounded-2xl border border-[#DFE7F1]"}`}
@@ -511,6 +517,7 @@ export default function Login() {
             ) : null}
             {form}
           </View>
+          {balancedPhoneLayout ? <View className="h-[30px]" /> : null}
         </View>
       </ScrollView>
     </SafeAreaView>
