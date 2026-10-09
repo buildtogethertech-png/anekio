@@ -1,7 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Redirect, useRouter } from "expo-router";
-import { Image, Linking, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { Animated, Image, Keyboard, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button, Input } from "../components/ui";
 import { apiBase, webOrigin } from "../lib/api";
@@ -92,8 +92,27 @@ export default function Login() {
   const [ownerPhone, setOwnerPhone] = useState("");
   const [city, setCity] = useState("");
   const [studentCount, setStudentCount] = useState("");
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const keyboardProgress = useRef(new Animated.Value(0)).current;
   const balancedPhoneLayout =
-    !isWideLayout && height >= 760 && mode === "password" && !accountChoices.length && !error && !notice;
+    !isWideLayout && !keyboardVisible && height >= 760 && mode === "password" && !accountChoices.length && !error && !notice;
+
+  useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSubscription = Keyboard.addListener(showEvent, () => {
+      setKeyboardVisible(true);
+      Animated.timing(keyboardProgress, { toValue: 1, duration: 220, useNativeDriver: false }).start();
+    });
+    const hideSubscription = Keyboard.addListener(hideEvent, () => {
+      Animated.timing(keyboardProgress, { toValue: 0, duration: 180, useNativeDriver: false }).start();
+      setKeyboardVisible(false);
+    });
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, [keyboardProgress]);
 
   if (user) return <Redirect href="/(app)" />;
 
@@ -500,9 +519,10 @@ export default function Login() {
 
   return (
     <SafeAreaView className="flex-1 bg-[#F5F7FC]" testID="login-screen">
+      <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === "ios" ? "padding" : "height"}>
       <ScrollView
         keyboardShouldPersistTaps="handled"
-        scrollEnabled={!balancedPhoneLayout}
+        scrollEnabled={keyboardVisible || !balancedPhoneLayout}
         contentContainerStyle={{ minHeight: balancedPhoneLayout ? height : Math.max(height, 680), flexGrow: 1 }}
       >
         <View className={`flex-1 items-center overflow-hidden ${isWideLayout ? "justify-center px-4 py-5 sm:px-6 sm:py-8" : balancedPhoneLayout ? "justify-center px-6 py-8" : "justify-start px-6 py-7"}`}>
@@ -518,7 +538,19 @@ export default function Login() {
           <View
             className="w-full"
           >
-            {!isWideLayout ? <View className="mb-10 items-center" style={{ minHeight: 184 }}><Brand compact centered markSize={124} wordSize={36} /></View> : null}
+            {!isWideLayout ? (
+              <Animated.View
+                style={{
+                  height: keyboardProgress.interpolate({ inputRange: [0, 1], outputRange: [184, 112] }),
+                  marginBottom: keyboardProgress.interpolate({ inputRange: [0, 1], outputRange: [40, 16] }),
+                  alignItems: "center",
+                }}
+              >
+                <Animated.View style={{ transform: [{ scale: keyboardProgress.interpolate({ inputRange: [0, 1], outputRange: [1, 0.72] }) }] }}>
+                  <Brand compact centered markSize={124} wordSize={36} />
+                </Animated.View>
+              </Animated.View>
+            ) : null}
             <View
               className={`w-full overflow-hidden ${isWideLayout ? "flex-row border border-[#DFE7F1] bg-white" : ""}`}
               style={isWideLayout ? {
@@ -551,6 +583,7 @@ export default function Login() {
           </View>
         </View>
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
