@@ -837,8 +837,8 @@ export function TeacherDeskBoard() {
       ) : null}
 
       {!phoneDashboard ? <View className={`mb-4 gap-4 ${wideDashboard ? "flex-row" : ""}`}>
-        {pinRegister ? registerCard() : nowCard()}
-        {pinRegister ? nowCard() : registerCard()}
+        {nowCard()}
+        {registerCard()}
       </View> : null}
 
       {phoneWorkCard()}
