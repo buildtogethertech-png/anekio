@@ -46,10 +46,10 @@ async function startTrial(input: {
 function Brand({ inverse = false }: { inverse?: boolean }) {
   return (
     <View className="flex-row items-center gap-3">
-      <Image source={require("../assets/icon.png")} accessibilityLabel="Anekio" style={{ width: 44, height: 44, borderRadius: 12 }} />
+      <Image source={require("../assets/anekio-option-a.png")} accessibilityLabel="Anekio" style={{ width: 44, height: 44, borderRadius: 12 }} />
       <View>
-        <Text className={`text-lg font-semibold ${inverse ? "text-white" : "text-ink-900"}`}>Anekio</Text>
-        <Text className={`text-xs ${inverse ? "text-blue-100" : "text-ink-700"}`}>School operations, in one place</Text>
+        <Text className={`text-lg font-bold lowercase tracking-tight ${inverse ? "text-white" : "text-ink-900"}`}>anekio</Text>
+        <Text className={`text-xs ${inverse ? "text-blue-100" : "text-ink-700"}`}>Connecting school & parents</Text>
       </View>
     </View>
   );

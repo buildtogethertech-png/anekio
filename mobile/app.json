@@ -6,10 +6,10 @@
     "orientation": "portrait",
     "scheme": "anekio",
     "userInterfaceStyle": "light",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/anekio-option-a.png",
     "splash": {
       "backgroundColor": "#f4f7fb",
-      "image": "./assets/splash.png"
+      "image": "./assets/anekio-option-a.png"
     },
     "ios": {
       "supportsTablet": true,
@@ -36,7 +36,7 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/icon.png",
+          "icon": "./assets/anekio-option-a.png",
           "color": "#1d4ed8",
           "defaultChannel": "notices"
         }

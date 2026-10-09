@@ -176,9 +176,9 @@ export function PhoneTopBar() {
   return (
     <View className="flex-row items-center border-b border-ink-200 bg-white px-3 py-2">
       <Pressable onPress={() => router.push("/")} className="min-w-0 flex-1 flex-row items-center gap-2 py-1">
-        <Image source={require("../assets/icon.png")} className="rounded-xl" style={{ width: 36, height: 36, borderRadius: 12 }} />
+        <Image source={require("../assets/anekio-option-a.png")} className="rounded-xl" style={{ width: 36, height: 36, borderRadius: 12 }} />
         <View className="min-w-0 flex-1">
-          <Text className="text-base font-bold leading-5 text-ink-900">Anekio</Text>
+          <Text className="text-base font-bold lowercase leading-5 tracking-tight text-ink-900">anekio</Text>
           <Text className="text-[10px] font-medium leading-3 text-ink-500" numberOfLines={1}>
             One platform, many possibilities
           </Text>
