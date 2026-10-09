@@ -48,8 +48,8 @@ function Brand({ inverse = false, compact = false, centered = false, markSize, w
   return (
     <View className={centered ? "items-center" : "flex-row items-center gap-2.5"}>
       <Image source={require("../assets/anekio-mark-transparent.png")} accessibilityLabel="Anekio" style={{ width: size, height: size }} />
-      <View className={centered ? "mt-2 items-center" : ""}>
-        <Text style={{ fontFamily: Platform.select({ ios: "Avenir Next", android: "sans-serif-medium", default: "system-ui" }), ...(wordSize ? { fontSize: wordSize, lineHeight: wordSize + 10 } : {}) }} className={`${centered ? "text-2xl" : "text-lg"} font-bold lowercase tracking-tight ${inverse ? "text-white" : "text-ink-900"}`}>anekio</Text>
+      <View className={centered ? "mt-0 items-center" : ""}>
+        <Text style={{ fontFamily: Platform.select({ ios: centered ? "Avenir Next Demi Bold" : "Avenir Next", android: centered ? "sans-serif-black" : "sans-serif-medium", default: "system-ui" }), ...(centered ? { letterSpacing: -1.1 } : {}), ...(wordSize ? { fontSize: wordSize, lineHeight: wordSize + 10 } : {}) }} className={`${centered ? "text-2xl" : "text-lg"} font-bold lowercase tracking-tight ${inverse ? "text-white" : "text-ink-900"}`}>anekio</Text>
         {!compact ? <Text className={`text-xs ${inverse ? "text-blue-100" : "text-ink-700"}`}>Connecting school & parents</Text> : null}
       </View>
     </View>
