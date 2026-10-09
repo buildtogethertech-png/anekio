@@ -936,6 +936,7 @@ export function RecordProvider({ children }: { children: ReactNode }) {
           setRefreshing(true);
           try {
             await reload();
+            setError("");
           } finally {
             setRefreshing(false);
           }
