@@ -13,6 +13,7 @@
     "build:apk:development": "npx eas-cli build --platform android --profile development",
     "build:apk:staging": "npx eas-cli build --platform android --profile staging",
     "build:apk:production": "npx eas-cli build --platform android --profile production-test",
+    "build:aab:production": "npx eas-cli build --platform android --profile production",
     "typecheck": "tsc --noEmit",
     "test": "jest --runInBand",
     "test:watch": "jest --watch",

@@ -108,12 +108,13 @@ This URL is public build configuration, not a secret. Do not add database, JWT, 
 
 ### Build the AAB
 
-From the repository root:
+From the repository root, always use the project command below:
 
 ```bash
-cd mobile
-npx eas-cli build --platform android --profile production
+npm run build:aab:production
 ```
+
+Do not run `npx eas-cli build` from the repository root. The Expo project lives in `mobile/`; using the root directory can make EAS read the wrong configuration and fail during Prebuild. The commands in this guide always enter `mobile/` for you.
 
 EAS uploads the source and builds remotely. The CLI prints a build URL; wait for it to finish, then download the `.aab` from that page or submit it to Google Play:
 
