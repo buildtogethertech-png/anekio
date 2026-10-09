@@ -319,7 +319,7 @@ function Sidebar() {
   return (
     <SafeAreaView className="h-full min-h-0 w-[244px] shrink-0 overflow-hidden border-r border-ink-200 bg-white">
       <View className="flex-row items-center gap-2.5 px-4 pb-3 pt-5">
-        <Image source={require("../../assets/anekio-option-a.png")} accessibilityLabel="Anekio" style={{ width: 32, height: 32, borderRadius: 9 }} />
+        <Image source={require("../../assets/anekio-mark-transparent.png")} accessibilityLabel="Anekio" style={{ width: 32, height: 32 }} />
         <View className="min-w-0 flex-1">
           <Text className="text-[17px] font-bold lowercase tracking-tight text-ink-900">anekio</Text>
           <Text className="text-[11px] font-medium text-ink-500">{role}</Text>

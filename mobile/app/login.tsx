@@ -45,8 +45,8 @@ async function startTrial(input: {
 
 function Brand({ inverse = false }: { inverse?: boolean }) {
   return (
-    <View className="flex-row items-center gap-3">
-      <Image source={require("../assets/anekio-option-a.png")} accessibilityLabel="Anekio" style={{ width: 44, height: 44, borderRadius: 12 }} />
+    <View className="flex-row items-center gap-2.5">
+      <Image source={require("../assets/anekio-mark-transparent.png")} accessibilityLabel="Anekio" style={{ width: 38, height: 38 }} />
       <View>
         <Text className={`text-lg font-bold lowercase tracking-tight ${inverse ? "text-white" : "text-ink-900"}`}>anekio</Text>
         <Text className={`text-xs ${inverse ? "text-blue-100" : "text-ink-700"}`}>Connecting school & parents</Text>
@@ -225,7 +225,7 @@ export default function Login() {
         : "Sign in to your school workspace.";
 
   const form = (
-    <View className={isWideLayout ? "w-[470px] px-10 py-12" : "w-full px-6 pb-9 pt-8"}>
+    <View className={isWideLayout ? "w-[470px] px-10 py-12" : "w-full px-5 pb-7 pt-5"}>
       <View>
         {mode === "forgot" || mode === "trial" ? (
           <Pressable
@@ -239,11 +239,11 @@ export default function Login() {
           </Pressable>
         ) : null}
 
-        <Text className="text-[30px] font-semibold tracking-tight text-ink-900">{heading}</Text>
-        <Text className="mt-2 text-[15px] leading-6 text-ink-700">{subheading}</Text>
+        <Text className={`${isWideLayout ? "text-[30px]" : "text-[26px]"} font-semibold tracking-tight text-ink-900`}>{heading}</Text>
+        <Text className="mt-1.5 text-[15px] leading-5 text-ink-700">{subheading}</Text>
 
         {mode !== "forgot" && mode !== "trial" ? (
-          <View className="mt-8 flex-row rounded-xl border border-[#E2E8F0] bg-[#F5F8FC] p-1" accessibilityRole="tablist">
+          <View className={`${isWideLayout ? "mt-8" : "mt-6"} flex-row rounded-xl border border-[#E2E8F0] bg-[#F5F8FC] p-1`} accessibilityRole="tablist">
             {([
               ["password", "Password"],
               ["otp", "Email OTP"],
@@ -255,7 +255,7 @@ export default function Login() {
                   accessibilityRole="tab"
                   accessibilityState={{ selected: active }}
                   onPress={() => chooseMode(id)}
-                  className={`h-11 flex-1 items-center justify-center rounded-lg ${active ? "bg-white" : ""}`}
+                  className={`h-10 flex-1 items-center justify-center rounded-lg ${active ? "bg-white" : ""}`}
                   style={active ? { shadowColor: "#102A56", shadowOpacity: 0.08, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1 } : undefined}
                 >
                   <Text className={`text-sm font-semibold ${active ? "text-ink-900" : "text-ink-700"}`}>{label}</Text>
@@ -265,7 +265,7 @@ export default function Login() {
           </View>
         ) : null}
 
-        <View className="mt-6 gap-5">
+        <View className={`${isWideLayout ? "mt-6 gap-5" : "mt-5 gap-4"}`}>
           {mode === "trial" ? (
             <>
               <View>
@@ -316,7 +316,7 @@ export default function Login() {
                           setAccountChoices([]);
                         }}
                         placeholder="name@school.com or mobile number"
-                        className="h-14 pl-11 text-base"
+                        className="h-12 pl-11 text-base"
                       />
                     </View>
                   </View>
@@ -342,7 +342,7 @@ export default function Login() {
                           }}
                           onSubmitEditing={() => onPasswordSignIn()}
                           placeholder="Enter your password"
-                          className="h-14 px-11 text-base"
+                          className="h-12 px-11 text-base"
                         />
                         <Pressable
                           accessibilityRole="button"
@@ -423,7 +423,7 @@ export default function Login() {
                   ) : null}
 
                   {mode === "password" ? (
-                    <Button testID="login-submit" accessibilityLabel="Sign in" onPress={() => onPasswordSignIn()} disabled={pending || !login || !password} className="h-14 justify-center">
+                    <Button testID="login-submit" accessibilityLabel="Sign in" onPress={() => onPasswordSignIn()} disabled={pending || !login || !password} className="h-12 justify-center">
                       {pending ? "Signing in..." : "Sign in securely"}
                     </Button>
                   ) : codeSent && !resetLinkSent ? (
@@ -431,12 +431,12 @@ export default function Login() {
                       accessibilityLabel={mode === "forgot" ? "Reset password" : "Verify and sign in"}
                       onPress={mode === "forgot" ? onResetPassword : onCodeSignIn}
                       disabled={pending || code.length !== 6 || (mode === "forgot" && (!password || !confirmPassword))}
-                      className="h-14 justify-center"
+                      className="h-12 justify-center"
                     >
                       {pending ? "Verifying..." : mode === "forgot" ? "Reset password" : "Verify and sign in"}
                     </Button>
                   ) : resetLinkSent ? null : (
-                    <Button accessibilityLabel="Send verification code" onPress={onRequestCode} disabled={pending || !login} className="h-14 justify-center">
+                    <Button accessibilityLabel="Send verification code" onPress={onRequestCode} disabled={pending || !login} className="h-12 justify-center">
                       {pending ? "Sending code..." : "Send verification code"}
                     </Button>
                   )}
@@ -450,7 +450,7 @@ export default function Login() {
           )}
         </View>
 
-        <View className="mt-8 border-t border-ink-200 pt-5">
+        <View className="mt-6 border-t border-ink-200 pt-4">
           <View className="flex-row flex-wrap items-center justify-center gap-1">
             {mode === "trial" ? (
               <>
@@ -468,13 +468,13 @@ export default function Login() {
               </>
             )}
           </View>
-          <Pressable accessibilityRole="link" onPress={() => void Linking.openURL("mailto:support@anekio.com")} className="mt-3 items-center">
+          <Pressable accessibilityRole="link" onPress={() => void Linking.openURL("mailto:support@anekio.com")} className="mt-2.5 items-center">
             <Text className="text-xs text-ink-700">Need help? <Text className="font-medium text-clay-600">support@anekio.com</Text></Text>
           </Pressable>
           <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(`${webOrigin()}/privacy`)} className="mt-2 items-center">
             <Text className="text-xs text-ink-700">By continuing, you agree to Anekio’s <Text className="font-medium text-clay-600">Privacy Policy</Text></Text>
           </Pressable>
-          <View className="mt-5 flex-row items-center gap-3 rounded-xl border border-blue-100 bg-blue-50/70 px-3 py-3">
+          {isWideLayout ? <View className="mt-5 flex-row items-center gap-3 rounded-xl border border-blue-100 bg-blue-50/70 px-3 py-3">
             <View className="h-8 w-8 items-center justify-center rounded-lg bg-white">
               <Ionicons name="shield-checkmark-outline" size={18} color="#1D4ED8" />
             </View>
@@ -482,7 +482,7 @@ export default function Login() {
               <Text className="text-xs font-semibold text-ink-900">Secure school access</Text>
               <Text className="mt-0.5 text-[11px] leading-4 text-ink-700">Your password and school data stay protected.</Text>
             </View>
-          </View>
+          </View> : null}
         </View>
       </View>
     </View>
@@ -491,16 +491,12 @@ export default function Login() {
   return (
     <SafeAreaView className="flex-1 bg-[#F4F7FB]" testID="login-screen">
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ minHeight: Math.max(height, 680) }}>
-        <View className={`flex-1 items-center ${isWideLayout ? "justify-center px-4 py-5 sm:px-6 sm:py-8" : "justify-start"}`}>
+        <View className={`flex-1 items-center ${isWideLayout ? "justify-center px-4 py-5 sm:px-6 sm:py-8" : "justify-start px-5 py-6"}`}>
           {!isWideLayout ? (
-            <View className="w-full bg-[#173B77] px-6 pb-20 pt-10">
-              <Brand inverse />
-              <Text className="mt-9 text-[27px] font-semibold leading-8 tracking-tight text-white">Your school, ready for the day.</Text>
-              <Text className="mt-2 text-sm leading-6 text-blue-100">Sign in to continue where your team left off.</Text>
-            </View>
+            <View className="mb-4 w-full px-1"><Brand /></View>
           ) : null}
           <View
-            className={`w-full overflow-hidden bg-white ${isWideLayout ? "flex-row border border-[#DFE7F1]" : "-mt-8 rounded-t-[28px]"}`}
+            className={`w-full overflow-hidden bg-white ${isWideLayout ? "flex-row border border-[#DFE7F1]" : "rounded-2xl border border-[#DFE7F1]"}`}
             style={isWideLayout ? {
               maxWidth: 960,
               borderRadius: 16,
@@ -509,7 +505,7 @@ export default function Login() {
               shadowRadius: 28,
               shadowOffset: { width: 0, height: 14 },
               elevation: 4,
-            } : undefined}
+            } : { shadowColor: "#0F2942", shadowOpacity: 0.06, shadowRadius: 16, shadowOffset: { width: 0, height: 6 }, elevation: 2 }}
           >
             {isWideLayout ? (
               <View className="w-[490px] justify-between bg-[#173B77] px-12 py-12">
