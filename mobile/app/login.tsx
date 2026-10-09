@@ -43,13 +43,13 @@ async function startTrial(input: {
   return { login: data.login, password: data.password };
 }
 
-function Brand({ inverse = false, compact = false, centered = false, markSize }: { inverse?: boolean; compact?: boolean; centered?: boolean; markSize?: number }) {
+function Brand({ inverse = false, compact = false, centered = false, markSize, wordSize }: { inverse?: boolean; compact?: boolean; centered?: boolean; markSize?: number; wordSize?: number }) {
   const size = markSize ?? (compact ? 30 : 38);
   return (
     <View className={centered ? "items-center" : "flex-row items-center gap-2.5"}>
       <Image source={require("../assets/anekio-mark-transparent.png")} accessibilityLabel="Anekio" style={{ width: size, height: size }} />
       <View className={centered ? "mt-2 items-center" : ""}>
-        <Text className={`${centered ? "text-2xl" : "text-lg"} font-bold lowercase tracking-tight ${inverse ? "text-white" : "text-ink-900"}`}>anekio</Text>
+        <Text style={wordSize ? { fontSize: wordSize } : undefined} className={`${centered ? "text-2xl" : "text-lg"} font-bold lowercase tracking-tight ${inverse ? "text-white" : "text-ink-900"}`}>anekio</Text>
         {!compact ? <Text className={`text-xs ${inverse ? "text-blue-100" : "text-ink-700"}`}>Connecting school & parents</Text> : null}
       </View>
     </View>
@@ -228,7 +228,7 @@ export default function Login() {
         : "Sign in to your school workspace.";
 
   const form = (
-    <View className={isWideLayout ? "w-[470px] px-10 py-12" : "w-full px-5 pb-7 pt-5"}>
+    <View className={isWideLayout ? "w-[470px] px-10 py-12" : "w-full pb-5 pt-0"}>
       <View>
         {mode === "forgot" || mode === "trial" ? (
           <Pressable
@@ -489,18 +489,9 @@ export default function Login() {
           <View
             className="w-full"
           >
-            {!isWideLayout ? (
-              <View className="mb-8 px-1">
-                <View
-                  className="self-center rounded-[22px] border border-[#E0E8F4] bg-white px-7 py-4"
-                  style={{ shadowColor: "#0F2942", shadowOpacity: 0.05, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 1 }}
-                >
-                  <Brand compact markSize={42} />
-                </View>
-              </View>
-            ) : null}
+            {!isWideLayout ? <View className="mb-10 items-center"><Brand compact markSize={54} wordSize={26} /></View> : null}
             <View
-              className={`w-full overflow-hidden bg-white ${isWideLayout ? "flex-row border border-[#DFE7F1]" : "rounded-2xl border border-[#DFE7F1]"}`}
+              className={`w-full overflow-hidden ${isWideLayout ? "flex-row border border-[#DFE7F1] bg-white" : ""}`}
               style={isWideLayout ? {
                 maxWidth: 960,
                 borderRadius: 16,
@@ -509,7 +500,7 @@ export default function Login() {
                 shadowRadius: 28,
                 shadowOffset: { width: 0, height: 14 },
                 elevation: 4,
-              } : { shadowColor: "#0F2942", shadowOpacity: 0.06, shadowRadius: 16, shadowOffset: { width: 0, height: 6 }, elevation: 2 }}
+              } : undefined}
             >
             {isWideLayout ? (
               <View className="w-[490px] justify-between bg-[#173B77] px-12 py-12">
