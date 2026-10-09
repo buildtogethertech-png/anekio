@@ -97,16 +97,23 @@ export default function Login() {
   const balancedPhoneLayout =
     !isWideLayout && !keyboardVisible && height >= 760 && mode === "password" && !accountChoices.length && !error && !notice;
 
+  function setKeyboardLayout(visible: boolean) {
+    setKeyboardVisible(visible);
+    Animated.timing(keyboardProgress, {
+      toValue: visible ? 1 : 0,
+      duration: visible ? 220 : 180,
+      useNativeDriver: false,
+    }).start();
+  }
+
   useEffect(() => {
     const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
     const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
     const showSubscription = Keyboard.addListener(showEvent, () => {
-      setKeyboardVisible(true);
-      Animated.timing(keyboardProgress, { toValue: 1, duration: 220, useNativeDriver: false }).start();
+      setKeyboardLayout(true);
     });
     const hideSubscription = Keyboard.addListener(hideEvent, () => {
-      Animated.timing(keyboardProgress, { toValue: 0, duration: 180, useNativeDriver: false }).start();
-      setKeyboardVisible(false);
+      setKeyboardLayout(false);
     });
     return () => {
       showSubscription.remove();
@@ -310,6 +317,8 @@ export default function Login() {
                         keyboardType="email-address"
                         testID="login-identity"
                         value={login}
+                        onFocus={() => setKeyboardLayout(true)}
+                        onBlur={() => setKeyboardLayout(false)}
                         onChangeText={(value) => {
                           setLogin(value);
                           setAccountChoices([]);
@@ -335,6 +344,8 @@ export default function Login() {
                           secureTextEntry={!showPassword}
                           testID="login-password"
                           value={password}
+                          onFocus={() => setKeyboardLayout(true)}
+                          onBlur={() => setKeyboardLayout(false)}
                           onChangeText={(value) => {
                             setPassword(value);
                             setAccountChoices([]);
