@@ -150,6 +150,12 @@ function sendError(res: express.Response, status: number, error: string) {
   res.status(status).json({ error });
 }
 
+function sendUnexpectedError(res: express.Response, error: unknown, fallback = "Something went wrong. Please try again shortly.") {
+  console.error("Unexpected API error", error);
+  const message = process.env.NODE_ENV === "production" ? fallback : error instanceof Error ? error.message : fallback;
+  return sendError(res, 500, message);
+}
+
 const PUBLIC_DEMO_RATE_WINDOW_MS = 10 * 60_000;
 const PUBLIC_DEMO_RATE_MAX = 6;
 const publicDemoAttempts = new Map<string, number[]>();
@@ -424,7 +430,7 @@ app.get("/api/v1/record", async (req, res) => {
   try {
     res.json(await recordPayload(user, typeof req.query.childId === "string" ? req.query.childId : null));
   } catch (e) {
-    sendError(res, 500, e instanceof Error ? e.message : "Request failed.");
+    sendUnexpectedError(res, e);
   }
 });
 
@@ -1364,6 +1370,13 @@ app.use((req, res, next) => {
     return next();
   }
   sendAppShell(req, res, next);
+});
+
+app.use((error: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (res.headersSent) return next(error);
+  if (req.path.startsWith("/api/")) return sendUnexpectedError(res, error);
+  console.error("Unexpected web error", error);
+  res.status(500).type("html").send("<h1>Something went wrong</h1><p>Please wait a moment and try again.</p>");
 });
 
 export default app;

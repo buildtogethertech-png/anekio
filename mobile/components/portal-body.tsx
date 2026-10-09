@@ -65,6 +65,23 @@ function SubscriptionLocked({ lock }: { lock: NonNullable<ReturnType<typeof useR
   );
 }
 
+function LoadError({ detail, onRetry }: { detail: string; onRetry: () => void }) {
+  const showDevelopmentDetail = typeof __DEV__ !== "undefined" && __DEV__;
+  return (
+    <View className="mx-auto w-full max-w-md items-center gap-4 rounded-xl border border-ink-200 bg-white px-6 py-8">
+      <View className="h-11 w-11 items-center justify-center rounded-full bg-[#EEF4FF]">
+        <Text className="text-xl font-semibold text-clay-500">!</Text>
+      </View>
+      <View className="items-center gap-1.5">
+        <Text className="text-xl font-semibold text-ink-900">Something went wrong</Text>
+        <Text className="text-center text-sm leading-6 text-ink-700">We’re having trouble loading this page. Please wait a moment and try again.</Text>
+        {showDevelopmentDetail ? <Text className="mt-2 text-center text-xs text-red-700">{detail}</Text> : null}
+      </View>
+      <Button onPress={onRetry}>Try again</Button>
+    </View>
+  );
+}
+
 export function PortalBody({ screen }: { screen: string }) {
   const { data, error, reload } = useRecord();
   const { nav, user } = useSession();
@@ -72,7 +89,7 @@ export function PortalBody({ screen }: { screen: string }) {
 
   if (error) {
     if (parentTests) return <ParentExaminationError message={error} onRetry={() => void reload()} />;
-    return <Text className="text-sm text-red-700">{error}</Text>;
+    return <LoadError detail={error} onRetry={() => void reload()} />;
   }
   if (!data) {
     if (parentTests) return <ParentExaminationLoading />;
