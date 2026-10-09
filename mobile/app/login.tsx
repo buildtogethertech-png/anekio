@@ -489,7 +489,16 @@ export default function Login() {
           <View
             className="w-full"
           >
-            {!isWideLayout ? <View className="mb-8 px-1"><Brand compact centered markSize={64} /></View> : null}
+            {!isWideLayout ? (
+              <View className="mb-8 px-1">
+                <View
+                  className="self-center rounded-[22px] border border-[#E0E8F4] bg-white px-7 py-4"
+                  style={{ shadowColor: "#0F2942", shadowOpacity: 0.05, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 1 }}
+                >
+                  <Brand compact centered markSize={64} />
+                </View>
+              </View>
+            ) : null}
             <View
               className={`w-full overflow-hidden bg-white ${isWideLayout ? "flex-row border border-[#DFE7F1]" : "rounded-2xl border border-[#DFE7F1]"}`}
               style={isWideLayout ? {
