@@ -124,6 +124,35 @@ npx eas-cli submit --platform android --profile production
 
 Before submitting, increment the app version/build number according to the Expo/EAS versioning policy (`mobile/eas.json` uses `appVersionSource: remote`) and test the AAB through an internal testing track in Google Play.
 
+### Android version-code recovery and future builds
+
+Google Play requires every uploaded Android App Bundle to have a unique, increasing
+`versionCode`. If submission reports `Version code N has already been used`, do not
+resubmit that AAB. Set EAS's remote Android version to the next unused number, then
+make a new build.
+
+From `mobile/`, run the EAS CLI through `npx` (this does not require a global
+`eas` installation):
+
+```bash
+npx eas-cli build:version:set -p android -e production
+```
+
+When prompted, enter the next unused version code in Google Play. For example, if
+Google Play says version code `1` is already used, enter `2`. Then return to the
+repository root and create a fresh bundle:
+
+```bash
+npm run build:aab:production
+```
+
+To prevent this manual step for future production builds, add
+`"autoIncrement": true` to the `production` profile in `mobile/eas.json`. With
+the existing remote version source, EAS increments the Android version code for
+each production build. Do not change `expo.version` merely to resolve this error:
+that is the user-facing release version, while Google Play is rejecting the
+developer-facing Android `versionCode`.
+
 ### Internal APKs for testing
 
 Use these installable APKs for testing before release. They are all **internal** EAS builds and cannot be submitted to Google Play. The Play Store release remains the `production` `.aab` profile above.
