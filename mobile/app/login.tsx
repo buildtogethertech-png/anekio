@@ -485,11 +485,11 @@ export default function Login() {
         scrollEnabled={!balancedPhoneLayout}
         contentContainerStyle={{ minHeight: balancedPhoneLayout ? height : Math.max(height, 680), flexGrow: 1 }}
       >
-        <View className={`flex-1 items-center ${isWideLayout ? "justify-center px-4 py-5 sm:px-6 sm:py-8" : balancedPhoneLayout ? "justify-between px-5 py-9" : "justify-start px-5 py-6"}`}>
+        <View className={`flex-1 items-center ${isWideLayout ? "justify-center px-4 py-5 sm:px-6 sm:py-8" : balancedPhoneLayout ? "justify-center px-5 py-9" : "justify-start px-5 py-6"}`}>
           <View
             className="w-full"
           >
-            {!isWideLayout ? <View className="mb-4 px-1"><Brand compact markSize={48} /></View> : null}
+            {!isWideLayout ? <View className="mb-8 px-1"><Brand compact markSize={48} /></View> : null}
             <View
               className={`w-full overflow-hidden bg-white ${isWideLayout ? "flex-row border border-[#DFE7F1]" : "rounded-2xl border border-[#DFE7F1]"}`}
               style={isWideLayout ? {
@@ -520,7 +520,6 @@ export default function Login() {
             {form}
             </View>
           </View>
-          {balancedPhoneLayout ? <View className="h-[30px]" /> : null}
         </View>
       </ScrollView>
     </SafeAreaView>
