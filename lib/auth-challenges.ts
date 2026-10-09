@@ -1,12 +1,14 @@
 import bcrypt from "bcryptjs";
-import { createHmac, randomInt, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from "node:crypto";
 import { prisma } from "./prisma";
 import { userForLogin } from "./login";
 import { looksLikeEmail, normalizeMobile } from "./phone";
+import { publicOrigin } from "./utils";
 
 export type AuthChallengePurpose = "LOGIN" | "PASSWORD_RESET";
 
 const CODE_TTL_MS = 10 * 60 * 1000;
+const RESET_LINK_TTL_MS = 15 * 60 * 1000;
 const RESEND_AFTER_MS = 45 * 1000;
 const RATE_WINDOW_MS = 15 * 60 * 1000;
 const RATE_LIMIT = 5;
@@ -83,6 +85,19 @@ function emailCopy(code: string, purpose: AuthChallengePurpose) {
   return { subject, text, html };
 }
 
+function resetLinkEmailCopy(url: string) {
+  const subject = "Reset your Anekio password";
+  const text = `Reset your password using this link: ${url}\n\nThis link expires in 15 minutes. If you did not request it, ignore this email.`;
+  const html = `<div style="font-family:Inter,Arial,sans-serif;color:#102a56;line-height:1.6;max-width:520px;margin:auto;padding:24px">
+    <div style="font-size:18px;font-weight:800;margin-bottom:24px">Anekio</div>
+    <h1 style="font-size:24px;line-height:1.25;margin:0 0 12px">Reset your Anekio password</h1>
+    <p style="color:#52657d;margin:0 0 22px">Reset your password using the link below.</p>
+    <p style="margin:0 0 22px"><a href="${url}" style="display:inline-block;background:#1d4ed8;color:#fff;padding:12px 18px;border-radius:8px;font-weight:700;text-decoration:none">Reset password</a></p>
+    <p style="color:#52657d;font-size:13px;margin:0">This link expires in 15 minutes. If you did not request it, ignore this email.</p>
+  </div>`;
+  return { subject, text, html };
+}
+
 async function sendAuthEmail(to: string, code: string, purpose: AuthChallengePurpose) {
   const config = emailConfig();
   if (!config.configured) {
@@ -101,6 +116,22 @@ async function sendAuthEmail(to: string, code: string, purpose: AuthChallengePur
   if (!response.ok) {
     throw new AuthFlowError(503, "We could not send the verification email. Try again shortly.");
   }
+  return true;
+}
+
+async function sendResetLinkEmail(to: string, url: string) {
+  const config = emailConfig();
+  if (!config.configured) {
+    if (process.env.NODE_ENV !== "production") return false;
+    throw new AuthFlowError(503, "Email verification is being configured. Use your password for now.");
+  }
+  const mail = resetLinkEmailCopy(url);
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${config.apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ from: config.from, to: [to], ...mail }),
+  });
+  if (!response.ok) throw new AuthFlowError(503, "We could not send the reset link. Try again shortly.");
   return true;
 }
 
@@ -128,7 +159,7 @@ export async function requestAuthCode(raw: string, purpose: AuthChallengePurpose
   }
 
   const id = randomUUID();
-  const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
+  const code = purpose === "PASSWORD_RESET" ? randomBytes(32).toString("base64url") : String(randomInt(0, 1_000_000)).padStart(6, "0");
   const destination = deliverableEmail(user?.email);
   const challenge = await prisma.authChallenge.create({
     data: {
@@ -138,13 +169,17 @@ export async function requestAuthCode(raw: string, purpose: AuthChallengePurpose
       destination,
       purpose,
       codeHash: authCodeHash(id, purpose, code),
-      expiresAt: new Date(now.getTime() + CODE_TTL_MS),
+      expiresAt: new Date(now.getTime() + (purpose === "PASSWORD_RESET" ? RESET_LINK_TTL_MS : CODE_TTL_MS)),
     },
   });
 
   if (destination) {
     try {
-      await sendAuthEmail(destination, code, purpose);
+      if (purpose === "PASSWORD_RESET") {
+        await sendResetLinkEmail(destination, `${publicOrigin()}/reset-password?token=${encodeURIComponent(`${id}.${code}`)}`);
+      } else {
+        await sendAuthEmail(destination, code, purpose);
+      }
     } catch (error) {
       await prisma.authChallenge.delete({ where: { id: challenge.id } }).catch(() => undefined);
       throw error;
@@ -153,10 +188,10 @@ export async function requestAuthCode(raw: string, purpose: AuthChallengePurpose
 
   return {
     ok: true as const,
-    message: "If that account has a verified email, a six-digit code is on its way.",
+    message: purpose === "PASSWORD_RESET" ? "If that account has a verified email, a reset link is on its way." : "If that account has a verified email, a six-digit code is on its way.",
     destination: responseDestination,
-    expiresInSeconds: CODE_TTL_MS / 1000,
-    ...(process.env.NODE_ENV !== "production" ? { developmentCode: code } : {}),
+    expiresInSeconds: (purpose === "PASSWORD_RESET" ? RESET_LINK_TTL_MS : CODE_TTL_MS) / 1000,
+    ...(process.env.NODE_ENV !== "production" && purpose !== "PASSWORD_RESET" ? { developmentCode: code } : {}),
   };
 }
 
@@ -202,5 +237,19 @@ export async function resetPasswordWithCode(raw: string, code: string, nextPassw
   const userId = await consumeAuthCode(raw, "PASSWORD_RESET", code);
   const password = await bcrypt.hash(nextPassword, 10);
   await prisma.user.update({ where: { id: userId }, data: { password } });
+  return { ok: true as const };
+}
+
+export async function resetPasswordWithLink(rawToken: string, nextPassword: string) {
+  if (nextPassword.length < 8) throw new AuthFlowError(400, "Use at least 8 characters for the new password.");
+  const [id, token] = rawToken.split(".");
+  if (!id || !token) throw new AuthFlowError(401, "That reset link is invalid or has expired.");
+  const challenge = await prisma.authChallenge.findFirst({ where: { id, purpose: "PASSWORD_RESET", consumedAt: null, expiresAt: { gt: new Date() } } });
+  if (!challenge || !authCodeMatches(challenge.codeHash, challenge.id, "PASSWORD_RESET", token) || !challenge.userId) {
+    throw new AuthFlowError(401, "That reset link is invalid or has expired.");
+  }
+  const consumed = await prisma.authChallenge.updateMany({ where: { id: challenge.id, consumedAt: null }, data: { consumedAt: new Date() } });
+  if (consumed.count !== 1) throw new AuthFlowError(401, "That reset link is invalid or has expired.");
+  await prisma.user.update({ where: { id: challenge.userId }, data: { password: await bcrypt.hash(nextPassword, 10) } });
   return { ok: true as const };
 }

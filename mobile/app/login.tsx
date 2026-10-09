@@ -78,6 +78,7 @@ export default function Login() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [code, setCode] = useState("");
   const [codeSent, setCodeSent] = useState(false);
+  const [resetLinkSent, setResetLinkSent] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -104,6 +105,7 @@ export default function Login() {
     setMode(next);
     setCode("");
     setCodeSent(false);
+    setResetLinkSent(false);
     setConfirmPassword("");
     clearFeedback();
   }
@@ -134,6 +136,7 @@ export default function Login() {
     try {
       const response = mode === "forgot" ? await requestPasswordReset(login) : await requestLoginCode(login);
       setCodeSent(true);
+      setResetLinkSent(mode === "forgot");
       setNotice(`${response.message} Check ${response.destination}.`);
       setDevelopmentCode(response.developmentCode || "");
     } catch (exception) {
@@ -353,7 +356,7 @@ export default function Login() {
                     </View>
                   ) : null}
 
-                  {codeSent ? (
+                  {codeSent && !resetLinkSent ? (
                     <View>
                       <FieldLabel>Six-digit verification code</FieldLabel>
                       <Input
@@ -369,7 +372,7 @@ export default function Login() {
                     </View>
                   ) : null}
 
-                  {mode === "forgot" && codeSent ? (
+                  {mode === "forgot" && codeSent && !resetLinkSent ? (
                     <>
                       <View>
                         <FieldLabel>New password</FieldLabel>
@@ -423,7 +426,7 @@ export default function Login() {
                     <Button testID="login-submit" accessibilityLabel="Sign in" onPress={() => onPasswordSignIn()} disabled={pending || !login || !password} className="h-14 justify-center">
                       {pending ? "Signing in..." : "Sign in securely"}
                     </Button>
-                  ) : codeSent ? (
+                  ) : codeSent && !resetLinkSent ? (
                     <Button
                       accessibilityLabel={mode === "forgot" ? "Reset password" : "Verify and sign in"}
                       onPress={mode === "forgot" ? onResetPassword : onCodeSignIn}
@@ -432,13 +435,13 @@ export default function Login() {
                     >
                       {pending ? "Verifying..." : mode === "forgot" ? "Reset password" : "Verify and sign in"}
                     </Button>
-                  ) : (
+                  ) : resetLinkSent ? null : (
                     <Button accessibilityLabel="Send verification code" onPress={onRequestCode} disabled={pending || !login} className="h-14 justify-center">
                       {pending ? "Sending code..." : "Send verification code"}
                     </Button>
                   )}
 
-          {mode !== "password" && codeSent ? (
+          {mode !== "password" && codeSent && !resetLinkSent ? (
             <Pressable disabled={pending} onPress={onRequestCode} className="items-center py-1">
               <Text className="text-xs font-semibold text-clay-600">Send a new code</Text>
             </Pressable>

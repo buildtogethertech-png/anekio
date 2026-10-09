@@ -11,6 +11,7 @@ import {
   AuthFlowError,
   consumeAuthCode,
   requestAuthCode,
+  resetPasswordWithLink,
   resetPasswordWithCode,
 } from "../lib/auth-challenges";
 import { hasAny, userFromAuthHeader } from "../lib/http-user";
@@ -349,6 +350,14 @@ app.post("/api/v1/login/password/reset", async (req, res) => {
         String(req.body?.password || "")
       )
     );
+  } catch (error) {
+    sendAuthFlowError(res, error);
+  }
+});
+
+app.post("/api/v1/login/password/link/reset", async (req, res) => {
+  try {
+    res.json(await resetPasswordWithLink(String(req.body?.token || ""), String(req.body?.password || "")));
   } catch (error) {
     sendAuthFlowError(res, error);
   }
@@ -734,6 +743,11 @@ app.get(["/features", "/pricing"], async (_req, res) => {
 app.get("/privacy", (_req, res) => {
   res.setHeader("Cache-Control", "public, max-age=3600");
   res.type("html").send(privacyPolicyHtml());
+});
+
+app.get("/reset-password", (req, res) => {
+  const token = typeof req.query.token === "string" ? req.query.token : "";
+  res.type("html").send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Reset password | Anekio</title><style>body{margin:0;background:#f4f7fb;color:#0f172a;font:16px Inter,Arial,sans-serif}.card{max-width:400px;margin:10vh auto;background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:32px;box-shadow:0 12px 32px #10203312}h1{margin:0 0 8px}p{color:#64748b;line-height:1.5}input,button{box-sizing:border-box;width:100%;padding:13px;border-radius:9px;font:inherit}input{border:1px solid #cbd5e1;margin:16px 0}button{border:0;background:#1d4ed8;color:#fff;font-weight:700;cursor:pointer}#message{margin-top:14px;font-size:14px}</style></head><body><main class="card"><strong>anekio</strong><h1>Reset your password</h1><p>Choose a new password for your account.</p><form id="form"><input id="password" type="password" minlength="8" required placeholder="New password (at least 8 characters)"><input id="confirm" type="password" minlength="8" required placeholder="Confirm new password"><button>Reset password</button></form><div id="message" role="status"></div></main><script>const token=${JSON.stringify(token)};const form=document.querySelector('#form');const message=document.querySelector('#message');form.addEventListener('submit',async(e)=>{e.preventDefault();const password=document.querySelector('#password').value;const confirm=document.querySelector('#confirm').value;if(password!==confirm){message.textContent='Passwords do not match.';return}const r=await fetch('/api/v1/login/password/link/reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,password})});const d=await r.json().catch(()=>({}));message.textContent=r.ok?'Password reset. You can now sign in.':(d.error||'That reset link is invalid or has expired.');if(r.ok)form.hidden=true});</script></body></html>`);
 });
 
 app.get("/robots.txt", (_req, res) => {
