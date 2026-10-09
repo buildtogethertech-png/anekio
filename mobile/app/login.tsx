@@ -323,7 +323,7 @@ export default function Login() {
                           onSubmitEditing={() => onPasswordSignIn()}
                           placeholder="Enter your password"
                           className="h-14 rounded-2xl border-[#D6DEEA] px-11 text-base"
-                          style={{ paddingLeft: 62 }}
+                          style={{ paddingLeft: 52 }}
                         />
                         <Pressable
                           accessibilityRole="button"
@@ -518,7 +518,7 @@ export default function Login() {
           <View
             className="w-full"
           >
-            {!isWideLayout ? <View className="mb-10 items-center" style={{ minHeight: 172 }}><Brand compact centered markSize={112} wordSize={36} /></View> : null}
+            {!isWideLayout ? <View className="mb-10 items-center" style={{ minHeight: 184 }}><Brand compact centered markSize={124} wordSize={36} /></View> : null}
             <View
               className={`w-full overflow-hidden ${isWideLayout ? "flex-row border border-[#DFE7F1] bg-white" : ""}`}
               style={isWideLayout ? {
