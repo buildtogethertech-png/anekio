@@ -342,7 +342,7 @@ export default function Login() {
                           onSubmitEditing={() => onPasswordSignIn()}
                           placeholder="Enter your password"
                           className="h-14 rounded-2xl border-[#D6DEEA] px-11 text-base"
-                          style={{ paddingLeft: 47 }}
+                          style={{ paddingLeft: 37 }}
                         />
                         <Pressable
                           accessibilityRole="button"
