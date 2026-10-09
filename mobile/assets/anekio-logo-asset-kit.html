@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Anekio Brand Assets & SVG Kit</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;700;800&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+
+    /* Loading Animation Keyframes */
+    @keyframes infinityGlow {
+      0%, 100% {
+        stroke-dashoffset: 0;
+        filter: drop-shadow(0 0 4px rgba(37, 99, 235, 0.4));
+      }
+      50% {
+        stroke-dashoffset: 400;
+        filter: drop-shadow(0 0 12px rgba(34, 197, 94, 0.7));
+      }
+    }
+
+    @keyframes pulseChild {
+      0%, 100% {
+        transform: translateY(0) scale(1);
+      }
+      50% {
+        transform: translateY(-4px) scale(1.05);
+      }
+    }
+
+    @keyframes leafBloom {
+      0%, 100% {
+        transform: scale(1);
+        opacity: 0.9;
+      }
+      50% {
+        transform: scale(1.2) translateY(-2px);
+        opacity: 1;
+      }
+    }
+
+    .anim-loop {
+      stroke-dasharray: 200;
+      animation: infinityGlow 3s ease-in-out infinite;
+    }
+
+    .anim-child {
+      transform-origin: 200px 150px;
+      animation: pulseChild 2s ease-in-out infinite;
+    }
+
+    .anim-leaf-left {
+      transform-origin: 185px 85px;
+      animation: leafBloom 2s ease-in-out infinite 0.15s;
+    }
+    .anim-leaf-mid {
+      transform-origin: 200px 75px;
+      animation: leafBloom 2s ease-in-out infinite 0.3s;
+    }
+    .anim-leaf-right {
+      transform-origin: 215px 85px;
+      animation: leafBloom 2s ease-in-out infinite 0.45s;
+    }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen py-10 px-4 md:px-12">
+  <div class="max-w-6xl mx-auto space-y-12">
+
+    <!-- Header Section -->
+    <header class="text-center space-y-2">
+      <h1 class="text-4xl md:text-5xl font-extrabold tracking-tight text-white">
+        anekio
+      </h1>
+      <p class="text-slate-400 text-sm md:text-base">
+        Official Vector Assets, Mobile APK Icons & Interactive Loading Animation
+      </p>
+      <div class="inline-flex gap-2 items-center text-xs font-semibold px-3 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full mt-2">
+        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+        Ready for Production & APK Build
+      </div>
+    </header>
+
+    <!-- Main Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      
+      <!-- 1. Live Interactive Loading Animation -->
+      <section class="bg-slate-800/80 rounded-2xl p-6 border border-slate-700 shadow-xl flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-xl font-bold text-white flex items-center gap-2">
+              <span class="w-3 h-3 rounded-full bg-blue-500"></span>
+              Live Loading Animation
+            </h2>
+            <span class="text-xs text-slate-400 font-mono">SVG + CSS Keyframes</span>
+          </div>
+          <p class="text-sm text-slate-300 mb-6">
+            Designed for mobile splash screens and in-app loading spinners. Continuous gradient loop with a blooming student node.
+          </p>
+        </div>
+
+        <div class="bg-slate-950/60 rounded-xl p-8 flex items-center justify-center border border-slate-800">
+          <svg id="liveLoaderSvg" viewBox="0 0 400 300" class="w-full max-w-sm h-auto overflow-visible" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="animGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#1D4ED8" />
+                <stop offset="50%" stop-color="#3B82F6" />
+                <stop offset="70%" stop-color="#10B981" />
+                <stop offset="100%" stop-color="#22C55E" />
+              </linearGradient>
+            </defs>
+
+            <!-- Base Infinity Ribbon -->
+            <path d="M 200 150 C 140 70, 70 80, 70 150 C 70 215, 140 225, 200 150 C 260 75, 330 85, 330 150 C 330 215, 260 225, 200 150 Z" 
+                  fill="none" 
+                  stroke="url(#animGrad)" 
+                  stroke-width="36" 
+                  stroke-linecap="round" 
+                  stroke-linejoin="round"
+                  class="anim-loop" />
+
+            <!-- The Uplifting Student Figure -->
+            <g class="anim-child">
+              <!-- Head -->
+              <circle cx="200" cy="115" r="14" fill="#38BDF8" />
+              <!-- Blooming Child Arms / Chest -->
+              <path d="M 175 145 C 185 130, 200 125, 200 125 C 200 125, 215 130, 225 145" 
+                    fill="none" 
+                    stroke="#60A5FA" 
+                    stroke-width="12" 
+                    stroke-linecap="round" />
+            </g>
+
+            <!-- 3 Blooming Leaves -->
+            <path class="anim-leaf-left" d="M 185 85 C 180 75, 185 68, 192 72 C 196 79, 192 86, 185 85 Z" fill="#4ADE80" />
+            <path class="anim-leaf-mid" d="M 200 72 C 195 58, 205 58, 200 72 Z" fill="#22C55E" stroke="#22C55E" stroke-width="8" stroke-linejoin="round" />
+            <path class="anim-leaf-right" d="M 215 85 C 220 75, 215 68, 208 72 C 204 79, 208 86, 215 85 Z" fill="#4ADE80" />
+          </svg>
+        </div>
+
+        <button onclick="downloadSvg('liveLoaderSvg', 'anekio-loading-animation.svg')" class="mt-6 w-full py-2.5 bg-blue-600 hover:bg-blue-500 font-bold rounded-lg transition-colors text-sm shadow-md">
+          Download Loading SVG
+        </button>
+      </section>
+
+      <!-- 2. Primary Horizontal Brand Lockup -->
+      <section class="bg-slate-800/80 rounded-2xl p-6 border border-slate-700 shadow-xl flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-xl font-bold text-white flex items-center gap-2">
+              <span class="w-3 h-3 rounded-full bg-emerald-500"></span>
+              Full Brand Lockup (Logo + Wordmark)
+            </h2>
+            <span class="text-xs text-slate-400 font-mono">Transparent Vector</span>
+          </div>
+          <p class="text-sm text-slate-300 mb-6">
+            Ideal for web headers, PDF report cards, letterheads, and partner portals.
+          </p>
+        </div>
+
+        <div class="bg-white rounded-xl p-8 flex items-center justify-center shadow-inner">
+          <svg id="primaryLockupSvg" viewBox="0 0 600 200" class="w-full h-auto" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="lockupBlue" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#1E40AF" />
+                <stop offset="100%" stop-color="#3B82F6" />
+              </linearGradient>
+              <linearGradient id="lockupGreen" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#22C55E" />
+                <stop offset="100%" stop-color="#15803D" />
+              </linearGradient>
+            </defs>
+
+            <!-- Emblem (Left) -->
+            <g transform="translate(10, -5) scale(0.65)">
+              <!-- School Side (Left Loop) -->
+              <path d="M 160 150 C 115 80, 50 90, 50 150 C 50 210, 115 220, 160 150 Z" 
+                    fill="none" stroke="url(#lockupBlue)" stroke-width="36" stroke-linecap="round" stroke-linejoin="round" />
+              <!-- Parents Side (Right Loop) -->
+              <path d="M 160 150 C 205 80, 270 90, 270 150 C 270 210, 205 220, 160 150 Z" 
+                    fill="none" stroke="url(#lockupGreen)" stroke-width="36" stroke-linecap="round" stroke-linejoin="round" />
+              <!-- Blooming Child -->
+              <circle cx="160" cy="100" r="14" fill="#2563EB" />
+              <path d="M 130 145 C 145 120, 160 115, 160 115 C 160 115, 175 120, 190 145" 
+                    fill="none" stroke="#2563EB" stroke-width="12" stroke-linecap="round" />
+              <!-- Leaves -->
+              <path d="M 145 70 C 140 60, 145 54, 152 58 C 156 65, 152 72, 145 70 Z" fill="#22C55E" />
+              <circle cx="160" cy="52" r="7" fill="#16A34A" />
+              <path d="M 175 70 C 180 60, 175 54, 168 58 C 164 65, 168 72, 175 70 Z" fill="#22C55E" />
+            </g>
+
+            <!-- Typography (Right) -->
+            <text x="210" y="115" font-family="'Plus Jakarta Sans', sans-serif" font-size="64" font-weight="800" fill="#0F172A" letter-spacing="-1.5">anekio</text>
+            <text x="215" y="148" font-family="'Plus Jakarta Sans', sans-serif" font-size="14" font-weight="700" fill="#64748B" letter-spacing="1.2">CONNECTING SCHOOL &amp; PARENTS</text>
+          </svg>
+        </div>
+
+        <button onclick="downloadSvg('primaryLockupSvg', 'anekio-brand-lockup.svg')" class="mt-6 w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 font-bold rounded-lg transition-colors text-sm shadow-md">
+          Download Lockup SVG
+        </button>
+      </section>
+
+    </div>
+
+    <!-- 3. APK Mobile Launcher Icons Section -->
+    <section class="bg-slate-800/80 rounded-2xl p-6 border border-slate-700 shadow-xl space-y-6">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-2">
+        <div>
+          <h2 class="text-xl font-bold text-white">APK Launcher App Icons (Adaptive Format)</h2>
+          <p class="text-sm text-slate-400">High-contrast solid squircle icons ready for Android manifest & iOS launcher.</p>
+        </div>
+        <div class="text-xs text-slate-400 font-mono">512 x 512 Standard Grid</div>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-6">
+        
+        <!-- Dark Blue Navy APK Icon -->
+        <div class="flex flex-col items-center bg-slate-950/40 p-5 rounded-xl border border-slate-800 space-y-4">
+          <span class="text-xs font-semibold text-slate-400">Option A: Dark Navy (Default)</span>
+          <svg id="apkIconDark" viewBox="0 0 200 200" class="w-36 h-36 rounded-[28%] shadow-2xl overflow-hidden" xmlns="http://www.w3.org/2000/svg">
+            <rect width="200" height="200" fill="#0B132B" />
+            <g transform="translate(20, 15) scale(0.8)">
+              <path d="M 100 115 C 65 60, 15 68, 15 115 C 15 160, 65 170, 100 115 Z" fill="none" stroke="#3B82F6" stroke-width="26" stroke-linecap="round" stroke-linejoin="round" />
+              <path d="M 100 115 C 135 60, 185 68, 185 115 C 185 160, 135 170, 100 115 Z" fill="none" stroke="#22C55E" stroke-width="26" stroke-linecap="round" stroke-linejoin="round" />
+              <circle cx="100" cy="75" r="10" fill="#60A5FA" />
+              <path d="M 80 110 C 90 90, 100 88, 100 88 C 100 88, 110 90, 120 110" fill="none" stroke="#60A5FA" stroke-width="9" stroke-linecap="round" />
+              <circle cx="100" cy="40" r="5" fill="#4ADE80" />
+              <circle cx="88" cy="52" r="4.5" fill="#4ADE80" />
+              <circle cx="112" cy="52" r="4.5" fill="#4ADE80" />
+            </g>
+          </svg>
+          <button onclick="downloadSvg('apkIconDark', 'anekio-apk-dark.svg')" class="text-xs px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-md font-semibold text-slate-200 transition">
+            Export SVG
+          </button>
+        </div>
+
+        <!-- Pure White APK Icon -->
+        <div class="flex flex-col items-center bg-slate-950/40 p-5 rounded-xl border border-slate-800 space-y-4">
+          <span class="text-xs font-semibold text-slate-400">Option B: Clean White</span>
+          <svg id="apkIconWhite" viewBox="0 0 200 200" class="w-36 h-36 rounded-[28%] shadow-2xl overflow-hidden" xmlns="http://www.w3.org/2000/svg">
+            <rect width="200" height="200" fill="#FFFFFF" />
+            <g transform="translate(20, 15) scale(0.8)">
+              <path d="M 100 115 C 65 60, 15 68, 15 115 C 15 160, 65 170, 100 115 Z" fill="none" stroke="#1D4ED8" stroke-width="26" stroke-linecap="round" stroke-linejoin="round" />
+              <path d="M 100 115 C 135 60, 185 68, 185 115 C 185 160, 135 170, 100 115 Z" fill="none" stroke="#16A34A" stroke-width="26" stroke-linecap="round" stroke-linejoin="round" />
+              <circle cx="100" cy="75" r="10" fill="#2563EB" />
+              <path d="M 80 110 C 90 90, 100 88, 100 88 C 100 88, 110 90, 120 110" fill="none" stroke="#2563EB" stroke-width="9" stroke-linecap="round" />
+              <circle cx="100" cy="40" r="5" fill="#15803D" />
+              <circle cx="88" cy="52" r="4.5" fill="#15803D" />
+              <circle cx="112" cy="52" r="4.5" fill="#15803D" />
+            </g>
+          </svg>
+          <button onclick="downloadSvg('apkIconWhite', 'anekio-apk-white.svg')" class="text-xs px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-md font-semibold text-slate-200 transition">
+            Export SVG
+          </button>
+        </div>
+
+        <!-- Emerald Green APK Icon -->
+        <div class="flex flex-col items-center bg-slate-950/40 p-5 rounded-xl border border-slate-800 space-y-4">
+          <span class="text-xs font-semibold text-slate-400">Option C: School Green</span>
+          <svg id="apkIconGreen" viewBox="0 0 200 200" class="w-36 h-36 rounded-[28%] shadow-2xl overflow-hidden" xmlns="http://www.w3.org/2000/svg">
+            <rect width="200" height="200" fill="#047857" />
+            <g transform="translate(20, 15) scale(0.8)">
+              <path d="M 100 115 C 65 60, 15 68, 15 115 C 15 160, 65 170, 100 115 Z" fill="none" stroke="#93C5FD" stroke-width="26" stroke-linecap="round" stroke-linejoin="round" />
+              <path d="M 100 115 C 135 60, 185 68, 185 115 C 185 160, 135 170, 100 115 Z" fill="none" stroke="#FFFFFF" stroke-width="26" stroke-linecap="round" stroke-linejoin="round" />
+              <circle cx="100" cy="75" r="10" fill="#FFFFFF" />
+              <path d="M 80 110 C 90 90, 100 88, 100 88 C 100 88, 110 90, 120 110" fill="none" stroke="#FFFFFF" stroke-width="9" stroke-linecap="round" />
+              <circle cx="100" cy="40" r="5" fill="#A7F3D0" />
+              <circle cx="88" cy="52" r="4.5" fill="#A7F3D0" />
+              <circle cx="112" cy="52" r="4.5" fill="#A7F3D0" />
+            </g>
+          </svg>
+          <button onclick="downloadSvg('apkIconGreen', 'anekio-apk-green.svg')" class="text-xs px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-md font-semibold text-slate-200 transition">
+            Export SVG
+          </button>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- Color Palette Spec -->
+    <section class="bg-slate-800/40 rounded-2xl p-6 border border-slate-700 text-xs text-slate-400">
+      <h3 class="text-sm font-bold text-slate-200 mb-3 uppercase tracking-wider">Anekio Official Hex Palette</h3>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-lg bg-[#1E40AF] border border-white/20"></div>
+          <div><p class="font-bold text-slate-200">#1E40AF</p><p>School Royal Blue</p></div>
+        </div>
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-lg bg-[#22C55E] border border-white/20"></div>
+          <div><p class="font-bold text-slate-200">#22C55E</p><p>Growth Grass Green</p></div>
+        </div>
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-lg bg-[#38BDF8] border border-white/20"></div>
+          <div><p class="font-bold text-slate-200">#38BDF8</p><p>Student Spark Blue</p></div>
+        </div>
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-lg bg-[#0F172A] border border-white/20"></div>
+          <div><p class="font-bold text-slate-200">#0F172A</p><p>Core Deep Slate</p></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    function downloadSvg(svgId, fileName) {
+      const svg = document.getElementById(svgId);
+      const serializer = new XMLSerializer();
+      let source = serializer.serializeToString(svg);
+
+      if(!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)){
+        source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+      }
+      if(!source.match(/^<svg[^>]+xmlns\:xlink="http\:\/\/www\.w3\.org\/1999\/xlink"/)){
+        source = source.replace(/^<svg/, '<svg xmlns:xlink="http://www.w3.org/1999/xlink"');
+      }
+
+      const preface = '<?xml version="1.0" standalone="no"?>\r\n';
+      const svgBlob = new Blob([preface, source], {type:"image/svg+xml;charset=utf-8"});
+      const svgUrl = URL.createObjectURL(svgBlob);
+      const downloadLink = document.createElement("a");
+      downloadLink.href = svgUrl;
+      downloadLink.download = fileName;
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+      document.body.removeChild(downloadLink);
+    }
+  </script>
+</body>
+</html>

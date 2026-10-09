@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { Redirect, Slot, Tabs, useGlobalSearchParams, usePathname, useRouter } from "expo-router";
-import { ActivityIndicator, Image, Modal, PanResponder, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { Image, Modal, PanResponder, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { AppTabBar } from "../../components/app-tab-bar";
+import { AnekioLoader } from "../../components/anekio-loader";
 import { NavMenu } from "../../components/nav-menu";
 import { NoticeBell } from "../../components/notice-bell";
 import { OnboardingBoard } from "../../components/onboarding-board";
@@ -357,11 +358,7 @@ export default function AppLayout() {
   }, [pathname, router, user]);
 
   if (!ready) {
-    return (
-      <View className="flex-1 items-center justify-center bg-ink-50">
-        <ActivityIndicator color="#1d4ed8" />
-      </View>
-    );
+    return <AnekioLoader />;
   }
   if (!user) return <Redirect href="/login" />;
 
