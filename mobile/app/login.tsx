@@ -48,7 +48,7 @@ function Brand({ inverse = false, compact = false, centered = false, markSize, w
   return (
     <View className={centered ? "items-center" : "flex-row items-center gap-2.5"}>
       <Image source={require("../assets/anekio-mark-transparent.png")} accessibilityLabel="Anekio" style={{ width: size, height: size }} />
-      <View className={centered ? "items-center" : ""} style={centered ? { marginTop: -22 } : undefined}>
+      <View className={centered ? "items-center" : ""} style={centered ? { marginTop: -28 } : undefined}>
         <Text style={{ fontFamily: Platform.select({ ios: centered ? "Avenir Next Demi Bold" : "Avenir Next", android: centered ? "sans-serif-black" : "sans-serif-medium", default: "system-ui" }), ...(centered ? { letterSpacing: -1.1, includeFontPadding: false } : {}), ...(wordSize ? { fontSize: wordSize, lineHeight: wordSize + 10 } : {}) }} className={`${centered ? "text-2xl" : "text-lg"} font-bold lowercase tracking-tight ${inverse ? "text-white" : "text-ink-900"}`}>anekio</Text>
         {!compact ? <Text className={`text-xs ${inverse ? "text-blue-100" : "text-ink-700"}`}>Connecting school & parents</Text> : null}
       </View>
@@ -323,7 +323,7 @@ export default function Login() {
                           onSubmitEditing={() => onPasswordSignIn()}
                           placeholder="Enter your password"
                           className="h-14 rounded-2xl border-[#D6DEEA] px-11 text-base"
-                          style={{ paddingLeft: 52 }}
+                          style={{ paddingLeft: 47 }}
                         />
                         <Pressable
                           accessibilityRole="button"
