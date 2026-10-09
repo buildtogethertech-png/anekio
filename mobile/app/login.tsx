@@ -441,38 +441,57 @@ export default function Login() {
         </View>
 
         <View className="mt-7 border-t border-[#DCE3ED] pt-5">
-          <View className="flex-row flex-wrap items-center justify-center gap-1">
-            {mode === "trial" ? (
-              <>
-                <Text className="text-xs text-ink-700">Already have a school?</Text>
-                <Pressable accessibilityRole="button" onPress={() => chooseMode("password")}>
-                  <Text className="text-xs font-semibold text-clay-600">Sign in</Text>
-                </Pressable>
-              </>
-            ) : (
-              <>
-                <Text className="text-xs text-ink-700">New to Anekio?</Text>
-                <Pressable accessibilityRole="button" onPress={() => chooseMode("trial")}>
-                  <Text className="text-xs font-semibold text-clay-600">Create a new school</Text>
-                </Pressable>
-              </>
-            )}
-          </View>
-          <Pressable accessibilityRole="link" onPress={() => void Linking.openURL("mailto:support@anekio.com")} className="mt-2.5 items-center">
-            <Text className="text-xs text-ink-700">Need help? <Text className="font-medium text-clay-600">support@anekio.com</Text></Text>
-          </Pressable>
-          <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(`${webOrigin()}/privacy`)} className="mt-2 items-center">
-            <Text className="text-xs text-ink-700">By continuing, you agree to Anekio’s <Text className="font-medium text-clay-600">Privacy Policy</Text></Text>
-          </Pressable>
-          {isWideLayout ? <View className="mt-5 flex-row items-center gap-3 rounded-xl border border-blue-100 bg-blue-50/70 px-3 py-3">
-            <View className="h-8 w-8 items-center justify-center rounded-lg bg-white">
-              <Ionicons name="shield-checkmark-outline" size={18} color="#1D4ED8" />
+          {isWideLayout ? (
+            <>
+              <View className="flex-row flex-wrap items-center justify-center gap-1">
+                {mode === "trial" ? (
+                  <>
+                    <Text className="text-xs text-ink-700">Already have a school?</Text>
+                    <Pressable accessibilityRole="button" onPress={() => chooseMode("password")}>
+                      <Text className="text-xs font-semibold text-clay-600">Sign in</Text>
+                    </Pressable>
+                  </>
+                ) : (
+                  <>
+                    <Text className="text-xs text-ink-700">New to Anekio?</Text>
+                    <Pressable accessibilityRole="button" onPress={() => chooseMode("trial")}>
+                      <Text className="text-xs font-semibold text-clay-600">Create a new school</Text>
+                    </Pressable>
+                  </>
+                )}
+              </View>
+              <Pressable accessibilityRole="link" onPress={() => void Linking.openURL("mailto:support@anekio.com")} className="mt-2.5 items-center">
+                <Text className="text-xs text-ink-700">Need help? <Text className="font-medium text-clay-600">support@anekio.com</Text></Text>
+              </Pressable>
+              <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(`${webOrigin()}/privacy`)} className="mt-2 items-center">
+                <Text className="text-xs text-ink-700">By continuing, you agree to Anekio’s <Text className="font-medium text-clay-600">Privacy Policy</Text></Text>
+              </Pressable>
+              <View className="mt-5 flex-row items-center gap-3 rounded-xl border border-blue-100 bg-blue-50/70 px-3 py-3">
+                <View className="h-8 w-8 items-center justify-center rounded-lg bg-white">
+                  <Ionicons name="shield-checkmark-outline" size={18} color="#1D4ED8" />
+                </View>
+                <View className="min-w-0 flex-1">
+                  <Text className="text-xs font-semibold text-ink-900">Secure school access</Text>
+                  <Text className="mt-0.5 text-[11px] leading-4 text-ink-700">Your password and school data stay protected.</Text>
+                </View>
+              </View>
+            </>
+          ) : (
+            <View className="flex-row items-center justify-center gap-8">
+              <Pressable accessibilityRole="link" accessibilityLabel="Contact support" onPress={() => void Linking.openURL("mailto:support@anekio.com")} className="items-center gap-1.5 px-2 py-1">
+                <View className="h-8 w-8 items-center justify-center rounded-full bg-[#E8EEFC]">
+                  <Ionicons name="help-circle-outline" size={18} color="#2955DB" />
+                </View>
+                <Text className="text-xs font-semibold text-[#3654A2]">Help</Text>
+              </Pressable>
+              <Pressable accessibilityRole="link" accessibilityLabel="Privacy policy" onPress={() => void Linking.openURL(`${webOrigin()}/privacy`)} className="items-center gap-1.5 px-2 py-1">
+                <View className="h-8 w-8 items-center justify-center rounded-full bg-[#E8EEFC]">
+                  <Ionicons name="shield-checkmark-outline" size={17} color="#2955DB" />
+                </View>
+                <Text className="text-xs font-semibold text-[#3654A2]">Privacy</Text>
+              </Pressable>
             </View>
-            <View className="min-w-0 flex-1">
-              <Text className="text-xs font-semibold text-ink-900">Secure school access</Text>
-              <Text className="mt-0.5 text-[11px] leading-4 text-ink-700">Your password and school data stay protected.</Text>
-            </View>
-          </View> : null}
+          )}
         </View>
       </View>
     </View>
@@ -498,7 +517,7 @@ export default function Login() {
           <View
             className="w-full"
           >
-            {!isWideLayout ? <View className="mb-11 items-center"><Brand compact centered markSize={68} wordSize={34} /></View> : null}
+            {!isWideLayout ? <View className="mb-10 items-center"><Brand compact centered markSize={84} wordSize={40} /></View> : null}
             <View
               className={`w-full overflow-hidden ${isWideLayout ? "flex-row border border-[#DFE7F1] bg-white" : ""}`}
               style={isWideLayout ? {
