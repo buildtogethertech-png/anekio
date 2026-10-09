@@ -43,10 +43,11 @@ async function startTrial(input: {
   return { login: data.login, password: data.password };
 }
 
-function Brand({ inverse = false, compact = false }: { inverse?: boolean; compact?: boolean }) {
+function Brand({ inverse = false, compact = false, markSize }: { inverse?: boolean; compact?: boolean; markSize?: number }) {
+  const size = markSize ?? (compact ? 30 : 38);
   return (
     <View className="flex-row items-center gap-2.5">
-      <Image source={require("../assets/anekio-mark-transparent.png")} accessibilityLabel="Anekio" style={{ width: compact ? 30 : 38, height: compact ? 30 : 38 }} />
+      <Image source={require("../assets/anekio-mark-transparent.png")} accessibilityLabel="Anekio" style={{ width: size, height: size }} />
       <View>
         <Text className={`text-lg font-bold lowercase tracking-tight ${inverse ? "text-white" : "text-ink-900"}`}>anekio</Text>
         {!compact ? <Text className={`text-xs ${inverse ? "text-blue-100" : "text-ink-700"}`}>Connecting school & parents</Text> : null}
@@ -485,21 +486,22 @@ export default function Login() {
         contentContainerStyle={{ minHeight: balancedPhoneLayout ? height : Math.max(height, 680), flexGrow: 1 }}
       >
         <View className={`flex-1 items-center ${isWideLayout ? "justify-center px-4 py-5 sm:px-6 sm:py-8" : balancedPhoneLayout ? "justify-between px-5 py-9" : "justify-start px-5 py-6"}`}>
-          {!isWideLayout ? (
-            <View className={`${balancedPhoneLayout ? "" : "mb-5"} w-full px-1`}><Brand compact /></View>
-          ) : null}
           <View
-            className={`w-full overflow-hidden bg-white ${isWideLayout ? "flex-row border border-[#DFE7F1]" : "rounded-2xl border border-[#DFE7F1]"}`}
-            style={isWideLayout ? {
-              maxWidth: 960,
-              borderRadius: 16,
-              shadowColor: "#0F2942",
-              shadowOpacity: 0.1,
-              shadowRadius: 28,
-              shadowOffset: { width: 0, height: 14 },
-              elevation: 4,
-            } : { shadowColor: "#0F2942", shadowOpacity: 0.06, shadowRadius: 16, shadowOffset: { width: 0, height: 6 }, elevation: 2 }}
+            className="w-full"
           >
+            {!isWideLayout ? <View className="mb-4 px-1"><Brand compact markSize={48} /></View> : null}
+            <View
+              className={`w-full overflow-hidden bg-white ${isWideLayout ? "flex-row border border-[#DFE7F1]" : "rounded-2xl border border-[#DFE7F1]"}`}
+              style={isWideLayout ? {
+                maxWidth: 960,
+                borderRadius: 16,
+                shadowColor: "#0F2942",
+                shadowOpacity: 0.1,
+                shadowRadius: 28,
+                shadowOffset: { width: 0, height: 14 },
+                elevation: 4,
+              } : { shadowColor: "#0F2942", shadowOpacity: 0.06, shadowRadius: 16, shadowOffset: { width: 0, height: 6 }, elevation: 2 }}
+            >
             {isWideLayout ? (
               <View className="w-[490px] justify-between bg-[#173B77] px-12 py-12">
                 <View>
@@ -516,6 +518,7 @@ export default function Login() {
               </View>
             ) : null}
             {form}
+            </View>
           </View>
           {balancedPhoneLayout ? <View className="h-[30px]" /> : null}
         </View>
