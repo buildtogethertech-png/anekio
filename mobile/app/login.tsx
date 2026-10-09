@@ -1,7 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useState } from "react";
 import { Redirect, useRouter } from "expo-router";
-import { Image, Linking, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { Image, Linking, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button, Input } from "../components/ui";
 import { apiBase, webOrigin } from "../lib/api";
@@ -49,7 +49,7 @@ function Brand({ inverse = false, compact = false, centered = false, markSize, w
     <View className={centered ? "items-center" : "flex-row items-center gap-2.5"}>
       <Image source={require("../assets/anekio-mark-transparent.png")} accessibilityLabel="Anekio" style={{ width: size, height: size }} />
       <View className={centered ? "mt-2 items-center" : ""}>
-        <Text style={wordSize ? { fontSize: wordSize, lineHeight: wordSize + 10 } : undefined} className={`${centered ? "text-2xl" : "text-lg"} font-bold lowercase tracking-tight ${inverse ? "text-white" : "text-ink-900"}`}>anekio</Text>
+        <Text style={{ fontFamily: Platform.select({ ios: "Avenir Next", android: "sans-serif-medium", default: "system-ui" }), ...(wordSize ? { fontSize: wordSize, lineHeight: wordSize + 10 } : {}) }} className={`${centered ? "text-2xl" : "text-lg"} font-bold lowercase tracking-tight ${inverse ? "text-white" : "text-ink-900"}`}>anekio</Text>
         {!compact ? <Text className={`text-xs ${inverse ? "text-blue-100" : "text-ink-700"}`}>Connecting school & parents</Text> : null}
       </View>
     </View>
@@ -242,7 +242,7 @@ export default function Login() {
           </Pressable>
         ) : null}
 
-        <Text className={`${isWideLayout ? "text-[30px]" : "text-[31px] leading-[39px]"} font-bold tracking-tight text-[#102A5C]`}>{heading}</Text>
+        <Text style={!isWideLayout ? { fontFamily: Platform.select({ ios: "Avenir Next", android: "sans-serif", default: "system-ui" }), fontWeight: "700" } : undefined} className={`${isWideLayout ? "text-[30px]" : "text-[31px] leading-[39px]"} font-bold tracking-tight text-[#102A5C]`}>{heading}</Text>
         <Text className="mt-2 text-[16px] leading-6 text-[#52627A]">{subheading}</Text>
 
         <View className={`${isWideLayout ? "mt-6 gap-5" : "mt-7 gap-5"}`}>
