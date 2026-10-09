@@ -49,7 +49,7 @@ function Brand({ inverse = false, compact = false, centered = false, markSize, w
     <View className={centered ? "items-center" : "flex-row items-center gap-2.5"}>
       <Image source={require("../assets/anekio-mark-transparent.png")} accessibilityLabel="Anekio" style={{ width: size, height: size }} />
       <View className={centered ? "mt-2 items-center" : ""}>
-        <Text style={wordSize ? { fontSize: wordSize } : undefined} className={`${centered ? "text-2xl" : "text-lg"} font-bold lowercase tracking-tight ${inverse ? "text-white" : "text-ink-900"}`}>anekio</Text>
+        <Text style={wordSize ? { fontSize: wordSize, lineHeight: wordSize + 10 } : undefined} className={`${centered ? "text-2xl" : "text-lg"} font-bold lowercase tracking-tight ${inverse ? "text-white" : "text-ink-900"}`}>anekio</Text>
         {!compact ? <Text className={`text-xs ${inverse ? "text-blue-100" : "text-ink-700"}`}>Connecting school & parents</Text> : null}
       </View>
     </View>
@@ -242,7 +242,7 @@ export default function Login() {
           </Pressable>
         ) : null}
 
-        <Text className={`${isWideLayout ? "text-[30px]" : "text-[29px]"} font-bold tracking-tight text-[#102A5C]`}>{heading}</Text>
+        <Text className={`${isWideLayout ? "text-[30px]" : "text-[31px] leading-[39px]"} font-bold tracking-tight text-[#102A5C]`}>{heading}</Text>
         <Text className="mt-2 text-[16px] leading-6 text-[#52627A]">{subheading}</Text>
 
         <View className={`${isWideLayout ? "mt-6 gap-5" : "mt-7 gap-5"}`}>
@@ -403,7 +403,7 @@ export default function Login() {
                   ) : null}
 
                   {mode === "password" ? (
-                      <Button testID="login-submit" accessibilityLabel="Sign in" onPress={() => onPasswordSignIn()} disabled={pending || !login || !password} className="h-14 justify-center rounded-full bg-[#2955DB] shadow-lg shadow-blue-300">
+                      <Button testID="login-submit" accessibilityLabel="Sign in" onPress={() => onPasswordSignIn()} disabled={pending || !login || !password} className="h-14 justify-center bg-[#2955DB] shadow-lg shadow-blue-300" style={!isWideLayout ? { borderRadius: 18, shadowColor: "#2955DB", shadowOpacity: 0.24, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 4 } : undefined}>
                       {pending ? "Signing in..." : "Sign in securely"}
                     </Button>
                   ) : codeSent && !resetLinkSent ? (
@@ -517,7 +517,7 @@ export default function Login() {
           <View
             className="w-full"
           >
-            {!isWideLayout ? <View className="mb-10 items-center"><Brand compact centered markSize={84} wordSize={40} /></View> : null}
+            {!isWideLayout ? <View className="mb-10 items-center" style={{ minHeight: 150 }}><Brand compact centered markSize={96} wordSize={42} /></View> : null}
             <View
               className={`w-full overflow-hidden ${isWideLayout ? "flex-row border border-[#DFE7F1] bg-white" : ""}`}
               style={isWideLayout ? {
