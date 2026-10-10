@@ -4,7 +4,7 @@ import Constants, { ExecutionEnvironment } from "expo-constants";
 import * as WebBrowser from "expo-web-browser";
 import { useEffect, useRef, useState } from "react";
 import { Redirect, useRouter } from "expo-router";
-import { Animated, Image, Keyboard, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { Animated, BackHandler, Image, Keyboard, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button, Input } from "../components/ui";
 import { apiBase, webOrigin } from "../lib/api";
@@ -170,6 +170,28 @@ export default function Login() {
       hideSubscription.remove();
     };
   }, [keyboardProgress]);
+
+  useEffect(() => {
+    if (Platform.OS !== "android" || !keyboardVisible) return;
+
+    const restoreFullLayoutIfKeyboardIsHidden = () => {
+      if (!Keyboard.isVisible()) setKeyboardLayout(false);
+    };
+    const fallbackTimer = setTimeout(restoreFullLayoutIfKeyboardIsHidden, 450);
+    const fallbackInterval = setInterval(restoreFullLayoutIfKeyboardIsHidden, 350);
+    const backSubscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (!keyboardVisible) return false;
+      Keyboard.dismiss();
+      setKeyboardLayout(false);
+      return true;
+    });
+
+    return () => {
+      clearTimeout(fallbackTimer);
+      clearInterval(fallbackInterval);
+      backSubscription.remove();
+    };
+  }, [keyboardVisible]);
 
   if (user) return <Redirect href="/(app)" />;
 
