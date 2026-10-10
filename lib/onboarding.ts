@@ -1656,8 +1656,8 @@ async function applyClasses(db: OnboardingDb, rows: ImportRow[]) {
 async function nextCodes(orgId: string | null) {
   const [students, teachers, staffMembers] = await runWithoutTenant(() => Promise.all([
     prisma.student.findMany({ where: { orgId }, select: { admissionNo: true } }),
-    prisma.teacher.findMany({ select: { employeeId: true } }),
-    prisma.staffMember.findMany({ select: { employeeId: true } }),
+    prisma.teacher.findMany({ where: { orgId }, select: { employeeId: true } }),
+    prisma.staffMember.findMany({ where: { orgId }, select: { employeeId: true } }),
   ]));
   const studentNumbers = students.map((row) => Number(row.admissionNo.replace(/\D/g, ""))).filter(Number.isFinite);
   const teacherNumbers = teachers.map((row) => Number(row.employeeId.replace(/\D/g, ""))).filter(Number.isFinite);
@@ -1785,13 +1785,13 @@ async function applyTeachers(
       const existing = teacherId
         ? await db.teacher.findUnique({ where: { id: teacherId }, include: { user: true } })
         : employeeId
-          ? await db.teacher.findUnique({ where: { employeeId }, include: { user: true } })
+          ? await db.teacher.findFirst({ where: { orgId: setup.orgId, employeeId }, include: { user: true } })
           : await db.teacher.findFirst({ where: { user: { OR: [{ email }, { phone }] } }, include: { user: true } });
       if (!employeeId) {
         do {
           employeeId = `T-${nextEmployee}`;
           nextEmployee += 1;
-        } while (await db.teacher.findUnique({ where: { employeeId }, select: { id: true } }));
+        } while (await db.teacher.findFirst({ where: { orgId: setup.orgId, employeeId }, select: { id: true } }));
       }
       if (existing) {
         await db.user.update({ where: { id: existing.userId }, data: { orgId: setup.orgId, name, email, phone, roleId: role.id } });
@@ -1842,13 +1842,13 @@ async function applyTeachers(
       }
     } else {
       const existing = employeeId
-        ? await db.staffMember.findUnique({ where: { employeeId }, include: { user: true } })
+        ? await db.staffMember.findFirst({ where: { orgId: setup.orgId, employeeId }, include: { user: true } })
         : await db.staffMember.findFirst({ where: { user: { OR: [{ email }, { phone }] } }, include: { user: true } });
       if (!employeeId) {
         do {
           employeeId = `S-${nextStaffEmployee}`;
           nextStaffEmployee += 1;
-        } while (await db.staffMember.findUnique({ where: { employeeId }, select: { id: true } }));
+        } while (await db.staffMember.findFirst({ where: { orgId: setup.orgId, employeeId }, select: { id: true } }));
       }
       if (existing) {
         if (existing.userId) await db.user.update({ where: { id: existing.userId }, data: { orgId: setup.orgId, name, email, phone, roleId: role.id } });
@@ -1880,7 +1880,7 @@ async function applyTeachers(
   return { created, updated };
 }
 
-async function applyClassTeachers(db: OnboardingDb, rows: ImportRow[]) {
+async function applyClassTeachers(db: OnboardingDb, rows: ImportRow[], orgId: string | null) {
   let updated = 0;
   for (const row of rows) {
     const klass = parseClass(sheetCell(row, "Class"))!;
@@ -1888,7 +1888,7 @@ async function applyClassTeachers(db: OnboardingDb, rows: ImportRow[]) {
     const employeeId = sheetCell(row, "Class teacher employee ID", "Employee ID", "Teacher employee ID");
     const teacherName = sheetCell(row, "Class teacher name", "Teacher name");
     const teacher = employeeId
-      ? await db.teacher.findUnique({ where: { employeeId }, include: { user: true } })
+      ? await db.teacher.findFirst({ where: { orgId, employeeId }, include: { user: true } })
       : await db.teacher.findFirst({ where: { user: { name: { equals: teacherName } } }, include: { user: true } });
     if (!teacher) throw new Error(rowError(row, "teacher no longer exists."));
     await db.teacher.update({ where: { id: teacher.id }, data: { classId: classRow.id } });
@@ -2124,7 +2124,7 @@ export async function applyOnboardingImport(user: AccessUser, input: { batchId?:
               : kind === "exam_marks"
                 ? applyExamMarks(db, rows, user)
           : kind === "class_teachers"
-            ? applyClassTeachers(db, rows)
+            ? applyClassTeachers(db, rows, orgId)
             : applyOpeningBalances(db, rows, orgId), { maxWait: 10_000, timeout: 60_000 });
     await prisma.schoolOnboardingImport.update({
       where: { id: batch.id },

@@ -167,11 +167,11 @@ async function assertPhoneFree(phone: string, exceptUserId?: string) {
   if (taken) throw new Error("That number already has a login");
 }
 
-async function nextEmployeeId(prefix: "S" | "T") {
+async function nextEmployeeId(prefix: "S" | "T", orgId: string | null) {
   const existing =
     prefix === "T"
-      ? await prisma.teacher.findMany({ select: { employeeId: true } })
-      : await prisma.staffMember.findMany({ select: { employeeId: true } });
+      ? await prisma.teacher.findMany({ where: { orgId }, select: { employeeId: true } })
+      : await prisma.staffMember.findMany({ where: { orgId }, select: { employeeId: true } });
   const nums = existing
     .map((row) => Number(String(row.employeeId).replace(/\D/g, "")))
     .filter((n) => Number.isFinite(n));
@@ -932,7 +932,7 @@ export async function createTeacherCore(
   if (!name || !email) throw new Error("Name and email are required");
   await assertPhoneFree(mobile);
   let employeeId = (input.employeeId || "").trim();
-  if (!employeeId) employeeId = await nextEmployeeId("T");
+  if (!employeeId) employeeId = await nextEmployeeId("T", user.orgId ?? null);
   const offers = (input.offers || []).filter((o) => o.subjectName && o.classId);
   const classIds = [...new Set(offers.map((o) => o.classId))];
   const tags = Array.isArray(input.qualification)
@@ -952,6 +952,7 @@ export async function createTeacherCore(
       managerId: await defaultManagerIdForRole("TEACHER", "TEACHER"),
       teacher: {
         create: {
+          orgId: user.orgId ?? null,
           employeeId,
           joinedOn: todayJoinedOn(),
           monthlySalary: parseMonthlySalary(input.monthlySalary),
@@ -1466,7 +1467,7 @@ export async function createStaffMemberCore(
       const klass = await prisma.class.findFirst({ where: { id: classId, archivedAt: null }, select: { id: true } });
       if (!klass) throw new Error("Class missing");
     }
-    const employeeId = await nextEmployeeId("T");
+    const employeeId = await nextEmployeeId("T", user.orgId ?? null);
     const created = await prisma.user.create({
       data: {
         name,
@@ -1475,7 +1476,7 @@ export async function createStaffMemberCore(
         password: hash,
         roleId: role.id,
         managerId,
-        teacher: { create: { employeeId, joinedOn, monthlySalary, ...(classId ? { classId } : {}), ...place } },
+        teacher: { create: { orgId: user.orgId ?? null, employeeId, joinedOn, monthlySalary, ...(classId ? { classId } : {}), ...place } },
       },
       include: { teacher: true },
     });
@@ -1494,7 +1495,7 @@ export async function createStaffMemberCore(
       },
     });
   } else {
-    const employeeId = await nextEmployeeId("S");
+    const employeeId = await nextEmployeeId("S", user.orgId ?? null);
     await prisma.user.create({
       data: {
         name,
@@ -1503,7 +1504,7 @@ export async function createStaffMemberCore(
         password: hash,
         roleId: role.id,
         managerId,
-        staffMember: { create: { name, title, phone, kind, employeeId, roleId: role.id, joinedOn, monthlySalary, ...place } },
+        staffMember: { create: { orgId: user.orgId ?? null, name, title, phone, kind, employeeId, roleId: role.id, joinedOn, monthlySalary, ...place } },
       },
     });
   }

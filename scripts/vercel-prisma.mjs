@@ -35,6 +35,7 @@ if (usesPostgres) {
     const pushArgs = ["db", "push", "--schema", schemaPath];
     if (process.env.ANEKIO_DB_PUSH_ACCEPT_DATA_LOSS === "1") pushArgs.push("--accept-data-loss");
     run(prismaBin, pushArgs);
+    run(tsxBin, ["scripts/backfill-employee-orgs.ts"]);
   }
   if (process.env.ANEKIO_SEED_ON_BUILD === "1") run(tsxBin, ["prisma/seed.ts"]);
 } else {

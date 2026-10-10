@@ -1755,6 +1755,7 @@ export async function importPeopleSheetCore(user: AccessUser, input: { kind?: st
           phone: mobile,
           teacher: {
             create: {
+              orgId: user.orgId ?? null,
               employeeId,
               joinedOn: todayJoinedOn(),
               ...(cell(row, "qualification") ? { qualification: cell(row, "qualification") } : {}),

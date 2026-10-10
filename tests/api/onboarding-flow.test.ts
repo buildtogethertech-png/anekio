@@ -598,7 +598,7 @@ describe("school onboarding imports", () => {
     expect(preview).toMatchObject({ rowCount: 1, validCount: 1, errors: [] });
 
     await applyOnboardingImport(user, { batchId: preview.batchId });
-    const teacher = await prisma.teacher.findUniqueOrThrow({ where: { employeeId: existingTeacher.employeeId } });
+    const teacher = await prisma.teacher.findUniqueOrThrow({ where: { id: existingTeacher.id } });
     expect(teacher.classId).toBe("class-6-a");
   });
 

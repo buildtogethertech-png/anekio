@@ -238,7 +238,7 @@ model Teacher {
   orgId                 String?
   userId                String                 @unique
   user                  User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  employeeId            String                 @unique
+  employeeId            String
   joinedOn              String                 @default("2026-04-01")
   address               String                 @default("")
   city                  String                 @default("")
@@ -258,6 +258,8 @@ model Teacher {
   exams                 Exam[]                 @relation("ExamEvaluator")
   setExams              Exam[]                 @relation("ExamSetter")
   examGrants            ExamEvaluator[]
+
+  @@unique([orgId, employeeId])
 }
 
 model TeacherSkill {
@@ -1133,7 +1135,7 @@ model StaffMember {
   name          String
   title         String
   phone         String         @default("")
-  employeeId    String         @unique
+  employeeId    String
   joinedOn      String         @default("2026-04-01")
   address       String         @default("")
   city          String         @default("")
@@ -1148,6 +1150,8 @@ model StaffMember {
   archivedAt    DateTime?
   days          StaffDay[]
   leaveRequests LeaveRequest[]
+
+  @@unique([orgId, employeeId])
 }
 
 model StaffDay {

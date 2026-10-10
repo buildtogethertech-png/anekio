@@ -50,6 +50,7 @@
     "app": "npm --prefix mobile start",
     "app:web": "npm --prefix mobile run web",
     "db:push": "prisma db push",
+    "db:backfill-employee-orgs": "tsx scripts/backfill-employee-orgs.ts",
     "db:seed": "tsx prisma/seed.ts",
     "db:reset": "prisma db push --force-reset && tsx prisma/seed.ts",
     "erd:prisma": "node scripts/generate-prisma-erd.mjs",
