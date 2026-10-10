@@ -31,7 +31,7 @@ import { OnboardingBoard } from "./onboarding-board";
 import { StaffAttendanceQrButton, StaffAttendanceQrScanButton } from "./staff-attendance-qr";
 import { studentMetaLine } from "../lib/student-label";
 import { FeesBoard as RefactoredFeesBoard } from "./fees-board";
-import { ManageFeeBody, feeAssignmentFromStudent } from "./manage-fee";
+import { ManageFeeBody, MonthlyFeeBillSummary, feeAssignmentFromStudent } from "./manage-fee";
 
 export const FeesBoard = RefactoredFeesBoard;
 
@@ -2177,6 +2177,8 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
           if (!manageFeePending) setManageFeeOpen(false);
         }}
         footer={
+          <View className="gap-3">
+            {selected ? <MonthlyFeeBillSummary student={selected} templates={data?.feeTemplates} catalog={data?.feeCatalog ?? { items: [], late: { enabled: false, amount: 0, graceDays: 0 }, dueDay: 10 }} session={data?.school?.sessions?.find((row) => row.current) ?? data?.school?.sessions?.[0]} otherIds={manageOtherIds} classAddOnLabels={manageClassAddOns} discountType={manageDiscountType} discountValue={manageDiscountValue} /> : null}
           <View className="flex-row flex-wrap justify-end gap-2">
             <Button variant="ghost" disabled={manageFeePending} onPress={() => setManageFeeOpen(false)}>
               Cancel
@@ -2205,6 +2207,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
             >
               {manageFeePending ? "Saving..." : "Save"}
             </Button>
+          </View>
           </View>
         }
       >

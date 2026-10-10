@@ -51,6 +51,46 @@ export function feeAssignmentFromStudent(addOns?: { kind?: string | null; label?
   return { otherIds, classAddOnLabels, discount };
 }
 
+type MonthlyFeeSummaryInput = {
+  student: Student;
+  templates: RecordData["feeTemplates"];
+  catalog: Catalog;
+  session?: { id: string };
+  otherIds: string[];
+  classAddOnLabels: string[];
+  discountType: "FLAT" | "PERCENT";
+  discountValue: string;
+};
+
+export function monthlyFeeSummary({ student, templates, catalog, session, otherIds, classAddOnLabels, discountType, discountValue }: MonthlyFeeSummaryInput) {
+  const classTpl = [...(templates ?? [])]
+    .filter((row) => row.classId === student.classId && (!session || row.sessionId === session.id || !row.sessionId))
+    .sort((a, b) => (b.startsPeriod || "").localeCompare(a.startsPeriod || ""))[0];
+  const classLines = (classTpl?.lines || []).filter((line) => line.scope !== "ADD_ON");
+  const classAddOns = (classTpl?.lines || []).filter((line) => line.scope === "ADD_ON" && Number(line.amount) > 0);
+  const classFee = classLines.reduce((sum, line) => sum + Math.max(0, Math.round(Number(line.amount) || 0)), 0);
+  const otherOptions = catalog.items.filter((item) => item.kind === "OTHER" && item.active);
+  const others = otherOptions.filter((item) => otherIds.includes(item.id));
+  const selectedAddOns = classAddOns.filter((line) => classAddOnLabels.some((label) => classAddOnKey(label) === classAddOnKey(line.label)));
+  const beforeDiscount = classFee + others.reduce((sum, item) => sum + item.amount, 0) + selectedAddOns.reduce((sum, line) => sum + line.amount, 0);
+  const discountInput = Math.max(0, Math.round(Number(discountValue) || 0));
+  const maximumDiscount = discountType === "PERCENT" ? 100 : beforeDiscount;
+  const discountAmount = discountType === "PERCENT" ? Math.round(beforeDiscount * Math.min(100, discountInput) / 100) : Math.min(beforeDiscount, discountInput);
+  return { classTpl, classLines, classAddOns, classFee, otherOptions, others, selectedAddOns, beforeDiscount, maximumDiscount, discountAmount, total: beforeDiscount - discountAmount, optionalCount: selectedAddOns.length + others.length };
+}
+
+export function MonthlyFeeBillSummary(props: MonthlyFeeSummaryInput) {
+  const { total, optionalCount, discountAmount } = monthlyFeeSummary(props);
+  return (
+    <View className="rounded-xl bg-[#102A5C] px-4 py-3">
+      <View className="flex-row items-center justify-between">
+        <View><Text className="text-[11px] font-semibold uppercase tracking-wide text-blue-100">Monthly amount to bill</Text><Text className="mt-1 text-xs text-blue-100">{discountAmount ? `${inr(discountAmount)} discount applied` : optionalCount ? `${optionalCount} optional charge${optionalCount === 1 ? "" : "s"} included` : "Class fee only"}</Text></View>
+        <View className="items-end"><Text className="text-xl font-semibold text-white">{inr(total)}</Text><Text className="text-[11px] text-blue-100">per month</Text></View>
+      </View>
+    </View>
+  );
+}
+
 export function ManageFeeBody({
   student,
   templates,
@@ -81,21 +121,8 @@ export function ManageFeeBody({
   onDiscountValueChange: (value: string) => void;
 }) {
   const [discountFocused, setDiscountFocused] = useState(false);
-  const classTpl = [...(templates ?? [])]
-    .filter((row) => row.classId === student.classId && (!session || row.sessionId === session.id || !row.sessionId))
-    .sort((a, b) => (b.startsPeriod || "").localeCompare(a.startsPeriod || ""))[0];
-  const classLines = (classTpl?.lines || []).filter((line) => line.scope !== "ADD_ON");
-  const classAddOns = (classTpl?.lines || []).filter((line) => line.scope === "ADD_ON" && Number(line.amount) > 0);
-  const classFee = classLines.reduce((sum, line) => sum + Math.max(0, Math.round(Number(line.amount) || 0)), 0);
-  const otherOptions = catalog.items.filter((item) => item.kind === "OTHER" && item.active);
-  const others = otherOptions.filter((item) => otherIds.includes(item.id));
-  const selectedAddOns = classAddOns.filter((line) => classAddOnLabels.some((label) => classAddOnKey(label) === classAddOnKey(line.label)));
-  const beforeDiscount = classFee + others.reduce((sum, item) => sum + item.amount, 0) + selectedAddOns.reduce((sum, line) => sum + line.amount, 0);
+  const { classLines, classAddOns, classFee, otherOptions, others, selectedAddOns, beforeDiscount, maximumDiscount, discountAmount, total } = monthlyFeeSummary({ student, templates, catalog, session, otherIds, classAddOnLabels, discountType, discountValue });
   const discountInput = Math.max(0, Math.round(Number(discountValue) || 0));
-  const maximumDiscount = discountType === "PERCENT" ? 100 : beforeDiscount;
-  const discountAmount = discountType === "PERCENT" ? Math.round(beforeDiscount * Math.min(100, discountInput) / 100) : Math.min(beforeDiscount, discountInput);
-  const total = beforeDiscount - discountAmount;
-  const optionalCount = selectedAddOns.length + others.length;
   const updateDiscountValue = (value: string) => {
     const digits = value.replace(/[^0-9]/g, "");
     if (!digits) return onDiscountValueChange("");
@@ -186,12 +213,6 @@ export function ManageFeeBody({
         <Text className="mt-2 text-[11px] text-emerald-800">Maximum: {discountType === "PERCENT" ? "100%" : inr(beforeDiscount)}</Text>
       </View>
 
-      <View className="rounded-xl bg-[#102A5C] p-4">
-        <View className="flex-row items-center justify-between">
-          <View><Text className="text-[11px] font-semibold uppercase tracking-wide text-blue-100">Monthly amount to bill</Text><Text className="mt-1 text-xs text-blue-100">{discountAmount ? `${inr(discountAmount)} discount applied` : optionalCount ? `${optionalCount} optional charge${optionalCount === 1 ? "" : "s"} included` : "Class fee only"}</Text></View>
-          <View className="items-end"><Text className="text-xl font-semibold text-white">{inr(total)}</Text><Text className="text-[11px] text-blue-100">per month</Text></View>
-        </View>
-      </View>
     </View>
   );
 }
