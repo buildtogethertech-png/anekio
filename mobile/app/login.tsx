@@ -716,12 +716,12 @@ export default function Login() {
             >
             {isWideLayout ? (
               <View className="w-[490px] justify-between bg-[#173B77] px-12 py-10">
-                <View>
-                  <Brand inverse />
-                  <View className="mt-20">
-                    <Text className="text-[34px] font-semibold leading-[42px] tracking-tight text-white">Run every school day with clarity.</Text>
-                    <Text className="mt-4 max-w-[330px] text-[15px] leading-6 text-blue-100">Admissions, fees, attendance and communication—one shared workspace for your school team.</Text>
+                <View className="flex-1 items-center justify-center pb-12">
+                  <View className="h-32 w-32 items-center justify-center rounded-[36px] bg-white/10">
+                    <Image source={require("../assets/anekio-mark-transparent.png")} accessibilityLabel="Anekio" style={{ width: 104, height: 104 }} />
                   </View>
+                  <Text className="mt-6 text-[42px] font-bold lowercase tracking-tight text-white">anekio</Text>
+                  <Text className="mt-2 text-sm text-blue-100">One platform. Many possibilities.</Text>
                 </View>
                 <View className="flex-row items-center gap-2">
                   <Ionicons name="shield-checkmark-outline" size={17} color="#93C5FD" />
