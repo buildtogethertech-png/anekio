@@ -3,7 +3,6 @@ import cors from "cors";
 import express from "express";
 import { existsSync } from "fs";
 import path from "path";
-import { fileURLToPath } from "url";
 import multer from "multer";
 import bcrypt from "bcryptjs";
 import { signAppToken } from "../lib/app-jwt";
@@ -103,8 +102,9 @@ dotenv.config();
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 12 * 1024 * 1024 } });
 const PORT = Number(process.env.PORT || 4000);
-const serverDir =
-  typeof __dirname !== "undefined" ? __dirname : path.dirname(fileURLToPath(import.meta.url));
+// Vercel bundles this entrypoint as CommonJS, where ESM-only import.meta is invalid.
+// Both the local API command and Vercel run from the project root.
+const serverDir = path.resolve(process.cwd(), "server");
 const argvRoot = process.argv[1] ? path.resolve(path.dirname(process.argv[1]), "..") : "";
 const appShellRoutes = [
   "/login",
