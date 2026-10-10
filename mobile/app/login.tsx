@@ -483,9 +483,35 @@ export default function Login() {
                         </Pressable>
                       </View>
                     </View>
+                  ) : mode === "otp" ? (
+                    <View>
+                      {codeSent ? (
+                        <>
+                          <FieldLabel>Six-digit verification code</FieldLabel>
+                          <Input
+                            accessibilityLabel="Six-digit verification code"
+                            value={code}
+                            onChangeText={(value) => setCode(value.replace(/\D/g, "").slice(0, 6))}
+                            keyboardType="number-pad"
+                            inputMode="numeric"
+                            maxLength={6}
+                            placeholder="000000"
+                            className={`${isWideLayout ? "h-12" : "h-14"} text-center text-lg font-semibold`}
+                          />
+                        </>
+                      ) : (
+                        <>
+                          <FieldLabel>One-time code</FieldLabel>
+                          <View className={`${isWideLayout ? "h-12" : "h-14"} flex-row items-center gap-2 rounded-2xl border border-[#D6DEEA] bg-[#F9FBFF] px-3`}>
+                            <Ionicons name="shield-checkmark-outline" size={18} color="#2955DB" />
+                            <Text className="flex-1 text-sm leading-5 text-[#52627A]">We’ll send a secure code to your registered email or WhatsApp.</Text>
+                          </View>
+                        </>
+                      )}
+                    </View>
                   ) : null}
 
-                  {codeSent && !resetLinkSent ? (
+                  {mode !== "otp" && codeSent && !resetLinkSent ? (
                     <View>
                       <FieldLabel>Six-digit verification code</FieldLabel>
                       <Input
@@ -556,6 +582,24 @@ export default function Login() {
                       <Button testID="login-submit" accessibilityLabel="Sign in" onPress={() => onPasswordSignIn()} disabled={pending || !login || !password} className={`${isWideLayout ? "h-12" : "h-14"} justify-center bg-[#2955DB] shadow-lg shadow-blue-300`} style={!isWideLayout ? { borderRadius: 18, shadowColor: "#2955DB", shadowOpacity: 0.24, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 4 } : undefined}>
                         {pending ? "Signing in..." : "Sign in securely"}
                       </Button>
+                    </>
+                  ) : codeSent && !resetLinkSent ? (
+                    <Button
+                      accessibilityLabel={mode === "forgot" ? "Reset password" : "Verify and sign in"}
+                      onPress={mode === "forgot" ? onResetPassword : onCodeSignIn}
+                      disabled={pending || code.length !== 6 || (mode === "forgot" && (!password || !confirmPassword))}
+                      className="h-12 justify-center"
+                    >
+                      {pending ? "Verifying..." : mode === "forgot" ? "Reset password" : "Verify and sign in"}
+                    </Button>
+                  ) : resetLinkSent ? null : (
+                    <Button accessibilityLabel="Send verification code" onPress={onRequestCode} disabled={pending || !login} className="h-12 justify-center">
+                      {pending ? "Sending code..." : "Send verification code"}
+                    </Button>
+                  )}
+
+                  {mode === "password" || mode === "otp" ? (
+                    <>
                       <View className="flex-row items-center gap-3 py-1">
                         <View className="h-px flex-1 bg-[#DCE3ED]" />
                         <Text className="text-[11px] font-medium text-[#7B8799]">OR</Text>
@@ -579,20 +623,7 @@ export default function Login() {
                         </Pressable>
                       )}
                     </>
-                  ) : codeSent && !resetLinkSent ? (
-                    <Button
-                      accessibilityLabel={mode === "forgot" ? "Reset password" : "Verify and sign in"}
-                      onPress={mode === "forgot" ? onResetPassword : onCodeSignIn}
-                      disabled={pending || code.length !== 6 || (mode === "forgot" && (!password || !confirmPassword))}
-                      className="h-12 justify-center"
-                    >
-                      {pending ? "Verifying..." : mode === "forgot" ? "Reset password" : "Verify and sign in"}
-                    </Button>
-                  ) : resetLinkSent ? null : (
-                    <Button accessibilityLabel="Send verification code" onPress={onRequestCode} disabled={pending || !login} className="h-12 justify-center">
-                      {pending ? "Sending code..." : "Send verification code"}
-                    </Button>
-                  )}
+                  ) : null}
 
           {mode !== "password" && codeSent && !resetLinkSent ? (
             <Pressable disabled={pending} onPress={onRequestCode} className="items-center py-1">
