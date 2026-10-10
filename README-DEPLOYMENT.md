@@ -67,6 +67,7 @@ Configure production values in **Vercel Project Settings → Environment Variabl
 - `ANEKIO_AUTH_SECRET`
 - `ANEKIO_AUTH_RESEND_API_KEY` and `ANEKIO_AUTH_FROM_EMAIL` when email auth is enabled
 - `WAKIT_TOKEN` when WhatsApp login OTP is enabled; optionally set `WAKIT_OTP_TEMPLATE` (defaults to `otp`) and `WAKIT_OTP_LANGUAGE` (defaults to `en_US`)
+- `RENFLAIR_API_KEY` to send the same login OTP by SMS only when Wakit reports that the registered number is unavailable on WhatsApp
 - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` when Google admin login is enabled
 - `CRON_SECRET` for scheduled requests
 - S3 configuration when uploads use S3: `UPLOADS_DRIVER=s3`, `AWS_REGION`, `AWS_ROLE_ARN`, `AWS_S3_PRIVATE_BUCKET`, and `AWS_S3_PUBLIC_BUCKET`

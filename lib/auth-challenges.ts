@@ -84,6 +84,34 @@ function wakitConfig() {
   return { token, template, language, configured: Boolean(token && template && language) };
 }
 
+function renflairConfig() {
+  const apiKey = (process.env.RENFLAIR_API_KEY || "").trim();
+  return { apiKey, configured: Boolean(apiKey) };
+}
+
+function providerResponseText(value: unknown) {
+  if (typeof value === "string") return value.toLowerCase();
+  try {
+    return JSON.stringify(value).toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function providerReportedFailure(value: unknown) {
+  if (!value || typeof value !== "object") return false;
+  const status = "status" in value && typeof value.status === "string" ? value.status.toLowerCase() : "";
+  return status === "failed" || status === "error";
+}
+
+function whatsappUnavailable(status: number, payload: unknown) {
+  const detail = providerResponseText(payload);
+  return (
+    status === 404 ||
+    /not (?:on|registered (?:on|with)) whatsapp|whatsapp (?:number )?(?:is )?not (?:available|registered|found)|no whatsapp account/.test(detail)
+  );
+}
+
 function emailCopy(code: string, purpose: AuthChallengePurpose) {
   const action = purpose === "LOGIN" ? "sign in to Anekio" : "reset your Anekio password";
   const subject = purpose === "LOGIN" ? "Your Anekio sign-in code" : "Reset your Anekio password";
@@ -134,10 +162,7 @@ async function sendAuthEmail(to: string, code: string, purpose: AuthChallengePur
 
 async function sendWhatsAppOtp(phone: string, code: string) {
   const config = wakitConfig();
-  if (!config.configured) {
-    if (process.env.NODE_ENV !== "production") return false;
-    throw new AuthFlowError(503, "WhatsApp verification is being configured. Use your password or email instead.");
-  }
+  if (!config.configured) return "unavailable" as const;
   const response = await fetch("https://wakit.in/api/v1/messages/template", {
     method: "POST",
     headers: {
@@ -151,10 +176,45 @@ async function sendWhatsAppOtp(phone: string, code: string) {
       params: [String(code), "Anekio"],
     }),
   });
-  if (!response.ok) {
-    throw new AuthFlowError(503, "We could not send the WhatsApp verification code. Try again shortly.");
+  const raw = await response.text();
+  let payload: unknown = raw;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    // Providers may return plain-text error bodies.
+  }
+  if (response.ok && !providerReportedFailure(payload)) return "sent" as const;
+  if (whatsappUnavailable(response.status, payload)) return "unavailable" as const;
+  throw new AuthFlowError(503, "We could not send the WhatsApp verification code. Try again shortly.");
+}
+
+async function sendSmsOtp(phone: string, code: string) {
+  const config = renflairConfig();
+  if (!config.configured) {
+    if (process.env.NODE_ENV !== "production") return false;
+    throw new AuthFlowError(503, "SMS verification is being configured. Use your password or email instead.");
+  }
+  const url = new URL("https://sms.renflair.in/V1.php");
+  url.search = new URLSearchParams({ API: config.apiKey, PHONE: phone, OTP: String(code) }).toString();
+  const response = await fetch(url);
+  const raw = await response.text();
+  let payload: unknown = raw;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    // Providers may return plain-text success bodies.
+  }
+  if (!response.ok || providerReportedFailure(payload)) {
+    throw new AuthFlowError(503, "We could not send the SMS verification code. Try again shortly.");
   }
   return true;
+}
+
+async function sendMobileOtp(phone: string, code: string) {
+  const whatsAppResult = await sendWhatsAppOtp(phone, code);
+  if (whatsAppResult === "sent") return "WHATSAPP" as const;
+  const smsSent = await sendSmsOtp(phone, code);
+  return smsSent ? ("SMS" as const) : null;
 }
 
 async function sendResetLinkEmail(to: string, url: string) {
@@ -213,6 +273,7 @@ export async function requestAuthCode(raw: string, purpose: AuthChallengePurpose
     },
   });
 
+  let mobileDelivery: "WHATSAPP" | "SMS" | null = null;
   if (destination) {
     try {
       if (purpose === "PASSWORD_RESET") {
@@ -220,7 +281,7 @@ export async function requestAuthCode(raw: string, purpose: AuthChallengePurpose
       } else if (usingEmail) {
         await sendAuthEmail(destination, code, purpose);
       } else {
-        await sendWhatsAppOtp(destination, code);
+        mobileDelivery = await sendMobileOtp(destination, code);
       }
     } catch (error) {
       await prisma.authChallenge.delete({ where: { id: challenge.id } }).catch(() => undefined);
@@ -235,7 +296,9 @@ export async function requestAuthCode(raw: string, purpose: AuthChallengePurpose
         ? "If that account has a verified email, a reset link is on its way."
         : usingEmail
           ? "If that account has a verified email, a six-digit code is on its way."
-          : "If that account has a registered mobile, a six-digit WhatsApp code is on its way.",
+          : mobileDelivery === "SMS"
+            ? "If that account has a registered mobile, a six-digit SMS code is on its way."
+            : "If that account has a registered mobile, a six-digit WhatsApp code is on its way.",
     destination: responseDestination,
     expiresInSeconds: (purpose === "PASSWORD_RESET" ? RESET_LINK_TTL_MS : CODE_TTL_MS) / 1000,
     ...(process.env.NODE_ENV !== "production" && purpose !== "PASSWORD_RESET" ? { developmentCode: code } : {}),

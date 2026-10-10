@@ -109,6 +109,33 @@ describe("ERP authentication flows", () => {
     }
   });
 
+  it("falls back to Renflair SMS when Wakit reports that a mobile is unavailable on WhatsApp", async () => {
+    process.env.WAKIT_TOKEN = "wakit-test-token";
+    process.env.RENFLAIR_API_KEY = "renflair-test-key";
+    await prisma.authChallenge.deleteMany();
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ status: "FAILED", message: "Number not registered on WhatsApp" }), { status: 422 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ status: "SUCCESS" }), { status: 200 }));
+    try {
+      const requested = await request(app)
+        .post("/api/v1/login/otp/request")
+        .send({ login: fixture.users.office.phone });
+
+      expect(requested.status).toBe(200);
+      expect(requested.body.message).toContain("SMS");
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      const smsUrl = fetchSpy.mock.calls[1]?.[0];
+      expect(smsUrl).toBeInstanceOf(URL);
+      expect(String(smsUrl)).toContain("https://sms.renflair.in/V1.php?");
+      expect(String(smsUrl)).toContain(`PHONE=${fixture.users.office.phone}`);
+    } finally {
+      fetchSpy.mockRestore();
+      delete process.env.WAKIT_TOKEN;
+      delete process.env.RENFLAIR_API_KEY;
+    }
+  });
+
   it("resets a password after verification and consumes the reset code", async () => {
     const requested = await request(app)
       .post("/api/v1/login/password/request")
