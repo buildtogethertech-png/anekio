@@ -316,7 +316,7 @@ export default function Login() {
     }
   }
 
-  const heading = mode === "forgot" ? "Reset your password" : mode === "trial" ? "Create your school" : mode === "otp" ? "Sign in with a code" : "Welcome back";
+  const heading = mode === "forgot" ? "Reset your password" : mode === "trial" ? "Create your school" : "Welcome back";
   const subheading =
     mode === "forgot"
       ? "We will verify your registered email before you choose a new password."
@@ -341,6 +341,31 @@ export default function Login() {
 
         <Text style={!isWideLayout ? { fontFamily: Platform.select({ ios: "Avenir Next", android: "sans-serif", default: "system-ui" }), fontWeight: "700" } : undefined} className={`${isWideLayout ? "text-[30px]" : "text-[31px] leading-[39px]"} font-bold tracking-tight text-[#102A5C]`}>{heading}</Text>
         <Text className="mt-2 text-[16px] leading-6 text-[#52627A]">{subheading}</Text>
+
+        {mode === "password" || mode === "otp" ? (
+          <View className="mt-5 flex-row rounded-2xl border border-[#DCE3ED] bg-[#F4F7FB] p-1">
+            <Pressable
+              accessibilityRole="tab"
+              accessibilityState={{ selected: mode === "password" }}
+              accessibilityLabel="Sign in with password"
+              disabled={pending}
+              onPress={() => chooseMode("password")}
+              className={`h-11 flex-1 items-center justify-center rounded-xl ${mode === "password" ? "bg-white shadow-sm" : ""}`}
+            >
+              <Text className={`text-sm font-semibold ${mode === "password" ? "text-[#102A5C]" : "text-[#71809A]"}`}>Password</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="tab"
+              accessibilityState={{ selected: mode === "otp" }}
+              accessibilityLabel="Sign in with one-time code"
+              disabled={pending}
+              onPress={() => chooseMode("otp")}
+              className={`h-11 flex-1 items-center justify-center rounded-xl ${mode === "otp" ? "bg-white shadow-sm" : ""}`}
+            >
+              <Text className={`text-sm font-semibold ${mode === "otp" ? "text-[#102A5C]" : "text-[#71809A]"}`}>One-time code</Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         <View className={`${isWideLayout ? "mt-5 gap-4" : "mt-7 gap-5"}`}>
           {mode === "trial" ? (
@@ -546,16 +571,6 @@ export default function Login() {
                       {pending ? "Sending code..." : "Send verification code"}
                     </Button>
                   )}
-
-                  {mode === "password" ? (
-                    <Pressable accessibilityRole="button" onPress={() => chooseMode("otp")} className="items-center py-2">
-                      <Text className="text-xs font-medium text-ink-700">Prefer a code? <Text className="font-semibold text-clay-600">Use a one-time code</Text></Text>
-                    </Pressable>
-                  ) : mode === "otp" && !codeSent ? (
-                    <Pressable accessibilityRole="button" onPress={() => chooseMode("password")} className="items-center py-1.5">
-                      <Text className="text-xs font-semibold text-clay-600">Use password instead</Text>
-                    </Pressable>
-                  ) : null}
 
           {mode !== "password" && codeSent && !resetLinkSent ? (
             <Pressable disabled={pending} onPress={onRequestCode} className="items-center py-1">
