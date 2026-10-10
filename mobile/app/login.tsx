@@ -350,7 +350,7 @@ export default function Login() {
               accessibilityLabel="Sign in with password"
               disabled={pending}
               onPress={() => chooseMode("password")}
-              className={`h-11 flex-1 items-center justify-center rounded-xl ${mode === "password" ? "bg-white shadow-sm" : ""}`}
+              className={`h-11 flex-1 items-center justify-center rounded-xl ${mode === "password" ? "border border-[#D6DEEA] bg-white" : ""}`}
             >
               <Text className={`text-sm font-semibold ${mode === "password" ? "text-[#102A5C]" : "text-[#71809A]"}`}>Password</Text>
             </Pressable>
@@ -360,7 +360,7 @@ export default function Login() {
               accessibilityLabel="Sign in with one-time code"
               disabled={pending}
               onPress={() => chooseMode("otp")}
-              className={`h-11 flex-1 items-center justify-center rounded-xl ${mode === "otp" ? "bg-white shadow-sm" : ""}`}
+              className={`h-11 flex-1 items-center justify-center rounded-xl ${mode === "otp" ? "border border-[#D6DEEA] bg-white" : ""}`}
             >
               <Text className={`text-sm font-semibold ${mode === "otp" ? "text-[#102A5C]" : "text-[#71809A]"}`}>One-time code</Text>
             </Pressable>
