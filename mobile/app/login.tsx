@@ -1,5 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Google from "expo-auth-session/providers/google";
+import Constants, { ExecutionEnvironment } from "expo-constants";
 import * as WebBrowser from "expo-web-browser";
 import { useEffect, useRef, useState } from "react";
 import { Redirect, useRouter } from "expo-router";
@@ -77,6 +78,10 @@ function GoogleSignInButton({ disabled, onIdToken, onError }: { disabled: boolea
   });
 
   async function start() {
+    if (Constants.executionEnvironment === ExecutionEnvironment.StoreClient) {
+      onError("Google sign-in needs an Anekio development build. Expo Go uses a different Android identity, so Google blocks this test.");
+      return;
+    }
     try {
       const response = await promptGoogle();
       if (response.type !== "success") return;
