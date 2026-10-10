@@ -77,6 +77,38 @@ describe("ERP authentication flows", () => {
     expect(response.body.destination).toBe("mi*****@school.test");
   });
 
+  it("sends a login code through Wakit WhatsApp for a mobile number", async () => {
+    process.env.WAKIT_TOKEN = "wakit-test-token";
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    try {
+      const requested = await request(app)
+        .post("/api/v1/login/otp/request")
+        .send({ login: fixture.users.office.phone });
+
+      expect(requested.status).toBe(200);
+      expect(requested.body.message).toContain("WhatsApp");
+      expect(requested.body.destination).toMatch(/^\+91 /);
+      expect(requested.body.developmentCode).toMatch(/^\d{6}$/);
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "https://wakit.in/api/v1/messages/template",
+        expect.objectContaining({
+          method: "POST",
+          headers: expect.objectContaining({ Authorization: "Bearer wakit-test-token" }),
+          body: expect.stringContaining(`"to":"+91${fixture.users.office.phone}"`),
+        })
+      );
+
+      const verified = await request(app)
+        .post("/api/v1/login/otp/verify")
+        .send({ login: fixture.users.office.phone, code: requested.body.developmentCode });
+      expect(verified.status).toBe(200);
+      expect(verified.body.user).toMatchObject({ id: fixture.users.office.id });
+    } finally {
+      fetchSpy.mockRestore();
+      delete process.env.WAKIT_TOKEN;
+    }
+  });
+
   it("resets a password after verification and consumes the reset code", async () => {
     const requested = await request(app)
       .post("/api/v1/login/password/request")

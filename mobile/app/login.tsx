@@ -549,7 +549,7 @@ export default function Login() {
 
                   {mode === "password" ? (
                     <Pressable accessibilityRole="button" onPress={() => chooseMode("otp")} className="items-center py-2">
-                      <Text className="text-xs font-medium text-ink-700">Prefer a code? <Text className="font-semibold text-clay-600">Use email OTP</Text></Text>
+                      <Text className="text-xs font-medium text-ink-700">Prefer a code? <Text className="font-semibold text-clay-600">Use a one-time code</Text></Text>
                     </Pressable>
                   ) : mode === "otp" && !codeSent ? (
                     <Pressable accessibilityRole="button" onPress={() => chooseMode("password")} className="items-center py-1.5">

@@ -65,10 +65,23 @@ function maskEmail(value: string) {
   return `${visible}${"*".repeat(Math.max(3, name.length - visible.length))}@${domain}`;
 }
 
+function maskMobile(value: string) {
+  const phone = normalizeMobile(value);
+  if (!phone) return "your registered mobile";
+  return `+91 ${phone.slice(0, 2)}${"•".repeat(6)}${phone.slice(-2)}`;
+}
+
 function emailConfig() {
   const apiKey = (process.env.ANEKIO_AUTH_RESEND_API_KEY || process.env.RESEND_API_KEY || "").trim();
   const from = (process.env.ANEKIO_AUTH_FROM_EMAIL || "Anekio <support@anekio.com>").trim();
   return { apiKey, from, configured: Boolean(apiKey && from) };
+}
+
+function wakitConfig() {
+  const token = (process.env.WAKIT_TOKEN || "").trim();
+  const template = (process.env.WAKIT_OTP_TEMPLATE || "otp").trim();
+  const language = (process.env.WAKIT_OTP_LANGUAGE || "en_US").trim();
+  return { token, template, language, configured: Boolean(token && template && language) };
 }
 
 function emailCopy(code: string, purpose: AuthChallengePurpose) {
@@ -119,6 +132,31 @@ async function sendAuthEmail(to: string, code: string, purpose: AuthChallengePur
   return true;
 }
 
+async function sendWhatsAppOtp(phone: string, code: string) {
+  const config = wakitConfig();
+  if (!config.configured) {
+    if (process.env.NODE_ENV !== "production") return false;
+    throw new AuthFlowError(503, "WhatsApp verification is being configured. Use your password or email instead.");
+  }
+  const response = await fetch("https://wakit.in/api/v1/messages/template", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      to: `+91${phone}`,
+      template: config.template,
+      language: config.language,
+      params: [String(code), "Anekio"],
+    }),
+  });
+  if (!response.ok) {
+    throw new AuthFlowError(503, "We could not send the WhatsApp verification code. Try again shortly.");
+  }
+  return true;
+}
+
 async function sendResetLinkEmail(to: string, url: string) {
   const config = emailConfig();
   if (!config.configured) {
@@ -138,7 +176,9 @@ async function sendResetLinkEmail(to: string, url: string) {
 export async function requestAuthCode(raw: string, purpose: AuthChallengePurpose) {
   const identifier = normalizeIdentifier(raw);
   if (!identifier) throw new AuthFlowError(400, "Enter your email or mobile number.");
-  const responseDestination = looksLikeEmail(identifier) ? maskEmail(identifier) : "your registered email";
+  const usingEmail = looksLikeEmail(identifier);
+  const isPasswordReset = purpose === "PASSWORD_RESET";
+  const responseDestination = isPasswordReset ? "your registered email" : usingEmail ? maskEmail(identifier) : maskMobile(identifier);
 
   const now = new Date();
   const hash = identifierHash(identifier);
@@ -160,7 +200,7 @@ export async function requestAuthCode(raw: string, purpose: AuthChallengePurpose
 
   const id = randomUUID();
   const code = purpose === "PASSWORD_RESET" ? randomBytes(32).toString("base64url") : String(randomInt(0, 1_000_000)).padStart(6, "0");
-  const destination = deliverableEmail(user?.email);
+  const destination = isPasswordReset || usingEmail ? deliverableEmail(user?.email) : user ? normalizeMobile(identifier) : "";
   const challenge = await prisma.authChallenge.create({
     data: {
       id,
@@ -177,8 +217,10 @@ export async function requestAuthCode(raw: string, purpose: AuthChallengePurpose
     try {
       if (purpose === "PASSWORD_RESET") {
         await sendResetLinkEmail(destination, `${publicOrigin()}/reset-password?token=${encodeURIComponent(`${id}.${code}`)}`);
-      } else {
+      } else if (usingEmail) {
         await sendAuthEmail(destination, code, purpose);
+      } else {
+        await sendWhatsAppOtp(destination, code);
       }
     } catch (error) {
       await prisma.authChallenge.delete({ where: { id: challenge.id } }).catch(() => undefined);
@@ -188,7 +230,12 @@ export async function requestAuthCode(raw: string, purpose: AuthChallengePurpose
 
   return {
     ok: true as const,
-    message: purpose === "PASSWORD_RESET" ? "If that account has a verified email, a reset link is on its way." : "If that account has a verified email, a six-digit code is on its way.",
+    message:
+      purpose === "PASSWORD_RESET"
+        ? "If that account has a verified email, a reset link is on its way."
+        : usingEmail
+          ? "If that account has a verified email, a six-digit code is on its way."
+          : "If that account has a registered mobile, a six-digit WhatsApp code is on its way.",
     destination: responseDestination,
     expiresInSeconds: (purpose === "PASSWORD_RESET" ? RESET_LINK_TTL_MS : CODE_TTL_MS) / 1000,
     ...(process.env.NODE_ENV !== "production" && purpose !== "PASSWORD_RESET" ? { developmentCode: code } : {}),
