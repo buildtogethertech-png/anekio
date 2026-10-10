@@ -534,10 +534,6 @@ TEST-OPENING-001,Opening Child,6-A,5000,2026-09-01,2026-09-10,2026-08,
   });
 
   it("keeps OPENING amount unchanged after catalog edits and keeps admission on a separate period", async () => {
-    await prisma.student.update({
-      where: { id: "student-opening-002" },
-      data: { feeAddOns: { create: [{ kind: "TRANSPORT:route-a", label: "Bus", amount: 1000, active: true }] } },
-    });
     const opening = await prisma.feeInvoice.findUniqueOrThrow({
       where: { studentId_period: { studentId: "student-opening-001", period: "OPENING" } },
     });

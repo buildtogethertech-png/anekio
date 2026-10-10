@@ -244,17 +244,13 @@ describe.sequential("fee setup API", () => {
     expect(duplicate.body.error).toMatch(/overlap/i);
   });
 
-  it("saves transport and other catalog fees", async () => {
-    const transport = await act(officeToken, "saveFeeCatalog", {
-      item: { kind: "TRANSPORT", label: "Route A", amount: 800 },
-    });
+  it("saves universal catalog fees", async () => {
     const other = await act(officeToken, "saveFeeCatalog", {
       item: { kind: "OTHER", label: "Computer fee", amount: 300 },
     });
-    expect(transport.status).toBe(200);
     expect(other.status).toBe(200);
-    const labels = [...transport.body.items, ...other.body.items].map((item: { label: string }) => item.label);
-    expect(labels).toEqual(expect.arrayContaining(["Route A", "Computer fee"]));
+    const labels = other.body.items.map((item: { label: string }) => item.label);
+    expect(labels).toEqual(expect.arrayContaining(["Computer fee"]));
   });
 
   it("saves the session late fee onto the catalog and current templates", async () => {

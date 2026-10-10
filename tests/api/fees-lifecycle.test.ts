@@ -197,11 +197,6 @@ describe.sequential("fees module lifecycle API", () => {
         dateOfBirth: new Date("2015-02-02T00:00:00Z"),
       },
     });
-    const catalog = await act(officeToken, "saveFeeCatalog", {
-      item: { kind: "TRANSPORT", label: "Route A", amount: 1500, active: true },
-    });
-    expect(catalog.status).toBe(200);
-    const transportId = catalog.body.items.find((item: { kind: string; label: string }) => item.kind === "TRANSPORT" && item.label === "Route A").id;
     const other = await act(officeToken, "saveFeeCatalog", {
       item: { kind: "OTHER", label: "Computer fee", amount: 300, active: true },
     });
@@ -209,7 +204,6 @@ describe.sequential("fees module lifecycle API", () => {
 
     const assigned = await act(officeToken, "assignStudentFees", {
       studentId: studentA.id,
-      transportItemId: transportId,
       otherItemIds: [otherId],
       classAddOnLabels: ["Picnic"],
     });
@@ -231,7 +225,7 @@ describe.sequential("fees module lifecycle API", () => {
     const invB = await prisma.feeInvoice.findFirstOrThrow({ where: { studentId: studentB.id, period: "2026-04" } });
     const labelsA = parseFeeLines(invA.linesJson).map((line) => line.label);
     const labelsB = parseFeeLines(invB.linesJson).map((line) => line.label);
-    expect(invA.amount).toBe(8000 + 800 + 500 + 1500 + 300);
+    expect(invA.amount).toBe(8000 + 800 + 500 + 300);
     expect(labelsA).toEqual(expect.arrayContaining(["Tuition", "Books", "Picnic"]));
     expect(invB.amount).toBe(8800);
     expect(labelsB).toEqual(["Tuition", "Books"]);

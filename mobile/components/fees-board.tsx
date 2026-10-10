@@ -16,7 +16,7 @@ import { useSession } from "../lib/session";
 import { inr } from "../lib/payroll";
 
 type Tab = "register" | "report" | "insight" | "setup";
-type SetupPane = "academic" | "class" | "transport" | "other" | "late";
+type SetupPane = "academic" | "class" | "other" | "late";
 type Person = NonNullable<ReturnType<typeof useRecord>["data"]>["people"] extends (infer P)[] | undefined ? P : never;
 type Invoice = NonNullable<Person["invoices"]>[number];
 
@@ -33,7 +33,6 @@ function can(user: { permissions: string[] } | null, key: string) {
 
 const CLASS_CHARGE_SUGGESTIONS = ["Tuition", "Lab", "Books", "Hostel", "Computer", "Exam", "Activity", "Uniform"];
 const CLASS_ADDON_SUGGESTIONS = ["Project", "Picnic", "Workshop", "Smart class", "Sports kit"];
-const TRANSPORT_SUGGESTIONS = ["Route A", "Route B", "Route C", "Van", "Mini bus"];
 const OTHER_FEE_SUGGESTIONS = ["Computer fee", "Exam fee", "Activity", "Uniform", "Smart class", "Annual function"];
 const ADMISSION_SUGGESTIONS = ["Prospectus", "Registration", "ID card", "Caution deposit"];
 
@@ -341,7 +340,7 @@ export function FeesBoard() {
   const [admissionClassId, setAdmissionClassId] = useState("");
   const [admissionLines, setAdmissionLines] = useState<FeeLineDraft[]>([newFeeLine("Admission fee", "")]);
   const [catalogOpen, setCatalogOpen] = useState(false);
-  const [catalogKind, setCatalogKind] = useState<"TRANSPORT" | "OTHER">("TRANSPORT");
+  const [catalogKind] = useState<"OTHER">("OTHER");
   const [catalogId, setCatalogId] = useState("");
   const [catalogLabel, setCatalogLabel] = useState("");
   const [catalogAmount, setCatalogAmount] = useState("");
@@ -372,7 +371,6 @@ export function FeesBoard() {
   const compact = width < 768;
   const currentSession = data?.school?.sessions?.find((row) => row.current) ?? data?.school?.sessions?.[0];
   const catalog = data?.feeCatalog ?? { items: [], late: { enabled: false, amount: 0, graceDays: 0 }, dueDay: 10 };
-  const transportItems = catalog.items.filter((item) => item.kind === "TRANSPORT");
   const otherItems = catalog.items.filter((item) => item.kind === "OTHER");
   const classTemplate =
     selectedTemplateId === "new" ? null : templates.find((row) => row.id === selectedTemplateId && (!currentSession || row.sessionId === currentSession.id || !row.sessionId)) || null;
@@ -1293,8 +1291,7 @@ export function FeesBoard() {
       {(
         [
           ["class", "Class Fees"],
-          ["transport", "Transport"],
-          ["other", "Other Fees"],
+          ["other", "Add-ons"],
           ["late", "Settings"],
         ] as const
       ).map(([id, label]) => (
@@ -1310,17 +1307,19 @@ export function FeesBoard() {
     </View>
   );
 
-  const catalogTable = (kind: "TRANSPORT" | "OTHER") => {
-    const rows = kind === "TRANSPORT" ? transportItems : otherItems;
+  const catalogTable = () => {
+    const rows = otherItems;
     return (
       <View className="overflow-hidden rounded-md border border-ink-100 bg-white">
         <View className="flex-row items-center justify-between border-b border-ink-100 px-3 py-2.5">
-          <Text className="text-sm font-semibold text-ink-900">{kind === "TRANSPORT" ? "Transport fees" : "Other fees"}</Text>
+          <View>
+            <Text className="text-sm font-semibold text-ink-900">Universal add-ons</Text>
+            <Text className="mt-0.5 text-xs text-ink-600">Optional monthly charges available across the school.</Text>
+          </View>
           {configure ? (
             <Button
               variant="ghost"
               onPress={() => {
-                setCatalogKind(kind);
                 setCatalogId("");
                 setCatalogLabel("");
                 setCatalogAmount("");
@@ -1328,12 +1327,12 @@ export function FeesBoard() {
                 setCatalogOpen(true);
               }}
             >
-              {kind === "TRANSPORT" ? "+ Add transport option" : "+ Add other fee"}
+              + Add add-on
             </Button>
           ) : null}
         </View>
         <View className="flex-row border-b border-ink-200 px-3">
-          <Head label={kind === "TRANSPORT" ? "Option" : "Fee name"} flex={2} />
+          <Head label="Add-on" flex={2} />
           <Head label="Monthly fee" flex={1} right />
           <Head label="Status" flex={0.8} />
         </View>
@@ -1342,7 +1341,6 @@ export function FeesBoard() {
             key={item.id}
             disabled={!configure}
             onPress={() => {
-              setCatalogKind(kind);
               setCatalogId(item.id);
               setCatalogLabel(item.label);
               setCatalogAmount(String(item.amount));
@@ -1363,9 +1361,7 @@ export function FeesBoard() {
         ))}
         {!rows.length ? (
           <View className="px-3 py-6">
-            <Text className="text-sm text-ink-600">
-              {kind === "TRANSPORT" ? "No transport options yet. Add reusable monthly routes for optional assignment." : "No other fees yet. Add Computer, Activity, Library, and similar optional charges."}
-            </Text>
+            <Text className="text-sm text-ink-600">No universal add-ons yet. Add Computer, Activity, Library, and similar optional charges.</Text>
           </View>
         ) : null}
       </View>
@@ -1583,10 +1579,8 @@ export function FeesBoard() {
           </View>
         ) : null}
       </View>
-    ) : setupPane === "transport" ? (
-      catalogTable("TRANSPORT")
     ) : setupPane === "other" ? (
-      catalogTable("OTHER")
+      catalogTable()
     ) : (
       <View className="gap-4">
       <Card className="p-4">
@@ -2044,7 +2038,7 @@ export function FeesBoard() {
 
       <Modal
         open={catalogOpen}
-        title={catalogKind === "TRANSPORT" ? "Transport option" : "Other fee"}
+        title="Universal add-on"
         onClose={() => setCatalogOpen(false)}
         footer={
           <View className="flex-row justify-end gap-2">
@@ -2056,16 +2050,16 @@ export function FeesBoard() {
         }
       >
         <View className="gap-3">
-          <Field label={catalogKind === "TRANSPORT" ? "Transport option" : "Fee name"}>
+          <Field label="Add-on name">
             <Input
-              placeholder={catalogKind === "TRANSPORT" ? "e.g. Route A" : "e.g. Computer fee"}
+              placeholder="e.g. Computer fee"
               value={catalogLabel}
               onChangeText={setCatalogLabel}
             />
           </Field>
           <SuggestionPills
-            options={catalogKind === "TRANSPORT" ? TRANSPORT_SUGGESTIONS : OTHER_FEE_SUGGESTIONS}
-            used={(catalogKind === "TRANSPORT" ? transportItems : otherItems).map((item) => item.label)}
+            options={OTHER_FEE_SUGGESTIONS}
+            used={otherItems.map((item) => item.label)}
             selected={catalogLabel}
             onPick={setCatalogLabel}
           />

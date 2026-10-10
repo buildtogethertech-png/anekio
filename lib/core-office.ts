@@ -585,7 +585,7 @@ export async function saveFeeCatalogCore(
   const removeId = String(input.removeId || "");
   if (removeId) items = items.filter((item) => item.id !== removeId);
   if (input.item) {
-    const kind = String(input.item.kind || "").toUpperCase() === "TRANSPORT" ? "TRANSPORT" : "OTHER";
+    const kind = "OTHER";
     const label = String(input.item.label || "").trim();
     if (!label) throw new Error("Fee name required");
     const next = {
@@ -645,7 +645,7 @@ export async function applySessionDueDayCore(user: AccessUser, input: { dueDay?:
 
 export async function assignStudentFeesCore(
   user: AccessUser,
-  input: { studentId: string; transportItemId?: string | null; otherItemIds?: string[]; classAddOnLabels?: string[] }
+  input: { studentId: string; otherItemIds?: string[]; classAddOnLabels?: string[] }
 ) {
   need(user, "people.edit");
   const studentId = String(input.studentId || "");
@@ -656,21 +656,12 @@ export async function assignStudentFeesCore(
   });
   if (!student) throw new Error("Student not found");
   const catalog = await loadFeeCatalog();
-  const transportId = String(input.transportItemId || "").trim();
   const otherIds = [...new Set((input.otherItemIds || []).map(String).filter(Boolean))];
   const wanted: FeeCatalogItem[] = [];
-  if (transportId) {
-    const item = catalog.items.find((row) => row.id === transportId && row.kind === "TRANSPORT" && row.active);
-    if (!item) throw new Error("Transport option not found");
-    wanted.push(item);
-  }
   for (const id of otherIds) {
     const item = catalog.items.find((row) => row.id === id && row.kind === "OTHER" && row.active);
     if (!item) throw new Error("Other fee not found");
     wanted.push(item);
-  }
-  if (wanted.filter((item) => item.kind === "TRANSPORT").length > 1) {
-    throw new Error("A student can have only one transport option");
   }
   const { current } = await ensureSchoolSessions();
   const startsPeriod = current.startsOn.slice(0, 7);

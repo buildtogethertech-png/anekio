@@ -423,7 +423,7 @@ export type RecordPayload = {
     lines: { label: string; kind: string; amount: number; scope?: string }[];
   }[];
   feeCatalog?: {
-    items: { id: string; kind: "TRANSPORT" | "OTHER"; label: string; amount: number; active: boolean }[];
+    items: { id: string; kind: "OTHER"; label: string; amount: number; active: boolean }[];
     late: { enabled: boolean; amount: number; graceDays: number; rule?: string; intervalCount?: number };
     dueDay?: number;
   };

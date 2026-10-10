@@ -73,7 +73,7 @@ describe("fee catalog and student assignment", () => {
     expect(studentHasClassAddOn([{ kind: "OTHER:c1", label: "Project" }], "Project")).toBe(false);
   });
 
-  it("omits transport when the student has no transport add-on", () => {
+  it("uses the class fee when the student has no add-ons", () => {
     const fee = applicableMonthlyFee({
       classLines: [{ label: "Tuition", amount: 1400, scope: "ALL" }],
       addOns: [],
@@ -83,28 +83,9 @@ describe("fee catalog and student assignment", () => {
     expect(fee.total).toBe(1400);
   });
 
-  it("includes only the selected transport option", () => {
-    const routeB = { id: "b", kind: "TRANSPORT" as const, label: "Route B", amount: 1500, active: true };
-    const fee = applicableMonthlyFee({
-      classLines: [{ label: "Tuition", amount: 1400, scope: "ALL" }],
-      addOns: [
-        {
-          label: catalogAddOnLabel(routeB),
-          kind: catalogAddOnKind("TRANSPORT", routeB.id),
-          amount: routeB.amount,
-          cadence: "MONTHLY",
-          active: true,
-        },
-      ],
-      period: "2026-09",
-    });
-    expect(fee.total).toBe(2900);
-    expect(fee.extras.map((line) => line.label)).toEqual(["Transport · Route B"]);
-  });
-
-  it("parses a single transport catalog kind", () => {
-    const kind = catalogAddOnKind("TRANSPORT", "route-b");
-    expect(parseCatalogAddOnKind(kind)).toEqual({ kind: "TRANSPORT", id: "route-b" });
+  it("parses a universal catalog kind", () => {
+    const kind = catalogAddOnKind("OTHER", "computer");
+    expect(parseCatalogAddOnKind(kind)).toEqual({ kind: "OTHER", id: "computer" });
     expect(parseCatalogAddOnKind("CHARGE")).toBeNull();
   });
 
@@ -136,18 +117,16 @@ describe("fee catalog and student assignment", () => {
     expect(lines.map((line) => line.label)).toEqual(["Tuition"]);
   });
 
-  it("snapshots class + transport + other lines at issue composition time", () => {
+  it("snapshots class and universal add-on lines at issue composition time", () => {
     const lines = composeStudentFeeLines(
       [{ label: "Tuition", amount: 1400, scope: "ALL" }],
       [
-        { label: "Transport · Route B", kind: "TRANSPORT:b", amount: 1500, cadence: "MONTHLY", active: true },
         { label: "Computer Fee", kind: "OTHER:c", amount: 300, cadence: "MONTHLY", active: true },
       ],
       "2026-09"
     );
     expect(lines).toEqual([
       { label: "Tuition", kind: "FLAT", amount: 1400 },
-      { label: "Transport · Route B", kind: "FLAT", amount: 1500 },
       { label: "Computer Fee", kind: "FLAT", amount: 300 },
     ]);
   });
@@ -212,7 +191,7 @@ describe("fee catalog and student assignment", () => {
     expect(paid.dueNow).toBe(0);
   });
 
-  it("parses school-scoped catalog json without mixing kinds", () => {
+  it("ignores removed transport entries in school-scoped catalog json", () => {
     const parsed = parseFeeCatalogState(
       JSON.stringify({
         items: [
@@ -222,7 +201,6 @@ describe("fee catalog and student assignment", () => {
         late: { enabled: true, amount: 10, graceDays: 5 },
       })
     );
-    expect(parsed.items.filter((item) => item.kind === "TRANSPORT")).toHaveLength(1);
     expect(parsed.items.filter((item) => item.kind === "OTHER")).toHaveLength(1);
     expect(parsed.late).toEqual({
       enabled: true,

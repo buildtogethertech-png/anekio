@@ -505,7 +505,7 @@ export function groupStudentFees<
   return [...rows.values()].sort((a, b) => b.dueNow - a.dueNow || a.name.localeCompare(b.name));
 }
 
-export type FeeCatalogKind = "TRANSPORT" | "OTHER";
+export type FeeCatalogKind = "OTHER";
 
 export type FeeCatalogItem = {
   id: string;
@@ -546,13 +546,13 @@ export function catalogAddOnKind(kind: FeeCatalogKind, id: string) {
 }
 
 export function parseCatalogAddOnKind(kind?: string | null): { kind: FeeCatalogKind; id: string } | null {
-  const match = /^(TRANSPORT|OTHER):(.+)$/.exec(String(kind || "").trim());
+  const match = /^OTHER:(.+)$/.exec(String(kind || "").trim());
   if (!match) return null;
-  return { kind: match[1] as FeeCatalogKind, id: match[2] };
+  return { kind: "OTHER", id: match[1] };
 }
 
 export function catalogAddOnLabel(item: Pick<FeeCatalogItem, "kind" | "label">) {
-  return item.kind === "TRANSPORT" ? `Transport · ${item.label}` : item.label;
+  return item.label;
 }
 
 export function classAddOnKey(label: string) {
@@ -578,7 +578,7 @@ export function studentHasClassAddOn(
     const parsed = parseClassAddOnKind(row.kind);
     if (parsed) return parsed === key;
     const kind = String(row.kind || "CHARGE").toUpperCase();
-    if (kind === "TRANSPORT" || kind.startsWith("TRANSPORT:") || kind.startsWith("OTHER:") || kind === "DISCOUNT" || kind === "CONCESSION") {
+    if (kind.startsWith("OTHER:") || kind === "DISCOUNT" || kind === "CONCESSION") {
       return false;
     }
     return classAddOnKey(String(row.label || "")) === key;
@@ -595,8 +595,8 @@ export function parseFeeCatalogState(raw?: string | null): FeeCatalogState {
     const items = (Array.isArray(rows) ? rows : [])
       .map((row) => {
         const item = row as Partial<FeeCatalogItem>;
-        const kind = String(item.kind || "").toUpperCase() === "TRANSPORT" ? "TRANSPORT" : String(item.kind || "").toUpperCase() === "OTHER" ? "OTHER" : "";
-        if (kind !== "TRANSPORT" && kind !== "OTHER") return null;
+        const kind = String(item.kind || "").toUpperCase() === "OTHER" ? "OTHER" : "";
+        if (kind !== "OTHER") return null;
         const label = String(item.label || "").trim();
         if (!label) return null;
         return {

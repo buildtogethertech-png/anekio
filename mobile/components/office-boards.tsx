@@ -759,7 +759,6 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   const [payOpen, setPayOpen] = useState(false);
   const [manageFeeOpen, setManageFeeOpen] = useState(false);
   const [manageFeePending, setManageFeePending] = useState(false);
-  const [manageTransportId, setManageTransportId] = useState("");
   const [manageOtherIds, setManageOtherIds] = useState<string[]>([]);
   const [manageClassAddOns, setManageClassAddOns] = useState<string[]>([]);
   const [openCard, setOpenCard] = useState<ReportCardData | null>(null);
@@ -1219,7 +1218,6 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                 accessibilityLabel="Manage fee"
                 onPress={() => {
                   const next = feeAssignmentFromStudent(selected.feeAddOns);
-                  setManageTransportId(next.transportId);
                   setManageOtherIds(next.otherIds);
                   setManageClassAddOns(next.classAddOnLabels);
                   setManageFeeOpen(true);
@@ -2187,7 +2185,6 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                 try {
                   await act(token, "assignStudentFees", {
                     studentId: selected.id,
-                    transportItemId: manageTransportId || null,
                     otherItemIds: manageOtherIds,
                     classAddOnLabels: manageClassAddOns,
                   });

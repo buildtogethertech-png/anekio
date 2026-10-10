@@ -17,27 +17,22 @@ export function studentHasClassAddOn(addOns: { kind?: string | null; label?: str
     const kind = String(row.kind || "");
     const classKey = /^CLASS:(.+)$/i.exec(kind)?.[1]?.toLowerCase();
     if (classKey) return classKey === key;
-    if (/^(TRANSPORT|OTHER):/i.test(kind) || kind.toUpperCase() === "DISCOUNT" || kind.toUpperCase() === "CONCESSION") return false;
+    if (/^OTHER:/i.test(kind) || kind.toUpperCase() === "DISCOUNT" || kind.toUpperCase() === "CONCESSION") return false;
     return classAddOnKey(String(row.label || "")) === key;
   });
 }
 
 export function catalogKindId(kind?: string | null) {
-  const match = /^(TRANSPORT|OTHER):(.+)$/i.exec(String(kind || "").trim());
+  const match = /^OTHER:(.+)$/i.exec(String(kind || "").trim());
   if (!match) return null;
-  return { kind: match[1].toUpperCase() as "TRANSPORT" | "OTHER", id: match[2] };
+  return { kind: "OTHER" as const, id: match[1] };
 }
 
 export function feeAssignmentFromStudent(addOns?: { kind?: string | null; label?: string | null }[] | null) {
-  let transportId = "";
   const otherIds: string[] = [];
   const classAddOnLabels: string[] = [];
   for (const addOn of addOns || []) {
     const parsed = catalogKindId(addOn.kind);
-    if (parsed?.kind === "TRANSPORT") {
-      transportId = parsed.id;
-      continue;
-    }
     if (parsed?.kind === "OTHER") {
       otherIds.push(parsed.id);
       continue;
@@ -47,7 +42,7 @@ export function feeAssignmentFromStudent(addOns?: { kind?: string | null; label?
     const label = String(addOn.label || "").trim();
     if (label) classAddOnLabels.push(label);
   }
-  return { transportId, otherIds, classAddOnLabels };
+  return { otherIds, classAddOnLabels };
 }
 
 export function ManageFeeBody({
@@ -77,12 +72,10 @@ export function ManageFeeBody({
   const classLines = (classTpl?.lines || []).filter((line) => line.scope !== "ADD_ON");
   const classAddOns = (classTpl?.lines || []).filter((line) => line.scope === "ADD_ON" && Number(line.amount) > 0);
   const classFee = classLines.reduce((sum, line) => sum + Math.max(0, Math.round(Number(line.amount) || 0)), 0);
-  const transportOptions = catalog.items.filter((item) => item.kind === "TRANSPORT" && item.active);
   const otherOptions = catalog.items.filter((item) => item.kind === "OTHER" && item.active);
-  const assignedTransport = transportOptions.find((item) => student.feeAddOns?.some((addOn) => catalogKindId(addOn.kind)?.kind === "TRANSPORT" && catalogKindId(addOn.kind)?.id === item.id));
   const others = otherOptions.filter((item) => otherIds.includes(item.id));
   const selectedAddOns = classAddOns.filter((line) => classAddOnLabels.some((label) => classAddOnKey(label) === classAddOnKey(line.label)));
-  const total = classFee + (assignedTransport?.amount || 0) + others.reduce((sum, item) => sum + item.amount, 0) + selectedAddOns.reduce((sum, line) => sum + line.amount, 0);
+  const total = classFee + others.reduce((sum, item) => sum + item.amount, 0) + selectedAddOns.reduce((sum, line) => sum + line.amount, 0);
   const optionalCount = selectedAddOns.length + others.length;
   const initials = student.name
     .split(/\s+/)
@@ -157,7 +150,7 @@ export function ManageFeeBody({
 
       <View className="rounded-xl bg-[#102A5C] p-4">
         <View className="flex-row items-center justify-between">
-          <View><Text className="text-[11px] font-semibold uppercase tracking-wide text-blue-100">Monthly amount to bill</Text><Text className="mt-1 text-xs text-blue-100">{optionalCount ? `${optionalCount} optional charge${optionalCount === 1 ? "" : "s"} included` : "Class fee only"}{assignedTransport ? " · existing transport retained" : ""}</Text></View>
+          <View><Text className="text-[11px] font-semibold uppercase tracking-wide text-blue-100">Monthly amount to bill</Text><Text className="mt-1 text-xs text-blue-100">{optionalCount ? `${optionalCount} optional charge${optionalCount === 1 ? "" : "s"} included` : "Class fee only"}</Text></View>
           <View className="items-end"><Text className="text-xl font-semibold text-white">{inr(total)}</Text><Text className="text-[11px] text-blue-100">per month</Text></View>
         </View>
       </View>
