@@ -2213,10 +2213,8 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
             catalog={data?.feeCatalog ?? { items: [], late: { enabled: false, amount: 0, graceDays: 0 }, dueDay: 10 }}
             session={data?.school?.sessions?.find((row) => row.current) ?? data?.school?.sessions?.[0]}
             sessionLabel={(data?.school?.sessions?.find((row) => row.current) ?? data?.school?.sessions?.[0])?.label}
-            transportId={manageTransportId}
             otherIds={manageOtherIds}
             classAddOnLabels={manageClassAddOns}
-            onTransport={setManageTransportId}
             onToggleOther={(id) =>
               setManageOtherIds((cur) => (cur.includes(id) ? cur.filter((row) => row !== id) : [...cur, id]))
             }

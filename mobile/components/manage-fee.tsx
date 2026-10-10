@@ -56,10 +56,8 @@ export function ManageFeeBody({
   catalog,
   session,
   sessionLabel,
-  transportId,
   otherIds,
   classAddOnLabels,
-  onTransport,
   onToggleOther,
   onToggleClassAddOn,
 }: {
@@ -68,10 +66,8 @@ export function ManageFeeBody({
   catalog: Catalog;
   session?: { id: string };
   sessionLabel?: string;
-  transportId: string;
   otherIds: string[];
   classAddOnLabels: string[];
-  onTransport: (id: string) => void;
   onToggleOther: (id: string) => void;
   onToggleClassAddOn: (label: string) => void;
 }) {
@@ -83,11 +79,11 @@ export function ManageFeeBody({
   const classFee = classLines.reduce((sum, line) => sum + Math.max(0, Math.round(Number(line.amount) || 0)), 0);
   const transportOptions = catalog.items.filter((item) => item.kind === "TRANSPORT" && item.active);
   const otherOptions = catalog.items.filter((item) => item.kind === "OTHER" && item.active);
-  const transport = transportOptions.find((item) => item.id === transportId);
+  const assignedTransport = transportOptions.find((item) => student.feeAddOns?.some((addOn) => catalogKindId(addOn.kind)?.kind === "TRANSPORT" && catalogKindId(addOn.kind)?.id === item.id));
   const others = otherOptions.filter((item) => otherIds.includes(item.id));
   const selectedAddOns = classAddOns.filter((line) => classAddOnLabels.some((label) => classAddOnKey(label) === classAddOnKey(line.label)));
-  const total = classFee + (transport?.amount || 0) + others.reduce((sum, item) => sum + item.amount, 0) + selectedAddOns.reduce((sum, line) => sum + line.amount, 0);
-  const optionalCount = selectedAddOns.length + others.length + (transport ? 1 : 0);
+  const total = classFee + (assignedTransport?.amount || 0) + others.reduce((sum, item) => sum + item.amount, 0) + selectedAddOns.reduce((sum, line) => sum + line.amount, 0);
+  const optionalCount = selectedAddOns.length + others.length;
   const initials = student.name
     .split(/\s+/)
     .filter(Boolean)
@@ -115,14 +111,20 @@ export function ManageFeeBody({
       </View>
 
       <View className="rounded-xl border border-blue-100 bg-blue-50 p-3">
-        <View className="flex-row items-center justify-between">
+        <View className="flex-row items-start justify-between gap-3">
           <View>
             <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-600">Required class fee</Text>
-            <Text className="mt-1 text-sm font-semibold text-ink-900">{student.classLabel || "Class"} tuition</Text>
+            <Text className="mt-1 text-sm font-semibold text-ink-900">{student.classLabel || "Class"} monthly plan</Text>
             <Text className="mt-0.5 text-xs text-ink-700">Applied automatically every month</Text>
           </View>
           <Text className="text-base font-semibold text-ink-900">{inr(classFee)}</Text>
         </View>
+        {classLines.length ? <View className="mt-3 border-t border-blue-100 pt-2">{classLines.map((line) => (
+          <View key={`${line.label}-${line.amount}`} className="flex-row justify-between py-1">
+            <Text className="text-xs text-ink-700">{line.label}</Text>
+            <Text className="text-xs font-medium text-ink-800">{inr(line.amount)}</Text>
+          </View>
+        ))}</View> : <Text className="mt-3 border-t border-blue-100 pt-2 text-xs text-ink-600">No class fee lines are configured yet.</Text>}
       </View>
 
       <View className="rounded-xl border border-ink-200 bg-white p-3">
@@ -142,23 +144,8 @@ export function ManageFeeBody({
         })}</View> : <Text className="mt-3 text-xs text-ink-600">No optional add-ons are configured for this class.</Text>}
       </View>
 
-      <View className="rounded-xl border border-ink-200 bg-white p-3">
-        <Text className="text-sm font-semibold text-ink-900">Transport</Text>
-        <Text className="mt-0.5 text-xs text-ink-600">Select one route, or keep transport off.</Text>
-        <View className="mt-3 gap-2">
-          {[{ id: "", label: "No transport", amount: 0 }, ...transportOptions].map((item) => {
-            const checked = transportId === item.id;
-            return <Pressable key={item.id || "none"} accessibilityRole="radio" accessibilityState={{ selected: checked }} onPress={() => onTransport(item.id)} className={`flex-row items-center justify-between rounded-lg border px-3 py-2.5 ${checked ? "border-clay-300 bg-blue-50" : "border-ink-200 bg-white"}`}>
-              <View className="flex-row items-center gap-2.5"><View className={`h-5 w-5 items-center justify-center rounded-full border ${checked ? "border-clay-600" : "border-ink-300"}`}>{checked ? <View className="h-2.5 w-2.5 rounded-full bg-clay-600" /> : null}</View><Text className="text-sm font-medium text-ink-900">{item.label}</Text></View>
-              <Text className="text-sm font-semibold text-ink-800">{item.amount ? inr(item.amount) : "—"}</Text>
-            </Pressable>;
-          })}
-        </View>
-        {!transportOptions.length ? <Text className="mt-2 text-[11px] text-ink-500">Add transport routes from Fees setup when needed.</Text> : null}
-      </View>
-
       {otherOptions.length ? <View className="rounded-xl border border-ink-200 bg-white p-3">
-        <Text className="text-sm font-semibold text-ink-900">Other monthly charges</Text>
+        <View className="flex-row items-start justify-between gap-3"><View className="flex-1"><Text className="text-sm font-semibold text-ink-900">Universal add-ons</Text><Text className="mt-0.5 text-xs leading-4 text-ink-600">Optional charges available to every student in the school.</Text></View><View className="rounded-full bg-ink-100 px-2 py-1"><Text className="text-[10px] font-semibold text-ink-700">{others.length} selected</Text></View></View>
         <View className="mt-3 gap-2">{otherOptions.map((item) => {
           const checked = otherIds.includes(item.id);
           return <Pressable key={item.id} accessibilityRole="checkbox" accessibilityState={{ checked }} onPress={() => onToggleOther(item.id)} className={`flex-row items-center justify-between rounded-lg border px-3 py-2.5 ${checked ? "border-clay-300 bg-blue-50" : "border-ink-200 bg-white"}`}>
@@ -170,7 +157,7 @@ export function ManageFeeBody({
 
       <View className="rounded-xl bg-[#102A5C] p-4">
         <View className="flex-row items-center justify-between">
-          <View><Text className="text-[11px] font-semibold uppercase tracking-wide text-blue-100">Monthly amount to bill</Text><Text className="mt-1 text-xs text-blue-100">{optionalCount ? `${optionalCount} optional charge${optionalCount === 1 ? "" : "s"} included` : "Class fee only"}</Text></View>
+          <View><Text className="text-[11px] font-semibold uppercase tracking-wide text-blue-100">Monthly amount to bill</Text><Text className="mt-1 text-xs text-blue-100">{optionalCount ? `${optionalCount} optional charge${optionalCount === 1 ? "" : "s"} included` : "Class fee only"}{assignedTransport ? " · existing transport retained" : ""}</Text></View>
           <View className="items-end"><Text className="text-xl font-semibold text-white">{inr(total)}</Text><Text className="text-[11px] text-blue-100">per month</Text></View>
         </View>
       </View>
