@@ -1618,23 +1618,21 @@ export function FeesBoard() {
         </View>
         {lateEnabled ? (
           <View className="mt-4 flex-row flex-wrap items-end gap-3 rounded-lg bg-ink-50 p-3">
-            <View className="w-48">
-              <Text className="mb-1.5 text-xs font-medium text-ink-700">Schedule</Text>
-              <View className="flex-row flex-wrap gap-1.5">
-                {(["ONE_TIME", "RECURRING"] as const).map((timing) => {
-                  const on = lateTiming === timing;
-                  return <Pressable key={timing} accessibilityRole="button" onPress={() => setLateTiming(timing)} className={`rounded-md px-3 py-1.5 ${on ? "bg-blue-600" : "border border-ink-200 bg-white"}`}><Text className={`text-sm font-semibold ${on ? "text-white" : "text-ink-800"}`}>{timing === "ONE_TIME" ? "One-time" : "Recurring"}</Text></Pressable>;
-                })}
-              </View>
+            <View className="w-44">
+              <Select
+                label="Schedule"
+                value={lateTiming}
+                options={[{ id: "ONE_TIME", label: "One-time" }, { id: "RECURRING", label: "Recurring" }]}
+                onChange={(value) => setLateTiming(value as LateTiming)}
+              />
             </View>
-            <View className="w-56">
-              <Text className="mb-1.5 text-xs font-medium text-ink-700">Charge type</Text>
-              <View className="flex-row flex-wrap gap-1.5">
-                {(["AMOUNT", "PERCENT"] as const).map((charge) => {
-                  const on = lateCharge === charge;
-                  return <Pressable key={charge} accessibilityRole="button" onPress={() => setLateCharge(charge)} className={`rounded-md px-3 py-1.5 ${on ? "bg-blue-600" : "border border-ink-200 bg-white"}`}><Text className={`text-sm font-semibold ${on ? "text-white" : "text-ink-800"}`}>{charge === "AMOUNT" ? "Amount (₹)" : "Percentage (%)"}</Text></Pressable>;
-                })}
-              </View>
+            <View className="w-44">
+              <Select
+                label="Charge type"
+                value={lateCharge}
+                options={[{ id: "AMOUNT", label: "Amount (₹)" }, { id: "PERCENT", label: "Percentage (%)" }]}
+                onChange={(value) => setLateCharge(value as LateCharge)}
+              />
             </View>
             <View className="w-32">
               <Field label={lateCharge === "PERCENT" ? "Fine (%)" : "Fine (₹)"}>
