@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 import { inr } from "../lib/payroll";
 import type { useRecord } from "../lib/record";
@@ -79,6 +80,7 @@ export function ManageFeeBody({
   onDiscountTypeChange: (type: "FLAT" | "PERCENT") => void;
   onDiscountValueChange: (value: string) => void;
 }) {
+  const [discountFocused, setDiscountFocused] = useState(false);
   const classTpl = [...(templates ?? [])]
     .filter((row) => row.classId === student.classId && (!session || row.sessionId === session.id || !row.sessionId))
     .sort((a, b) => (b.startsPeriod || "").localeCompare(a.startsPeriod || ""))[0];
@@ -90,9 +92,15 @@ export function ManageFeeBody({
   const selectedAddOns = classAddOns.filter((line) => classAddOnLabels.some((label) => classAddOnKey(label) === classAddOnKey(line.label)));
   const beforeDiscount = classFee + others.reduce((sum, item) => sum + item.amount, 0) + selectedAddOns.reduce((sum, line) => sum + line.amount, 0);
   const discountInput = Math.max(0, Math.round(Number(discountValue) || 0));
+  const maximumDiscount = discountType === "PERCENT" ? 100 : beforeDiscount;
   const discountAmount = discountType === "PERCENT" ? Math.round(beforeDiscount * Math.min(100, discountInput) / 100) : Math.min(beforeDiscount, discountInput);
   const total = beforeDiscount - discountAmount;
   const optionalCount = selectedAddOns.length + others.length;
+  const updateDiscountValue = (value: string) => {
+    const digits = value.replace(/[^0-9]/g, "");
+    if (!digits) return onDiscountValueChange("");
+    onDiscountValueChange(String(Math.min(maximumDiscount, Number(digits))));
+  };
   const initials = student.name
     .split(/\s+/)
     .filter(Boolean)
@@ -170,11 +178,12 @@ export function ManageFeeBody({
         <View className="mt-3 flex-row rounded-lg border border-emerald-200 bg-white p-1">
           {(["FLAT", "PERCENT"] as const).map((type) => <Pressable key={type} accessibilityRole="radio" accessibilityState={{ selected: discountType === type }} onPress={() => onDiscountTypeChange(type)} className={`flex-1 rounded-md px-3 py-2 ${discountType === type ? "bg-emerald-600" : "bg-white"}`}><Text className={`text-center text-xs font-semibold ${discountType === type ? "text-white" : "text-ink-700"}`}>{type === "FLAT" ? "Flat amount" : "Percentage"}</Text></Pressable>)}
         </View>
-        <View className="mt-3 flex-row items-center rounded-lg border border-emerald-200 bg-white px-3">
+        <View className={`mt-3 flex-row items-center rounded-lg border bg-white px-3 ${discountFocused ? "border-emerald-500" : "border-emerald-200"}`}>
           <Text className="mr-2 text-base font-semibold text-ink-700">{discountType === "PERCENT" ? "%" : "₹"}</Text>
-          <TextInput value={discountValue} onChangeText={onDiscountValueChange} keyboardType="numeric" placeholder={discountType === "PERCENT" ? "e.g. 10" : "e.g. 500"} className="flex-1 py-2.5 text-sm text-ink-900" />
+          <TextInput value={discountValue} onChangeText={updateDiscountValue} onFocus={() => setDiscountFocused(true)} onBlur={() => setDiscountFocused(false)} keyboardType="numeric" placeholder={discountType === "PERCENT" ? "e.g. 10" : "e.g. 500"} maxLength={discountType === "PERCENT" ? 3 : String(Math.max(0, beforeDiscount)).length} className="flex-1 py-2.5 text-sm text-ink-900 outline-none focus:outline-none" style={{ outlineStyle: "none" } as never} />
           {discountAmount > 0 ? <Text className="text-xs font-semibold text-emerald-700">−{inr(discountAmount)}</Text> : null}
         </View>
+        <Text className="mt-2 text-[11px] text-emerald-800">Maximum: {discountType === "PERCENT" ? "100%" : inr(beforeDiscount)}</Text>
       </View>
 
       <View className="rounded-xl bg-[#102A5C] p-4">

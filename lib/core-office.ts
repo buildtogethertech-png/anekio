@@ -683,6 +683,15 @@ export async function assignStudentFeesCore(
   const discountType = String(input.discount?.type || "FLAT").toUpperCase() === "PERCENT" ? "PERCENT" : "FLAT";
   const discountValue = Math.max(0, Math.round(Number(input.discount?.value) || 0));
   if (discountType === "PERCENT" && discountValue > 100) throw new Error("Percentage discount cannot exceed 100%");
+  const selectedClassOptions = syncClassAddOns
+    ? classOptions.filter((line) => selectedKeys.has(classAddOnKey(line.label)))
+    : classOptions.filter((line) => student.feeAddOns.some((addOn) => studentHasClassAddOn([addOn], line.label) && !parseCatalogAddOnKind(addOn.kind)));
+  const discountMaximum = feeLineTotal([
+    ...classAllFeeLines(classTemplate?.lines || []),
+    ...wanted.map((item) => ({ label: item.label, kind: "FLAT" as const, amount: item.amount })),
+    ...selectedClassOptions.map((line) => ({ label: line.label, kind: "FLAT" as const, amount: line.amount })),
+  ]).total;
+  if (discountType === "FLAT" && discountValue > discountMaximum) throw new Error(`Flat discount cannot exceed ${discountMaximum}`);
   await prisma.$transaction(async (tx) => {
     for (const addOn of catalogAddOns) {
       if (!wantedKinds.has(addOn.kind)) await tx.studentFeeAddOn.delete({ where: { id: addOn.id } });
