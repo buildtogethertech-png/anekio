@@ -320,7 +320,7 @@ export default function Login() {
         : "Sign in to your school workspace.";
 
   const form = (
-    <View className={isWideLayout ? "w-[470px] px-10 py-12" : "w-full pb-5 pt-0"}>
+    <View className={isWideLayout ? "w-[470px] px-10 py-10" : "w-full pb-5 pt-0"}>
       <View>
         {mode === "forgot" || mode === "trial" ? (
           <Pressable
@@ -653,7 +653,7 @@ export default function Login() {
               </Animated.View>
             ) : null}
             <View
-              className={`w-full overflow-hidden ${isWideLayout ? "flex-row border border-[#DFE7F1] bg-white" : ""}`}
+              className={`w-full overflow-hidden ${isWideLayout ? "self-center flex-row border border-[#DFE7F1] bg-white" : ""}`}
               style={isWideLayout ? {
                 maxWidth: 960,
                 borderRadius: 16,
@@ -665,7 +665,7 @@ export default function Login() {
               } : undefined}
             >
             {isWideLayout ? (
-              <View className="w-[490px] justify-between bg-[#173B77] px-12 py-12">
+              <View className="w-[490px] justify-between bg-[#173B77] px-12 py-10">
                 <View>
                   <Brand inverse />
                   <View className="mt-20">
