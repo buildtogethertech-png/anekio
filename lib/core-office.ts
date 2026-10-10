@@ -635,7 +635,7 @@ export async function applySessionLateFeeCore(
 
 export async function applySessionDueDayCore(user: AccessUser, input: { dueDay?: number }) {
   need(user, "fees.configure");
-  const dueDay = Math.min(31, Math.max(1, Math.round(Number(input.dueDay) || 10)));
+  const dueDay = clampFeeDueDay(input.dueDay);
   const { current } = await ensureSchoolSessions();
   await prisma.feeTemplate.updateMany({
     where: { OR: [{ sessionId: current.id }, { sessionId: null }] },

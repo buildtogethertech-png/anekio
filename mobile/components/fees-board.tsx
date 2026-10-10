@@ -1428,28 +1428,14 @@ export function FeesBoard() {
             ) : null}
           </View>
           <View className="gap-2 self-start" style={{ width: 168, flexShrink: 0 }}>
-            <Text className="text-xs font-medium text-ink-700">Due day</Text>
-            <View className="flex-row flex-wrap" style={{ width: 168 }}>
-              {Array.from({ length: 31 }, (_, index) => index + 1).map((day) => {
-                const on = sessionDueDay === day;
-                return (
-                  <Pressable
-                    key={day}
-                    accessibilityRole="button"
-                    onPress={() => setSessionDueDay(day)}
-                    className="items-center justify-center"
-                    style={{ width: 28, height: 28 }}
-                  >
-                    <View className={`h-6 w-6 items-center justify-center rounded-full ${on ? "bg-blue-600" : ""}`}>
-                      <Text className={`text-[11px] font-semibold ${on ? "text-white" : "text-ink-800"}`}>{day}</Text>
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </View>
-            <Text className="text-[11px] leading-4 text-ink-600">
-              {ordinalDay(sessionDueDay)} each month.
-            </Text>
+            <Field label="Due day" hint="1–30 each month">
+              <Input
+                keyboardType="number-pad"
+                value={String(sessionDueDay)}
+                onChangeText={(value) => setSessionDueDay(Math.min(30, Math.max(1, Math.round(Number(value) || 1))))}
+              />
+            </Field>
+            <Text className="text-[11px] leading-4 text-ink-600">Invoices are due on the {ordinalDay(sessionDueDay)}.</Text>
             {configure ? (
               <View className="self-start">
                 <Button onPress={() => void saveSessionDueDay()}>Save due day</Button>
@@ -1605,41 +1591,35 @@ export function FeesBoard() {
     ) : (
       <View className="gap-4">
       <Card className="p-4">
-        <Text className="text-sm font-semibold text-ink-900">Billing settings</Text>
-        <Text className="mt-1 text-xs leading-5 text-ink-600">Choose the monthly due day for new and current class fee structures.</Text>
-        <View className="mt-4 flex-row flex-wrap gap-1.5">
-          {Array.from({ length: 31 }, (_, index) => index + 1).map((day) => {
-            const active = sessionDueDay === day;
-            return (
-              <Pressable
-                key={day}
-                accessibilityRole="button"
-                onPress={() => setSessionDueDay(day)}
-                className={`h-9 w-9 items-center justify-center rounded-lg ${active ? "bg-clay-500" : "border border-ink-200 bg-white"}`}
-              >
-                <Text className={`text-xs font-semibold ${active ? "text-white" : "text-ink-800"}`}>{day}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-        <View className="mt-4 flex-row items-center justify-between rounded-lg bg-ink-50 px-3 py-2.5">
-          <Text className="text-sm text-ink-700">New monthly invoices are due on the {ordinalDay(sessionDueDay)}.</Text>
+        <View className="flex-row flex-wrap items-end justify-between gap-4">
+          <View className="min-w-[220px] flex-1">
+            <Text className="text-sm font-semibold text-ink-900">Monthly due day</Text>
+            <Text className="mt-1 text-xs leading-5 text-ink-600">Use a date from 1 to 30. Invoices are due on that date every month.</Text>
+          </View>
+          <View className="w-32">
+            <Field label="Due date">
+              <Input
+                keyboardType="number-pad"
+                value={String(sessionDueDay)}
+                onChangeText={(value) => setSessionDueDay(Math.min(30, Math.max(1, Math.round(Number(value) || 1))))}
+              />
+            </Field>
+          </View>
           {configure ? <Button onPress={() => void saveSessionDueDay()}>Save due day</Button> : null}
         </View>
       </Card>
       <Card className="p-4">
-        <Text className="text-sm font-semibold text-ink-900">Late / fine defaults</Text>
-        <Text className="mt-1 text-xs text-ink-600">
-          One school-wide rule for every class. Applies after the due date on newly generated invoices. Paid and historical invoices stay unchanged.
-        </Text>
-        <View className="mt-4 flex-row items-center justify-between">
-          <Text className="text-sm text-ink-800">Late fee enabled</Text>
+        <View className="flex-row items-center justify-between gap-4">
+          <View className="min-w-0 flex-1">
+            <Text className="text-sm font-semibold text-ink-900">Late fee</Text>
+            <Text className="mt-1 text-xs leading-5 text-ink-600">One rule for all new invoices. Existing and paid invoices do not change.</Text>
+          </View>
           <Switch on={lateEnabled} disabled={!configure} onPress={() => setLateEnabled((value) => !value)} />
         </View>
         {lateEnabled ? (
-          <View className="mt-4 gap-3">
-            <View className="max-w-2xl">
-              <Text className="mb-1.5 text-xs font-medium text-ink-700">When to charge</Text>
+          <View className="mt-4 flex-row flex-wrap items-end gap-3 rounded-lg bg-ink-50 p-3">
+            <View className="w-48">
+              <Text className="mb-1.5 text-xs font-medium text-ink-700">Schedule</Text>
               <View className="flex-row flex-wrap gap-1.5">
                 {(["ONE_TIME", "RECURRING"] as const).map((timing) => {
                   const on = lateTiming === timing;
@@ -1647,8 +1627,8 @@ export function FeesBoard() {
                 })}
               </View>
             </View>
-            <View className="max-w-2xl">
-              <Text className="mb-1.5 text-xs font-medium text-ink-700">Charge</Text>
+            <View className="w-56">
+              <Text className="mb-1.5 text-xs font-medium text-ink-700">Charge type</Text>
               <View className="flex-row flex-wrap gap-1.5">
                 {(["AMOUNT", "PERCENT"] as const).map((charge) => {
                   const on = lateCharge === charge;
@@ -1656,32 +1636,30 @@ export function FeesBoard() {
                 })}
               </View>
             </View>
-            <View className="flex-row flex-wrap gap-3">
-              <View className="w-36">
-                <Field label={lateCharge === "PERCENT" ? "Percent" : "Amount (₹)"}>
-                  <Input keyboardType="number-pad" value={lateAmount} onChangeText={setLateAmount} />
-                </Field>
-              </View>
-              {lateTiming === "RECURRING" ? <>
-                <View className="w-36">
-                  <Field label="Repeat every">
-                    <Input keyboardType="number-pad" value={lateEvery} onChangeText={setLateEvery} />
-                  </Field>
-                </View>
-                <View className="w-36">
-                  <Text className="mb-1.5 text-xs font-medium text-ink-700">Interval</Text>
-                  <View className="flex-row rounded-md border border-ink-200 bg-white p-0.5">
-                    {(["DAY", "MONTH"] as const).map((unit) => <Pressable key={unit} accessibilityRole="button" onPress={() => setLateIntervalUnit(unit)} className={`flex-1 items-center rounded px-2 py-2 ${lateIntervalUnit === unit ? "bg-ink-900" : "bg-white"}`}><Text className={`text-xs font-semibold ${lateIntervalUnit === unit ? "text-white" : "text-ink-700"}`}>{unit === "DAY" ? "Days" : "Months"}</Text></Pressable>)}
-                  </View>
-                </View>
-              </> : null}
-              <View className="w-36">
-                <Field label="Grace period (days)">
-                  <Input keyboardType="number-pad" value={lateGrace} onChangeText={setLateGrace} />
-                </Field>
-              </View>
+            <View className="w-32">
+              <Field label={lateCharge === "PERCENT" ? "Fine (%)" : "Fine (₹)"}>
+                <Input keyboardType="number-pad" value={lateAmount} onChangeText={setLateAmount} />
+              </Field>
             </View>
-            <Text className="max-w-xl text-xs leading-5 text-ink-600">
+            {lateTiming === "RECURRING" ? <>
+              <View className="w-28">
+                <Field label="Every">
+                  <Input keyboardType="number-pad" value={lateEvery} onChangeText={setLateEvery} />
+                </Field>
+              </View>
+              <View className="w-36">
+                <Text className="mb-1.5 text-xs font-medium text-ink-700">Interval</Text>
+                <View className="flex-row rounded-md border border-ink-200 bg-white p-0.5">
+                  {(["DAY", "MONTH"] as const).map((unit) => <Pressable key={unit} accessibilityRole="button" onPress={() => setLateIntervalUnit(unit)} className={`flex-1 items-center rounded px-2 py-2 ${lateIntervalUnit === unit ? "bg-ink-900" : "bg-white"}`}><Text className={`text-xs font-semibold ${lateIntervalUnit === unit ? "text-white" : "text-ink-700"}`}>{unit === "DAY" ? "Days" : "Months"}</Text></Pressable>)}
+                </View>
+              </View>
+            </> : null}
+            <View className="w-32">
+              <Field label="Grace days">
+                <Input keyboardType="number-pad" value={lateGrace} onChangeText={setLateGrace} />
+              </Field>
+            </View>
+            <Text className="basis-full text-xs leading-5 text-ink-600">
               {lateCharge === "PERCENT" ? `${Math.max(0, Number(lateAmount) || 0)}% of the unpaid invoice amount` : `₹${Math.max(0, Math.round(Number(lateAmount) || 0))}`} {lateTiming === "ONE_TIME" ? "is added once after the grace period." : `is added every ${Math.max(1, Math.round(Number(lateEvery) || 1))} ${lateIntervalUnit === "DAY" ? "day" : "month"}${Math.max(1, Math.round(Number(lateEvery) || 1)) === 1 ? "" : "s"} after the grace period.`}
             </Text>
           </View>
