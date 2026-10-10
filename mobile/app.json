@@ -6,10 +6,10 @@
     "orientation": "portrait",
     "scheme": "anekio",
     "userInterfaceStyle": "light",
-    "icon": "./assets/anekio-option-a.png",
+    "icon": "./assets/anekio-option-a-square.png",
     "splash": {
-      "backgroundColor": "#f4f7fb",
-      "image": "./assets/anekio-option-a.png"
+      "backgroundColor": "#0B132B",
+      "image": "./assets/anekio-option-a-square.png"
     },
     "ios": {
       "supportsTablet": true,
@@ -25,7 +25,7 @@
       "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "foregroundImage": "./assets/anekio-mark-transparent.png",
-        "backgroundColor": "#F4F7FB"
+        "backgroundColor": "#0B132B"
       }
     },
     "web": {
@@ -40,7 +40,7 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/anekio-option-a.png",
+          "icon": "./assets/anekio-option-a-square.png",
           "color": "#1d4ed8",
           "defaultChannel": "notices"
         }
