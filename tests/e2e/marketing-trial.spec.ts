@@ -33,7 +33,7 @@ test("successful trial signup opens the ready screen", async ({ page }) => {
   await page.route("**/api/saas/trial", (route) => route.fulfill({
     status: 200,
     contentType: "application/json",
-    body: JSON.stringify({ org: { schoolName: "River School" }, login: "9876543210", password: "temporary-password" }),
+    body: JSON.stringify({ org: { schoolName: "River School", ownerEmail: "asha@example.com" }, login: "9876543210", password: "temporary-password" }),
   }));
   await page.goto("http://localhost:4000/", { waitUntil: "domcontentloaded" });
   await page.locator("#trial-form input[name=schoolName]").fill("River School");
@@ -45,6 +45,8 @@ test("successful trial signup opens the ready screen", async ({ page }) => {
 
   await expect(page.locator("#trial-ready")).toBeVisible();
   await expect(page.locator("#trial-ready")).toContainText("9876543210");
+  await expect(page.locator("#trial-ready")).toContainText("asha@example.com");
+  await expect(page.locator("#trial-ready")).not.toContainText("temporary-password");
   await expect(page.locator("#trial-form")).toBeHidden();
 });
 

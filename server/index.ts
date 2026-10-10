@@ -1054,7 +1054,7 @@ app.post("/api/saas/enquiry", async (req, res) => {
 
 app.post("/api/saas/trial", async (req, res) => {
   try {
-    const { login, password, loginUrl, ...org } = await createSaasTrial(req.body || {});
+    const { login, loginUrl, ...org } = await createSaasTrial(req.body || {});
     const leadUrl = `${requestOrigin(req).replace(/\/$/, "")}/anekio-admin?view=lead&id=${encodeURIComponent(org.id)}`;
     try {
       const emailOrigins = trialEmailOrigins(hostName(req));
@@ -1080,9 +1080,9 @@ app.post("/api/saas/trial", async (req, res) => {
       console.error("Trial onboarding email delivery setup failed", error instanceof Error ? error.message : error);
     }
     if (!String(req.headers.accept || "").includes("application/json")) {
-      return res.type("html").send(trialStartedHtml({ ...org, login, password, loginUrl }));
+      return res.type("html").send(trialStartedHtml({ ...org, login, loginUrl }));
     }
-    res.json({ ok: true, org, login, password, loginUrl });
+    res.json({ ok: true, org, login, loginUrl });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Could not start trial.";
     const status = e instanceof ExistingTrialSignupError ? e.status : 400;

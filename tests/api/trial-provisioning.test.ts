@@ -41,8 +41,8 @@ describe("trial signup provisioning", () => {
       schoolName: "Bright Valley School",
       subscriptionStatus: "TRIAL",
       login: "9708608971",
-      password: "12345",
     });
+    expect(trial).not.toHaveProperty("password");
     const user = await prisma.user.findFirstOrThrow({
       where: { orgId: trial.id, OR: [{ email: "nisha@example.com" }, { phone: "9708608971" }] },
       include: { role: true },
@@ -75,9 +75,10 @@ describe("trial signup provisioning", () => {
     expect(first.status).toBe(200);
     expect(first.body).toMatchObject({
       login: "9708608972",
-      password: "12345",
       loginUrl: "/login",
     });
+    expect(first.body).not.toHaveProperty("password");
+    expect(first.text).not.toContain("12345");
 
     const duplicate = await request(app)
       .post("/api/saas/trial")

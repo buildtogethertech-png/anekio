@@ -313,7 +313,7 @@ async function provisionTrialWorkspace(org: { id: string; schoolName: string; ow
       where: { id: org.id },
       data: { loginUrl: "/login", apiUrl: "/api/v1" },
     });
-    return { login: phone, password: "", created: false as const };
+    return { login: phone, created: false as const };
   }
   const password = trialAdminPassword();
   const hashed = await bcrypt.hash(password, 10);
@@ -334,7 +334,7 @@ async function provisionTrialWorkspace(org: { id: string; schoolName: string; ow
       onboardingStatus: "IN_PROGRESS",
     },
   });
-  return { login: phone, password, created: true as const };
+  return { login: phone, created: true as const };
 }
 
 function shell(title: string, description: string, body: string, extraHead = "", bodyClass = "") {
@@ -1094,12 +1094,9 @@ export async function marketingHtml(message = "") {
             }
             var org = out.data.org || {};
             var login = out.data.login || org.ownerPhone || "";
-            var password = out.data.password || "";
             var ready = document.getElementById("trial-ready");
             if (ready) {
-              ready.textContent = password
-                ? ("Your school is ready. Sign in with " + login + " and password " + password + ".")
-                : ("School: " + (org.schoolName || "") + ". Admin: " + (org.ownerName || "") + ".");
+              ready.textContent = "Your school is ready. Check " + (org.ownerEmail || "your email") + " for a secure password setup link. After setting your password, sign in with " + login + ". If the email does not arrive, use Forgot password on the sign-in page.";
             }
             var open = document.getElementById("trial-open");
             if (open) open.setAttribute("href", appLoginUrl());
@@ -1280,7 +1277,7 @@ export async function createSaasTrial(input: EnquiryInput) {
   if (existing) {
     const existingLogin = await provisionTrialWorkspace(existing);
     if (existingLogin?.created) {
-      return { ...existing, login: existingLogin.login, password: existingLogin.password, loginUrl: "/login" };
+      return { ...existing, login: existingLogin.login, loginUrl: "/login" };
     }
     const email = normalEmail(input.ownerEmail);
     const phones = [...new Set([normalPhone(input.ownerPhone), text(input.ownerPhone)].filter(Boolean))];
@@ -1313,17 +1310,12 @@ export async function createSaasTrial(input: EnquiryInput) {
   return {
     ...trial,
     login: workspace?.login || "",
-    password: workspace?.password || "",
     loginUrl: "/login",
   };
 }
 
 export function trialStartedHtml(org: Awaited<ReturnType<typeof createSaasTrial>>) {
-  const loginLine = org.login && org.password
-    ? `<span>Sign in with ${escapeHtml(org.login)} and password ${escapeHtml(org.password)}.</span>`
-    : org.login
-      ? `<span>Sign in at /login with ${escapeHtml(org.login)}.</span>`
-      : "";
+  const loginLine = org.login ? `<span>After setting your password, sign in with ${escapeHtml(org.login)}.</span>` : "";
   return shell(
     "Free trial started | Anekio",
     "Your Anekio school workspace is ready.",
@@ -1337,6 +1329,8 @@ export function trialStartedHtml(org: Awaited<ReturnType<typeof createSaasTrial>
             <div class="check-list">
               <span>No payment is needed for the trial.</span>
               <span>You can sign in as the school administrator.</span>
+              <span>Check ${escapeHtml(org.ownerEmail)} for your secure password setup link.</span>
+              <span>If the email does not arrive, use Forgot password on the sign-in page.</span>
               ${loginLine}
             </div>
             <a class="btn primary" href="/login">Open Anekio ERP →</a>
