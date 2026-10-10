@@ -164,6 +164,29 @@ type StoredConfig = {
   updatedAt: Date;
 };
 
+/** Environment credentials take precedence over the optional database mail settings. */
+export function resolveSaasEmailRuntime<T extends Pick<StoredConfig, "enabled" | "resendApiKey" | "productionFromName" | "productionFromEmail" | "stagingFromName" | "stagingFromEmail">>(config: T): T {
+  const envKey = (
+    process.env.ANEKIO_PLATFORM_RESEND_API_KEY ||
+    process.env.ANEKIO_AUTH_RESEND_API_KEY ||
+    process.env.RESEND_API_KEY ||
+    ""
+  ).trim();
+  const envFrom = (process.env.ANEKIO_PLATFORM_FROM_EMAIL || process.env.ANEKIO_AUTH_FROM_EMAIL || "").trim();
+  const namedFrom = envFrom.match(/^(.+?)\s*<([^<>]+)>$/);
+  const fromEmail = (namedFrom ? namedFrom[2] : envFrom).trim().toLowerCase();
+  const fromName = namedFrom?.[1].replace(/^"|"$/g, "").trim() || "";
+  return {
+    ...config,
+    enabled: Boolean(envKey) || config.enabled,
+    resendApiKey: envKey || config.resendApiKey,
+    productionFromName: fromName || config.productionFromName,
+    productionFromEmail: fromEmail || config.productionFromEmail,
+    stagingFromName: fromName || config.stagingFromName,
+    stagingFromEmail: fromEmail || config.stagingFromEmail,
+  };
+}
+
 type StoredRule = {
   id: string;
   configId: string;
@@ -546,7 +569,7 @@ export async function seedSaasEmailDefaults(client: PrismaClient = prisma) {
 }
 
 export async function getSaasEmailSettings(): Promise<SaasEmailSettings> {
-  const config = (await ensureSaasEmailDefaultsRaw()) as StoredConfig;
+  const config = resolveSaasEmailRuntime((await ensureSaasEmailDefaultsRaw()) as StoredConfig);
   const rules = (await prisma.saasEmailRule.findMany({
     where: { configId: config.id },
     orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
@@ -1048,7 +1071,7 @@ export async function sendSaasEmailEvent(input: SendSaasEmailEventInput): Promis
   if (!orgId) throw new Error("Organisation is required for an email delivery.");
   if (!idempotencyKey) throw new Error("An email idempotency key is required.");
 
-  const config = (await ensureSaasEmailDefaultsRaw()) as StoredConfig;
+  const config = resolveSaasEmailRuntime((await ensureSaasEmailDefaultsRaw()) as StoredConfig);
   const rules = (await prisma.saasEmailRule.findMany({ where: { configId: config.id, event: eventName } })) as StoredRule[];
   const environment = resolveSaasEmailEnvironment(input);
   const ordered: Array<{ audience: SaasEmailAudience; rule: StoredRule | null }> = SAAS_EMAIL_AUDIENCES.map((audienceName) => ({

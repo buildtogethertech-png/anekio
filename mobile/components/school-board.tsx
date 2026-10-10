@@ -974,13 +974,13 @@ export function SchoolBoard() {
                             {prettyDate(row.startsOn)} - {prettyDate(row.endsOn)}
                           </Text>
                         </View>
-                        {edit && !row.current ? (
+                        {edit ? (
                           <View className="flex-row flex-wrap gap-3">
                             <Linkish
-                              label="Use as current"
-                              onPress={() => run("setCurrentSchoolSession", { sessionId: row.id }, `${row.label} is current.`)}
+                              label={row.current ? "Confirm dates" : "Use as current"}
+                              onPress={() => run("setCurrentSchoolSession", { sessionId: row.id }, `${row.label} confirmed for this school.`)}
                             />
-                            {sessions.length > 1 ? (
+                            {!row.current && sessions.length > 1 ? (
                               <Linkish
                                 label="Remove"
                                 danger

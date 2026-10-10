@@ -36,7 +36,7 @@ type GoogleSheetResult = {
 
 const SETUP_AREAS: { key: Onboarding["steps"][number]["area"]; title: string; body: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: "school", title: "School basics", body: "Identity, sessions, classes, clock, and calendar.", icon: "school-outline" },
-  { key: "teaching", title: "People", body: "Students, parents, staff, attendance, and people documents.", icon: "people-outline" },
+  { key: "teaching", title: "People", body: "Admission form, students, parents, staff, attendance, and people documents.", icon: "people-outline" },
   { key: "exams", title: "Exams", body: "Exam setup, marks history, and result documents.", icon: "reader-outline" },
   { key: "money", title: "Fees", body: "Opening dues, fee rules, invoice, receipt, and collections.", icon: "card-outline" },
 ];
@@ -45,8 +45,8 @@ const FOCUSED_IMPORT_COPY: Record<Template["kind"], { heading: string; descripti
   students: {
     heading: "Choose a student CSV or Excel file",
     description: "Upload student and parent records for review.",
-    requiredColumns: "Roll number, Student name, Date of birth, Class, Parent name, Parent mobile or Parent email",
-    note: "Blank admission numbers are generated. Parent logins are matched or created from parent email/mobile; review must pass before Apply changes records.",
+    requiredColumns: "Open the Field guide tab in the downloaded sheet. It reflects the school's admission form and the fields needed to create student and parent records.",
+    note: "Confirm the admission form first, then download a fresh sheet. Blank admission numbers and rolls are generated; review must pass before Apply changes records.",
   },
   teachers: {
     heading: "Choose a staff CSV or Excel file",
@@ -165,6 +165,11 @@ export function OnboardingBoard({
   }
 
   async function openStepTarget(step: Onboarding["steps"][number]) {
+    if (step.key === "students" && step.status === "blocked") {
+      onNavigate?.();
+      router.push("/school?tab=forms" as never);
+      return;
+    }
     if (step.key === "students" || step.key === "teachers" || step.key === "attendance" || step.key === "staff_attendance" || step.key === "exam_marks" || step.key === "opening_balances") {
       setBusy(`open:${step.key}`);
       setMessage("");

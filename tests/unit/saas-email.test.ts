@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   renderSaasEmailTemplate,
+  resolveSaasEmailRuntime,
   resolveSaasEmailEnvironment,
   sendResendPlatformEmail,
 } from "../../lib/saas-email";
@@ -9,6 +10,7 @@ describe("SaaS email helpers", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("uses production only for the public Anekio hosts", () => {
@@ -17,6 +19,43 @@ describe("SaaS email helpers", () => {
     expect(resolveSaasEmailEnvironment({ host: "staging.anekio.com" })).toBe("staging");
     expect(resolveSaasEmailEnvironment({ host: "localhost:4000" })).toBe("staging");
     expect(resolveSaasEmailEnvironment({ host: "anekio.com", environment: "staging" })).toBe("staging");
+  });
+
+  it("uses environment mail credentials even when database delivery is disabled", () => {
+    vi.stubEnv("ANEKIO_PLATFORM_RESEND_API_KEY", "re_platform_test");
+    vi.stubEnv("ANEKIO_PLATFORM_FROM_EMAIL", "Anekio Team <team@anekio.com>");
+    const runtime = resolveSaasEmailRuntime({
+      enabled: false,
+      resendApiKey: "",
+      productionFromName: "Old sender",
+      productionFromEmail: "old@example.com",
+      stagingFromName: "Old staging",
+      stagingFromEmail: "old-staging@example.com",
+      stagingSafeRecipients: "[\"support@anekio.com\"]",
+    });
+    expect(runtime).toMatchObject({
+      enabled: true,
+      resendApiKey: "re_platform_test",
+      productionFromName: "Anekio Team",
+      productionFromEmail: "team@anekio.com",
+      stagingFromEmail: "team@anekio.com",
+      stagingSafeRecipients: "[\"support@anekio.com\"]",
+    });
+  });
+
+  it("falls back to the existing auth-mail environment settings", () => {
+    vi.stubEnv("ANEKIO_PLATFORM_RESEND_API_KEY", "");
+    vi.stubEnv("ANEKIO_PLATFORM_FROM_EMAIL", "");
+    vi.stubEnv("ANEKIO_AUTH_RESEND_API_KEY", "re_auth_test");
+    vi.stubEnv("ANEKIO_AUTH_FROM_EMAIL", "Anekio <support@anekio.com>");
+    expect(resolveSaasEmailRuntime({
+      enabled: false,
+      resendApiKey: "",
+      productionFromName: "Database",
+      productionFromEmail: "db@example.com",
+      stagingFromName: "Database",
+      stagingFromEmail: "db@example.com",
+    })).toMatchObject({ enabled: true, resendApiKey: "re_auth_test", productionFromEmail: "support@anekio.com" });
   });
 
   it("escapes values when rendering an HTML template", () => {

@@ -51,6 +51,7 @@ import { placeFields, parseMonthlySalary, requireJoinedOn, STAFF_FIRST_PASSWORD,
 import { assertManagerChoice, defaultManagerIdForRole, managerIdForNewUser, teamClassIds } from "./reports";
 import { admissionFormFields, admissionFormJson, admissionLeadInput, effectiveAdmissionFormJson, staffOnboardingFormJson } from "./admission-form";
 import { configuredAdmissionFormJson } from "./admission-form-config";
+import { markOnboardingConfigured } from "./onboarding";
 
 function need(user: AccessUser, ...keys: string[]) {
   if (!keys.some((k) => can(user, k))) throw new Error("No access.");
@@ -2902,6 +2903,7 @@ export async function saveSchoolClockCore(
       });
     }
   });
+  await markOnboardingConfigured(user, "working_days");
 }
 
 export async function addPeriodCore(
@@ -2919,6 +2921,7 @@ export async function addPeriodCore(
       sortOrder: (last._max.sortOrder ?? 0) + 1,
     },
   });
+  await markOnboardingConfigured(user, "working_days");
   return {
     period: {
       id: period.id,
@@ -2979,17 +2982,20 @@ export async function createSchoolSessionCore(
   input: { startsOn?: string; endsOn?: string; copyFromId?: string; makeCurrent?: boolean }
 ) {
   need(user, "school.edit");
-  return createSchoolSession({
+  const session = await createSchoolSession({
     startsOn: input.startsOn || "",
     endsOn: input.endsOn || "",
     copyFromId: input.copyFromId || undefined,
     makeCurrent: Boolean(input.makeCurrent),
   });
+  await markOnboardingConfigured(user, `sessions:${session.id}`);
+  return session;
 }
 
 export async function setCurrentSchoolSessionCore(user: AccessUser, input: { sessionId?: string }) {
   need(user, "school.edit");
-  await setCurrentSchoolSession(String(input.sessionId || ""));
+  const session = await setCurrentSchoolSession(String(input.sessionId || ""));
+  await markOnboardingConfigured(user, `sessions:${session.id}`);
 }
 
 export async function deleteSchoolSessionCore(user: AccessUser, input: { sessionId?: string }) {
@@ -3141,6 +3147,7 @@ export async function saveExamPlanCore(
     where: { id: sessionId },
     data: { examPlanJson: JSON.stringify(items) },
   });
+  await markOnboardingConfigured(user, `exam_plan:${sessionId}`);
 }
 
 async function needExamClass(user: AccessUser, classId: string, mode: "mark" | "run" = "mark") {

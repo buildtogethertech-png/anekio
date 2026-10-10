@@ -34,6 +34,7 @@ import { normalizeMobile } from "./phone";
 import { getResendConfig, sendResendEmail } from "./resend";
 import { cell, parseClassLabel, parseCsv, parseDob, parsePathTags } from "./sheet";
 import { ensureSchoolSessions, startNextSchoolSession, updateCurrentSchoolSession } from "./school-session";
+import { markOnboardingConfigured } from "./onboarding";
 import { todayJoinedOn } from "./staff-profile";
 import { feePayUrl } from "./utils";
 import { addDays, paperSetterId, ymd } from "./exams";
@@ -143,7 +144,8 @@ function examDateFields(paper: {
 
 export async function startNextSchoolSessionCore(user: AccessUser) {
   need(user, "school.edit");
-  await startNextSchoolSession();
+  const session = await startNextSchoolSession();
+  await markOnboardingConfigured(user, `sessions:${session.id}`);
 }
 
 export async function saveFeeAcademicSessionCore(
@@ -168,6 +170,7 @@ export async function saveFeeAcademicSessionCore(
     startsOn,
     endsOn,
   });
+  await markOnboardingConfigured(user, `sessions:${session.id}`);
   if (input.dueDay == null || String(input.dueDay).trim() === "") {
     const catalog = await loadFeeCatalog();
     return { ...session, dueDay: catalog.dueDay };
