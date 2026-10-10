@@ -8,6 +8,7 @@ import { BackHandler, Image, Keyboard, KeyboardAvoidingView, Linking, Platform, 
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button, Input } from "../components/ui";
 import { apiBase, webOrigin } from "../lib/api";
+import { marketingOrigin } from "../lib/marketing-origin";
 import { useSession, type AuthAccountChoice } from "../lib/session";
 
 WebBrowser.maybeCompleteAuthSession();
@@ -642,7 +643,7 @@ export default function Login() {
                 ) : (
                   <>
                     <Text className="text-xs text-ink-700">New to Anekio?</Text>
-                    <Pressable accessibilityRole="button" onPress={() => chooseMode("trial")}>
+                    <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(marketingOrigin(webOrigin()))}>
                       <Text className="text-xs font-semibold text-clay-600">Create a new school</Text>
                     </Pressable>
                   </>
