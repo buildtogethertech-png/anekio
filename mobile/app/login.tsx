@@ -320,7 +320,7 @@ export default function Login() {
         : "Sign in to your school workspace.";
 
   const form = (
-    <View className={isWideLayout ? "w-[470px] px-10 py-10" : "w-full pb-5 pt-0"}>
+    <View className={isWideLayout ? "w-[470px] px-10 py-7" : "w-full pb-5 pt-0"}>
       <View>
         {mode === "forgot" || mode === "trial" ? (
           <Pressable
@@ -337,7 +337,7 @@ export default function Login() {
         <Text style={!isWideLayout ? { fontFamily: Platform.select({ ios: "Avenir Next", android: "sans-serif", default: "system-ui" }), fontWeight: "700" } : undefined} className={`${isWideLayout ? "text-[30px]" : "text-[31px] leading-[39px]"} font-bold tracking-tight text-[#102A5C]`}>{heading}</Text>
         <Text className="mt-2 text-[16px] leading-6 text-[#52627A]">{subheading}</Text>
 
-        <View className={`${isWideLayout ? "mt-6 gap-5" : "mt-7 gap-5"}`}>
+        <View className={`${isWideLayout ? "mt-5 gap-4" : "mt-7 gap-5"}`}>
           {mode === "trial" ? (
             <>
               <View>
@@ -390,7 +390,7 @@ export default function Login() {
                           setAccountChoices([]);
                         }}
                         placeholder="name@school.com or mobile number"
-                        className="h-14 rounded-2xl border-[#D6DEEA] pl-11 text-base"
+                        className={`${isWideLayout ? "h-12" : "h-14"} rounded-2xl border-[#D6DEEA] pl-11 text-base`}
                       />
                     </View>
                   </View>
@@ -418,7 +418,7 @@ export default function Login() {
                           }}
                           onSubmitEditing={() => onPasswordSignIn()}
                           placeholder="Enter your password"
-                          className="h-14 rounded-2xl border-[#D6DEEA] px-11 text-base"
+                          className={`${isWideLayout ? "h-12" : "h-14"} rounded-2xl border-[#D6DEEA] px-11 text-base`}
                           style={{ paddingLeft: 37 }}
                         />
                         <Pressable
@@ -501,7 +501,7 @@ export default function Login() {
 
                   {mode === "password" ? (
                     <>
-                      <Button testID="login-submit" accessibilityLabel="Sign in" onPress={() => onPasswordSignIn()} disabled={pending || !login || !password} className="h-14 justify-center bg-[#2955DB] shadow-lg shadow-blue-300" style={!isWideLayout ? { borderRadius: 18, shadowColor: "#2955DB", shadowOpacity: 0.24, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 4 } : undefined}>
+                      <Button testID="login-submit" accessibilityLabel="Sign in" onPress={() => onPasswordSignIn()} disabled={pending || !login || !password} className={`${isWideLayout ? "h-12" : "h-14"} justify-center bg-[#2955DB] shadow-lg shadow-blue-300`} style={!isWideLayout ? { borderRadius: 18, shadowColor: "#2955DB", shadowOpacity: 0.24, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 4 } : undefined}>
                         {pending ? "Signing in..." : "Sign in securely"}
                       </Button>
                       <View className="flex-row items-center gap-3 py-1">
@@ -561,7 +561,7 @@ export default function Login() {
           )}
         </View>
 
-        <View className="mt-7 border-t border-[#DCE3ED] pt-5">
+        <View className={`${isWideLayout ? "mt-5 pt-4" : "mt-7 pt-5"} border-t border-[#DCE3ED]`}>
           {isWideLayout ? (
             <>
               <View className="flex-row flex-wrap items-center justify-center gap-1">
@@ -587,15 +587,6 @@ export default function Login() {
               <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(`${webOrigin()}/privacy`)} className="mt-2 items-center">
                 <Text className="text-xs text-ink-700">By continuing, you agree to Anekio’s <Text className="font-medium text-clay-600">Privacy Policy</Text></Text>
               </Pressable>
-              <View className="mt-5 flex-row items-center gap-3 rounded-xl border border-blue-100 bg-blue-50/70 px-3 py-3">
-                <View className="h-8 w-8 items-center justify-center rounded-lg bg-white">
-                  <Ionicons name="shield-checkmark-outline" size={18} color="#1D4ED8" />
-                </View>
-                <View className="min-w-0 flex-1">
-                  <Text className="text-xs font-semibold text-ink-900">Secure school access</Text>
-                  <Text className="mt-0.5 text-[11px] leading-4 text-ink-700">Your password and school data stay protected.</Text>
-                </View>
-              </View>
             </>
           ) : (
             <View className="flex-row items-center justify-center gap-8">
@@ -623,8 +614,8 @@ export default function Login() {
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === "ios" ? "padding" : "height"}>
       <ScrollView
         keyboardShouldPersistTaps="handled"
-        scrollEnabled={keyboardVisible || !balancedPhoneLayout}
-        contentContainerStyle={{ minHeight: balancedPhoneLayout ? height : Math.max(height, 680), flexGrow: 1 }}
+        scrollEnabled={!isWideLayout && (keyboardVisible || !balancedPhoneLayout)}
+        contentContainerStyle={{ minHeight: isWideLayout || balancedPhoneLayout ? height : Math.max(height, 680), flexGrow: 1 }}
       >
         <View className={`flex-1 items-center overflow-hidden ${isWideLayout ? "justify-center px-4 py-5 sm:px-6 sm:py-8" : balancedPhoneLayout ? "justify-center px-6 py-8" : "justify-start px-6 py-7"}`}>
           {!isWideLayout ? (
