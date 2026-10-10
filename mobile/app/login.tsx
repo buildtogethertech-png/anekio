@@ -2,9 +2,9 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Google from "expo-auth-session/providers/google";
 import Constants, { ExecutionEnvironment } from "expo-constants";
 import * as WebBrowser from "expo-web-browser";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Redirect, useRouter } from "expo-router";
-import { Animated, BackHandler, Image, Keyboard, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { BackHandler, Image, Keyboard, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button, Input } from "../components/ui";
 import { apiBase, webOrigin } from "../lib/api";
@@ -142,18 +142,12 @@ export default function Login() {
   const [city, setCity] = useState("");
   const [studentCount, setStudentCount] = useState("");
   const [keyboardVisible, setKeyboardVisible] = useState(false);
-  const keyboardProgress = useRef(new Animated.Value(0)).current;
   const googleConfigured = Platform.OS === "android" ? Boolean(googleAndroidClientId) : Platform.OS === "ios" ? Boolean(googleIosClientId) : Boolean(googleWebClientId);
   const balancedPhoneLayout =
-    !isWideLayout && !keyboardVisible && height >= 760 && mode === "password" && !accountChoices.length && !error && !notice;
+    !isWideLayout && height >= 760 && (mode === "password" || mode === "otp") && !accountChoices.length && !error && !notice;
 
   function setKeyboardLayout(visible: boolean) {
     setKeyboardVisible(visible);
-    Animated.timing(keyboardProgress, {
-      toValue: visible ? 1 : 0,
-      duration: visible ? 220 : 180,
-      useNativeDriver: false,
-    }).start();
   }
 
   useEffect(() => {
@@ -169,7 +163,7 @@ export default function Login() {
       showSubscription.remove();
       hideSubscription.remove();
     };
-  }, [keyboardProgress]);
+  }, []);
 
   useEffect(() => {
     if (Platform.OS !== "android" || !keyboardVisible) return;
@@ -704,17 +698,9 @@ export default function Login() {
             className="w-full"
           >
             {!isWideLayout ? (
-              <Animated.View
-                style={{
-                  height: keyboardProgress.interpolate({ inputRange: [0, 1], outputRange: [184, 112] }),
-                  marginBottom: keyboardProgress.interpolate({ inputRange: [0, 1], outputRange: [40, 16] }),
-                  alignItems: "center",
-                }}
-              >
-                <Animated.View style={{ transform: [{ scale: keyboardProgress.interpolate({ inputRange: [0, 1], outputRange: [1, 0.72] }) }] }}>
-                  <Brand compact centered markSize={124} wordSize={36} />
-                </Animated.View>
-              </Animated.View>
+              <View className="h-[184px] items-center" style={{ marginBottom: 40 }}>
+                <Brand compact centered markSize={124} wordSize={36} />
+              </View>
             ) : null}
             <View
               className={`w-full overflow-hidden ${isWideLayout ? "self-center flex-row border border-[#DFE7F1] bg-white" : ""}`}
