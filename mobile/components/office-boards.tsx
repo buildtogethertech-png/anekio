@@ -761,6 +761,8 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   const [manageFeePending, setManageFeePending] = useState(false);
   const [manageOtherIds, setManageOtherIds] = useState<string[]>([]);
   const [manageClassAddOns, setManageClassAddOns] = useState<string[]>([]);
+  const [manageDiscountType, setManageDiscountType] = useState<"FLAT" | "PERCENT">("FLAT");
+  const [manageDiscountValue, setManageDiscountValue] = useState("");
   const [openCard, setOpenCard] = useState<ReportCardData | null>(null);
   const [add, setAdd] = useState<PeopleKind | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -1220,6 +1222,8 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                   const next = feeAssignmentFromStudent(selected.feeAddOns);
                   setManageOtherIds(next.otherIds);
                   setManageClassAddOns(next.classAddOnLabels);
+                  setManageDiscountType(next.discount?.type || "FLAT");
+                  setManageDiscountValue(next.discount?.value ? String(next.discount.value) : "");
                   setManageFeeOpen(true);
                 }}
               >
@@ -2187,6 +2191,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                     studentId: selected.id,
                     otherItemIds: manageOtherIds,
                     classAddOnLabels: manageClassAddOns,
+                    discount: manageDiscountValue.trim() ? { type: manageDiscountType, value: Number(manageDiscountValue) } : null,
                   });
                   setManageFeeOpen(false);
                   toast.show("Fee assignment saved.");
@@ -2212,6 +2217,8 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
             sessionLabel={(data?.school?.sessions?.find((row) => row.current) ?? data?.school?.sessions?.[0])?.label}
             otherIds={manageOtherIds}
             classAddOnLabels={manageClassAddOns}
+            discountType={manageDiscountType}
+            discountValue={manageDiscountValue}
             onToggleOther={(id) =>
               setManageOtherIds((cur) => (cur.includes(id) ? cur.filter((row) => row !== id) : [...cur, id]))
             }
@@ -2222,6 +2229,8 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                   : [...cur, label]
               )
             }
+            onDiscountTypeChange={setManageDiscountType}
+            onDiscountValueChange={setManageDiscountValue}
           />
         ) : null}
       </Modal>

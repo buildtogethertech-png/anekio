@@ -105,6 +105,32 @@ describe("fee catalog and student assignment", () => {
     expect(studentB.total).toBe(1200);
   });
 
+  it("applies a flat discount to a student's monthly fee", () => {
+    const fee = applicableMonthlyFee({
+      classLines: [{ label: "Tuition", amount: 1200, scope: "ALL" }],
+      addOns: [{ label: "Discount", kind: "DISCOUNT", amount: 200, cadence: "MONTHLY", active: true }],
+      period: "2026-09",
+    });
+    expect(fee.total).toBe(1000);
+    expect(fee.extras).toEqual([{ label: "Discount", kind: "FLAT", amount: -200 }]);
+  });
+
+  it("applies a percentage discount to the class fee and selected add-ons", () => {
+    const fee = applicableMonthlyFee({
+      classLines: [{ label: "Tuition", amount: 1200, scope: "ALL" }],
+      addOns: [
+        { label: "Computer Fee", kind: "OTHER:computer", amount: 300, cadence: "MONTHLY", active: true },
+        { label: "Discount", kind: "DISCOUNT_PERCENT", amount: 10, cadence: "MONTHLY", active: true },
+      ],
+      period: "2026-09",
+    });
+    expect(fee.total).toBe(1350);
+    expect(fee.extras).toEqual([
+      { label: "Computer Fee", kind: "FLAT", amount: 300 },
+      { label: "Discount (10%)", kind: "FLAT", amount: -150 },
+    ]);
+  });
+
   it("excludes inactive and expired add-ons from future invoices", () => {
     const lines = composeStudentFeeLines(
       [{ label: "Tuition", amount: 1400, scope: "ALL" }],

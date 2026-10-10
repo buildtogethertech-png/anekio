@@ -1,4 +1,4 @@
-import { Pressable, Text, View } from "react-native";
+import { Pressable, Text, TextInput, View } from "react-native";
 import { inr } from "../lib/payroll";
 import type { useRecord } from "../lib/record";
 
@@ -28,9 +28,10 @@ export function catalogKindId(kind?: string | null) {
   return { kind: "OTHER" as const, id: match[1] };
 }
 
-export function feeAssignmentFromStudent(addOns?: { kind?: string | null; label?: string | null }[] | null) {
+export function feeAssignmentFromStudent(addOns?: { kind?: string | null; label?: string | null; amount?: number | null }[] | null) {
   const otherIds: string[] = [];
   const classAddOnLabels: string[] = [];
+  let discount: { type: "FLAT" | "PERCENT"; value: number } | null = null;
   for (const addOn of addOns || []) {
     const parsed = catalogKindId(addOn.kind);
     if (parsed?.kind === "OTHER") {
@@ -38,11 +39,15 @@ export function feeAssignmentFromStudent(addOns?: { kind?: string | null; label?
       continue;
     }
     const kind = String(addOn.kind || "").toUpperCase();
-    if (kind === "DISCOUNT" || kind === "CONCESSION") continue;
+    if (kind === "DISCOUNT" || kind === "DISCOUNT_PERCENT") {
+      discount = { type: kind === "DISCOUNT_PERCENT" ? "PERCENT" : "FLAT", value: Math.max(0, Number(addOn.amount) || 0) };
+      continue;
+    }
+    if (kind === "CONCESSION") continue;
     const label = String(addOn.label || "").trim();
     if (label) classAddOnLabels.push(label);
   }
-  return { otherIds, classAddOnLabels };
+  return { otherIds, classAddOnLabels, discount };
 }
 
 export function ManageFeeBody({
@@ -53,8 +58,12 @@ export function ManageFeeBody({
   sessionLabel,
   otherIds,
   classAddOnLabels,
+  discountType,
+  discountValue,
   onToggleOther,
   onToggleClassAddOn,
+  onDiscountTypeChange,
+  onDiscountValueChange,
 }: {
   student: Student;
   templates: RecordData["feeTemplates"];
@@ -63,8 +72,12 @@ export function ManageFeeBody({
   sessionLabel?: string;
   otherIds: string[];
   classAddOnLabels: string[];
+  discountType: "FLAT" | "PERCENT";
+  discountValue: string;
   onToggleOther: (id: string) => void;
   onToggleClassAddOn: (label: string) => void;
+  onDiscountTypeChange: (type: "FLAT" | "PERCENT") => void;
+  onDiscountValueChange: (value: string) => void;
 }) {
   const classTpl = [...(templates ?? [])]
     .filter((row) => row.classId === student.classId && (!session || row.sessionId === session.id || !row.sessionId))
@@ -75,7 +88,10 @@ export function ManageFeeBody({
   const otherOptions = catalog.items.filter((item) => item.kind === "OTHER" && item.active);
   const others = otherOptions.filter((item) => otherIds.includes(item.id));
   const selectedAddOns = classAddOns.filter((line) => classAddOnLabels.some((label) => classAddOnKey(label) === classAddOnKey(line.label)));
-  const total = classFee + others.reduce((sum, item) => sum + item.amount, 0) + selectedAddOns.reduce((sum, line) => sum + line.amount, 0);
+  const beforeDiscount = classFee + others.reduce((sum, item) => sum + item.amount, 0) + selectedAddOns.reduce((sum, line) => sum + line.amount, 0);
+  const discountInput = Math.max(0, Math.round(Number(discountValue) || 0));
+  const discountAmount = discountType === "PERCENT" ? Math.round(beforeDiscount * Math.min(100, discountInput) / 100) : Math.min(beforeDiscount, discountInput);
+  const total = beforeDiscount - discountAmount;
   const optionalCount = selectedAddOns.length + others.length;
   const initials = student.name
     .split(/\s+/)
@@ -148,9 +164,22 @@ export function ManageFeeBody({
         })}</View>
       </View> : null}
 
+      <View className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+        <Text className="text-sm font-semibold text-ink-900">Discount</Text>
+        <Text className="mt-0.5 text-xs leading-4 text-ink-600">Optional. It applies to this student’s future monthly invoices.</Text>
+        <View className="mt-3 flex-row rounded-lg border border-emerald-200 bg-white p-1">
+          {(["FLAT", "PERCENT"] as const).map((type) => <Pressable key={type} accessibilityRole="radio" accessibilityState={{ selected: discountType === type }} onPress={() => onDiscountTypeChange(type)} className={`flex-1 rounded-md px-3 py-2 ${discountType === type ? "bg-emerald-600" : "bg-white"}`}><Text className={`text-center text-xs font-semibold ${discountType === type ? "text-white" : "text-ink-700"}`}>{type === "FLAT" ? "Flat amount" : "Percentage"}</Text></Pressable>)}
+        </View>
+        <View className="mt-3 flex-row items-center rounded-lg border border-emerald-200 bg-white px-3">
+          <Text className="mr-2 text-base font-semibold text-ink-700">{discountType === "PERCENT" ? "%" : "₹"}</Text>
+          <TextInput value={discountValue} onChangeText={onDiscountValueChange} keyboardType="numeric" placeholder={discountType === "PERCENT" ? "e.g. 10" : "e.g. 500"} className="flex-1 py-2.5 text-sm text-ink-900" />
+          {discountAmount > 0 ? <Text className="text-xs font-semibold text-emerald-700">−{inr(discountAmount)}</Text> : null}
+        </View>
+      </View>
+
       <View className="rounded-xl bg-[#102A5C] p-4">
         <View className="flex-row items-center justify-between">
-          <View><Text className="text-[11px] font-semibold uppercase tracking-wide text-blue-100">Monthly amount to bill</Text><Text className="mt-1 text-xs text-blue-100">{optionalCount ? `${optionalCount} optional charge${optionalCount === 1 ? "" : "s"} included` : "Class fee only"}</Text></View>
+          <View><Text className="text-[11px] font-semibold uppercase tracking-wide text-blue-100">Monthly amount to bill</Text><Text className="mt-1 text-xs text-blue-100">{discountAmount ? `${inr(discountAmount)} discount applied` : optionalCount ? `${optionalCount} optional charge${optionalCount === 1 ? "" : "s"} included` : "Class fee only"}</Text></View>
           <View className="items-end"><Text className="text-xl font-semibold text-white">{inr(total)}</Text><Text className="text-[11px] text-blue-100">per month</Text></View>
         </View>
       </View>

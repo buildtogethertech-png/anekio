@@ -40,12 +40,12 @@ export function feeLineTotal(lines: FeeLineDraft[]) {
       total += value;
       return { ...line, value };
     }
-    const value = Math.max(0, Math.round(line.amount));
-    taxable += value;
+    const value = Math.round(line.amount);
+    if (value > 0) taxable += value;
     total += value;
     return { ...line, value };
   });
-  return { rows, taxable, total };
+  return { rows, taxable, total: Math.max(0, total) };
 }
 
 export type AdmissionFeeCharge = { label: string; kind: "FLAT"; amount: number };
@@ -765,13 +765,27 @@ export function feeAddOnApplies(
 
 export function feeAddOnInvoiceLines(
   addOns: { label: string; kind?: string | null; amount: number; startsPeriod?: string | null; endsPeriod?: string | null; cadence?: string | null; active?: boolean | null }[],
-  period: string
+  period: string,
+  discountBase = 0
 ) {
-  return addOns.filter((addOn) => feeAddOnApplies(addOn, period)).map((addOn) => ({
-    label: addOn.label,
-    kind: "FLAT" as const,
-    amount: addOn.kind === "DISCOUNT" || addOn.kind === "CONCESSION" ? -Math.abs(addOn.amount) : Math.abs(addOn.amount),
-  }));
+  const applicable = addOns.filter((addOn) => feeAddOnApplies(addOn, period));
+  const charges = applicable
+    .filter((addOn) => !["DISCOUNT", "DISCOUNT_PERCENT", "CONCESSION"].includes(String(addOn.kind || "").toUpperCase()))
+    .map((addOn) => ({ label: addOn.label, kind: "FLAT" as const, amount: Math.abs(addOn.amount) }));
+  const subtotal = Math.max(0, discountBase + charges.reduce((sum, line) => sum + line.amount, 0));
+  const discounts = applicable
+    .filter((addOn) => ["DISCOUNT", "DISCOUNT_PERCENT", "CONCESSION"].includes(String(addOn.kind || "").toUpperCase()))
+    .map((addOn) => {
+      const percentage = String(addOn.kind || "").toUpperCase() === "DISCOUNT_PERCENT";
+      const raw = Math.max(0, Math.round(addOn.amount || 0));
+      const amount = percentage ? Math.round(subtotal * Math.min(100, raw) / 100) : Math.min(subtotal, raw);
+      return {
+        label: percentage ? `${addOn.label} (${Math.min(100, raw)}%)` : addOn.label,
+        kind: "FLAT" as const,
+        amount: -amount,
+      };
+    });
+  return [...charges, ...discounts];
 }
 
 export function composeStudentFeeLines(
@@ -779,7 +793,8 @@ export function composeStudentFeeLines(
   addOns: { label: string; kind?: string | null; amount: number; startsPeriod?: string | null; endsPeriod?: string | null; cadence?: string | null; active?: boolean | null }[],
   period: string
 ) {
-  return [...classAllFeeLines(classLines), ...feeAddOnInvoiceLines(addOns, period)];
+  const classCharges = classAllFeeLines(classLines);
+  return [...classCharges, ...feeAddOnInvoiceLines(addOns, period, feeLineTotal(classCharges).total)];
 }
 
 export function applicableMonthlyFee(input: {
@@ -789,7 +804,7 @@ export function applicableMonthlyFee(input: {
 }) {
   const lines = composeStudentFeeLines(input.classLines, input.addOns, input.period);
   const classFee = classAllFeeLines(input.classLines).reduce((sum, line) => sum + Math.max(0, Math.round(line.amount || 0)), 0);
-  const extras = feeAddOnInvoiceLines(input.addOns, input.period);
+  const extras = feeAddOnInvoiceLines(input.addOns, input.period, classFee);
   const total = feeLineTotal(lines).total;
   return { classFee, extras, lines, total };
 }

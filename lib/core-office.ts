@@ -525,7 +525,8 @@ export async function saveStudentFeeAddOnCore(
   const studentId = String(input.studentId || "");
   if (!studentId) throw new Error("Student required");
   const label = String(input.label || "Add-on").trim() || "Add-on";
-  const kind = String(input.kind || "CHARGE").toUpperCase() === "DISCOUNT" ? "DISCOUNT" : String(input.kind || "CHARGE").toUpperCase() === "CONCESSION" ? "CONCESSION" : "CHARGE";
+  const requestedKind = String(input.kind || "CHARGE").toUpperCase();
+  const kind = requestedKind === "DISCOUNT_PERCENT" ? "DISCOUNT_PERCENT" : requestedKind === "DISCOUNT" ? "DISCOUNT" : requestedKind === "CONCESSION" ? "CONCESSION" : "CHARGE";
   const cadence = String(input.cadence || "MONTHLY").toUpperCase() === "ONE_TIME" ? "ONE_TIME" : "MONTHLY";
   const data = {
     orgId: user.orgId ?? null,
@@ -645,7 +646,7 @@ export async function applySessionDueDayCore(user: AccessUser, input: { dueDay?:
 
 export async function assignStudentFeesCore(
   user: AccessUser,
-  input: { studentId: string; otherItemIds?: string[]; classAddOnLabels?: string[] }
+  input: { studentId: string; otherItemIds?: string[]; classAddOnLabels?: string[]; discount?: { type?: string; value?: number } | null }
 ) {
   need(user, "people.edit");
   const studentId = String(input.studentId || "");
@@ -678,6 +679,10 @@ export async function assignStudentFeesCore(
     (input.classAddOnLabels || []).map((label) => classAddOnKey(label)).filter((key) => classOptions.some((line) => classAddOnKey(line.label) === key))
   );
   const syncClassAddOns = Array.isArray(input.classAddOnLabels);
+  const syncDiscount = input.discount !== undefined;
+  const discountType = String(input.discount?.type || "FLAT").toUpperCase() === "PERCENT" ? "PERCENT" : "FLAT";
+  const discountValue = Math.max(0, Math.round(Number(input.discount?.value) || 0));
+  if (discountType === "PERCENT" && discountValue > 100) throw new Error("Percentage discount cannot exceed 100%");
   await prisma.$transaction(async (tx) => {
     for (const addOn of catalogAddOns) {
       if (!wantedKinds.has(addOn.kind)) await tx.studentFeeAddOn.delete({ where: { id: addOn.id } });
@@ -718,6 +723,24 @@ export async function assignStudentFeesCore(
         } else if (existing) {
           await tx.studentFeeAddOn.delete({ where: { id: existing.id } });
         }
+      }
+    }
+    if (syncDiscount) {
+      await tx.studentFeeAddOn.deleteMany({ where: { studentId, kind: { in: ["DISCOUNT", "DISCOUNT_PERCENT"] } } });
+      if (discountValue > 0) {
+        await tx.studentFeeAddOn.create({
+          data: {
+            studentId,
+            orgId: user.orgId ?? null,
+            label: "Discount",
+            kind: discountType === "PERCENT" ? "DISCOUNT_PERCENT" : "DISCOUNT",
+            amount: discountValue,
+            cadence: "MONTHLY",
+            startsPeriod,
+            endsPeriod,
+            active: true,
+          },
+        });
       }
     }
   });
