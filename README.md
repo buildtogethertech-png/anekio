@@ -4,6 +4,8 @@ India-first education product built around student strength — not marks-as-the
 
 One Expo app (web, Android, iOS). One Express API. Four portals (parent, teacher, office, student).
 
+For external provider accounts, configuration locations, and quarterly ownership checks, see [README-SERVICES.md](README-SERVICES.md).
+
 ## Run
 
 For a new local machine:
