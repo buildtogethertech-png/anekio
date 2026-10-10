@@ -75,7 +75,7 @@ describe.sequential("fees module lifecycle API", () => {
     database?.cleanup();
   });
 
-  it("rejects setup without a class and without fee lines; clamps due day to 1–30", async () => {
+  it("rejects setup without a class and without fee lines; clamps due day to 1–28", async () => {
     const noClass = await act(officeToken, "saveFeeTemplate", {
       name: "Monthly fee",
       dueDay: 10,
@@ -118,7 +118,7 @@ describe.sequential("fees module lifecycle API", () => {
       lines: [{ label: "Tuition", amount: 100, scope: "ALL" }],
     });
     expect(highDue.status).toBe(200);
-    expect((await prisma.feeTemplate.findUniqueOrThrow({ where: { id: highDue.body.id } })).dueDay).toBe(30);
+    expect((await prisma.feeTemplate.findUniqueOrThrow({ where: { id: highDue.body.id } })).dueDay).toBe(28);
   });
 
   it("saves academic session dates and a school-wide due day", async () => {

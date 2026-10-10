@@ -127,7 +127,7 @@ describe.sequential("fee setup API", () => {
       lines: [{ label: "Tuition", amount: 100, scope: "ALL" }],
     });
     expect(saved.status).toBe(200);
-    expect((await prisma.feeTemplate.findUniqueOrThrow({ where: { id: saved.body.id } })).dueDay).toBe(30);
+    expect((await prisma.feeTemplate.findUniqueOrThrow({ where: { id: saved.body.id } })).dueDay).toBe(28);
 
     const applied = await act(officeToken, "applySessionDueDay", { dueDay: 31 });
     expect(applied.status).toBe(200);

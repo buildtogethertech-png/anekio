@@ -238,10 +238,10 @@ describe("fee catalog and student assignment", () => {
     expect(parsed.dueDay).toBe(10);
   });
 
-  it("clamps due day 0 to 10 and values above 30 to 30", () => {
+  it("clamps due day 0 to 10 and values above 28 to 28", () => {
     expect(clampFeeDueDay(0)).toBe(10);
-    expect(clampFeeDueDay(31)).toBe(30);
-    expect(clampFeeDueDay(99)).toBe(30);
+    expect(clampFeeDueDay(29)).toBe(28);
+    expect(clampFeeDueDay(99)).toBe(28);
     expect(clampFeeDueDay(1)).toBe(1);
     expect(feeTemplateLateWrite(lateStampFromSetup({ enabled: false }).stamp)).not.toHaveProperty("lateFeePerDay");
   });

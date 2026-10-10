@@ -1428,11 +1428,11 @@ export function FeesBoard() {
             ) : null}
           </View>
           <View className="gap-2 self-start" style={{ width: 168, flexShrink: 0 }}>
-            <Field label="Due day" hint="1–30 each month">
+            <Field label="Due day" hint="1–28 each month">
               <Input
                 keyboardType="number-pad"
                 value={String(sessionDueDay)}
-                onChangeText={(value) => setSessionDueDay(Math.min(30, Math.max(1, Math.round(Number(value) || 1))))}
+                onChangeText={(value) => setSessionDueDay(Math.min(28, Math.max(1, Math.round(Number(value) || 1))))}
               />
             </Field>
             <Text className="text-[11px] leading-4 text-ink-600">Invoices are due on the {ordinalDay(sessionDueDay)}.</Text>
@@ -1594,14 +1594,14 @@ export function FeesBoard() {
         <View className="flex-row flex-wrap items-end justify-between gap-4">
           <View className="min-w-[220px] flex-1">
             <Text className="text-sm font-semibold text-ink-900">Monthly due day</Text>
-            <Text className="mt-1 text-xs leading-5 text-ink-600">Use a date from 1 to 30. Invoices are due on that date every month.</Text>
+            <Text className="mt-1 text-xs leading-5 text-ink-600">Use a date from 1 to 28 so it works every month, including February.</Text>
           </View>
           <View className="w-32">
             <Field label="Due date">
               <Input
                 keyboardType="number-pad"
                 value={String(sessionDueDay)}
-                onChangeText={(value) => setSessionDueDay(Math.min(30, Math.max(1, Math.round(Number(value) || 1))))}
+                onChangeText={(value) => setSessionDueDay(Math.min(28, Math.max(1, Math.round(Number(value) || 1))))}
               />
             </Field>
           </View>

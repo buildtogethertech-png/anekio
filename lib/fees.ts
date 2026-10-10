@@ -538,7 +538,7 @@ const EMPTY_FEE_CATALOG: FeeCatalogState = {
 };
 
 export function clampFeeDueDay(day?: number | null) {
-  return Math.min(30, Math.max(1, Math.round(Number(day) || 10)));
+  return Math.min(28, Math.max(1, Math.round(Number(day) || 10)));
 }
 
 export function catalogAddOnKind(kind: FeeCatalogKind, id: string) {

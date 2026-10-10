@@ -78,9 +78,9 @@ describe("issueClassFees vs issueDueFees month windows (AR)", () => {
   });
 });
 
-describe("due-day 30 vs 31 (DUE)", () => {
-  it("clamps template due days to 1–30 while invoice dates still land on the last valid day of the month", () => {
-    expect(clampFeeDueDay(31)).toBe(30);
+describe("universal monthly due days (DUE)", () => {
+  it("clamps template due days to 1–28 so every selected day exists in every month", () => {
+    expect(clampFeeDueDay(31)).toBe(28);
     expect(clampFeeDueDay(0)).toBe(10);
     expect(dueDateForMonth(2026, 1, 30).getDate()).toBe(28);
     expect(dueDateForMonth(2028, 1, 31).getDate()).toBe(29);
