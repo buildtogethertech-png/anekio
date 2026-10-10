@@ -70,23 +70,38 @@ function SuggestionPills({
   );
 }
 
-const LATE_RULES = [
-  { id: "STATIC", label: "One-time amount" },
-  { id: "DAILY", label: "Per day" },
-  { id: "RECURRING_DAY", label: "Recurring every few days" },
-  { id: "RECURRING_MONTH", label: "Per overdue month" },
-  { id: "PERCENT", label: "Percent of unpaid fee (once)" },
-  { id: "PERCENT_MONTH", label: "Percent of unpaid fee per overdue month" },
-] as const;
-
 function lateRuleFromPolicy(row?: { lateKind?: string | null; lateIntervalUnit?: string | null } | null) {
   const kind = String(row?.lateKind || "").toUpperCase();
   const unit = String(row?.lateIntervalUnit || "DAY").toUpperCase();
   if (kind === "STATIC") return "STATIC";
   if (kind === "DAILY") return "DAILY";
+  if (kind === "PERCENT_RECURRING") return unit === "MONTH" ? "PERCENT_RECURRING_MONTH" : "PERCENT_RECURRING_DAY";
   if (kind === "PERCENT") return unit === "MONTH" ? "PERCENT_MONTH" : "PERCENT";
   if (kind === "RECURRING" && unit === "DAY") return "RECURRING_DAY";
   return "RECURRING_MONTH";
+}
+
+type LateTiming = "ONE_TIME" | "RECURRING";
+type LateCharge = "AMOUNT" | "PERCENT";
+type LateIntervalUnit = "DAY" | "MONTH";
+
+function lateSetupFromRule(rule: string): { timing: LateTiming; charge: LateCharge; unit: LateIntervalUnit } {
+  switch (rule) {
+    case "STATIC": return { timing: "ONE_TIME", charge: "AMOUNT", unit: "DAY" };
+    case "PERCENT": return { timing: "ONE_TIME", charge: "PERCENT", unit: "DAY" };
+    case "DAILY":
+    case "RECURRING_DAY": return { timing: "RECURRING", charge: "AMOUNT", unit: "DAY" };
+    case "PERCENT_RECURRING_DAY": return { timing: "RECURRING", charge: "PERCENT", unit: "DAY" };
+    case "PERCENT_MONTH":
+    case "PERCENT_RECURRING_MONTH": return { timing: "RECURRING", charge: "PERCENT", unit: "MONTH" };
+    default: return { timing: "RECURRING", charge: "AMOUNT", unit: "MONTH" };
+  }
+}
+
+function lateRuleForSetup(timing: LateTiming, charge: LateCharge, unit: LateIntervalUnit) {
+  if (timing === "ONE_TIME") return charge === "PERCENT" ? "PERCENT" : "STATIC";
+  if (charge === "PERCENT") return unit === "MONTH" ? "PERCENT_RECURRING_MONTH" : "PERCENT_RECURRING_DAY";
+  return unit === "MONTH" ? "RECURRING_MONTH" : "RECURRING_DAY";
 }
 
 function moneyNumber(value?: string | number) {
@@ -348,8 +363,10 @@ export function FeesBoard() {
   const [lateEnabled, setLateEnabled] = useState(false);
   const [lateAmount, setLateAmount] = useState("10");
   const [lateGrace, setLateGrace] = useState("5");
-  const [lateRule, setLateRule] = useState("RECURRING_MONTH");
   const [lateEvery, setLateEvery] = useState("15");
+  const [lateTiming, setLateTiming] = useState<LateTiming>("RECURRING");
+  const [lateCharge, setLateCharge] = useState<LateCharge>("AMOUNT");
+  const [lateIntervalUnit, setLateIntervalUnit] = useState<LateIntervalUnit>("MONTH");
   const [sessionStart, setSessionStart] = useState("");
   const [sessionEnd, setSessionEnd] = useState("");
   const [sessionDueDay, setSessionDueDay] = useState(10);
@@ -616,8 +633,11 @@ export function FeesBoard() {
     setLateEnabled(enabled);
     setLateAmount(String(amount || 10));
     setLateGrace(String(graceDays || 0));
-    setLateRule(rule);
     setLateEvery(String((useCatalog ? fromCatalog.intervalCount : fromTemplate?.lateIntervalCount) || 15));
+    const setup = lateSetupFromRule(rule);
+    setLateTiming(setup.timing);
+    setLateCharge(setup.charge);
+    setLateIntervalUnit(setup.unit);
   }, [catalog.late, templates]);
 
   useEffect(() => {
@@ -725,11 +745,12 @@ export function FeesBoard() {
 
   async function saveLateFee() {
     try {
+      const rule = lateRuleForSetup(lateTiming, lateCharge, lateIntervalUnit);
       await act(token, "applySessionLateFee", {
         enabled: lateEnabled,
         amount: Math.max(0, Number(lateAmount) || 0),
         graceDays: Math.max(0, Math.round(Number(lateGrace) || 0)),
-        rule: lateRule,
+        rule,
         intervalCount: Math.max(1, Math.round(Number(lateEvery) || 15)),
       });
       toast.show("Late fee saved for new invoices.");
@@ -1618,36 +1639,42 @@ export function FeesBoard() {
         {lateEnabled ? (
           <View className="mt-4 gap-3">
             <View className="max-w-2xl">
-              <Text className="mb-1.5 text-xs font-medium text-ink-700">How to charge late fine</Text>
+              <Text className="mb-1.5 text-xs font-medium text-ink-700">When to charge</Text>
               <View className="flex-row flex-wrap gap-1.5">
-                {LATE_RULES.map((rule) => {
-                  const on = lateRule === rule.id;
-                  return (
-                    <Pressable
-                      key={rule.id}
-                      accessibilityRole="button"
-                      onPress={() => setLateRule(rule.id)}
-                      className={`rounded-md px-3 py-1.5 ${on ? "bg-blue-600" : "border border-ink-200 bg-white"}`}
-                    >
-                      <Text className={`text-sm font-semibold ${on ? "text-white" : "text-ink-800"}`}>{rule.label}</Text>
-                    </Pressable>
-                  );
+                {(["ONE_TIME", "RECURRING"] as const).map((timing) => {
+                  const on = lateTiming === timing;
+                  return <Pressable key={timing} accessibilityRole="button" onPress={() => setLateTiming(timing)} className={`rounded-md px-3 py-1.5 ${on ? "bg-blue-600" : "border border-ink-200 bg-white"}`}><Text className={`text-sm font-semibold ${on ? "text-white" : "text-ink-800"}`}>{timing === "ONE_TIME" ? "One-time" : "Recurring"}</Text></Pressable>;
+                })}
+              </View>
+            </View>
+            <View className="max-w-2xl">
+              <Text className="mb-1.5 text-xs font-medium text-ink-700">Charge</Text>
+              <View className="flex-row flex-wrap gap-1.5">
+                {(["AMOUNT", "PERCENT"] as const).map((charge) => {
+                  const on = lateCharge === charge;
+                  return <Pressable key={charge} accessibilityRole="button" onPress={() => setLateCharge(charge)} className={`rounded-md px-3 py-1.5 ${on ? "bg-blue-600" : "border border-ink-200 bg-white"}`}><Text className={`text-sm font-semibold ${on ? "text-white" : "text-ink-800"}`}>{charge === "AMOUNT" ? "Amount (₹)" : "Percentage (%)"}</Text></Pressable>;
                 })}
               </View>
             </View>
             <View className="flex-row flex-wrap gap-3">
               <View className="w-36">
-                <Field label={lateRule.startsWith("PERCENT") ? "Percent" : "Amount (₹)"}>
+                <Field label={lateCharge === "PERCENT" ? "Percent" : "Amount (₹)"}>
                   <Input keyboardType="number-pad" value={lateAmount} onChangeText={setLateAmount} />
                 </Field>
               </View>
-              {lateRule === "RECURRING_DAY" ? (
+              {lateTiming === "RECURRING" ? <>
                 <View className="w-36">
-                  <Field label="Every (days)">
+                  <Field label="Repeat every">
                     <Input keyboardType="number-pad" value={lateEvery} onChangeText={setLateEvery} />
                   </Field>
                 </View>
-              ) : null}
+                <View className="w-36">
+                  <Text className="mb-1.5 text-xs font-medium text-ink-700">Interval</Text>
+                  <View className="flex-row rounded-md border border-ink-200 bg-white p-0.5">
+                    {(["DAY", "MONTH"] as const).map((unit) => <Pressable key={unit} accessibilityRole="button" onPress={() => setLateIntervalUnit(unit)} className={`flex-1 items-center rounded px-2 py-2 ${lateIntervalUnit === unit ? "bg-ink-900" : "bg-white"}`}><Text className={`text-xs font-semibold ${lateIntervalUnit === unit ? "text-white" : "text-ink-700"}`}>{unit === "DAY" ? "Days" : "Months"}</Text></Pressable>)}
+                  </View>
+                </View>
+              </> : null}
               <View className="w-36">
                 <Field label="Grace period (days)">
                   <Input keyboardType="number-pad" value={lateGrace} onChangeText={setLateGrace} />
@@ -1655,17 +1682,7 @@ export function FeesBoard() {
               </View>
             </View>
             <Text className="max-w-xl text-xs leading-5 text-ink-600">
-              {lateRule === "STATIC"
-                ? `₹${Math.max(0, Math.round(Number(lateAmount) || 0))} is added once after the grace period.`
-                : lateRule === "DAILY"
-                  ? `₹${Math.max(0, Math.round(Number(lateAmount) || 0))} is added for each day after the grace period.`
-                  : lateRule === "RECURRING_DAY"
-                    ? `₹${Math.max(0, Math.round(Number(lateAmount) || 0))} is added every ${Math.max(1, Math.round(Number(lateEvery) || 15))} days after the grace period.`
-                    : lateRule === "PERCENT"
-                      ? `${Math.max(0, Number(lateAmount) || 0)}% of the unpaid invoice amount is added once after the grace period.`
-                      : lateRule === "PERCENT_MONTH"
-                        ? `${Math.max(0, Number(lateAmount) || 0)}% of the unpaid invoice amount is added for each overdue month after the grace period.`
-                        : `₹${Math.max(0, Math.round(Number(lateAmount) || 0))} is added for each overdue fee month after the grace period.`}
+              {lateCharge === "PERCENT" ? `${Math.max(0, Number(lateAmount) || 0)}% of the unpaid invoice amount` : `₹${Math.max(0, Math.round(Number(lateAmount) || 0))}`} {lateTiming === "ONE_TIME" ? "is added once after the grace period." : `is added every ${Math.max(1, Math.round(Number(lateEvery) || 1))} ${lateIntervalUnit === "DAY" ? "day" : "month"}${Math.max(1, Math.round(Number(lateEvery) || 1)) === 1 ? "" : "s"} after the grace period.`}
             </Text>
           </View>
         ) : (

@@ -239,7 +239,7 @@ export function latePolicyFrom(row: {
   lateFeePerDay?: number | null;
 }) {
   const kind = (row.lateKind || "").toUpperCase();
-  if (kind === "NONE" || kind === "STATIC" || kind === "DAILY" || kind === "RECURRING" || kind === "PERCENT") {
+  if (kind === "NONE" || kind === "STATIC" || kind === "DAILY" || kind === "RECURRING" || kind === "PERCENT" || kind === "PERCENT_RECURRING") {
     const intervalCount = Math.max(1, Math.round(Number(row.lateIntervalCount) || 1));
     const intervalUnit = String(row.lateIntervalUnit || "DAY").toUpperCase() === "MONTH" ? "MONTH" : "DAY";
     return {
@@ -681,7 +681,7 @@ export function lateStampFromSetup(input: {
               lateIntervalCount: intervalCount,
               lateIntervalUnit: "DAY",
             })
-          : rule === "PERCENT"
+        : rule === "PERCENT"
             ? invoiceLateStamp({
                 lateKind: "PERCENT",
                 lateAmount: Math.round(amount),
@@ -697,11 +697,19 @@ export function lateStampFromSetup(input: {
                   lateIntervalCount: 1,
                   lateIntervalUnit: "MONTH",
                 })
-              : invoiceLateStamp({
+              : rule === "PERCENT_RECURRING_DAY" || rule === "PERCENT_RECURRING_MONTH"
+                ? invoiceLateStamp({
+                    lateKind: "PERCENT_RECURRING",
+                    lateAmount: Math.round(amount),
+                    lateGraceDays: graceDays,
+                    lateIntervalCount: intervalCount,
+                    lateIntervalUnit: rule === "PERCENT_RECURRING_MONTH" ? "MONTH" : "DAY",
+                  })
+                : invoiceLateStamp({
                   lateKind: "RECURRING",
                   lateAmount: Math.round(amount),
                   lateGraceDays: graceDays,
-                  lateIntervalCount: 1,
+                  lateIntervalCount: intervalCount,
                   lateIntervalUnit: "MONTH",
                 });
   return {
@@ -719,6 +727,7 @@ export function lateRuleFromPolicy(row: {
   const unit = String(row.lateIntervalUnit || "DAY").toUpperCase();
   if (kind === "STATIC") return "STATIC";
   if (kind === "DAILY") return "DAILY";
+  if (kind === "PERCENT_RECURRING") return unit === "MONTH" ? "PERCENT_RECURRING_MONTH" : "PERCENT_RECURRING_DAY";
   if (kind === "PERCENT") return unit === "MONTH" ? "PERCENT_MONTH" : "PERCENT";
   if (kind === "RECURRING" && unit === "DAY") return "RECURRING_DAY";
   return "RECURRING_MONTH";

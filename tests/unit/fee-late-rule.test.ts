@@ -171,5 +171,11 @@ describe("fee late rules", () => {
       lateIntervalCount: 15,
       lateIntervalUnit: "DAY",
     });
+    expect(lateStampFromSetup({ enabled: true, rule: "PERCENT_RECURRING_MONTH", amount: 5, graceDays: 3, intervalCount: 2 }).stamp).toMatchObject({
+      lateKind: "PERCENT_RECURRING",
+      lateAmount: 5,
+      lateIntervalCount: 2,
+      lateIntervalUnit: "MONTH",
+    });
   });
 });

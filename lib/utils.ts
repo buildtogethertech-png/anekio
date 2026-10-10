@@ -45,7 +45,7 @@ export function daysLate(dueDate: Date, now = new Date()) {
   return Math.max(0, diff);
 }
 
-export type LateKind = "NONE" | "STATIC" | "DAILY" | "RECURRING" | "PERCENT";
+export type LateKind = "NONE" | "STATIC" | "DAILY" | "RECURRING" | "PERCENT" | "PERCENT_RECURRING";
 
 export type LatePolicy = {
   lateKind?: string | null;
@@ -88,11 +88,11 @@ export function lateFee(dueDate: Date, paid: boolean, policy: LatePolicy = {}) {
   const kind = (policy.lateKind || "").toUpperCase();
   const unit = String(policy.lateIntervalUnit || "DAY").toUpperCase();
   const remaining = Math.max(0, Math.round(Number(policy.remaining) || 0));
-  if (kind === "PERCENT") {
+  if (kind === "PERCENT" || kind === "PERCENT_RECURRING") {
     const pct = Math.max(0, Number(policy.lateAmount) || 0);
     const rupees = Math.round((remaining * pct) / 100);
     if (!rupees) return 0;
-    const asRupee = { ...policy, lateKind: unit === "MONTH" ? "RECURRING" : "STATIC", lateAmount: rupees, remaining: undefined };
+    const asRupee = { ...policy, lateKind: kind === "PERCENT_RECURRING" || unit === "MONTH" ? "RECURRING" : "STATIC", lateAmount: rupees, remaining: undefined };
     return lateFee(dueDate, paid, asRupee);
   }
   if (kind !== "RECURRING" || unit !== "MONTH") return lateAmountForDays(daysLate(dueDate), policy);
