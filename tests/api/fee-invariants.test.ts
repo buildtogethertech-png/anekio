@@ -343,10 +343,10 @@ describe.sequential("fee P0 invariants", () => {
     const billed = invoices.reduce((sum, row) => sum + row.amount, 0);
     const paid = invoices.reduce((sum, row) => sum + row.payments.reduce((inner, payment) => inner + payment.amount, 0), 0);
     const outstanding = invoices.reduce((sum, row) => sum + invoiceBalance(row).dueNow, 0);
-    const rows = (register.body.rows as { studentId: string }[]).filter((row) => row.studentId === student.id);
-    expect(rows.reduce((sum, row) => sum + Number((row as { total: number }).total), 0)).toBe(billed);
-    expect(rows.reduce((sum, row) => sum + Number((row as { paid: number }).paid), 0)).toBe(paid);
-    expect(rows.reduce((sum, row) => sum + Number((row as { dueNow: number }).dueNow), 0)).toBe(outstanding);
+    const rows = (register.body.rows as { studentId: string; total: number; paid: number; dueNow: number }[]).filter((row) => row.studentId === student.id);
+    expect(rows.reduce((sum, row) => sum + Number(row.total), 0)).toBe(billed);
+    expect(rows.reduce((sum, row) => sum + Number(row.paid), 0)).toBe(paid);
+    expect(rows.reduce((sum, row) => sum + Number(row.dueNow), 0)).toBe(outstanding);
     expect(register.body.history[student.id]).toHaveLength(2);
   });
 });
