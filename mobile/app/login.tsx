@@ -373,12 +373,12 @@ export default function Login() {
             <Pressable
               accessibilityRole="tab"
               accessibilityState={{ selected: mode === "otp" }}
-              accessibilityLabel="Sign in with one-time code"
+              accessibilityLabel="Sign in with OTP"
               disabled={pending}
               onPress={() => chooseMode("otp")}
               className={`h-11 flex-1 items-center justify-center rounded-xl ${mode === "otp" ? "border border-[#D6DEEA] bg-white" : ""}`}
             >
-              <Text className={`text-sm font-semibold ${mode === "otp" ? "text-[#102A5C]" : "text-[#71809A]"}`}>One-time code</Text>
+              <Text className={`text-sm font-semibold ${mode === "otp" ? "text-[#102A5C]" : "text-[#71809A]"}`}>OTP</Text>
             </Pressable>
           </View>
         ) : null}
@@ -419,7 +419,7 @@ export default function Login() {
           ) : (
             <>
                   <View>
-                    <FieldLabel>{mode === "otp" || mode === "forgot" ? "Registered email or mobile" : "Email or mobile number"}</FieldLabel>
+                    <FieldLabel>{mode === "forgot" ? "Registered email" : "Email or mobile number"}</FieldLabel>
                     <View className="relative justify-center">
                       <View className="absolute left-3 z-10"><Ionicons name="person-outline" size={18} color="#64748B" /></View>
                       <Input
