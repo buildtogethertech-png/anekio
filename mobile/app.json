@@ -24,7 +24,7 @@
       "package": "in.anekio.school",
       "usesCleartextTraffic": true,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/anekio-mark-transparent.png",
+        "foregroundImage": "./assets/anekio-mark-adaptive.png",
         "backgroundColor": "#0B132B"
       }
     },
