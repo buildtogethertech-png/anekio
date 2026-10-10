@@ -2170,7 +2170,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
 
       <Modal
         open={manageFeeOpen && Boolean(selected)}
-        title="Manage fee"
+        title="Manage monthly fee"
         onClose={() => {
           if (!manageFeePending) setManageFeeOpen(false);
         }}

@@ -87,94 +87,91 @@ export function ManageFeeBody({
   const others = otherOptions.filter((item) => otherIds.includes(item.id));
   const selectedAddOns = classAddOns.filter((line) => classAddOnLabels.some((label) => classAddOnKey(label) === classAddOnKey(line.label)));
   const total = classFee + (transport?.amount || 0) + others.reduce((sum, item) => sum + item.amount, 0) + selectedAddOns.reduce((sum, line) => sum + line.amount, 0);
+  const optionalCount = selectedAddOns.length + others.length + (transport ? 1 : 0);
+  const initials = student.name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
   return (
-    <View className="gap-4">
-      <View>
-        <Text className="text-base font-semibold text-ink-900">{student.name}</Text>
-        <Text className="mt-0.5 text-sm text-ink-700">
-          {student.classLabel} · {student.admissionNo}
-        </Text>
-        {sessionLabel ? <Text className="mt-0.5 text-xs text-ink-500">{sessionLabel}</Text> : null}
-      </View>
-      <View className="rounded-md border border-ink-100 bg-ink-50 px-3 py-3">
-        <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">Class fee</Text>
-        <Text className="mt-1 text-sm font-semibold text-ink-900">
-          {student.classLabel || "Class"} · {inr(classFee)} / month
-        </Text>
-        <Text className="mt-0.5 text-xs text-ink-600">Automatically applied</Text>
-      </View>
-      <View>
-        <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">Class add-ons</Text>
-        <Text className="mt-1 text-xs text-ink-600">Optional for this class. Tick only the charges this student should pay.</Text>
-        {classAddOns.map((item) => {
-          const checked = classAddOnLabels.some((label) => classAddOnKey(label) === classAddOnKey(item.label));
-          return (
-            <Pressable key={item.label} onPress={() => onToggleClassAddOn(item.label)} className="mt-1 flex-row items-center justify-between py-1">
-              <Text className="text-sm text-ink-900">
-                {checked ? "☑" : "☐"} {item.label}
-              </Text>
-              <Text className="text-sm text-ink-800">{inr(item.amount)} / month</Text>
-            </Pressable>
-          );
-        })}
-        {!classAddOns.length ? <Text className="mt-2 text-sm text-ink-600">No class add-ons in Setup yet.</Text> : null}
-      </View>
-      <View>
-        <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">Transport</Text>
-        <Pressable onPress={() => onTransport("")} className="mt-2 flex-row items-center gap-2 py-1">
-          <Text className="text-sm text-ink-900">{transportId ? "○" : "●"} No transport</Text>
-        </Pressable>
-        {transportOptions.map((item) => (
-          <Pressable key={item.id} onPress={() => onTransport(item.id)} className="flex-row items-center gap-2 py-1">
-            <Text className="text-sm text-ink-900">
-              {transportId === item.id ? "●" : "○"} {item.label} — {inr(item.amount)} / month
-            </Text>
-          </Pressable>
-        ))}
-        {!transportOptions.length ? <Text className="mt-2 text-sm text-ink-600">No transport options in Setup yet.</Text> : null}
-      </View>
-      <View>
-        <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">Other fees</Text>
-        {otherOptions.map((item) => {
-          const checked = otherIds.includes(item.id);
-          return (
-            <Pressable key={item.id} onPress={() => onToggleOther(item.id)} className="mt-1 flex-row items-center justify-between py-1">
-              <Text className="text-sm text-ink-900">
-                {checked ? "☑" : "☐"} {item.label}
-              </Text>
-              <Text className="text-sm text-ink-800">{inr(item.amount)} / month</Text>
-            </Pressable>
-          );
-        })}
-        {!otherOptions.length ? <Text className="mt-2 text-sm text-ink-600">No other fees in Setup yet.</Text> : null}
-      </View>
-      <View className="border-t border-ink-100 pt-3">
-        <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">Applicable monthly fee</Text>
-        <View className="mt-2 flex-row justify-between">
-          <Text className="text-sm text-ink-700">Class fee</Text>
-          <Text className="text-sm text-ink-900">{inr(classFee)}</Text>
+    <View className="gap-3">
+      <View className="flex-row items-center justify-between rounded-xl border border-ink-100 bg-ink-50 p-3">
+        <View className="flex-row items-center gap-3">
+          <View className="h-10 w-10 items-center justify-center rounded-full bg-clay-100">
+            <Text className="text-sm font-semibold text-clay-700">{initials || "S"}</Text>
+          </View>
+          <View className="min-w-0 flex-1">
+            <Text className="text-base font-semibold text-ink-900" numberOfLines={1}>{student.name}</Text>
+            <Text className="mt-0.5 text-xs text-ink-700" numberOfLines={1}>{student.classLabel} · {student.admissionNo}</Text>
+            {sessionLabel ? <Text className="mt-0.5 text-[11px] text-ink-500">{sessionLabel}</Text> : null}
+          </View>
         </View>
-        {selectedAddOns.map((item) => (
-          <View key={item.label} className="mt-1 flex-row justify-between">
-            <Text className="text-sm text-ink-700">{item.label}</Text>
-            <Text className="text-sm text-ink-900">{inr(item.amount)}</Text>
+        <View className="items-end">
+          <Text className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">Monthly fee</Text>
+          <Text className="mt-0.5 text-base font-semibold text-ink-900">{inr(total)}</Text>
+        </View>
+      </View>
+
+      <View className="rounded-xl border border-blue-100 bg-blue-50 p-3">
+        <View className="flex-row items-center justify-between">
+          <View>
+            <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-600">Required class fee</Text>
+            <Text className="mt-1 text-sm font-semibold text-ink-900">{student.classLabel || "Class"} tuition</Text>
+            <Text className="mt-0.5 text-xs text-ink-700">Applied automatically every month</Text>
           </View>
-        ))}
-        {transport ? (
-          <View className="mt-1 flex-row justify-between">
-            <Text className="text-sm text-ink-700">Transport</Text>
-            <Text className="text-sm text-ink-900">{inr(transport.amount)}</Text>
+          <Text className="text-base font-semibold text-ink-900">{inr(classFee)}</Text>
+        </View>
+      </View>
+
+      <View className="rounded-xl border border-ink-200 bg-white p-3">
+        <View className="flex-row items-start justify-between gap-3">
+          <View className="flex-1">
+            <Text className="text-sm font-semibold text-ink-900">Optional class add-ons</Text>
+            <Text className="mt-0.5 text-xs leading-4 text-ink-600">Choose only charges this student should receive every month.</Text>
           </View>
-        ) : null}
-        {others.map((item) => (
-          <View key={item.id} className="mt-1 flex-row justify-between">
-            <Text className="text-sm text-ink-700">{item.label}</Text>
-            <Text className="text-sm text-ink-900">{inr(item.amount)}</Text>
-          </View>
-        ))}
-        <View className="mt-2 flex-row justify-between border-t border-ink-100 pt-2">
-          <Text className="text-sm font-semibold text-ink-900">Total</Text>
-          <Text className="text-sm font-semibold text-ink-900">{inr(total)} / month</Text>
+          <View className="rounded-full bg-ink-100 px-2 py-1"><Text className="text-[10px] font-semibold text-ink-700">{selectedAddOns.length} selected</Text></View>
+        </View>
+        {classAddOns.length ? <View className="mt-3 gap-2">{classAddOns.map((item) => {
+          const checked = classAddOnLabels.some((label) => classAddOnKey(label) === classAddOnKey(item.label));
+          return <Pressable key={item.label} accessibilityRole="checkbox" accessibilityState={{ checked }} onPress={() => onToggleClassAddOn(item.label)} className={`flex-row items-center justify-between rounded-lg border px-3 py-2.5 ${checked ? "border-clay-300 bg-blue-50" : "border-ink-200 bg-white"}`}>
+            <View className="flex-row items-center gap-2.5"><View className={`h-5 w-5 items-center justify-center rounded-md border ${checked ? "border-clay-600 bg-clay-600" : "border-ink-300 bg-white"}`}><Text className="text-[11px] font-bold text-white">{checked ? "✓" : ""}</Text></View><Text className="text-sm font-medium text-ink-900">{item.label}</Text></View>
+            <Text className="text-sm font-semibold text-ink-800">{inr(item.amount)}</Text>
+          </Pressable>;
+        })}</View> : <Text className="mt-3 text-xs text-ink-600">No optional add-ons are configured for this class.</Text>}
+      </View>
+
+      <View className="rounded-xl border border-ink-200 bg-white p-3">
+        <Text className="text-sm font-semibold text-ink-900">Transport</Text>
+        <Text className="mt-0.5 text-xs text-ink-600">Select one route, or keep transport off.</Text>
+        <View className="mt-3 gap-2">
+          {[{ id: "", label: "No transport", amount: 0 }, ...transportOptions].map((item) => {
+            const checked = transportId === item.id;
+            return <Pressable key={item.id || "none"} accessibilityRole="radio" accessibilityState={{ selected: checked }} onPress={() => onTransport(item.id)} className={`flex-row items-center justify-between rounded-lg border px-3 py-2.5 ${checked ? "border-clay-300 bg-blue-50" : "border-ink-200 bg-white"}`}>
+              <View className="flex-row items-center gap-2.5"><View className={`h-5 w-5 items-center justify-center rounded-full border ${checked ? "border-clay-600" : "border-ink-300"}`}>{checked ? <View className="h-2.5 w-2.5 rounded-full bg-clay-600" /> : null}</View><Text className="text-sm font-medium text-ink-900">{item.label}</Text></View>
+              <Text className="text-sm font-semibold text-ink-800">{item.amount ? inr(item.amount) : "—"}</Text>
+            </Pressable>;
+          })}
+        </View>
+        {!transportOptions.length ? <Text className="mt-2 text-[11px] text-ink-500">Add transport routes from Fees setup when needed.</Text> : null}
+      </View>
+
+      {otherOptions.length ? <View className="rounded-xl border border-ink-200 bg-white p-3">
+        <Text className="text-sm font-semibold text-ink-900">Other monthly charges</Text>
+        <View className="mt-3 gap-2">{otherOptions.map((item) => {
+          const checked = otherIds.includes(item.id);
+          return <Pressable key={item.id} accessibilityRole="checkbox" accessibilityState={{ checked }} onPress={() => onToggleOther(item.id)} className={`flex-row items-center justify-between rounded-lg border px-3 py-2.5 ${checked ? "border-clay-300 bg-blue-50" : "border-ink-200 bg-white"}`}>
+            <View className="flex-row items-center gap-2.5"><View className={`h-5 w-5 items-center justify-center rounded-md border ${checked ? "border-clay-600 bg-clay-600" : "border-ink-300 bg-white"}`}><Text className="text-[11px] font-bold text-white">{checked ? "✓" : ""}</Text></View><Text className="text-sm font-medium text-ink-900">{item.label}</Text></View>
+            <Text className="text-sm font-semibold text-ink-800">{inr(item.amount)}</Text>
+          </Pressable>;
+        })}</View>
+      </View> : null}
+
+      <View className="rounded-xl bg-[#102A5C] p-4">
+        <View className="flex-row items-center justify-between">
+          <View><Text className="text-[11px] font-semibold uppercase tracking-wide text-blue-100">Monthly amount to bill</Text><Text className="mt-1 text-xs text-blue-100">{optionalCount ? `${optionalCount} optional charge${optionalCount === 1 ? "" : "s"} included` : "Class fee only"}</Text></View>
+          <View className="items-end"><Text className="text-xl font-semibold text-white">{inr(total)}</Text><Text className="text-[11px] text-blue-100">per month</Text></View>
         </View>
       </View>
     </View>
