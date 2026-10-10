@@ -24,6 +24,7 @@ export const SAAS_EMAIL_TEMPLATE_VARIABLES = [
   "demoScheduledAt",
   "trialDays",
   "loginUrl",
+  "passwordResetUrl",
   "leadUrl",
 ] as const;
 
@@ -142,6 +143,8 @@ export type SendSaasEmailEventInput = {
   orgId: string;
   idempotencyKey: string;
   variables: SaasEmailTemplateVariables;
+  /** Sensitive account links are available only to the customer route. */
+  customerVariables?: SaasEmailTemplateVariables;
   /** Pass the incoming request hostname. Production is only anekio.com / www.anekio.com. */
   host?: string;
   /** Explicitly useful for jobs and tests; host takes precedence only when this is omitted. */
@@ -284,26 +287,27 @@ CRM lead: {{leadUrl}}`,
     ccRecipients: "[]",
     bccRecipients: "[]",
     replyTo: JSON.stringify(["support@anekio.com"]),
-    subjectTemplate: "Your Anekio trial is ready",
+    subjectTemplate: "Your Anekio school workspace is ready",
     textTemplate: `Hi {{ownerName}},
 
-Your {{trialDays}}-day Anekio trial for {{schoolName}} is ready.
+Your {{trialDays}}-day trial workspace for {{schoolName}} is ready.
 
-Login: {{loginUrl}}
-Use your registered phone or email to sign in.
+Sign in: {{loginUrl}}
+Set your password: {{passwordResetUrl}}
 
-Start with School setup, then import students, staff, fees, and documents from the onboarding area.
+This password link can be used once and expires in 24 hours. If it expires, choose Forgot password on the sign-in page.
 
-Reply to this email if you want help setting up the workspace.
+Someone from our team will contact you soon to help with onboarding, answer your questions, and get your school set up. If you need help before then, reply to this email.
 
-Anekio Support`,
+Welcome to Anekio,
+The Anekio Team`,
     htmlTemplate: `<div style="font-family:Arial,sans-serif;color:#172033;line-height:1.55;max-width:640px">
 <p>Hi {{ownerName}},</p>
-<p>Your <strong>{{trialDays}}-day Anekio trial</strong> for <strong>{{schoolName}}</strong> is ready.</p>
-<p><strong>Login:</strong> <a href="{{loginUrl}}">{{loginUrl}}</a></p>
-<p>Use your registered phone or email to sign in. Start with School setup, then import students, staff, fees, and documents from the onboarding area.</p>
-<p>Reply to this email if you want help setting up the workspace.</p>
-<p>Regards,<br>Anekio Support</p>
+<p>Your <strong>{{trialDays}}-day trial workspace</strong> for <strong>{{schoolName}}</strong> is ready.</p>
+<p><strong>Sign in:</strong> <a href="{{loginUrl}}">{{loginUrl}}</a><br><strong>Set your password:</strong> <a href="{{passwordResetUrl}}">{{passwordResetUrl}}</a></p>
+<p>This password link can be used once and expires in 24 hours. If it expires, choose Forgot password on the sign-in page.</p>
+<p>Someone from our team will contact you soon to help with onboarding, answer your questions, and get your school set up. If you need help before then, reply to this email.</p>
+<p>Welcome to Anekio,<br>The Anekio Team</p>
 </div>`,
   },
 ];
@@ -481,6 +485,27 @@ function ruleSettings(rule: StoredRule): SaasEmailRuleSettings {
   };
 }
 
+const LEGACY_TRIAL_CUSTOMER_TEXT = `Hi {{ownerName}},
+
+Your {{trialDays}}-day Anekio trial for {{schoolName}} is ready.
+
+Login: {{loginUrl}}
+Use your registered phone or email to sign in.
+
+Start with School setup, then import students, staff, fees, and documents from the onboarding area.
+
+Reply to this email if you want help setting up the workspace.
+
+Anekio Support`;
+const LEGACY_TRIAL_CUSTOMER_HTML = `<div style="font-family:Arial,sans-serif;color:#172033;line-height:1.55;max-width:640px">
+<p>Hi {{ownerName}},</p>
+<p>Your <strong>{{trialDays}}-day Anekio trial</strong> for <strong>{{schoolName}}</strong> is ready.</p>
+<p><strong>Login:</strong> <a href="{{loginUrl}}">{{loginUrl}}</a></p>
+<p>Use your registered phone or email to sign in. Start with School setup, then import students, staff, fees, and documents from the onboarding area.</p>
+<p>Reply to this email if you want help setting up the workspace.</p>
+<p>Regards,<br>Anekio Support</p>
+</div>`;
+
 /** Creates the singleton configuration and default rules without overwriting a configured installation. */
 async function ensureSaasEmailDefaultsRaw(client: PrismaClient = prisma) {
   const config = await client.saasEmailConfig.upsert({
@@ -497,6 +522,16 @@ async function ensureSaasEmailDefaultsRaw(client: PrismaClient = prisma) {
       })
     )
   );
+  const currentDefault = DEFAULT_RULES.find((rule) => rule.event === "TRIAL_STARTED" && rule.audience === "CUSTOMER")!;
+  const customerRule = await client.saasEmailRule.findUnique({
+    where: { configId_event_audience: { configId: config.id, event: "TRIAL_STARTED", audience: "CUSTOMER" } },
+  });
+  if (customerRule?.textTemplate === LEGACY_TRIAL_CUSTOMER_TEXT && customerRule.htmlTemplate === LEGACY_TRIAL_CUSTOMER_HTML && customerRule.subjectTemplate === "Your Anekio trial is ready") {
+    await client.saasEmailRule.update({
+      where: { id: customerRule.id },
+      data: { subjectTemplate: currentDefault.subjectTemplate, textTemplate: currentDefault.textTemplate, htmlTemplate: currentDefault.htmlTemplate },
+    });
+  }
   return config;
 }
 
@@ -1043,7 +1078,7 @@ export async function sendSaasEmailEvent(input: SendSaasEmailEventInput): Promis
       audience: route.audience,
       orgId,
       idempotencyKey,
-      variables: input.variables || {},
+      variables: route.audience === "CUSTOMER" ? { ...input.variables, ...input.customerVariables } : input.variables || {},
       environment,
       blockedReason: route.audience === "CUSTOMER" && internalFailure ? `Customer email blocked: ${internalFailure}` : undefined,
     });

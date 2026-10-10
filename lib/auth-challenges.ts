@@ -9,6 +9,7 @@ export type AuthChallengePurpose = "LOGIN" | "PASSWORD_RESET";
 
 const CODE_TTL_MS = 10 * 60 * 1000;
 const RESET_LINK_TTL_MS = 15 * 60 * 1000;
+const TRIAL_WELCOME_LINK_TTL_MS = 24 * 60 * 60 * 1000;
 const RESEND_AFTER_MS = 45 * 1000;
 const RATE_WINDOW_MS = 15 * 60 * 1000;
 const RATE_LIMIT = 5;
@@ -51,6 +52,30 @@ export function authCodeMatches(expectedHex: string, challengeId: string, purpos
   const actual = Buffer.from(authCodeHash(challengeId, purpose, code));
   const expected = Buffer.from(expectedHex);
   return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+/** Creates a one-use onboarding link for the new school's administrator without sending a second email. */
+export async function createTrialWelcomeResetLink(orgId: string, email: string, origin: string) {
+  const user = await prisma.user.findFirst({
+    where: { orgId, email: email.trim().toLowerCase(), role: { slug: "ADMIN" } },
+    select: { id: true, email: true },
+  });
+  if (!user?.email) throw new Error("Trial administrator was not provisioned.");
+  const id = randomUUID();
+  const code = randomBytes(32).toString("base64url");
+  await prisma.authChallenge.create({
+    data: {
+      id,
+      orgId,
+      userId: user.id,
+      identifierHash: identifierHash(user.email),
+      destination: user.email,
+      purpose: "PASSWORD_RESET",
+      codeHash: authCodeHash(id, "PASSWORD_RESET", code),
+      expiresAt: new Date(Date.now() + TRIAL_WELCOME_LINK_TTL_MS),
+    },
+  });
+  return `${origin.replace(/\/$/, "")}/reset-password?token=${encodeURIComponent(`${id}.${code}`)}`;
 }
 
 function deliverableEmail(value: string | null | undefined) {

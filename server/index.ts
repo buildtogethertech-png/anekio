@@ -12,7 +12,9 @@ import {
   requestAuthCode,
   resetPasswordWithLink,
   resetPasswordWithCode,
+  createTrialWelcomeResetLink,
 } from "../lib/auth-challenges";
+import { trialEmailOrigins } from "../lib/trial-email-urls";
 import { hasAny, userFromAuthHeader } from "../lib/http-user";
 import { userForLogin, usersForLogin } from "../lib/login";
 import { verifiedGoogleEmail } from "../lib/mobile-google-auth";
@@ -1055,6 +1057,8 @@ app.post("/api/saas/trial", async (req, res) => {
     const { login, password, loginUrl, ...org } = await createSaasTrial(req.body || {});
     const leadUrl = `${requestOrigin(req).replace(/\/$/, "")}/anekio-admin?view=lead&id=${encodeURIComponent(org.id)}`;
     try {
+      const emailOrigins = trialEmailOrigins(hostName(req));
+      const passwordResetUrl = await createTrialWelcomeResetLink(org.id, org.ownerEmail, emailOrigins.site);
       await sendSaasEmailEvent({
         event: "TRIAL_STARTED",
         orgId: org.id,
@@ -1067,9 +1071,10 @@ app.post("/api/saas/trial", async (req, res) => {
           ownerPhone: org.ownerPhone,
           city: org.city,
           trialDays: String(org.plan.match(/\d+/)?.[0] || "7"),
-          loginUrl: `${requestOrigin(req).replace(/\/$/, "")}${loginUrl || "/login"}`,
+          loginUrl: `${emailOrigins.app}${loginUrl || "/login"}`,
           leadUrl,
         },
+        customerVariables: { passwordResetUrl },
       });
     } catch (error) {
       console.error("Trial onboarding email delivery setup failed", error instanceof Error ? error.message : error);

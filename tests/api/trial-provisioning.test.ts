@@ -164,7 +164,14 @@ describe("trial signup provisioning", () => {
     expect(deliveries.map((delivery) => delivery.audience).sort()).toEqual(["CUSTOMER", "INTERNAL"]);
     expect(deliveries.map((delivery) => delivery.rule?.subjectTemplate).sort()).toEqual([
       "New Anekio trial started · {{schoolName}}",
-      "Your Anekio trial is ready",
+      "Your Anekio school workspace is ready",
     ]);
+    const welcomeChallenge = await prisma.authChallenge.findFirstOrThrow({
+      where: { orgId: response.body.org.id, purpose: "PASSWORD_RESET" },
+    });
+    expect(welcomeChallenge.userId).toBeTruthy();
+    expect(welcomeChallenge.consumedAt).toBeNull();
+    expect(welcomeChallenge.expiresAt.getTime() - welcomeChallenge.createdAt.getTime()).toBeGreaterThan(23 * 60 * 60 * 1000);
+    expect(JSON.stringify(response.body)).not.toContain("reset-password?token=");
   });
 });
