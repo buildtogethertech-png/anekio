@@ -10,6 +10,7 @@ type Session = {
   nav: NavItem[];
   refresh: () => Promise<void>;
   signIn: (login: string, password: string, accountId?: string) => Promise<AuthAccountChoice[] | null>;
+  signInWithGoogle: (idToken: string, accountId?: string) => Promise<AuthAccountChoice[] | null>;
   requestLoginCode: (login: string) => Promise<AuthCodeResponse>;
   signInWithCode: (login: string, code: string) => Promise<void>;
   requestPasswordReset: (login: string) => Promise<AuthCodeResponse>;
@@ -91,6 +92,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         const res = await api<LoginResponse>("/login", null, {
           method: "POST",
           body: JSON.stringify({ login, password, ...(accountId ? { accountId } : {}) }),
+        });
+        if (hasAccountChoices(res)) return res.accountChoices;
+        await applyLogin(res);
+        return null;
+      },
+      async signInWithGoogle(idToken, accountId) {
+        const res = await api<LoginResponse>("/login/google", null, {
+          method: "POST",
+          body: JSON.stringify({ idToken, ...(accountId ? { accountId } : {}) }),
         });
         if (hasAccountChoices(res)) return res.accountChoices;
         await applyLogin(res);

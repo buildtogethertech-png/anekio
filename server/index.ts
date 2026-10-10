@@ -16,6 +16,7 @@ import {
 } from "../lib/auth-challenges";
 import { hasAny, userFromAuthHeader } from "../lib/http-user";
 import { userForLogin, usersForLogin } from "../lib/login";
+import { verifiedGoogleEmail } from "../lib/mobile-google-auth";
 import { serializeUser } from "../lib/http-user";
 import { publicNav, navForPortal } from "../lib/nav";
 import { recordPayload } from "../lib/api-v1-record";
@@ -314,6 +315,28 @@ app.post("/api/v1/login", async (req, res) => {
     return res.json({ accountChoices: loginChoices(valid) });
   }
   res.json(loginSession(valid[0]));
+});
+
+app.post("/api/v1/login/google", async (req, res) => {
+  try {
+    const idToken = String(req.body?.idToken || "").trim();
+    const accountId = String(req.body?.accountId || "").trim();
+    if (!idToken) return sendError(res, 400, "Google sign-in could not be completed.");
+    await ensureAccessRoles();
+    const email = await verifiedGoogleEmail(idToken);
+    const rows = await usersForLogin(email);
+    if (!rows.length) {
+      return sendError(res, 403, "This Google account is not linked to an Anekio school account. Use your registered email or contact your school administrator.");
+    }
+    const picked = accountId ? rows.find((row) => row.id === accountId) : null;
+    if (accountId && !picked) return sendError(res, 403, "That school account is not linked to this Google email.");
+    if (!accountId && rows.length > 1) return res.json({ accountChoices: loginChoices(rows) });
+    res.json(loginSession(picked || rows[0]));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Google sign-in could not be completed.";
+    console.error("Google sign-in failed", error);
+    sendError(res, 401, message);
+  }
 });
 
 app.post("/api/v1/login/otp/request", async (req, res) => {

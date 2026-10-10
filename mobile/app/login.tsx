@@ -1,4 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import * as Google from "expo-auth-session/providers/google";
+import * as WebBrowser from "expo-web-browser";
 import { useEffect, useRef, useState } from "react";
 import { Redirect, useRouter } from "expo-router";
 import { Animated, Image, Keyboard, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
@@ -6,6 +8,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Button, Input } from "../components/ui";
 import { apiBase, webOrigin } from "../lib/api";
 import { useSession, type AuthAccountChoice } from "../lib/session";
+
+WebBrowser.maybeCompleteAuthSession();
+
+const googleWebClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || "";
+const googleAndroidClientId = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || "";
+const googleIosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || "";
 
 type LoginMode = "password" | "otp" | "forgot" | "trial";
 
@@ -60,10 +68,45 @@ function FieldLabel({ children }: { children: string }) {
   return <Text className="mb-2 text-[13px] font-semibold text-[#172B4D]">{children}</Text>;
 }
 
+function GoogleSignInButton({ disabled, onIdToken, onError }: { disabled: boolean; onIdToken: (idToken: string) => void; onError: (message: string) => void }) {
+  const [request, , promptGoogle] = Google.useIdTokenAuthRequest({
+    webClientId: googleWebClientId || undefined,
+    androidClientId: googleAndroidClientId || undefined,
+    iosClientId: googleIosClientId || undefined,
+    selectAccount: true,
+  });
+
+  async function start() {
+    try {
+      const response = await promptGoogle();
+      if (response.type !== "success") return;
+      const idToken = response.params.id_token || response.authentication?.idToken;
+      if (!idToken) return onError("Google did not return a sign-in token. Please try again.");
+      onIdToken(idToken);
+    } catch {
+      onError("Google sign-in could not be started. Please try again.");
+    }
+  }
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Continue with Google"
+      disabled={disabled || !request}
+      onPress={() => void start()}
+      className={`h-12 flex-row items-center justify-center gap-2 rounded-2xl border border-[#D6DEEA] bg-white ${disabled || !request ? "opacity-60" : ""}`}
+    >
+      <Ionicons name="logo-google" size={18} color="#4285F4" />
+      <Text className="text-sm font-semibold text-[#243B64]">Continue with Google</Text>
+    </Pressable>
+  );
+}
+
 export default function Login() {
   const {
     user,
     signIn,
+    signInWithGoogle,
     requestLoginCode,
     signInWithCode,
     requestPasswordReset,
@@ -85,6 +128,7 @@ export default function Login() {
   const [notice, setNotice] = useState("");
   const [developmentCode, setDevelopmentCode] = useState("");
   const [accountChoices, setAccountChoices] = useState<AuthAccountChoice[]>([]);
+  const [googleIdToken, setGoogleIdToken] = useState("");
   const [pending, setPending] = useState(false);
   const [schoolName, setSchoolName] = useState("");
   const [ownerName, setOwnerName] = useState("");
@@ -94,6 +138,7 @@ export default function Login() {
   const [studentCount, setStudentCount] = useState("");
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const keyboardProgress = useRef(new Animated.Value(0)).current;
+  const googleConfigured = Platform.OS === "android" ? Boolean(googleAndroidClientId) : Platform.OS === "ios" ? Boolean(googleIosClientId) : Boolean(googleWebClientId);
   const balancedPhoneLayout =
     !isWideLayout && !keyboardVisible && height >= 760 && mode === "password" && !accountChoices.length && !error && !notice;
 
@@ -128,6 +173,7 @@ export default function Login() {
     setNotice("");
     setDevelopmentCode("");
     setAccountChoices([]);
+    setGoogleIdToken("");
   }
 
   function chooseMode(next: LoginMode) {
@@ -154,6 +200,26 @@ export default function Login() {
       router.replace("/(app)");
     } catch (exception) {
       setError(exception instanceof Error ? exception.message : "We could not sign you in.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function onGoogleSignIn(idToken: string, accountId?: string) {
+    setPending(true);
+    setError("");
+    setNotice("");
+    try {
+      const choices = await signInWithGoogle(idToken, accountId);
+      if (choices?.length) {
+        setGoogleIdToken(idToken);
+        setAccountChoices(choices);
+        setNotice("Choose which school account to open.");
+        return;
+      }
+      router.replace("/(app)");
+    } catch (exception) {
+      setError(exception instanceof Error ? exception.message : "We could not sign you in with Google.");
     } finally {
       setPending(false);
     }
@@ -423,7 +489,7 @@ export default function Login() {
                           accessibilityRole="button"
                           accessibilityLabel={`Sign in to ${choice.schoolName}`}
                           disabled={pending}
-                          onPress={() => onPasswordSignIn(choice.id)}
+                          onPress={() => googleIdToken ? onGoogleSignIn(googleIdToken, choice.id) : onPasswordSignIn(choice.id)}
                           className="rounded-md border border-[#D8E2EC] bg-white px-3 py-2.5"
                         >
                           <Text className="text-sm font-semibold text-ink-900">{choice.schoolName}</Text>
@@ -434,9 +500,33 @@ export default function Login() {
                   ) : null}
 
                   {mode === "password" ? (
+                    <>
                       <Button testID="login-submit" accessibilityLabel="Sign in" onPress={() => onPasswordSignIn()} disabled={pending || !login || !password} className="h-14 justify-center bg-[#2955DB] shadow-lg shadow-blue-300" style={!isWideLayout ? { borderRadius: 18, shadowColor: "#2955DB", shadowOpacity: 0.24, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 4 } : undefined}>
-                      {pending ? "Signing in..." : "Sign in securely"}
-                    </Button>
+                        {pending ? "Signing in..." : "Sign in securely"}
+                      </Button>
+                      <View className="flex-row items-center gap-3 py-1">
+                        <View className="h-px flex-1 bg-[#DCE3ED]" />
+                        <Text className="text-[11px] font-medium text-[#7B8799]">OR</Text>
+                        <View className="h-px flex-1 bg-[#DCE3ED]" />
+                      </View>
+                      {googleConfigured ? (
+                        <GoogleSignInButton
+                          disabled={pending}
+                          onIdToken={(idToken) => void onGoogleSignIn(idToken)}
+                          onError={setError}
+                        />
+                      ) : (
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="Google sign-in needs configuration"
+                          disabled
+                          className="h-12 flex-row items-center justify-center gap-2 rounded-2xl border border-[#D6DEEA] bg-white opacity-60"
+                        >
+                          <Ionicons name="logo-google" size={18} color="#4285F4" />
+                          <Text className="text-sm font-semibold text-[#243B64]">Continue with Google</Text>
+                        </Pressable>
+                      )}
+                    </>
                   ) : codeSent && !resetLinkSent ? (
                     <Button
                       accessibilityLabel={mode === "forgot" ? "Reset password" : "Verify and sign in"}
