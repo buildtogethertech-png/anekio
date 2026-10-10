@@ -70,6 +70,7 @@ export function Button({
   className,
   disabled,
   variant = "primary",
+  style,
   ...props
 }: PressableProps & { children: ReactNode; className?: string; variant?: "primary" | "ghost" | "danger" }) {
   const styles =
@@ -84,7 +85,11 @@ export function Button({
       {...props}
       accessibilityRole={props.accessibilityRole || "button"}
       disabled={disabled}
-      className={`items-center rounded-md px-4 py-2.5 transition-transform duration-150 active:scale-[0.97] ${styles} ${disabled ? "opacity-50" : ""} ${className || ""}`}
+      className={`items-center rounded-md px-4 py-2.5 transition-transform duration-150 active:scale-[0.97] ${styles} ${className || ""}`}
+      style={(state) => [
+        { opacity: disabled ? 0.5 : 1 },
+        typeof style === "function" ? style(state) : style,
+      ]}
     >
       <Text className={`text-sm font-medium ${text}`}>{children}</Text>
     </Pressable>
