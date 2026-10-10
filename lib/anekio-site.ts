@@ -195,9 +195,14 @@ async function findSaasOrgByContact(input: { ownerEmail?: unknown; ownerPhone?: 
 export class ExistingTrialSignupError extends Error {
   status = 409;
   loginUrl = "/login";
+  conflictFields: ("email" | "phone")[];
 
-  constructor() {
-    super("This email or phone is already registered with Anekio. Please log in to continue.");
+  constructor(conflictFields: ("email" | "phone")[]) {
+    const contact = conflictFields[0] || "contact";
+    super(conflictFields.length === 2
+      ? "Your email and phone are already registered with Anekio. Please log in to continue."
+      : `This ${contact} is already registered with Anekio. Please log in to continue.`);
+    this.conflictFields = conflictFields;
   }
 }
 
@@ -1084,6 +1089,7 @@ export async function marketingHtml(message = "") {
             if (!out.res.ok) {
               var fail = new Error((out.data && out.data.error) || "Could not start trial.");
               fail.existingAccount = out.res.status === 409;
+              fail.conflictFields = out.data && Array.isArray(out.data.conflictFields) ? out.data.conflictFields : [];
               throw fail;
             }
             var org = out.data.org || {};
@@ -1100,9 +1106,16 @@ export async function marketingHtml(message = "") {
             gotoStep("trial", 3);
           })
           .catch(function (err) {
-            if (trialErrorTitle) trialErrorTitle.textContent = err.existingAccount ? "This contact is already registered" : "We couldn't create your school yet";
+            var emailConflict = err.conflictFields && err.conflictFields.indexOf("email") !== -1;
+            var phoneConflict = err.conflictFields && err.conflictFields.indexOf("phone") !== -1;
+            var conflictLabel = emailConflict && phoneConflict ? "email and phone" : emailConflict ? "email" : phoneConflict ? "phone" : "contact";
+            if (trialErrorTitle) trialErrorTitle.textContent = err.existingAccount
+              ? (emailConflict && phoneConflict ? "Email and phone are already registered" : "This " + conflictLabel + " is already registered")
+              : "We couldn't create your school yet";
             if (trialErrorMessage) trialErrorMessage.textContent = err.existingAccount
-              ? "An Anekio account already uses this email or phone. Sign in, or change the contact details below. Your form is still filled in."
+              ? (emailConflict && phoneConflict
+                  ? "Anekio accounts already use these email and phone details. Sign in, or change them below. Your form is still filled in."
+                  : "An Anekio account already uses this " + conflictLabel + ". Sign in, or change " + (emailConflict ? "the email address" : phoneConflict ? "the phone number" : "the contact details") + " below. Your form is still filled in.")
               : ((err.message || "Please try again.") + " Your form is still filled in, so you can try again.");
             if (trialErrorLogin) {
               trialErrorLogin.hidden = !err.existingAccount;
@@ -1269,7 +1282,16 @@ export async function createSaasTrial(input: EnquiryInput) {
     if (existingLogin?.created) {
       return { ...existing, login: existingLogin.login, password: existingLogin.password, loginUrl: "/login" };
     }
-    throw new ExistingTrialSignupError();
+    const email = normalEmail(input.ownerEmail);
+    const phones = [...new Set([normalPhone(input.ownerPhone), text(input.ownerPhone)].filter(Boolean))];
+    const [emailMatches, phoneMatches] = await Promise.all([
+      email ? prisma.saasOrg.count({ where: { ownerEmail: email } }) : 0,
+      phones.length ? prisma.saasOrg.count({ where: { ownerPhone: { in: phones } } }) : 0,
+    ]);
+    throw new ExistingTrialSignupError([
+      ...(emailMatches ? ["email" as const] : []),
+      ...(phoneMatches ? ["phone" as const] : []),
+    ]);
   }
   const org = await createSaasEnquiry({
     ...input,

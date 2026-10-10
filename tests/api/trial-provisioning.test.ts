@@ -93,8 +93,27 @@ describe("trial signup provisioning", () => {
 
     expect(duplicate.status).toBe(409);
     expect(duplicate.body).toMatchObject({
-      error: "This email or phone is already registered with Anekio. Please log in to continue.",
+      error: "Your email and phone are already registered with Anekio. Please log in to continue.",
       loginUrl: "/login",
+      conflictFields: ["email", "phone"],
+    });
+
+    const emailOnly = await request(app).post("/api/saas/trial").set("Accept", "application/json").send({
+      schoolName: "Another School", ownerName: "New Owner", ownerEmail: "existing-owner@example.com", ownerPhone: "9708608998", city: "Ranchi",
+    });
+    expect(emailOnly.status).toBe(409);
+    expect(emailOnly.body).toMatchObject({
+      error: "This email is already registered with Anekio. Please log in to continue.",
+      conflictFields: ["email"],
+    });
+
+    const phoneOnly = await request(app).post("/api/saas/trial").set("Accept", "application/json").send({
+      schoolName: "Another School", ownerName: "New Owner", ownerEmail: "new-owner@example.com", ownerPhone: "9708608972", city: "Ranchi",
+    });
+    expect(phoneOnly.status).toBe(409);
+    expect(phoneOnly.body).toMatchObject({
+      error: "This phone is already registered with Anekio. Please log in to continue.",
+      conflictFields: ["phone"],
     });
   });
 

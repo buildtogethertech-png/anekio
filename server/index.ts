@@ -1087,6 +1087,7 @@ app.post("/api/saas/trial", async (req, res) => {
     res.status(status).json({
       error: message,
       loginUrl: e instanceof ExistingTrialSignupError ? e.loginUrl : undefined,
+      conflictFields: e instanceof ExistingTrialSignupError ? e.conflictFields : undefined,
     });
   }
 });
