@@ -49,7 +49,8 @@ import {
 } from "./school-session";
 import { placeFields, parseMonthlySalary, requireJoinedOn, STAFF_FIRST_PASSWORD, todayJoinedOn } from "./staff-profile";
 import { assertManagerChoice, defaultManagerIdForRole, managerIdForNewUser, teamClassIds } from "./reports";
-import { admissionFormFields, admissionFormJson, admissionLeadInput, staffOnboardingFormJson } from "./admission-form";
+import { admissionFormFields, admissionFormJson, admissionLeadInput, effectiveAdmissionFormJson, staffOnboardingFormJson } from "./admission-form";
+import { configuredAdmissionFormJson } from "./admission-form-config";
 
 function need(user: AccessUser, ...keys: string[]) {
   if (!keys.some((k) => can(user, k))) throw new Error("No access.");
@@ -453,7 +454,8 @@ export async function admitLeadAsStudentCore(
       config?.admissionCharge || 0
     );
     const admissionCharge = admissionLines.reduce((sum, line) => sum + line.amount, 0);
-    const missingLeadRequirements = missingAdmissionLeadRequirements(config?.admissionFormJson, lead);
+    const platform = await tx.platformConfig.findUnique({ where: { id: "global" }, select: { admissionFormJson: true } });
+    const missingLeadRequirements = missingAdmissionLeadRequirements(effectiveAdmissionFormJson(config?.admissionFormJson, platform?.admissionFormJson), lead);
     if (missingLeadRequirements.length) {
       throw new Error(`Before admitting this student, complete: ${missingLeadRequirements.join(", ")}.`);
     }
@@ -2085,7 +2087,7 @@ export async function saveStaffOnboardingFormCore(user: AccessUser, input: { fie
 export async function createAdmissionLeadCore(user: AccessUser, input: Record<string, unknown>) {
   needSchoolScope(user, "admissions.manage");
   const config = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
-  const values = admissionLeadInput(config?.admissionFormJson, input);
+  const values = admissionLeadInput(await configuredAdmissionFormJson(config?.admissionFormJson), input);
   const actorName = user.name || "School office";
   const customSummary = values.fields
     .filter((field) => !field.builtin && values.customValues[field.id])
@@ -2098,6 +2100,7 @@ export async function createAdmissionLeadCore(user: AccessUser, input: Record<st
       phone: values.phone,
       email: values.email,
       classWanted: values.classWanted,
+      billingStartPeriod: values.billingStartPeriod,
       message: values.message,
       customFieldsJson: JSON.stringify(values.customValues),
       source: "walk_in",
@@ -2168,7 +2171,7 @@ export async function updateAdmissionLeadCore(
   if (input.followUpAt !== undefined) data.followUpAt = String(input.followUpAt || "").trim().slice(0, 20);
   if (input.notes !== undefined) data.notes = String(input.notes || "").trim().slice(0, 2000);
   const config = await prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { admissionFormJson: true } });
-  const requiredBuiltin = admissionFormFields(config?.admissionFormJson).filter((field) => field.builtin && field.visible && field.required);
+  const requiredBuiltin = admissionFormFields(await configuredAdmissionFormJson(config?.admissionFormJson)).filter((field) => field.builtin && field.visible && field.required && field.id !== "billingStartPeriod");
   for (const field of requiredBuiltin) {
     const value = String((data as Record<string, unknown>)[field.id] ?? (existing as unknown as Record<string, unknown>)[field.id] ?? "").trim();
     if (!value) throw new Error(`${field.label} is required.`);

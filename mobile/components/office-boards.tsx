@@ -6,7 +6,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { GeneratePayment } from "./generate-payment";
 import { Dropdown } from "./form";
 import { Badge, Button, Card, Chip, Empty, Field, Input, Modal, PageHeader, Segmented, Sheet, Stat, Switch, Toast, useToast } from "./ui";
-import { DateField } from "./date-field";
+import { DateField, MonthField } from "./date-field";
 import { FilterBar, type FilterConfig, type FilterValues } from "./filter";
 import { StaffAdmitForm, type StaffAdmitPayload } from "./staff-admit-form";
 import { StaffAttendanceDetail } from "./staff-attendance-detail";
@@ -2546,6 +2546,7 @@ function AdmissionFieldControl({
   if (field.type === "select") {
     return <Dropdown label={label} value={value} options={field.options.map((option) => ({ id: option, label: option }))} onChange={onChange} />;
   }
+  if (field.type === "month") return <Field label={label}><MonthField value={value} onChange={onChange} /></Field>;
   const keyboardType = field.type === "email" ? "email-address" : field.type === "phone" ? "phone-pad" : field.type === "number" ? "numeric" : "default";
   return (
     <Field label={label}>

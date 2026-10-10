@@ -1,4 +1,4 @@
-export const ADMISSION_FIELD_TYPES = ["text", "email", "phone", "number", "date", "textarea", "select", "radio", "multi", "checkbox", "file"] as const;
+export const ADMISSION_FIELD_TYPES = ["text", "email", "phone", "number", "date", "month", "textarea", "select", "radio", "multi", "checkbox", "file"] as const;
 export const ADMISSION_FILE_TYPES = ["image", "pdf", "image_pdf"] as const;
 
 export type AdmissionFieldType = (typeof ADMISSION_FIELD_TYPES)[number];
@@ -17,18 +17,9 @@ export type AdmissionFormField = {
   maxFileSizeMb?: number;
 };
 
-const BUILTIN_IDS = ["studentName", "classWanted", "guardianName", "phone", "email", "message"] as const;
+const BUILTIN_IDS = ["studentName", "classWanted", "billingStartPeriod", "guardianName", "phone", "email", "message"] as const;
 export type AdmissionBuiltinId = (typeof BUILTIN_IDS)[number];
 const STAFF_ONBOARDING_BUILTIN_IDS = ["staffName", "phone", "email", "role", "department", "joiningDate", "qualification", "address"] as const;
-
-export const DEFAULT_ADMISSION_FORM: AdmissionFormField[] = [
-  { id: "studentName", label: "Student name", type: "text", required: true, visible: true, options: [], builtin: true },
-  { id: "classWanted", label: "Class interested", type: "text", required: true, visible: true, options: [], builtin: true },
-  { id: "guardianName", label: "Guardian name", type: "text", required: true, visible: true, options: [], builtin: true },
-  { id: "phone", label: "Phone", type: "phone", required: true, visible: true, options: [], builtin: true },
-  { id: "email", label: "Email", type: "email", required: false, visible: true, options: [], builtin: true },
-  { id: "message", label: "Message", type: "textarea", required: false, visible: true, options: [], builtin: true },
-];
 
 export const DEFAULT_STAFF_ONBOARDING_FORM: AdmissionFormField[] = [
   { id: "staffName", label: "Staff name", type: "text", required: true, visible: true, options: [], builtin: true },
@@ -134,11 +125,50 @@ function formJson(value: unknown, defaults: AdmissionFormField[], builtinIds: re
 }
 
 export function admissionFormFields(value: unknown): AdmissionFormField[] {
-  return formFields(value, DEFAULT_ADMISSION_FORM, BUILTIN_IDS);
+  let parsed = value;
+  if (typeof value === "string") {
+    try { parsed = JSON.parse(value); } catch { return []; }
+  }
+  if (!Array.isArray(parsed)) return [];
+  const used = new Set<string>();
+  return parsed.filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === "object")
+    .slice(0, BUILTIN_IDS.length + 14)
+    .map((row, index): AdmissionFormField | null => {
+      const rawId = String(row.id || "");
+      const builtin = BUILTIN_IDS.includes(rawId as AdmissionBuiltinId);
+      let id = builtin ? rawId : customId(rawId, index);
+      if (used.has(id)) return null;
+      used.add(id);
+      const type = ADMISSION_FIELD_TYPES.includes(String(row.type || "") as AdmissionFieldType)
+        ? String(row.type) as AdmissionFieldType : "text";
+      const fileType = ADMISSION_FILE_TYPES.includes(String(row.fileType || "") as AdmissionFileType)
+        ? String(row.fileType) as AdmissionFileType : "image_pdf";
+      const visible = row.visible === undefined ? true : Boolean(row.visible);
+      return {
+        id,
+        label: String(row.label || id).trim().slice(0, 80) || id,
+        type,
+        required: visible && Boolean(row.required),
+        visible,
+        options: ["select", "radio", "multi"].includes(type) ? cleanOptions(row.options) : [],
+        builtin,
+        helpText: String(row.helpText || "").trim().slice(0, 140) || undefined,
+        ...(type === "file" ? { fileType, maxFileSizeMb: Math.min(12, Math.max(1, Math.round(Number(row.maxFileSizeMb || 5) || 5))) } : {}),
+      } satisfies AdmissionFormField;
+    }).filter((field): field is AdmissionFormField => field !== null);
 }
 
 export function admissionFormJson(value: unknown) {
-  return formJson(value, DEFAULT_ADMISSION_FORM, BUILTIN_IDS);
+  const fields = admissionFormFields(value);
+  for (const field of fields) {
+    if (["select", "radio", "multi"].includes(field.type) && field.visible && !field.options.length) throw new Error(`${field.label} needs at least one option.`);
+  }
+  return JSON.stringify(fields);
+}
+
+export function effectiveAdmissionFormJson(schoolValue: unknown, platformValue: unknown): unknown {
+  const schoolFields = admissionFormFields(schoolValue);
+  return schoolFields.length ? schoolValue : platformValue;
 }
 
 export function staffOnboardingFormFields(value: unknown): AdmissionFormField[] {
@@ -180,6 +210,7 @@ export function admissionLeadInput(fieldsValue: unknown, input: Record<string, u
     }
     if (value && field.type === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) throw new Error(`Enter a valid ${field.label}.`);
     if (value && field.type === "number" && !Number.isFinite(Number(value))) throw new Error(`Enter a valid ${field.label}.`);
+    if (value && field.type === "month" && !/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) throw new Error(`Choose a valid ${field.label}.`);
     values[field.id] = value;
   }
 
@@ -192,6 +223,7 @@ export function admissionLeadInput(fieldsValue: unknown, input: Record<string, u
     phone: builtin("phone", 30),
     email: builtin("email", 160),
     classWanted: builtin("classWanted", 80),
+    billingStartPeriod: builtin("billingStartPeriod", 7),
     message: builtin("message", 800),
     customValues,
   };

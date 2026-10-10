@@ -61,7 +61,7 @@ export type DocumentTemplateSummary = {
 export type AdmissionFormField = {
   id: string;
   label: string;
-  type: "text" | "email" | "phone" | "number" | "date" | "textarea" | "select" | "radio" | "multi" | "checkbox" | "file";
+  type: "text" | "email" | "phone" | "number" | "date" | "month" | "textarea" | "select" | "radio" | "multi" | "checkbox" | "file";
   required: boolean;
   visible: boolean;
   options: string[];

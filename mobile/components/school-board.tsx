@@ -312,15 +312,6 @@ type SchoolForm = {
   sessionEnd: string;
 };
 
-const DEFAULT_ADMISSION_FIELDS: AdmissionFormField[] = [
-  { id: "studentName", label: "Student name", type: "text", required: true, visible: true, options: [], builtin: true },
-  { id: "classWanted", label: "Class interested", type: "text", required: true, visible: true, options: [], builtin: true },
-  { id: "guardianName", label: "Guardian name", type: "text", required: true, visible: true, options: [], builtin: true },
-  { id: "phone", label: "Phone", type: "phone", required: true, visible: true, options: [], builtin: true },
-  { id: "email", label: "Email", type: "email", required: false, visible: true, options: [], builtin: true },
-  { id: "message", label: "Message", type: "textarea", required: false, visible: true, options: [], builtin: true },
-];
-
 const ADMISSION_FIELD_TYPE_OPTIONS = [
   { id: "text", label: "Short text" },
   { id: "textarea", label: "Long text" },
@@ -328,6 +319,7 @@ const ADMISSION_FIELD_TYPE_OPTIONS = [
   { id: "phone", label: "Phone" },
   { id: "number", label: "Number" },
   { id: "date", label: "Date" },
+  { id: "month", label: "Month and year" },
   { id: "select", label: "Dropdown" },
   { id: "radio", label: "Single choice" },
   { id: "multi", label: "Multiple choice" },
@@ -417,9 +409,9 @@ function admissionFieldTypeValue(field: AdmissionFormField, classOptions: string
 function admissionFieldTypeOptions(field: AdmissionFormField) {
   if (field.id !== "classWanted") return [...ADMISSION_FIELD_TYPE_OPTIONS];
   return [
-    ...ADMISSION_FIELD_TYPE_OPTIONS.slice(0, 6),
+    ...ADMISSION_FIELD_TYPE_OPTIONS.slice(0, 7),
     { id: SCHOOL_CLASSES_FIELD_TYPE, label: "School classes" },
-    ...ADMISSION_FIELD_TYPE_OPTIONS.slice(6),
+    ...ADMISSION_FIELD_TYPE_OPTIONS.slice(7),
   ];
 }
 
@@ -2719,7 +2711,7 @@ function blankForm(s?: RecordPayload["school"]): SchoolForm {
     websiteFacilities: (website?.facilities || ["Digital classrooms", "Library", "Computer lab", "Sports", "Transport"]).join("\n"),
     websiteAdmissionOpen: website?.admissionOpen ?? true,
     websiteAdmissionNote: website?.admissionNote || "Admissions are open. Submit an enquiry and our office will contact you.",
-    admissionForm: cloneAdmissionForm(s?.admissionForm?.length ? s.admissionForm : DEFAULT_ADMISSION_FIELDS),
+    admissionForm: cloneAdmissionForm(s?.admissionForm || []),
     staffOnboardingForm: cloneAdmissionForm(s?.staffOnboardingForm?.length ? s.staffOnboardingForm : DEFAULT_STAFF_ONBOARDING_FIELDS),
     admissionCharge: String(s?.admissionCharge || 0),
     sessionStart: s?.sessionStart || "",

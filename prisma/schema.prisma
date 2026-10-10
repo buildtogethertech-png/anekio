@@ -799,6 +799,13 @@ model Application {
   createdAt   DateTime          @default(now())
 }
 
+model PlatformConfig {
+  id                String   @id @default("global")
+  admissionFormJson String   @default("[]")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
 model SchoolConfig {
   id                      String                    @id @default(cuid())
   orgId                   String?                   @unique
@@ -879,6 +886,7 @@ model AdmissionLead {
   phone            String
   email            String               @default("")
   classWanted      String
+  billingStartPeriod String             @default("")
   message          String               @default("")
   customFieldsJson String               @default("{}")
   source           String               @default("school_website")

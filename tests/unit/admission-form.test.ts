@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { admissionFormFields, admissionFormJson, admissionLeadInput, DEFAULT_ADMISSION_FORM } from "../../lib/admission-form";
+import { admissionFormFields, admissionFormJson, admissionLeadInput, effectiveAdmissionFormJson } from "../../lib/admission-form";
 
 describe("admission form configuration", () => {
-  it("keeps the current hardcoded form as the backward-compatible default", () => {
-    expect(admissionFormFields("[]")).toEqual(DEFAULT_ADMISSION_FORM);
+  it("uses the platform form only when the school has no override", () => {
+    const platform = JSON.stringify([{ id: "billingStartPeriod", label: "Billing starts from", type: "month", required: true, visible: true, builtin: true }]);
+    expect(admissionFormFields(effectiveAdmissionFormJson("[]", platform))).toMatchObject([{ id: "billingStartPeriod", type: "month", required: true, builtin: true }]);
+    expect(admissionFormFields(effectiveAdmissionFormJson('[{"id":"phone","type":"phone"}]', platform)).map((field) => field.id)).toEqual(["phone"]);
+    expect(admissionFormFields("[]")).toEqual([]);
   });
 
   it("normalizes builtin changes and safe custom fields", () => {
@@ -29,9 +32,16 @@ describe("admission form configuration", () => {
     expect(fields.find((field) => field.id === "phone")).toMatchObject({ visible: true, required: false });
   });
 
+  it("keeps billing month as a required built-in field and validates YYYY-MM", () => {
+    const fields = [{ id: "billingStartPeriod", label: "Billing starts from", type: "month", required: true, visible: true, builtin: true }];
+    expect(() => admissionLeadInput(fields, {})).toThrow("Billing starts from is required.");
+    expect(() => admissionLeadInput(fields, { billingStartPeriod: "2026-13" })).toThrow("Choose a valid Billing starts from.");
+    expect(admissionLeadInput(fields, { billingStartPeriod: "2026-10" }).billingStartPeriod).toBe("2026-10");
+  });
+
   it("enforces required fields and dropdown choices for every lead source", () => {
     const fields = [
-      ...DEFAULT_ADMISSION_FORM.map((field) => ({ ...field, required: false })),
+      { id: "studentName", label: "Student name", type: "text", required: false, visible: true, builtin: true },
       { id: "custom_transport", label: "Transport needed", type: "select", required: true, visible: true, options: ["Yes", "No"], builtin: false },
     ];
 

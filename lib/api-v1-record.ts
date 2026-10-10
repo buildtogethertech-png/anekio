@@ -39,7 +39,7 @@ import { parseSubjectCatalog, parseWeekdays, weekCapacity, WEEKDAY_SHORT } from 
 import { ensureSchoolSessions } from "./school-session";
 import { documentStudioBundle } from "./document-studio";
 import { CONTEST_TYPE_LABEL, daysLate, formatInr, LEVEL_LABEL, PATH_LABEL, percent, publicOrigin } from "./utils";
-import { admissionCustomValues, admissionFormFields, staffOnboardingFormFields } from "./admission-form";
+import { admissionCustomValues, admissionFormFields, effectiveAdmissionFormJson, staffOnboardingFormFields } from "./admission-form";
 import { subscriptionLockForUser } from "./anekio-site";
 
 function inDate(value: Date | string) {
@@ -872,12 +872,13 @@ async function teacherTeamExtras(
 async function officePayload(user: AccessUser) {
   const sessionPack = await ensureSchoolSessions();
   const { sessions, current } = sessionPack;
-  const [{ pulse, invoices, collection }, people, staff, config, roles, { config: sched, periods, rooms, teachers: weekTeachers }, classes, recentExams, holidays, examPack, activeFeeDocuments] =
+  const [{ pulse, invoices, collection }, people, staff, config, platformConfig, roles, { config: sched, periods, rooms, teachers: weekTeachers }, classes, recentExams, holidays, examPack, activeFeeDocuments] =
     await Promise.all([
       getDeskPulse(),
       getPeople(),
       getStaffRoster(),
       prisma.schoolConfig.findUnique({ where: { id: "school" } }),
+      prisma.platformConfig.findUnique({ where: { id: "global" } }),
       listRoles(),
       getScheduleSetup(),
       prisma.class.findMany({
@@ -1295,7 +1296,7 @@ async function officePayload(user: AccessUser) {
       sessionId: current.id,
       sessionLabel: current.label,
       admissionCharge: config?.admissionCharge || 0,
-      admissionForm: admissionFormFields(config?.admissionFormJson),
+      admissionForm: admissionFormFields(effectiveAdmissionFormJson(config?.admissionFormJson, platformConfig?.admissionFormJson)),
       staffOnboardingForm: staffOnboardingFormFields(config?.staffOnboardingFormJson),
       whatsappCommunityUrl: config?.whatsappCommunityUrl || "",
       website: {

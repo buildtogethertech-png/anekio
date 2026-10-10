@@ -2,6 +2,7 @@ import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { prisma } from "./prisma";
 import { publicOrigin } from "./utils";
 import { admissionFormFields, admissionLeadInput, type AdmissionFormField } from "./admission-form";
+import { configuredAdmissionFormJson } from "./admission-form-config";
 import { normalizeSchoolWebsiteSlug } from "./host-routing";
 import {
   createUploadPath,
@@ -89,7 +90,7 @@ export async function schoolWebsiteHtml(slug?: string, opts: { preview?: boolean
   const subtitle = school.websiteHeroSubtitle || "Enquire for admissions, campus visits, fees, and entrance test details.";
   const place = [school.address, school.city, school.state, school.pincode].filter(Boolean).join(", ");
   const logo = asset(school.logoPath);
-  const admissionFields = admissionFormFields(school.admissionFormJson).filter((field) => field.visible);
+  const admissionFields = admissionFormFields(await configuredAdmissionFormJson(school.admissionFormJson)).filter((field) => field.visible);
 
   return `<!doctype html>
 <html>
@@ -239,7 +240,7 @@ export async function prepareAdmissionFileUpload(slug: string, input: Record<str
   const school = await findSchoolWebsiteConfig(slug);
   if (!school?.websiteEnabled) throw new Error("Admissions website not found.");
   const fieldId = String(input.fieldId || "");
-  const field = admissionFormFields(school.admissionFormJson).find((row) => row.visible && row.type === "file" && row.id === fieldId);
+  const field = admissionFormFields(await configuredAdmissionFormJson(school.admissionFormJson)).find((row) => row.visible && row.type === "file" && row.id === fieldId);
   if (!field) throw new Error("Admission document field not found.");
   const file = {
     originalname: String(input.fileName || ""),
@@ -272,7 +273,8 @@ export async function createAdmissionLeadFromWebsite(slug: string, input: Record
   const school = await findSchoolWebsiteConfig(slug);
   if (!school) throw new Error("Admissions website not found.");
   if (!school.websiteEnabled) throw new Error("Admissions website is not active.");
-  const fields = admissionFormFields(school.admissionFormJson);
+  const formJson = await configuredAdmissionFormJson(school.admissionFormJson);
+  const fields = admissionFormFields(formJson);
   const submissionId = randomUUID();
   for (const field of fields.filter((row) => row.visible && row.type === "file")) {
     const file = files.find((row) => row.fieldname === field.id);
@@ -294,7 +296,7 @@ export async function createAdmissionLeadFromWebsite(slug: string, input: Record
     }
     input[field.id] = intent.path;
   }
-  const values = admissionLeadInput(school.admissionFormJson, input);
+  const values = admissionLeadInput(formJson, input);
   const officeAuthor = await prisma.user.findFirst({
     where: { role: { portal: "OFFICE" } },
     orderBy: { createdAt: "asc" },
@@ -308,6 +310,7 @@ export async function createAdmissionLeadFromWebsite(slug: string, input: Record
         phone: values.phone,
         email: values.email,
         classWanted: values.classWanted,
+        billingStartPeriod: values.billingStartPeriod,
         message: values.message,
         customFieldsJson: JSON.stringify(values.customValues),
         events: {

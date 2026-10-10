@@ -12,6 +12,7 @@ import { parseWeekdays } from "./schedule";
 import { examPlanWeight, parseExamPlan } from "./exams";
 import { currentTenantOrg, runWithoutTenant } from "./tenant-context";
 import { admissionFormFields, staffOnboardingFormFields, type AdmissionFormField } from "./admission-form";
+import { configuredAdmissionFormJson } from "./admission-form-config";
 import { assignStudentRollNumber } from "./student-rolls";
 
 const ONBOARDING_STATE_ID = "school";
@@ -309,7 +310,7 @@ async function configuredImportForms(): Promise<ConfiguredImportForms> {
     select: { admissionFormJson: true, staffOnboardingFormJson: true },
   });
   return {
-    admission: admissionFormFields(config?.admissionFormJson),
+    admission: admissionFormFields(await configuredAdmissionFormJson(config?.admissionFormJson)),
     staff: staffOnboardingFormFields(config?.staffOnboardingFormJson),
   };
 }
