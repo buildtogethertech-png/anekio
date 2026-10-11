@@ -77,6 +77,7 @@ describe.sequential("fee cron", () => {
         admissionNo: "ADM-CRON-1",
         name: "Cron Child",
         dateOfBirth: new Date("2015-01-01T00:00:00Z"),
+        billingStartPeriod: "2026-04",
       },
     });
     await prisma.studentClassEnrollment.create({
@@ -85,7 +86,6 @@ describe.sequential("fee cron", () => {
         classId,
         sessionId: "session-2026",
         rollNumber: 1,
-        joinedAt: new Date("2026-04-01T00:00:00.000Z"),
       },
     });
     await prisma.feeInvoice.create({

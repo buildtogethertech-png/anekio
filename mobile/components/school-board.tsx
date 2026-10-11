@@ -437,6 +437,7 @@ export function SchoolBoard() {
   const [door, setDoor] = useState<Door>(linked?.group ?? linkedGroup ?? "School Setup");
   const [level, setLevel] = useState<Level>(linked ? "page" : linkedGroup ? "group" : "doors");
   const [form, setForm] = useState<SchoolForm>(blankForm(s));
+  const [websiteSlugStatus, setWebsiteSlugStatus] = useState<{ slug: string; kind: "idle" | "checking" | "available" | "taken" | "invalid"; message: string }>({ slug: "", kind: "idle", message: "" });
   const [holiday, setHoliday] = useState({ date: "", name: "" });
   const [addOpen, setAddOpen] = useState(false);
   const [classOpen, setClassOpen] = useState(false);
@@ -490,6 +491,26 @@ export function SchoolBoard() {
     setCalendarSessionId((current) => current || s.sessionId || "");
     if (data?.leaveTypes?.length) setLeaveTypes(normalizeLeaveTypes(data.leaveTypes));
   }, [s, data?.leaveTypes]);
+
+  useEffect(() => {
+    if (tab !== "website" || !token) return;
+    const slug = form.websiteSlug.trim();
+    if (!slug) {
+      setWebsiteSlugStatus({ slug, kind: "idle", message: form.websiteEnabled ? "Enter a website address to publish your school website." : "Choose an address when you are ready to publish." });
+      return;
+    }
+    setWebsiteSlugStatus({ slug, kind: "checking", message: "Checking address…" });
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const result = await act<{ ok: true; slug: string; available: boolean }>(token, "checkSchoolWebsiteSlug", { websiteSlug: slug });
+        if (!cancelled) setWebsiteSlugStatus({ slug, kind: result.available ? "available" : "taken", message: result.available ? "This address is available." : "This address is already used by another school. Choose a different one." });
+      } catch (error) {
+        if (!cancelled) setWebsiteSlugStatus({ slug, kind: "invalid", message: error instanceof Error ? error.message : "Could not check this address." });
+      }
+    }, 350);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [tab, token, form.websiteSlug, form.websiteEnabled]);
 
   const sessions = s?.sessions ?? [];
   const calendarSession = sessions.find((row) => row.id === calendarSessionId) ?? sessions.find((row) => row.current) ?? sessions[0];
@@ -640,10 +661,40 @@ export function SchoolBoard() {
 
   async function save() {
     try {
-      await act(token, "saveSchoolIdentity", form);
-      if (tab === "website" || tab === "forms") await act(token, "saveAdmissionForm", { fields: form.admissionForm });
-      if (tab === "forms") await act(token, "saveStaffOnboardingForm", { fields: form.staffOnboardingForm });
-      toast.show("School saved.");
+      if (tab === "website") {
+        const slug = form.websiteSlug.trim();
+        if (form.websiteEnabled && !slug) {
+          setWebsiteSlugStatus({ slug, kind: "invalid", message: "Enter a website address before publishing." });
+          return false;
+        }
+        if (slug) {
+          const result = await act<{ ok: true; slug: string; available: boolean }>(token, "checkSchoolWebsiteSlug", { websiteSlug: slug });
+          if (!result.available) {
+            setWebsiteSlugStatus({ slug, kind: "taken", message: "This address is already used by another school. Choose a different one." });
+            return false;
+          }
+        }
+      }
+      if (tab === "website") {
+        await act(token, "saveSchoolWebsite", {
+          websiteEnabled: form.websiteEnabled,
+          websiteSlug: form.websiteSlug,
+          websiteTheme: form.websiteTheme,
+          websiteHeroTitle: form.websiteHeroTitle,
+          websiteHeroSubtitle: form.websiteHeroSubtitle,
+          websiteAbout: form.websiteAbout,
+          websiteHighlights: form.websiteHighlights,
+          websiteFacilities: form.websiteFacilities,
+          websiteAdmissionOpen: form.websiteAdmissionOpen,
+          websiteAdmissionNote: form.websiteAdmissionNote,
+        });
+      } else if (tab === "forms") {
+        await act(token, "saveAdmissionForm", { fields: form.admissionForm });
+        await act(token, "saveStaffOnboardingForm", { fields: form.staffOnboardingForm });
+      } else {
+        await act(token, "saveSchoolIdentity", form);
+      }
+      toast.show(tab === "website" ? "Website settings saved." : tab === "forms" ? "Form settings saved." : "School settings saved.");
       await reload();
       return true;
     } catch (e) {
@@ -1788,7 +1839,7 @@ export function SchoolBoard() {
                       </Text>
                       <View className="mt-2 flex-row flex-wrap items-center gap-2">
                         <Ionicons name="globe-outline" size={14} color="#1d4ed8" />
-                        <Text className="text-xs font-semibold text-blue-700">{form.websiteSlug || "demo"}.anekio.com</Text>
+                        <Text className="text-xs font-semibold text-blue-700">{form.websiteSlug ? `${form.websiteSlug}.anekio.com` : "Choose a website address"}</Text>
                         <View className={`h-2 w-2 rounded-full ${form.websiteEnabled ? "bg-green-600" : "bg-ink-400"}`} />
                         <Text className="text-xs font-semibold text-ink-800">{form.websiteEnabled ? "Live" : "Offline"}</Text>
                       </View>
@@ -1807,8 +1858,9 @@ export function SchoolBoard() {
                       </View>
                       <Button
                         variant="ghost"
+                        disabled={!form.websiteSlug || websiteSlugStatus.kind === "taken" || websiteSlugStatus.kind === "invalid"}
                         onPress={() => {
-                          if (typeof window !== "undefined") window.open(`https://${form.websiteSlug || "demo"}.anekio.com`, "_blank");
+                          if (typeof window !== "undefined") window.open(`https://${form.websiteSlug}.anekio.com`, "_blank");
                         }}
                       >
                         Preview website
@@ -1840,7 +1892,7 @@ export function SchoolBoard() {
                                   className="h-10 rounded-none border-0 bg-transparent"
                                   value={form.websiteSlug}
                                   placeholder="green-valley"
-                                  onChangeText={(v) => patch("websiteSlug", v.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-+/g, ""))}
+                                  onChangeText={(v) => patch("websiteSlug", v.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-+/g, "").slice(0, 48))}
                                 />
                               </View>
                               <View className="border-l border-ink-100 bg-ink-50 px-3 py-2.5">
@@ -1848,6 +1900,9 @@ export function SchoolBoard() {
                               </View>
                             </View>
                           </View>
+                          <Text className={`mt-2 text-xs font-medium ${["taken", "invalid"].includes(websiteSlugStatus.kind) ? "text-red-700" : websiteSlugStatus.kind === "available" ? "text-green-700" : "text-ink-600"}`}>
+                            {websiteSlugStatus.slug === form.websiteSlug.trim() ? websiteSlugStatus.message : "Checking address…"}
+                          </Text>
                         </View>
                       </View>
                       <View className={phone ? "w-full min-w-full" : "min-w-[260px] flex-1"}>
@@ -2054,7 +2109,7 @@ export function SchoolBoard() {
 
             {showSave ? (
               <View className={`mt-5 flex-row flex-wrap items-center justify-between gap-3 border-t border-ink-100 pt-4 ${tab === "website" || tab === "forms" ? "pr-20" : ""}`}>
-                <Text className="text-[11px] text-ink-700">Saves school settings together.</Text>
+                <Text className="text-[11px] text-ink-700">{tab === "website" ? "Saves website settings only." : tab === "forms" ? "Saves form settings only." : "Saves school identity and settings only."}</Text>
                 {edit ? <Button onPress={save}>Save</Button> : null}
               </View>
             ) : null}
@@ -2218,7 +2273,14 @@ export function SchoolBoard() {
           <View className="items-end">
             <Button
               onPress={async () => {
-                if (await save()) setAdmissionFormOpen(false);
+                try {
+                  await act(token, "saveAdmissionForm", { fields: form.admissionForm });
+                  toast.show("Admission form saved.");
+                  await reload();
+                  setAdmissionFormOpen(false);
+                } catch (error) {
+                  toast.show(error instanceof Error ? error.message : "Could not save admission form.");
+                }
               }}
             >
               Save
@@ -2702,7 +2764,7 @@ function blankForm(s?: RecordPayload["school"]): SchoolForm {
     invoiceStyle: s?.invoiceStyle || "classic",
     whatsappCommunityUrl: s?.whatsappCommunityUrl || "",
     websiteEnabled: website?.enabled ?? false,
-    websiteSlug: website?.slug || "demo",
+    websiteSlug: website?.slug || "",
     websiteTheme: website?.theme || "blue",
     websiteHeroTitle: website?.heroTitle || `${s?.name || "Anekio School"} admissions are open`,
     websiteHeroSubtitle: website?.heroSubtitle || "Enquire for admissions, campus visits, fees, and entrance test details.",

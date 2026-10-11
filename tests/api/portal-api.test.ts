@@ -196,7 +196,7 @@ describe("Express portal API", () => {
       classId: fixture.classId,
       parentId: "parent-pari",
       dateOfBirth: "2015-06-15",
-      dateOfJoining: "2026-04-01",
+      billingStartPeriod: "2026-04",
     };
 
     const first = await request(app).post("/api/v1/act").set(auth).send({ ...base, name: "Auto Number One" });
@@ -208,8 +208,7 @@ describe("Express portal API", () => {
     expect(second.body).toMatchObject({ ok: true, admissionNo: "ANE-00003" });
     expect(await prisma.student.findFirst({ where: { admissionNo: "ANE-00003" } })).toMatchObject({ name: "Auto Number Two" });
     const firstStudent = await prisma.student.findFirstOrThrow({ where: { name: "Auto Number One" } });
-    const firstEnrollment = await prisma.studentClassEnrollment.findFirstOrThrow({ where: { studentId: firstStudent.id } });
-    expect(firstEnrollment.joinedAt.toISOString().slice(0, 10)).toBe("2026-04-01");
+    expect(firstStudent.billingStartPeriod).toBe("2026-04");
   });
 
   it("collects the configured admission fee while adding a student", async () => {
@@ -228,7 +227,7 @@ describe("Express portal API", () => {
           classId: fixture.classId,
           parentId: "parent-pari",
           dateOfBirth: "2015-06-15",
-          dateOfJoining: "2026-04-01",
+          billingStartPeriod: "2026-04",
           collectAdmissionFee: true,
           paymentMethod: "UPI",
           paymentReference: "UTR-ADMISSION-001",
@@ -264,7 +263,7 @@ describe("Express portal API", () => {
           classId: fixture.classId,
           parentId: "parent-pari",
           dateOfBirth: "2015-06-15",
-          dateOfJoining: "2026-04-01",
+          billingStartPeriod: "2026-04",
         });
 
       expect(created.status).toBe(200);
@@ -294,7 +293,7 @@ describe("Express portal API", () => {
           name: "Student With New Parent",
           classId: fixture.classId,
           dateOfBirth: "2015-06-15",
-          dateOfJoining: "2026-04-01",
+          billingStartPeriod: "2026-04",
           parentId: "__new__",
           parentName: "New Parent",
           parentPhone: phone,
@@ -351,25 +350,38 @@ describe("Express portal API", () => {
       const reserved = await request(app)
         .post("/api/v1/act")
         .set(auth)
-        .send({ op: "saveSchoolIdentity", websiteSlug: "admin" });
+        .send({ op: "saveSchoolWebsite", websiteSlug: "admin" });
       expect(reserved.status).toBe(400);
       expect(reserved.body.error).toContain("reserved by Anekio");
 
       await prisma.schoolConfig.create({
         data: { id: "other-school", name: "Other School", websiteSlug: "taken-school" },
       });
+      const availability = await request(app)
+        .post("/api/v1/act")
+        .set(auth)
+        .send({ op: "checkSchoolWebsiteSlug", websiteSlug: "taken-school" });
+      expect(availability.status).toBe(200);
+      expect(availability.body).toMatchObject({ available: false, slug: "taken-school" });
       const taken = await request(app)
         .post("/api/v1/act")
         .set(auth)
-        .send({ op: "saveSchoolIdentity", websiteSlug: "taken-school" });
+        .send({ op: "saveSchoolWebsite", websiteSlug: "taken-school" });
       expect(taken.status).toBe(400);
-      expect(taken.body).toEqual({ error: "That website slug is already used by another school." });
+      expect(taken.body).toEqual({ error: "That website address is already used by another school. Choose a different one." });
 
       const saved = await request(app)
         .post("/api/v1/act")
         .set(auth)
-        .send({ op: "saveSchoolIdentity", websiteSlug: "Green Valley Academy" });
+        .send({ op: "saveSchoolWebsite", websiteSlug: "Green Valley Academy" });
       expect(saved.status).toBe(200);
+      expect((await prisma.schoolConfig.findUniqueOrThrow({ where: { id: "school" } })).websiteSlug).toBe("green-valley-academy");
+
+      const identity = await request(app)
+        .post("/api/v1/act")
+        .set(auth)
+        .send({ op: "saveSchoolIdentity", name: "Green Valley Academy", websiteSlug: "other-address" });
+      expect(identity.status).toBe(200);
       expect((await prisma.schoolConfig.findUniqueOrThrow({ where: { id: "school" } })).websiteSlug).toBe("green-valley-academy");
 
       const record = await request(app)
@@ -378,13 +390,85 @@ describe("Express portal API", () => {
         .set("X-Forwarded-Host", "app.staging.anekio.com");
       expect(record.body.school.website).toMatchObject({
         slug: "green-valley-academy",
-        domain: "staging.anekio.com",
       });
     } finally {
       if (originalPublicUrl === undefined) delete process.env.PUBLIC_URL;
       else process.env.PUBLIC_URL = originalPublicUrl;
       await prisma.schoolConfig.deleteMany({ where: { id: "other-school" } });
       await prisma.schoolConfig.update({ where: { id: "school" }, data: originalData });
+    }
+  });
+
+  it("uses the invoice school's identity assets and template on a shared invoice", async () => {
+    const orgId = "org-invoice-assets";
+    const schoolId = `school:${orgId}`;
+    const logoPath = "public/schools/invoice-assets/branding/logos/logo.png";
+    const token = "invoice-school-assets";
+    const originalUploadsDir = process.env.UPLOADS_DIR;
+    const originalUploadsDriver = process.env.UPLOADS_DRIVER;
+    process.env.UPLOADS_DIR = `${database.directory}/uploads`;
+    process.env.UPLOADS_DRIVER = "local";
+    try {
+      const { saveUploadPath } = await import("../../lib/uploads");
+      await saveUploadPath(logoPath, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==", "base64"), "image/png");
+      await prisma.saasOrg.create({ data: { id: orgId, schoolName: "Invoice Assets School", ownerName: "Office", ownerEmail: "invoice-assets@school.test", ownerPhone: "9876549999" } });
+      await prisma.schoolConfig.create({ data: { id: schoolId, orgId, name: "Invoice Assets School", logoPath } });
+      await prisma.documentTemplate.create({
+        data: {
+          schoolId,
+          orgId,
+          type: "FEE_INVOICE",
+          category: "FEES",
+          name: "Invoice assets template",
+          status: "ACTIVE",
+          activeVersion: 1,
+          createdById: fixture.users.office.id,
+          updatedById: fixture.users.office.id,
+          versions: {
+            create: {
+              schoolId,
+              orgId,
+              version: 1,
+              layoutJson: JSON.stringify({ elements: [
+                { id: "logo", type: "IMAGE", field: "school.logoPath", label: "Logo", x: 5, y: 5, width: 15, height: 15 },
+                { id: "name", type: "FIELD", field: "school.name", x: 25, y: 5, width: 55, height: 10 },
+              ] }),
+              pageSize: "A4",
+              orientation: "PORTRAIT",
+              publishedById: fixture.users.office.id,
+            },
+          },
+        },
+      });
+      await prisma.feeInvoice.create({
+        data: {
+          id: token,
+          orgId,
+          studentId: fixture.studentId,
+          classId: fixture.classId,
+          period: "2027-06",
+          title: "June fees",
+          amount: 1000,
+          dueDate: new Date("2027-06-10T00:00:00.000Z"),
+          shareToken: token,
+        },
+      });
+
+      const invoice = await request(app).get(`/i/${token}`);
+      expect(invoice.status).toBe(200);
+      expect(invoice.text).toContain("Invoice Assets School");
+      expect(invoice.text).toContain(`/api/files/${logoPath}`);
+      expect(invoice.text).not.toContain("Fixture Academy");
+      expect((await request(app).get(`/api/files/${logoPath}`)).status).toBe(200);
+    } finally {
+      await prisma.feeInvoice.deleteMany({ where: { id: token } });
+      await prisma.documentTemplate.deleteMany({ where: { schoolId } });
+      await prisma.schoolConfig.deleteMany({ where: { id: schoolId } });
+      await prisma.saasOrg.deleteMany({ where: { id: orgId } });
+      if (originalUploadsDir === undefined) delete process.env.UPLOADS_DIR;
+      else process.env.UPLOADS_DIR = originalUploadsDir;
+      if (originalUploadsDriver === undefined) delete process.env.UPLOADS_DRIVER;
+      else process.env.UPLOADS_DRIVER = originalUploadsDriver;
     }
   });
 

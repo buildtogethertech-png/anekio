@@ -8,6 +8,8 @@ describe("onboarding student roll number", () => {
   it("puts Roll number before the student name in the template", () => {
     expect(studentImportHeaders(fields)[0]).toBe("Roll number");
     expect(studentImportHeaders(fields)[1]).toBe("Student name");
+    expect(studentImportHeaders(fields)[4]).toBe("Billing starts from");
+    expect(studentImportColumnGuide(fields)[4]).toMatchObject({ header: "Billing starts from", required: true });
     expect(studentTemplateRow(fields, {
       rollNumber: 7,
       name: "Aarav Sharma",

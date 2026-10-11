@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Text, View } from "react-native";
 import { Button, Chip, DateField, Field, Input, Select } from "./form";
+import { MonthField } from "./date-field";
 import { Switch } from "./ui";
 
 export type StudentFeeAddOnPayload = {
@@ -28,7 +29,7 @@ function rupees(amount: number) {
 export type StudentAdmitPayload = {
   name: string;
   dateOfBirth: string;
-  dateOfJoining: string;
+  billingStartPeriod: string;
   classId: string;
   parentId: string;
   parentName: string;
@@ -44,7 +45,7 @@ function emptyForm(classes: { id: string }[]): StudentAdmitPayload {
   return {
     name: "",
     dateOfBirth: "",
-    dateOfJoining: "",
+    billingStartPeriod: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`,
     classId: classes[0]?.id || "",
     parentId: "",
     parentName: "",
@@ -89,7 +90,7 @@ export function StudentAdmitForm({
   async function save() {
     if (busy) return;
     const hasExistingParent = Boolean(form.parentId && form.parentId !== "__new__");
-    if (!form.name.trim() || !form.dateOfBirth || !form.dateOfJoining || !form.classId || (!hasExistingParent && (!form.parentName.trim() || !form.parentPhone.trim()))) {
+    if (!form.name.trim() || !form.dateOfBirth || !form.billingStartPeriod || !form.classId || (!hasExistingParent && (!form.parentName.trim() || !form.parentPhone.trim()))) {
       return;
     }
     setBusy(true);
@@ -111,8 +112,8 @@ export function StudentAdmitForm({
       <Field label="Date of birth">
         <DateField value={form.dateOfBirth} onChange={(dateOfBirth) => patch({ dateOfBirth })} />
       </Field>
-      <Field label="Date of joining">
-        <DateField value={form.dateOfJoining} onChange={(dateOfJoining) => patch({ dateOfJoining })} />
+      <Field label="Billing starts from">
+        <MonthField value={form.billingStartPeriod} onChange={(billingStartPeriod) => patch({ billingStartPeriod })} />
       </Field>
       {classes.length ? (
         <Select

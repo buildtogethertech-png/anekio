@@ -343,6 +343,7 @@ function shell(title: string, description: string, body: string, extraHead = "",
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
   <title>${escapeHtml(title)}</title>
   <meta name="description" content="${escapeHtml(description)}" />
   <meta name="robots" content="index,follow,max-image-preview:large" />

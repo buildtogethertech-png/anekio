@@ -170,9 +170,9 @@ async function main() {
   record("8-payment-receipt-published", published.some((row) => row.type === "PAYMENT_RECEIPT"), JSON.stringify(published));
 
   const studentsSpec = [
-    { admissionNo: "ANE-E2E-0001", name: "Anaya Test", dateOfJoining: "2026-04-10", phone: "9000000001" },
-    { admissionNo: "ANE-E2E-0002", name: "Rahul Test", dateOfJoining: "2026-06-10", phone: "9000000002" },
-    { admissionNo: "ANE-E2E-0003", name: "Priya Test", dateOfJoining: "2026-09-05", phone: "9000000003" },
+    { admissionNo: "ANE-E2E-0001", name: "Anaya Test", billingStartPeriod: "2026-04", phone: "9000000001" },
+    { admissionNo: "ANE-E2E-0002", name: "Rahul Test", billingStartPeriod: "2026-06", phone: "9000000002" },
+    { admissionNo: "ANE-E2E-0003", name: "Priya Test", billingStartPeriod: "2026-09", phone: "9000000003" },
   ];
   for (const spec of studentsSpec) {
     const created = await createStudentCore(user, {
@@ -181,7 +181,7 @@ async function main() {
       parentName: `${spec.name} Parent`,
       parentPhone: spec.phone,
       dateOfBirth: "2016-05-01",
-      dateOfJoining: spec.dateOfJoining,
+      billingStartPeriod: spec.billingStartPeriod,
       collectAdmissionFee: false,
     });
     await prisma.student.update({
@@ -232,12 +232,12 @@ async function main() {
   const rahulOpening = openingInvoices.find((row) => row.studentId === rahul.id);
   const priyaOpening = openingInvoices.find((row) => row.studentId === priya.id);
   const refreshed = await prisma.student.findMany({ where: { orgId: ORG_ID } });
-  const through = Object.fromEntries(refreshed.map((row) => [row.admissionNo, row.feeGeneratedThrough]));
+  const billingStart = Object.fromEntries(refreshed.map((row) => [row.admissionNo, row.billingStartPeriod]));
 
   record("11-anaya-opening", Boolean(anayaOpening && anayaOpening.kind === "OPENING" && anayaOpening.title === "Backlog invoice" && anayaOpening.amount === 12345 && anayaOpening.generatedThrough === "2026-08"), JSON.stringify(anayaOpening));
   record("11-rahul-opening", Boolean(rahulOpening && rahulOpening.amount === 5000 && rahulOpening.kind === "OPENING"), JSON.stringify(rahulOpening));
   record("12-priya-no-opening", !priyaOpening, priyaOpening ? priyaOpening.id : "none");
-  record("13-cutoff-stored", through["ANE-E2E-0001"] === "2026-08" && through["ANE-E2E-0002"] === "2026-08" && through["ANE-E2E-0003"] === "2026-08", JSON.stringify(through));
+  record("13-billing-start-stored", billingStart["ANE-E2E-0001"] === "2026-09" && billingStart["ANE-E2E-0002"] === "2026-09" && billingStart["ANE-E2E-0003"] === "2026-09", JSON.stringify(billingStart));
 
   const paymentsAfterImport = await prisma.payment.count({ where: { orgId: ORG_ID } });
   const receiptsAfterImport = await prisma.issuedDocument.count({ where: { orgId: ORG_ID, type: "PAYMENT_RECEIPT" } });
@@ -402,7 +402,7 @@ async function main() {
     schoolId: school.id,
     session: `${session.id} ${session.startsOn} → ${session.endsOn}`,
     login: { email: EMAIL, password: PASSWORD },
-    students: refreshed.map((row) => ({ id: row.id, admissionNo: row.admissionNo, name: row.name, feeGeneratedThrough: row.feeGeneratedThrough })),
+    students: refreshed.map((row) => ({ id: row.id, admissionNo: row.admissionNo, name: row.name, billingStartPeriod: row.billingStartPeriod })),
     openingInvoices: openingAfterChange.map((row) => ({
       studentId: row.studentId,
       invoiceId: row.id,

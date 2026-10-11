@@ -207,7 +207,7 @@ async function main() {
       parentName: parentId ? undefined : "Fee QA Parent",
       parentPhone: parentId ? undefined : PARENT_PHONE,
       dateOfBirth: "2016-01-15",
-      dateOfJoining: spec.join,
+      billingStartPeriod: spec.join.slice(0, 7),
       collectAdmissionFee: false,
     });
     const student = await prisma.student.findFirstOrThrow({
@@ -223,7 +223,7 @@ async function main() {
     include: { enrollments: true, feeInvoices: true },
     orderBy: { admissionNo: "asc" },
   });
-  record("4-students-created", students.length === 5 && students.every((row) => row.admissionNo.startsWith("FEE-")), students.map((row) => `${row.admissionNo}:${row.enrollments[0]?.joinedAt.toISOString().slice(0, 10)}`).join(" | "));
+  record("4-students-created", students.length === 5 && students.every((row) => row.admissionNo.startsWith("FEE-")), students.map((row) => `${row.admissionNo}:${row.billingStartPeriod}`).join(" | "));
   record("4-no-invoices-on-add", students.every((row) => row.feeInvoices.length === 0), `invoices=${students.reduce((n, row) => n + row.feeInvoices.length, 0)}`);
 
   await saveDocumentTemplateCore(officeUser, { type: "FEE_INVOICE", name: "Fee invoice", layout: defaultLayout("FEE_INVOICE") });
@@ -289,11 +289,11 @@ async function main() {
   record("10-one-opening-each-positive", !openingOf("FEE-003") && Boolean(openingOf("FEE-001") && openingOf("FEE-002") && openingOf("FEE-004") && openingOf("FEE-005")) && openings.length === 4, openings.map((row) => `${row.student.admissionNo}:${row.amount}:${row.kind}`).join("|"));
   record("11-zero-balance-no-invoice", !openingOf("FEE-003"), openingOf("FEE-003")?.id || "none");
   const refreshed = await prisma.student.findMany({ where: { orgId: trial.id } });
-  const through = Object.fromEntries(refreshed.map((row) => [row.admissionNo, row.feeGeneratedThrough]));
+  const billingStart = Object.fromEntries(refreshed.map((row) => [row.admissionNo, row.billingStartPeriod]));
   record(
-    "12-cutoff",
-    through["FEE-001"] === "2026-08" && through["FEE-002"] === "2026-08" && through["FEE-003"] === "2026-08" && through["FEE-004"] === "2026-05" && through["FEE-005"] === "2026-09",
-    JSON.stringify(through)
+    "12-billing-start",
+    billingStart["FEE-001"] === "2026-09" && billingStart["FEE-002"] === "2026-09" && billingStart["FEE-003"] === "2026-09" && billingStart["FEE-004"] === "2026-06" && billingStart["FEE-005"] === "2026-10",
+    JSON.stringify(billingStart)
   );
   record("import-no-payment", (await prisma.payment.count({ where: { orgId: trial.id } })) === paymentsBefore, "0 payments");
   record("import-no-receipt", (await prisma.issuedDocument.count({ where: { orgId: trial.id, type: "PAYMENT_RECEIPT" } })) === receiptsBefore, "0 receipts");
@@ -564,7 +564,7 @@ async function main() {
     parentLoginEmail: PARENT_EMAIL,
     parentLoginPhone: PARENT_PHONE,
     parentPassword: PARENT_PASSWORD,
-    students: refreshed.map((row) => ({ id: row.id, admissionNo: row.admissionNo, name: row.name, feeGeneratedThrough: row.feeGeneratedThrough })),
+    students: refreshed.map((row) => ({ id: row.id, admissionNo: row.admissionNo, name: row.name, billingStartPeriod: row.billingStartPeriod })),
     openingInvoices: allInvoices.filter((row) => row.period === "OPENING").map((row) => ({ id: row.id, admissionNo: row.student.admissionNo, amount: row.amount, paid: row.payments.reduce((s, p) => s + p.amount, 0) })),
     payments: allPayments.map((row) => ({ id: row.id, amount: row.amount, invoiceId: row.invoiceId, method: row.method })),
     receipts: allReceipts.map((row) => ({ id: row.id, number: row.documentNumber, subjectId: row.subjectId })),

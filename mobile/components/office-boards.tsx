@@ -4086,7 +4086,7 @@ function LegacyFeesBoard() {
     }
     try {
       const result = await act<{ ok: true; issued: number; through: string }>(token, "issueClassFees", { classId, templateId });
-      toast.show(result.issued ? `${result.issued} invoice${result.issued === 1 ? "" : "s"} generated through ${periodLabel(result.through)}.` : "No completed fee months to generate yet.");
+      toast.show(result.issued ? `${result.issued} invoice${result.issued === 1 ? "" : "s"} generated through ${periodLabel(result.through)}.` : "No eligible fee months to generate, or invoices already exist.");
       await reload();
     } catch (e) {
       toast.show(e instanceof Error ? e.message : "Could not issue.");

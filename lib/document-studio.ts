@@ -1577,7 +1577,7 @@ async function renderIssuedHtml(layout: DocumentLayout, data: Record<string, unk
     }
     if (item.type === "SIGNATURE" || item.type === "STAMP" || item.type === "PHOTO" || item.type === "IMAGE") {
       const field = item.field || (item.type === "SIGNATURE" ? "school.signPath" : item.type === "STAMP" ? "school.stampPath" : item.type === "IMAGE" ? "school.logoPath" : "student.photo");
-      const src = assetSrc(atPath(data, field));
+      const src = await assetSrc(atPath(data, field));
       const round = item.type === "PHOTO" ? "border-radius:8px;" : item.type === "IMAGE" ? "border-radius:10px;" : "";
       return src ? `<img alt="${escapeHtml(item.label || item.type)}" src="${escapeHtml(src)}" style="${base}${round}object-fit:${item.type === "PHOTO" ? "cover" : "contain"}">` : `<div style="${base}${round}border:1px dashed #bcccdc;display:flex;align-items:center;justify-content:center">${escapeHtml(item.label || item.type)}</div>`;
     }
@@ -2016,16 +2016,21 @@ export async function uploadStudentDocumentCore(user: AccessUser, input: Record<
   return { id: issued.id, documentNumber, verifyUrl, documentUrl: `${publicOrigin()}/documents/${verifyToken}` };
 }
 
-async function findActiveTemplateByTypes(types: string[]) {
+async function findActiveTemplateByTypes(types: string[], schoolId?: string) {
   for (const type of types) {
     const row = await prisma.documentTemplate.findFirst({
-      where: { type, status: "ACTIVE" },
+      where: { type, status: "ACTIVE", ...(schoolId ? { schoolId } : {}) },
       include: { versions: { orderBy: { version: "desc" as const }, take: 1 } },
       orderBy: { updatedAt: "desc" },
     });
     if (row?.versions[0]) return row;
   }
   return null;
+}
+
+async function schoolConfigForDocumentOrg(orgId?: string | null) {
+  if (orgId) return prisma.schoolConfig.findFirst({ where: { orgId } });
+  return prisma.schoolConfig.findUnique({ where: { id: "school" } });
 }
 
 export async function renderActiveReportCardTemplateHtml(input: {
@@ -2086,9 +2091,10 @@ export async function renderActiveFeeInvoiceTemplateHtml(token: string) {
     },
   });
   if (!invoice) return null;
-  const template = await findActiveTemplateByTypes(["FEE_INVOICE"]);
+  const config = await schoolConfigForDocumentOrg(invoice.orgId || invoice.student.orgId);
+  if (!config) return null;
+  const template = await findActiveTemplateByTypes(["FEE_INVOICE"], config.id);
   if (!template?.versions[0]) return null;
-  const config = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
   const school = schoolFromConfig(config);
   const balance = invoiceBalance(invoice);
   const latestPayment = [...invoice.payments].sort((a, b) => +b.paidAt - +a.paidAt)[0];
@@ -2205,9 +2211,10 @@ export async function renderActivePaymentReceiptTemplateHtml(token: string) {
   if (!invoice) return null;
   const paidAmount = invoice.payments.reduce((sum, payment) => sum + payment.amount, 0);
   if (paidAmount <= 0) return null;
-  const template = await findActiveTemplateByTypes(["PAYMENT_RECEIPT", "CONSOLIDATED_RECEIPT"]);
+  const config = await schoolConfigForDocumentOrg(invoice.orgId || invoice.student.orgId);
+  if (!config) return null;
+  const template = await findActiveTemplateByTypes(["PAYMENT_RECEIPT", "CONSOLIDATED_RECEIPT"], config.id);
   if (!template?.versions[0]) return null;
-  const config = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
   const school = schoolFromConfig(config);
   const latestPayment = [...invoice.payments].sort((a, b) => +b.paidAt - +a.paidAt)[0];
   const receiptNumber = paymentReceiptNumber(latestPayment?.reference, invoice.id);

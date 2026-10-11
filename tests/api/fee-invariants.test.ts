@@ -102,7 +102,7 @@ describe.sequential("fee P0 invariants", () => {
       classId,
       parentId: "parent-pari",
       dateOfBirth: "2015-06-01",
-      dateOfJoining: "2026-06-15",
+      billingStartPeriod: "2026-06",
     });
     expect(created.status).toBe(200);
     const student = await prisma.student.findFirstOrThrow({ where: { admissionNo: created.body.admissionNo } });
@@ -168,7 +168,7 @@ describe.sequential("fee P0 invariants", () => {
         dateOfBirth: new Date("2015-01-01T00:00:00Z"),
       },
     });
-    const late = { lateKind: "STATIC", lateGraceDays: 0, lateAmount: 100 };
+    const lateMetadata = JSON.stringify({ late: { lateKind: "STATIC", lateGraceDays: 0, lateAmount: 100 } });
     await prisma.feeInvoice.create({
       data: {
         studentId: student.id,
@@ -179,7 +179,7 @@ describe.sequential("fee P0 invariants", () => {
         linesJson: "[]",
         dueDate: new Date(2026, 3, 10),
         status: "PAID",
-        ...late,
+        metadataJson: lateMetadata,
         payments: { create: { amount: 2000, method: "CASH", notes: "April paid" } },
       },
     });
@@ -193,7 +193,7 @@ describe.sequential("fee P0 invariants", () => {
         linesJson: "[]",
         dueDate: new Date(2026, 4, 10),
         status: "DUE",
-        ...late,
+        metadataJson: lateMetadata,
       },
     });
     const june = await prisma.feeInvoice.create({
@@ -206,7 +206,7 @@ describe.sequential("fee P0 invariants", () => {
         linesJson: "[]",
         dueDate: new Date(2026, 5, 10),
         status: "PARTIAL",
-        ...late,
+        metadataJson: lateMetadata,
         payments: { create: { amount: 1000, method: "UPI", reference: "UTR-JUNE-1" } },
       },
     });
@@ -220,7 +220,7 @@ describe.sequential("fee P0 invariants", () => {
         linesJson: "[]",
         dueDate: new Date(2026, 6, 10),
         status: "OVERDUE",
-        ...late,
+        metadataJson: lateMetadata,
       },
     });
     vi.useFakeTimers({ toFake: ["Date"] });
@@ -304,7 +304,7 @@ describe.sequential("fee P0 invariants", () => {
       },
     });
     await prisma.studentClassEnrollment.create({
-      data: { studentId: student.id, classId, sessionId: "session-2026", rollNumber: 9, joinedAt: new Date("2026-04-01") },
+      data: { studentId: student.id, classId, sessionId: "session-2026", rollNumber: 9 },
     });
     await prisma.feeInvoice.create({
       data: {

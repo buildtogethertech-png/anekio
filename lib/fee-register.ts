@@ -53,6 +53,7 @@ export type FeeRegisterSourceInvoice = {
   dueDate: Date | string;
   generatedThrough?: string | null;
   amount: number;
+  metadataJson?: string | null;
   templateId?: string | null;
   templateName?: string | null;
   payments: FeeRegisterPayment[];
@@ -501,6 +502,7 @@ export async function queryFeeRegister(user: AccessUser, raw: Record<string, unk
     dueDate: row.dueDate,
     generatedThrough: row.generatedThrough,
     amount: row.amount,
+    metadataJson: row.metadataJson,
     templateId: row.templateId,
     templateName: row.template?.name || "",
     payments: row.payments,

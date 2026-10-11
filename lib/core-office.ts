@@ -5,21 +5,19 @@ import { sendAisensyWhatsApp, getAisensyConfig } from "./aisensy";
 import { can, type AccessUser } from "./permissions";
 import { prisma } from "./prisma";
 import { roleIdBySlug } from "./roles";
-import { reminderCopy } from "./fee-run";
+import { issueTemplateMonthlyInvoices, reminderCopy } from "./fee-run";
 import {
   catalogAddOnKind,
   catalogAddOnLabel,
   classAddOnKind,
   classAddOnKey,
   classAllFeeLines,
-  composeStudentFeeLines,
-  dueDateForMonth,
   feeLineTotal,
   feePeriod,
   invoiceBalance,
-  invoiceLateStamp,
+  invoiceLateMetadata,
+  replaceInvoiceLateMetadata,
   feeTemplateLateWrite,
-  monthFeeTitle,
   parseCatalogAddOnKind,
   parseFeeCatalogState,
   clampFeeDueDay,
@@ -185,6 +183,23 @@ export async function saveFeeAcademicSessionCore(
   return { ...session, dueDay };
 }
 
+async function refreshInvoiceLateRule(
+  where: { templateId?: string; orgId: string | null },
+  rule: Parameters<typeof invoiceLateMetadata>[0]
+) {
+  const invoices = await prisma.feeInvoice.findMany({
+    where,
+    select: { id: true, period: true, metadataJson: true },
+  });
+  for (const invoice of invoices) {
+    if (!normalizeFeePeriod(invoice.period)) continue;
+    await prisma.feeInvoice.update({
+      where: { id: invoice.id },
+      data: { metadataJson: replaceInvoiceLateMetadata(invoice.metadataJson, rule) },
+    });
+  }
+}
+
 export async function saveFeeTemplateCore(
   user: AccessUser,
   input: {
@@ -291,6 +306,7 @@ export async function saveFeeTemplateCore(
       data: { orgId: user.orgId ?? null, name, startsPeriod, endsPeriod, dueDay, ...lateData, lines: { create: lines } },
     });
     await syncClassAddOnAmounts(classId, addOnLines);
+    await refreshInvoiceLateRule({ templateId: updated.id, orgId: user.orgId ?? null }, updated);
     return { id: updated.id };
   } else {
     const created = await prisma.feeTemplate.create({
@@ -332,7 +348,7 @@ async function deliverFeeReminder(invoiceId: string) {
   const payUrl = feePayUrl(token);
   const [whatsapp, email] = await Promise.all([getAisensyConfig(), getResendConfig()]);
   if (!whatsapp.configured && !email.configured) {
-    throw new Error("Connect WhatsApp or email in Admin → School → Communication");
+    throw new Error("Connect WhatsApp in School settings or configure platform email in Anekio Admin → Email delivery.");
   }
   const sent: string[] = [];
   const errors: string[] = [];
@@ -442,58 +458,17 @@ export async function issueClassFeesCore(
   });
   if (template && template.classId !== classId) throw new Error("Template does not belong to this class");
   if (!template || !template.lines.length) throw new Error("Save a fee template first");
-  const drafts = classAllFeeLines(template.lines);
   const fallbackPeriod = feePeriod(Number(input.year || new Date().getFullYear()), Number(input.month ?? new Date().getMonth()));
   const startsPeriod = template.startsPeriod || normalizeFeePeriod(input.startsPeriod) || fallbackPeriod;
   const endsPeriod = template.endsPeriod || normalizeFeePeriod(input.endsPeriod) || startsPeriod;
   if (startsPeriod > endsPeriod) throw new Error("Start month must be before end month");
   const now = new Date();
-  const lastCompletedMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const lastCompletedPeriod = feePeriod(lastCompletedMonth.getFullYear(), lastCompletedMonth.getMonth());
-  const issueThrough = endsPeriod < lastCompletedPeriod ? endsPeriod : lastCompletedPeriod;
+  const currentPeriod = feePeriod(now.getFullYear(), now.getMonth());
+  const issueThrough = endsPeriod < currentPeriod ? endsPeriod : currentPeriod;
   const months = startsPeriod <= issueThrough ? monthsBetween(startsPeriod, issueThrough) : [];
-  const students = await prisma.student.findMany({
-    where: { classId },
-    select: {
-      id: true,
-      feeGeneratedThrough: true,
-      feeAddOns: { where: { active: true } },
-      enrollments: { where: { sessionId: current.id }, select: { joinedAt: true }, take: 1 },
-    },
-  });
-  if (!students.length) throw new Error("This class has no students. Add them on Students, then issue.");
-  const already = await prisma.feeInvoice.findMany({
-    where: { classId, period: { in: months.map((month) => month.period) } },
-    select: { studentId: true, period: true },
-  });
-  const have = new Set(already.map((i) => `${i.studentId}:${i.period}`));
-  const invoices = students.flatMap((s) =>
-      months
-        .filter((month) => {
-          const joinedAt = s.enrollments[0]?.joinedAt;
-          const joiningPeriod = joinedAt ? feePeriod(joinedAt.getFullYear(), joinedAt.getMonth()) : startsPeriod;
-          return month.period >= joiningPeriod && month.period > s.feeGeneratedThrough && !have.has(`${s.id}:${month.period}`);
-        })
-        .map((month) => {
-        const lines = composeStudentFeeLines(drafts, s.feeAddOns, month.period);
-        const invoiceTotal = feeLineTotal(lines).total;
-        return {
-        studentId: s.id,
-        orgId: user.orgId ?? null,
-        classId,
-        templateId: template.id,
-          period: month.period,
-          title: monthFeeTitle(month.year, month.monthIndex, template.name),
-          amount: invoiceTotal,
-          linesJson: JSON.stringify(lines),
-          dueDate: dueDateForMonth(month.year, month.monthIndex, template.dueDay),
-        ...invoiceLateStamp(template),
-        shareToken: randomUUID(),
-        status: InvoiceStatus.DUE,
-        };
-      }));
-  const result = invoices.length ? await prisma.feeInvoice.createMany({ data: invoices }) : { count: 0 };
-  return { issued: result.count, through: issueThrough };
+  const result = await issueTemplateMonthlyInvoices(template, months);
+  if (!result.studentCount) throw new Error("This class has no students. Add them on Students, then issue.");
+  return { issued: result.created, through: issueThrough };
 }
 
 export async function createInvoiceCore(
@@ -504,6 +479,7 @@ export async function createInvoiceCore(
   const studentId = String(input.studentId || "");
   if (!studentId) throw new Error("Student required");
   const dueDate = new Date(String(input.dueDate || ymd(new Date())));
+  const currentLate = (await loadFeeCatalog()).late;
   await prisma.feeInvoice.create({
     data: {
       orgId: user.orgId ?? null,
@@ -513,7 +489,7 @@ export async function createInvoiceCore(
       title: String(input.title || "Fee"),
       amount: Number(input.amount || 0),
       dueDate,
-      lateFeePerDay: Number(input.lateFeePerDay || 50),
+      metadataJson: invoiceLateMetadata(lateStampFromSetup(currentLate).stamp),
       status: InvoiceStatus.DUE,
       shareToken: randomUUID(),
     },
@@ -633,6 +609,7 @@ export async function applySessionLateFeeCore(
       lateAfter20: stamp.lateAfter20,
     },
   });
+  await refreshInvoiceLateRule({ orgId: user.orgId ?? null }, stamp);
   return { late: mapped.catalog };
 }
 
@@ -1646,14 +1623,15 @@ export async function importPeopleSheetCore(user: AccessUser, input: { kind?: st
       const name = cell(row, "name");
       const admissionNo = cell(row, "admissionNo", "admission");
       const dob = parseDob(cell(row, "dateOfBirth", "dob"));
+      const billingStartPeriod = cell(row, "billingStartPeriod", "billing starts from");
       const classRaw = cell(row, "class") || `${cell(row, "className")} ${cell(row, "section")}`.trim();
       const parsedClass = parseClassLabel(classRaw);
       const klass = parsedClass
         ? classes.find((c) => c.name === parsedClass.name && c.section.toUpperCase() === parsedClass.section)
         : classes.find((c) => `${c.name}-${c.section}`.toLowerCase() === classRaw.toLowerCase());
       const parentEmail = cell(row, "parentEmail").toLowerCase();
-      if (!name || !admissionNo || !dob || !klass || !parentEmail) {
-        skipped.push(`Row ${line}: need name, admission no., date of birth, class, parent email.`);
+      if (!name || !admissionNo || !dob || !klass || !parentEmail || !/^\d{4}-(0[1-9]|1[0-2])$/.test(billingStartPeriod)) {
+        skipped.push(`Row ${line}: need name, admission no., date of birth, class, parent email, and billing start month (YYYY-MM).`);
         continue;
       }
       if (taken.has(admissionNo.toLowerCase())) {
@@ -1695,6 +1673,7 @@ export async function importPeopleSheetCore(user: AccessUser, input: { kind?: st
           classId: klass.id,
           parentId: parent.id,
           dateOfBirth: dob,
+          billingStartPeriod,
           interests: { create: parsePathTags(cell(row, "path")).map((tag) => ({ tag: tag as PathTag })) },
         },
       });

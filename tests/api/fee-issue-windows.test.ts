@@ -31,7 +31,7 @@ async function periodsFor(studentId: string) {
   return (await prisma.feeInvoice.findMany({ where: { studentId } })).map((row) => row.period).sort();
 }
 
-async function prepareClass(input: { classId: string; studentId: string; admissionNo: string; joinedAt?: string }) {
+async function prepareClass(input: { classId: string; studentId: string; admissionNo: string }) {
   await prisma.class.create({ data: { id: input.classId, name: "Issue", section: input.classId.slice(-1) } });
   const student = await prisma.student.create({
     data: {
@@ -41,13 +41,13 @@ async function prepareClass(input: { classId: string; studentId: string; admissi
       admissionNo: input.admissionNo,
       name: input.studentId,
       dateOfBirth: new Date("2015-01-01T00:00:00Z"),
+      billingStartPeriod: "2026-04",
     },
   });
   await enroll({
     studentId: student.id,
     classId: input.classId,
     rollNumber: 1,
-    joinedAt: input.joinedAt || "2026-04-01T00:00:00.000Z",
   });
   const saved = await act(officeToken, "saveFeeTemplate", {
     classId: input.classId,
@@ -62,14 +62,13 @@ async function prepareClass(input: { classId: string; studentId: string; admissi
   return { student, templateId: saved.body.id as string };
 }
 
-async function enroll(input: { studentId: string; classId: string; rollNumber: number; joinedAt: string }) {
+async function enroll(input: { studentId: string; classId: string; rollNumber: number }) {
   await prisma.studentClassEnrollment.create({
     data: {
       studentId: input.studentId,
       classId: input.classId,
       sessionId: "session-2026",
       rollNumber: input.rollNumber,
-      joinedAt: new Date(input.joinedAt),
       active: true,
     },
   });
@@ -97,7 +96,7 @@ describe.sequential("fee issue month windows", () => {
     database?.cleanup();
   });
 
-  it("issueClassFees on 2026-10-04 bills through September and issueDueFees also bills October", async () => {
+  it("issueClassFees on 2026-10-04 bills October and repeat generation never duplicates it", async () => {
     const classId = "class-issue-window";
     await prisma.class.create({ data: { id: classId, name: "Issue", section: "W" } });
     const student = await prisma.student.create({
@@ -108,9 +107,10 @@ describe.sequential("fee issue month windows", () => {
         admissionNo: "ADM-WIN-1",
         name: "Window Child",
         dateOfBirth: new Date("2015-01-01T00:00:00Z"),
+        billingStartPeriod: "2026-04",
       },
     });
-    await enroll({ studentId: student.id, classId, rollNumber: 1, joinedAt: "2026-04-01T00:00:00.000Z" });
+    await enroll({ studentId: student.id, classId, rollNumber: 1 });
     const saved = await act(officeToken, "saveFeeTemplate", {
       classId,
       sessionId: "session-2026",
@@ -128,8 +128,7 @@ describe.sequential("fee issue month windows", () => {
     const afterClass = (await prisma.feeInvoice.findMany({ where: { studentId: student.id } }))
       .map((row) => row.period)
       .sort();
-    expect(afterClass).toEqual(["2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09"]);
-    expect(afterClass).not.toContain("2026-10");
+    expect(afterClass).toEqual(["2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10"]);
 
     const dueIssue = await act(officeToken, "issueDueFees", { classId });
     expect(dueIssue.status).toBe(200);
@@ -151,14 +150,14 @@ describe.sequential("fee issue month windows", () => {
     expect(counted).toHaveLength(7);
   });
 
-  it("starts billing from the enrollment month, not months before the student joined", async () => {
+  it("starts billing from each student's billing start", async () => {
     const classId = "class-issue-join";
     await prisma.class.create({ data: { id: classId, name: "Join", section: "W" } });
     const students = [
-      { id: "student-join-a", admissionNo: "ADM-JOIN-A", rollNumber: 1, joinedAt: "2026-03-01T00:00:00.000Z" },
-      { id: "student-join-b", admissionNo: "ADM-JOIN-B", rollNumber: 2, joinedAt: "2026-05-15T00:00:00.000Z" },
-      { id: "student-join-c", admissionNo: "ADM-JOIN-C", rollNumber: 3, joinedAt: "2026-06-20T00:00:00.000Z" },
-      { id: "student-join-d", admissionNo: "ADM-JOIN-D", rollNumber: 4, joinedAt: "2026-10-01T00:00:00.000Z", feeGeneratedThrough: "2026-09" },
+      { id: "student-join-a", admissionNo: "ADM-JOIN-A", rollNumber: 1, billingStartPeriod: "2026-04" },
+      { id: "student-join-b", admissionNo: "ADM-JOIN-B", rollNumber: 2, billingStartPeriod: "2026-05" },
+      { id: "student-join-c", admissionNo: "ADM-JOIN-C", rollNumber: 3, billingStartPeriod: "2026-06" },
+      { id: "student-join-d", admissionNo: "ADM-JOIN-D", rollNumber: 4, billingStartPeriod: "2026-10" },
     ];
     for (const row of students) {
       await prisma.student.create({
@@ -169,10 +168,10 @@ describe.sequential("fee issue month windows", () => {
           admissionNo: row.admissionNo,
           name: row.id,
           dateOfBirth: new Date("2015-01-01T00:00:00Z"),
-          ...(row.feeGeneratedThrough ? { feeGeneratedThrough: row.feeGeneratedThrough } : {}),
+          billingStartPeriod: row.billingStartPeriod,
         },
       });
-      await enroll({ studentId: row.id, classId, rollNumber: row.rollNumber, joinedAt: row.joinedAt });
+      await enroll({ studentId: row.id, classId, rollNumber: row.rollNumber });
     }
     const saved = await act(officeToken, "saveFeeTemplate", {
       classId,
@@ -192,10 +191,10 @@ describe.sequential("fee issue month windows", () => {
     async function periods(studentId: string) {
       return (await prisma.feeInvoice.findMany({ where: { studentId } })).map((row) => row.period).sort();
     }
-    expect(await periods("student-join-a")).toEqual(["2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09"]);
-    expect(await periods("student-join-b")).toEqual(["2026-05", "2026-06", "2026-07", "2026-08", "2026-09"]);
-    expect(await periods("student-join-c")).toEqual(["2026-06", "2026-07", "2026-08", "2026-09"]);
-    expect(await periods("student-join-d")).toEqual([]);
+    expect(await periods("student-join-a")).toEqual(["2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10"]);
+    expect(await periods("student-join-b")).toEqual(["2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10"]);
+    expect(await periods("student-join-c")).toEqual(["2026-06", "2026-07", "2026-08", "2026-09", "2026-10"]);
+    expect(await periods("student-join-d")).toEqual(["2026-10"]);
 
     const due = await act(officeToken, "issueDueFees", { classId });
     expect(due.status).toBe(200);
@@ -203,7 +202,7 @@ describe.sequential("fee issue month windows", () => {
     expect(await periods("student-join-a")).toContain("2026-10");
   });
 
-  it("at local Sep 30 23:59 class-issue stops at August and due-fees includes September", async () => {
+  it("at local Sep 30 23:59 both actions include September but not October", async () => {
     const classId = "class-issue-sep30";
     const { student, templateId } = await prepareClass({
       classId,
@@ -212,12 +211,12 @@ describe.sequential("fee issue month windows", () => {
     });
     freezeOn(new Date(2026, 8, 30, 23, 59, 0));
     expect((await act(officeToken, "issueClassFees", { classId, templateId })).status).toBe(200);
-    expect(await periodsFor(student.id)).toEqual(["2026-04", "2026-05", "2026-06", "2026-07", "2026-08"]);
+    expect(await periodsFor(student.id)).toEqual(["2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09"]);
     expect((await act(officeToken, "issueDueFees", { classId })).status).toBe(200);
     expect(await periodsFor(student.id)).toEqual(["2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09"]);
   });
 
-  it("at local Oct 1 00:00 class-issue includes September and due-fees includes October", async () => {
+  it("at local Oct 1 00:00 both actions include October but not November", async () => {
     const classId = "class-issue-oct1";
     const { student, templateId } = await prepareClass({
       classId,
@@ -226,13 +225,13 @@ describe.sequential("fee issue month windows", () => {
     });
     freezeOn(new Date(2026, 9, 1, 0, 0, 0));
     expect((await act(officeToken, "issueClassFees", { classId, templateId })).status).toBe(200);
-    expect(await periodsFor(student.id)).toEqual(["2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09"]);
+    expect(await periodsFor(student.id)).toEqual(["2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10"]);
     expect((await act(officeToken, "issueDueFees", { classId })).status).toBe(200);
     expect(await periodsFor(student.id)).toContain("2026-10");
     expect(await periodsFor(student.id)).not.toContain("2026-11");
   });
 
-  it("at local Nov 1 00:00 class-issue includes October and due-fees includes November", async () => {
+  it("at local Nov 1 00:00 both actions include November but not December", async () => {
     const classId = "class-issue-nov1";
     const { student, templateId } = await prepareClass({
       classId,
@@ -249,13 +248,73 @@ describe.sequential("fee issue month windows", () => {
       "2026-08",
       "2026-09",
       "2026-10",
+      "2026-11",
     ]);
     expect((await act(officeToken, "issueDueFees", { classId })).status).toBe(200);
     expect(await periodsFor(student.id)).toContain("2026-11");
     expect(await periodsFor(student.id)).not.toContain("2026-12");
   });
 
-  it("catches up missing Jul–Sep via issueClassFees and only then adds October via issueDueFees", async () => {
+  it("on October 11 creates October's invoice even when it was due October 10", async () => {
+    const classId = "class-issue-past-due";
+    const { student, templateId } = await prepareClass({
+      classId,
+      studentId: "student-issue-past-due",
+      admissionNo: "ADM-WIN-PAST-DUE",
+    });
+    await prisma.student.update({
+      where: { id: student.id },
+      data: { billingStartPeriod: "2026-10" },
+    });
+    freezeOn(new Date(2026, 9, 11, 12, 0, 0));
+
+    const first = await act(officeToken, "issueClassFees", { classId, templateId });
+    expect(first.status).toBe(200);
+    expect(first.body).toMatchObject({ issued: 1, through: "2026-10" });
+    const invoice = await prisma.feeInvoice.findUniqueOrThrow({
+      where: { studentId_period: { studentId: student.id, period: "2026-10" } },
+    });
+    expect(invoice.dueDate.getFullYear()).toBe(2026);
+    expect(invoice.dueDate.getMonth()).toBe(9);
+    expect(invoice.dueDate.getDate()).toBe(10);
+    expect(await periodsFor(student.id)).toEqual(["2026-10"]);
+
+    const repeat = await act(officeToken, "issueClassFees", { classId, templateId });
+    expect(repeat.status).toBe(200);
+    expect(repeat.body.issued).toBe(0);
+    expect(await periodsFor(student.id)).toEqual(["2026-10"]);
+  });
+
+  it("does not rewrite a blank-period invoice while generating monthly fees", async () => {
+    const classId = "class-issue-no-backfill";
+    const { student, templateId } = await prepareClass({
+      classId,
+      studentId: "student-issue-no-backfill",
+      admissionNo: "ADM-WIN-NO-BACKFILL",
+    });
+    await prisma.student.update({
+      where: { id: student.id },
+      data: { billingStartPeriod: "2026-10" },
+    });
+    const oneTime = await prisma.feeInvoice.create({
+      data: {
+        studentId: student.id,
+        classId,
+        period: "",
+        title: "One-time charge",
+        amount: 500,
+        dueDate: new Date("2026-10-10T00:00:00.000Z"),
+      },
+    });
+    freezeOn(new Date(2026, 9, 11, 12, 0, 0));
+
+    expect((await act(officeToken, "issueClassFees", { classId, templateId })).status).toBe(200);
+    expect((await act(officeToken, "issueDueFees", { classId })).status).toBe(200);
+    expect((await prisma.feeInvoice.findUniqueOrThrow({ where: { id: oneTime.id } })).period).toBe("");
+    expect(await periodsFor(student.id)).toEqual(["", "2026-10"]);
+  });
+
+  it("catches up missing Jul–Oct via issueClassFees without duplication in issueDueFees", async () => {
     const classId = "class-issue-catchup";
     const { student, templateId } = await prepareClass({
       classId,
@@ -278,7 +337,7 @@ describe.sequential("fee issue month windows", () => {
     }
     freezeOn(new Date(2026, 9, 4, 12, 0, 0));
     expect((await act(officeToken, "issueClassFees", { classId, templateId })).status).toBe(200);
-    expect(await periodsFor(student.id)).toEqual(["2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09"]);
+    expect(await periodsFor(student.id)).toEqual(["2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10"]);
     expect((await act(officeToken, "issueDueFees", { classId })).status).toBe(200);
     expect(await periodsFor(student.id)).toEqual([
       "2026-04",

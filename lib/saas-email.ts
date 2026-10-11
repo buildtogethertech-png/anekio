@@ -4,7 +4,7 @@ import { prisma } from "./prisma";
 /** The single platform-wide email configuration row. */
 export const SAAS_EMAIL_CONFIG_ID = "anekio";
 
-export const SAAS_EMAIL_EVENTS = ["DEMO_BOOKED", "TRIAL_STARTED"] as const;
+export const SAAS_EMAIL_EVENTS = ["DEMO_BOOKED", "TRIAL_STARTED", "LOGIN_CODE", "PASSWORD_RESET", "FEE_REMINDER"] as const;
 export type SaasEmailEvent = (typeof SAAS_EMAIL_EVENTS)[number];
 
 export const SAAS_EMAIL_AUDIENCES = ["INTERNAL", "CUSTOMER"] as const;
@@ -26,6 +26,12 @@ export const SAAS_EMAIL_TEMPLATE_VARIABLES = [
   "loginUrl",
   "passwordResetUrl",
   "leadUrl",
+  "code",
+  "resetUrl",
+  "studentName",
+  "title",
+  "amount",
+  "payUrl",
 ] as const;
 
 export type SaasEmailTemplateVariables = Partial<Record<(typeof SAAS_EMAIL_TEMPLATE_VARIABLES)[number], unknown>> & Record<string, unknown>;
@@ -40,6 +46,8 @@ export type SaasEmailRuleSettings = {
   cc: string[];
   bcc: string[];
   replyTo: string[];
+  fromName: string;
+  fromEmail: string;
   subjectTemplate: string;
   textTemplate: string;
   htmlTemplate: string;
@@ -83,6 +91,8 @@ export type SaasEmailRuleInput = {
   cc?: string[] | string;
   bcc?: string[] | string;
   replyTo?: string[] | string;
+  fromName?: string;
+  fromEmail?: string;
   subjectTemplate?: string;
   textTemplate?: string;
   htmlTemplate?: string;
@@ -198,6 +208,8 @@ type StoredRule = {
   ccRecipients: string;
   bccRecipients: string;
   replyTo: string;
+  fromName: string;
+  fromEmail: string;
   subjectTemplate: string;
   textTemplate: string;
   htmlTemplate: string;
@@ -217,7 +229,7 @@ const DEFAULT_CONFIG = {
   stagingSafeRecipients: JSON.stringify(["support@anekio.com"]),
 } as const;
 
-const DEFAULT_RULES: Array<Omit<StoredRule, "id" | "configId" | "createdAt" | "updatedAt">> = [
+const DEFAULT_RULES: Array<Omit<StoredRule, "id" | "configId" | "createdAt" | "updatedAt" | "fromName" | "fromEmail">> = [
   {
     event: "DEMO_BOOKED",
     audience: "INTERNAL",
@@ -332,6 +344,27 @@ The Anekio Team`,
 <p>Someone from our team will contact you soon to help with onboarding, answer your questions, and get your school set up. If you need help before then, reply to this email.</p>
 <p>Welcome to Anekio,<br>The Anekio Team</p>
 </div>`,
+  },
+  {
+    event: "LOGIN_CODE", audience: "CUSTOMER", enabled: true, sortOrder: 50,
+    toRecipients: "[]", ccRecipients: "[]", bccRecipients: "[]", replyTo: "[]",
+    subjectTemplate: "Your Anekio sign-in code",
+    textTemplate: "Use {{code}} to sign in to Anekio. This code expires in 10 minutes and can be used once. If you did not request it, ignore this email.",
+    htmlTemplate: `<div style="font-family:Arial,sans-serif;color:#102a56;line-height:1.6;max-width:520px;margin:auto;padding:24px"><h1>Your Anekio sign-in code</h1><p>Use this verification code to sign in:</p><div style="font-size:32px;font-weight:800;background:#f1f6ff;padding:18px;text-align:center">{{code}}</div><p>This code expires in 10 minutes and works once.</p></div>`,
+  },
+  {
+    event: "PASSWORD_RESET", audience: "CUSTOMER", enabled: true, sortOrder: 60,
+    toRecipients: "[]", ccRecipients: "[]", bccRecipients: "[]", replyTo: "[]",
+    subjectTemplate: "Reset your Anekio password",
+    textTemplate: "Reset your password using this link: {{resetUrl}}\n\nThis link expires in 15 minutes. If you did not request it, ignore this email.",
+    htmlTemplate: `<div style="font-family:Arial,sans-serif;color:#102a56;line-height:1.6;max-width:520px;margin:auto;padding:24px"><h1>Reset your Anekio password</h1><p>Use the link below to reset your password.</p><p><a href="{{resetUrl}}">Reset password</a></p><p>This link expires in 15 minutes. If you did not request it, ignore this email.</p></div>`,
+  },
+  {
+    event: "FEE_REMINDER", audience: "CUSTOMER", enabled: true, sortOrder: 70,
+    toRecipients: "[]", ccRecipients: "[]", bccRecipients: "[]", replyTo: "[]",
+    subjectTemplate: "Fee reminder · {{studentName}} · {{title}}",
+    textTemplate: "Dear Parent,\n\nThe school fee for {{studentName}} ({{title}}) is pending.\nAmount due: ₹{{amount}}\nPay securely: {{payUrl}}\n\nIf you have already paid, please ignore this message.\n{{schoolName}}",
+    htmlTemplate: `<div style="font-family:Arial,sans-serif;color:#1c1917;line-height:1.55;max-width:520px"><p>Dear Parent,</p><p>The school fee for <strong>{{studentName}}</strong> ({{title}}) is pending.</p><p>Amount due: <strong>₹{{amount}}</strong></p><p><a href="{{payUrl}}">Pay now</a></p><p>If you have already paid, please ignore this message.</p><p>Thank you,<br>{{schoolName}}</p></div>`,
   },
 ];
 
@@ -500,6 +533,8 @@ function ruleSettings(rule: StoredRule): SaasEmailRuleSettings {
     cc: uniqueList(rule.ccRecipients),
     bcc: uniqueList(rule.bccRecipients),
     replyTo: uniqueList(rule.replyTo),
+    fromName: rule.fromName,
+    fromEmail: rule.fromEmail,
     subjectTemplate: rule.subjectTemplate,
     textTemplate: rule.textTemplate,
     htmlTemplate: rule.htmlTemplate,
@@ -692,6 +727,14 @@ export async function saveSaasEmailRule(input: SaasEmailRuleInput | Record<strin
   const existing =
     byId ||
     ((await prisma.saasEmailRule.findFirst({ where: { configId: config.id, event: ruleEvent, audience: ruleAudience } })) as StoredRule | null);
+  const nextFromEmail = has(source, "fromEmail") ? text(source.fromEmail).toLowerCase() : existing?.fromEmail || "";
+  if (nextFromEmail && !email(nextFromEmail)) throw new Error("Enter a valid sender email address.");
+  const nextText = has(source, "textTemplate") ? String(source.textTemplate ?? "") : existing?.textTemplate ?? "";
+  const nextHtml = has(source, "htmlTemplate") ? String(source.htmlTemplate ?? "") : existing?.htmlTemplate ?? "";
+  const requiredVariable = ruleEvent === "LOGIN_CODE" ? "code" : ruleEvent === "PASSWORD_RESET" ? "resetUrl" : "";
+  if (requiredVariable && ((nextText.trim() && !nextText.includes(`{{${requiredVariable}}}`)) || (nextHtml.trim() && !nextHtml.includes(`{{${requiredVariable}}}`)))) {
+    throw new Error(`Both message formats must include {{${requiredVariable}}} so recipients can complete the action.`);
+  }
   const data = {
     enabled: boolean(source.enabled, existing?.enabled ?? true),
     sortOrder: integer(source.sortOrder, existing?.sortOrder ?? (ruleAudience === "INTERNAL" ? 10 : 20)),
@@ -699,9 +742,11 @@ export async function saveSaasEmailRule(input: SaasEmailRuleInput | Record<strin
     ccRecipients: ruleListField(source, existing, "cc", "ccRecipients"),
     bccRecipients: ruleListField(source, existing, "bcc", "bccRecipients"),
     replyTo: ruleListField(source, existing, "replyTo", "replyTo"),
+    fromName: has(source, "fromName") ? text(source.fromName) : existing?.fromName || "",
+    fromEmail: nextFromEmail,
     subjectTemplate: has(source, "subjectTemplate") ? String(source.subjectTemplate ?? "") : existing?.subjectTemplate ?? "",
-    textTemplate: has(source, "textTemplate") ? String(source.textTemplate ?? "") : existing?.textTemplate ?? "",
-    htmlTemplate: has(source, "htmlTemplate") ? String(source.htmlTemplate ?? "") : existing?.htmlTemplate ?? "",
+    textTemplate: nextText,
+    htmlTemplate: nextHtml,
   };
   const saved = existing
     ? await prisma.saasEmailRule.update({ where: { id: existing.id }, data })
@@ -791,6 +836,42 @@ export async function sendResendPlatformEmail(input: ResendEmailInput): Promise<
   return { messageId: text(record(body).id), response: body };
 }
 
+/** Transactional mail always goes to the account/parent selected by the calling action. */
+export async function sendPlatformSystemEmail(input: {
+  event: "LOGIN_CODE" | "PASSWORD_RESET" | "FEE_REMINDER";
+  to: string;
+  variables: SaasEmailTemplateVariables;
+}) {
+  const config = resolveSaasEmailRuntime((await ensureSaasEmailDefaultsRaw()) as StoredConfig);
+  const rule = (await prisma.saasEmailRule.findUnique({
+    where: { configId_event_audience: { configId: config.id, event: input.event, audience: "CUSTOMER" } },
+  })) as StoredRule | null;
+  if (!config.enabled || !config.resendApiKey || !rule?.enabled) throw new Error("Platform email delivery is not configured for this message.");
+  const recipient = email(input.to);
+  if (!recipient) throw new Error("Recipient email is missing or invalid.");
+  const selectedSender = sender(rule.fromName || config.productionFromName, rule.fromEmail || config.productionFromEmail);
+  if (!selectedSender.fromEmail) throw new Error("Platform email sender is invalid.");
+  const subject = renderSaasEmailTemplate(rule.subjectTemplate, input.variables, "subject");
+  const messageText = renderSaasEmailTemplate(rule.textTemplate, input.variables, "text");
+  const html = renderSaasEmailTemplate(rule.htmlTemplate, input.variables, "html");
+  const replyTo = validRecipients(renderedList(rule.replyTo, input.variables));
+  if (replyTo.invalid.length) throw new Error("Platform email Reply-To is invalid.");
+  return sendResendPlatformEmail({
+    apiKey: config.resendApiKey,
+    from: selectedSender.from,
+    to: [recipient],
+    replyTo: replyTo.valid,
+    subject,
+    text: messageText,
+    html,
+  });
+}
+
+export async function platformEmailConfigured() {
+  const config = resolveSaasEmailRuntime((await ensureSaasEmailDefaultsRaw()) as StoredConfig);
+  return Boolean(config.enabled && config.resendApiKey && config.productionFromEmail);
+}
+
 type RenderedMail = {
   from: string;
   fromEmail: string;
@@ -826,10 +907,10 @@ function renderMail(input: {
   environment: SaasEmailEnvironment;
 }): RenderedMail {
   const { config, rule, variables, environment } = input;
-  const selectedSender =
-    environment === "production"
-      ? sender(config.productionFromName, config.productionFromEmail)
-      : sender(config.stagingFromName, config.stagingFromEmail);
+  const selectedSender = sender(
+    rule?.fromName || (environment === "production" ? config.productionFromName : config.stagingFromName),
+    rule?.fromEmail || (environment === "production" ? config.productionFromEmail : config.stagingFromEmail)
+  );
   const blank: RenderedMail = {
     from: selectedSender.from,
     fromEmail: selectedSender.fromEmail,

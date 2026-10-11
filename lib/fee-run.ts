@@ -1,14 +1,15 @@
-import { InvoiceStatus } from "@prisma/client";
+import { randomUUID } from "node:crypto";
+import { InvoiceStatus, type FeeLine, type FeeTemplate } from "@prisma/client";
 import { prisma } from "./prisma";
 import {
   composeStudentFeeLines,
+  studentMayBeBilledForPeriod,
   dueDateForMonth,
   feeLineTotal,
   feePeriod,
   invoiceBalance,
-  invoiceLateStamp,
+  invoiceLateMetadata,
   monthFeeTitle,
-  periodFromDate,
   sessionMonthsThrough,
 } from "./fees";
 import { ensureSchoolSessions } from "./school-session";
@@ -27,31 +28,59 @@ function coveredPeriods(rows: { studentId: string; period: string }[]) {
   for (const row of rows) {
     if (!row.period) continue;
     have.add(`${row.studentId}:${row.period}`);
-    have.add(`${row.studentId}:${row.period.slice(0, 7)}`);
   }
   return have;
 }
 
-export async function backfillInvoicePeriods() {
-  const orphans = await prisma.feeInvoice.findMany({
-    where: { period: "" },
-    select: { id: true, studentId: true, dueDate: true },
+type FeeMonth = { year: number; monthIndex: number; period: string };
+
+/** The button and cron choose different scopes, but issue each template with the same rules. */
+export async function issueTemplateMonthlyInvoices(template: FeeTemplate & { lines: FeeLine[] }, months: FeeMonth[]) {
+  const students = await prisma.student.findMany({
+    where: { classId: template.classId },
+    select: { id: true, billingStartPeriod: true, feeAddOns: { where: { active: true } } },
   });
-  for (const inv of orphans) {
-    let period = periodFromDate(inv.dueDate);
-    const clash = await prisma.feeInvoice.findFirst({
-      where: { studentId: inv.studentId, period, NOT: { id: inv.id } },
-      select: { id: true },
-    });
-    if (clash) period = `${period}-${inv.id.slice(-4)}`;
-    await prisma.feeInvoice.update({ where: { id: inv.id }, data: { period } });
+  if (!students.length || !template.lines.length || !months.length) return { created: 0, studentCount: students.length, months: [] as string[] };
+
+  const existing = await prisma.feeInvoice.findMany({
+    where: { studentId: { in: students.map((student) => student.id) } },
+    select: { studentId: true, period: true },
+  });
+  const have = coveredPeriods(existing);
+  const rows = [];
+  for (const student of students) {
+    for (const month of months) {
+      if (template.startsPeriod && month.period < template.startsPeriod) continue;
+      if (template.endsPeriod && month.period > template.endsPeriod) continue;
+      if (!studentMayBeBilledForPeriod(student, month.period)) continue;
+      if (have.has(`${student.id}:${month.period}`)) continue;
+      const lines = composeStudentFeeLines(template.lines, student.feeAddOns, month.period);
+      if (!lines.length) continue;
+      rows.push({
+        studentId: student.id,
+        orgId: template.orgId ?? null,
+        classId: template.classId,
+        templateId: template.id,
+        period: month.period,
+        title: monthFeeTitle(month.year, month.monthIndex, template.name),
+        amount: feeLineTotal(lines).total,
+        linesJson: JSON.stringify(lines),
+        dueDate: dueDateForMonth(month.year, month.monthIndex, template.dueDay),
+        metadataJson: invoiceLateMetadata(template),
+        shareToken: randomUUID(),
+        status: InvoiceStatus.DUE,
+      });
+    }
   }
+  if (!rows.length) return { created: 0, studentCount: students.length, months: [] as string[] };
+  const result = await prisma.feeInvoice.createMany({ data: rows });
+  return { created: result.count, studentCount: students.length, months: [...new Set(rows.map((row) => row.period))] };
 }
 
 export async function previewDueFees(classId: string, asOf = new Date(), sessionId?: string) {
   const { months } = await sessionRange(sessionId, asOf);
   const [students, existing] = await Promise.all([
-    prisma.student.findMany({ where: { classId }, select: { id: true } }),
+    prisma.student.findMany({ where: { classId }, select: { id: true, billingStartPeriod: true } }),
     prisma.feeInvoice.findMany({
       where: { classId },
       select: { period: true, studentId: true },
@@ -61,7 +90,8 @@ export async function previewDueFees(classId: string, asOf = new Date(), session
   return {
     studentCount: students.length,
     months: months.map((m) => {
-      const already = students.filter((s) => have.has(`${s.id}:${m.period}`)).length;
+      const eligible = students.filter((s) => studentMayBeBilledForPeriod(s, m.period) || have.has(`${s.id}:${m.period}`));
+      const already = eligible.filter((s) => have.has(`${s.id}:${m.period}`)).length;
       return {
         period: m.period,
         label: new Date(m.year, m.monthIndex, 1).toLocaleString("en-IN", {
@@ -69,14 +99,13 @@ export async function previewDueFees(classId: string, asOf = new Date(), session
           year: "numeric",
         }),
         already,
-        missing: Math.max(0, students.length - already),
+        missing: eligible.length - already,
       };
     }),
   };
 }
 
 export async function issueDueFeesCore(asOf = new Date(), classId?: string, sessionId?: string) {
-  await backfillInvoicePeriods();
   const { session, months } = await sessionRange(sessionId, asOf);
   const templates = await prisma.feeTemplate.findMany({
     where: {
@@ -90,53 +119,9 @@ export async function issueDueFeesCore(asOf = new Date(), classId?: string, sess
   const added: string[] = [];
 
   for (const template of templates) {
-    if (!template.lines.length) continue;
-    const students = await prisma.student.findMany({
-      where: { classId: template.classId },
-      select: { id: true, feeGeneratedThrough: true, feeAddOns: { where: { active: true } } },
-    });
-    if (!students.length) continue;
-
-    const classLines = template.lines;
-    const existing = await prisma.feeInvoice.findMany({
-      where: { studentId: { in: students.map((s) => s.id) } },
-      select: { studentId: true, period: true },
-    });
-    const have = coveredPeriods(existing);
-
-    const rows = [];
-    for (const student of students) {
-      for (const month of months) {
-        const startPeriod = template.startsPeriod || "";
-        const endPeriod = template.endsPeriod || "";
-        if (startPeriod && month.period < startPeriod) continue;
-        if (endPeriod && month.period > endPeriod) continue;
-        if (month.period <= student.feeGeneratedThrough) continue;
-        if (have.has(`${student.id}:${month.period}`)) continue;
-        const drafts = composeStudentFeeLines(classLines, student.feeAddOns, month.period);
-        if (!drafts.length) continue;
-        const { total } = feeLineTotal(drafts);
-        rows.push({
-          studentId: student.id,
-          orgId: template.orgId ?? null,
-          classId: template.classId,
-          templateId: template.id,
-          period: month.period,
-          title: monthFeeTitle(month.year, month.monthIndex, template.name),
-          amount: total,
-          linesJson: JSON.stringify(drafts),
-          dueDate: dueDateForMonth(month.year, month.monthIndex, template.dueDay),
-          ...invoiceLateStamp(template),
-          shareToken: crypto.randomUUID(),
-          status: InvoiceStatus.DUE,
-        });
-        added.push(month.period);
-      }
-    }
-    if (rows.length) {
-      await prisma.feeInvoice.createMany({ data: rows });
-      created += rows.length;
-    }
+    const result = await issueTemplateMonthlyInvoices(template, months);
+    created += result.created;
+    added.push(...result.months);
   }
 
   return {
@@ -154,6 +139,7 @@ export function reminderCopy(inv: {
   lateFeePerDay?: number;
   lateAfter10?: number;
   lateAfter20?: number;
+  metadataJson?: string | null;
   lateKind?: string | null;
   lateGraceDays?: number | null;
   lateAmount?: number | null;

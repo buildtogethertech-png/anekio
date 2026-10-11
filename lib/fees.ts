@@ -199,6 +199,30 @@ export function feePeriod(year: number, monthIndex: number) {
   return `${year}-${String(monthIndex + 1).padStart(2, "0")}`;
 }
 
+export function feePeriodBefore(startPeriod: string) {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(startPeriod)) throw new Error("Billing starts from must be a valid month (YYYY-MM).");
+  const year = Number(startPeriod.slice(0, 4));
+  const monthIndex = Number(startPeriod.slice(5, 7)) - 1;
+  const previous = new Date(year, monthIndex - 1, 1);
+  return feePeriod(previous.getFullYear(), previous.getMonth());
+}
+
+export function feePeriodAfter(period: string) {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) throw new Error("Invoice month must be a valid month (YYYY-MM).");
+  const year = Number(period.slice(0, 4));
+  const monthIndex = Number(period.slice(5, 7)) - 1;
+  const next = new Date(year, monthIndex + 1, 1);
+  return feePeriod(next.getFullYear(), next.getMonth());
+}
+
+export function studentMayBeBilledForPeriod(
+  student: { billingStartPeriod: string },
+  period: string
+) {
+  return /^\d{4}-(0[1-9]|1[0-2])$/.test(student.billingStartPeriod)
+    && period >= student.billingStartPeriod;
+}
+
 export function periodFromDate(date: Date) {
   return feePeriod(date.getFullYear(), date.getMonth());
 }
@@ -282,7 +306,44 @@ export function invoiceLateStamp(row: {
   };
 }
 
-/** FeeTemplate has no lateFeePerDay column — invoices keep that field via invoiceLateStamp. */
+export function invoiceLateMetadata(row: Parameters<typeof latePolicyFrom>[0]) {
+  return JSON.stringify({ late: latePolicyFrom(row) });
+}
+
+export function replaceInvoiceLateMetadata(metadataJson: string | null | undefined, row: Parameters<typeof latePolicyFrom>[0]) {
+  let metadata: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(metadataJson || "{}");
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) metadata = parsed;
+  } catch {
+    // Keep the invoice usable even if earlier optional metadata was malformed.
+  }
+  return JSON.stringify({ ...metadata, late: latePolicyFrom(row) });
+}
+
+export function removeInvoiceLateMetadata(metadataJson: string | null | undefined) {
+  try {
+    const metadata = JSON.parse(metadataJson || "{}");
+    if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return metadataJson || null;
+    if (!("late" in metadata)) return metadataJson || null;
+    delete metadata.late;
+    return JSON.stringify(metadata);
+  } catch {
+    return metadataJson || null;
+  }
+}
+
+export function invoiceLatePolicy(row: Parameters<typeof latePolicyFrom>[0] & { metadataJson?: string | null }) {
+  try {
+    const metadata = JSON.parse(row.metadataJson || "{}") as { late?: Parameters<typeof latePolicyFrom>[0] };
+    if (metadata.late) return latePolicyFrom(metadata.late);
+  } catch {
+    // Invalid optional metadata must not break payment calculation.
+  }
+  return latePolicyFrom(row);
+}
+
+/** FeeTemplate keeps the current late rule; invoices use metadataJson for the active rule. */
 export function feeTemplateLateWrite(stamp: {
   lateKind: string;
   lateGraceDays: number;
@@ -342,6 +403,7 @@ export function invoiceBalance(inv: {
   lateAmount?: number | null;
   lateIntervalCount?: number | null;
   lateIntervalUnit?: string | null;
+  metadataJson?: string | null;
   payments?: { amount: number }[];
   paid?: number;
 }) {
@@ -352,7 +414,7 @@ export function invoiceBalance(inv: {
   const remaining = Math.max(0, inv.amount - paid);
   const settled = remaining <= 0 || inv.status === "PAID";
   const lateDays = settled ? 0 : daysLate(due);
-  const late = lateFee(due, settled, { ...inv, remaining });
+  const late = lateFee(due, settled, { ...invoiceLatePolicy(inv), remaining });
   const dueNow = remaining + (remaining > 0 ? late : 0);
   const lateLabel = lateDays > 0 ? `Late by ${lateDays} days · ${formatInr(late)}` : "";
   const display = settled ? "PAID" : lateDays > 0 ? "OVERDUE" : paid > 0 ? "PARTIAL" : "DUE";
@@ -444,6 +506,7 @@ export function groupStudentFees<
     lateKind?: string | null;
     lateGraceDays?: number | null;
     lateAmount?: number | null;
+    metadataJson?: string | null;
     status?: string;
     studentId: string;
     student: { name: string; class?: { name: string; section: string } | null };

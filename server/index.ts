@@ -469,6 +469,7 @@ app.get("/api/v1/onboarding/template", async (req, res) => {
     const template = await onboardingSpreadsheetTemplate(user, kind, { sampleData });
     res.setHeader("Content-Type", template.contentType);
     res.setHeader("Content-Disposition", `attachment; filename="${template.fileName}"`);
+    res.setHeader("Cache-Control", "no-store");
     res.send(template.buffer);
   } catch (e) {
     sendError(res, 400, e instanceof Error ? e.message : "Template unavailable");
@@ -755,6 +756,17 @@ app.get(["/logout", "/anekio-admin/logout"], (req, res, next) => {
   res.redirect(303, adminBase(req) || "/");
 });
 
+app.get(["/favicon.png", "/favicon.ico"], (req, res) => {
+  const dist = webRoot();
+  const favicon = [
+    dist ? path.join(dist, req.path.endsWith(".ico") ? "favicon.ico" : "favicon.png") : "",
+    path.resolve(serverDir, "..", "mobile", "assets", "anekio-option-a-square.png"),
+  ].find((candidate) => candidate && existsSync(candidate));
+  if (!favicon) return res.sendStatus(404);
+  res.setHeader("Cache-Control", "public, max-age=86400");
+  res.type(favicon.endsWith(".ico") ? "image/x-icon" : "image/png").sendFile(favicon);
+});
+
 app.get("/", async (req, res, next) => {
   if (isAdminHost(req)) return renderAdminPage(req, res);
   if (isAppHost(req) || isConnectHost(req)) return next();
@@ -930,9 +942,9 @@ app.post(["/settings/email/rules", "/anekio-admin/settings/email/rules"], async 
   const basePath = adminBase(req);
   try {
     await saveSaasEmailRule(req.body || {}, session.email);
-    res.redirect(303, `${basePath || "/"}?view=email&saved=${encodeURIComponent("Demo email message saved.")}`);
+    res.redirect(303, `${basePath || "/"}?view=email&saved=${encodeURIComponent("Email template saved.")}`);
   } catch (e) {
-    res.redirect(303, `${basePath || "/"}?view=email&error=${encodeURIComponent(e instanceof Error ? e.message : "Could not save demo email message.")}`);
+    res.redirect(303, `${basePath || "/"}?view=email&error=${encodeURIComponent(e instanceof Error ? e.message : "Could not save email template.")}`);
   }
 });
 

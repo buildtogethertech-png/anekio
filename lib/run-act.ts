@@ -54,6 +54,7 @@ import {
   sendClassNoteCore,
   submitParentQueryCore,
   saveSchoolClockCore,
+  checkSchoolWebsiteSlugCore,
   saveSchoolIdentityCore,
   saveSchoolWebsiteCore,
   saveAdmissionFeeSetupCore,
@@ -202,6 +203,8 @@ export async function runAct(
     case "saveSchoolIdentity":
       await saveSchoolIdentityCore(user, body as never);
       break;
+    case "checkSchoolWebsiteSlug":
+      return { ok: true, ...(await checkSchoolWebsiteSlugCore(user, body as never)) };
     case "saveSchoolWebsite":
       return { ok: true, ...(await saveSchoolWebsiteCore(user, body as never)) };
     case "updateAdmissionLead":

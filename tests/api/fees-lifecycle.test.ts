@@ -5,7 +5,7 @@ import request from "supertest";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { seedPortalFixture, type PortalFixture } from "../support/factories";
 import { createPushedTestDatabase, type TestDatabase } from "../support/test-database";
-import { invoiceBalance, parseFeeLines } from "../../lib/fees";
+import { invoiceBalance, invoiceLatePolicy, parseFeeLines } from "../../lib/fees";
 
 const razorpayMock = vi.hoisted(() => ({
   createOrder: vi.fn(async (input: { amount: number }) => ({ id: "order_life", amount: input.amount, currency: "INR" })),
@@ -185,6 +185,7 @@ describe.sequential("fees module lifecycle API", () => {
         admissionNo: "ADM-LIFE-A",
         name: "Student A Life",
         dateOfBirth: new Date("2015-01-01T00:00:00Z"),
+        billingStartPeriod: "2026-04",
       },
     });
     const studentB = await prisma.student.create({
@@ -195,6 +196,7 @@ describe.sequential("fees module lifecycle API", () => {
         admissionNo: "ADM-LIFE-B",
         name: "Student B Life",
         dateOfBirth: new Date("2015-02-02T00:00:00Z"),
+        billingStartPeriod: "2026-04",
       },
     });
     const other = await act(officeToken, "saveFeeCatalog", {
@@ -264,11 +266,10 @@ describe.sequential("fees module lifecycle API", () => {
     expect(updated.status).toBe(200);
     const after = await prisma.feeInvoice.findUniqueOrThrow({ where: { id: before.id } });
     expect(after.amount).toBe(before.amount);
-    expect(after.lateKind).toBe("STATIC");
-    expect(after.lateAmount).toBe(100);
+    expect(invoiceLatePolicy(after)).toMatchObject({ lateKind: "DAILY", lateAmount: 100 });
   });
 
-  it("skips months at or before feeGeneratedThrough for a mid-session joiner", async () => {
+  it("skips months before billing starts for a mid-session joiner", async () => {
     const joiner = await prisma.student.create({
       data: {
         id: "student-joiner-life",
@@ -277,7 +278,7 @@ describe.sequential("fees module lifecycle API", () => {
         admissionNo: "ADM-LIFE-J",
         name: "Joiner Life",
         dateOfBirth: new Date("2015-08-01T00:00:00Z"),
-        feeGeneratedThrough: "2026-07",
+        billingStartPeriod: "2026-08",
       },
     });
     const template = await prisma.feeTemplate.findFirstOrThrow({ where: { classId: "class-1-a-life" } });
@@ -328,7 +329,6 @@ describe.sequential("fees module lifecycle API", () => {
         classId: goldClass.id,
         sessionId: "session-2026",
         rollNumber: 41,
-        joinedAt: new Date("2026-04-01T00:00:00.000Z"),
       },
     });
     const saved = await act(officeToken, "saveFeeTemplate", {
@@ -354,9 +354,7 @@ describe.sequential("fees module lifecycle API", () => {
     expect(april.dueDate.getDate()).toBe(10);
     expect(april.dueDate.getMonth()).toBe(3);
     expect(april.status).toBe("DUE");
-    expect(april.lateKind).toBe("STATIC");
-    expect(april.lateAmount).toBe(100);
-    expect(april.lateGraceDays).toBe(5);
+    expect(invoiceLatePolicy(april)).toMatchObject({ lateKind: "STATIC", lateAmount: 100, lateGraceDays: 5 });
 
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 3, 15, 12, 0, 0));

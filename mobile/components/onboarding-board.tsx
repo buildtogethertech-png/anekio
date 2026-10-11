@@ -45,8 +45,8 @@ const FOCUSED_IMPORT_COPY: Record<Template["kind"], { heading: string; descripti
   students: {
     heading: "Choose a student CSV or Excel file",
     description: "Upload student and parent records for review.",
-    requiredColumns: "Open the Field guide tab in the downloaded sheet. It reflects the school's admission form and the fields needed to create student and parent records.",
-    note: "Confirm the admission form first, then download a fresh sheet. Blank admission numbers and rolls are generated; review must pass before Apply changes records.",
+    requiredColumns: "Student name, date of birth, class, Billing starts from (YYYY-MM), parent name, and parent mobile. Check the Field guide tab for any additional school-required fields.",
+    note: "Billing starts from is required for monthly invoices. Download a fresh sheet after changing the admission form; older files do not gain new columns automatically. Blank admission numbers and rolls are generated.",
   },
   teachers: {
     heading: "Choose a staff CSV or Excel file",

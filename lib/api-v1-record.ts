@@ -57,6 +57,7 @@ function serializeFamilyFeeInvoice(inv: {
   dueDate: Date;
   amount: number;
   linesJson: string;
+  metadataJson?: string | null;
   shareToken?: string | null;
   payments: { amount: number }[];
 }) {
@@ -88,6 +89,7 @@ function serializePeopleFeeInvoice(inv: {
   dueDate: Date;
   amount: number;
   linesJson?: string | null;
+  metadataJson?: string | null;
   shareToken?: string | null;
   payments: { amount: number; method?: string; reference?: string | null; notes?: string | null; paidAt?: Date }[];
 }) {
@@ -1301,7 +1303,7 @@ async function officePayload(user: AccessUser) {
       whatsappCommunityUrl: config?.whatsappCommunityUrl || "",
       website: {
         enabled: config?.websiteEnabled || false,
-        slug: config?.websiteSlug || "demo",
+        slug: config?.websiteSlug || "",
         theme: config?.websiteTheme || "blue",
         heroTitle: config?.websiteHeroTitle || "",
         heroSubtitle: config?.websiteHeroSubtitle || "",

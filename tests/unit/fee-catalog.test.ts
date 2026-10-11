@@ -131,6 +131,23 @@ describe("fee catalog and student assignment", () => {
     ]);
   });
 
+  it("combines class and school catalogue add-ons before applying a discount", () => {
+    const lines = composeStudentFeeLines(
+      [
+        { label: "Tuition", amount: 1000, scope: "ALL" },
+        { label: "Lab", amount: 200, scope: "ADD_ON" },
+      ],
+      [
+        { label: "Lab", kind: "CLASS:lab", amount: 200, cadence: "MONTHLY", active: true },
+        { label: "Computer", kind: "OTHER:computer", amount: 300, cadence: "MONTHLY", active: true },
+        { label: "Discount", kind: "DISCOUNT_PERCENT", amount: 10, cadence: "MONTHLY", active: true },
+      ],
+      "2026-10"
+    );
+    expect(lines.map((line) => line.amount)).toEqual([1000, 200, 300, -150]);
+    expect(lines.reduce((total, line) => total + line.amount, 0)).toBe(1350);
+  });
+
   it("excludes inactive and expired add-ons from future invoices", () => {
     const lines = composeStudentFeeLines(
       [{ label: "Tuition", amount: 1400, scope: "ALL" }],

@@ -14,6 +14,7 @@ import { currentTenantOrg, runWithoutTenant } from "./tenant-context";
 import { admissionFormFields, staffOnboardingFormFields, type AdmissionFormField } from "./admission-form";
 import { configuredAdmissionFormJson } from "./admission-form-config";
 import { assignStudentRollNumber } from "./student-rolls";
+import { feePeriodAfter, feePeriodBefore } from "./fees";
 
 const ONBOARDING_STATE_ID = "school";
 function onboardingStateId(orgId: string) {
@@ -225,7 +226,7 @@ async function findStudentForOpening(db: OnboardingDb | typeof prisma, input: { 
   if (!wanted) return null;
   const students = await db.student.findMany({
     where: { orgId: input.orgId ?? null },
-    select: { id: true, admissionNo: true, classId: true, feeGeneratedThrough: true },
+    select: { id: true, admissionNo: true, classId: true },
   });
   const match = students.find((row) => admissionLookupKey(row.admissionNo) === wanted);
   if (!match) return null;
@@ -334,6 +335,7 @@ export function studentImportHeaders(fields: AdmissionFormField[]) {
     byId.get("studentName")?.label || "Student name",
     "Date of birth",
     byId.get("classWanted")?.label || "Class",
+    byId.get("billingStartPeriod")?.label || "Billing starts from",
     byId.get("guardianName")?.label || "Parent name",
     byId.get("phone")?.label || "Parent mobile",
     ...(includeEmail ? [byId.get("email")?.label || "Parent email"] : []),
@@ -353,6 +355,7 @@ export function studentImportColumnGuide(fields: AdmissionFormField[]) {
     { required: true, reason: "Required to create a student." },
     { required: true, reason: "Required to create a student; use YYYY-MM-DD." },
     { required: true, reason: "Required to place the student in a class, such as 1-A." },
+    { required: true, reason: "Required for monthly invoices; use YYYY-MM. No invoice is generated before this month." },
     { required: true, reason: "Required to create or match a parent." },
     { required: true, reason: "Required to create or match a parent; use a 10-digit mobile number." },
     ...(includeEmail ? [{ required: Boolean(builtin.get("email")?.required), reason: "Set by the admission form; optional when not marked required." }] : []),
@@ -379,6 +382,7 @@ export function studentTemplateRow(
     name: CsvCell;
     dob: CsvCell;
     classLabel: CsvCell;
+    billingStartPeriod?: CsvCell;
     parentName: CsvCell;
     parentMobile: CsvCell;
     parentEmail: CsvCell;
@@ -391,7 +395,7 @@ export function studentTemplateRow(
     .filter((field) => !field.builtin || field.id === "message")
     .map((field) => field.id === "message" ? (values.message || "") : (values.custom?.[field.id] || ""));
   const includeEmail = !fields.length || fields.some((field) => field.id === "email" && field.visible);
-  return [values.rollNumber ?? "", values.name, values.dob, values.classLabel, values.parentName, values.parentMobile, ...(includeEmail ? [values.parentEmail] : []), ...custom, values.example || ""];
+  return [values.rollNumber ?? "", values.name, values.dob, values.classLabel, values.billingStartPeriod ?? `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`, values.parentName, values.parentMobile, ...(includeEmail ? [values.parentEmail] : []), ...custom, values.example || ""];
 }
 
 function staffImportHeaders(fields: AdmissionFormField[]) {
@@ -611,7 +615,7 @@ function openingBalanceRows(
       options.sampleData ? sampleOpeningBalanceAmount(index) : current?.amount || 0,
       generatedOn,
       current ? dateText(current.dueDate) : defaultDueDate,
-      student.feeGeneratedThrough || current?.generatedThrough || defaultThrough,
+      current?.generatedThrough || (student.billingStartPeriod ? feePeriodBefore(student.billingStartPeriod) : defaultThrough),
       "",
     ]);
   });
@@ -702,6 +706,7 @@ async function csvRowsFor(kind: ImportKind): Promise<CsvCell[][]> {
           name: student.name,
           dob: dateText(student.dateOfBirth),
           classLabel: `${student.class.name}-${student.class.section}`,
+          billingStartPeriod: student.billingStartPeriod,
           parentName: student.parent.user.name,
           parentMobile: student.parent.phone || student.parent.user.phone || "",
           parentEmail: student.parent.user.email.endsWith("@local.anekio.invalid") ? "" : student.parent.user.email,
@@ -1455,6 +1460,11 @@ async function validateRows(kind: ImportKind, rows: ImportRow[]) {
       const name = configuredImportValue(row, forms!.admission, "studentName", "Student name", "Name");
       const dob = sheetCell(row, "Date of birth", "DOB");
       const klass = classFromImportRow(row, forms!.admission);
+      const billingStartPeriod = configuredImportValue(row, forms!.admission, "billingStartPeriod", "Billing starts from");
+      const billingHeaders = [forms!.admission.find((field) => field.id === "billingStartPeriod")?.label, "Billing starts from"]
+        .filter((header): header is string => Boolean(header))
+        .map(normalizeHeader);
+      const hasBillingColumn = billingHeaders.some((header) => Object.prototype.hasOwnProperty.call(row, header));
       const phone = normalizeMobile(configuredImportValue(row, forms!.admission, "phone", "Parent mobile", "Parent phone"));
       const studentId = sheetCell(row, "Anekio student ID");
       const admissionNo = sheetCell(row, "Admission number", "Admission no").toLowerCase();
@@ -1462,6 +1472,8 @@ async function validateRows(kind: ImportKind, rows: ImportRow[]) {
       if (!name) errors.push(rowError(row, "student name is required."));
       if (!validDate(dob)) errors.push(rowError(row, "date of birth must be YYYY-MM-DD."));
       if (!klass) errors.push(rowError(row, "class must be a value like 1-A."));
+      if (!hasBillingColumn) errors.push(rowError(row, "Billing starts from column is missing. Download a fresh student sheet after saving the admission form."));
+      else if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(billingStartPeriod)) errors.push(rowError(row, "billing starts from must be YYYY-MM."));
       if (!configuredImportValue(row, forms!.admission, "guardianName", "Parent name")) errors.push(rowError(row, "parent name is required."));
       if (!phone) errors.push(rowError(row, "parent mobile must be a 10-digit number."));
       for (const field of visibleFields(forms!.admission)) {
@@ -1789,6 +1801,7 @@ async function applyStudents(
       dateOfBirth: new Date(`${sheetCell(row, "Date of birth", "DOB")}T00:00:00`),
       classId: classRow.id,
       parentId,
+      billingStartPeriod: configuredImportValue(row, forms.admission, "billingStartPeriod", "Billing starts from"),
     };
     if (existing) {
       await db.student.update({ where: { id: existing.id }, data });
@@ -2011,10 +2024,13 @@ async function applyOpeningBalances(db: OnboardingDb, rows: ImportRow[], orgId?:
       });
       created += 1;
     }
-    await db.student.update({
-      where: { id: student.id },
-      data: { feeGeneratedThrough: student.feeGeneratedThrough > generatedThrough ? student.feeGeneratedThrough : generatedThrough },
-    });
+    const firstUnbilledPeriod = feePeriodAfter(generatedThrough);
+    if (student.billingStartPeriod < firstUnbilledPeriod) {
+      await db.student.update({
+        where: { id: student.id },
+        data: { billingStartPeriod: firstUnbilledPeriod },
+      });
+    }
   }
   return { created, updated };
 }

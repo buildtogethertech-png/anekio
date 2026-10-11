@@ -4,6 +4,7 @@ import { prisma } from "./prisma";
 import { userForLogin } from "./login";
 import { looksLikeEmail, normalizeMobile } from "./phone";
 import { publicOrigin } from "./utils";
+import { platformEmailConfigured, sendPlatformSystemEmail } from "./saas-email";
 
 export type AuthChallengePurpose = "LOGIN" | "PASSWORD_RESET";
 
@@ -96,12 +97,6 @@ function maskMobile(value: string) {
   return `+91 ${phone.slice(0, 2)}${"•".repeat(6)}${phone.slice(-2)}`;
 }
 
-function emailConfig() {
-  const apiKey = (process.env.ANEKIO_AUTH_RESEND_API_KEY || process.env.RESEND_API_KEY || "").trim();
-  const from = (process.env.ANEKIO_AUTH_FROM_EMAIL || "Anekio <support@anekio.com>").trim();
-  return { apiKey, from, configured: Boolean(apiKey && from) };
-}
-
 function wakitConfig() {
   const token = (process.env.WAKIT_TOKEN || "").trim();
   const template = (process.env.WAKIT_OTP_TEMPLATE || "otp").trim();
@@ -137,49 +132,14 @@ function whatsappUnavailable(status: number, payload: unknown) {
   );
 }
 
-function emailCopy(code: string, purpose: AuthChallengePurpose) {
-  const action = purpose === "LOGIN" ? "sign in to Anekio" : "reset your Anekio password";
-  const subject = purpose === "LOGIN" ? "Your Anekio sign-in code" : "Reset your Anekio password";
-  const text = `Use ${code} to ${action}. This code expires in 10 minutes and can be used once. If you did not request it, you can ignore this email.`;
-  const html = `<div style="font-family:Inter,Arial,sans-serif;color:#102a56;line-height:1.6;max-width:520px;margin:auto;padding:24px">
-    <div style="font-size:18px;font-weight:800;margin-bottom:24px">Anekio</div>
-    <h1 style="font-size:24px;line-height:1.25;margin:0 0 12px">${subject}</h1>
-    <p style="color:#52657d;margin:0 0 22px">Use this verification code to ${action}.</p>
-    <div style="font-size:32px;font-weight:800;background:#f1f6ff;border:1px solid #c9d9f3;border-radius:8px;padding:18px 20px;text-align:center">${code}</div>
-    <p style="color:#52657d;font-size:13px;margin:20px 0 0">The code expires in 10 minutes and works once. Anekio will never ask you to share it.</p>
-  </div>`;
-  return { subject, text, html };
-}
-
-function resetLinkEmailCopy(url: string) {
-  const subject = "Reset your Anekio password";
-  const text = `Reset your password using this link: ${url}\n\nThis link expires in 15 minutes. If you did not request it, ignore this email.`;
-  const html = `<div style="font-family:Inter,Arial,sans-serif;color:#102a56;line-height:1.6;max-width:520px;margin:auto;padding:24px">
-    <div style="font-size:18px;font-weight:800;margin-bottom:24px">Anekio</div>
-    <h1 style="font-size:24px;line-height:1.25;margin:0 0 12px">Reset your Anekio password</h1>
-    <p style="color:#52657d;margin:0 0 22px">Reset your password using the link below.</p>
-    <p style="margin:0 0 22px"><a href="${url}" style="display:inline-block;background:#1d4ed8;color:#fff;padding:12px 18px;border-radius:8px;font-weight:700;text-decoration:none">Reset password</a></p>
-    <p style="color:#52657d;font-size:13px;margin:0">This link expires in 15 minutes. If you did not request it, ignore this email.</p>
-  </div>`;
-  return { subject, text, html };
-}
-
 async function sendAuthEmail(to: string, code: string, purpose: AuthChallengePurpose) {
-  const config = emailConfig();
-  if (!config.configured) {
+  if (!(await platformEmailConfigured())) {
     if (process.env.NODE_ENV !== "production") return false;
     throw new AuthFlowError(503, "Email verification is being configured. Use your password for now.");
   }
-  const mail = emailCopy(code, purpose);
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ from: config.from, to: [to], ...mail }),
-  });
-  if (!response.ok) {
+  try {
+    await sendPlatformSystemEmail({ event: "LOGIN_CODE", to, variables: { code } });
+  } catch {
     throw new AuthFlowError(503, "We could not send the verification email. Try again shortly.");
   }
   return true;
@@ -243,18 +203,15 @@ async function sendMobileOtp(phone: string, code: string) {
 }
 
 async function sendResetLinkEmail(to: string, url: string) {
-  const config = emailConfig();
-  if (!config.configured) {
+  if (!(await platformEmailConfigured())) {
     if (process.env.NODE_ENV !== "production") return false;
     throw new AuthFlowError(503, "Email verification is being configured. Use your password for now.");
   }
-  const mail = resetLinkEmailCopy(url);
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${config.apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from: config.from, to: [to], ...mail }),
-  });
-  if (!response.ok) throw new AuthFlowError(503, "We could not send the reset link. Try again shortly.");
+  try {
+    await sendPlatformSystemEmail({ event: "PASSWORD_RESET", to, variables: { resetUrl: url } });
+  } catch {
+    throw new AuthFlowError(503, "We could not send the reset link. Try again shortly.");
+  }
   return true;
 }
 

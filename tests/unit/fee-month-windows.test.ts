@@ -1,19 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { clampFeeDueDay, dueDateForMonth, feePeriod, sessionMonthsThrough } from "../../lib/fees";
+import { clampFeeDueDay, dueDateForMonth, feePeriod, feePeriodBefore, sessionMonthsThrough, studentMayBeBilledForPeriod } from "../../lib/fees";
 
 const SESSION = { start: "2026-04-01", end: "2027-03-31" };
-
-/** Mirrors `issueClassFeesCore`: last completed calendar month, not the current month. */
-function lastCompletedPeriod(now: Date) {
-  const lastCompletedMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  return feePeriod(lastCompletedMonth.getFullYear(), lastCompletedMonth.getMonth());
-}
 
 function periodsThrough(now: Date) {
   return sessionMonthsThrough(now, SESSION).map((month) => month.period);
 }
 
+function currentPeriod(now: Date) {
+  return feePeriod(now.getFullYear(), now.getMonth());
+}
+
 describe("session month generation (MON)", () => {
+  it("requires an explicit billing start, independent of imported invoice history", () => {
+    expect(studentMayBeBilledForPeriod({ billingStartPeriod: "" }, "2026-10")).toBe(false);
+    expect(studentMayBeBilledForPeriod({ billingStartPeriod: "2026-10" }, "2026-09")).toBe(false);
+    expect(studentMayBeBilledForPeriod({ billingStartPeriod: "2026-10" }, "2026-10")).toBe(true);
+  });
+  it("uses the month before billing starts as the invoice cutoff", () => {
+    expect(feePeriodBefore("2026-10")).toBe("2026-09");
+    expect(feePeriodBefore("2027-01")).toBe("2026-12");
+    expect(() => feePeriodBefore("2026-13")).toThrow("valid month");
+  });
   it("lists every month of an Apr–Mar session including the year transition", () => {
     expect(periodsThrough(new Date(2027, 2, 31, 12, 0, 0))).toEqual([
       "2026-04",
@@ -47,10 +55,10 @@ describe("session month generation (MON)", () => {
   });
 });
 
-describe("issueClassFees vs issueDueFees month windows (AR)", () => {
-  it("on 4 Oct 2026 class-issue stops at September while due-fees includes October", () => {
+describe("fee generation month windows (AR)", () => {
+  it("on 4 Oct 2026 both generation paths include October, not November", () => {
     const now = new Date(2026, 9, 4, 12, 0, 0);
-    expect(lastCompletedPeriod(now)).toBe("2026-09");
+    expect(currentPeriod(now)).toBe("2026-10");
     expect(periodsThrough(now)).toEqual([
       "2026-04",
       "2026-05",
@@ -63,17 +71,26 @@ describe("issueClassFees vs issueDueFees month windows (AR)", () => {
     expect(periodsThrough(now)).not.toContain("2026-11");
   });
 
+  it("on October 11 the October invoice remains eligible with an October 10 due date", () => {
+    const now = new Date(2026, 9, 11, 12, 0, 0);
+    expect(currentPeriod(now)).toBe("2026-10");
+    expect(periodsThrough(now).at(-1)).toBe("2026-10");
+    expect(studentMayBeBilledForPeriod({ billingStartPeriod: "2026-10" }, "2026-10")).toBe(true);
+    expect(dueDateForMonth(2026, 9, 10).getDate()).toBe(10);
+    expect(dueDateForMonth(2026, 9, 10).getTime()).toBeLessThan(now.getTime());
+  });
+
   it("uses local calendar boundaries, not UTC midnight", () => {
-    expect(lastCompletedPeriod(new Date(2026, 8, 30, 23, 59, 0))).toBe("2026-08");
+    expect(currentPeriod(new Date(2026, 8, 30, 23, 59, 0))).toBe("2026-09");
     expect(periodsThrough(new Date(2026, 8, 30, 23, 59, 0)).at(-1)).toBe("2026-09");
 
-    expect(lastCompletedPeriod(new Date(2026, 9, 1, 0, 0, 0))).toBe("2026-09");
+    expect(currentPeriod(new Date(2026, 9, 1, 0, 0, 0))).toBe("2026-10");
     expect(periodsThrough(new Date(2026, 9, 1, 0, 0, 0)).at(-1)).toBe("2026-10");
 
-    expect(lastCompletedPeriod(new Date(2026, 9, 31, 23, 59, 0))).toBe("2026-09");
+    expect(currentPeriod(new Date(2026, 9, 31, 23, 59, 0))).toBe("2026-10");
     expect(periodsThrough(new Date(2026, 9, 31, 23, 59, 0)).at(-1)).toBe("2026-10");
 
-    expect(lastCompletedPeriod(new Date(2026, 10, 1, 0, 0, 0))).toBe("2026-10");
+    expect(currentPeriod(new Date(2026, 10, 1, 0, 0, 0))).toBe("2026-11");
     expect(periodsThrough(new Date(2026, 10, 1, 0, 0, 0)).at(-1)).toBe("2026-11");
   });
 });

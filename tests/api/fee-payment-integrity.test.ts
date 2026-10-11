@@ -5,7 +5,7 @@ import request from "supertest";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { seedPortalFixture, type PortalFixture } from "../support/factories";
 import { createPushedTestDatabase, type TestDatabase } from "../support/test-database";
-import { invoiceBalance } from "../../lib/fees";
+import { invoiceBalance, invoiceLatePolicy } from "../../lib/fees";
 
 const razorpayMock = vi.hoisted(() => ({
   createOrder: vi.fn(async (input: { amount: number }) => ({ id: "order_test", amount: input.amount, currency: "INR" })),
@@ -344,9 +344,8 @@ describe.sequential("fee payment integrity API", () => {
         classId: fixture.classId,
         sessionId: "session-2026",
         rollNumber: 1,
-        joinedAt: new Date("2026-04-01T00:00:00.000Z"),
       },
-      update: { joinedAt: new Date("2026-04-01T00:00:00.000Z"), classId: fixture.classId, active: true },
+      update: { classId: fixture.classId, active: true },
     });
 
     const saved = await act(officeToken, "saveFeeTemplate", {
@@ -379,9 +378,7 @@ describe.sequential("fee payment integrity API", () => {
     expect(june.dueDate.getFullYear()).toBe(2026);
     expect(june.dueDate.getMonth()).toBe(5);
     expect(june.dueDate.getDate()).toBe(10);
-    expect(june.lateKind).toBe("STATIC");
-    expect(june.lateAmount).toBe(50);
-    expect(june.lateGraceDays).toBe(0);
+    expect(invoiceLatePolicy(june)).toMatchObject({ lateKind: "STATIC", lateAmount: 50, lateGraceDays: 0 });
 
     const existingApril = await prisma.feeInvoice.findUniqueOrThrow({ where: { id: "invoice-anaya-april" } });
     expect(existingApril.amount).toBe(250000);
@@ -418,9 +415,7 @@ describe.sequential("fee payment integrity API", () => {
         title: "August 2026 · Monthly fee",
         amount: 8600,
         dueDate: new Date("2026-08-10T00:00:00Z"),
-        lateKind: "STATIC",
-        lateAmount: 100,
-        lateGraceDays: 0,
+        metadataJson: JSON.stringify({ late: { lateKind: "STATIC", lateAmount: 100, lateGraceDays: 0 } }),
         shareToken: "invoice-arjun-aug",
       },
     });

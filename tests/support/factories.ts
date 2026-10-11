@@ -181,6 +181,7 @@ export async function seedPortalFixture(prisma: PrismaClient): Promise<PortalFix
       admissionNo: "ADM-FIX-1",
       name: "Anaya Student",
       dateOfBirth: new Date("2014-06-15T00:00:00.000Z"),
+      billingStartPeriod: "2026-04",
       payToken: "pay-anaya-fixture",
       interests: { create: [{ tag: "SCIENCE" }] },
       attendance: {

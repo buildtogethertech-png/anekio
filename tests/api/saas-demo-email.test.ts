@@ -41,6 +41,11 @@ describe.sequential("public demo email workflow", () => {
     // The implementation db was pushed with this schema; copying it avoids
     // a nested Prisma schema-engine process inside Vitest.
     database = createTestDatabase();
+    // This workflow verifies database-managed senders, not a developer's local
+    // environment override (which otherwise takes precedence at runtime).
+    for (const name of ["ANEKIO_PLATFORM_RESEND_API_KEY", "ANEKIO_AUTH_RESEND_API_KEY", "RESEND_API_KEY", "ANEKIO_PLATFORM_FROM_EMAIL", "ANEKIO_AUTH_FROM_EMAIL"]) {
+      vi.stubEnv(name, "");
+    }
     vi.resetModules();
     prisma = (await import("../../lib/prisma")).prisma;
     const email = await import("../../lib/saas-email");
@@ -73,6 +78,7 @@ describe.sequential("public demo email workflow", () => {
   afterAll(async () => {
     await prisma?.$disconnect();
     database?.cleanup();
+    vi.unstubAllEnvs();
   });
 
   it("records a demo, sends the internal route first, then sends the customer route", async () => {
@@ -138,6 +144,38 @@ describe.sequential("public demo email workflow", () => {
     expect(page.status).toBe(200);
     expect(page.text).toContain("Email delivery");
     expect(page.text).toContain("Saved securely");
+    expect(page.text).toContain("Sign-in code");
+    expect(page.text).toContain("Fee reminder / payment link");
+    expect(page.text).toContain("HTML preview");
+    expect(page.text).toContain('rel="icon" href="/favicon.ico"');
     expect(page.text).not.toContain("re_test_not_a_real_key");
+  });
+
+  it("serves the branded browser icon", async () => {
+    const icon = await request(app).get("/favicon.ico");
+    expect(icon.status).toBe(200);
+    expect(icon.headers["content-type"]).toMatch(/^image\/(x-icon|png)/);
+    expect(icon.body.length).toBeGreaterThan(100);
+  });
+
+  it("uses the shared key and rule sender while keeping sign-in recipients fixed", async () => {
+    const email = await import("../../lib/saas-email");
+    await email.saveSaasEmailRule({
+      event: "LOGIN_CODE", audience: "CUSTOMER",
+      fromName: "Anekio Access", fromEmail: "access@anekio.com",
+      to: "attacker@example.com",
+      subjectTemplate: "Your code", textTemplate: "Code: {{code}}", htmlTemplate: "<p>{{code}}</p>",
+    }, "admin@anekio.com");
+
+    await email.sendPlatformSystemEmail({ event: "LOGIN_CODE", to: "parent@example.com", variables: { code: "123456" } });
+    const sent = payload(fetchMock.mock.calls[0]);
+    expect(sent).toMatchObject({
+      from: "Anekio Access <access@anekio.com>",
+      to: ["parent@example.com"],
+      subject: "Your code",
+      text: "Code: 123456",
+      html: "<p>123456</p>",
+    });
+    expect(sent.to).not.toContain("attacker@example.com");
   });
 });

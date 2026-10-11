@@ -1,12 +1,12 @@
 import bcrypt from "bcryptjs";
 import { randomUUID } from "node:crypto";
 import QRCode from "qrcode";
-import { AttendanceStatus, PaymentMethod, PathTag, Portal, PayrollStatus, RoomKind, StaffKind } from "@prisma/client";
+import { AttendanceStatus, PaymentMethod, PathTag, Portal, PayrollStatus, Prisma, RoomKind, StaffKind } from "@prisma/client";
 import { sendAisensyWhatsApp } from "./aisensy";
 import { getPayShareChannels, type PayShareChannelId } from "./comms";
 import { recordLedgerPayment } from "./fee-ledger";
 import { issueDueFeesCore } from "./fee-run";
-import { feePeriod, invoiceBalance, parseFeeCatalogState, payRangeLabel, pickAdmissionFeeLines, serializeFeeCatalogState } from "./fees";
+import { feePeriod, feePeriodBefore, invoiceBalance, parseFeeCatalogState, payRangeLabel, pickAdmissionFeeLines, serializeFeeCatalogState } from "./fees";
 import { buildStudentMonthPayPath } from "./pay";
 import { sendResendEmail } from "./resend";
 import { publicOrigin } from "./utils";
@@ -39,6 +39,7 @@ import { PAY_GATEWAYS, type PayGateway } from "./pay-config";
 import { formatQualification, parseSubjectCatalog, parseWeekdays, weekCapacity } from "./schedule";
 import { validateSchoolWebsiteSlug } from "./host-routing";
 import { ensureVercelSchoolWebsiteDomain } from "./vercel-domains";
+import { runWithoutTenant } from "./tenant-context";
 import { assignStudentRollNumber } from "./student-rolls";
 import {
   createSchoolSession,
@@ -190,7 +191,7 @@ export async function createStudentCore(
     parentName?: string;
     parentPhone?: string;
     dateOfBirth: string;
-    dateOfJoining: string;
+    billingStartPeriod?: string;
     tags?: string[];
     collectAdmissionFee?: boolean;
     paymentMethod?: string;
@@ -199,7 +200,8 @@ export async function createStudentCore(
 ) {
   need(user, "people.edit");
   const name = input.name.trim();
-  const dateOfJoining = String(input.dateOfJoining || "");
+  const billingStartPeriod = String(input.billingStartPeriod || feePeriod(new Date().getFullYear(), new Date().getMonth()));
+  feePeriodBefore(billingStartPeriod);
   const requestedParentId = String(input.parentId || "").trim();
   const existingParentId = requestedParentId === "__new__" ? "" : requestedParentId;
   const parentName = String(input.parentName || "").trim();
@@ -208,7 +210,7 @@ export async function createStudentCore(
   const collectAdmissionFee = Boolean(input.collectAdmissionFee);
   const paymentMethod = parsePayMethod(input.paymentMethod);
   const paymentReference = String(input.paymentReference || "").trim() || null;
-  if (!name || !input.classId || !input.dateOfBirth || !dateOfJoining || (!existingParentId && (!parentName || !parentPhone))) {
+  if (!name || !input.classId || !input.dateOfBirth || (!existingParentId && (!parentName || !parentPhone))) {
     throw new Error("Missing student fields");
   }
   if (collectAdmissionFee) {
@@ -277,6 +279,7 @@ export async function createStudentCore(
             classId: input.classId,
             parentId,
             dateOfBirth: new Date(input.dateOfBirth),
+            billingStartPeriod,
             interests: { create: tags.map((tag) => ({ tag })) },
           },
         });
@@ -284,7 +287,6 @@ export async function createStudentCore(
           studentId: student.id,
           classId: input.classId,
           orgId: user.orgId ?? null,
-          joinedAt: new Date(dateOfJoining),
         });
         const admissionInvoice = admissionCharge > 0
           ? await tx.feeInvoice.create({
@@ -512,6 +514,7 @@ export async function admitLeadAsStudentCore(
         classId,
         parentId,
         dateOfBirth: born,
+        billingStartPeriod: lead.billingStartPeriod || feePeriod(new Date().getFullYear(), new Date().getMonth()),
       },
     });
     await assignStudentRollNumber(tx, { studentId: student.id, classId, orgId: user.orgId ?? null });
@@ -1837,12 +1840,30 @@ function keepSecret(next: string | undefined, current?: string | null) {
   return next.trim() || current || "";
 }
 
-function slugify(value: string) {
-  return (value || "school").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "school";
+const WEBSITE_SLUG_TAKEN = "That website address is already used by another school. Choose a different one.";
+
+async function websiteSlugAvailable(websiteSlug: string, currentConfigId?: string) {
+  // A slug is globally unique, so this lookup must bypass the request's tenant scope.
+  const owner = await runWithoutTenant(() => prisma.schoolConfig.findUnique({
+    where: { websiteSlug },
+    select: { id: true },
+  }));
+  return !owner || owner.id === currentConfigId;
 }
 
-function dataSafeSchoolSlug(value: string) {
-  return slugify(value.replace(/\bschool\b/gi, "").trim() || value);
+function rethrowWebsiteSlugConflict(error: unknown): never {
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+    const target = error.meta?.target;
+    if (Array.isArray(target) && target.includes("websiteSlug")) throw new Error(WEBSITE_SLUG_TAKEN);
+  }
+  throw error;
+}
+
+export async function checkSchoolWebsiteSlugCore(user: AccessUser, input: { websiteSlug?: string }) {
+  need(user, "admissions.manage");
+  const websiteSlug = validateSchoolWebsiteSlug(input.websiteSlug || "");
+  const existing = await prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { id: true } });
+  return { slug: websiteSlug, available: await websiteSlugAvailable(websiteSlug, existing?.id) };
 }
 
 function cleanStringList(next: string | undefined, current: string | null | undefined, fallback: string[]) {
@@ -1900,33 +1921,12 @@ export async function saveSchoolIdentityCore(
     stampPath?: string;
     invoiceStyle?: string;
     whatsappCommunityUrl?: string;
-    websiteEnabled?: boolean;
-    websiteSlug?: string;
-    websiteTheme?: string;
-    websiteHeroTitle?: string;
-    websiteHeroSubtitle?: string;
-    websiteAbout?: string;
-    websiteHighlights?: string;
-    websiteFacilities?: string;
-    websiteGallery?: string;
-    websiteAdmissionOpen?: boolean;
-    websiteAdmissionNote?: string;
     admissionCharge?: number;
   }
 ) {
   need(user, "admissions.manage");
   const existing = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
   const schoolName = (input.name || existing?.name || "Anekio School").trim() || "Anekio School";
-  const requestedWebsiteSlug =
-    input.websiteSlug === undefined
-      ? existing?.websiteSlug || dataSafeSchoolSlug(schoolName)
-      : input.websiteSlug;
-  const websiteSlug = validateSchoolWebsiteSlug(requestedWebsiteSlug);
-  const slugOwner = await prisma.schoolConfig.findFirst({
-    where: { websiteSlug, NOT: { id: existing?.id || "school" } },
-    select: { id: true },
-  });
-  if (slugOwner) throw new Error("That website slug is already used by another school.");
   const payGateway = (PAY_GATEWAYS.some((g) => g.id === input.payGateway)
     ? input.payGateway
     : existing?.payGateway || "NONE") as PayGateway;
@@ -1983,17 +1983,6 @@ export async function saveSchoolIdentityCore(
       ? input.invoiceStyle!
       : existing?.invoiceStyle || "classic",
     whatsappCommunityUrl: community ? normalizeWhatsAppGroupUrl(community) : "",
-    websiteEnabled: input.websiteEnabled ?? existing?.websiteEnabled ?? false,
-    websiteSlug,
-    websiteTheme: ["blue", "green", "purple", "orange"].includes(input.websiteTheme || "") ? input.websiteTheme! : existing?.websiteTheme || "blue",
-    websiteHeroTitle: (input.websiteHeroTitle || "").trim().slice(0, 120),
-    websiteHeroSubtitle: (input.websiteHeroSubtitle || "").trim().slice(0, 260),
-    websiteAbout: (input.websiteAbout || "").trim().slice(0, 1200),
-    websiteHighlights: cleanStringList(input.websiteHighlights, existing?.websiteHighlights, ["CBSE aligned learning", "Safe campus", "Smart parent updates", "Admissions open"]),
-    websiteFacilities: cleanStringList(input.websiteFacilities, existing?.websiteFacilities, ["Digital classrooms", "Library", "Computer lab", "Sports", "Transport"]),
-    websiteGallery: cleanStringList(input.websiteGallery, existing?.websiteGallery, []),
-    websiteAdmissionOpen: input.websiteAdmissionOpen ?? existing?.websiteAdmissionOpen ?? true,
-    websiteAdmissionNote: (input.websiteAdmissionNote || "").trim().slice(0, 300),
     admissionCharge: Math.max(0, Math.round(Number(input.admissionCharge ?? existing?.admissionCharge ?? 0))),
   };
   if (data.sessionStart && data.sessionEnd && data.sessionEnd < data.sessionStart) {
@@ -2007,7 +1996,6 @@ export async function saveSchoolIdentityCore(
   if (data.sessionStart && data.sessionEnd) {
     await syncCurrentSessionDates(data.sessionStart, data.sessionEnd);
   }
-  await ensureVercelSchoolWebsiteDomain(data.websiteSlug, { enabled: data.websiteEnabled, logger: console });
 }
 
 export async function saveSchoolWebsiteCore(
@@ -2029,19 +2017,14 @@ export async function saveSchoolWebsiteCore(
   need(user, "admissions.manage");
   const existing = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
   const schoolName = (existing?.name || "Anekio School").trim() || "Anekio School";
-  const requestedWebsiteSlug =
-    input.websiteSlug === undefined
-      ? existing?.websiteSlug || dataSafeSchoolSlug(schoolName)
-      : input.websiteSlug;
-  const websiteSlug = validateSchoolWebsiteSlug(requestedWebsiteSlug);
-  const slugOwner = await prisma.schoolConfig.findFirst({
-    where: { websiteSlug, NOT: { id: existing?.id || "school" } },
-    select: { id: true },
-  });
-  if (slugOwner) throw new Error("That website slug is already used by another school.");
+  const requestedWebsiteSlug = input.websiteSlug === undefined ? existing?.websiteSlug || "" : input.websiteSlug.trim();
+  const websiteEnabled = input.websiteEnabled ?? existing?.websiteEnabled ?? false;
+  if (websiteEnabled && !requestedWebsiteSlug) throw new Error("Enter a website address before enabling the school website.");
+  const websiteSlug = requestedWebsiteSlug ? validateSchoolWebsiteSlug(requestedWebsiteSlug) : null;
+  if (websiteSlug && !(await websiteSlugAvailable(websiteSlug, existing?.id))) throw new Error(WEBSITE_SLUG_TAKEN);
 
   const data = {
-    websiteEnabled: input.websiteEnabled ?? existing?.websiteEnabled ?? false,
+    websiteEnabled,
     websiteSlug,
     websiteTheme: ["blue", "green", "purple", "orange"].includes(input.websiteTheme || "")
       ? input.websiteTheme!
@@ -2056,13 +2039,17 @@ export async function saveSchoolWebsiteCore(
     websiteAdmissionNote: input.websiteAdmissionNote === undefined ? existing?.websiteAdmissionNote || "" : input.websiteAdmissionNote.trim().slice(0, 300),
   };
 
-  if (existing) {
-    await prisma.schoolConfig.update({ where: { id: existing.id }, data });
-  } else {
-    await prisma.schoolConfig.create({ data: { id: "school", name: schoolName, weekdays: "[1,2,3,4,5,6]", ...data } });
+  try {
+    if (existing) {
+      await prisma.schoolConfig.update({ where: { id: existing.id }, data });
+    } else {
+      await prisma.schoolConfig.create({ data: { id: "school", name: schoolName, weekdays: "[1,2,3,4,5,6]", ...data } });
+    }
+  } catch (error) {
+    rethrowWebsiteSlugConflict(error);
   }
-  await ensureVercelSchoolWebsiteDomain(data.websiteSlug, { enabled: data.websiteEnabled, logger: console });
-  return { website: { enabled: data.websiteEnabled, slug: data.websiteSlug } };
+  if (data.websiteSlug) await ensureVercelSchoolWebsiteDomain(data.websiteSlug, { enabled: data.websiteEnabled, logger: console });
+  return { website: { enabled: data.websiteEnabled, slug: data.websiteSlug || "" } };
 }
 
 export async function saveAdmissionFormCore(user: AccessUser, input: { fields?: unknown }) {
@@ -2589,7 +2576,7 @@ export async function sendStudentPayLinkCore(
     });
   } else {
     if (!channels.email) {
-      throw new Error("Connect the school's Resend key in Admin → School → Communication");
+      throw new Error("Configure platform email delivery in Anekio Admin → Email delivery.");
     }
     await sendResendEmail({
       to: student.parent.user.email,

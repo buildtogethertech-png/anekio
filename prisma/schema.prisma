@@ -141,6 +141,9 @@ enum ExamWorkflowStatus {
 enum SaasEmailEvent {
   DEMO_BOOKED
   TRIAL_STARTED
+  LOGIN_CODE
+  PASSWORD_RESET
+  FEE_REMINDER
 }
 
 enum SaasEmailAudience {
@@ -348,7 +351,7 @@ model Student {
   leaveRequests       LeaveRequest[]
   notices             Notice[]
   payToken            String?                  @unique
-  feeGeneratedThrough String                   @default("")
+  billingStartPeriod  String                   @default("")
   enrollments         StudentClassEnrollment[]
 
   @@unique([orgId, admissionNo])
@@ -365,7 +368,6 @@ model StudentClassEnrollment {
   session    SchoolSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   rollNumber Int
   active     Boolean       @default(true)
-  joinedAt   DateTime      @default(now())
   updatedAt  DateTime      @updatedAt
 
   @@unique([studentId, sessionId])
@@ -668,15 +670,8 @@ model FeeInvoice {
   title             String
   amount            Int
   linesJson         String        @default("[]")
+  metadataJson      String        @default("{}")
   dueDate           DateTime
-  lateGraceDays     Int           @default(0)
-  lateKind          String        @default("")
-  lateAmount        Int           @default(0)
-  lateIntervalCount Int           @default(1)
-  lateIntervalUnit  String        @default("DAY")
-  lateFeePerDay     Int           @default(0)
-  lateAfter10       Int           @default(0)
-  lateAfter20       Int           @default(0)
   shareToken        String?       @unique
   status            InvoiceStatus @default(DUE)
   payments          Payment[]
@@ -1497,6 +1492,8 @@ model SaasEmailRule {
   ccRecipients    String              @default("[]")
   bccRecipients   String              @default("[]")
   replyTo         String              @default("[]")
+  fromName        String              @default("")
+  fromEmail       String              @default("")
   subjectTemplate String              @default("")
   textTemplate    String              @default("")
   htmlTemplate    String              @default("")

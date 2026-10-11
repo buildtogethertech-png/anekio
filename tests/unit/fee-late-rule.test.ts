@@ -1,9 +1,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { invoiceBalance, invoiceLateStamp, latePolicyLabel, lateStampFromSetup, dueDateForMonth } from "../../lib/fees";
+import { invoiceBalance, invoiceLatePolicy, invoiceLateStamp, latePolicyLabel, lateStampFromSetup, dueDateForMonth, replaceInvoiceLateMetadata } from "../../lib/fees";
 
 describe("fee late rules", () => {
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("uses the current late rule in metadata without invoice late-fee columns", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-16T08:00:00Z"));
+    const invoice = { amount: 1000, dueDate: new Date("2026-09-10T00:00:00Z"), metadataJson: "{}" };
+    expect(invoiceBalance(invoice).late).toBe(0);
+    invoice.metadataJson = replaceInvoiceLateMetadata(invoice.metadataJson, { lateKind: "STATIC", lateGraceDays: 5, lateAmount: 100 });
+    expect(invoiceLatePolicy(invoice).lateKind).toBe("STATIC");
+    expect(invoiceBalance(invoice).late).toBe(100);
+    invoice.metadataJson = replaceInvoiceLateMetadata(invoice.metadataJson, { lateKind: "NONE" });
+    expect(invoiceBalance(invoice).late).toBe(0);
   });
 
   it("starts a one-time late fine only after the grace period ends", () => {

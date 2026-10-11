@@ -119,7 +119,7 @@ describe("school onboarding imports", () => {
       where: { studentId_period: { studentId: "student-anaya", period: "OPENING" } },
     });
     expect(opening).toMatchObject({ kind: "OPENING", title: "Backlog invoice", amount: 12_345, generatedThrough: "2026-08" });
-    expect((await prisma.student.findUniqueOrThrow({ where: { id: "student-anaya" } })).feeGeneratedThrough).toBe("2026-08");
+    expect((await prisma.student.findUniqueOrThrow({ where: { id: "student-anaya" } })).billingStartPeriod).toBe("2026-09");
 
     const template = await prisma.feeTemplate.create({
       data: {
@@ -140,7 +140,7 @@ describe("school onboarding imports", () => {
     expect(periods).toEqual(["2026-04", "OPENING"]);
   });
 
-  it("issues monthly invoices only through the last completed month", async () => {
+  it("issues monthly invoices through the current month", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2027-10-03T10:00:00+05:30"));
     try {
@@ -154,6 +154,7 @@ describe("school onboarding imports", () => {
           admissionNo: "ANE-JOINING-CUTOFF",
           name: "Joining Cutoff Student",
           dateOfBirth: new Date("2015-06-15T00:00:00.000Z"),
+          billingStartPeriod: "2027-10",
         },
       });
       await prisma.studentClassEnrollment.create({
@@ -163,7 +164,6 @@ describe("school onboarding imports", () => {
           classId: "class-6-a",
           sessionId: currentSession.id,
           rollNumber: 99,
-          joinedAt: new Date("2027-10-02T00:00:00.000Z"),
         },
       });
       const template = await prisma.feeTemplate.create({
@@ -178,15 +178,16 @@ describe("school onboarding imports", () => {
       });
 
       const result = await issueClassFeesCore(user, { classId: "class-6-a", templateId: template.id });
-      expect(result.through).toBe("2027-09");
+      expect(result.through).toBe("2027-10");
       const invoices = await prisma.feeInvoice.findMany({
         where: { templateId: template.id },
         select: { period: true },
       });
       expect(invoices.length).toBeGreaterThan(0);
       expect(result.issued).toBe(invoices.length);
-      expect(invoices.every((invoice) => invoice.period === "2027-09")).toBe(true);
-      expect(await prisma.feeInvoice.count({ where: { templateId: template.id, studentId: joinedThisMonth.id } })).toBe(0);
+      expect(invoices.every((invoice) => invoice.period === "2027-09" || invoice.period === "2027-10")).toBe(true);
+      expect(await prisma.feeInvoice.count({ where: { templateId: template.id, studentId: joinedThisMonth.id, period: "2027-10" } })).toBe(1);
+      expect(await prisma.feeInvoice.count({ where: { templateId: template.id, studentId: joinedThisMonth.id, period: "2027-09" } })).toBe(0);
     } finally {
       vi.useRealTimers();
     }
@@ -316,6 +317,7 @@ describe("school onboarding imports", () => {
       "Student full name",
       "Date of birth",
       "Class interested",
+      "Billing starts from",
       "Guardian full name",
       "Guardian WhatsApp",
       "Guardian email",
@@ -325,12 +327,15 @@ describe("school onboarding imports", () => {
     ]);
     expect(sheet.getRow(2).getCell(1).value).toBe(1);
     expect(sheet.getRow(2).getCell(4).value).toBe("7-B");
+    expect(String(sheet.getRow(2).getCell(5).value)).toMatch(/^\d{4}-(0[1-9]|1[0-2])$/);
+    const billingNote = sheet.getRow(1).getCell(5).note;
+    expect(typeof billingNote === "string" ? billingNote : billingNote?.texts?.map((part) => part.text).join("")).toContain("Required");
     expect(sheet.views[0]).toMatchObject({ state: "frozen", ySplit: 1 });
-    const blankCount = workbook.worksheets.reduce((total, worksheet) => {
+    const blankCount = workbook.worksheets.filter((worksheet) => worksheet.name !== "Field guide").reduce((total, worksheet) => {
       let count = 0;
       worksheet.eachRow((row, rowNumber) => {
         if (rowNumber <= 2) return;
-        if (String(row.getCell(10).value || "").trim()) return;
+        if (String(row.getCell(11).value || "").trim()) return;
         if (String(row.getCell(2).value || "").trim()) count += 1;
       });
       return total + count;
@@ -345,11 +350,11 @@ describe("school onboarding imports", () => {
     expect(String(sampleSheet.getRow(1).getCell(1).value || "")).toBe("Roll number");
     expect(Number(sampleSheet.getRow(2).getCell(1).value)).toBe(1);
     expect(String(sampleSheet.getRow(2).getCell(10).value || "")).not.toMatch(/yes/i);
-    const sampleCount = sampleWorkbook.worksheets.reduce((total, worksheet) => {
+    const sampleCount = sampleWorkbook.worksheets.filter((worksheet) => worksheet.name !== "Field guide").reduce((total, worksheet) => {
       let count = 0;
       worksheet.eachRow((row, rowNumber) => {
         if (rowNumber <= 1) return;
-        if (String(row.getCell(10).value || "").trim()) return;
+        if (String(row.getCell(11).value || "").trim()) return;
         if (String(row.getCell(2).value || "").trim()) count += 1;
       });
       return total + count;
@@ -441,15 +446,33 @@ describe("school onboarding imports", () => {
     expect(roles).toEqual(expect.arrayContaining(["TEACHER", "ADMIN", "FEES", "EXAMS", "ADMISSIONS"]));
   });
 
+  it("explains when an older student sheet lacks the required billing start column", async () => {
+    const { previewOnboardingRows } = await import("../../lib/onboarding");
+    const preview = await previewOnboardingRows(user, {
+      kind: "students",
+      fileName: "old-students.csv",
+      uploadPath: "private/schools/test/onboarding/imports/old-students.csv",
+      rows: [{
+        _row: "2",
+        studentname: "Older Sheet Student",
+        dateofbirth: "2015-04-12",
+        class: "7-B",
+        parentname: "Older Sheet Parent",
+        parentmobile: "9876543210",
+      }],
+    });
+    expect(preview.errors).toContainEqual(expect.stringContaining("Billing starts from column is missing"));
+  });
+
   it("imports students from workbook tabs named as class sections and creates those classes", async () => {
     const ExcelJS = (await import("exceljs")).default;
     const { previewOnboardingImport, applyOnboardingImport } = await import("../../lib/onboarding");
     const { saveUploadPath } = await import("../../lib/uploads");
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet("8-Z");
-    sheet.addRow(["Anekio student ID", "Admission number", "Student name", "Date of birth", "Parent name", "Parent mobile", "Parent email", "Example only"]);
-    sheet.addRow(["", "", "Zoya Tab Student", "2014-02-10", "Zara Parent", "9876501234", "", ""]);
-    sheet.addRow(["", "", "Aman Tab Student", "2014-03-11", "Anita Parent", "9876501235", "", ""]);
+    sheet.addRow(["Anekio student ID", "Admission number", "Student name", "Date of birth", "Billing starts from", "Parent name", "Parent mobile", "Parent email", "Example only"]);
+    sheet.addRow(["", "", "Zoya Tab Student", "2014-02-10", "2026-10", "Zara Parent", "9876501234", "", ""]);
+    sheet.addRow(["", "", "Aman Tab Student", "2014-03-11", "2026-10", "Anita Parent", "9876501235", "", ""]);
     const uploadPath = "private/schools/test/onboarding/imports/students-tabs.xlsx";
     await saveUploadPath(
       uploadPath,
@@ -512,6 +535,7 @@ describe("school onboarding imports", () => {
           "Student name": "Shared Contact Student",
           "Date of birth": "2015-05-11",
           Class: "10-D",
+          "Billing starts from": "2026-10",
           "Parent name": "Shared Parent Here",
           "Parent mobile": "9876509999",
           "Parent email": "shared.parent@example.test",
