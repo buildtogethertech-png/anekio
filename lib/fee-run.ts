@@ -137,8 +137,6 @@ export function reminderCopy(inv: {
   amount: number;
   dueDate: Date;
   lateFeePerDay?: number;
-  lateAfter10?: number;
-  lateAfter20?: number;
   metadataJson?: string | null;
   lateKind?: string | null;
   lateGraceDays?: number | null;

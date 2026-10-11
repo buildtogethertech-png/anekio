@@ -54,8 +54,6 @@ export type LatePolicy = {
   lateIntervalCount?: number | null;
   lateIntervalUnit?: string | null;
   lateFeePerDay?: number | null;
-  lateAfter10?: number | null;
-  lateAfter20?: number | null;
   remaining?: number | null;
 };
 
@@ -72,13 +70,6 @@ export function lateAmountForDays(days: number, policy: LatePolicy) {
     const daysPerInterval = unit === "MONTH" ? 30 * interval : interval;
     const activeDays = Math.max(0, days - grace);
     return activeDays > 0 ? (Math.floor((activeDays - 1) / daysPerInterval) + 1) * amount : 0;
-  }
-  const after10 = policy.lateAfter10 || 0;
-  const after20 = policy.lateAfter20 || 0;
-  if (after10 > 0 || after20 > 0) {
-    if (days >= 20) return after20 || after10;
-    if (days >= 10) return after10;
-    return 0;
   }
   return Math.max(0, days) * Math.max(0, policy.lateFeePerDay || 0);
 }

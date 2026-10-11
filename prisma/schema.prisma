@@ -629,8 +629,6 @@ model FeeTemplate {
   lateAmount        Int            @default(0)
   lateIntervalCount Int            @default(1)
   lateIntervalUnit  String         @default("DAY")
-  lateAfter10       Int            @default(0)
-  lateAfter20       Int            @default(0)
   lines             FeeLine[]
   invoices          FeeInvoice[]
 

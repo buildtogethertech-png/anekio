@@ -250,8 +250,6 @@ export async function saveFeeTemplateCore(
     lateAmount: Math.round(lateAmount),
     lateIntervalCount,
     lateIntervalUnit,
-    lateAfter10: lateKind === "STATIC" ? Math.round(lateAmount) : 0,
-    lateAfter20: 0,
   };
   const catalogLate = parseFeeCatalogState(
     (await prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { feeCatalogJson: true } }))?.feeCatalogJson
@@ -605,8 +603,6 @@ export async function applySessionLateFeeCore(
       lateAmount: stamp.lateAmount,
       lateIntervalCount: stamp.lateIntervalCount,
       lateIntervalUnit: stamp.lateIntervalUnit,
-      lateAfter10: stamp.lateAfter10,
-      lateAfter20: stamp.lateAfter20,
     },
   });
   await refreshInvoiceLateRule({ orgId: user.orgId ?? null }, stamp);

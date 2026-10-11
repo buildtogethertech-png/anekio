@@ -67,19 +67,6 @@ export function pickAdmissionFeeLines(
   return amount > 0 ? [{ label: "Admission fee", kind: "FLAT", amount }] : [];
 }
 
-export function lateFromSlabs(days: number, policy: {
-  lateKind?: string | null;
-  lateGraceDays?: number | null;
-  lateAmount?: number | null;
-  lateIntervalCount?: number | null;
-  lateIntervalUnit?: string | null;
-  lateFeePerDay?: number;
-  lateAfter10?: number;
-  lateAfter20?: number;
-}) {
-  return lateAmountForDays(days, policy);
-}
-
 export function dueDateForMonth(year: number, monthIndex: number, dueDay: number) {
   const last = new Date(year, monthIndex + 1, 0).getDate();
   return new Date(year, monthIndex, Math.min(Math.max(1, dueDay), last));
@@ -258,8 +245,6 @@ export function latePolicyFrom(row: {
   lateAmount?: number | null;
   lateIntervalCount?: number | null;
   lateIntervalUnit?: string | null;
-  lateAfter10?: number | null;
-  lateAfter20?: number | null;
   lateFeePerDay?: number | null;
 }) {
   const kind = (row.lateKind || "").toUpperCase();
@@ -274,9 +259,6 @@ export function latePolicyFrom(row: {
       lateIntervalUnit: kind === "DAILY" ? "DAY" : intervalUnit,
     };
   }
-  if ((row.lateAfter10 || 0) > 0 || (row.lateAfter20 || 0) > 0) {
-    return { lateKind: "STATIC" as const, lateGraceDays: 10, lateAmount: row.lateAfter10 || row.lateAfter20 || 0, lateIntervalCount: 1, lateIntervalUnit: "DAY" };
-  }
   if ((row.lateFeePerDay || 0) > 0) {
     return { lateKind: "DAILY" as const, lateGraceDays: 0, lateAmount: row.lateFeePerDay || 0, lateIntervalCount: 1, lateIntervalUnit: "DAY" };
   }
@@ -289,8 +271,6 @@ export function invoiceLateStamp(row: {
   lateAmount?: number | null;
   lateIntervalCount?: number | null;
   lateIntervalUnit?: string | null;
-  lateAfter10?: number | null;
-  lateAfter20?: number | null;
   lateFeePerDay?: number | null;
 }) {
   const policy = latePolicyFrom(row);
@@ -301,8 +281,6 @@ export function invoiceLateStamp(row: {
     lateIntervalCount: policy.lateIntervalCount,
     lateIntervalUnit: policy.lateIntervalUnit,
     lateFeePerDay: policy.lateKind === "DAILY" || (policy.lateKind === "RECURRING" && policy.lateIntervalCount === 1 && policy.lateIntervalUnit === "DAY") ? policy.lateAmount : 0,
-    lateAfter10: policy.lateKind === "STATIC" ? policy.lateAmount : 0,
-    lateAfter20: 0,
   };
 }
 
@@ -350,8 +328,6 @@ export function feeTemplateLateWrite(stamp: {
   lateAmount: number;
   lateIntervalCount: number;
   lateIntervalUnit: string;
-  lateAfter10: number;
-  lateAfter20: number;
 }) {
   return {
     lateKind: stamp.lateKind,
@@ -359,8 +335,6 @@ export function feeTemplateLateWrite(stamp: {
     lateAmount: stamp.lateAmount,
     lateIntervalCount: stamp.lateIntervalCount,
     lateIntervalUnit: stamp.lateIntervalUnit,
-    lateAfter10: stamp.lateAfter10,
-    lateAfter20: stamp.lateAfter20,
   };
 }
 
@@ -370,8 +344,6 @@ export function latePolicyLabel(row: {
   lateAmount?: number | null;
   lateIntervalCount?: number | null;
   lateIntervalUnit?: string | null;
-  lateAfter10?: number | null;
-  lateAfter20?: number | null;
   lateFeePerDay?: number | null;
 }) {
   const policy = latePolicyFrom(row);
@@ -501,8 +473,6 @@ export function groupStudentFees<
     amount: number;
     dueDate: Date;
     lateFeePerDay?: number;
-    lateAfter10?: number;
-    lateAfter20?: number;
     lateKind?: string | null;
     lateGraceDays?: number | null;
     lateAmount?: number | null;
@@ -725,8 +695,6 @@ export function lateStampFromSetup(input: {
         lateAmount: 0,
         lateIntervalCount: 1,
         lateIntervalUnit: "DAY",
-        lateAfter10: 0,
-        lateAfter20: 0,
         lateFeePerDay: 0,
       },
     };
