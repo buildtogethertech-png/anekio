@@ -14,7 +14,7 @@ import { currentTenantOrg, runWithoutTenant } from "./tenant-context";
 import { admissionFormFields, staffOnboardingFormFields, type AdmissionFormField } from "./admission-form";
 import { configuredAdmissionFormJson } from "./admission-form-config";
 import { assignStudentRollNumber } from "./student-rolls";
-import { dueDateForMonth, feePeriodAfter, parseFeeCatalogState } from "./fees";
+import { feePeriodAfter } from "./fees";
 
 const ONBOARDING_STATE_ID = "school";
 function onboardingStateId(orgId: string) {
@@ -260,7 +260,7 @@ type StaffAttendancePerson = { kind: "teacher" | "staff"; id: string; employeeId
 type ExamMarkColumn = { key: string; examId: string; classId: string; classLabel: string; maxMarks: number; label: string };
 type OpeningBalanceStudent = Prisma.StudentGetPayload<{ include: { class: true } }>;
 type OpeningBalanceInvoice = Prisma.FeeInvoiceGetPayload<{ include: { payments: true } }>;
-const OPENING_BALANCE_HEADERS = ["Admission number", "Student name", "Class", "Backlog invoice amount", "Example only"];
+const OPENING_BALANCE_HEADERS = ["Admission number", "Student name", "Class", "Backlog invoice amount", "Due date", "Example only"];
 
 type ConfiguredImportForms = {
   admission: AdmissionFormField[];
@@ -574,7 +574,7 @@ function openingBalanceRows(
   ];
 
   if (!students.length && options.includeExampleOnEmpty !== false) {
-    rows.push(["", "Aarav Sharma (example)", classLabels[0] || "1-A", 2500, "YES"]);
+    rows.push(["", "Aarav Sharma (example)", classLabels[0] || "1-A", 2500, dateText(new Date()), "YES"]);
     return rows;
   }
 
@@ -585,6 +585,7 @@ function openingBalanceRows(
       student.name,
       `${student.class.name}-${student.class.section}`,
       options.sampleData ? sampleOpeningBalanceAmount(index) : current?.amount || 0,
+      current ? dateText(current.dueDate) : dateText(new Date()),
       "",
     ]);
   });
@@ -631,7 +632,7 @@ function blankRowsFor(kind: ImportKind, labels: string[]): CsvCell[][] {
   if (kind === "opening_balances") {
     return [
       OPENING_BALANCE_HEADERS,
-      ["", "Aarav Sharma (example)", firstClass, 2500, "YES"],
+      ["", "Aarav Sharma (example)", firstClass, 2500, dateText(new Date()), "YES"],
     ];
   }
   return [];
@@ -1539,6 +1540,7 @@ async function validateRows(kind: ImportKind, rows: ImportRow[], coveragePeriod?
     const studentId = sheetCell(row, "Anekio student ID");
     const admissionNo = admissionLookupKey(sheetCell(row, "Admission number", "Admission no"));
     const parsedAmount = parseOpeningBacklogAmount(sheetCell(row, "Backlog invoice amount", "Opening due amount", "Previous system due", "Due amount", "Amount"));
+    const dueDate = sheetCell(row, "Due date");
     const matchedStudent = studentId ? studentById.get(studentId) : studentByAdmission.get(admissionNo);
     if (!matchedStudent) {
       errors.push(rowError(row, "student ID or admission number was not found."));
@@ -1551,6 +1553,7 @@ async function validateRows(kind: ImportKind, rows: ImportRow[], coveragePeriod?
       else openingAdmissionRows.set(admissionNo, row._row);
     }
     if ("error" in parsedAmount) errors.push(rowError(row, parsedAmount.error));
+    if (!validDate(dueDate)) errors.push(rowError(row, "due date must use YYYY-MM-DD."));
   });
   return errors;
 }
@@ -1628,13 +1631,6 @@ export async function previewOnboardingRows(
   if (!rows.length) throw new Error("No data rows found. Add school data below the example row, or copy it and clear Example only.");
   const orgId = await onboardingOrgId(user);
   const coveragePeriod = kind === "opening_balances" ? currentMonthPeriod() : undefined;
-  const feeConfig = kind === "opening_balances"
-    ? await prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { feeCatalogJson: true } })
-    : null;
-  const dueDay = kind === "opening_balances" ? parseFeeCatalogState(feeConfig?.feeCatalogJson).dueDay : undefined;
-  const openingDueDate = coveragePeriod && dueDay
-    ? dateText(dueDateForMonth(Number(coveragePeriod.slice(0, 4)), Number(coveragePeriod.slice(5, 7)) - 1, dueDay))
-    : undefined;
   const errors = [
     ...(kind === "opening_balances" ? await openingDocumentErrors(orgId) : []),
     ...(await validateRows(kind, rows, coveragePeriod)),
@@ -1647,7 +1643,7 @@ export async function previewOnboardingRows(
       kind,
       fileName: input.fileName || TEMPLATE_DETAILS[kind].file,
       uploadPath: input.uploadPath,
-      rowsJson: JSON.stringify(kind === "opening_balances" ? { rows, coveragePeriod, dueDate: openingDueDate } : rows),
+      rowsJson: JSON.stringify(kind === "opening_balances" ? { rows, coveragePeriod } : rows),
       errorsJson: JSON.stringify(errors),
     },
   });
@@ -1658,7 +1654,7 @@ export async function previewOnboardingRows(
     validCount: errors.length ? Math.max(0, rows.length - new Set(errors.map((error) => error.match(/^Row (\d+)/)?.[1])).size) : rows.length,
     errors,
     sample: rows.slice(0, 5),
-    ...(coveragePeriod ? { coveragePeriod, dueDate: openingDueDate } : {}),
+    ...(coveragePeriod ? { coveragePeriod } : {}),
   };
 }
 
@@ -1940,7 +1936,7 @@ async function applyClassTeachers(db: OnboardingDb, rows: ImportRow[], orgId: st
   return { created: 0, updated };
 }
 
-async function applyOpeningBalances(db: OnboardingDb, rows: ImportRow[], coveragePeriod: string, dueDate: Date, orgId?: string | null) {
+async function applyOpeningBalances(db: OnboardingDb, rows: ImportRow[], coveragePeriod: string, orgId?: string | null) {
   let created = 0;
   let updated = 0;
   for (const row of rows) {
@@ -1950,6 +1946,9 @@ async function applyOpeningBalances(db: OnboardingDb, rows: ImportRow[], coverag
     if (!student) throw new Error(rowError(row, "student no longer exists."));
     const parsedAmount = parseOpeningBacklogAmount(sheetCell(row, "Backlog invoice amount", "Opening due amount", "Previous system due", "Due amount", "Amount"));
     if ("error" in parsedAmount) throw new Error(rowError(row, parsedAmount.error));
+    const dueDateText = sheetCell(row, "Due date");
+    if (!validDate(dueDateText)) throw new Error(rowError(row, "due date must use YYYY-MM-DD."));
+    const dueDate = new Date(`${dueDateText}T00:00:00`);
     const amount = parsedAmount.amount;
     const generatedThrough = coveragePeriod;
     const alreadyBilled = await db.feeInvoice.findFirst({
@@ -2144,9 +2143,9 @@ export async function applyOnboardingImport(user: AccessUser, input: { batchId?:
   const errors = JSON.parse(batch.errorsJson) as string[];
   if (errors.length && batch.status !== "FAILED") throw new Error("Fix the review errors and upload the template again.");
   const kind = asKind(batch.kind);
-  const savedRows = JSON.parse(batch.rowsJson) as ImportRow[] | { rows: ImportRow[]; coveragePeriod: string; dueDate: string };
+  const savedRows = JSON.parse(batch.rowsJson) as ImportRow[] | { rows: ImportRow[]; coveragePeriod: string };
   const rows = Array.isArray(savedRows) ? savedRows : savedRows.rows;
-  if (kind === "opening_balances" && (Array.isArray(savedRows) || !/^\d{4}-(0[1-9]|1[0-2])$/.test(savedRows.coveragePeriod) || !validDate(savedRows.dueDate))) {
+  if (kind === "opening_balances" && (Array.isArray(savedRows) || !/^\d{4}-(0[1-9]|1[0-2])$/.test(savedRows.coveragePeriod))) {
     throw new Error("This fee review is outdated. Upload the current first-time fee sheet again.");
   }
   if (kind === "opening_balances") {
@@ -2174,7 +2173,7 @@ export async function applyOnboardingImport(user: AccessUser, input: { batchId?:
                 ? applyExamMarks(db, rows, user)
           : kind === "class_teachers"
             ? applyClassTeachers(db, rows, orgId)
-            : applyOpeningBalances(db, rows, (savedRows as { coveragePeriod: string }).coveragePeriod, new Date(`${(savedRows as { dueDate: string }).dueDate}T00:00:00`), orgId), { maxWait: 10_000, timeout: 60_000 });
+            : applyOpeningBalances(db, rows, (savedRows as { coveragePeriod: string }).coveragePeriod, orgId), { maxWait: 10_000, timeout: 60_000 });
     await prisma.schoolOnboardingImport.update({
       where: { id: batch.id },
       data: { status: "APPLIED", appliedAt: new Date(), createdCount: result.created, updatedCount: result.updated, errorsJson: "[]" },

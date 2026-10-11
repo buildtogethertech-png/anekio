@@ -33,6 +33,7 @@ function openingRow(overrides: Partial<OpeningRow> = {}): OpeningRow {
     studentname: "Opening Child",
     class: "6-A",
     backloginvoiceamount: "12345",
+    duedate: "2026-10-10",
     exampleonly: "",
     ...overrides,
   };
@@ -279,7 +280,7 @@ describe.sequential("first-time fees opening balances", () => {
     }
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(2026, 9, 4, 12, 0, 0));
-    expect(await preview([openingRow()])).toMatchObject({ errors: [], coveragePeriod: "2026-10", dueDate: "2026-10-10" });
+    expect(await preview([openingRow()])).toMatchObject({ errors: [], coveragePeriod: "2026-10" });
     vi.useRealTimers();
     const extra = await preview([{ ...openingRow(), mysterycolumn: "ignored" }]);
     expect(extra.errors).toEqual([]);

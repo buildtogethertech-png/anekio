@@ -83,8 +83,8 @@ const FOCUSED_IMPORT_COPY: Record<Template["kind"], { heading: string; descripti
   opening_balances: {
     heading: "Choose a fee CSV or Excel file",
     description: "Upload first-time fee balances for review.",
-    requiredColumns: "Admission number, Backlog invoice amount",
-    note: "Include all unpaid fees through the current month. Review shows the exact coverage month and configured due date before you apply; monthly billing starts the following month.",
+    requiredColumns: "Admission number, Backlog invoice amount, Due date",
+    note: "Include all unpaid fees through the current month and give each invoice its due date. Invoice date is created automatically; monthly billing starts the following month.",
   },
 };
 
@@ -457,10 +457,7 @@ export function OnboardingBoard({
           {preview.kind === "opening_balances" && preview.coveragePeriod ? (
             <View className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2">
               <Text className="text-sm font-medium text-ink-900">Opening amounts cover all unpaid fees through {preview.coveragePeriod}.</Text>
-              <Text className="mt-1 text-xs text-ink-700">Due {preview.dueDate}. Monthly invoices begin {new Date(Number(preview.coveragePeriod.slice(0, 4)), Number(preview.coveragePeriod.slice(5, 7)), 1).toLocaleDateString("en-IN", { month: "long", year: "numeric" })}. Confirm every amount includes the full coverage month before applying.</Text>
-              {preview.dueDate && new Date(`${preview.dueDate}T23:59:59`).getTime() < Date.now() ? (
-                <Text className="mt-1 text-xs text-amber-800">The configured due date has passed, so these opening invoices may show as overdue immediately.</Text>
-              ) : null}
+              <Text className="mt-1 text-xs text-ink-700">Each invoice uses the Due date in its row. Invoice date is created automatically. Monthly invoices begin {new Date(Number(preview.coveragePeriod.slice(0, 4)), Number(preview.coveragePeriod.slice(5, 7)), 1).toLocaleDateString("en-IN", { month: "long", year: "numeric" })}.</Text>
             </View>
           ) : null}
           {preview.errors.slice(0, 12).map((error) => <Text key={error} className="text-xs leading-5 text-red-700">• {error}</Text>)}
