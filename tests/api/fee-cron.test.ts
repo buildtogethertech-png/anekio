@@ -25,7 +25,7 @@ async function act(token: string, op: string, body: Record<string, unknown> = {}
 }
 
 function cron(headers: Record<string, string> = {}) {
-  return request(app).post("/api/cron/fees").set(headers);
+  return request(app).get("/api/cron/fees").set(headers);
 }
 
 describe.sequential("fee cron", () => {
@@ -137,5 +137,55 @@ describe.sequential("fee cron", () => {
       _count: { _all: true },
     });
     expect(counted.every((row) => row._count._all === 1)).toBe(true);
+  });
+
+  it("uses every template's month range, not another school's current session", async () => {
+    await prisma.schoolSession.create({
+      data: {
+        id: "session-cron-other-school-2027",
+        orgId: "other-school",
+        label: "2027–28",
+        startsOn: "2027-04-01",
+        endsOn: "2028-03-31",
+        current: true,
+      },
+    });
+    const classId = "class-cron-september-start";
+    await prisma.class.create({ data: { id: classId, name: "Cron", section: "S" } });
+    const student = await prisma.student.create({
+      data: {
+        id: "student-cron-september-start",
+        parentId: "parent-pari",
+        classId,
+        admissionNo: "ADM-CRON-SEP",
+        name: "September Child",
+        dateOfBirth: new Date("2015-01-01T00:00:00Z"),
+        billingStartPeriod: "2026-09",
+      },
+    });
+    await prisma.feeTemplate.create({
+      data: {
+        classId,
+        sessionId: "session-2026",
+        startsPeriod: "2026-04",
+        endsPeriod: "2027-03",
+        lines: { create: [{ label: "Tuition", amount: 1500, scope: "ALL" }] },
+      },
+    });
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 9, 11, 12, 0, 0));
+    const first = await cron({ Authorization: `Bearer ${CRON_SECRET}` });
+    const second = await cron({ Authorization: `Bearer ${CRON_SECRET}` });
+    vi.useRealTimers();
+
+    expect(first.status).toBe(200);
+    expect(first.body.months).toEqual(expect.arrayContaining(["2026-09", "2026-10"]));
+    expect(second.status).toBe(200);
+    expect(second.body.created).toBe(0);
+    const periods = (await prisma.feeInvoice.findMany({ where: { studentId: student.id } }))
+      .map((invoice) => invoice.period)
+      .sort();
+    expect(periods).toEqual(["2026-09", "2026-10"]);
   });
 });

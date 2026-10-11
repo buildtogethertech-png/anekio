@@ -368,8 +368,6 @@ export function invoiceBalance(inv: {
   dueDate: Date | string;
   status?: string;
   lateFeePerDay?: number;
-  lateAfter10?: number;
-  lateAfter20?: number;
   lateKind?: string | null;
   lateGraceDays?: number | null;
   lateAmount?: number | null;
@@ -391,6 +389,14 @@ export function invoiceBalance(inv: {
   const lateLabel = lateDays > 0 ? `Late by ${lateDays} days · ${formatInr(late)}` : "";
   const display = settled ? "PAID" : lateDays > 0 ? "OVERDUE" : paid > 0 ? "PARTIAL" : "DUE";
   return { paid, remaining, late, lateDays, dueNow, lateLabel, display };
+}
+
+/** Live printable breakdown; late charges are calculated, not added to the saved invoice amount. */
+export function invoiceFeeStatement(inv: Parameters<typeof invoiceBalance>[0] & { linesJson?: string | null }) {
+  const balance = invoiceBalance(inv);
+  const lines = feeLineTotal(parseFeeLines(inv.linesJson)).rows.map((row) => ({ label: row.label, value: row.value }));
+  if (balance.late > 0) lines.push({ label: "Late fee", value: balance.late });
+  return { balance, lines, totalBilled: inv.amount + balance.late };
 }
 
 export function paidFeeMonthCount(
