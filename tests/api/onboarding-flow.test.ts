@@ -62,6 +62,17 @@ describe("school onboarding imports", () => {
     const { onboardingTemplate, previewOnboardingImport, applyOnboardingImport } = await import("../../lib/onboarding");
     const { issueClassFeesCore } = await import("../../lib/core-office");
     const { saveUploadPath } = await import("../../lib/uploads");
+    const admissionFormJson = JSON.stringify([
+        { id: "studentName", label: "Student name", type: "text", required: true, visible: true, builtin: true },
+        { id: "classWanted", label: "Class", type: "text", required: true, visible: true, builtin: true },
+        { id: "guardianName", label: "Parent name", type: "text", required: true, visible: true, builtin: true },
+        { id: "phone", label: "Parent mobile", type: "phone", required: true, visible: true, builtin: true },
+      ]);
+    await prisma.schoolConfig.upsert({
+      where: { id: "school" },
+      update: { admissionFormJson },
+      create: { id: "school", orgId: user.orgId, admissionFormJson },
+    });
 
     const studentsTemplate = await onboardingTemplate(user, "students");
     expect(studentsTemplate).toMatchObject({ fileName: "anekio-students.csv", contentType: "text/csv; charset=utf-8" });
@@ -72,7 +83,7 @@ describe("school onboarding imports", () => {
     const studentUploadPath = "private/schools/test/onboarding/imports/students.csv";
     await saveUploadPath(
       studentUploadPath,
-      Buffer.from(`${studentCsv}${csvRow(["", "", "", "Kabir Student", "2015-04-12", "6-A", "Kavita Parent", "9876540099", "", ""])}\r\n`),
+      Buffer.from(`${studentCsv}${csvRow(["", "", "", "Kabir Student", "2015-04-12", "6-A", "Kavita Parent", "9876540099", "", "", ""])}\r\n`),
       "text/csv"
     );
     const studentPreview = await previewOnboardingImport(user, {
@@ -84,6 +95,7 @@ describe("school onboarding imports", () => {
     await applyOnboardingImport(user, { batchId: studentPreview.batchId });
     const kabir = await prisma.student.findFirstOrThrow({ where: { name: "Kabir Student" } });
     expect(kabir.admissionNo).toMatch(/^ANE-\d{5}$/);
+    expect(kabir.billingStartPeriod).toBe("");
     expect(await prisma.student.count({ where: { name: "Aarav Sharma (example)" } })).toBe(0);
 
     const generated = await onboardingTemplate(user, "opening_balances");
@@ -94,32 +106,38 @@ describe("school onboarding imports", () => {
       "studentname",
       "class",
       "backloginvoiceamount",
-      "invoicedate",
-      "duedate",
-      "invoicesalreadygeneratedtill",
       "exampleonly",
     ]);
-    const anayaRow = openingRows.find((row) => row.studentname === "Anaya Student")!;
-    anayaRow.backloginvoiceamount = "12345";
-    anayaRow.duedate = "2026-08-31";
-    anayaRow.invoicesalreadygeneratedtill = "2026-08";
+    const kabirRow = openingRows.find((row) => row.studentname === "Kabir Student")!;
+    kabirRow.backloginvoiceamount = "12345";
+    await prisma.documentTemplate.createMany({ data: (["FEE_INVOICE", "PAYMENT_RECEIPT"] as const).map((type) => ({
+      orgId: user.orgId,
+      schoolId: "school",
+      type,
+      category: "FEES",
+      name: type,
+      status: "ACTIVE",
+      activeVersion: 1,
+      createdById: user.id,
+      updatedById: user.id,
+    })) });
 
     const uploadPath = "private/schools/test/onboarding/imports/opening.csv";
-    await saveUploadPath(uploadPath, Buffer.from(csvFromObjects(openingRows)), "text/csv");
+    await saveUploadPath(uploadPath, Buffer.from(csvFromObjects([kabirRow])), "text/csv");
 
     const preview = await previewOnboardingImport(user, {
       kind: "opening_balances",
       uploadPath,
       fileName: "opening.csv",
     });
-    expect(preview).toMatchObject({ rowCount: 2, validCount: 2, errors: [] });
+    expect(preview).toMatchObject({ rowCount: 1, validCount: 1, errors: [], coveragePeriod: "2026-10" });
 
     await applyOnboardingImport(user, { batchId: preview.batchId });
     const opening = await prisma.feeInvoice.findUniqueOrThrow({
-      where: { studentId_period: { studentId: "student-anaya", period: "OPENING" } },
+      where: { studentId_period: { studentId: kabir.id, period: "OPENING" } },
     });
-    expect(opening).toMatchObject({ kind: "OPENING", title: "Backlog invoice", amount: 12_345, generatedThrough: "2026-08" });
-    expect((await prisma.student.findUniqueOrThrow({ where: { id: "student-anaya" } })).billingStartPeriod).toBe("2026-09");
+    expect(opening).toMatchObject({ kind: "OPENING", title: "Backlog invoice", amount: 12_345, generatedThrough: "2026-10" });
+    expect((await prisma.student.findUniqueOrThrow({ where: { id: kabir.id } })).billingStartPeriod).toBe("2026-11");
 
     const template = await prisma.feeTemplate.create({
       data: {
@@ -133,11 +151,11 @@ describe("school onboarding imports", () => {
     });
     await issueClassFeesCore(user, { classId: "class-6-a", templateId: template.id });
     const periods = (await prisma.feeInvoice.findMany({
-      where: { studentId: "student-anaya" },
+      where: { studentId: kabir.id },
       select: { period: true },
       orderBy: { period: "asc" },
     })).map((invoice) => invoice.period);
-    expect(periods).toEqual(["2026-04", "OPENING"]);
+    expect(periods).toEqual(["OPENING"]);
   });
 
   it("issues monthly invoices through the current month", async () => {
@@ -194,7 +212,9 @@ describe("school onboarding imports", () => {
   });
 
   it("requires working days and holiday calendar before attendance history imports", async () => {
-    const { onboardingBundle } = await import("../../lib/onboarding");
+    const { markOnboardingConfigured, onboardingBundle } = await import("../../lib/onboarding");
+    await prisma.period.create({ data: { orgId: user.orgId, name: "Period 1", startsAt: "09:00", endsAt: "09:45", sortOrder: 1 } });
+    await markOnboardingConfigured(user, "working_days");
 
     const before = await onboardingBundle(user);
     expect(before.steps).toEqual(expect.arrayContaining([
@@ -317,7 +337,6 @@ describe("school onboarding imports", () => {
       "Student full name",
       "Date of birth",
       "Class interested",
-      "Billing starts from",
       "Guardian full name",
       "Guardian WhatsApp",
       "Guardian email",
@@ -327,15 +346,15 @@ describe("school onboarding imports", () => {
     ]);
     expect(sheet.getRow(2).getCell(1).value).toBe(1);
     expect(sheet.getRow(2).getCell(4).value).toBe("7-B");
-    expect(String(sheet.getRow(2).getCell(5).value)).toMatch(/^\d{4}-(0[1-9]|1[0-2])$/);
-    const billingNote = sheet.getRow(1).getCell(5).note;
-    expect(typeof billingNote === "string" ? billingNote : billingNote?.texts?.map((part) => part.text).join("")).toContain("Required");
+    expect(sheet.getRow(2).getCell(5).value).toBe("Neha Sharma");
+    const parentNote = sheet.getRow(1).getCell(5).note;
+    expect(typeof parentNote === "string" ? parentNote : parentNote?.texts?.map((part) => part.text).join("")).toContain("Required");
     expect(sheet.views[0]).toMatchObject({ state: "frozen", ySplit: 1 });
     const blankCount = workbook.worksheets.filter((worksheet) => worksheet.name !== "Field guide").reduce((total, worksheet) => {
       let count = 0;
       worksheet.eachRow((row, rowNumber) => {
         if (rowNumber <= 2) return;
-        if (String(row.getCell(11).value || "").trim()) return;
+        if (String(row.getCell(10).value || "").trim()) return;
         if (String(row.getCell(2).value || "").trim()) count += 1;
       });
       return total + count;
@@ -349,7 +368,7 @@ describe("school onboarding imports", () => {
     const sampleSheet = sampleWorkbook.getWorksheet("6-A")!;
     expect(String(sampleSheet.getRow(1).getCell(1).value || "")).toBe("Roll number");
     expect(Number(sampleSheet.getRow(2).getCell(1).value)).toBe(1);
-    expect(String(sampleSheet.getRow(2).getCell(10).value || "")).not.toMatch(/yes/i);
+    expect(String(sampleSheet.getRow(2).getCell(9).value || "")).not.toMatch(/yes/i);
     const sampleCount = sampleWorkbook.worksheets.filter((worksheet) => worksheet.name !== "Field guide").reduce((total, worksheet) => {
       let count = 0;
       worksheet.eachRow((row, rowNumber) => {
@@ -446,7 +465,7 @@ describe("school onboarding imports", () => {
     expect(roles).toEqual(expect.arrayContaining(["TEACHER", "ADMIN", "FEES", "EXAMS", "ADMISSIONS"]));
   });
 
-  it("explains when an older student sheet lacks the required billing start column", async () => {
+  it("accepts a student sheet without a billing start column", async () => {
     const { previewOnboardingRows } = await import("../../lib/onboarding");
     const preview = await previewOnboardingRows(user, {
       kind: "students",
@@ -461,7 +480,7 @@ describe("school onboarding imports", () => {
         parentmobile: "9876543210",
       }],
     });
-    expect(preview.errors).toContainEqual(expect.stringContaining("Billing starts from column is missing"));
+    expect(preview.errors).toEqual([]);
   });
 
   it("imports students from workbook tabs named as class sections and creates those classes", async () => {

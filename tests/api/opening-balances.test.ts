@@ -5,7 +5,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { invoiceBalance } from "../../lib/fees";
 import type { AccessUser } from "../../lib/permissions";
 import { seedPortalFixture, type PortalFixture } from "../support/factories";
-import { createPushedTestDatabase, type TestDatabase } from "../support/test-database";
+import { createTestDatabase, type TestDatabase } from "../support/test-database";
 
 let app: Express;
 let prisma: PrismaClient;
@@ -33,9 +33,6 @@ function openingRow(overrides: Partial<OpeningRow> = {}): OpeningRow {
     studentname: "Opening Child",
     class: "6-A",
     backloginvoiceamount: "12345",
-    invoicedate: "2026-09-01",
-    duedate: "2026-09-10",
-    invoicesalreadygeneratedtill: "2026-08",
     exampleonly: "",
     ...overrides,
   };
@@ -146,7 +143,7 @@ describe.sequential("first-time fees opening balances", () => {
     delete process.env.VERCEL;
     process.env.JWT_SECRET = "opening-balances-test-secret-with-enough-entropy";
     process.env.CRON_SECRET = "opening-cron-secret";
-    database = createPushedTestDatabase();
+    database = createTestDatabase();
     vi.resetModules();
     prisma = (await import("../../lib/prisma")).prisma;
     fixture = await seedPortalFixture(prisma);
@@ -270,12 +267,6 @@ describe.sequential("first-time fees opening balances", () => {
       { name: "unknown admission", row: openingRow({ admissionnumber: "MISSING-001" }), match: /not found/i },
       { name: "missing admission", row: openingRow({ admissionnumber: "" }), match: /not found/i },
       { name: "negative", row: openingRow({ backloginvoiceamount: "-100" }), match: /zero or more|whole number of rupees/i },
-      { name: "invalid due date", row: openingRow({ duedate: "2026-99-99" }), match: /due date must be YYYY-MM-DD/i },
-      { name: "missing due date", row: openingRow({ duedate: "" }), match: /due date must be YYYY-MM-DD/i },
-      { name: "invalid cutoff", row: openingRow({ invoicesalreadygeneratedtill: "2026-99" }), match: /YYYY-MM/i },
-      { name: "missing cutoff", row: openingRow({ invoicesalreadygeneratedtill: "" }), match: /YYYY-MM/i },
-      { name: "malformed month", row: openingRow({ invoicesalreadygeneratedtill: "2026-13" }), match: /YYYY-MM/i },
-      { name: "invalid format", row: openingRow({ invoicesalreadygeneratedtill: "August 2026" }), match: /YYYY-MM/i },
       { name: "exact case", row: openingRow({ admissionnumber: "TEST-OPENING-001" }), match: null },
       { name: "lowercase", row: openingRow({ admissionnumber: "test-opening-001" }), match: null },
       { name: "uppercase", row: openingRow({ admissionnumber: "TEST-OPENING-001" }), match: null },
@@ -288,15 +279,31 @@ describe.sequential("first-time fees opening balances", () => {
     }
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(2026, 9, 4, 12, 0, 0));
-    expect((await preview([openingRow({ invoicesalreadygeneratedtill: "2026-10" })])).errors).toEqual([]);
-    expect((await preview([openingRow({ invoicesalreadygeneratedtill: "2025-03" })])).errors.join("\n")).toMatch(/current session/i);
-    expect((await preview([openingRow({ invoicesalreadygeneratedtill: "2027-02" })])).errors.join("\n")).toMatch(/current month/i);
+    expect(await preview([openingRow()])).toMatchObject({ errors: [], coveragePeriod: "2026-10", dueDate: "2026-10-10" });
     vi.useRealTimers();
     const extra = await preview([{ ...openingRow(), mysterycolumn: "ignored" }]);
     expect(extra.errors).toEqual([]);
-    const blank = await preview([openingRow({ admissionnumber: "", backloginvoiceamount: "", duedate: "", invoicesalreadygeneratedtill: "", studentname: "" })]);
+    const blank = await preview([openingRow({ admissionnumber: "", backloginvoiceamount: "", studentname: "" })]);
     expect(blank.errors.length).toBeGreaterThan(0);
     expect(await prisma.feeInvoice.count({ where: { period: "OPENING" } })).toBe(0);
+  });
+
+  it("rejects an opening balance for a month already invoiced in Anekio", async () => {
+    const existing = await prisma.feeInvoice.create({ data: {
+      studentId: "student-opening-001",
+      classId: fixture.classId,
+      period: "2026-04",
+      title: "April fee",
+      amount: 1000,
+      dueDate: new Date("2026-04-10T00:00:00.000Z"),
+    } });
+    try {
+      const reviewed = await preview([openingRow()]);
+      expect(reviewed.errors.join("\n")).toMatch(/already has a monthly invoice/i);
+      await expect(applyOnboardingImport(officeUser, { batchId: reviewed.batchId })).rejects.toThrow(/review errors/i);
+    } finally {
+      await prisma.feeInvoice.delete({ where: { id: existing.id } });
+    }
   });
 
   it("rejects blank backlog amounts while accepting a true zero", async () => {
@@ -357,8 +364,6 @@ TEST-OPENING-001,Opening Child,6-A,5000,2026-09-01,2026-09-10,2026-08,
     expect(previewed.sample[0]).toMatchObject({
       admissionnumber: "TEST-OPENING-001",
       backloginvoiceamount: "12345",
-      duedate: "2026-09-10",
-      invoicesalreadygeneratedtill: "2026-08",
     });
     const applied = await applyOnboardingImport(officeUser, { batchId: previewed.batchId });
     expect(applied.created).toBe(1);
@@ -371,13 +376,13 @@ TEST-OPENING-001,Opening Child,6-A,5000,2026-09-01,2026-09-10,2026-08,
       kind: "OPENING",
       title: "Backlog invoice",
       amount: 12345,
-      generatedThrough: "2026-08",
+      generatedThrough: "2026-10",
       status: "DUE",
     });
     expect(opening.payments).toHaveLength(0);
     expect(await prisma.issuedDocument.count()).toBe(0);
     expect(await prisma.feeInvoice.count({ where: { studentId: "student-opening-001", period: { startsWith: "2026-" } } })).toBe(0);
-    expect((await prisma.student.findUniqueOrThrow({ where: { id: "student-opening-001" } })).billingStartPeriod).toBe("2026-09");
+    expect((await prisma.student.findUniqueOrThrow({ where: { id: "student-opening-001" } })).billingStartPeriod).toBe("2026-11");
   });
 
   it("applies lowercase and uppercase admission numbers the same way as preview", async () => {
@@ -401,8 +406,8 @@ TEST-OPENING-001,Opening Child,6-A,5000,2026-09-01,2026-09-10,2026-08,
     await applyOnboardingImport(officeUser, { batchId: (await preview([openingRow({ backloginvoiceamount: "7345" })])).batchId });
     expect((await prisma.feeInvoice.findUniqueOrThrow({ where: { id: opening.id }, include: { payments: true } })).amount).toBe(7345);
     expect((await prisma.payment.aggregate({ where: { invoiceId: opening.id }, _sum: { amount: true } }))._sum.amount).toBe(5000);
-    await applyOnboardingImport(officeUser, { batchId: (await preview([openingRow({ invoicesalreadygeneratedtill: "2026-05" })])).batchId });
-    expect((await prisma.student.findUniqueOrThrow({ where: { id: "student-opening-001" } })).billingStartPeriod).toBe("2026-09");
+    await applyOnboardingImport(officeUser, { batchId: (await preview([openingRow()])).batchId });
+    expect((await prisma.student.findUniqueOrThrow({ where: { id: "student-opening-001" } })).billingStartPeriod).toBe("2026-11");
     await applyOnboardingImport(officeUser, { batchId: (await preview([openingRow()])).batchId });
   });
 
@@ -446,13 +451,13 @@ TEST-OPENING-001,Opening Child,6-A,5000,2026-09-01,2026-09-10,2026-08,
     expect((register.history as Record<string, { period: string }[]>)["student-opening-001"]?.some((row) => row.period === "OPENING")).toBe(true);
   });
 
-  it("records a zero backlog cutoff without an OPENING invoice, then bills from September through the current month", async () => {
+  it("records a zero opening balance without an invoice, then bills from the following month", async () => {
     await createOpeningStudent({ id: "student-opening-002", admissionNo: "TEST-OPENING-002" });
     await applyOnboardingImport(officeUser, {
       batchId: (await preview([openingRow({ admissionnumber: "TEST-OPENING-002", backloginvoiceamount: "0" })])).batchId,
     });
     expect(await prisma.feeInvoice.count({ where: { studentId: "student-opening-002" } })).toBe(0);
-    expect((await prisma.student.findUniqueOrThrow({ where: { id: "student-opening-002" } })).billingStartPeriod).toBe("2026-09");
+    expect((await prisma.student.findUniqueOrThrow({ where: { id: "student-opening-002" } })).billingStartPeriod).toBe("2026-11");
     const saved = await prisma.feeTemplate.create({
       data: {
         classId: fixture.classId,
@@ -465,42 +470,42 @@ TEST-OPENING-001,Opening Child,6-A,5000,2026-09-01,2026-09-10,2026-08,
       },
     });
     vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date(2026, 9, 4, 12, 0, 0));
+    vi.setSystemTime(new Date(2026, 10, 4, 12, 0, 0));
     await issueClassFeesCore(officeUser, { classId: fixture.classId, templateId: saved.id });
     vi.useRealTimers();
     const periods = (await prisma.feeInvoice.findMany({ where: { studentId: "student-opening-002" } })).map((row) => row.period).sort();
-    expect(periods).toEqual(["2026-09", "2026-10"]);
+    expect(periods).toEqual(["2026-11"]);
   });
 
-  it("issues September and October after an August cutoff without another OPENING", async () => {
+  it("does not duplicate October and issues November after the opening balance", async () => {
     const template = await prisma.feeTemplate.findFirstOrThrow({ where: { classId: fixture.classId, sessionId: "session-2026" } });
     vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date(2026, 9, 4, 12, 0, 0));
+    vi.setSystemTime(new Date(2026, 10, 4, 12, 0, 0));
     await issueClassFeesCore(officeUser, { classId: fixture.classId, templateId: template.id });
     const afterClass = (await prisma.feeInvoice.findMany({ where: { studentId: "student-opening-001" } })).map((row) => row.period).sort();
-    expect(afterClass).toEqual(["2026-09", "2026-10", "OPENING"]);
+    expect(afterClass).toEqual(["2026-11", "OPENING"]);
     await issueDueFeesCore(new Date(), fixture.classId, "session-2026");
     const afterDue = (await prisma.feeInvoice.findMany({ where: { studentId: "student-opening-001" } })).map((row) => row.period).sort();
-    expect(afterDue).toEqual(["2026-09", "2026-10", "OPENING"]);
+    expect(afterDue).toEqual(["2026-11", "OPENING"]);
     await issueClassFeesCore(officeUser, { classId: fixture.classId, templateId: template.id });
     await issueDueFeesCore(new Date(), fixture.classId, "session-2026");
     vi.useRealTimers();
     expect(await prisma.feeInvoice.count({ where: { studentId: "student-opening-001", period: "OPENING" } })).toBe(1);
-    expect(await prisma.feeInvoice.count({ where: { studentId: "student-opening-001", period: "2026-09" } })).toBe(1);
+    expect(await prisma.feeInvoice.count({ where: { studentId: "student-opening-001", period: "2026-10" } })).toBe(0);
     const register = await queryFeeRegister(officeUser, {
       admissionNo: "TEST-OPENING-001",
       sessionId: "session-2026",
       pageSize: 50,
     });
     const periods = (register.rows as { period: string }[]).map((row) => row.period).sort();
-    expect(periods).toEqual(expect.arrayContaining(["2026-09", "2026-10", "OPENING"]));
+    expect(periods).toEqual(expect.arrayContaining(["2026-11", "OPENING"]));
     expect(periods.filter((period) => period === "OPENING")).toHaveLength(1);
     const billedOpening = (register.rows as { period: string; total: number }[]).filter((row) => row.period === "OPENING");
     expect(billedOpening).toHaveLength(1);
     expect(billedOpening[0]?.total).toBe(12345);
   });
 
-  it("uses the imported cutoff as the first billable month", async () => {
+  it("still honors individually chosen billing starts for other students", async () => {
     const template = await prisma.feeTemplate.findFirstOrThrow({ where: { classId: fixture.classId, sessionId: "session-2026" } });
     const rows = [
       { id: "student-cut-apr", admissionNo: "TEST-CUT-APR", through: "2026-04", first: "2026-05" },
@@ -548,7 +553,7 @@ TEST-OPENING-001,Opening Child,6-A,5000,2026-09-01,2026-09-10,2026-08,
       },
     });
     const periods = (await prisma.feeInvoice.findMany({ where: { studentId: "student-opening-001" } })).map((row) => row.period);
-    expect(periods).toEqual(expect.arrayContaining(["OPENING", "ADMISSION-student-opening-001", "2026-09"]));
+    expect(periods).toEqual(expect.arrayContaining(["OPENING", "ADMISSION-student-opening-001", "2026-11"]));
     const register = await queryFeeRegister(officeUser, {
       admissionNo: "TEST-OPENING-001",
       sessionId: "session-2026",

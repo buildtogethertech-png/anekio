@@ -20,6 +20,8 @@ type Preview = {
   validCount: number;
   errors: string[];
   sample: Record<string, string>[];
+  coveragePeriod?: string;
+  dueDate?: string;
 };
 type GoogleSheetResult = {
   ok: true;
@@ -45,8 +47,8 @@ const FOCUSED_IMPORT_COPY: Record<Template["kind"], { heading: string; descripti
   students: {
     heading: "Choose a student CSV or Excel file",
     description: "Upload student and parent records for review.",
-    requiredColumns: "Student name, date of birth, class, Billing starts from (YYYY-MM), parent name, and parent mobile. Check the Field guide tab for any additional school-required fields.",
-    note: "Billing starts from is required for monthly invoices. Download a fresh sheet after changing the admission form; older files do not gain new columns automatically. Blank admission numbers and rolls are generated.",
+    requiredColumns: "Student name, date of birth, class, parent name, and parent mobile. Check the Field guide tab for any additional school-required fields.",
+    note: "Imported students are not billed until the first-time fee import sets their billing start month. Download a fresh sheet after changing the admission form. Blank admission numbers and rolls are generated.",
   },
   teachers: {
     heading: "Choose a staff CSV or Excel file",
@@ -81,8 +83,8 @@ const FOCUSED_IMPORT_COPY: Record<Template["kind"], { heading: string; descripti
   opening_balances: {
     heading: "Choose a fee CSV or Excel file",
     description: "Upload first-time fee balances for review.",
-    requiredColumns: "Admission number, Backlog invoice amount, Due date, Invoices already generated till",
-    note: "Opening balances create backlog invoices only after review passes and you press Apply.",
+    requiredColumns: "Admission number, Backlog invoice amount",
+    note: "Include all unpaid fees through the current month. Review shows the exact coverage month and configured due date before you apply; monthly billing starts the following month.",
   },
 };
 
@@ -452,6 +454,15 @@ export function OnboardingBoard({
             </View>
             <Badge tone={preview.errors.length ? "danger" : "leaf"}>{preview.errors.length ? `${preview.errors.length} issues` : "Ready to apply"}</Badge>
           </View>
+          {preview.kind === "opening_balances" && preview.coveragePeriod ? (
+            <View className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2">
+              <Text className="text-sm font-medium text-ink-900">Opening amounts cover all unpaid fees through {preview.coveragePeriod}.</Text>
+              <Text className="mt-1 text-xs text-ink-700">Due {preview.dueDate}. Monthly invoices begin {new Date(Number(preview.coveragePeriod.slice(0, 4)), Number(preview.coveragePeriod.slice(5, 7)), 1).toLocaleDateString("en-IN", { month: "long", year: "numeric" })}. Confirm every amount includes the full coverage month before applying.</Text>
+              {preview.dueDate && new Date(`${preview.dueDate}T23:59:59`).getTime() < Date.now() ? (
+                <Text className="mt-1 text-xs text-amber-800">The configured due date has passed, so these opening invoices may show as overdue immediately.</Text>
+              ) : null}
+            </View>
+          ) : null}
           {preview.errors.slice(0, 12).map((error) => <Text key={error} className="text-xs leading-5 text-red-700">• {error}</Text>)}
           {preview.errors.length > 12 ? <Text className="text-xs text-red-700">And {preview.errors.length - 12} more issues.</Text> : null}
           {message ? (
