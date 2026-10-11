@@ -1049,6 +1049,27 @@ export async function markAttendanceCore(
   input: { date: string; rows: { studentId: string; status: AttendanceStatus }[] }
 ) {
   need(user, "attendance.mark");
+  if (user.portal === "TEACHER") {
+    const teacher = await prisma.teacher.findUnique({
+      where: { userId: user.id },
+      include: { subjects: true, classes: true, skills: true },
+    });
+    if (!teacher) throw new Error("No access.");
+    const allowedClassIds = new Set<string>();
+    if (teacher.classId) allowedClassIds.add(teacher.classId);
+    for (const row of teacher.subjects) allowedClassIds.add(row.classId);
+    for (const row of teacher.classes) allowedClassIds.add(row.classId);
+    for (const row of teacher.skills) allowedClassIds.add(row.classId);
+    const studentIds = [...new Set(input.rows.map((row) => row.studentId))];
+    const students = await prisma.student.findMany({
+      where: { id: { in: studentIds } },
+      select: { id: true, classId: true },
+    });
+    if (students.length !== studentIds.length) throw new Error("No access.");
+    for (const student of students) {
+      if (!allowedClassIds.has(student.classId)) throw new Error("No access.");
+    }
+  }
   const stamp = String(input.date || "").slice(0, 10);
   const todayLocal = ymd(new Date());
   const todayUtc = new Date().toISOString().slice(0, 10);
@@ -1924,7 +1945,7 @@ export async function saveSchoolIdentityCore(
     admissionCharge?: number;
   }
 ) {
-  need(user, "admissions.manage");
+  need(user, "school.edit");
   const existing = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
   const schoolName = (input.name || existing?.name || "Anekio School").trim() || "Anekio School";
   const payGateway = (PAY_GATEWAYS.some((g) => g.id === input.payGateway)

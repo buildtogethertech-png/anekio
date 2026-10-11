@@ -385,7 +385,7 @@ async function deliverFeeReminder(invoiceId: string) {
 }
 
 export async function sendFeeRemindersCore(user: AccessUser, input: { invoiceIds?: string[] }) {
-  need(user, "fees.collect", "fees.remind");
+  need(user, "fees.remind");
   const ids = [...new Set((input.invoiceIds || []).map(String).filter(Boolean))].slice(0, 100);
   if (!ids.length) throw new Error("Nothing to remind");
   let ok = 0;
@@ -1519,6 +1519,9 @@ export async function uploadPaperCore(
   const examId = String(input.examId || "");
   const studentId = String(input.studentId || "");
   if (!examId || !studentId || !input.filePath) throw new Error("Exam, student and file are required");
+  const exam = await prisma.exam.findUnique({ where: { id: examId } });
+  if (!exam) throw new Error("Exam not found");
+  if (user.portal === "TEACHER") await needExamClass(user, exam.classId, "mark");
   const allowed: PaperType[] = ["MARK_SHEET", "ANSWER_SHEET", "EVALUATED"];
   const type = (allowed.includes(input.type as PaperType) ? input.type : "EVALUATED") as PaperType;
   await prisma.examPaper.create({
@@ -1602,7 +1605,7 @@ export async function grantExamMarksCore(user: AccessUser, input: { examId?: str
 }
 
 export async function importPeopleSheetCore(user: AccessUser, input: { kind?: string; csv?: string }) {
-  need(user, "people.edit", "people.import");
+  need(user, "people.import");
   const kind = String(input.kind || "student");
   const rows = parseCsv(String(input.csv || ""));
   if (!rows.length) throw new Error("The sheet is empty. Check the header row.");

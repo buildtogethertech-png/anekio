@@ -1163,6 +1163,7 @@ export function QuickDocumentButton({
     setBlockMonths(String(admitThreshold > 0 ? admitThreshold : 1));
   }, [open, feeGate, admitThreshold]);
   if (!(can(user, "documents.issue") || can(user, "school.edit"))) return null;
+  const canBatch = can(user, "documents.batch");
 
   async function issue() {
     const template = templates.find((row) => row.id === templateId) || templates[0];
@@ -1173,7 +1174,7 @@ export function QuickDocumentButton({
     setMessage("");
     setBlocked([]);
     try {
-      if (batchSubjects?.length) {
+      if (canBatch && batchSubjects?.length) {
         const result = await act<{ ok: true; combinedUrl: string; issued: unknown[]; blocked: BlockedDocumentStudent[] }>(token, "issueDocumentBatch", {
           templateId: template.id,
           blockIfPendingMonths: feeGate ? unpaidBlock : 0,
@@ -1234,7 +1235,7 @@ export function QuickDocumentButton({
       <Button variant="ghost" onPress={() => setOpen(true)}>{label}</Button>
       <Modal open={open} title={resultIssue ? `Issue results for ${subjectLabel}` : admitOnly ? `Issue admit cards for ${subjectLabel}` : `Issue for ${subjectLabel}`} onClose={() => setOpen(false)} footer={<View className="items-end"><Button disabled={pending || !templates.length} onPress={() => void issue()}>{pending ? "Issuing…" : "Issue and open"}</Button></View>}>
         <View className="gap-4">
-          {batchSubjects?.length ? (
+          {canBatch && batchSubjects?.length ? (
             <View className="rounded-md border border-blue-200 bg-blue-50 p-3">
               <Text className="text-sm font-semibold text-blue-900">Class batch · {batchSubjects.length} students</Text>
               <Text className="mt-1 text-xs leading-5 text-blue-900">
@@ -1288,7 +1289,7 @@ export function QuickDocumentButton({
               <Text className="mt-1 text-xs leading-5 text-amber-900">Add a document type in Settings → Documents, then issue it here.</Text>
             </View>
           )}
-          {batchSubjects?.length && reportGate ? (
+          {canBatch && batchSubjects?.length && reportGate ? (
             <View className="rounded-md border border-amber-200 bg-amber-50 p-3">
               <Text className="text-sm font-semibold text-amber-950">Fee rule for results</Text>
               <Text className="mt-1 text-xs leading-5 text-amber-900">
@@ -1298,7 +1299,7 @@ export function QuickDocumentButton({
               </Text>
             </View>
           ) : null}
-          {batchSubjects?.length && feeGate ? (
+          {canBatch && batchSubjects?.length && feeGate ? (
             <View className="rounded-md border border-amber-200 bg-amber-50 p-3">
               <Text className="text-sm font-semibold text-amber-950">Skip students with unpaid fees</Text>
               <Text className="mt-1 text-xs leading-5 text-amber-900">

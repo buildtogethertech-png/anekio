@@ -1217,7 +1217,7 @@ export function TeacherClassBoard() {
 
 export function TeacherAttendanceBoard() {
   const { data, reload } = useRecord();
-  const { token } = useSession();
+  const { token, user } = useSession();
   const toast = useToast();
   const { width } = useWindowDimensions();
   const phone = width < 768;
@@ -1540,9 +1540,11 @@ export function TeacherAttendanceBoard() {
             )}
           </ScrollView>
           <View className="border-t border-ink-100 bg-white p-4">
-            <Button onPress={save} disabled={locked}>
-              Save the day
-            </Button>
+            {can(user, "attendance.mark") ? (
+              <Button onPress={save} disabled={locked}>
+                Save the day
+              </Button>
+            ) : null}
           </View>
           <Modal
             open={scanOpen}

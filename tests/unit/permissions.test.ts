@@ -3,9 +3,11 @@ import {
   can,
   defaultGrants,
   PERMISSION_KEYS,
+  PERMISSIONS,
   permissionsForPortal,
   scopeFor,
   scopePolicyFor,
+  SYSTEM_ROLES,
   validScopeFor,
   type AccessUser,
 } from "../../lib/permissions";
@@ -24,6 +26,54 @@ function userWith(permissions: string[]): AccessUser {
 }
 
 describe("permission policy", () => {
+  it("keeps catalog keys unique, with documents.design and no documents.studio", () => {
+    expect(new Set(PERMISSION_KEYS).size).toBe(PERMISSION_KEYS.length);
+    expect(PERMISSION_KEYS).toContain("documents.design");
+    expect(PERMISSION_KEYS).not.toContain("documents.studio");
+    expect(PERMISSIONS.find((row) => row.key === "documents.design")?.portals).toEqual(["OFFICE"]);
+  });
+
+  it("defines exactly the seven system roles", () => {
+    expect(SYSTEM_ROLES.map((row) => row.slug)).toEqual([
+      "ADMIN",
+      "ADMISSIONS",
+      "FEES",
+      "EXAMS",
+      "TEACHER",
+      "PARENT",
+      "STUDENT",
+    ]);
+    expect(SYSTEM_ROLES.every((row) => row.portal)).toBe(true);
+  });
+
+  it("maps system roles onto OFFICE, TEACHER, PARENT, and STUDENT portals", () => {
+    expect(SYSTEM_ROLES.map((row) => [row.slug, row.portal])).toEqual([
+      ["ADMIN", "OFFICE"],
+      ["ADMISSIONS", "OFFICE"],
+      ["FEES", "OFFICE"],
+      ["EXAMS", "OFFICE"],
+      ["TEACHER", "TEACHER"],
+      ["PARENT", "PARENT"],
+      ["STUDENT", "STUDENT"],
+    ]);
+  });
+
+  it("rejects invalid scopes for each family of permissions", () => {
+    expect(validScopeFor("fees.view", "ASSIGNED")).toBe(false);
+    expect(validScopeFor("attendance.mark", "SCHOOL")).toBe(false);
+    expect(validScopeFor("children.view", "SCHOOL")).toBe(false);
+    expect(validScopeFor("leave.decide", "ASSIGNED")).toBe(false);
+    expect(validScopeFor("fees.view", "SCHOOL")).toBe(true);
+  });
+
+  it("marks see permissions separately from action permissions", () => {
+    expect(PERMISSIONS.filter((row) => row.see).map((row) => row.key)).toEqual(
+      expect.arrayContaining(["people.view", "fees.view", "exams.view", "roles.manage", "attendance.mark"])
+    );
+    expect(PERMISSIONS.find((row) => row.key === "fees.collect")?.see).toBeUndefined();
+    expect(PERMISSIONS.find((row) => row.key === "people.import")?.see).toBeUndefined();
+  });
+
   it("grants Admin every catalogued permission without duplicates", () => {
     const grants = defaultGrants("ADMIN");
 
@@ -55,7 +105,12 @@ describe("permission policy", () => {
   it("exposes only permissions valid for the requested portal", () => {
     const parentPermissions = permissionsForPortal("PARENT");
 
-    expect(parentPermissions.map((permission) => permission.key)).toEqual(["children.view", "fees.pay"]);
+    expect(parentPermissions.map((permission) => permission.key)).toEqual([
+      "inbox.view",
+      "inbox.manage",
+      "children.view",
+      "fees.pay",
+    ]);
     expect(parentPermissions.every((permission) => (permission.portals as readonly string[]).includes("PARENT"))).toBe(true);
   });
 

@@ -2390,7 +2390,7 @@ async function createBlockedFeeNotice(
 }
 
 export async function issueDocumentBatchCore(user: AccessUser, input: Record<string, unknown>) {
-  need(user, "documents.batch", "documents.issue", "school.edit");
+  need(user, "documents.batch");
   const rows = Array.isArray(input.subjects) ? input.subjects.slice(0, 200) : [];
   if (!rows.length) throw new Error("Choose at least one record for the batch.");
   const resolved = await resolveIssuableTemplate(user, String(input.templateId || ""));

@@ -13,6 +13,10 @@ import { repairSingleOrgLegacyData } from "./legacy-org-repair";
 
 let accessReadyPromise: Promise<void> | null = null;
 
+export function resetAccessRolesCache() {
+  accessReadyPromise = null;
+}
+
 export async function ensureAccessRoles() {
   if (accessReadyPromise) return accessReadyPromise;
   accessReadyPromise = prepareAccessRoles().catch((error) => {

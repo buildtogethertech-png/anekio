@@ -92,6 +92,7 @@ export async function applyLeave(user: AccessUser, input: { typeId?: string; fro
   const studentSelf = user.portal === "STUDENT" ? await prisma.student.findUnique({ where: { userId: user.id }, include: { class: true, parent: { include: { user: true } } } }) : null;
   const parent = user.portal === "PARENT" ? await prisma.parent.findUnique({ where: { userId: user.id }, include: { students: { include: { class: true } } } }) : null;
 
+  if (user.portal === "TEACHER" && !can(user, "leave.apply")) throw new Error("No access.");
   if (user.portal === "TEACHER" || (user.portal === "OFFICE" && !input.studentId)) {
     const teacherId = teacher?.id || null;
     const staffId = teacherId ? null : staff?.id || null;
@@ -121,15 +122,37 @@ export async function applyLeave(user: AccessUser, input: { typeId?: string; fro
   }
 
   if (!type.forStudent) throw new Error("This type is not for students");
-  const child =
-    studentSelf ||
-    parent?.students.find((s) => s.id === String(input.studentId || "")) ||
-    parent?.students[0] ||
-    null;
+  if (user.portal === "PARENT") {
+    const requested = String(input.studentId || "").trim();
+    if (!requested) throw new Error("Pick the child");
+    const child = parent?.students.find((s) => s.id === requested);
+    if (!child) throw new Error("Not your child");
+    await assertNoOverlap({ studentId: child.id, from, to });
+    const created = await prisma.leaveRequest.create({
+      data: {
+        typeId,
+        from,
+        to,
+        reason,
+        status: "WAITING",
+        requesterId: user.id,
+        studentId: child.id,
+        guardianAt: new Date(),
+      },
+    });
+    const label = `${child.class.name}-${child.class.section}`;
+    await postLeaveNotice({
+      authorId: user.id,
+      title: `Leave waiting · ${child.name}`,
+      body: `${child.name} · ${label} · ${type.name} ${prettyRange(from, to)}. Class teacher to approve.`,
+      portals: ["TEACHER"],
+      classIds: [child.classId],
+    });
+    return created;
+  }
+  const child = studentSelf;
   if (!child) throw new Error("Pick the child");
-  if (parent && !parent.students.some((s) => s.id === child.id)) throw new Error("Not your child");
   await assertNoOverlap({ studentId: child.id, from, to });
-  const parentStarted = user.portal === "PARENT";
   const created = await prisma.leaveRequest.create({
     data: {
       typeId,
@@ -139,27 +162,15 @@ export async function applyLeave(user: AccessUser, input: { typeId?: string; fro
       status: "WAITING",
       requesterId: user.id,
       studentId: child.id,
-      guardianAt: parentStarted ? new Date() : null,
     },
   });
-  const label = `${child.class.name}-${child.class.section}`;
-  if (parentStarted) {
-    await postLeaveNotice({
-      authorId: user.id,
-      title: `Leave waiting · ${child.name}`,
-      body: `${child.name} · ${label} · ${type.name} ${prettyRange(from, to)}. Class teacher to approve.`,
-      portals: ["TEACHER"],
-      classIds: [child.classId],
-    });
-  } else {
-    await postLeaveNotice({
-      authorId: user.id,
-      title: `Waiting on you · ${child.name}`,
-      body: `${child.name} asked for ${type.name.toLowerCase()} leave ${prettyRange(from, to)}. Guardian to approve.`,
-      portals: ["PARENT"],
-      classIds: [child.classId],
-    });
-  }
+  await postLeaveNotice({
+    authorId: user.id,
+    title: `Waiting on you · ${child.name}`,
+    body: `${child.name} asked for ${type.name.toLowerCase()} leave ${prettyRange(from, to)}. Guardian to approve.`,
+    portals: ["PARENT"],
+    classIds: [child.classId],
+  });
   return created;
 }
 

@@ -1467,7 +1467,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       <View className="mt-5 min-h-0 flex-1 gap-4">
         <View className="flex-row items-center justify-between gap-3">
           <Text className="text-sm font-semibold text-ink-900">Fee summary</Text>
-          {can(user, "fees.collect") || can(user, "people.edit") ? (
+          {can(user, "fees.collect") ? (
             <Button onPress={() => setPayOpen(true)}>Record payment</Button>
           ) : null}
         </View>
@@ -2114,7 +2114,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
           <Text className="mt-1 text-xs text-ink-700">{visibleCount} {visibleNoun}{visibleCount === 1 ? "" : "s"} in view</Text>
         </View>
         <View className="flex-row flex-wrap gap-2">
-          {can(user, "people.import") || can(user, "people.edit") ? (
+          {can(user, "people.import") ? (
             <Button
               variant="ghost"
               onPress={() => setImportOpen(true)}
