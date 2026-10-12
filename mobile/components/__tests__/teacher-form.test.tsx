@@ -27,6 +27,29 @@ const classes = [
 ];
 
 describe("TeacherForm assignments", () => {
+  it("shows a catalog subject coded for this grade even before it is on the class plan", () => {
+    render(
+      <TeacherForm
+        catalog={[{ code: "SAN-5", name: "Sanskrit" }, { code: "ENG", name: "English" }]}
+        classes={[
+          {
+            id: "class-5-a",
+            label: "5-A",
+            name: "5",
+            subjects: [{ id: "s-eng-5", code: "ENG-5", name: "English", weightage: 6 }],
+          },
+        ]}
+        onCancel={jest.fn()}
+        onSave={jest.fn()}
+      />
+    );
+
+    expect(screen.getByText("Subjects for 5-A")).toBeTruthy();
+    expect(screen.getByText("ENG-5 · English")).toBeTruthy();
+    expect(screen.getByText("SAN-5 · Sanskrit")).toBeTruthy();
+    expect(screen.queryByText("ENG · English")).toBeNull();
+  });
+
   it("shows only the selected class curriculum, not other-grade codes", () => {
     render(
       <TeacherForm

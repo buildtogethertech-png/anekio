@@ -142,4 +142,20 @@ describe.sequential("subject code API", () => {
     const count = await prisma.subject.count({ where: { classId: "class-6-b", code: "MAT" } });
     expect(count).toBe(1);
   });
+
+  it("loads a grade-coded catalog subject onto that class", async () => {
+    await prisma.class.create({ data: { id: "class-5-a", name: "5", section: "A" } });
+    const saved = await act(officeToken, "saveSchoolSubjects", {
+      entries: [
+        { code: "ENG", name: "English" },
+        { code: "ENGL", name: "English Language" },
+        { code: "MAT", name: "Mathematics" },
+        { code: "HIN", name: "Hindi" },
+        { code: "SAN-5", name: "Sanskrit" },
+      ],
+    });
+    expect(saved.status).toBe(200);
+    expect(await prisma.subject.count({ where: { classId: "class-5-a", code: "SAN-5" } })).toBe(1);
+    expect(await prisma.subject.count({ where: { classId: fixture.classId, code: "SAN-5" } })).toBe(0);
+  });
 });

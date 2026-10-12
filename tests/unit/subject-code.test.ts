@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  catalogCodeMatchesGrade,
   formatClassList,
   formatSubjectLabel,
   gradeSubjectCode,
@@ -31,6 +32,14 @@ describe("subject code validation", () => {
     expect(gradeSubjectCode("ENG", "1")).toBe("ENG");
     expect(gradeSubjectCode("eng", "2")).toBe("ENG-2");
     expect(formatClassList(["1-A", "1-B", "2-A"])).toBe("1-A, 1-B and 2-A");
+  });
+
+  it("matches catalog codes to the grade they were coded for", () => {
+    expect(catalogCodeMatchesGrade("SAN-5", "5")).toBe(true);
+    expect(catalogCodeMatchesGrade("SAN-5", "6")).toBe(false);
+    expect(catalogCodeMatchesGrade("ENG", "1")).toBe(true);
+    expect(catalogCodeMatchesGrade("ENG", "5")).toBe(false);
+    expect(catalogCodeMatchesGrade("ENG-2", "2")).toBe(true);
   });
 });
 

@@ -21,6 +21,7 @@ const RESUMABLE_PATHS = new Set([
   "/onboarding",
   "/admissions",
   "/staff",
+  "/staff/scan",
   "/school",
   "/timetable",
   "/fees",

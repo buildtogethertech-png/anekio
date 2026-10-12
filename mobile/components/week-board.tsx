@@ -405,6 +405,7 @@ export function WeekBoard() {
       <Modal open={modal === "addTeacher"} title="Add teacher" large onClose={() => setModal(null)}>
         <TeacherForm
           key="new-teacher"
+          catalog={data?.school?.subjectCatalog ?? []}
           classes={classes.map((c) => ({
             id: c.id || "",
             label: c.label,
@@ -426,12 +427,13 @@ export function WeekBoard() {
           <TeacherForm
             key={teacherId}
             teacher={teachers.find((t) => t.id === teacherId)}
+            catalog={data?.school?.subjectCatalog ?? []}
             classes={classes.map((c) => ({
-            id: c.id || "",
-            label: c.label,
-            name: c.name,
-            subjects: c.subjects ?? [],
-          }))}
+              id: c.id || "",
+              label: c.label,
+              name: c.name,
+              subjects: c.subjects ?? [],
+            }))}
             onCancel={() => setModal(null)}
             onSave={async (payload) => {
               await act(token, "setTeacherResources", { ...payload, teacherId });

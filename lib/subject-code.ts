@@ -156,12 +156,25 @@ export function classLabelOf(className: string, section: string) {
   return `${gradeNameOf(className)}-${String(section || "").trim()}`;
 }
 
+export function gradeTokenOf(gradeName: string) {
+  return gradeNameOf(gradeName).replace(/[^A-Z0-9]/gi, "").toUpperCase();
+}
+
 export function gradeSubjectCode(base: string, gradeName: string) {
   const code = requireSubjectCode(base);
-  const grade = gradeNameOf(gradeName).replace(/[^A-Z0-9]/gi, "").toUpperCase();
+  const grade = gradeTokenOf(gradeName);
   if (!grade || grade === "1") return code;
   const suffix = `-${grade}`;
   return requireSubjectCode(`${code.slice(0, SUBJECT_CODE_MAX - suffix.length)}${suffix}`);
+}
+
+/** SAN-5 belongs on Class 5; unsuffixed ENG belongs on Class 1. */
+export function catalogCodeMatchesGrade(code: string, gradeName: string) {
+  const token = gradeTokenOf(gradeName);
+  const checked = validateSubjectCode(code);
+  if (!token || !checked.ok) return false;
+  if (token === "1") return !checked.code.includes("-") || checked.code.endsWith("-1");
+  return checked.code.endsWith(`-${token}`);
 }
 
 export function formatClassList(labels: string[]) {

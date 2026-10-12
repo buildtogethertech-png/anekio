@@ -28,6 +28,17 @@ export function subjectLabel(subject?: SubjectLabelInput | string | null) {
   return formatSubjectLabel(subject.code, subject.name);
 }
 
+export function catalogCodeMatchesGrade(code: string, gradeName: string) {
+  const token = String(gradeName || "")
+    .trim()
+    .replace(/[^A-Z0-9]/gi, "")
+    .toUpperCase();
+  const normalized = normalizeSubjectCode(code);
+  if (!token || !normalized) return false;
+  if (token === "1") return !normalized.includes("-") || normalized.endsWith("-1");
+  return normalized.endsWith(`-${token}`);
+}
+
 export function skillMatchesSubject(skillName: string, subject: SubjectLabelInput) {
   const skill = skillName.trim().toLowerCase();
   if (!skill) return false;

@@ -58,6 +58,13 @@ export function earliestStaffInAt(...values: (string | null | undefined)[]) {
     .sort()[0] || "";
 }
 
+export function staffAttendanceInMark(row?: { status?: string | null; inAt?: string | null } | null) {
+  if (!row) return false;
+  if (String(row.inAt || "").trim()) return true;
+  const status = String(row.status || "").toUpperCase();
+  return status === "PRESENT" || status === "LATE" || status === "HALF_DAY";
+}
+
 export function collapseStaffDaysByDate<T extends { date: Date | string; inAt?: string | null }>(rows: T[]) {
   const out = new Map<string, T>();
   for (const row of rows) {

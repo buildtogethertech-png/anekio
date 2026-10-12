@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { Button, Chip, Field, Input } from "./ui";
 import { Select } from "./form/select";
-import { formatSubjectLabel, skillMatchesSubject } from "../lib/subject-label";
+import { catalogCodeMatchesGrade, formatSubjectLabel, skillMatchesSubject } from "../lib/subject-label";
 
 export const QUALIFICATION_OPTIONS = [
   "B.Ed",
@@ -64,11 +64,13 @@ function initialClassPicks(
 export function TeacherForm({
   teacher,
   classes,
+  catalog = [],
   onCancel,
   onSave,
 }: {
   teacher?: { id: string; name: string; qualification?: string; skills: { subjectName: string; classId: string }[] };
   classes: TeacherClassRow[];
+  catalog?: { code: string; name: string }[];
   onCancel: () => void;
   onSave: (payload: {
     name: string;
@@ -82,7 +84,11 @@ export function TeacherForm({
   }) => Promise<void>;
 }) {
   const parsed = parseQualification(teacher?.qualification);
-  const teachable = classes.filter((klass) => klass.id && (klass.subjects ?? []).length);
+  const teachable = classes.filter(
+    (klass) =>
+      klass.id &&
+      ((klass.subjects ?? []).length || catalog.some((entry) => catalogCodeMatchesGrade(entry.code, classGrade(klass))))
+  );
   const startPicked = initialClassPicks(teacher, teachable);
   const firstAssigned = Object.keys(startPicked)[0];
   const [name, setName] = useState(teacher?.name || "");
@@ -97,7 +103,20 @@ export function TeacherForm({
   const [error, setError] = useState("");
   const editing = Boolean(teacher);
   const selected = teachable.find((klass) => klass.id === classId) || teachable[0];
-  const selectedSubjects = selected?.subjects ?? [];
+  const selectedGrade = selected ? classGrade(selected) : "";
+  const selectedSubjects = [
+    ...(selected?.subjects ?? []),
+    ...catalog
+      .filter(
+        (entry) =>
+          selected &&
+          catalogCodeMatchesGrade(entry.code, selectedGrade) &&
+          !(selected.subjects ?? []).some(
+            (subject) => subjectCodeOf(subject) === entry.code || subject.name.trim().toLowerCase() === entry.name.trim().toLowerCase()
+          )
+      )
+      .map((entry) => ({ code: entry.code, name: entry.name, weightage: 4 })),
+  ];
   const selectedCodes = selected ? picked[selected.id] ?? [] : [];
   const listedSubjects = [...selectedSubjects].sort((a, b) => {
     const aOn = selectedCodes.includes(subjectCodeOf(a)) ? 0 : 1;

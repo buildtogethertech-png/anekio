@@ -4,9 +4,10 @@ import { act as mutate } from "../../lib/mutate";
 import { useRecord } from "../../lib/record";
 import { useSession } from "../../lib/session";
 
+const mockPush = jest.fn();
 jest.mock("expo-router", () => ({
   useLocalSearchParams: () => ({}),
-  useRouter: () => ({ push: jest.fn() }),
+  useRouter: () => ({ push: mockPush }),
 }));
 jest.mock("@expo/vector-icons/Ionicons", () => {
   return function MockIonicon() {
@@ -104,6 +105,7 @@ describe("StaffBoard leave requests", () => {
       user: { permissions: ["staff.edit"] },
     } as ReturnType<typeof useSession>);
     mockAct.mockResolvedValue({} as never);
+    mockPush.mockClear();
   });
 
   afterEach(() => {
@@ -117,6 +119,14 @@ describe("StaffBoard leave requests", () => {
     expect(screen.queryByRole("button", { name: /Leave requests/ })).toBeNull();
     expect(screen.getByText("Search")).toBeTruthy();
     expect(screen.getByText("Asha Rao")).toBeTruthy();
+  });
+
+  it("opens the dedicated scanner route instead of a camera modal", () => {
+    render(<StaffBoard />);
+    fireEvent.press(screen.getByRole("button", { name: "Scan attendance" }));
+    expect(mockPush).toHaveBeenCalledWith("/staff/scan");
+    expect(screen.queryByText("Ready to scan")).toBeNull();
+    expect(screen.queryByText("Point camera at staff attendance QR")).toBeNull();
   });
 
   it.each([390, 1200])("opens every request detail from the compact counted action at %ipx", (width) => {

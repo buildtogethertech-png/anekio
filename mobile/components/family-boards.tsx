@@ -418,7 +418,13 @@ export function TeacherDeskBoard() {
           </View>
           {data?.staffAttendanceSelf ? (
             <View className={phoneDashboard ? "w-full" : "shrink-0"}>
-              <StaffAttendanceQrButton token={token} disabled={Boolean(todayClosed)} onMessage={toast.show} />
+              <StaffAttendanceQrButton
+                token={token}
+                disabled={Boolean(todayClosed)}
+                alreadyMarked={Boolean(data.staffAttendanceSelf.today?.marked)}
+                onRefresh={reload}
+                onMessage={toast.show}
+              />
             </View>
           ) : null}
         </View>
@@ -473,7 +479,14 @@ export function TeacherDeskBoard() {
     return (
       <View className="mb-3 flex-row gap-2">
         {data?.staffAttendanceSelf ? (
-          <StaffAttendanceQrButton token={token} disabled={Boolean(todayClosed)} tile onMessage={toast.show} />
+          <StaffAttendanceQrButton
+            token={token}
+            disabled={Boolean(todayClosed)}
+            alreadyMarked={Boolean(data.staffAttendanceSelf.today?.marked)}
+            onRefresh={reload}
+            tile
+            onMessage={toast.show}
+          />
         ) : null}
         <PhoneActionTile icon="checkmark-circle-outline" label="Attend" route="/attendance" danger={Boolean(data?.classTeacher && !data.markedToday && !todayClosed)} />
         <PhoneActionTile icon="people-outline" label="Class" route="/class" />

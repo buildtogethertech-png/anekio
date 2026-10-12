@@ -3223,7 +3223,16 @@ export function StaffBoard() {
               {canMark ? (
                 <StaffAttendanceQrScanButton token={token} compact disabled={locked} onMessage={toast.show} onDone={reload} />
               ) : null}
-              {data?.staffAttendanceSelf ? <StaffAttendanceQrButton token={token} compact disabled={locked} onMessage={toast.show} /> : null}
+              {data?.staffAttendanceSelf ? (
+                <StaffAttendanceQrButton
+                  token={token}
+                  compact
+                  disabled={locked || Boolean(data.staffAttendanceSelf.today?.marked)}
+                  alreadyMarked={Boolean(data.staffAttendanceSelf.today?.marked)}
+                  onRefresh={reload}
+                  onMessage={toast.show}
+                />
+              ) : null}
             </View>
             <View testID="staff-toolbar-summary" className="flex-row flex-wrap items-center gap-2">
               {locked ? (
@@ -3294,7 +3303,15 @@ export function StaffBoard() {
           {canMark ? (
             <StaffAttendanceQrScanButton token={token} disabled={locked} onMessage={toast.show} onDone={reload} />
           ) : null}
-          {data?.staffAttendanceSelf ? <StaffAttendanceQrButton token={token} disabled={locked} onMessage={toast.show} /> : null}
+          {data?.staffAttendanceSelf ? (
+            <StaffAttendanceQrButton
+              token={token}
+              disabled={locked || Boolean(data.staffAttendanceSelf.today?.marked)}
+              alreadyMarked={Boolean(data.staffAttendanceSelf.today?.marked)}
+              onRefresh={reload}
+              onMessage={toast.show}
+            />
+          ) : null}
         </View>
         <View testID="staff-toolbar-summary" className="flex-row flex-wrap items-center justify-between gap-2">
           {locked ? (

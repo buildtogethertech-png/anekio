@@ -24,7 +24,7 @@ import { gradePolicyFrom, marksVisible, parseExamPlan, timetableVisible, ymd, ad
 import { parentMaySeeExamResult } from "./exam-marks";
 import { teacherClassTestChoices } from "./exam-evaluators";
 import { parsePayrollRules } from "./payroll";
-import { collapseStaffDaysByDate, staffDayYmd } from "./staff-day";
+import { collapseStaffDaysByDate, staffAttendanceInMark, staffDayWindow, staffDayYmd } from "./staff-day";
 import { feeLineTotal, invoiceBalance, parseFeeCatalogState, parseFeeLines, reportCardFeeHoldFromConfig } from "./fees";
 import { studentLetter } from "./letter";
 import { payFormFromSecrets, paySecretsFromRow } from "./pay-config";
@@ -200,12 +200,33 @@ async function staffAttendanceSelf(user: AccessUser) {
     where: { userId: user.id },
     select: { id: true, employeeId: true, user: { select: { name: true } } },
   });
-  if (teacher) return { kind: "teacher" as const, id: teacher.id, name: teacher.user.name, employeeId: teacher.employeeId };
-  const staff = await prisma.staffMember.findUnique({
-    where: { userId: user.id },
-    select: { id: true, name: true, employeeId: true },
-  });
-  return staff ? { kind: "staff" as const, id: staff.id, name: staff.name, employeeId: staff.employeeId } : null;
+  const staff = teacher
+    ? null
+    : await prisma.staffMember.findUnique({
+        where: { userId: user.id },
+        select: { id: true, name: true, employeeId: true },
+      });
+  if (!teacher && !staff) return null;
+  const kind = teacher ? ("teacher" as const) : ("staff" as const);
+  const id = teacher?.id || staff!.id;
+  const stamp = staffDayYmd(new Date());
+  const { from, to } = staffDayWindow(stamp);
+  const rows = teacher
+    ? await prisma.staffDay.findMany({ where: { teacherId: id, date: { gte: from, lte: to } } })
+    : await prisma.staffDay.findMany({ where: { staffId: id, date: { gte: from, lte: to } } });
+  const todayRow = rows.filter((row) => staffDayYmd(row.date) === stamp).find((row) => row.inAt) || rows.find((row) => staffDayYmd(row.date) === stamp) || null;
+  return {
+    kind,
+    id,
+    name: teacher ? teacher.user.name : staff!.name,
+    employeeId: teacher ? teacher.employeeId : staff!.employeeId,
+    today: {
+      date: stamp,
+      marked: staffAttendanceInMark(todayRow),
+      status: todayRow?.status || "",
+      inAt: todayRow?.inAt || "",
+    },
+  };
 }
 
 export function isBellNotice(n: { kind?: string | null; body?: string | null; recipients?: unknown[] }) {

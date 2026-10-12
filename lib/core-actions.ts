@@ -27,7 +27,7 @@ import { roleIdBySlug, slugFromName } from "./roles";
 import { closedReason, paperDates, parseHolidayText, snapToSchoolDay, type PaperCadence } from "./calendar";
 import { classifyFromIn, normalizeHHmm, parsePayrollRules, personKey, type PayrollRules } from "./payroll";
 import { loadSchoolCalendar } from "./leave";
-import { earliestStaffInAt, staffDayInstant, staffDayWindow, staffDayYmd } from "./staff-day";
+import { earliestStaffInAt, staffAttendanceInMark, staffDayInstant, staffDayWindow, staffDayYmd } from "./staff-day";
 import { addDays, examPlanWeight, parseExamPlan, ymd } from "./exams";
 import { teacherCanEditMarks, teacherMayEnterMarks } from "./exam-workflow";
 import { teacherIdsBySubjectName, teacherMayHostClassTest } from "./exam-evaluators";
@@ -39,6 +39,7 @@ import { PAY_GATEWAYS, type PayGateway } from "./pay-config";
 import { formatQualification, parseWeekdays, weekCapacity } from "./schedule";
 import {
   assertCodeFitsGrade,
+  catalogCodeMatchesGrade,
   catalogEntryFromName,
   catalogHasSubject,
   formatClassList,
@@ -1024,7 +1025,8 @@ async function catalogTeacherOffers(
         include: { subjects: true },
       })
     : [];
-  return offers.map((row) => {
+  const resolved: { subjectName: string; classId: string; subjectId: string }[] = [];
+  for (const row of offers) {
     const matched = matchCatalogEntry(catalog, {
       code: row.subjectCode || row.subjectName,
       name: row.subjectName,
@@ -1034,15 +1036,23 @@ async function catalogTeacherOffers(
     }
     const klass = classes.find((item) => item.id === row.classId);
     if (!klass) throw new Error("Class required");
-    const planned = matchClassSubject(klass.subjects, { code: matched.code, subjectName: matched.name });
+    let planned = matchClassSubject(klass.subjects, { code: matched.code, subjectName: matched.name });
+    if (!planned && catalogCodeMatchesGrade(matched.code, klass.name)) {
+      await assertCodeFitsGrade({ gradeName: klass.name, code: matched.code, name: matched.name });
+      planned = await prisma.subject.create({
+        data: { classId: klass.id, code: matched.code, name: matched.name, weightage: 4 },
+      });
+      klass.subjects.push(planned);
+    }
     if (!planned) {
       const label = `${klass.name}-${klass.section}`;
       throw new Error(
         `${matched.code} is not part of ${label}'s class curriculum. Add ${matched.code} to the class plan first.`
       );
     }
-    return { subjectName: planned.code, classId: row.classId, subjectId: planned.id };
-  });
+    resolved.push({ subjectName: planned.code, classId: row.classId, subjectId: planned.id });
+  }
+  return resolved;
 }
 
 async function assignSubjectTeachers(
@@ -1255,6 +1265,11 @@ export async function markStaffAttendanceCore(
 export async function generateStaffAttendanceQrCore(user: AccessUser) {
   const self = await resolveStaffAttendanceSelf(user);
   if (!self) throw new Error("No staff profile is linked to this account.");
+  const stamp = staffDayYmd(new Date());
+  const existing = await findStaffDayOnStamp(self.kind, self.id, stamp);
+  if (staffAttendanceInMark(existing)) {
+    throw new Error("Attendance already marked for today");
+  }
   const token = randomUUID().replace(/-/g, "");
   const expiresAt = Date.now() + STAFF_ATTENDANCE_QR_TTL_MS;
   staffAttendanceQrTokens.set(token, { ...self, expiresAt });
@@ -1306,6 +1321,11 @@ export async function scanStaffAttendanceQrCore(user: AccessUser, input: { code:
   const rules = parsePayrollRules(config?.payrollJson);
   const inAt = currentSchoolTime();
   const existing = await findStaffDayOnStamp(ticket.kind, ticket.id, stamp);
+  if (staffAttendanceInMark(existing)) {
+    ticket.usedAt = Date.now();
+    staffAttendanceQrTokens.set(token, ticket);
+    throw new Error("Attendance already marked for today");
+  }
   const preservedInAt = earliestStaffInAt(existing?.inAt, inAt) || inAt;
   const next = classifyStaffDay("PRESENT", preservedInAt, "", rules);
   await writeStaffDayOnStamp(ticket.kind, ticket.id, stamp, {
@@ -2985,7 +3005,6 @@ export async function saveSchoolSubjectsCore(
       await prisma.subject.updateMany({ where: { code: next.code }, data: { name: next.name } });
     }
   }
-  if (!input.applyToAllClasses) return;
   const classes = await prisma.class.findMany({
     where: { archivedAt: null },
     include: { subjects: true },
@@ -3002,16 +3021,25 @@ export async function saveSchoolSubjectsCore(
   }
   for (const klass of classes) {
     for (const entry of catalog) {
-      const grades = gradesByCode.get(entry.code);
-      if (!grades || !grades.has(klass.name.trim())) continue;
+      const ownedOnGrade = gradesByCode.get(entry.code)?.has(klass.name.trim());
+      const gradeMatch = catalogCodeMatchesGrade(entry.code, klass.name);
+      if (!gradeMatch && !(input.applyToAllClasses && ownedOnGrade)) continue;
       const have = klass.subjects.find(
         (s) => s.code === entry.code || s.name.trim().toLowerCase() === entry.name.trim().toLowerCase()
       );
       if (have) continue;
+      try {
+        await assertCodeFitsGrade({ gradeName: klass.name, code: entry.code, name: entry.name });
+      } catch {
+        continue;
+      }
       const created = await prisma.subject.create({
         data: { classId: klass.id, code: entry.code, name: entry.name, weightage: 4 },
       });
       klass.subjects.push(created);
+      const grades = gradesByCode.get(entry.code) || new Set<string>();
+      grades.add(klass.name.trim());
+      gradesByCode.set(entry.code, grades);
     }
   }
 }

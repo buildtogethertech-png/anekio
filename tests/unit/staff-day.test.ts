@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { collapseStaffDaysByDate, earliestStaffInAt, staffDayInstant, staffDayYmd } from "../../lib/staff-day";
+import { collapseStaffDaysByDate, earliestStaffInAt, staffAttendanceInMark, staffDayInstant, staffDayYmd } from "../../lib/staff-day";
 
 describe("staff calendar day", () => {
   it("maps IST midnight, UTC midnight, and +05:30 noon to the same school date", () => {
@@ -45,5 +45,14 @@ describe("staff calendar day", () => {
     expect(earliestStaffInAt("09:18", "08:55")).toBe("08:55");
     expect(earliestStaffInAt("", "09:05")).toBe("09:05");
     expect(earliestStaffInAt("08:45", "bad-time", null)).toBe("08:45");
+  });
+
+  it("treats an in-time or present-like status as today's attendance mark", () => {
+    expect(staffAttendanceInMark(null)).toBe(false);
+    expect(staffAttendanceInMark({ status: "ABSENT", inAt: "" })).toBe(false);
+    expect(staffAttendanceInMark({ status: "LEAVE", inAt: "" })).toBe(false);
+    expect(staffAttendanceInMark({ status: "PRESENT", inAt: "08:55" })).toBe(true);
+    expect(staffAttendanceInMark({ status: "LATE", inAt: "09:12" })).toBe(true);
+    expect(staffAttendanceInMark({ status: "PRESENT", inAt: "" })).toBe(true);
   });
 });
