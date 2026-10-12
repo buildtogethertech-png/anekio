@@ -2,27 +2,15 @@ import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } 
 import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
-import { Button, Card, Chip, ChipScroller, Empty, Field, Input, Modal, PageHeader, Toast, useToast } from "./ui";
-import { DEFAULT_SUBJECTS } from "./school-setup";
+import { Button, Card, Chip, ChipScroller, Empty, Modal, PageHeader, Toast, useToast } from "./ui";
+import { TeacherForm } from "./teacher-form";
+import { formatSubjectLabel, skillMatchesSubject } from "../lib/subject-label";
 import { act } from "../lib/mutate";
+import { openRoutinePdf } from "../lib/print-html";
 import { useRecord } from "../lib/record";
 import { useSession } from "../lib/session";
 
-const QUALIFICATION_OPTIONS = [
-  "B.Ed",
-  "M.Ed",
-  "B.El.Ed",
-  "B.Sc",
-  "M.Sc",
-  "B.A",
-  "M.A",
-  "B.Tech",
-  "CTET",
-  "TET",
-  "NET",
-];
-
-type Hold = { teacherId: string; subjectName: string };
+type Hold = { teacherId: string; subjectId?: string; code?: string; subjectName: string };
 type ModalKind = "teacher" | "addTeacher" | null;
 type WeekSlot = {
   weekday: number;
@@ -57,21 +45,11 @@ function webNode(ref: RefObject<View | null>): HTMLElement | null {
 function parseHold(raw: string): Hold | null {
   try {
     const p = JSON.parse(raw) as Hold;
-    if (p?.teacherId && p?.subjectName) return p;
+    if (p?.teacherId && (p.subjectId || p.subjectName)) return p;
   } catch {
     /* ignore */
   }
   return null;
-}
-
-function parseQualification(raw?: string | null) {
-  if (!raw) return { tags: [] as string[], notes: "" };
-  const [head, ...rest] = raw.split(" — ");
-  const notes = rest.join(" — ").trim();
-  const parts = head.split(" · ").map((s) => s.trim()).filter(Boolean);
-  const tags = parts.filter((t) => QUALIFICATION_OPTIONS.includes(t));
-  const leftover = parts.filter((t) => !QUALIFICATION_OPTIONS.includes(t));
-  return { tags, notes: [notes, ...leftover].filter(Boolean).join(" · ") };
 }
 
 function jsToWeekday(jsDay: number) {
@@ -124,13 +102,11 @@ export function WeekBoard() {
     ) as Record<number, number>;
   }, [klass?.slots, weekdays]);
 
-  function pickSubject(teacherId: string, subjectName: string, toggle?: boolean) {
+  function pickSubject(payload: Hold, toggle?: boolean) {
     if (!editable) return;
     setHold((cur) => {
-      if (!toggle) return { teacherId, subjectName };
-      return cur?.teacherId === teacherId && cur.subjectName === subjectName
-        ? null
-        : { teacherId, subjectName };
+      if (!toggle) return payload;
+      return cur?.teacherId === payload.teacherId && cur.subjectId === payload.subjectId ? null : payload;
     });
   }
 
@@ -150,6 +126,7 @@ export function WeekBoard() {
         periodId,
         weekday,
         teacherId: payload.teacherId,
+        subjectId: payload.subjectId,
         subjectName: payload.subjectName,
       });
       await reload();
@@ -177,16 +154,32 @@ export function WeekBoard() {
   async function clearCell(periodId: string, weekday: number) {
     if (!klass?.id) return;
     setError("");
+    setHold(null);
     try {
       await act(token, "saveTimetableSlot", {
         classId: klass.id,
         periodId,
         weekday,
+        teacherId: null,
+        subjectId: null,
+        subjectName: "",
         clear: true,
       });
       await reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not clear.");
+    }
+  }
+
+  async function exportRoutine() {
+    if (!klass?.id) {
+      toast.show("Pick a class first.");
+      return;
+    }
+    try {
+      await openRoutinePdf(token, { classId: klass.id });
+    } catch (error) {
+      toast.show(error instanceof Error ? error.message : "Could not export the routine.");
     }
   }
 
@@ -206,10 +199,12 @@ export function WeekBoard() {
   const teacherRail = (
     <TeacherRail
       teachers={railTeachers}
+      classes={classes.map((c) => ({ id: c.id || "", label: c.label }))}
       hold={hold}
       editable={editable}
       compact={phone}
       classId={klass?.id}
+      classSubjects={klass?.subjects ?? []}
       canAdd={can(user, "staff.edit")}
       onAdd={() => setModal("addTeacher")}
       onEdit={
@@ -236,6 +231,16 @@ export function WeekBoard() {
               ? "Empty periods in your team’s classes. Free teachers are marked — drop one on the hole."
               : "Pick a class and place teachers. Clock and subjects are set once under School settings."
           }
+          action={
+            <View className="flex-row items-center gap-2">
+              <Button variant="ghost" onPress={() => router.push("/school?tab=subjects" as never)}>
+                Subjects
+              </Button>
+              <Button variant="ghost" onPress={() => void exportRoutine()}>
+                Export PDF
+              </Button>
+            </View>
+          }
         />
       )}
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
@@ -244,6 +249,16 @@ export function WeekBoard() {
 
         <View className="min-h-0 min-w-0 flex-1">
           <View className="shrink-0 gap-2">
+            {phone ? (
+              <View className="flex-row items-center justify-end gap-2">
+                <Button variant="ghost" onPress={() => router.push("/school?tab=subjects" as never)}>
+                  Subjects
+                </Button>
+                <Button variant="ghost" onPress={() => void exportRoutine()}>
+                  Export PDF
+                </Button>
+              </View>
+            ) : null}
             <ChipScroller>
               {classes.map((c) => (
                 <Chip
@@ -256,16 +271,21 @@ export function WeekBoard() {
             </ChipScroller>
           </View>
 
+          {!klass?.subjects?.length && !periodsNotSet ? (
+            <Text className="mt-3 shrink-0 text-sm text-ink-700">
+              No subjects on this class plan. Add them under School → Subjects, then save the class.
+            </Text>
+          ) : null}
           {klass?.subjects?.length && !periodsNotSet ? (
             <View className="mt-3 shrink-0 flex-row flex-wrap gap-2">
               {klass.subjects.map((s) => {
-                const placed = klass.slots.filter((slot) => slot.subject === s.name).length;
+                const placed = klass.slots.filter((slot) => slot.subjectId === s.id).length;
                 const need = s.weightage || 0;
                 const impossible = need > weekCapacity;
                 const done = need > 0 && placed >= need;
                 return (
                   <View
-                    key={s.name}
+                    key={s.id}
                     className={`rounded-md border px-3 py-1.5 ${
                       impossible
                         ? "border-red-300 bg-red-50"
@@ -279,7 +299,7 @@ export function WeekBoard() {
                         impossible ? "text-red-800" : done ? "text-green-800" : "text-ink-800"
                       }`}
                     >
-                      {s.name} · {placed}/{need || "—"}
+                      {s.label || formatSubjectLabel(s.code, s.name)} · {placed}/{need || "—"}
                       {impossible ? " — over the week" : ""}
                     </Text>
                   </View>
@@ -292,7 +312,7 @@ export function WeekBoard() {
           {hold ? (
             <View className="mt-2 shrink-0 flex-row items-center gap-2 rounded-md border border-clay-500 bg-blue-50 px-3 py-2.5">
               <Text className="flex-1 text-sm text-clay-600">
-                {hold.subjectName}
+                {hold.subjectName && hold.code ? formatSubjectLabel(hold.code, hold.subjectName) : hold.subjectName}
                 {holdTeacher ? ` · ${holdTeacher}` : ""} — tap a period
                 {phone ? "" : " or drop it"}
               </Text>
@@ -372,6 +392,7 @@ export function WeekBoard() {
         <AssignSheet
           teachers={teachers}
           classId={klass?.id}
+          classSubjects={klass?.subjects ?? []}
           onCancel={() => setAssign(null)}
           onPick={async (payload) => {
             if (!assign) return;
@@ -381,9 +402,15 @@ export function WeekBoard() {
         />
       </Modal>
 
-      <Modal open={modal === "addTeacher"} title="Add teacher" wide onClose={() => setModal(null)}>
+      <Modal open={modal === "addTeacher"} title="Add teacher" large onClose={() => setModal(null)}>
         <TeacherForm
-          classes={classes.map((c) => ({ id: c.id || "", label: c.label }))}
+          key="new-teacher"
+          classes={classes.map((c) => ({
+            id: c.id || "",
+            label: c.label,
+            name: c.name,
+            subjects: c.subjects ?? [],
+          }))}
           onCancel={() => setModal(null)}
           onSave={async (payload) => {
             await act(token, "createTeacher", payload);
@@ -394,11 +421,17 @@ export function WeekBoard() {
         />
       </Modal>
 
-      <Modal open={modal === "teacher" && Boolean(teacherId)} title="Edit teacher" wide onClose={() => setModal(null)}>
+      <Modal open={modal === "teacher" && Boolean(teacherId)} title="Edit teacher" large onClose={() => setModal(null)}>
         {teacherId ? (
           <TeacherForm
+            key={teacherId}
             teacher={teachers.find((t) => t.id === teacherId)}
-            classes={classes.map((c) => ({ id: c.id || "", label: c.label }))}
+            classes={classes.map((c) => ({
+            id: c.id || "",
+            label: c.label,
+            name: c.name,
+            subjects: c.subjects ?? [],
+          }))}
             onCancel={() => setModal(null)}
             onSave={async (payload) => {
               await act(token, "setTeacherResources", { ...payload, teacherId });
@@ -422,6 +455,12 @@ function slotSubject(slot?: { subject?: string } | null) {
   return slot?.subject && slot.subject !== "—" ? slot.subject : "";
 }
 
+function splitSubjectLabel(label: string) {
+  const parts = label.split(" · ");
+  if (parts.length < 2) return { code: "", name: label.trim() };
+  return { code: parts[0].trim(), name: parts.slice(1).join(" · ").trim() };
+}
+
 function findSlot(
   slots: WeekSlot[],
   period: { id: string; name: string },
@@ -430,12 +469,23 @@ function findSlot(
   return slots.find((s) => s.weekday === weekday && (s.periodId === period.id || s.period === period.name));
 }
 
+function otherClassLabels(
+  skills: { classId: string }[],
+  classId: string | undefined,
+  classes: { id: string; label: string }[]
+) {
+  const ids = [...new Set(skills.map((row) => row.classId).filter((id) => id && id !== classId))];
+  return ids.map((id) => classes.find((row) => row.id === id)?.label || "").filter(Boolean);
+}
+
 function TeacherRail({
   teachers,
+  classes,
   hold,
   editable,
   compact,
   classId,
+  classSubjects,
   canAdd,
   onAdd,
   onEdit,
@@ -450,27 +500,27 @@ function TeacherRail({
     team?: boolean;
     skills: { subjectName: string; classId: string }[];
   }[];
+  classes: { id: string; label: string }[];
   hold: Hold | null;
   editable: boolean;
   compact?: boolean;
   classId?: string;
+  classSubjects: { id: string; code?: string; name: string; label?: string }[];
   canAdd?: boolean;
   onAdd?: () => void;
   onEdit?: (id: string) => void;
-  onPick: (teacherId: string, subjectName: string, toggle?: boolean) => void;
+  onPick: (payload: Hold, toggle?: boolean) => void;
   scroll?: boolean;
 }) {
   const cards = (
     <>
       {teachers.map((t) => {
-        const skills = [
-          ...new Set(
-            t.skills
-              .filter((s) => !classId || !s.classId || s.classId === classId)
-              .map((s) => s.subjectName)
-          ),
-        ];
-        if (compact && classId && !skills.length) return null;
+        const skills = classSkillOffers(
+          t.skills.filter((s) => !classId || !s.classId || s.classId === classId),
+          classSubjects
+        );
+        const alsoTeaches = otherClassLabels(t.skills, classId, classes);
+        if (compact && classId && !skills.length && !alsoTeaches.length) return null;
         return (
           <TeacherCard
             key={t.id}
@@ -479,12 +529,13 @@ function TeacherRail({
             qualification={compact ? undefined : t.qualification}
             idle={t.idle}
             team={t.team}
-            skills={skills.length ? skills : [...new Set(t.skills.map((s) => s.subjectName))]}
+            skills={skills}
+            alsoTeaches={alsoTeaches}
             hold={hold}
             editable={editable}
             compact={compact}
             onEdit={onEdit ? () => onEdit(t.id) : undefined}
-            onPick={(subjectName, toggle) => onPick(t.id, subjectName, toggle)}
+            onPick={(subject, toggle) => onPick({ teacherId: t.id, ...subject }, toggle)}
           />
         );
       })}
@@ -517,33 +568,61 @@ function TeacherRail({
   );
 }
 
+function classSkillOffers(
+  skills: { subjectName: string; classId?: string }[],
+  classSubjects: { id: string; code?: string; name: string; label?: string }[]
+) {
+  const offers: { subjectId: string; code?: string; subjectName: string; label: string }[] = [];
+  for (const skill of skills) {
+    const subject = classSubjects.find((row) => skillMatchesSubject(skill.subjectName, row));
+    if (!subject || offers.some((row) => row.subjectId === subject.id)) continue;
+    offers.push({
+      subjectId: subject.id,
+      code: subject.code,
+      subjectName: subject.name,
+      label: subject.label || formatSubjectLabel(subject.code, subject.name),
+    });
+  }
+  return offers;
+}
+
 function AssignSheet({
   teachers,
   classId,
+  classSubjects,
   onCancel,
   onPick,
 }: {
   teachers: { id: string; name: string; skills: { subjectName: string; classId: string }[] }[];
   classId?: string;
+  classSubjects: { id: string; code?: string; name: string; label?: string }[];
   onCancel: () => void;
   onPick: (payload: Hold) => Promise<void>;
 }) {
   const offers = teachers.flatMap((t) =>
-    [...new Set(t.skills.filter((s) => !classId || !s.classId || s.classId === classId).map((s) => s.subjectName))].map(
-      (subjectName) => ({ teacherId: t.id, teacherName: t.name, subjectName })
-    )
+    classSkillOffers(
+      t.skills.filter((s) => !classId || !s.classId || s.classId === classId),
+      classSubjects
+    ).map((subject) => ({ teacherId: t.id, teacherName: t.name, ...subject }))
   );
   return (
     <View className="gap-2">
       <Text className="text-sm text-ink-700">Tap who takes this period.</Text>
       {offers.map((o) => (
         <Pressable
-          key={`${o.teacherId}:${o.subjectName}`}
-          onPress={() => onPick({ teacherId: o.teacherId, subjectName: o.subjectName })}
+          key={`${o.teacherId}:${o.subjectId}`}
+          onPress={() =>
+            onPick({
+              teacherId: o.teacherId,
+              subjectId: o.subjectId,
+              code: o.code,
+              subjectName: o.subjectName,
+            })
+          }
           className="min-h-[48px] flex-row items-center justify-between rounded-md border border-ink-200 px-3 py-3"
         >
           <View>
-            <Text className="font-medium text-ink-900">{o.subjectName}</Text>
+            <Text className="font-medium text-ink-900">{o.label}</Text>
             <Text className="text-xs text-ink-700">{o.teacherName}</Text>
           </View>
           <Text className="text-sm text-clay-600">Place</Text>
@@ -692,20 +771,20 @@ function WeekGrid({
     <Card className="min-h-0 flex-1 overflow-hidden">
       <ScrollView className="min-h-0 flex-1" nestedScrollEnabled contentContainerClassName="pb-4">
       <ScrollView horizontal nestedScrollEnabled>
-        <View className="min-w-full">
+        <View style={{ minWidth: 120 + weekdays.length * 176 }}>
           <View className="flex-row bg-ink-100">
-            <View className="w-1/6 shrink-0 px-3 py-3">
+            <View className="shrink-0 px-3 py-3" style={{ width: 120 }}>
               <Text className="text-xs uppercase tracking-wide text-ink-700">Period</Text>
             </View>
             {weekdays.map((d) => (
-              <View key={d.n} className="min-w-0 flex-1 px-3 py-3">
+              <View key={d.n} className="shrink-0 px-3 py-3" style={{ width: 176 }}>
                 <Text className="text-xs uppercase tracking-wide text-ink-700">{d.label}</Text>
               </View>
             ))}
           </View>
           {periods.map((p) => (
             <View key={p.id} className="flex-row border-t border-ink-100">
-              <View className="w-1/6 shrink-0 justify-center px-3 py-3">
+              <View className="shrink-0 justify-center px-3 py-3" style={{ width: 120 }}>
                 <Text className="font-medium text-ink-900">{p.name}</Text>
                 <Text className="text-xs text-ink-700">
                   {p.start}–{p.end}
@@ -715,7 +794,7 @@ function WeekGrid({
                 const slot = findSlot(slots, p, d.n);
                 const key = `${p.id}:${d.n}`;
                 return (
-                  <View key={key} className="min-w-0 flex-1 px-2 py-2">
+                  <View key={key} className="shrink-0 px-1.5 py-2" style={{ width: 176 }}>
                     {p.isBreak ? (
                       <View className="min-h-[72px] items-center justify-center rounded-xl bg-ink-100 px-2 py-4">
                         <Text className="text-xs text-ink-700">Break</Text>
@@ -774,18 +853,18 @@ function MissingPeriodsGrid({ onPress }: { onPress: () => void }) {
 
 function SubjectChip({
   teacherId,
-  subjectName,
+  subject,
   picked,
   editable,
   compact,
   onPick,
 }: {
   teacherId: string;
-  subjectName: string;
+  subject: { subjectId: string; code?: string; subjectName: string; label: string };
   picked: boolean;
   editable: boolean;
   compact?: boolean;
-  onPick: (subjectName: string, toggle?: boolean) => void;
+  onPick: (subject: { subjectId: string; code?: string; subjectName: string }, toggle?: boolean) => void;
 }) {
   const ref = useRef<View>(null);
   const pickRef = useRef(onPick);
@@ -807,12 +886,17 @@ function SubjectChip({
         dragging = false;
         return;
       }
-      pickRef.current(subjectName, true);
+      pickRef.current(subject, true);
     };
     const start = (e: Event) => {
       dragging = true;
       const dt = (e as unknown as DragEvt).dataTransfer;
-      const payload = JSON.stringify({ teacherId, subjectName });
+      const payload = JSON.stringify({
+        teacherId,
+        subjectId: subject.subjectId,
+        code: subject.code,
+        subjectName: subject.subjectName,
+      });
       dt?.setData("text/plain", payload);
       try {
         dt?.setData("application/json", payload);
@@ -820,7 +904,7 @@ function SubjectChip({
         /* some browsers only allow text/plain */
       }
       if (dt) dt.effectAllowed = "copy";
-      pickRef.current(subjectName, false);
+      pickRef.current(subject, false);
     };
     el.addEventListener("click", click);
     el.addEventListener("dragstart", start);
@@ -829,18 +913,18 @@ function SubjectChip({
       el.removeEventListener("click", click);
       el.removeEventListener("dragstart", start);
     };
-  }, [editable, teacherId, subjectName]);
+  }, [editable, teacherId, subject]);
 
   if (Platform.OS === "web") {
     return (
       <View ref={ref} className={className}>
-        <Text className="text-xs text-white">{subjectName}</Text>
+        <Text className="text-xs text-white">{subject.label}</Text>
       </View>
     );
   }
   return (
-    <Pressable disabled={!editable} onPress={() => onPick(subjectName, true)} className={className}>
-      <Text className="text-xs text-white">{subjectName}</Text>
+    <Pressable disabled={!editable} onPress={() => onPick(subject, true)} className={className}>
+      <Text className="text-xs text-white">{subject.label}</Text>
     </Pressable>
   );
 }
@@ -852,6 +936,7 @@ function TeacherCard({
   idle,
   team,
   skills,
+  alsoTeaches,
   hold,
   editable,
   compact,
@@ -863,13 +948,15 @@ function TeacherCard({
   qualification?: string;
   idle?: boolean;
   team?: boolean;
-  skills: string[];
+  skills: { subjectId: string; code?: string; subjectName: string; label: string }[];
+  alsoTeaches?: string[];
   hold: Hold | null;
   editable: boolean;
   compact?: boolean;
   onEdit?: () => void;
-  onPick: (subjectName: string, toggle?: boolean) => void;
+  onPick: (subject: { subjectId: string; code?: string; subjectName: string }, toggle?: boolean) => void;
 }) {
+  const other = alsoTeaches?.length ? `Also ${alsoTeaches.join(", ")}` : "";
   return (
     <Card className={compact ? "p-2.5" : "p-3"}>
       <View className="flex-row items-start justify-between gap-2">
@@ -892,13 +979,13 @@ function TeacherCard({
       </View>
       <View className="mt-2 flex-row flex-wrap gap-1.5">
         {skills.length ? (
-          skills.map((subjectName) => {
-            const picked = hold?.teacherId === teacherId && hold.subjectName === subjectName;
+          skills.map((subject) => {
+            const picked = hold?.teacherId === teacherId && hold.subjectId === subject.subjectId;
             return (
               <SubjectChip
-                key={subjectName}
+                key={subject.subjectId}
                 teacherId={teacherId}
-                subjectName={subjectName}
+                subject={subject}
                 picked={picked}
                 editable={editable}
                 compact={compact}
@@ -907,8 +994,11 @@ function TeacherCard({
             );
           })
         ) : (
-          <Text className="text-xs text-ink-700">Edit to set what they teach</Text>
+          <Text className="text-xs text-ink-700">
+            {other ? "No subjects for this class" : "Edit to set what they teach"}
+          </Text>
         )}
+        {other ? <Text className="mt-1 w-full text-[11px] leading-4 text-ink-700">{other}</Text> : null}
       </View>
     </Card>
   );
@@ -953,6 +1043,7 @@ function DropCell({
   leaveRef.current = onLeave;
   dropRef.current = onDrop;
   const waiting = Boolean(armed && !filled);
+  const { code, name } = splitSubjectLabel(subject);
 
   useEffect(() => {
     if (!editable) return;
@@ -998,206 +1089,61 @@ function DropCell({
   return (
     <View
       ref={ref}
-      className={`${tall ? "min-h-[64px]" : "min-h-[72px]"} rounded-xl border px-3 py-2.5 ${
+      className={`${tall ? "min-h-[88px]" : "min-h-[104px]"} rounded-xl border px-2.5 py-2 ${
         hot
           ? "border-clay-500 bg-blue-50"
           : waiting
             ? "border-clay-500/50 bg-blue-50/70"
-            : "border-dashed border-ink-200 bg-white"
+            : filled
+              ? "border-ink-200 bg-ink-50"
+              : "border-dashed border-ink-200 bg-white"
       }`}
     >
-      <Pressable onPress={onPress} className={tall ? "min-h-[48px] justify-center" : "min-h-[56px]"}>
-        {filled ? (
-          <View className="flex-row items-start justify-between gap-2">
-            <View className="min-w-0 flex-1">
-              <Text className="font-medium text-ink-900">{subject}</Text>
-              {teacher ? <Text className="text-xs text-ink-700">Regular · {teacher}</Text> : null}
-              {covers?.length ? (
-                <View className="mt-1 rounded-md bg-emerald-50 px-2 py-1">
-                  {covers.slice(0, 2).map((cover) => (
-                    <Text key={`${cover.date}:${cover.substituteId}`} className="text-[10px] font-medium text-emerald-700">
-                      Cover {new Date(`${cover.date}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" })} · {cover.substitute}
-                    </Text>
-                  ))}
-                  {covers.length > 2 ? <Text className="text-[10px] text-emerald-700">+{covers.length - 2} more</Text> : null}
-                </View>
-              ) : null}
-            </View>
+      {filled ? (
+        <View className="gap-1">
+          <View className="flex-row items-start justify-between gap-1">
+            {code ? (
+              <Text className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-clay-600">{code}</Text>
+            ) : (
+              <View />
+            )}
             {editable ? (
               <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Clear ${subject}`}
+                hitSlop={8}
                 onPress={(e) => {
-                  e.stopPropagation?.();
+                  e.stopPropagation();
                   onClear();
                 }}
-                className="min-h-[36px] justify-center px-1"
+                className="shrink-0 rounded-md px-1.5 py-0.5"
               >
-                <Text className="text-[11px] text-clay-600">Clear</Text>
+                <Text className="text-[11px] font-semibold text-clay-600">Clear</Text>
               </Pressable>
             ) : null}
           </View>
-        ) : (
-          <View className="items-center justify-center">
-            {editable && hint ? (
-              <Text className="text-center text-xs text-ink-700">{hint}</Text>
+          <Pressable onPress={onPress} className="gap-0.5">
+            <Text className="shrink-0 text-sm font-semibold leading-5 text-ink-900">{name || subject}</Text>
+            {teacher ? <Text className="shrink-0 text-xs leading-4 text-ink-700">{teacher}</Text> : null}
+            {covers?.length ? (
+              <View className="mt-1 rounded-md bg-emerald-50 px-2 py-1">
+                {covers.slice(0, 2).map((cover) => (
+                  <Text key={`${cover.date}:${cover.substituteId}`} className="text-[10px] font-medium text-emerald-700">
+                    Cover {new Date(`${cover.date}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" })} · {cover.substitute}
+                  </Text>
+                ))}
+                {covers.length > 2 ? <Text className="text-[10px] text-emerald-700">+{covers.length - 2} more</Text> : null}
+              </View>
             ) : null}
-          </View>
-        )}
-      </Pressable>
-    </View>
-  );
-}
-
-function TeacherForm({
-  teacher,
-  classes,
-  onCancel,
-  onSave,
-}: {
-  teacher?: { id: string; name: string; qualification?: string; skills: { subjectName: string; classId: string }[] };
-  classes: { id: string; label: string }[];
-  onCancel: () => void;
-  onSave: (payload: {
-    name: string;
-    email?: string;
-    phone?: string;
-    employeeId?: string;
-    password?: string;
-    qualification: string[];
-    qualificationNotes: string;
-    offers: { subjectName: string; classId: string }[];
-  }) => Promise<void>;
-}) {
-  const parsed = parseQualification(teacher?.qualification);
-  const startSubjects = [...new Set((teacher?.skills ?? []).map((s) => s.subjectName))];
-  const startBy: Record<string, string[]> = {};
-  for (const s of teacher?.skills ?? []) {
-    startBy[s.subjectName] = [...(startBy[s.subjectName] ?? []), s.classId];
-  }
-  const [name, setName] = useState(teacher?.name || "");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
-  const [employeeId, setEmployeeId] = useState("");
-  const [password, setPassword] = useState("12345");
-  const [tags, setTags] = useState<string[]>(parsed.tags);
-  const [notes, setNotes] = useState(parsed.notes);
-  const [subjects, setSubjects] = useState<string[]>(startSubjects);
-  const [bySubject, setBySubject] = useState<Record<string, string[]>>(startBy);
-  const [error, setError] = useState("");
-  const editing = Boolean(teacher);
-
-  function toggleSubject(s: string) {
-    if (subjects.includes(s)) {
-      setSubjects(subjects.filter((n) => n !== s));
-      const next = { ...bySubject };
-      delete next[s];
-      setBySubject(next);
-    } else {
-      setSubjects([...subjects, s]);
-    }
-  }
-
-  return (
-    <View className="gap-3">
-      <Field label="Name">
-        <Input value={name} onChangeText={setName} />
-      </Field>
-      {!editing ? (
-        <>
-          <Field label="Email">
-            <Input autoCapitalize="none" value={email} onChangeText={setEmail} />
-          </Field>
-          <Field label="Mobile">
-            <Input keyboardType="phone-pad" value={phone} onChangeText={setPhone} placeholder="10-digit number" />
-          </Field>
-          <Field label="Employee id">
-            <Input value={employeeId} onChangeText={setEmployeeId} placeholder="Auto if blank" />
-          </Field>
-          <Field label="Login password">
-            <Input value={password} onChangeText={setPassword} />
-          </Field>
-        </>
-      ) : null}
-      <Text className="text-xs font-medium text-ink-700">Qualification</Text>
-      <View className="flex-row flex-wrap gap-2">
-        {QUALIFICATION_OPTIONS.map((q) => (
-          <Chip
-            key={q}
-            label={q}
-            active={tags.includes(q)}
-            onPress={() => setTags(tags.includes(q) ? tags.filter((t) => t !== q) : [...tags, q])}
-          />
-        ))}
-      </View>
-      <Input value={notes} onChangeText={setNotes} placeholder="Specialisation — e.g. Physics, Mathematics" />
-      <Text className="text-xs font-medium text-ink-700">Can teach — then pick classes for that subject</Text>
-      <View className="flex-row flex-wrap gap-2">
-        {DEFAULT_SUBJECTS.map((s) => (
-          <Chip key={s} label={s} active={subjects.includes(s)} onPress={() => toggleSubject(s)} />
-        ))}
-      </View>
-      {subjects.map((s) => (
-        <View key={s} className="rounded-md border border-ink-100 bg-ink-50 px-3 py-2">
-          <Text className="mb-1.5 text-xs font-medium text-ink-800">{s} — which classes</Text>
-          <View className="flex-row flex-wrap gap-2">
-            {classes.filter((c) => c.id).map((c) => {
-              const on = (bySubject[s] ?? []).includes(c.id);
-              return (
-                <Chip
-                  key={c.id}
-                  label={c.label}
-                  active={on}
-                  onPress={() =>
-                    setBySubject({
-                      ...bySubject,
-                      [s]: on
-                        ? (bySubject[s] ?? []).filter((id) => id !== c.id)
-                        : [...(bySubject[s] ?? []), c.id],
-                    })
-                  }
-                />
-              );
-            })}
-          </View>
+          </Pressable>
         </View>
-      ))}
-      {error ? <Text className="text-sm text-red-700">{error}</Text> : null}
-      <View className="flex-row justify-end gap-2">
-        <Button variant="ghost" onPress={onCancel}>
-          Cancel
-        </Button>
-        <Button
-          onPress={async () => {
-            setError("");
-            if (!name.trim() || (!editing && !email.trim())) {
-              setError("Name and email are required");
-              return;
-            }
-            if (!editing && phone.replace(/\D/g, "").length < 10) {
-              setError("Enter a 10-digit mobile number");
-              return;
-            }
-            const offers = subjects.flatMap((subjectName) =>
-              (bySubject[subjectName] ?? []).map((classId) => ({ subjectName, classId }))
-            );
-            try {
-              await onSave({
-                name: name.trim(),
-                email: email.trim() || undefined,
-                phone: phone.trim() || undefined,
-                employeeId: employeeId.trim() || undefined,
-                password: password || undefined,
-                qualification: tags,
-                qualificationNotes: notes,
-                offers,
-              });
-            } catch (e) {
-              setError(e instanceof Error ? e.message : "Could not save.");
-            }
-          }}
-        >
-          {editing ? "Save" : "Add teacher"}
-        </Button>
-      </View>
+      ) : (
+        <Pressable onPress={onPress} className={tall ? "min-h-[64px] justify-center" : "min-h-[80px] justify-center"}>
+          <View className="items-center justify-center">
+            {editable && hint ? <Text className="text-center text-xs text-ink-700">{hint}</Text> : null}
+          </View>
+        </Pressable>
+      )}
     </View>
   );
 }

@@ -4,6 +4,7 @@ import type { AccessScope } from "./permissions";
 import { addDays, ymd } from "./exams";
 import { isSchoolDay, nextSchoolDay, snapToSchoolDay, type SchoolCalendar } from "./calendar";
 import { parseWeekdays } from "./schedule";
+import { skillMatchesSubject } from "./subject-code";
 import { notifyNoticePublished } from "./push";
 import type { Portal } from "./permissions";
 import { ensureSchoolSessions } from "./school-session";
@@ -288,7 +289,7 @@ async function upcomingTeacherLeave(requestIds: string[], cal: SchoolCalendar): 
               match: Boolean(
                 slot.subject &&
                   (teacher.skills.some(
-                    (skill) => skill.classId === slot.classId && skill.subjectName.toLowerCase() === slot.subject!.name.toLowerCase()
+                    (skill) => skill.classId === slot.classId && skillMatchesSubject(skill.subjectName, slot.subject!)
                   ) ||
                     teacher.subjects.some(
                       (subject) => subject.classId === slot.classId && subject.name.toLowerCase() === slot.subject!.name.toLowerCase()

@@ -1079,7 +1079,7 @@ export function TeacherExamsBoard(_props: { uploads?: boolean }) {
           <Field label="Subject">
             <View className="flex-row flex-wrap gap-2">
               {subjectChoices.map((subject) => (
-                <Chip key={subject.id} label={subject.name} active={host.subjectId === subject.id} onPress={() => setHost({ ...host, subjectId: subject.id })} />
+                <Chip key={subject.id} label={subject.label || subject.name} active={host.subjectId === subject.id} onPress={() => setHost({ ...host, subjectId: subject.id })} />
               ))}
             </View>
           </Field>

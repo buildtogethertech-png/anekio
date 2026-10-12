@@ -254,7 +254,7 @@ export type RecordPayload = {
       signatory?: string;
       invoiceStyle?: string;
     };
-    exams: { id: string; title: string; maxMarks: number; date: string; subject: { id?: string; name: string } }[];
+    exams: { id: string; title: string; maxMarks: number; date: string; subject: { id?: string; name: string; code?: string; label?: string } }[];
     marks: { examId: string; studentId: string; marks: number; absent?: boolean; remarks?: string | null }[];
     classmates: { id: string; name: string }[];
     policy: { bands: { min: number; grade: string }[]; passPercent: number; showRank: boolean; reportCardPaidMonths?: number; reportCardUnpaidMonths?: number; admitCardPendingMonths?: number };
@@ -293,7 +293,7 @@ export type RecordPayload = {
       label: string;
       name?: string;
       section?: string;
-      subjects?: { id: string; name: string; weightage?: number }[];
+      subjects?: { id: string; code?: string; name: string; weightage?: number; label?: string }[];
       slots: {
         id?: string;
         weekday: number;
@@ -405,7 +405,7 @@ export type RecordPayload = {
     name?: string;
     section?: string;
     students?: number;
-    subjects?: { id: string; name: string; teacherId?: string }[];
+    subjects?: { id: string; name: string; code?: string; label?: string; teacherId?: string }[];
   }[];
   feeTemplates?: {
     id: string;
@@ -669,7 +669,7 @@ export type RecordPayload = {
         createdAt: string;
       }[];
     }[];
-    subjectCatalog?: string[];
+    subjectCatalog?: { code: string; name: string }[];
     sessions?: { id: string; label: string; startsOn: string; endsOn: string; current: boolean }[];
     holidays?: { id: string; sessionId?: string; date: string; name: string }[];
     policy?: { bands: { min: number; grade: string }[]; passPercent: number; showRank: boolean; reportCardPaidMonths?: number; reportCardUnpaidMonths?: number; admitCardPendingMonths?: number };
@@ -748,7 +748,7 @@ export type RecordPayload = {
         setterName?: string;
         evaluators?: { id: string; name: string }[];
         eligibleTeacherIds?: string[];
-        subject: { id: string; name: string };
+        subject: { id: string; name: string; code?: string; label?: string };
         workflowStatus?: string;
         correctionNote?: string;
         entered?: number;
@@ -788,7 +788,7 @@ export type RecordPayload = {
       uploadSourceType?: string;
     }[];
   } | null;
-  examPapers?: { id: string; name: string; classId: string }[];
+  examPapers?: { id: string; name: string; code?: string; label?: string; classId: string }[];
   roles?: {
     id: string;
     name: string;

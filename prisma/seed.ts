@@ -14,6 +14,7 @@ import { DEFAULT_EXAM_PLAN } from "../lib/exams";
 import { defaultGrants, SYSTEM_ROLES } from "../lib/permissions";
 import { seedSaasEmailDefaults } from "../lib/saas-email";
 import { seedExamDemo } from "./seed-exams";
+import { gradeSubjectCode } from "../lib/subject-code";
 
 const prisma = new PrismaClient();
 const PASSWORD = "12345";
@@ -332,8 +333,8 @@ async function main() {
             classId: klass.id,
             skills: {
               create: [
-                { subjectName: "English", classId: klass.id },
-                { subjectName: "Mathematics", classId: klass.id },
+                { subjectName: gradeSubjectCode("ENG", family.grade), classId: klass.id },
+                { subjectName: gradeSubjectCode("MAT", family.grade), classId: klass.id },
               ],
             },
             classes: { create: [{ classId: klass.id }] },
@@ -353,10 +354,24 @@ async function main() {
       detail: `Class teacher · ${label}`,
     });
 
+    const engCode = gradeSubjectCode("ENG", family.grade);
+    const matCode = gradeSubjectCode("MAT", family.grade);
+    const hinCode = family.grade === "1" ? gradeSubjectCode("HIN", family.grade) : "";
     const [english, maths] = await Promise.all([
-      prisma.subject.create({ data: { name: "English", classId: klass.id, teacherId: teacher.id, weightage: 6 } }),
-      prisma.subject.create({ data: { name: "Mathematics", classId: klass.id, teacherId: teacher.id, weightage: 6 } }),
+      prisma.subject.create({ data: { code: engCode, name: "English", classId: klass.id, teacherId: teacher.id, weightage: 4 } }),
+      prisma.subject.create({ data: { code: matCode, name: "Mathematics", classId: klass.id, teacherId: teacher.id, weightage: 4 } }),
     ]);
+    if (hinCode) {
+      await prisma.subject.create({ data: { code: hinCode, name: "Hindi", classId: klass.id, teacherId: teacher.id, weightage: 3 } });
+    }
+    if (family.grade === "1") {
+      const oneB = await prisma.class.create({ data: { name: "1", section: "B" } });
+      await Promise.all([
+        prisma.subject.create({ data: { code: engCode, name: "English", classId: oneB.id, weightage: 4 } }),
+        prisma.subject.create({ data: { code: matCode, name: "Mathematics", classId: oneB.id, weightage: 4 } }),
+        prisma.subject.create({ data: { code: hinCode, name: "Hindi", classId: oneB.id, weightage: 3 } }),
+      ]);
+    }
 
     await prisma.feeTemplate.create({
       data: {
@@ -378,14 +393,24 @@ async function main() {
       },
     });
 
-    for (const day of [1, 2, 3, 4, 5, 6]) {
-      for (let i = 0; i < teaching.length; i++) {
+    if (family.grade === "1") {
+      await prisma.timetableSlot.create({
+        data: {
+          classId: klass.id,
+          periodId: teaching[0].id,
+          weekday: 1,
+          subjectId: english.id,
+          teacherId: teacher.id,
+          roomId: room.id,
+        },
+      });
+      if (teaching[1]) {
         await prisma.timetableSlot.create({
           data: {
             classId: klass.id,
-            periodId: teaching[i].id,
-            weekday: day,
-            subjectId: i % 2 ? maths.id : english.id,
+            periodId: teaching[1].id,
+            weekday: 1,
+            subjectId: maths.id,
             teacherId: teacher.id,
             roomId: room.id,
           },
@@ -584,6 +609,17 @@ async function main() {
   });
 
   await seedExamDemo(prisma);
+
+  const catalogRows = new Map<string, string>();
+  for (const subject of await prisma.subject.findMany({ select: { code: true, name: true } })) {
+    if (subject.code && !catalogRows.has(subject.code)) catalogRows.set(subject.code, subject.name);
+  }
+  await prisma.schoolConfig.update({
+    where: { id: "school" },
+    data: {
+      subjectCatalog: JSON.stringify([...catalogRows.entries()].map(([code, name]) => ({ code, name }))),
+    },
+  });
 
   // Keep all fee records attached to the seeded organisation. New organisations
   // receive their own orgId through the onboarding/auth context.

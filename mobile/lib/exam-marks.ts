@@ -1,3 +1,5 @@
+import { formatSubjectLabel } from "./subject-label";
+
 export type SheetMark = {
   marks: number;
   absent?: boolean;
@@ -67,14 +69,17 @@ export function csvEscape(value: string | number) {
 export function marksReviewCsv(input: {
   seriesName: string;
   classLabel: string;
-  exams: { id: string; subject: { name: string }; maxMarks: number }[];
+  exams: { id: string; subject: { name: string; code?: string | null }; maxMarks: number }[];
   students: { rollNumber?: number | null; admissionNo?: string; name: string; id: string }[];
   marks: { examId: string; studentId: string; marks: number; absent?: boolean }[];
 }) {
   const headers = [
     "Roll / Admission",
     "Student Name",
-    ...input.exams.flatMap((exam) => [`${exam.subject.name} (/${exam.maxMarks})`, `${exam.subject.name} max`]),
+    ...input.exams.flatMap((exam) => {
+      const label = formatSubjectLabel(exam.subject.code, exam.subject.name);
+      return [`${label} (/${exam.maxMarks})`, `${label} max`];
+    }),
     "Total",
     "Maximum",
     "Percentage",

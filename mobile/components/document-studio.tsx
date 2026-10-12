@@ -603,7 +603,7 @@ function TemplateEditor({ template, studio, data, onClose, onSaved }: { template
     },
     employee: previewSelection.employee || sampleEmployee,
     exam: { name: "Term 1", classLabel: previewSelection.student?.classLabel || "10-A", rollNo: "18", schedule: [{ Subject: "English", Date: "11 Sep 2026", Time: "9:00–12:00" }, { Subject: "Mathematics", Date: "12 Sep 2026", Time: "9:00–12:00" }, { Subject: "Science", Date: "14 Sep 2026", Time: "9:00–12:00" }] },
-    results: { marks: [{ subject: "English", marks: 76, maxMarks: 80, grade: "A1" }, { subject: "Mathematics", marks: 72, maxMarks: 80, grade: "A1" }], attendance: "Present 92%" },
+    results: { marks: [{ subject: "ENG · English", marks: 76, maxMarks: 80, grade: "A1" }, { subject: "MAT · Mathematics", marks: 72, maxMarks: 80, grade: "A1" }], attendance: "Present 92%" },
     fees: {
       amount: "Rs. 40,850.00",
       paid: "Rs. 0.00",

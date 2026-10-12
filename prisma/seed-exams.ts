@@ -1,5 +1,6 @@
 import { PrismaClient, type ExamWorkflowStatus } from "@prisma/client";
 import { DEFAULT_EXAM_PLAN } from "../lib/exams";
+import { catalogEntryFromName, gradeSubjectCode } from "../lib/subject-code";
 
 const prisma = new PrismaClient();
 
@@ -37,19 +38,21 @@ type PaperSeed = {
 
 async function ensureClassSubjects(
   db: PrismaClient,
-  klass: { id: string; subjects: { id: string; name: string; teacherId: string | null }[]; teachers: { id: string }[] }
+  klass: { id: string; name: string; subjects: { id: string; name: string; teacherId: string | null }[]; teachers: { id: string }[] }
 ) {
   const teacherId = klass.subjects[0]?.teacherId || klass.teachers[0]?.id;
   if (!teacherId) return klass.subjects;
   for (const name of EXTRA_SUBJECTS) {
     if (klass.subjects.some((s) => s.name === name)) continue;
+    const entry = catalogEntryFromName(name);
+    const code = gradeSubjectCode(entry.code, klass.name);
     const subject = await db.subject.create({
-      data: { name, classId: klass.id, teacherId, weightage: 4 },
+      data: { code, name: entry.name, classId: klass.id, teacherId, weightage: 4 },
     });
     klass.subjects.push(subject);
     await db.teacherSkill.upsert({
-      where: { teacherId_subjectName_classId: { teacherId, subjectName: name, classId: klass.id } },
-      create: { teacherId, subjectName: name, classId: klass.id },
+      where: { teacherId_subjectName_classId: { teacherId, subjectName: code, classId: klass.id } },
+      create: { teacherId, subjectName: code, classId: klass.id },
       update: {},
     });
   }

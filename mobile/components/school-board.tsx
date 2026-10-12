@@ -1125,10 +1125,12 @@ export function SchoolBoard() {
                   .map((c) => ({
                     id: c.id as string,
                     label: c.label,
+                    name: c.name,
                     subjects: c.subjects ?? [],
+                    slots: c.slots ?? [],
                   }))}
-                onSaveCatalog={async (names, applyToAllClasses) => {
-                  await act(token, "saveSchoolSubjects", { names, applyToAllClasses });
+                onSaveCatalog={async (entries, applyToAllClasses) => {
+                  await act(token, "saveSchoolSubjects", { entries, applyToAllClasses });
                   toast.show("Saved successfully.");
                   await reload();
                 }}
@@ -2685,7 +2687,7 @@ export function SchoolBoard() {
 
       <Modal open={classOpen} title="New class" onClose={() => setClassOpen(false)}>
         <View className="gap-3">
-          <Text className="text-sm text-ink-700">Name the section. It gets the school subject list from Subjects.</Text>
+          <Text className="text-sm text-ink-700">Name the section. Load subjects from the catalog in School → Subjects → Class plan.</Text>
           <View className="flex-row flex-wrap gap-3">
             <Half>
               <Field label="Class">

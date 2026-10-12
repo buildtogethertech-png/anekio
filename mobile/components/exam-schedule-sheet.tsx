@@ -17,7 +17,9 @@ import {
   ymd,
 } from "../lib/calendar";
 
-export type ScheduleSubject = { id: string; name: string; teacherId?: string };
+import { formatSubjectLabel } from "../lib/subject-label";
+
+export type ScheduleSubject = { id: string; name: string; code?: string; label?: string; teacherId?: string };
 export type ScheduleExisting = {
   date: string;
   paperDueOn?: string | null;
@@ -76,7 +78,7 @@ function seedRows(
     const setterId = found?.setterId || teacherId;
     return {
       subjectId: subject.id,
-      name: subject.name,
+      name: subject.label || formatSubjectLabel(subject.code, subject.name),
       date: day(found?.date) || dates[i] || start,
       teacherId,
       setterId,

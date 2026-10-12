@@ -80,16 +80,16 @@ describe.sequential("exam marks API flow", () => {
       },
     });
     await prisma.subject.create({
-      data: { id: "subject-1a-math", name: "Mathematics", classId: "class-1-a", teacherId: "teacher-rahul", weightage: 6 },
+      data: { id: "subject-1a-math", code: "MAT", name: "Mathematics", classId: "class-1-a", teacherId: "teacher-rahul", weightage: 6 },
     });
     await prisma.subject.create({
-      data: { id: "subject-2a-science", name: "Science", classId: "class-2-a", teacherId: "teacher-rahul", weightage: 6 },
+      data: { id: "subject-2a-science", code: "SCI", name: "Science", classId: "class-2-a", teacherId: "teacher-rahul", weightage: 6 },
     });
     await prisma.subject.create({
-      data: { id: "subject-1a-science", name: "Science", classId: "class-1-a", weightage: 6 },
+      data: { id: "subject-1a-science", code: "SCI", name: "Science", classId: "class-1-a", weightage: 6 },
     });
     await prisma.subject.create({
-      data: { id: "subject-6b-english", name: "English", classId: "class-6-b", weightage: 4 },
+      data: { id: "subject-6b-english", code: "ENG", name: "English", classId: "class-6-b", weightage: 4 },
     });
     await prisma.teacherSkill.create({
       data: { teacherId: "teacher-rahul", classId: "class-6-b", subjectName: "English" },
@@ -356,7 +356,7 @@ describe.sequential("exam marks API flow", () => {
         expect.objectContaining({
           examId,
           seriesName: "Unit Test 1",
-          subject: "Mathematics",
+          subject: "MAT · Mathematics",
           marks: 34,
           max: 40,
         }),

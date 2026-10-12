@@ -73,7 +73,7 @@ export async function seedPortalFixture(prisma: PrismaClient): Promise<PortalFix
       weekdays: "[1,2,3,4,5,6]",
       sessionStart: "2026-04-01",
       sessionEnd: "2027-03-31",
-      subjectCatalog: "[\"Mathematics\"]",
+      subjectCatalog: "[{\"code\":\"MAT\",\"name\":\"Mathematics\"}]",
     },
   });
   await prisma.schoolSession.create({
@@ -155,6 +155,7 @@ export async function seedPortalFixture(prisma: PrismaClient): Promise<PortalFix
   const subject = await prisma.subject.create({
     data: {
       id: "subject-mathematics",
+      code: "MAT",
       name: "Mathematics",
       classId,
       teacherId: teacherUser.teacher!.id,

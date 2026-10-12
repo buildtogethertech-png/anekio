@@ -19,7 +19,7 @@ import { addDays, calendarFrom, closedCaption, closedReason, ymd, type SchoolCal
 import { AttendanceDots, DayMark, OnLeaveSign } from "./attendance-mark";
 import { useRecord, type RecordPayload } from "../lib/record";
 import { useSession } from "../lib/session";
-import { openAuthedFile, openMarksheetPdf } from "../lib/print-html";
+import { openAuthedFile, openMarksheetPdf, openRoutinePdf } from "../lib/print-html";
 import { examTodoKind, examTodoTone } from "./exam-teacher-work";
 import { LeaveApplyCard, LeaveDecideList } from "./leave-apply";
 import { ManagerPicker } from "./manager-picker";
@@ -3272,6 +3272,8 @@ export function FamilyLetter() {
 
 export function FamilyTimetable() {
   const { data } = useRecord();
+  const { token } = useSession();
+  const toast = useToast();
   const { width } = useWindowDimensions();
   const child = data?.child;
   const table = data?.timetable;
@@ -3306,8 +3308,17 @@ export function FamilyTimetable() {
     ].filter(Boolean).join(" · ");
   }
 
+  async function exportRoutine() {
+    try {
+      await openRoutinePdf(token, data?.kind === "TEACHER" ? {} : { studentId: child?.id });
+    } catch (error) {
+      toast.show(error instanceof Error ? error.message : "Could not export the routine.");
+    }
+  }
+
   return (
     <View>
+      {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
       <PageHeader
         kicker="Reports"
         title={title}
@@ -3315,6 +3326,11 @@ export function FamilyTimetable() {
           child
             ? `${child.name.split(" ")[0]} · Class ${child.classLabel}. The week as the school actually runs it.`
             : "The week as the school actually runs it."
+        }
+        action={
+          <Button variant="ghost" onPress={() => void exportRoutine()}>
+            Export PDF
+          </Button>
         }
       />
       <ChildSwitch />

@@ -1,23 +1,56 @@
 import { useState } from "react";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Pressable, Text, View } from "react-native";
-import { Button, Chip, Field, Input, Modal } from "./ui";
+import { Pressable, ScrollView, Text, View } from "react-native";
+import { Button, Chip, ChipScroller, Field, Input, Modal } from "./ui";
 import { UploadCsvPanel } from "./upload-csv-panel";
 import { pickFile } from "../lib/upload";
+import { formatSubjectLabel, normalizeSubjectCode } from "../lib/subject-label";
 
-export const DEFAULT_SUBJECTS = [
-  "English",
-  "Mathematics",
-  "Hindi",
-  "Science",
-  "Social Science",
-  "Computer",
-  "Physics",
-  "Chemistry",
-  "Biology",
-  "Physical Education",
-  "Arts",
+export const DEFAULT_SUBJECT_ENTRIES = [
+  { code: "ENG", name: "English" },
+  { code: "MAT", name: "Mathematics" },
+  { code: "SCI", name: "Science" },
+  { code: "HIN", name: "Hindi" },
+  { code: "SST", name: "Social Studies" },
+  { code: "CSC", name: "Computer" },
+  { code: "ART", name: "Art" },
+  { code: "PED", name: "Physical Education" },
+  { code: "PHY", name: "Physics" },
+  { code: "CHE", name: "Chemistry" },
+  { code: "BIO", name: "Biology" },
 ];
+
+export const DEFAULT_SUBJECTS = DEFAULT_SUBJECT_ENTRIES.map((row) => row.name);
+
+export type SubjectCatalogEntry = { code: string; name: string };
+
+function asCatalog(catalog: (string | SubjectCatalogEntry)[]): SubjectCatalogEntry[] {
+  const rows: SubjectCatalogEntry[] = [];
+  const used = new Set<string>();
+  for (const item of catalog) {
+    if (typeof item === "string") {
+      const name = item.trim();
+      if (!name) continue;
+      const found = DEFAULT_SUBJECT_ENTRIES.find((row) => row.name.toLowerCase() === name.toLowerCase());
+      const code = found?.code || normalizeSubjectCode(name).slice(0, 12);
+      if (used.has(code)) continue;
+      used.add(code);
+      rows.push({ code, name });
+      continue;
+    }
+    const name = String(item.name || "").trim();
+    const code = normalizeSubjectCode(item.code);
+    if (!name || !code || used.has(code)) continue;
+    used.add(code);
+    rows.push({ code, name });
+  }
+  return rows.length ? rows : DEFAULT_SUBJECT_ENTRIES.slice(0, 8);
+}
+
+function clientCodeOk(raw: string) {
+  const code = normalizeSubjectCode(raw);
+  return /^[A-Z0-9]+(?:-[A-Z0-9]+)*$/.test(code) && code.length >= 2 && code.length <= 12;
+}
 
 const ROOM_KIND_LABEL: Record<string, string> = {
   CLASSROOM: "Classroom",
@@ -378,66 +411,108 @@ export function SchoolSubjectsForm({
   onSaveCatalog,
   onSaveClass,
 }: {
-  catalog: string[];
-  classes: { id: string; label: string; subjects: { name: string; weightage?: number }[] }[];
-  onSaveCatalog: (names: string[], applyToAllClasses: boolean) => Promise<void>;
-  onSaveClass: (classId: string, subjects: { name: string; weightage: number }[]) => Promise<void>;
+  catalog: (string | SubjectCatalogEntry)[];
+  classes: {
+    id: string;
+    label: string;
+    name?: string;
+    subjects: { id?: string; code?: string; name: string; label?: string; weightage?: number }[];
+    slots?: { subjectId?: string }[];
+  }[];
+  onSaveCatalog: (entries: SubjectCatalogEntry[], applyToAllClasses: boolean) => Promise<void>;
+  onSaveClass: (
+    classId: string,
+    subjects: { id?: string; code: string; previousCode?: string; name: string; weightage: number }[]
+  ) => Promise<void>;
 }) {
-  const initialNames = [
-    ...new Set([
-      ...catalog,
-      ...classes.flatMap((c) => c.subjects.map((s) => s.name)),
-      ...DEFAULT_SUBJECTS.slice(0, 6),
-    ].map((s) => s.trim()).filter(Boolean)),
-  ];
-  const [names, setNames] = useState(initialNames);
-  const [custom, setCustom] = useState("");
+  const [entries, setEntries] = useState(() => asCatalog(catalog));
+  const [addCode, setAddCode] = useState("");
+  const [addName, setAddName] = useState("");
   const [addOpen, setAddOpen] = useState(false);
+  const [catalogOpen, setCatalogOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
-  const [grid, setGrid] = useState<Record<string, Record<string, string>>>(
+  const [classAddOpen, setClassAddOpen] = useState(false);
+  const [classAddCode, setClassAddCode] = useState("");
+  const [classAddQuery, setClassAddQuery] = useState("");
+  const [classAddPeriods, setClassAddPeriods] = useState("4");
+  const [classId, setClassId] = useState(classes[0]?.id || "");
+  const [classSubjects, setClassSubjects] = useState<
+    Record<string, { id?: string; code: string; previousCode: string; name: string; periods: string }[]>
+  >(() =>
     Object.fromEntries(
       classes.map((klass) => [
         klass.id,
-        Object.fromEntries(klass.subjects.map((subject) => [subject.name, periodsDraft(subject.weightage)])),
+        klass.subjects.map((subject) => ({
+          id: subject.id,
+          code: normalizeSubjectCode(subject.code) || DEFAULT_SUBJECT_ENTRIES.find((row) => row.name === subject.name)?.code || "",
+          previousCode: normalizeSubjectCode(subject.code),
+          name: subject.name,
+          periods: periodsDraft(subject.weightage),
+        })),
       ])
     )
   );
   const [flash, setFlash] = useState<{ at: "catalog" | "class"; kind: "ok" | "err"; text: string } | null>(null);
+  const selected = classes.find((klass) => klass.id === classId) || classes[0];
+  const selectedRows = selected ? classSubjects[selected.id] || [] : [];
+  const selectedGrade = (selected?.name || selected?.label.split("-")[0] || "").trim();
+  const codesOnOtherGrades = new Set(
+    classes
+      .filter((klass) => (klass.name || klass.label.split("-")[0] || "").trim() !== selectedGrade)
+      .flatMap((klass) => (classSubjects[klass.id] || klass.subjects).map((row) => normalizeSubjectCode(row.code)))
+      .filter(Boolean)
+  );
+  const remainingCatalog = entries.filter((entry) => {
+    if (selectedRows.some((row) => row.code === entry.code || row.name === entry.name)) return false;
+    if (codesOnOtherGrades.has(entry.code)) return false;
+    return true;
+  });
+  const addQuery = classAddQuery.trim().toLowerCase();
+  const remainingVisible = remainingCatalog.filter((row) => {
+    if (!addQuery) return true;
+    return `${row.code} ${row.name}`.toLowerCase().includes(addQuery);
+  });
 
-  function addSubject(raw: string) {
-    const name = raw.trim();
-    if (!name || names.includes(name)) return;
-    setNames([...names, name]);
-    setCustom("");
+  function placedCount(subjectId?: string) {
+    if (!subjectId) return 0;
+    return (selected?.slots || []).filter((slot) => slot.subjectId === subjectId).length;
   }
 
-  function removeSubject(name: string) {
-    setNames(names.filter((n) => n !== name));
-    setGrid(
-      Object.fromEntries(
-        Object.entries(grid).map(([classId, cells]) => {
-          const next = { ...cells };
-          delete next[name];
-          return [classId, next];
-        })
-      )
-    );
-  }
-
-  function setCell(classId: string, subject: string, value: string) {
-    setGrid({
-      ...grid,
-      [classId]: {
-        ...(grid[classId] ?? {}),
-        [subject]: value.replace(/\D/g, "").slice(0, 2),
-      },
+  function removeClassSubject(index: number) {
+    const row = selectedRows[index];
+    if (!selected || !row) return;
+    setFlash(null);
+    setClassSubjects({
+      ...classSubjects,
+      [selected.id]: selectedRows.filter((_, i) => i !== index),
     });
+  }
+
+  function addCatalogEntry(codeRaw: string, nameRaw: string) {
+    const name = nameRaw.trim();
+    const code = normalizeSubjectCode(codeRaw);
+    if (!name || !clientCodeOk(code)) {
+      setFlash({ at: "catalog", kind: "err", text: "Code must be 2–12 letters, numbers, or single hyphens." });
+      return false;
+    }
+    if (entries.some((row) => row.code === code || row.name.toLowerCase() === name.toLowerCase())) {
+      setFlash({ at: "catalog", kind: "err", text: "That subject is already in the catalog." });
+      return false;
+    }
+    setEntries([...entries, { code, name }]);
+    setAddCode("");
+    setAddName("");
+    return true;
+  }
+
+  function removeCatalog(code: string) {
+    setEntries(entries.filter((row) => row.code !== code));
   }
 
   function sheetCsv(sample = false) {
     const rows = [
-      ["Subject"],
-      ...(sample && !names.length ? DEFAULT_SUBJECTS.slice(0, 6) : names).map((subject) => [subject]),
+      ["Code", "Name"],
+      ...(sample && !entries.length ? DEFAULT_SUBJECT_ENTRIES.slice(0, 8) : entries).map((row) => [row.code, row.name]),
     ];
     return rows.map((row) => row.map(csvEscape).join(",")).join("\n");
   }
@@ -461,161 +536,214 @@ export function SchoolSubjectsForm({
     if (!file) return;
     const text = await fetch(file.uri).then((response) => response.text());
     const [header, ...rows] = parseCsv(text);
-    if (!header?.length || !String(header[0] || "").toLowerCase().includes("subject")) {
-      setFlash({ at: "catalog", kind: "err", text: "Use a CSV with Subject as the first column." });
+    const head = (header || []).map((cell) => String(cell || "").toLowerCase());
+    const codeIdx = head.findIndex((cell) => cell.includes("code"));
+    const nameIdx = head.findIndex((cell) => cell.includes("name") || cell.includes("subject"));
+    if (nameIdx < 0) {
+      setFlash({ at: "catalog", kind: "err", text: "Use a CSV with Code and Name columns." });
       return;
     }
-    const importedNames = rows.map((row) => row[0]).filter(Boolean);
-    if (!importedNames.length) {
+    const imported = asCatalog(
+      rows
+        .map((row) => ({
+          code: codeIdx >= 0 ? row[codeIdx] : "",
+          name: row[nameIdx],
+        }))
+        .filter((row) => row.name)
+    );
+    if (!imported.length) {
       setFlash({ at: "catalog", kind: "err", text: "No subjects found in the sheet." });
       return;
     }
-    const nextNames = [...new Set(importedNames)];
-    setNames(nextNames);
+    setEntries(imported);
     setImportOpen(false);
-    setFlash({ at: "catalog", kind: "ok", text: "Subjects loaded. Review and save the plan." });
+    setFlash({ at: "catalog", kind: "ok", text: "Subjects loaded. Review and save the catalog." });
   }
 
   return (
     <View className="mt-3 gap-3">
-      <View className="gap-2 border-b border-ink-100 pb-3">
-        <View className="flex-row flex-wrap items-center justify-between gap-2">
-          <View className="min-w-[12rem] flex-1 flex-row flex-wrap items-center gap-2">
-            <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">Subjects</Text>
-            <Text className="text-lg font-semibold text-ink-900">{names.length}</Text>
-            {names.map((s) => (
-              <Chip key={s} label={s} active onPress={() => removeSubject(s)} className="px-2 py-1" />
-            ))}
-          </View>
-          <View className="flex-row flex-wrap gap-2">
-            <IconButton icon="add" label="Add subject" onPress={() => setAddOpen(true)} />
-            <IconButton icon="cloud-upload-outline" label="Upload subjects" onPress={() => setImportOpen(true)} />
-          </View>
-        </View>
-        <SaveFlash at="catalog" flash={flash} />
+      <View className="flex-row flex-wrap items-center justify-between gap-2 border-b border-ink-100 pb-3">
+        <Text className="text-sm text-ink-700">
+          School catalog · {entries.length} subject{entries.length === 1 ? "" : "s"}
+        </Text>
+        <Button variant="ghost" onPress={() => setCatalogOpen(true)}>
+          Manage catalog
+        </Button>
       </View>
+      <SaveFlash at="catalog" flash={flash} />
 
-      {classes.length ? (
+      {classes.length && selected ? (
         <View className="gap-2">
+          <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">Class curriculum</Text>
+          <ChipScroller>
+            {classes.map((klass) => (
+              <Chip
+                key={klass.id}
+                label={klass.label}
+                active={klass.id === selected.id}
+                onPress={() => {
+                  setFlash(null);
+                  setClassId(klass.id);
+                }}
+              />
+            ))}
+          </ChipScroller>
           <View className="flex-row flex-wrap items-center justify-between gap-2">
-            <View className="flex-row items-center gap-2">
-              <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">Class plan</Text>
-              <Text className="text-xs text-ink-700">Blank = not taught</Text>
+            <Text className="text-sm font-semibold text-ink-900">{selected.label} — Subjects</Text>
+            <View className="flex-row flex-wrap gap-2">
+              <Button variant="ghost" onPress={() => setClassAddOpen(true)}>
+                + Add Subject
+              </Button>
+              <Button
+                className="px-5"
+                onPress={async () => {
+                  setFlash(null);
+                  const subjects = selectedRows.flatMap((row) => {
+                    const weightage = parsePeriods(row.periods);
+                    const code = normalizeSubjectCode(row.code);
+                    const name = row.name.trim();
+                    if (!name || !code || weightage == null || weightage <= 0) return [];
+                    return [{ id: row.id, code, previousCode: row.previousCode, name, weightage }];
+                  });
+                  try {
+                    await onSaveClass(selected.id, subjects);
+                    setFlash({
+                      at: "class",
+                      kind: "ok",
+                      text: subjects.length ? `${selected.label} subjects saved.` : `${selected.label} has no subjects.`,
+                    });
+                  } catch (e) {
+                    setFlash({ at: "class", kind: "err", text: e instanceof Error ? e.message : "Could not save." });
+                  }
+                }}
+              >
+                Save {selected.label}
+              </Button>
             </View>
-            <Button
-              className="px-5"
-              onPress={async () => {
-                setFlash(null);
-                for (const klass of classes) {
-                  const subjects = names
-                    .map((name) => ({ name, weightage: parsePeriods(grid[klass.id]?.[name] || "") }))
-                    .filter((row): row is { name: string; weightage: number } => row.weightage != null && row.weightage > 0);
-                  if (!subjects.length) {
-                    setFlash({ at: "class", kind: "err", text: `${klass.label} needs at least one subject.` });
-                    return;
-                  }
-                  const bad = names.find((name) => parsePeriods(grid[klass.id]?.[name] || "") == null);
-                  if (bad) {
-                    setFlash({ at: "class", kind: "err", text: `${klass.label} ${bad} needs a number or blank.` });
-                    return;
-                  }
-                }
-                try {
-                  await onSaveCatalog(names, false);
-                  for (const klass of classes) {
-                    await onSaveClass(
-                      klass.id,
-                      names
-                        .map((name) => ({ name, weightage: parsePeriods(grid[klass.id]?.[name] || "") }))
-                        .filter((row): row is { name: string; weightage: number } => row.weightage != null && row.weightage > 0)
-                    );
-                  }
-                  setFlash({ at: "class", kind: "ok", text: "Class plan saved." });
-                } catch (e) {
-                  setFlash({ at: "class", kind: "err", text: e instanceof Error ? e.message : "Could not save." });
-                }
-              }}
-            >
-              Save plan
-            </Button>
           </View>
           <View className="overflow-hidden rounded-md border border-ink-200">
-            <View className="flex-row bg-ink-50">
-              <View className="w-24 border-r border-ink-100 px-3 py-2">
-                <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">Class</Text>
-              </View>
-              {names.map((subject) => (
-                <View key={subject} className="min-w-[7.25rem] flex-1 border-r border-ink-100 px-2 py-2 last:border-r-0">
-                  <Text className="text-center text-xs font-medium text-ink-800">{subject}</Text>
-                </View>
-              ))}
+            <View className="flex-row items-center gap-3 border-b border-ink-100 bg-ink-50 px-3 py-2">
+              <Text className="min-w-0 flex-1 text-xs font-medium uppercase tracking-wide text-ink-700">Subject</Text>
+              <Text className="w-24 text-center text-xs font-medium uppercase tracking-wide text-ink-700">Periods/week</Text>
+              <View className="w-8" />
             </View>
-            {classes.map((klass) => (
-              <View key={klass.id} className="flex-row border-t border-ink-100">
-                <View className="w-24 justify-center border-r border-ink-100 px-3 py-2">
-                  <Text className="text-sm font-semibold text-ink-900">{klass.label}</Text>
-                </View>
-                {names.map((subject) => (
-                  <View key={subject} className="min-w-[7.25rem] flex-1 border-r border-ink-100 px-2 py-1.5 last:border-r-0">
+            {selectedRows.map((row, index) => {
+              const placed = placedCount(row.id);
+              return (
+                <View key={`${row.previousCode || row.code}-${index}`} className={`flex-row items-center gap-3 px-3 py-2 ${index ? "border-t border-ink-100" : ""}`}>
+                  <View className="min-w-0 flex-1">
+                    <Text className="text-sm font-semibold text-ink-900">{formatSubjectLabel(row.code, row.name)}</Text>
+                    {placed ? (
+                      <Text className="mt-0.5 text-xs text-ink-700">
+                        {placed} period{placed === 1 ? "" : "s"} on the routine — remove those first
+                      </Text>
+                    ) : null}
+                  </View>
+                  <View className="w-24">
                     <Input
                       keyboardType="number-pad"
                       className="py-1 text-center"
-                      value={grid[klass.id]?.[subject] || ""}
-                      onChangeText={(value) => setCell(klass.id, subject, value)}
-                      placeholder="–"
+                      value={row.periods}
+                      onChangeText={(value) =>
+                        setClassSubjects({
+                          ...classSubjects,
+                          [selected.id]: selectedRows.map((item, i) =>
+                            i === index ? { ...item, periods: value.replace(/\D/g, "").slice(0, 2) } : item
+                          ),
+                        })
+                      }
                     />
                   </View>
-                ))}
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove ${formatSubjectLabel(row.code, row.name)}`}
+                    onPress={() => removeClassSubject(index)}
+                    className="h-8 w-8 items-center justify-center"
+                  >
+                    <Text className="text-ink-700">×</Text>
+                  </Pressable>
+                </View>
+              );
+            })}
+            {!selectedRows.length ? (
+              <View className="px-3 py-4">
+                <Text className="text-sm text-ink-700">No subjects on this class yet. Add from the school catalog.</Text>
               </View>
-            ))}
-          </View>
-          <View className="flex-row flex-wrap gap-2">
-            <Button
-              variant="ghost"
-              onPress={() =>
-                setGrid(
-                  Object.fromEntries(
-                    classes.map((klass) => [
-                      klass.id,
-                      Object.fromEntries(names.map((name) => [name, grid[klass.id]?.[name] || "4"])),
-                    ])
-                  )
-                )
-              }
-            >
-              Fill blanks with 4
-            </Button>
-            <Button
-              variant="ghost"
-              onPress={() =>
-                setGrid(
-                  Object.fromEntries(
-                    classes.map((klass) => [
-                      klass.id,
-                      Object.fromEntries(names.map((name) => [name, grid[klass.id]?.[name] || ""])),
-                    ])
-                  )
-                )
-              }
-            >
-              Clear blanks
-            </Button>
+            ) : null}
           </View>
           <SaveFlash at="class" flash={flash} />
         </View>
       ) : (
         <Text className="text-sm text-ink-700">Add classes first.</Text>
       )}
+      <Modal open={catalogOpen} title="School catalog" onClose={() => setCatalogOpen(false)} wide>
+        <View className="gap-3">
+          <Text className="text-sm text-ink-700">These are the subjects the school offers. Load them onto a class below — the catalog is not the class list.</Text>
+          <View className="flex-row flex-wrap gap-2">
+            <IconButton icon="add" label="Add subject" onPress={() => setAddOpen(true)} />
+            <IconButton icon="cloud-upload-outline" label="Upload subjects" onPress={() => setImportOpen(true)} />
+            <Button
+              variant="ghost"
+              onPress={async () => {
+                setFlash(null);
+                try {
+                  await onSaveCatalog(entries, false);
+                  setFlash({ at: "catalog", kind: "ok", text: "Catalog saved." });
+                  setCatalogOpen(false);
+                } catch (e) {
+                  setFlash({ at: "catalog", kind: "err", text: e instanceof Error ? e.message : "Could not save." });
+                }
+              }}
+            >
+              Save catalog
+            </Button>
+            <Button
+              variant="ghost"
+              onPress={async () => {
+                setFlash(null);
+                try {
+                  await onSaveCatalog(entries, true);
+                  setFlash({ at: "catalog", kind: "ok", text: "Catalog applied to all classes." });
+                  setCatalogOpen(false);
+                } catch (e) {
+                  setFlash({ at: "catalog", kind: "err", text: e instanceof Error ? e.message : "Could not save." });
+                }
+              }}
+            >
+              Apply to all classes
+            </Button>
+          </View>
+          <ScrollView className="max-h-80" nestedScrollEnabled>
+            <View className="overflow-hidden rounded-md border border-ink-200">
+              {entries.map((row, index) => (
+                <View key={row.code} className={`flex-row items-center gap-3 px-3 py-2 ${index ? "border-t border-ink-100" : ""}`}>
+                  <Text className="min-w-0 flex-1 text-sm font-semibold text-ink-900">{formatSubjectLabel(row.code, row.name)}</Text>
+                  <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${row.code} from catalog`} onPress={() => removeCatalog(row.code)}>
+                    <Text className="text-ink-700">×</Text>
+                  </Pressable>
+                </View>
+              ))}
+              {!entries.length ? (
+                <View className="px-3 py-4">
+                  <Text className="text-sm text-ink-700">No catalog subjects yet.</Text>
+                </View>
+              ) : null}
+            </View>
+          </ScrollView>
+        </View>
+      </Modal>
       <Modal open={addOpen} title="Add subject" onClose={() => setAddOpen(false)}>
         <View className="gap-3">
-          <Field label="Subject name">
-            <Input value={custom} onChangeText={setCustom} placeholder="Sanskrit" />
+          <Field label="Code">
+            <Input value={addCode} onChangeText={(value) => setAddCode(normalizeSubjectCode(value))} placeholder="ENG" autoCapitalize="characters" />
+          </Field>
+          <Field label="Name">
+            <Input value={addName} onChangeText={setAddName} placeholder="English" />
           </Field>
           <View className="flex-row flex-wrap gap-2">
             <Button
               onPress={() => {
-                addSubject(custom);
-                setAddOpen(false);
+                if (addCatalogEntry(addCode, addName)) setAddOpen(false);
               }}
             >
               Add subject
@@ -624,18 +752,71 @@ export function SchoolSubjectsForm({
           <View className="border-t border-ink-100 pt-3">
             <Text className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-700">Defaults</Text>
             <View className="flex-row flex-wrap gap-2">
-              {DEFAULT_SUBJECTS.filter((s) => !names.includes(s)).map((s) => (
-                <Chip key={s} label={`+ ${s}`} onPress={() => addSubject(s)} />
+              {DEFAULT_SUBJECT_ENTRIES.filter((row) => !entries.some((entry) => entry.code === row.code)).map((row) => (
+                <Chip
+                  key={row.code}
+                  label={`+ ${formatSubjectLabel(row.code, row.name)}`}
+                  onPress={() => addCatalogEntry(row.code, row.name)}
+                />
               ))}
             </View>
           </View>
         </View>
       </Modal>
+      <Modal open={classAddOpen} title={`Add subject to ${selected?.label || "class"}`} onClose={() => setClassAddOpen(false)}>
+        <View className="gap-3">
+          {!remainingCatalog.length ? (
+            <Text className="text-sm text-ink-700">Every catalog subject is already on this class.</Text>
+          ) : (
+            <>
+              {remainingCatalog.length > 8 ? (
+                <Field label="Search catalog">
+                  <Input value={classAddQuery} onChangeText={setClassAddQuery} placeholder="ENG or English" />
+                </Field>
+              ) : null}
+              <ScrollView className="max-h-56" nestedScrollEnabled>
+                <View className="flex-row flex-wrap gap-2">
+                  {remainingVisible.map((row) => (
+                    <Chip
+                      key={row.code}
+                      label={formatSubjectLabel(row.code, row.name)}
+                      active={classAddCode === row.code}
+                      onPress={() => setClassAddCode(row.code)}
+                    />
+                  ))}
+                </View>
+              </ScrollView>
+            </>
+          )}
+          <Field label="Periods / week">
+            <Input keyboardType="number-pad" value={classAddPeriods} onChangeText={(value) => setClassAddPeriods(value.replace(/\D/g, "").slice(0, 2))} />
+          </Field>
+          <Button
+            onPress={() => {
+              const picked = remainingCatalog.find((row) => row.code === classAddCode) || remainingCatalog[0];
+              const periods = parsePeriods(classAddPeriods);
+              if (!picked || periods == null || periods <= 0 || !selected) return;
+              setClassSubjects({
+                ...classSubjects,
+                [selected.id]: [
+                  ...selectedRows,
+                  { code: picked.code, previousCode: picked.code, name: picked.name, periods: String(periods) },
+                ],
+              });
+              setClassAddCode("");
+              setClassAddPeriods("4");
+              setClassAddOpen(false);
+            }}
+          >
+            Add to class
+          </Button>
+        </View>
+      </Modal>
       <Modal open={importOpen} title="Upload subjects" onClose={() => setImportOpen(false)} wide>
         <UploadCsvPanel
-          description="Upload the subjects this school teaches. Class periods stay in the table."
-          requiredColumns="Subject"
-          note="Use one subject per row. Existing subjects are replaced after you review and save."
+          description="Upload the school subject catalog. Class periods stay on each class."
+          requiredColumns="Code, Name"
+          note="Use one subject per row. Existing catalog rows are replaced after you review and save."
           onBrowse={() => void uploadSheet()}
           onDownloadSample={() => downloadSheet(true)}
         />

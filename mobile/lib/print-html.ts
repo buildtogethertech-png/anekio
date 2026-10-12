@@ -84,3 +84,20 @@ export async function openMarksheetPdf(
   if (!res.ok) throw new Error(errorFromBody(html, "Marksheet unavailable."));
   await openHtmlDocument(html);
 }
+
+export async function openRoutinePdf(
+  token: string | null,
+  query: { classId?: string; studentId?: string } = {}
+) {
+  if (!token) throw new Error("Sign in again.");
+  const qs = new URLSearchParams();
+  if (query.classId) qs.set("classId", query.classId);
+  if (query.studentId) qs.set("studentId", query.studentId);
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  const res = await fetch(`${apiBase()}/api/v1/timetable/print${suffix}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const html = await res.text();
+  if (!res.ok) throw new Error(errorFromBody(html, "Routine unavailable."));
+  await openHtmlDocument(html);
+}
