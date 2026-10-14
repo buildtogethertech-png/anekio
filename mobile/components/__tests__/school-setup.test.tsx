@@ -71,6 +71,50 @@ describe("SchoolSubjectsForm", () => {
     expect(screen.getByText("No subjects on this class yet. Add from the school catalog.")).toBeTruthy();
   });
 
+  it("allows the same catalog name when the code is different", () => {
+    render(
+      <SchoolSubjectsForm
+        catalog={[{ code: "HIN", name: "Hindi" }]}
+        classes={[{ id: "class-5-a", label: "5-A", name: "5", subjects: [] }]}
+        onSaveCatalog={jest.fn()}
+        onSaveClass={jest.fn()}
+      />
+    );
+
+    fireEvent.press(screen.getByText("Manage catalog"));
+    fireEvent.press(screen.getByLabelText("Add subject"));
+    fireEvent.changeText(screen.getByPlaceholderText("ENG"), "HIN-5");
+    fireEvent.changeText(screen.getByPlaceholderText("English"), "HINDI");
+    const addButtons = screen.getAllByRole("button", { name: "Add subject" });
+    fireEvent.press(addButtons[addButtons.length - 1]);
+
+    expect(screen.queryByText("That subject is already in the catalog.")).toBeNull();
+    expect(screen.queryByText("That subject code is already in the catalog.")).toBeNull();
+    expect(screen.getByText("HIN · Hindi")).toBeTruthy();
+    expect(screen.getByText("HIN-5 · HINDI")).toBeTruthy();
+  });
+
+  it("pops up when the subject code is already in the catalog", () => {
+    render(
+      <SchoolSubjectsForm
+        catalog={[{ code: "HIN", name: "Hindi" }]}
+        classes={[{ id: "class-5-a", label: "5-A", name: "5", subjects: [] }]}
+        onSaveCatalog={jest.fn()}
+        onSaveClass={jest.fn()}
+      />
+    );
+
+    fireEvent.press(screen.getByText("Manage catalog"));
+    fireEvent.press(screen.getByLabelText("Add subject"));
+    fireEvent.changeText(screen.getByPlaceholderText("ENG"), "HIN");
+    fireEvent.changeText(screen.getByPlaceholderText("English"), "Hindi");
+    const addButtons = screen.getAllByRole("button", { name: "Add subject" });
+    fireEvent.press(addButtons[addButtons.length - 1]);
+
+    expect(screen.getByText("Can't add subject")).toBeTruthy();
+    expect(screen.getByText("That subject code is already in the catalog.")).toBeTruthy();
+  });
+
   it("lets the class list drop a subject locally so save can clear routine and teachers", () => {
     render(
       <SchoolSubjectsForm

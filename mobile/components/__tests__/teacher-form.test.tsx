@@ -125,6 +125,45 @@ describe("TeacherForm assignments", () => {
     );
   });
 
+  it("keeps two English assignments distinct by code", async () => {
+    const onSave = jest.fn().mockResolvedValue(undefined);
+    render(
+      <TeacherForm
+        teacher={{ id: "teacher-1", name: "Kavita", skills: [] }}
+        classes={[
+          {
+            id: "class-1-a",
+            label: "1-A",
+            name: "1",
+            subjects: [{ id: "s-eng", code: "ENG", name: "English", weightage: 4 }],
+          },
+          {
+            id: "class-2-a",
+            label: "2-A",
+            name: "2",
+            subjects: [{ id: "s-eng-2", code: "ENG-2", name: "English", weightage: 4 }],
+          },
+        ]}
+        onCancel={jest.fn()}
+        onSave={onSave}
+      />
+    );
+
+    fireEvent.press(screen.getByLabelText("Select ENG · English for 1-A"));
+    fireEvent.press(screen.getByLabelText("Add another class"));
+    fireEvent.press(screen.getByLabelText("Select ENG-2 · English for 2-A"));
+    fireEvent.press(screen.getByText("Save"));
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        offers: [
+          { classId: "class-1-a", subjectCode: "ENG", subjectName: "English" },
+          { classId: "class-2-a", subjectCode: "ENG-2", subjectName: "English" },
+        ],
+      })
+    );
+  });
+
   it("unassigning a subject does not send that class subject in offers", async () => {
     const onSave = jest.fn().mockResolvedValue(undefined);
     render(

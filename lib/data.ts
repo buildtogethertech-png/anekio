@@ -10,6 +10,7 @@ import { formatSubjectLabel, skillMatchesSubject, subjectDto } from "./subject-c
 import { schoolFromConfig } from "./school";
 import { ensureSchoolSessions } from "./school-session";
 import { ensureCurrentSessionStudentRollNumbers } from "./student-rolls";
+import { runWithoutTenant } from "./tenant-context";
 
 export async function getParentWithChildren(userId: string) {
   await ensureCurrentSessionStudentRollNumbers();
@@ -911,7 +912,7 @@ export async function getStaffRoster(date = startOfDay()) {
       },
       orderBy: { employeeId: "asc" },
     }),
-    prisma.staffDay.findMany({ where: { date: { gte: from } }, orderBy: { date: "desc" } }),
+    runWithoutTenant(() => prisma.staffDay.findMany({ where: { date: { gte: from } }, orderBy: { date: "desc" } })),
     prisma.leaveRequest.findMany({
       where: {
         status: "ACTIVE",

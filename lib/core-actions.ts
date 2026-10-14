@@ -54,7 +54,7 @@ import {
 } from "./subject-code";
 import { validateSchoolWebsiteSlug } from "./host-routing";
 import { ensureVercelSchoolWebsiteDomain } from "./vercel-domains";
-import { runWithoutTenant } from "./tenant-context";
+import { currentTenantOrg, runWithoutTenant } from "./tenant-context";
 import { assignStudentRollNumber } from "./student-rolls";
 import {
   createSchoolSession,
@@ -1162,10 +1162,11 @@ export async function markAttendanceCore(
 
 async function staffDaysOnStamp(kind: "teacher" | "staff", id: string, stamp: string) {
   const { from, to } = staffDayWindow(stamp);
-  const rows =
+  const rows = await runWithoutTenant(() =>
     kind === "teacher"
-      ? await prisma.staffDay.findMany({ where: { teacherId: id, date: { gte: from, lte: to } } })
-      : await prisma.staffDay.findMany({ where: { staffId: id, date: { gte: from, lte: to } } });
+      ? prisma.staffDay.findMany({ where: { teacherId: id, date: { gte: from, lte: to } } })
+      : prisma.staffDay.findMany({ where: { staffId: id, date: { gte: from, lte: to } } })
+  );
   return rows.filter((row) => staffDayYmd(row.date) === stamp);
 }
 
@@ -1195,21 +1196,26 @@ async function writeStaffDayOnStamp(
   }
 ) {
   const instant = staffDayInstant(stamp);
+  const orgId = currentTenantOrg() ?? null;
   const rows = await staffDaysOnStamp(kind, id, stamp);
   const keep = rows.find((row) => row.inAt) || rows[0];
   const extras = rows.filter((row) => row.id !== keep?.id).map((row) => row.id);
-  if (extras.length) await prisma.staffDay.deleteMany({ where: { id: { in: extras } } });
+  if (extras.length) {
+    await runWithoutTenant(() => prisma.staffDay.deleteMany({ where: { id: { in: extras } } }));
+  }
   if (keep) {
-    await prisma.staffDay.update({
-      where: { id: keep.id },
-      data,
-    });
+    await runWithoutTenant(() =>
+      prisma.staffDay.update({
+        where: { id: keep.id },
+        data: { ...data, orgId: orgId ?? keep.orgId },
+      })
+    );
     return;
   }
   if (kind === "teacher") {
-    await prisma.staffDay.create({ data: { teacherId: id, date: instant, ...data } });
+    await prisma.staffDay.create({ data: { teacherId: id, date: instant, orgId, ...data } });
   } else {
-    await prisma.staffDay.create({ data: { staffId: id, date: instant, ...data } });
+    await prisma.staffDay.create({ data: { staffId: id, date: instant, orgId, ...data } });
   }
 }
 
@@ -2981,9 +2987,7 @@ export async function saveSchoolSubjectsCore(
     create: { id: "school", subjectCatalog },
   });
   for (const next of catalog) {
-    const prev =
-      previous.find((row) => row.code === next.code) ||
-      previous.find((row) => row.name.trim().toLowerCase() === next.name.trim().toLowerCase());
+    const prev = previous.find((row) => row.code === next.code);
     if (prev && (prev.code !== next.code || prev.name !== next.name)) {
       await prisma.subject.updateMany({
         where: { code: prev.code },

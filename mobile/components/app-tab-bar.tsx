@@ -2,6 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { usePathname, useRouter } from "expo-router";
 import { Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { isStaffScanPath } from "../lib/staff-attendance-scan";
 import { pathForNav } from "../lib/paths";
 import { tabIcon, tabLabel, visibleTabs } from "../lib/nav-icons";
 import { useSession } from "../lib/session";
@@ -19,7 +20,7 @@ export function AppTabBar() {
   const insets = useSafeAreaInsets();
   const tabs = visibleTabs(user?.portal, nav);
 
-  if (pathname === "/pay" || pathname.startsWith("/pay/")) return null;
+  if (pathname === "/pay" || pathname.startsWith("/pay/") || isStaffScanPath(pathname)) return null;
   if (!tabs.length) return null;
 
   const primary = tabs.filter((key) => key !== "more");

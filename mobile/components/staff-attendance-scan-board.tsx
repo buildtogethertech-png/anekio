@@ -4,6 +4,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import jsQR from "jsqr";
 import { useRouter } from "expo-router";
 import { act } from "../lib/mutate";
+import { useRecord } from "../lib/record";
 import { useSession } from "../lib/session";
 import { Button, Field, Input } from "./ui";
 import {
@@ -63,6 +64,7 @@ function ResultPanel({ kind, title, body }: { kind: ScanFeedbackKind; title: str
 export function StaffAttendanceScanBoard() {
   const router = useRouter();
   const { token, user } = useSession();
+  const { reload } = useRecord();
   const allowed = Boolean(user?.permissions.includes("staff.edit"));
   const [code, setCode] = useState("");
   const [status, setStatus] = useState("Opening camera...");
@@ -106,6 +108,7 @@ export function StaffAttendanceScanBoard() {
         body: `${next.person.name} marked ${next.status.toLowerCase()} at ${next.inAt}. Keep scanning.`,
       });
       setStatus("Ready for the next teacher.");
+      await reload().catch(() => undefined);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not scan attendance QR.";
       const classified = classifyScanMessage(message);
@@ -237,41 +240,48 @@ export function StaffAttendanceScanBoard() {
   }
 
   return (
-    <View className="gap-4 p-4">
+    <View className="min-h-0 flex-1 gap-3 bg-ink-50 p-4" testID="staff-scan-board">
       <View className="flex-row items-start justify-between gap-3">
         <View className="min-w-0 flex-1">
           <Text className="text-lg font-semibold text-ink-900">Scan attendance</Text>
-          <Text className="mt-1 text-sm text-ink-700">Employees stay open in the other tab. This camera keeps scanning after each mark.</Text>
+          <Text className="mt-1 text-sm text-ink-700">This screen is for scanning only. Each teacher can be marked in turn.</Text>
         </View>
-        <Button variant="ghost" onPress={() => router.replace("/staff" as never)}>
-          Employees
-        </Button>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Close scanner"
+          onPress={() => router.replace("/staff" as never)}
+          className="min-h-[40px] justify-center px-2"
+        >
+          <Text className="text-sm font-medium text-clay-600">Close</Text>
+        </Pressable>
       </View>
-      <View className="overflow-hidden rounded-md border border-blue-200 bg-ink-900">
+      <View className="relative min-h-[420px] flex-1 overflow-hidden rounded-md bg-ink-900">
         {Platform.OS === "web" ? (
-          <View className="relative h-80">
+          <>
             {createElement("video", {
               ref: videoRef,
               muted: true,
               playsInline: true,
               autoPlay: true,
               style: {
+                position: "absolute",
+                inset: 0,
                 width: "100%",
                 height: "100%",
                 objectFit: "cover",
                 background: "#0f172a",
               },
             })}
-            <View className="absolute inset-0 items-center justify-center">
-              <View className="h-40 w-40 rounded-lg border-4 border-white/90 bg-transparent" />
+            <View className="absolute inset-0 items-center justify-center" pointerEvents="none">
+              <View className="h-52 w-52 rounded-lg border-4 border-white/90 bg-transparent" />
             </View>
-            <View className="absolute inset-x-0 bottom-0 bg-ink-900/80 px-4 py-3">
+            <View className="absolute inset-x-0 bottom-0 bg-ink-900/70 px-4 py-3">
               <Text className="text-center text-sm font-semibold text-white">Point camera at staff attendance QR</Text>
               <Text className="mt-1 text-center text-xs text-white/80">{status}</Text>
             </View>
-          </View>
+          </>
         ) : (
-          <View className="items-center bg-blue-50 p-6">
+          <View className="flex-1 items-center justify-center bg-blue-50 p-6">
             <Ionicons name="camera-outline" size={46} color="#1d4ed8" />
             <Text className="mt-3 text-center text-sm font-semibold text-ink-900">Camera scanner needs the web camera</Text>
             <Text className="mt-1 text-center text-xs leading-5 text-ink-700">Paste or scan the QR code below for now.</Text>

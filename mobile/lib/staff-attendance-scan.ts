@@ -50,10 +50,32 @@ export function classifyScanMessage(message: string): { kind: ScanFeedbackKind; 
   return { kind: "error", title: "Could not mark" };
 }
 
-export function openStaffScanRoute(router: { push: (href: never) => void }, platform: { OS: string } = { OS: "web" }) {
-  if (platform.OS === "web" && typeof window !== "undefined" && typeof window.open === "function") {
-    const opened = window.open(STAFF_SCAN_ROUTE, "_blank", "noopener,noreferrer");
-    if (opened) return;
+export function isStaffScanPath(pathname: string | null | undefined) {
+  return pathname === STAFF_SCAN_ROUTE || Boolean(pathname?.startsWith(`${STAFF_SCAN_ROUTE}?`));
+}
+
+export function staffScanHref(origin: string) {
+  const base = String(origin || "").replace(/\/$/, "");
+  return `${base}${STAFF_SCAN_ROUTE}`;
+}
+
+type ScanWindow = {
+  open: (url?: string, target?: string, features?: string) => unknown;
+  location: { origin: string };
+};
+
+export function openStaffScanRoute(
+  router: { push: (href: never) => void },
+  options?: { newTab?: boolean; win?: ScanWindow | null }
+) {
+  const win = options?.win === undefined ? (typeof window !== "undefined" ? (window as ScanWindow) : null) : options.win;
+  if (options?.newTab) {
+    if (!win?.open) return;
+    const opened = win.open(staffScanHref(win.location.origin), "_blank");
+    if (opened && typeof opened === "object" && "opener" in opened) {
+      (opened as { opener: unknown }).opener = null;
+    }
+    return;
   }
   router.push(STAFF_SCAN_ROUTE as never);
 }

@@ -453,6 +453,7 @@ export function SchoolSubjectsForm({
     )
   );
   const [flash, setFlash] = useState<{ at: "catalog" | "class"; kind: "ok" | "err"; text: string } | null>(null);
+  const [notice, setNotice] = useState("");
   const selected = classes.find((klass) => klass.id === classId) || classes[0];
   const selectedRows = selected ? classSubjects[selected.id] || [] : [];
   const selectedGrade = (selected?.name || selected?.label.split("-")[0] || "").trim();
@@ -492,13 +493,14 @@ export function SchoolSubjectsForm({
     const name = nameRaw.trim();
     const code = normalizeSubjectCode(codeRaw);
     if (!name || !clientCodeOk(code)) {
-      setFlash({ at: "catalog", kind: "err", text: "Code must be 2–12 letters, numbers, or single hyphens." });
+      setNotice("Code must be 2–12 letters, numbers, or single hyphens.");
       return false;
     }
-    if (entries.some((row) => row.code === code || row.name.toLowerCase() === name.toLowerCase())) {
-      setFlash({ at: "catalog", kind: "err", text: "That subject is already in the catalog." });
+    if (entries.some((row) => row.code === code)) {
+      setNotice("That subject code is already in the catalog.");
       return false;
     }
+    setNotice("");
     setEntries([...entries, { code, name }]);
     setAddCode("");
     setAddName("");
@@ -820,6 +822,14 @@ export function SchoolSubjectsForm({
           onBrowse={() => void uploadSheet()}
           onDownloadSample={() => downloadSheet(true)}
         />
+      </Modal>
+      <Modal open={Boolean(notice)} title="Can't add subject" onClose={() => setNotice("")}>
+        <View className="gap-3">
+          <Text className="text-sm leading-5 text-ink-900">{notice}</Text>
+          <View className="flex-row justify-end">
+            <Button onPress={() => setNotice("")}>OK</Button>
+          </View>
+        </View>
       </Modal>
     </View>
   );

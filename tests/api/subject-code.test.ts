@@ -158,4 +158,62 @@ describe.sequential("subject code API", () => {
     expect(await prisma.subject.count({ where: { classId: "class-5-a", code: "SAN-5" } })).toBe(1);
     expect(await prisma.subject.count({ where: { classId: fixture.classId, code: "SAN-5" } })).toBe(0);
   });
+
+  it("rejects a duplicate catalog code and allows the same name with a different code", async () => {
+    const used = [
+      { code: "ENG", name: "English" },
+      { code: "ENGL", name: "English Language" },
+      { code: "MAT", name: "Mathematics" },
+      { code: "HIN", name: "Hindi" },
+      { code: "SAN-5", name: "Sanskrit" },
+    ];
+    const duplicate = await act(officeToken, "saveSchoolSubjects", {
+      entries: [...used, { code: "ENG", name: "English Extra" }],
+    });
+    expect(duplicate.status).toBe(400);
+    expect(duplicate.body.error).toMatch(/already in the catalog/i);
+    const saved = await act(officeToken, "saveSchoolSubjects", {
+      entries: [...used, { code: "ENG-2", name: "English" }],
+    });
+    expect(saved.status).toBe(200);
+    const record = await request(app).get("/api/v1/record").set({ Authorization: `Bearer ${officeToken}` });
+    expect(record.body.school.subjectCatalog).toEqual(expect.arrayContaining([
+      { code: "ENG", name: "English" },
+      { code: "ENG-2", name: "English" },
+    ]));
+  });
+
+  it("assigns a teacher and routine slot by unique code when two subjects share a name", async () => {
+    const loaded = await act(officeToken, "saveClassCurriculum", {
+      classId: "class-2-a",
+      subjects: [{ code: "ENG-2", name: "English", weightage: 2 }],
+    });
+    expect(loaded.status).toBe(200);
+    const assigned = await act(officeToken, "setTeacherResources", {
+      teacherId: "teacher-tara",
+      offers: [{ subjectCode: "ENG-2", subjectName: "English", classId: "class-2-a" }],
+    });
+    expect(assigned.status).toBe(200);
+    const skills = await prisma.teacherSkill.findMany({ where: { teacherId: "teacher-tara", classId: "class-2-a" } });
+    expect(skills.map((row) => row.subjectName)).toEqual(["ENG-2"]);
+    const english2 = await prisma.subject.findFirstOrThrow({ where: { classId: "class-2-a", code: "ENG-2" } });
+    expect(english2.name).toBe("English");
+    expect(english2.teacherId).toBe("teacher-tara");
+    const placed = await act(officeToken, "saveTimetableSlot", {
+      classId: "class-2-a",
+      periodId: "period-1",
+      weekday: 3,
+      teacherId: "teacher-tara",
+      subjectId: english2.id,
+      subjectName: "English",
+    });
+    expect(placed.status).toBe(200);
+    expect(placed.body.error).toBeUndefined();
+    const slot = await prisma.timetableSlot.findFirstOrThrow({
+      where: { classId: "class-2-a", periodId: "period-1", weekday: 3 },
+    });
+    expect(slot.subjectId).toBe(english2.id);
+    const english6 = await prisma.subject.findFirst({ where: { classId: fixture.classId, code: "ENG" } });
+    expect(slot.subjectId).not.toBe(english6?.id);
+  });
 });

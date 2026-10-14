@@ -212,12 +212,9 @@ export async function assertCodeFitsGrade(input: {
 
 export function catalogHasSubject(catalog: SubjectCatalogEntry[], input: { code?: string; name?: string }) {
   const code = input.code ? validateSubjectCode(input.code) : null;
+  if (code?.ok) return catalog.some((row) => row.code === code.code);
   const name = String(input.name || "").trim().toLowerCase();
-  return catalog.some((row) => {
-    if (code?.ok && row.code === code.code) return true;
-    if (name && row.name.trim().toLowerCase() === name) return true;
-    return false;
-  });
+  return Boolean(name && catalog.some((row) => row.name.trim().toLowerCase() === name));
 }
 
 export function matchCatalogEntry(catalog: SubjectCatalogEntry[], input: { code?: string; name?: string }) {
@@ -227,8 +224,9 @@ export function matchCatalogEntry(catalog: SubjectCatalogEntry[], input: { code?
     if (byCode) return byCode;
   }
   const name = String(input.name || "").trim().toLowerCase();
-  if (name) return catalog.find((row) => row.name.trim().toLowerCase() === name) || null;
-  return null;
+  if (!name) return null;
+  const named = catalog.filter((row) => row.name.trim().toLowerCase() === name);
+  return named.length === 1 ? named[0] : null;
 }
 
 export function skillMatchesSubject(skillName: string, subject: { code?: string | null; name?: string | null }) {

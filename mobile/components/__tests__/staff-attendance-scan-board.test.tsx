@@ -1,10 +1,12 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { StaffAttendanceScanBoard } from "../staff-attendance-scan-board";
 import { act as mutate } from "../../lib/mutate";
+import { useRecord } from "../../lib/record";
 import { useSession } from "../../lib/session";
 
 jest.mock("../../lib/mutate", () => ({ act: jest.fn() }));
 jest.mock("../../lib/session", () => ({ useSession: jest.fn() }));
+jest.mock("../../lib/record", () => ({ useRecord: jest.fn() }));
 jest.mock("expo-router", () => ({ useRouter: () => ({ push: jest.fn(), replace: jest.fn() }) }));
 jest.mock("jsqr", () => jest.fn());
 jest.mock("@expo/vector-icons/Ionicons", () => {
@@ -15,10 +17,14 @@ jest.mock("@expo/vector-icons/Ionicons", () => {
 
 const mockAct = mutate as jest.MockedFunction<typeof mutate>;
 const mockUseSession = useSession as jest.MockedFunction<typeof useSession>;
+const mockUseRecord = useRecord as jest.MockedFunction<typeof useRecord>;
+const mockReload = jest.fn().mockResolvedValue(undefined);
 
 describe("staff attendance scan board", () => {
   beforeEach(() => {
     mockAct.mockReset();
+    mockReload.mockClear();
+    mockUseRecord.mockReturnValue({ reload: mockReload } as unknown as ReturnType<typeof useRecord>);
     mockUseSession.mockReturnValue({
       token: "office-token",
       user: { permissions: ["staff.edit"] },
@@ -49,6 +55,10 @@ describe("staff attendance scan board", () => {
     await waitFor(() => expect(screen.getByText("Attendance marked")).toBeTruthy());
     expect(screen.getByText(/Keep scanning/)).toBeTruthy();
     expect(screen.getByText("Scan attendance")).toBeTruthy();
+    expect(screen.getByTestId("staff-scan-board")).toBeTruthy();
+    expect(screen.queryByText("Employees")).toBeNull();
+    expect(screen.getByLabelText("Close scanner")).toBeTruthy();
+    expect(mockReload).toHaveBeenCalled();
   });
 
   it("does not send the same QR twice during the cooldown", async () => {

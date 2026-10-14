@@ -80,6 +80,14 @@ describe.sequential("staff attendance QR", () => {
     const day = await prisma.staffDay.findFirst({ where: { teacherId: "teacher-tara" } });
     expect(staffAttendanceInMark(day)).toBe(true);
     expect(day?.inAt).toBe(firstInAt);
+
+    const officeRecord = await request(app).get("/api/v1/record").set({ Authorization: `Bearer ${officeToken}` });
+    expect(officeRecord.status).toBe(200);
+    const tara = officeRecord.body.staff.find((row: { id: string }) => row.id === "teacher-tara");
+    const today = staffDayYmd(new Date());
+    const timesheetDay = (tara?.days || []).find((row: { date: string }) => row.date === today);
+    expect(timesheetDay?.inAt).toBe(firstInAt);
+    expect(timesheetDay?.status).toMatch(/PRESENT|LATE/);
   });
 
   it("exposes today's mark on the teacher record without a refresh race", async () => {

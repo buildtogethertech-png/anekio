@@ -25,6 +25,7 @@ describe("staff scan route", () => {
     expect(screen.getByText("Dedicated staff scanner")).toBeTruthy();
     expect(screen.queryByText("Employees page staff")).toBeNull();
     expect(screen.queryByText("Ready to scan")).toBeNull();
+    expect(screen.queryByText("Employees")).toBeNull();
   });
 
   it("keeps the Employees page on the staff index route", () => {

@@ -161,7 +161,7 @@ export function StaffAttendanceQrScanButton({
     <Button
       variant="ghost"
       disabled={disabled}
-      onPress={() => openStaffScanRoute(router, Platform)}
+      onPress={() => openStaffScanRoute(router, { newTab: Platform.OS === "web" })}
       className={compact ? "shrink-0 px-2 py-2" : undefined}
       accessibilityLabel={compact ? "Scan" : "Scan attendance"}
     >

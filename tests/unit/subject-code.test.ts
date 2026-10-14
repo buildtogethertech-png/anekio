@@ -5,6 +5,7 @@ import {
   formatSubjectLabel,
   gradeSubjectCode,
   knownCodeForName,
+  matchCatalogEntry,
   matchClassSubject,
   parseSubjectCatalog,
   serializeSubjectCatalog,
@@ -82,6 +83,8 @@ describe("legacy catalog and names", () => {
       { code: "ENG", name: "English" },
       { code: "ENG-2", name: "English" },
     ]));
+    expect(matchCatalogEntry([{ code: "HIN", name: "Hindi" }, { code: "HIN-5", name: "Hindi" }], { code: "HIN-5", name: "Hindi" })?.code).toBe("HIN-5");
+    expect(matchCatalogEntry([{ code: "HIN", name: "Hindi" }, { code: "HIN-5", name: "Hindi" }], { name: "Hindi" })).toBeNull();
   });
 });
 

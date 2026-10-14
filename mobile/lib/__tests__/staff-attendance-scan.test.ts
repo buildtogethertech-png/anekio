@@ -2,7 +2,10 @@ import {
   barcodeDetectorAvailable,
   cameraConstraints,
   classifyScanMessage,
+  isStaffScanPath,
+  openStaffScanRoute,
   shouldIgnoreScan,
+  staffScanHref,
   STAFF_SCAN_COOLDOWN_MS,
   videoIsReady,
 } from "../staff-attendance-scan";
@@ -45,6 +48,38 @@ describe("staff attendance scan helpers", () => {
     expect(
       shouldIgnoreScan({ code: "anekio:staff-attendance:b", now: 1100, lastCode: "anekio:staff-attendance:a", lastAt: 1000, inFlight: false })
     ).toBe(false);
+  });
+
+  it("opens the dedicated scan route in this app on phone", () => {
+    const push = jest.fn();
+    openStaffScanRoute({ push });
+    expect(push).toHaveBeenCalledWith("/staff/scan");
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(isStaffScanPath("/staff/scan")).toBe(true);
+    expect(isStaffScanPath("/staff")).toBe(false);
+  });
+
+  it("opens the camera scanner in a new browser tab only", () => {
+    const push = jest.fn();
+    const child = { opener: {} as unknown };
+    const open = jest.fn(() => child);
+    openStaffScanRoute(
+      { push },
+      { newTab: true, win: { open, location: { origin: "http://localhost:8081" } } }
+    );
+    expect(open).toHaveBeenCalledWith("http://localhost:8081/staff/scan", "_blank");
+    expect(child.opener).toBeNull();
+    expect(push).not.toHaveBeenCalled();
+    expect(staffScanHref("http://localhost:8081/")).toBe("http://localhost:8081/staff/scan");
+  });
+
+  it("does not open the camera in this tab when the new-tab handle is empty", () => {
+    const push = jest.fn();
+    openStaffScanRoute(
+      { push },
+      { newTab: true, win: { open: () => null, location: { origin: "http://localhost:8081" } } }
+    );
+    expect(push).not.toHaveBeenCalled();
   });
 
   it("classifies API errors for the scanner", () => {
