@@ -25,7 +25,7 @@ import { LeaveApplyCard, LeaveDecideList } from "./leave-apply";
 import { ManagerPicker } from "./manager-picker";
 import { TeacherMonthlyRegister } from "./teacher-monthly-register";
 import { StaffAttendanceQrButton } from "./staff-attendance-qr";
-import { studentMetaLine } from "../lib/student-label";
+import { compareByRollThenName, matchesStudentQuery, rollLabel, studentMetaLine } from "../lib/student-label";
 
 function can(user: { permissions: string[] } | null, key: string) {
   return Boolean(user?.permissions.includes(key));
@@ -1234,7 +1234,10 @@ export function TeacherAttendanceBoard() {
   const toast = useToast();
   const { width } = useWindowDimensions();
   const phone = width < 768;
-  const roster = data?.roster ?? [];
+  const roster = useMemo(
+    () => [...(data?.roster ?? [])].sort(compareByRollThenName),
+    [data?.roster]
+  );
   const [q, setQ] = useState("");
   const [monthly, setMonthly] = useState(false);
   const calendar = useMemo(
@@ -1295,11 +1298,14 @@ export function TeacherAttendanceBoard() {
       return;
     }
     const looksLikeIssuedQr = /\/(attendance\/scan|staff\/scan|verify|documents)\//i.test(raw) || /^https?:\/\//i.test(raw.trim());
-    const student = looksLikeIssuedQr ? undefined : roster.find((s) => {
-      const admission = String((s as { admissionNo?: string }).admissionNo || "").toLowerCase();
-      const id = s.id.toLowerCase();
-      return admission && (clean === admission || s.name.toLowerCase() === clean || id === clean);
-    });
+    const student = looksLikeIssuedQr
+      ? undefined
+      : roster.find((s) => {
+          const admission = String((s as { admissionNo?: string }).admissionNo || "").toLowerCase();
+          const id = s.id.toLowerCase();
+          const roll = s.rollNumber != null ? String(s.rollNumber) : "";
+          return admission === clean || s.name.toLowerCase() === clean || id === clean || (roll && roll === clean);
+        });
     let resolved = student;
     if (!resolved && looksLikeIssuedQr) {
       try {
@@ -1326,16 +1332,17 @@ export function TeacherAttendanceBoard() {
       return;
     }
     const before = statusOf(resolved).toUpperCase();
+    const who = [rollLabel(resolved.rollNumber), resolved.name].filter(Boolean).join(" ");
     setMarks((m) => ({ ...m, [resolved.id]: "PRESENT" }));
     setQ(resolved.name);
-    setScanHit(resolved.name);
+    setScanHit(who);
     setScanResult({
       tone: before === "PRESENT" ? "warn" : "success",
       title: before === "PRESENT" ? "Already present" : "Completed",
-      body: `${resolved.name} is marked present for ${new Date(date).toLocaleDateString("en-IN")}.`,
+      body: `${who} is marked present for ${new Date(date).toLocaleDateString("en-IN")}.`,
     });
     setScanCode("");
-    toast.show(`${resolved.name} marked present.`);
+    toast.show(`${who} marked present.`);
   }
 
   useEffect(() => {
@@ -1407,7 +1414,7 @@ export function TeacherAttendanceBoard() {
   const no = roster.filter((s) => statusOf(s).toUpperCase() === "ABSENT").length;
   const onLeave = roster.filter((s) => statusOf(s).toUpperCase() === "LEAVE").length;
   const needle = q.trim().toLowerCase();
-  const shown = needle ? roster.filter((s) => s.name.toLowerCase().includes(needle)) : roster;
+  const shown = needle ? roster.filter((s) => matchesStudentQuery(s, needle)) : roster;
 
   return (
     <View className="min-h-0 flex-1">
@@ -1468,7 +1475,7 @@ export function TeacherAttendanceBoard() {
                     <Input
                       value={q}
                       onChangeText={setQ}
-                      placeholder="Name"
+                      placeholder="Name or roll"
                       autoCapitalize="none"
                       autoCorrect={false}
                       className="min-w-0 flex-1 border-0"
@@ -1524,27 +1531,33 @@ export function TeacherAttendanceBoard() {
                     <OnLeaveSign />
                   ) : (
                     <DayMark
-                      name={s.name}
+                      name={[rollLabel(s.rollNumber), s.name].filter(Boolean).join(" ")}
                       status={st}
                       disabled={locked}
                       onChange={(next) => setMarks((m) => ({ ...m, [s.id]: next }))}
                     />
                   );
+                const who = (
+                  <View className={phone ? "min-w-0 flex-1" : "w-52 shrink-0"}>
+                    <Text className="text-sm font-medium text-ink-900" numberOfLines={1}>
+                      {s.name}
+                    </Text>
+                    {s.rollNumber ? (
+                      <Text className="mt-0.5 text-xs text-ink-700">Roll {s.rollNumber}</Text>
+                    ) : null}
+                  </View>
+                );
                 return phone ? (
                   <View key={s.id} className="gap-2 border-t border-ink-100 px-4 py-3">
                     <View className="flex-row items-center justify-between gap-3">
-                      <Text className="min-w-0 flex-1 text-sm font-medium text-ink-900" numberOfLines={1}>
-                        {s.name}
-                      </Text>
+                      {who}
                       {mark}
                     </View>
                     <AttendanceDots dots={dots} compact activeDate={locked ? undefined : date} />
                   </View>
                 ) : (
                   <View key={s.id} className="flex-row items-center gap-4 border-t border-ink-100 px-4 py-3">
-                    <Text className="w-44 shrink-0 text-sm font-medium text-ink-900" numberOfLines={1}>
-                      {s.name}
-                    </Text>
+                    {who}
                     <AttendanceDots dots={dots} activeDate={locked ? undefined : date} />
                     <View className="ml-auto">{mark}</View>
                   </View>
