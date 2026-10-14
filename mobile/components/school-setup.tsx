@@ -22,7 +22,45 @@ export const DEFAULT_SUBJECT_ENTRIES = [
 
 export const DEFAULT_SUBJECTS = DEFAULT_SUBJECT_ENTRIES.map((row) => row.name);
 
-export type SubjectCatalogEntry = { code: string; name: string };
+export type SubjectCatalogEntry = { code: string; name: string; previousCode?: string };
+
+type ClassSubjectDraft = { id?: string; code: string; previousCode: string; name: string; periods: string };
+
+function classGrade(klass: { name?: string; label: string }) {
+  return (klass.name || klass.label.split("-")[0] || "").trim();
+}
+
+export function syncGradeSubjectDrafts(
+  drafts: Record<string, ClassSubjectDraft[]>,
+  classes: { id: string; name?: string; label: string }[],
+  selectedId: string,
+  nextRows: ClassSubjectDraft[]
+) {
+  const selected = classes.find((klass) => klass.id === selectedId);
+  if (!selected) return { ...drafts, [selectedId]: nextRows };
+  const grade = classGrade(selected);
+  const next = { ...drafts };
+  for (const klass of classes) {
+    if (classGrade(klass) !== grade) continue;
+    if (klass.id === selectedId) {
+      next[klass.id] = nextRows;
+      continue;
+    }
+    const current = next[klass.id] || [];
+    next[klass.id] = nextRows.map((row) => {
+      const match =
+        current.find((item) => item.code === row.code) ||
+        current.find((item) => item.previousCode && item.previousCode === row.previousCode) ||
+        current.find((item) => item.name.trim().toLowerCase() === row.name.trim().toLowerCase());
+      return {
+        ...row,
+        id: match?.id,
+        previousCode: match?.previousCode || row.previousCode || row.code,
+      };
+    });
+  }
+  return next;
+}
 
 function asCatalog(catalog: (string | SubjectCatalogEntry)[]): SubjectCatalogEntry[] {
   const rows: SubjectCatalogEntry[] = [];
@@ -35,16 +73,16 @@ function asCatalog(catalog: (string | SubjectCatalogEntry)[]): SubjectCatalogEnt
       const code = found?.code || normalizeSubjectCode(name).slice(0, 12);
       if (used.has(code)) continue;
       used.add(code);
-      rows.push({ code, name });
+      rows.push({ code, name, previousCode: code });
       continue;
     }
     const name = String(item.name || "").trim();
     const code = normalizeSubjectCode(item.code);
     if (!name || !code || used.has(code)) continue;
     used.add(code);
-    rows.push({ code, name });
+    rows.push({ code, name, previousCode: item.previousCode || code });
   }
-  return rows.length ? rows : DEFAULT_SUBJECT_ENTRIES.slice(0, 8);
+  return rows.length ? rows : DEFAULT_SUBJECT_ENTRIES.slice(0, 8).map((row) => ({ ...row, previousCode: row.code }));
 }
 
 function clientCodeOk(raw: string) {
@@ -430,15 +468,20 @@ export function SchoolSubjectsForm({
   const [addName, setAddName] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const [catalogOpen, setCatalogOpen] = useState(false);
+  const [catalogQuery, setCatalogQuery] = useState("");
   const [importOpen, setImportOpen] = useState(false);
   const [classAddOpen, setClassAddOpen] = useState(false);
   const [classAddCode, setClassAddCode] = useState("");
   const [classAddQuery, setClassAddQuery] = useState("");
   const [classAddPeriods, setClassAddPeriods] = useState("4");
+  const [editIndex, setEditIndex] = useState<number | null>(null);
+  const [editCode, setEditCode] = useState("");
+  const [editName, setEditName] = useState("");
+  const [catalogEditIndex, setCatalogEditIndex] = useState<number | null>(null);
+  const [catalogEditCode, setCatalogEditCode] = useState("");
+  const [catalogEditName, setCatalogEditName] = useState("");
   const [classId, setClassId] = useState(classes[0]?.id || "");
-  const [classSubjects, setClassSubjects] = useState<
-    Record<string, { id?: string; code: string; previousCode: string; name: string; periods: string }[]>
-  >(() =>
+  const [classSubjects, setClassSubjects] = useState<Record<string, ClassSubjectDraft[]>>(() =>
     Object.fromEntries(
       classes.map((klass) => [
         klass.id,
@@ -456,7 +499,8 @@ export function SchoolSubjectsForm({
   const [notice, setNotice] = useState("");
   const selected = classes.find((klass) => klass.id === classId) || classes[0];
   const selectedRows = selected ? classSubjects[selected.id] || [] : [];
-  const selectedGrade = (selected?.name || selected?.label.split("-")[0] || "").trim();
+  const selectedGrade = selected ? classGrade(selected) : "";
+  const gradeSections = classes.filter((klass) => classGrade(klass) === selectedGrade);
   const codesOnOtherGrades = new Set(
     classes
       .filter((klass) => (klass.name || klass.label.split("-")[0] || "").trim() !== selectedGrade)
@@ -483,10 +527,75 @@ export function SchoolSubjectsForm({
     const row = selectedRows[index];
     if (!selected || !row) return;
     setFlash(null);
-    setClassSubjects({
-      ...classSubjects,
-      [selected.id]: selectedRows.filter((_, i) => i !== index),
+    setClassSubjects(
+      syncGradeSubjectDrafts(
+        classSubjects,
+        classes,
+        selected.id,
+        selectedRows.filter((_, i) => i !== index)
+      )
+    );
+  }
+
+  function openClassSubjectEdit(index: number) {
+    const row = selectedRows[index];
+    if (!row) return;
+    setEditIndex(index);
+    setEditCode(row.code);
+    setEditName(row.name);
+    setNotice("");
+  }
+
+  function applyClassSubjectEdit() {
+    if (editIndex == null || !selected) return false;
+    const name = editName.trim();
+    const code = normalizeSubjectCode(editCode);
+    const row = selectedRows[editIndex];
+    if (!row || !name || !clientCodeOk(code)) {
+      setNotice("Code must be 2–12 letters, numbers, or single hyphens.");
+      return false;
+    }
+    if (selectedRows.some((item, i) => i !== editIndex && (item.code === code || item.name.trim().toLowerCase() === name.toLowerCase()))) {
+      setNotice("That subject is already on this class.");
+      return false;
+    }
+    if (codesOnOtherGrades.has(code) && code !== row.code) {
+      setNotice(`That subject code is already used by another class.`);
+      return false;
+    }
+    if (entries.some((entry) => entry.code === code && entry.code !== row.code && entry.code !== row.previousCode)) {
+      setNotice("That subject code is already in the catalog.");
+      return false;
+    }
+    const nextRows = selectedRows.map((item, i) => (i === editIndex ? { ...item, code, name } : item));
+    const subjects = nextRows.flatMap((item) => {
+      const weightage = parsePeriods(item.periods);
+      const nextCode = normalizeSubjectCode(item.code);
+      const nextName = item.name.trim();
+      if (!nextName || !nextCode || weightage == null || weightage <= 0) return [];
+      return [{ id: item.id, code: nextCode, previousCode: item.previousCode, name: nextName, weightage }];
     });
+    setNotice("");
+    void (async () => {
+      try {
+        await onSaveClass(selected.id, subjects);
+        setClassSubjects(syncGradeSubjectDrafts(classSubjects, classes, selected.id, nextRows));
+    setEntries(
+      entries.some((entry) => entry.code === row.previousCode || entry.code === row.code)
+        ? entries.map((entry) =>
+            entry.code === row.previousCode || entry.code === row.code
+              ? { ...entry, code, name }
+              : entry
+          )
+        : [...entries, { code, name, previousCode: code }]
+    );
+        setEditIndex(null);
+        setFlash({ at: "class", kind: "ok", text: "Subject updated for this class and the catalog." });
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : "Could not save.");
+      }
+    })();
+    return true;
   }
 
   function addCatalogEntry(codeRaw: string, nameRaw: string) {
@@ -501,7 +610,7 @@ export function SchoolSubjectsForm({
       return false;
     }
     setNotice("");
-    setEntries([...entries, { code, name }]);
+    setEntries([...entries, { code, name, previousCode: code }]);
     setAddCode("");
     setAddName("");
     return true;
@@ -509,6 +618,59 @@ export function SchoolSubjectsForm({
 
   function removeCatalog(code: string) {
     setEntries(entries.filter((row) => row.code !== code));
+  }
+
+  function openCatalogEdit(index: number) {
+    const row = entries[index];
+    if (!row) return;
+    setCatalogEditIndex(index);
+    setCatalogEditCode(row.code);
+    setCatalogEditName(row.name);
+    setNotice("");
+  }
+
+  function applyCatalogEdit() {
+    if (catalogEditIndex == null) return false;
+    const row = entries[catalogEditIndex];
+    const name = catalogEditName.trim();
+    const code = normalizeSubjectCode(catalogEditCode);
+    if (!row || !name || !clientCodeOk(code)) {
+      setNotice("Code must be 2–12 letters, numbers, or single hyphens.");
+      return false;
+    }
+    if (entries.some((entry, i) => i !== catalogEditIndex && entry.code === code)) {
+      setNotice("That subject code is already in the catalog.");
+      return false;
+    }
+    if (codesOnOtherGrades.has(code) && code !== row.code) {
+      setNotice("That subject code is already used by another class.");
+      return false;
+    }
+    const previousCode = row.previousCode || row.code;
+    const nextEntries = entries.map((entry, i) =>
+      i === catalogEditIndex ? { ...entry, code, name, previousCode } : entry
+    );
+    const nextDrafts = Object.fromEntries(
+      Object.entries(classSubjects).map(([id, rows]) => [
+        id,
+        rows.map((item) =>
+          item.code === row.code || item.previousCode === row.code ? { ...item, code, name } : item
+        ),
+      ])
+    );
+    setNotice("");
+    void (async () => {
+      try {
+        await onSaveCatalog(nextEntries, false);
+        setEntries(nextEntries);
+        setClassSubjects(nextDrafts);
+        setCatalogEditIndex(null);
+        setFlash({ at: "catalog", kind: "ok", text: "Catalog subject updated." });
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : "Could not save.");
+      }
+    })();
+    return true;
   }
 
   function sheetCsv(sample = false) {
@@ -568,7 +730,13 @@ export function SchoolSubjectsForm({
         <Text className="text-sm text-ink-700">
           School catalog · {entries.length} subject{entries.length === 1 ? "" : "s"}
         </Text>
-        <Button variant="ghost" onPress={() => setCatalogOpen(true)}>
+        <Button
+          variant="ghost"
+          onPress={() => {
+            setCatalogQuery("");
+            setCatalogOpen(true);
+          }}
+        >
           Manage catalog
         </Button>
       </View>
@@ -577,6 +745,11 @@ export function SchoolSubjectsForm({
       {classes.length && selected ? (
         <View className="gap-2">
           <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">Class curriculum</Text>
+          {gradeSections.length > 1 ? (
+            <Text className="text-sm text-ink-700">
+              Class {selectedGrade} sections share these subjects. Each section keeps its own routine and teachers.
+            </Text>
+          ) : null}
           <ChipScroller>
             {classes.map((klass) => (
               <Chip
@@ -609,10 +782,16 @@ export function SchoolSubjectsForm({
                   });
                   try {
                     await onSaveClass(selected.id, subjects);
+                    const sectionNote =
+                      gradeSections.length > 1
+                        ? `Class ${selectedGrade} subjects saved for ${gradeSections.map((row) => row.label).join(", ")}.`
+                        : subjects.length
+                          ? `${selected.label} subjects saved.`
+                          : `${selected.label} has no subjects.`;
                     setFlash({
                       at: "class",
                       kind: "ok",
-                      text: subjects.length ? `${selected.label} subjects saved.` : `${selected.label} has no subjects.`,
+                      text: sectionNote,
                     });
                   } catch (e) {
                     setFlash({ at: "class", kind: "err", text: e instanceof Error ? e.message : "Could not save." });
@@ -627,7 +806,7 @@ export function SchoolSubjectsForm({
             <View className="flex-row items-center gap-3 border-b border-ink-100 bg-ink-50 px-3 py-2">
               <Text className="min-w-0 flex-1 text-xs font-medium uppercase tracking-wide text-ink-700">Subject</Text>
               <Text className="w-24 text-center text-xs font-medium uppercase tracking-wide text-ink-700">Periods/week</Text>
-              <View className="w-8" />
+              <View className="w-20" />
             </View>
             {selectedRows.map((row, index) => {
               const placed = placedCount(row.id);
@@ -647,23 +826,37 @@ export function SchoolSubjectsForm({
                       className="py-1 text-center"
                       value={row.periods}
                       onChangeText={(value) =>
-                        setClassSubjects({
-                          ...classSubjects,
-                          [selected.id]: selectedRows.map((item, i) =>
-                            i === index ? { ...item, periods: value.replace(/\D/g, "").slice(0, 2) } : item
-                          ),
-                        })
+                        setClassSubjects(
+                          syncGradeSubjectDrafts(
+                            classSubjects,
+                            classes,
+                            selected.id,
+                            selectedRows.map((item, i) =>
+                              i === index ? { ...item, periods: value.replace(/\D/g, "").slice(0, 2) } : item
+                            )
+                          )
+                        )
                       }
                     />
                   </View>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`Remove ${formatSubjectLabel(row.code, row.name)}`}
-                    onPress={() => removeClassSubject(index)}
-                    className="h-8 w-8 items-center justify-center"
-                  >
-                    <Text className="text-ink-700">×</Text>
-                  </Pressable>
+                  <View className="w-20 flex-row items-center justify-end gap-1">
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Edit ${formatSubjectLabel(row.code, row.name)}`}
+                      onPress={() => openClassSubjectEdit(index)}
+                      className="h-8 px-1 items-center justify-center"
+                    >
+                      <Text className="text-xs font-medium text-clay-600">Edit</Text>
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Remove ${formatSubjectLabel(row.code, row.name)}`}
+                      onPress={() => removeClassSubject(index)}
+                      className="h-8 w-8 items-center justify-center"
+                    >
+                      <Text className="text-ink-700">×</Text>
+                    </Pressable>
+                  </View>
                 </View>
               );
             })}
@@ -685,7 +878,6 @@ export function SchoolSubjectsForm({
             <IconButton icon="add" label="Add subject" onPress={() => setAddOpen(true)} />
             <IconButton icon="cloud-upload-outline" label="Upload subjects" onPress={() => setImportOpen(true)} />
             <Button
-              variant="ghost"
               onPress={async () => {
                 setFlash(null);
                 try {
@@ -699,27 +891,30 @@ export function SchoolSubjectsForm({
             >
               Save catalog
             </Button>
-            <Button
-              variant="ghost"
-              onPress={async () => {
-                setFlash(null);
-                try {
-                  await onSaveCatalog(entries, true);
-                  setFlash({ at: "catalog", kind: "ok", text: "Catalog applied to all classes." });
-                  setCatalogOpen(false);
-                } catch (e) {
-                  setFlash({ at: "catalog", kind: "err", text: e instanceof Error ? e.message : "Could not save." });
-                }
-              }}
-            >
-              Apply to all classes
-            </Button>
           </View>
+          <Field label="Search subject">
+            <Input value={catalogQuery} onChangeText={setCatalogQuery} placeholder="ENG or English" />
+          </Field>
           <ScrollView className="max-h-80" nestedScrollEnabled>
             <View className="overflow-hidden rounded-md border border-ink-200">
-              {entries.map((row, index) => (
-                <View key={row.code} className={`flex-row items-center gap-3 px-3 py-2 ${index ? "border-t border-ink-100" : ""}`}>
+              {entries
+                .map((row, index) => ({ row, index }))
+                .filter(({ row }) => {
+                  const query = catalogQuery.trim().toLowerCase();
+                  if (!query) return true;
+                  return `${row.code} ${row.name}`.toLowerCase().includes(query);
+                })
+                .map(({ row, index }, visibleIndex) => (
+                <View key={`${row.previousCode || row.code}-${index}`} className={`flex-row items-center gap-3 px-3 py-2 ${visibleIndex ? "border-t border-ink-100" : ""}`}>
                   <Text className="min-w-0 flex-1 text-sm font-semibold text-ink-900">{formatSubjectLabel(row.code, row.name)}</Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Edit ${formatSubjectLabel(row.code, row.name)} in catalog`}
+                    onPress={() => openCatalogEdit(index)}
+                    className="h-8 px-1 items-center justify-center"
+                  >
+                    <Text className="text-xs font-medium text-clay-600">Edit</Text>
+                  </Pressable>
                   <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${row.code} from catalog`} onPress={() => removeCatalog(row.code)}>
                     <Text className="text-ink-700">×</Text>
                   </Pressable>
@@ -728,6 +923,11 @@ export function SchoolSubjectsForm({
               {!entries.length ? (
                 <View className="px-3 py-4">
                   <Text className="text-sm text-ink-700">No catalog subjects yet.</Text>
+                </View>
+              ) : catalogQuery.trim() &&
+                !entries.some((row) => `${row.code} ${row.name}`.toLowerCase().includes(catalogQuery.trim().toLowerCase())) ? (
+                <View className="px-3 py-4">
+                  <Text className="text-sm text-ink-700">No subjects match that search.</Text>
                 </View>
               ) : null}
             </View>
@@ -798,13 +998,12 @@ export function SchoolSubjectsForm({
               const picked = remainingCatalog.find((row) => row.code === classAddCode) || remainingCatalog[0];
               const periods = parsePeriods(classAddPeriods);
               if (!picked || periods == null || periods <= 0 || !selected) return;
-              setClassSubjects({
-                ...classSubjects,
-                [selected.id]: [
+              setClassSubjects(
+                syncGradeSubjectDrafts(classSubjects, classes, selected.id, [
                   ...selectedRows,
                   { code: picked.code, previousCode: picked.code, name: picked.name, periods: String(periods) },
-                ],
-              });
+                ])
+              );
               setClassAddCode("");
               setClassAddPeriods("4");
               setClassAddOpen(false);
@@ -812,6 +1011,57 @@ export function SchoolSubjectsForm({
           >
             Add to class
           </Button>
+        </View>
+      </Modal>
+      <Modal
+        open={catalogEditIndex != null}
+        title="Edit catalog subject"
+        onClose={() => {
+          setCatalogEditIndex(null);
+          setNotice("");
+        }}
+      >
+        <View className="gap-3">
+          <Text className="text-sm text-ink-700">
+            This updates the school catalog and every class that already uses this subject, unless the code is already used.
+          </Text>
+          <Field label="Code">
+            <Input
+              value={catalogEditCode}
+              onChangeText={(value) => setCatalogEditCode(normalizeSubjectCode(value))}
+              placeholder="ENG"
+              autoCapitalize="characters"
+            />
+          </Field>
+          <Field label="Name">
+            <Input value={catalogEditName} onChangeText={setCatalogEditName} placeholder="English" />
+          </Field>
+          <View className="flex-row justify-end">
+            <Button onPress={() => applyCatalogEdit()}>Save</Button>
+          </View>
+        </View>
+      </Modal>
+      <Modal
+        open={editIndex != null}
+        title="Edit subject"
+        onClose={() => {
+          setEditIndex(null);
+          setNotice("");
+        }}
+      >
+        <View className="gap-3">
+          <Text className="text-sm text-ink-700">
+            This updates every section of Class {selectedGrade || "this class"} and the school catalog, unless the code is already used.
+          </Text>
+          <Field label="Code">
+            <Input value={editCode} onChangeText={(value) => setEditCode(normalizeSubjectCode(value))} placeholder="ENG" autoCapitalize="characters" />
+          </Field>
+          <Field label="Name">
+            <Input value={editName} onChangeText={setEditName} placeholder="English" />
+          </Field>
+          <View className="flex-row justify-end">
+            <Button onPress={() => applyClassSubjectEdit()}>Save</Button>
+          </View>
         </View>
       </Modal>
       <Modal open={importOpen} title="Upload subjects" onClose={() => setImportOpen(false)} wide>
@@ -823,7 +1073,11 @@ export function SchoolSubjectsForm({
           onDownloadSample={() => downloadSheet(true)}
         />
       </Modal>
-      <Modal open={Boolean(notice)} title="Can't add subject" onClose={() => setNotice("")}>
+      <Modal
+        open={Boolean(notice)}
+        title={editIndex != null || catalogEditIndex != null ? "Can't edit subject" : "Can't add subject"}
+        onClose={() => setNotice("")}
+      >
         <View className="gap-3">
           <Text className="text-sm leading-5 text-ink-900">{notice}</Text>
           <View className="flex-row justify-end">

@@ -432,7 +432,8 @@ model Subject {
   exams     Exam[]
   slots     TimetableSlot[]
 
-  // classId is a section (1-A). Same grade may repeat a code on 1-B.
+  // classId is a section (1-A). Code/name/weightage are synced across the grade
+  // (6-A and 6-B). Teacher and timetable stay per section.
   // Different grades cannot share a code — enforced in saveClassCurriculumCore.
   @@unique([classId, code])
   @@unique([classId, name])

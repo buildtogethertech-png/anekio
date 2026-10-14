@@ -129,11 +129,7 @@ describe.sequential("catalog / class plan / routine sync", () => {
   });
 
   it("allows the same code on 6-B and rejects it on class 2", async () => {
-    const sibling = await act(officeToken, "saveClassCurriculum", {
-      classId: "class-6-b",
-      subjects: [{ code: "ENG", name: "English", weightage: 2 }],
-    });
-    expect(sibling.status).toBe(200);
+    expect(await prisma.subject.count({ where: { classId: "class-6-b", code: "ENG" } })).toBe(1);
     const otherGrade = await act(officeToken, "saveClassCurriculum", {
       classId: "class-2-a",
       subjects: [{ code: "ENG", name: "English", weightage: 2 }],
@@ -329,25 +325,21 @@ describe.sequential("catalog / class plan / routine sync", () => {
         where: { classId: fixture.classId, subjectName: { in: ["ENG", "English Language", "English"] } },
       })
     ).toBe(0);
-    expect(await prisma.subject.count({ where: { classId: "class-6-b", code: "ENG" } })).toBe(1);
+    expect(await prisma.subject.count({ where: { classId: "class-6-b", code: "ENG" } })).toBe(0);
+    expect(await prisma.subject.count({ where: { classId: "class-6-b", code: "MAT" } })).toBe(1);
     const catalog = JSON.parse(
       (await prisma.schoolConfig.findUniqueOrThrow({ where: { id: "school" } })).subjectCatalog
     ) as { code: string }[];
     expect(catalog.some((row) => row.code === "ENG")).toBe(true);
   });
 
-  it("drops the catalog entry after the last class reference is removed", async () => {
-    const saved = await act(officeToken, "saveClassCurriculum", {
-      classId: "class-6-b",
-      subjects: [],
-    });
-    expect(saved.status).toBe(200);
+  it("keeps the catalog entry after the last class reference is removed", async () => {
     expect(await prisma.subject.count({ where: { code: "ENG" } })).toBe(0);
-    expect(await prisma.teacherSkill.count({ where: { subjectName: { in: ["ENG", "English Language", "English"] } } })).toBe(0);
+    expect(await prisma.teacherSkill.count({ where: { classId: fixture.classId, subjectName: { in: ["ENG", "English Language", "English"] } } })).toBe(0);
     const catalog = JSON.parse(
       (await prisma.schoolConfig.findUniqueOrThrow({ where: { id: "school" } })).subjectCatalog
     ) as { code: string }[];
-    expect(catalog.some((row) => row.code === "ENG")).toBe(false);
+    expect(catalog.some((row) => row.code === "ENG")).toBe(true);
   });
 
   it("does not blame the routine when only exams still use the subject", async () => {

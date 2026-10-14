@@ -70,11 +70,9 @@ describe.sequential("subject code API", () => {
       ],
     });
     expect(first.status).toBe(200);
-    const sibling = await act(officeToken, "saveClassCurriculum", {
-      classId: "class-6-b",
-      subjects: [{ code: "ENG", name: "English", weightage: 1 }],
-    });
-    expect(sibling.status).toBe(200);
+    expect(await prisma.subject.count({ where: { classId: "class-6-b", code: "ENG" } })).toBe(1);
+    expect(await prisma.subject.count({ where: { classId: "class-6-b", code: "MAT" } })).toBe(1);
+    expect(await prisma.subject.count({ where: { classId: "class-6-b", code: "HIN" } })).toBe(1);
     const otherGrade = await act(officeToken, "saveClassCurriculum", {
       classId: "class-2-a",
       subjects: [{ code: "ENG", name: "English", weightage: 1 }],
