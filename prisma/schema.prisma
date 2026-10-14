@@ -207,6 +207,7 @@ model User {
   leaveRequests    LeaveRequest[]
   coverAssignments SubstituteAssignment[]  @relation("CoverAssignedBy")
   authChallenges   AuthChallenge[]
+  supportSessions  SupportSession[]
   googleDrive      GoogleDriveConnection?
   onboardingSheets OnboardingGoogleSheet[]
   orgId            String?
@@ -234,6 +235,27 @@ model AuthChallenge {
   @@index([identifierHash, purpose, createdAt])
   @@index([userId, purpose, createdAt])
   @@index([expiresAt])
+}
+
+/// Anekio staff "log in as" sessions for debugging. Audit-column exception: the actor is a
+/// SaaS admin (adminEmail), not a school User, so createdBy/updatedBy relations do not apply.
+model SupportSession {
+  id            String    @id @default(cuid())
+  orgId         String?
+  targetUserId  String
+  targetUser    User      @relation(fields: [targetUserId], references: [id], onDelete: Cascade)
+  adminEmail    String
+  reason        String    @default("")
+  codeHash      String    @unique
+  codeExpiresAt DateTime
+  redeemedAt    DateTime?
+  expiresAt     DateTime?
+  endedAt       DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([targetUserId])
+  @@index([orgId, createdAt])
 }
 
 model Teacher {
@@ -635,8 +657,6 @@ model FeeTemplate {
   lateAmount        Int            @default(0)
   lateIntervalCount Int            @default(1)
   lateIntervalUnit  String         @default("DAY")
-  lateAfter10       Int            @default(0)
-  lateAfter20       Int            @default(0)
   lines             FeeLine[]
   invoices          FeeInvoice[]
 

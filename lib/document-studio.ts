@@ -10,6 +10,7 @@ import {
   admitCardPendingMonthsRequired,
   feeLineTotal,
   invoiceBalance,
+  invoiceFeeStatement,
   paidFeeMonthCount,
   parseFeeLines,
   reportCardFeeMonthsRequired,
@@ -2096,10 +2097,10 @@ export async function renderActiveFeeInvoiceTemplateHtml(token: string) {
   const template = await findActiveTemplateByTypes(["FEE_INVOICE"], config.id);
   if (!template?.versions[0]) return null;
   const school = schoolFromConfig(config);
-  const balance = invoiceBalance(invoice);
+  const { balance, lines: statementLines, totalBilled } = invoiceFeeStatement(invoice);
   const latestPayment = [...invoice.payments].sort((a, b) => +b.paidAt - +a.paidAt)[0];
   const receiptNumber = balance.paid > 0 ? paymentReceiptNumber(latestPayment?.reference, invoice.id) : "";
-  const lines = feeLineTotal(parseFeeLines(invoice.linesJson)).rows.map((row) => ({
+  const lines = statementLines.map((row) => ({
     item: row.label,
     amount: formatInr(row.value),
   }));
@@ -2122,7 +2123,7 @@ export async function renderActiveFeeInvoiceTemplateHtml(token: string) {
     },
     fees: {
       lines,
-      amount: formatInr(invoice.amount),
+      amount: formatInr(totalBilled),
       paid: formatInr(balance.paid),
       due: formatInr(balance.dueNow),
       status: balance.display === "PAID" ? "Paid" : balance.display === "OVERDUE" ? "Overdue" : balance.display === "PARTIAL" ? "Part paid" : "Unpaid",

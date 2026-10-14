@@ -12,6 +12,7 @@ import { OnboardingBoard } from "../../components/onboarding-board";
 import { RecordProvider, useRecord } from "../../lib/record";
 import { useSession } from "../../lib/session";
 import { isStaffScanPath } from "../../lib/staff-attendance-scan";
+import { SupportBanner } from "../../components/support-banner";
 import { getLastWorkspaceRoute, getLauncherPosition, setLastWorkspaceRoute, setLauncherPosition, type LauncherPosition } from "../../lib/storage";
 
 const RESUMABLE_PATHS = new Set([
@@ -384,6 +385,7 @@ export default function AppLayout() {
             </View>
           </View>
           <LaunchPanelButton />
+          <SupportBanner />
         </View>
       ) : (
         <View className="min-h-0 flex-1 overflow-hidden">
@@ -421,6 +423,7 @@ export default function AppLayout() {
             <Tabs.Screen name="profile" options={{ href: null }} />
           </Tabs>
           <LaunchPanelButton />
+          <SupportBanner />
         </View>
       )}
     </RecordProvider>

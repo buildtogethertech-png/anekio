@@ -34,6 +34,27 @@ function coveredPeriods(rows: { studentId: string; period: string }[]) {
 
 type FeeMonth = { year: number; monthIndex: number; period: string };
 
+function templateMonthsThrough(template: Pick<FeeTemplate, "startsPeriod" | "endsPeriod">, asOf: Date): FeeMonth[] {
+  const validPeriod = /^\d{4}-(0[1-9]|1[0-2])$/;
+  if (!validPeriod.test(template.startsPeriod) || !validPeriod.test(template.endsPeriod)) return [];
+  const currentPeriod = feePeriod(asOf.getFullYear(), asOf.getMonth());
+  const lastPeriod = template.endsPeriod < currentPeriod ? template.endsPeriod : currentPeriod;
+  if (template.startsPeriod > lastPeriod) return [];
+
+  const months: FeeMonth[] = [];
+  const [startYear, startMonth] = template.startsPeriod.split("-").map(Number);
+  const [endYear, endMonth] = lastPeriod.split("-").map(Number);
+  for (let year = startYear, monthIndex = startMonth - 1; year * 12 + monthIndex <= endYear * 12 + endMonth - 1;) {
+    months.push({ year, monthIndex, period: feePeriod(year, monthIndex) });
+    monthIndex += 1;
+    if (monthIndex === 12) {
+      year += 1;
+      monthIndex = 0;
+    }
+  }
+  return months;
+}
+
 /** The button and cron choose different scopes, but issue each template with the same rules. */
 export async function issueTemplateMonthlyInvoices(template: FeeTemplate & { lines: FeeLine[] }, months: FeeMonth[]) {
   const students = await prisma.student.findMany({
@@ -106,10 +127,12 @@ export async function previewDueFees(classId: string, asOf = new Date(), session
 }
 
 export async function issueDueFeesCore(asOf = new Date(), classId?: string, sessionId?: string) {
-  const { session, months } = await sessionRange(sessionId, asOf);
+  // A school action supplies its session. The scheduled cron has no school
+  // context, so it must visit every configured template.
+  const scoped = sessionId ? await sessionRange(sessionId, asOf) : null;
   const templates = await prisma.feeTemplate.findMany({
     where: {
-      sessionId: session.id,
+      ...(scoped ? { sessionId: scoped.session.id } : {}),
       ...(classId ? { classId } : {}),
     },
     include: { lines: { orderBy: { sortOrder: "asc" } } },
@@ -119,6 +142,7 @@ export async function issueDueFeesCore(asOf = new Date(), classId?: string, sess
   const added: string[] = [];
 
   for (const template of templates) {
+    const months = scoped ? scoped.months : templateMonthsThrough(template, asOf);
     const result = await issueTemplateMonthlyInvoices(template, months);
     created += result.created;
     added.push(...result.months);
@@ -137,8 +161,6 @@ export function reminderCopy(inv: {
   amount: number;
   dueDate: Date;
   lateFeePerDay?: number;
-  lateAfter10?: number;
-  lateAfter20?: number;
   metadataJson?: string | null;
   lateKind?: string | null;
   lateGraceDays?: number | null;

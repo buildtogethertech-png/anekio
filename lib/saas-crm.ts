@@ -52,7 +52,8 @@ export function firstName(email: string) {
 }
 
 export function isCustomerOrg(org: { lifecycle: string; pipelineStage: string; subscriptionStatus: string }) {
-  return org.lifecycle === "CUSTOMER" || org.pipelineStage === "WON" || ["ACTIVE", "PAUSED", "CANCELLED"].includes(org.subscriptionStatus);
+  // Trial schools already have real users, so they live under Organisations, not Leads.
+  return org.lifecycle === "CUSTOMER" || org.pipelineStage === "WON" || ["TRIAL", "ACTIVE", "PAUSED", "CANCELLED"].includes(org.subscriptionStatus);
 }
 
 export async function logCrm(actorEmail: string, action: string, input: { orgId?: string; entityType?: string; entityId?: string; detail?: string }) {

@@ -382,8 +382,6 @@ async function main() {
         lateKind: "STATIC",
         lateGraceDays: 10,
         lateAmount: 100,
-        lateAfter10: 100,
-        lateAfter20: 0,
         lines: {
           create: [
             { label: "Tuition", kind: FeeLineKind.FLAT, amount: 8000, sortOrder: 0 },

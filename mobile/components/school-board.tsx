@@ -873,12 +873,12 @@ export function SchoolBoard() {
                     </Field>
                   </Half>
                   <Half>
-                    <Field label="Phone">
+                    <Field label="Contact phone">
                       <Input keyboardType="phone-pad" value={form.phone} onChangeText={(v) => patch("phone", v)} />
                     </Field>
                   </Half>
                   <Half>
-                    <Field label="Email">
+                    <Field label="Contact email">
                       <Input autoCapitalize="none" keyboardType="email-address" value={form.email} onChangeText={(v) => patch("email", v)} />
                     </Field>
                   </Half>

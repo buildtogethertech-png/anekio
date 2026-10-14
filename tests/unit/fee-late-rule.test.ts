@@ -1,9 +1,44 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { invoiceBalance, invoiceLatePolicy, invoiceLateStamp, latePolicyLabel, lateStampFromSetup, dueDateForMonth, replaceInvoiceLateMetadata } from "../../lib/fees";
+import { invoiceBalance, invoiceFeeStatement, invoiceLatePolicy, invoiceLateStamp, latePolicyLabel, lateStampFromSetup, dueDateForMonth, replaceInvoiceLateMetadata } from "../../lib/fees";
 
 describe("fee late rules", () => {
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("shows a live late charge in the invoice breakdown without changing the saved base fee", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 9, 11, 12, 0, 0));
+    const invoice = {
+      amount: 1500,
+      dueDate: new Date(2026, 8, 10),
+      lateKind: "RECURRING",
+      lateAmount: 10,
+      lateGraceDays: 0,
+      lateIntervalCount: 1,
+      lateIntervalUnit: "DAY",
+      linesJson: JSON.stringify([
+        { label: "Tuition", kind: "FLAT", amount: 1000 },
+        { label: "Lab", kind: "FLAT", amount: 200 },
+        { label: "Books", kind: "FLAT", amount: 300 },
+      ]),
+      payments: [] as { amount: number }[],
+    };
+
+    const statement = invoiceFeeStatement(invoice);
+    expect(statement.lines).toEqual([
+      { label: "Tuition", value: 1000 },
+      { label: "Lab", value: 200 },
+      { label: "Books", value: 300 },
+      { label: "Late fee", value: 310 },
+    ]);
+    expect(statement.totalBilled).toBe(1810);
+    expect(statement.balance.dueNow).toBe(1810);
+    expect(invoice.amount).toBe(1500);
+
+    const settled = invoiceFeeStatement({ ...invoice, payments: [{ amount: 1500 }] });
+    expect(settled.lines).toHaveLength(3);
+    expect(settled.totalBilled).toBe(1500);
   });
 
   it("uses the current late rule in metadata without invoice late-fee columns", () => {

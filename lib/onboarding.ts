@@ -15,7 +15,7 @@ import { currentTenantOrg, runWithoutTenant } from "./tenant-context";
 import { admissionFormFields, staffOnboardingFormFields, type AdmissionFormField } from "./admission-form";
 import { configuredAdmissionFormJson } from "./admission-form-config";
 import { assignStudentRollNumber } from "./student-rolls";
-import { feePeriodAfter, feePeriodBefore } from "./fees";
+import { feePeriodAfter } from "./fees";
 
 const ONBOARDING_STATE_ID = "school";
 function onboardingStateId(orgId: string) {
@@ -159,18 +159,6 @@ function cellText(value: ExcelJS.CellValue): string {
   return String(value).trim();
 }
 
-function monthBefore(date = new Date()) {
-  return new Date(date.getFullYear(), date.getMonth(), 0).toISOString().slice(0, 7);
-}
-
-function tenthOfMonth(date = new Date()) {
-  return dateText(new Date(date.getFullYear(), date.getMonth(), 10));
-}
-
-function validPeriod(value: string) {
-  return /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
-}
-
 function validDate(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   return !Number.isNaN(new Date(`${value}T00:00:00`).getTime());
@@ -191,16 +179,6 @@ function parseOpeningBacklogAmount(raw: string): { error: string } | { amount: n
   const amount = Number(text);
   if (!Number.isFinite(amount) || amount < 0) return { error: "backlog invoice amount must be zero or more." };
   return { amount };
-}
-
-function cutoffFitsSession(through: string, startsOn?: string | null, endsOn?: string | null, asOf = new Date()) {
-  if (!validPeriod(through)) return false;
-  const start = (startsOn || "").slice(0, 7);
-  const end = (endsOn || "").slice(0, 7);
-  if (start && through < start) return false;
-  if (end && through > end) return false;
-  if (through > currentMonthPeriod(asOf)) return false;
-  return true;
 }
 
 async function publishedFeeDocumentTypes(orgId: string) {
@@ -283,7 +261,7 @@ type StaffAttendancePerson = { kind: "teacher" | "staff"; id: string; employeeId
 type ExamMarkColumn = { key: string; examId: string; classId: string; classLabel: string; maxMarks: number; label: string };
 type OpeningBalanceStudent = Prisma.StudentGetPayload<{ include: { class: true } }>;
 type OpeningBalanceInvoice = Prisma.FeeInvoiceGetPayload<{ include: { payments: true } }>;
-const OPENING_BALANCE_HEADERS = ["Admission number", "Student name", "Class", "Backlog invoice amount", "Invoice date", "Due date", "Invoices already generated till", "Example only"];
+const OPENING_BALANCE_HEADERS = ["Admission number", "Student name", "Class", "Backlog invoice amount", "Due date", "Example only"];
 
 type ConfiguredImportForms = {
   admission: AdmissionFormField[];
@@ -336,7 +314,6 @@ export function studentImportHeaders(fields: AdmissionFormField[]) {
     byId.get("studentName")?.label || "Student name",
     "Date of birth",
     byId.get("classWanted")?.label || "Class",
-    byId.get("billingStartPeriod")?.label || "Billing starts from",
     byId.get("guardianName")?.label || "Parent name",
     byId.get("phone")?.label || "Parent mobile",
     ...(includeEmail ? [byId.get("email")?.label || "Parent email"] : []),
@@ -356,7 +333,6 @@ export function studentImportColumnGuide(fields: AdmissionFormField[]) {
     { required: true, reason: "Required to create a student." },
     { required: true, reason: "Required to create a student; use YYYY-MM-DD." },
     { required: true, reason: "Required to place the student in a class, such as 1-A." },
-    { required: true, reason: "Required for monthly invoices; use YYYY-MM. No invoice is generated before this month." },
     { required: true, reason: "Required to create or match a parent." },
     { required: true, reason: "Required to create or match a parent; use a 10-digit mobile number." },
     ...(includeEmail ? [{ required: Boolean(builtin.get("email")?.required), reason: "Set by the admission form; optional when not marked required." }] : []),
@@ -383,7 +359,6 @@ export function studentTemplateRow(
     name: CsvCell;
     dob: CsvCell;
     classLabel: CsvCell;
-    billingStartPeriod?: CsvCell;
     parentName: CsvCell;
     parentMobile: CsvCell;
     parentEmail: CsvCell;
@@ -396,7 +371,7 @@ export function studentTemplateRow(
     .filter((field) => !field.builtin || field.id === "message")
     .map((field) => field.id === "message" ? (values.message || "") : (values.custom?.[field.id] || ""));
   const includeEmail = !fields.length || fields.some((field) => field.id === "email" && field.visible);
-  return [values.rollNumber ?? "", values.name, values.dob, values.classLabel, values.billingStartPeriod ?? `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`, values.parentName, values.parentMobile, ...(includeEmail ? [values.parentEmail] : []), ...custom, values.example || ""];
+  return [values.rollNumber ?? "", values.name, values.dob, values.classLabel, values.parentName, values.parentMobile, ...(includeEmail ? [values.parentEmail] : []), ...custom, values.example || ""];
 }
 
 function staffImportHeaders(fields: AdmissionFormField[]) {
@@ -595,15 +570,12 @@ function openingBalanceRows(
   classLabels: string[],
   options: { sampleData?: boolean; includeExampleOnEmpty?: boolean } = {}
 ): CsvCell[][] {
-  const defaultThrough = monthBefore();
-  const generatedOn = dateText(new Date());
-  const defaultDueDate = tenthOfMonth();
   const rows: CsvCell[][] = [
     OPENING_BALANCE_HEADERS,
   ];
 
   if (!students.length && options.includeExampleOnEmpty !== false) {
-    rows.push(["", "Aarav Sharma (example)", classLabels[0] || "1-A", 2500, generatedOn, defaultDueDate, defaultThrough, "YES"]);
+    rows.push(["", "Aarav Sharma (example)", classLabels[0] || "1-A", 2500, dateText(new Date()), "YES"]);
     return rows;
   }
 
@@ -614,9 +586,7 @@ function openingBalanceRows(
       student.name,
       `${student.class.name}-${student.class.section}`,
       options.sampleData ? sampleOpeningBalanceAmount(index) : current?.amount || 0,
-      generatedOn,
-      current ? dateText(current.dueDate) : defaultDueDate,
-      current?.generatedThrough || (student.billingStartPeriod ? feePeriodBefore(student.billingStartPeriod) : defaultThrough),
+      current ? dateText(current.dueDate) : dateText(new Date()),
       "",
     ]);
   });
@@ -663,7 +633,7 @@ function blankRowsFor(kind: ImportKind, labels: string[]): CsvCell[][] {
   if (kind === "opening_balances") {
     return [
       OPENING_BALANCE_HEADERS,
-      ["", "Aarav Sharma (example)", firstClass, 2500, dateText(new Date()), tenthOfMonth(), monthBefore(), "YES"],
+      ["", "Aarav Sharma (example)", firstClass, 2500, dateText(new Date()), "YES"],
     ];
   }
   return [];
@@ -707,7 +677,6 @@ async function csvRowsFor(kind: ImportKind): Promise<CsvCell[][]> {
           name: student.name,
           dob: dateText(student.dateOfBirth),
           classLabel: `${student.class.name}-${student.class.section}`,
-          billingStartPeriod: student.billingStartPeriod,
           parentName: student.parent.user.name,
           parentMobile: student.parent.phone || student.parent.user.phone || "",
           parentEmail: student.parent.user.email.endsWith("@local.anekio.invalid") ? "" : student.parent.user.email,
@@ -1395,13 +1364,22 @@ function resolveStaffAttendancePerson(row: ImportRow, people: StaffAttendancePer
   return matches.length === 1 ? matches[0] : null;
 }
 
-async function validateRows(kind: ImportKind, rows: ImportRow[]) {
+async function validateRows(kind: ImportKind, rows: ImportRow[], coveragePeriod?: string) {
   const errors: string[] = [];
   const roles = kind === "teachers" ? await staffImportRoles() : [];
   const forms = kind === "students" || kind === "teachers" ? await configuredImportForms() : null;
   const students = kind === "opening_balances" || kind === "students" || kind === "attendance"
     ? await prisma.student.findMany({ select: { id: true, admissionNo: true } })
     : [];
+  const billedThroughCoverage = kind === "opening_balances"
+    ? await prisma.feeInvoice.findMany({
+        where: { studentId: { in: students.map((student) => student.id) }, period: { gte: "0000-01", lte: coveragePeriod || currentMonthPeriod() } },
+        select: { studentId: true, period: true },
+      })
+    : [];
+  const billedByStudent = new Map(billedThroughCoverage.map((invoice) => [invoice.studentId, invoice.period]));
+  const studentById = new Map(students.map((student) => [student.id, student]));
+  const studentByAdmission = new Map(students.map((student) => [admissionLookupKey(student.admissionNo), student]));
   const examStudents = kind === "exam_marks"
     ? await prisma.student.findMany({ select: { id: true, admissionNo: true, classId: true } })
     : [];
@@ -1413,9 +1391,6 @@ async function validateRows(kind: ImportKind, rows: ImportRow[]) {
   const studentIds = new Set(students.map((row) => row.id));
   const admissionNos = new Set(students.map((row) => admissionLookupKey(row.admissionNo)));
   const openingAdmissionRows = new Map<string, string>();
-  const currentSessionRange = kind === "opening_balances"
-    ? await prisma.schoolSession.findFirst({ where: { current: true }, select: { startsOn: true, endsOn: true } })
-    : null;
   const examStudentsById = new Map(examStudents.map((row) => [row.id, row]));
   const examStudentsByAdmission = new Map(examStudents.map((row) => [row.admissionNo.toLowerCase(), row]));
   const classTeacherRows = new Map<string, string>();
@@ -1461,11 +1436,6 @@ async function validateRows(kind: ImportKind, rows: ImportRow[]) {
       const name = configuredImportValue(row, forms!.admission, "studentName", "Student name", "Name");
       const dob = sheetCell(row, "Date of birth", "DOB");
       const klass = classFromImportRow(row, forms!.admission);
-      const billingStartPeriod = configuredImportValue(row, forms!.admission, "billingStartPeriod", "Billing starts from");
-      const billingHeaders = [forms!.admission.find((field) => field.id === "billingStartPeriod")?.label, "Billing starts from"]
-        .filter((header): header is string => Boolean(header))
-        .map(normalizeHeader);
-      const hasBillingColumn = billingHeaders.some((header) => Object.prototype.hasOwnProperty.call(row, header));
       const phone = normalizeMobile(configuredImportValue(row, forms!.admission, "phone", "Parent mobile", "Parent phone"));
       const studentId = sheetCell(row, "Anekio student ID");
       const admissionNo = sheetCell(row, "Admission number", "Admission no").toLowerCase();
@@ -1473,8 +1443,6 @@ async function validateRows(kind: ImportKind, rows: ImportRow[]) {
       if (!name) errors.push(rowError(row, "student name is required."));
       if (!validDate(dob)) errors.push(rowError(row, "date of birth must be YYYY-MM-DD."));
       if (!klass) errors.push(rowError(row, "class must be a value like 1-A."));
-      if (!hasBillingColumn) errors.push(rowError(row, "Billing starts from column is missing. Download a fresh student sheet after saving the admission form."));
-      else if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(billingStartPeriod)) errors.push(rowError(row, "billing starts from must be YYYY-MM."));
       if (!configuredImportValue(row, forms!.admission, "guardianName", "Parent name")) errors.push(rowError(row, "parent name is required."));
       if (!phone) errors.push(rowError(row, "parent mobile must be a 10-digit number."));
       for (const field of visibleFields(forms!.admission)) {
@@ -1573,24 +1541,20 @@ async function validateRows(kind: ImportKind, rows: ImportRow[]) {
     const studentId = sheetCell(row, "Anekio student ID");
     const admissionNo = admissionLookupKey(sheetCell(row, "Admission number", "Admission no"));
     const parsedAmount = parseOpeningBacklogAmount(sheetCell(row, "Backlog invoice amount", "Opening due amount", "Previous system due", "Due amount", "Amount"));
-    const invoiceDate = sheetCell(row, "Invoice date", "Generated date");
     const dueDate = sheetCell(row, "Due date");
-    const through = sheetCell(row, "Invoices already generated till", "Invoices generated till", "Last invoice month", "Generated through", "Last generated month");
-    if ((!studentId || !studentIds.has(studentId)) && (!admissionNo || !admissionNos.has(admissionNo))) {
+    const matchedStudent = studentId ? studentById.get(studentId) : studentByAdmission.get(admissionNo);
+    if (!matchedStudent) {
       errors.push(rowError(row, "student ID or admission number was not found."));
     }
+    const billedMonth = matchedStudent && billedByStudent.get(matchedStudent.id);
+    if (billedMonth) errors.push(rowError(row, `${billedMonth} already has a monthly invoice. Do not include that month again in the opening balance.`));
     if (admissionNo) {
       const firstRow = openingAdmissionRows.get(admissionNo);
       if (firstRow) errors.push(rowError(row, "Duplicate admission number in import file"));
       else openingAdmissionRows.set(admissionNo, row._row);
     }
     if ("error" in parsedAmount) errors.push(rowError(row, parsedAmount.error));
-    if (invoiceDate && !validDate(invoiceDate)) errors.push(rowError(row, "invoice date must be YYYY-MM-DD."));
-    if (!validDate(dueDate)) errors.push(rowError(row, "due date must be YYYY-MM-DD."));
-    if (!validPeriod(through)) errors.push(rowError(row, "invoices already generated till must be YYYY-MM."));
-    else if (!cutoffFitsSession(through, currentSessionRange?.startsOn, currentSessionRange?.endsOn)) {
-      errors.push(rowError(row, "invoices already generated till must fall inside the current session and cannot be after the current month."));
-    }
+    if (!validDate(dueDate)) errors.push(rowError(row, "due date must use YYYY-MM-DD."));
   });
   return errors;
 }
@@ -1667,9 +1631,10 @@ export async function previewOnboardingRows(
   const rows = input.rows;
   if (!rows.length) throw new Error("No data rows found. Add school data below the example row, or copy it and clear Example only.");
   const orgId = await onboardingOrgId(user);
+  const coveragePeriod = kind === "opening_balances" ? currentMonthPeriod() : undefined;
   const errors = [
     ...(kind === "opening_balances" ? await openingDocumentErrors(orgId) : []),
-    ...(await validateRows(kind, rows)),
+    ...(await validateRows(kind, rows, coveragePeriod)),
   ];
   const state = await ensureOnboardingState(user);
   const batch = await prisma.schoolOnboardingImport.create({
@@ -1679,7 +1644,7 @@ export async function previewOnboardingRows(
       kind,
       fileName: input.fileName || TEMPLATE_DETAILS[kind].file,
       uploadPath: input.uploadPath,
-      rowsJson: JSON.stringify(rows),
+      rowsJson: JSON.stringify(kind === "opening_balances" ? { rows, coveragePeriod } : rows),
       errorsJson: JSON.stringify(errors),
     },
   });
@@ -1690,6 +1655,7 @@ export async function previewOnboardingRows(
     validCount: errors.length ? Math.max(0, rows.length - new Set(errors.map((error) => error.match(/^Row (\d+)/)?.[1])).size) : rows.length,
     errors,
     sample: rows.slice(0, 5),
+    ...(coveragePeriod ? { coveragePeriod } : {}),
   };
 }
 
@@ -1802,7 +1768,6 @@ async function applyStudents(
       dateOfBirth: new Date(`${sheetCell(row, "Date of birth", "DOB")}T00:00:00`),
       classId: classRow.id,
       parentId,
-      billingStartPeriod: configuredImportValue(row, forms.admission, "billingStartPeriod", "Billing starts from"),
     };
     if (existing) {
       await db.student.update({ where: { id: existing.id }, data });
@@ -1813,7 +1778,7 @@ async function applyStudents(
       }
       updated += 1;
     } else {
-      const student = await db.student.create({ data });
+      const student = await db.student.create({ data: { ...data, billingStartPeriod: "" } });
       try {
         await assignStudentRollNumber(db, { studentId: student.id, classId: classRow.id, orgId: setup.orgId, rollNumber: roll.value });
       } catch (error) {
@@ -1972,7 +1937,7 @@ async function applyClassTeachers(db: OnboardingDb, rows: ImportRow[], orgId: st
   return { created: 0, updated };
 }
 
-async function applyOpeningBalances(db: OnboardingDb, rows: ImportRow[], orgId?: string | null) {
+async function applyOpeningBalances(db: OnboardingDb, rows: ImportRow[], coveragePeriod: string, orgId?: string | null) {
   let created = 0;
   let updated = 0;
   for (const row of rows) {
@@ -1982,9 +1947,16 @@ async function applyOpeningBalances(db: OnboardingDb, rows: ImportRow[], orgId?:
     if (!student) throw new Error(rowError(row, "student no longer exists."));
     const parsedAmount = parseOpeningBacklogAmount(sheetCell(row, "Backlog invoice amount", "Opening due amount", "Previous system due", "Due amount", "Amount"));
     if ("error" in parsedAmount) throw new Error(rowError(row, parsedAmount.error));
+    const dueDateText = sheetCell(row, "Due date");
+    if (!validDate(dueDateText)) throw new Error(rowError(row, "due date must use YYYY-MM-DD."));
+    const dueDate = new Date(`${dueDateText}T00:00:00`);
     const amount = parsedAmount.amount;
-    const generatedThrough = sheetCell(row, "Invoices already generated till", "Invoices generated till", "Last invoice month", "Generated through", "Last generated month");
-    const dueDate = new Date(`${sheetCell(row, "Due date")}T00:00:00`);
+    const generatedThrough = coveragePeriod;
+    const alreadyBilled = await db.feeInvoice.findFirst({
+      where: { studentId: student.id, period: { gte: "0000-01", lte: coveragePeriod } },
+      select: { period: true },
+    });
+    if (alreadyBilled) throw new Error(rowError(row, `${alreadyBilled.period} already has a monthly invoice. Do not include that month again in the opening balance.`));
     const existing = await db.feeInvoice.findUnique({
       where: { studentId_period: { studentId: student.id, period: "OPENING" } },
       include: { payments: true },
@@ -2172,7 +2144,11 @@ export async function applyOnboardingImport(user: AccessUser, input: { batchId?:
   const errors = JSON.parse(batch.errorsJson) as string[];
   if (errors.length && batch.status !== "FAILED") throw new Error("Fix the review errors and upload the template again.");
   const kind = asKind(batch.kind);
-  const rows = JSON.parse(batch.rowsJson) as ImportRow[];
+  const savedRows = JSON.parse(batch.rowsJson) as ImportRow[] | { rows: ImportRow[]; coveragePeriod: string };
+  const rows = Array.isArray(savedRows) ? savedRows : savedRows.rows;
+  if (kind === "opening_balances" && (Array.isArray(savedRows) || !/^\d{4}-(0[1-9]|1[0-2])$/.test(savedRows.coveragePeriod))) {
+    throw new Error("This fee review is outdated. Upload the current first-time fee sheet again.");
+  }
   if (kind === "opening_balances") {
     const documentErrors = await openingDocumentErrors(orgId);
     if (documentErrors.length) throw new Error(documentErrors.join(" "));
@@ -2198,7 +2174,7 @@ export async function applyOnboardingImport(user: AccessUser, input: { batchId?:
                 ? applyExamMarks(db, rows, user)
           : kind === "class_teachers"
             ? applyClassTeachers(db, rows, orgId)
-            : applyOpeningBalances(db, rows, orgId), { maxWait: 10_000, timeout: 60_000 });
+            : applyOpeningBalances(db, rows, (savedRows as { coveragePeriod: string }).coveragePeriod, orgId), { maxWait: 10_000, timeout: 60_000 });
     await prisma.schoolOnboardingImport.update({
       where: { id: batch.id },
       data: { status: "APPLIED", appliedAt: new Date(), createdCount: result.created, updatedCount: result.updated, errorsJson: "[]" },
@@ -2423,7 +2399,7 @@ export async function onboardingBundle(user: AccessUser) {
     step("collection_account", "money", 20, "Bank and collection account", "Add UPI, bank account, or the school's payment gateway before asking parents to pay.", hasUpi || hasBank || hasGateway, false, "Collection details appear on pay pages, invoices, receipts, and office collection workflows.", { href: "/school?tab=collect", label: "Open collection setup" }),
     step("fee_invoice_document", "money", 21, "Fee invoice template", "Save and publish the fee invoice template before the first billing cycle.", hasInvoiceDocument, !hasInvoiceDocument, "Fee invoice template is required before fee setup can continue.", { href: "/school?tab=documents&document=FEE_INVOICE", label: "Open invoice template" }, false),
     step("payment_receipt_document", "money", 22, "Payment receipt template", "Save and publish the payment receipt template before the first billing cycle.", hasReceiptDocument, !hasReceiptDocument, "Payment receipt template is required before fee setup can continue.", { href: "/school?tab=documents&document=PAYMENT_RECEIPT", label: "Open receipt template" }, false),
-    step("opening_balances", "money", 23, "First time fee import", "Put any previous-system dues in a backlog invoice and tell Anekio the last month already invoiced.", importDone.has("opening_balances") || (studentCount > 0 && openingCount >= studentCount), studentCount === 0 || !hasFeeDocuments, studentCount === 0 ? "Students are required before first-time fee import." : !hasFeeDocuments ? "Publish the fee invoice and payment receipt templates before first-time fee import." : "Opening balances prevent missed old dues and duplicate first invoices.", { href: "/fees", label: "Open fees" }),
+    step("opening_balances", "money", 23, "First time fee import", "Enter one unpaid amount per student through the current month. Monthly billing begins the following month.", importDone.has("opening_balances") || (studentCount > 0 && openingCount >= studentCount), studentCount === 0 || !hasFeeDocuments, studentCount === 0 ? "Students are required before first-time fee import." : !hasFeeDocuments ? "Publish the fee invoice and payment receipt templates before first-time fee import." : "Opening balances prevent missed old dues and duplicate first invoices.", { href: "/fees", label: "Open fees" }),
     step("recurring_fees", "money", 24, "Recurring fee rules", "Set class fee ranges. New invoices begin after each student's imported cut-off month.", templateCount > 0, classCount === 0, "Recurring fee rules are needed before monthly billing can run correctly.", { href: "/fees", label: "Open fees" }),
     step("review", "money", 25, "Review and launch", "Check counts, spot-check families, fees, exams, staff, and templates, then hand the workspace to the school.", false, classCount === 0 || studentCount === 0 || !hasImportantDocuments, !hasImportantDocuments ? "Save and publish the important student, staff, exam, invoice, and receipt templates before launch review." : "Review catches missing setup before the school starts using the workspace live.", { href: "/school", label: "Open school setup" }, false),
   ];

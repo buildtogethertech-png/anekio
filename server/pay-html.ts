@@ -1,5 +1,5 @@
 import { getSharedInvoice, getStudentPay } from "../lib/pay-public";
-import { feeLineTotal, invoiceBalance, parseFeeLines } from "../lib/fees";
+import { feeLineTotal, invoiceBalance, invoiceFeeStatement, parseFeeLines } from "../lib/fees";
 import { gatewayLabel, gatewayReady, getSchoolPaySecrets } from "../lib/pay-config";
 import { schoolBankLine, schoolFromConfig, schoolLines } from "../lib/school";
 import { feePayUrl, formatInr } from "../lib/utils";
@@ -555,12 +555,12 @@ export async function renderInvoicePage(token: string) {
   const data = await getSharedInvoice(token);
   if (!data) return null;
   const school = schoolFromConfig(data.config);
-  const dueNow = invoiceBalance(data.invoice).dueNow;
+  const { balance, lines, totalBilled } = invoiceFeeStatement(data.invoice);
+  const dueNow = balance.dueNow;
   const pay = await getSchoolPaySecrets(data.invoice.orgId || data.invoice.student.orgId);
   const payUrl = dueNow > 0 ? feePayUrl(token) : "";
   const via = dueNow > 0 && gatewayReady(pay) ? gatewayLabel(pay.gateway) : "";
   const inv = data.invoice;
-  const lines = feeLineTotal(parseFeeLines(inv.linesJson)).rows;
   const latestPayment = [...inv.payments].sort((a, b) => +b.paidAt - +a.paidAt)[0];
   const receipt = latestPayment ? receiptNumber(latestPayment.reference, inv.id) : "";
   const body = `
@@ -569,8 +569,8 @@ export async function renderInvoicePage(token: string) {
     <p>${escapeHtml(school.address || "")} ${escapeHtml(school.city || "")}</p>
     <p>${escapeHtml(inv.student.name)} · ${escapeHtml(inv.student.class.name)}-${escapeHtml(inv.student.class.section)}</p>
     <div class="card">
-      <div class="row"><span>${escapeHtml(inv.title)}</span><strong>${escapeHtml(formatInr(inv.amount))}</strong></div>
       ${lines.map((l) => `<div class="row"><span>${escapeHtml(l.label)}</span><span>${escapeHtml(formatInr(l.value))}</span></div>`).join("")}
+      <div class="row"><span>Total billed</span><strong>${escapeHtml(formatInr(totalBilled))}</strong></div>
       <div class="row"><span>Due now</span><strong>${escapeHtml(formatInr(dueNow))}</strong></div>
       ${receipt ? `<div class="row"><span>Receipt no.</span><strong>${escapeHtml(receipt)}</strong></div>` : ""}
     </div>

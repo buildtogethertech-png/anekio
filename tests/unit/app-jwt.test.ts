@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { signAppToken, verifyAppToken } from "../../lib/app-jwt";
+import { signAppToken, signSupportToken, verifyAppToken, verifySupportToken } from "../../lib/app-jwt";
 
 const ENV_KEYS = ["JWT_SECRET", "APP_JWT_SECRET", "NEXTAUTH_SECRET"] as const;
 const originalEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
@@ -41,6 +41,18 @@ describe("application JWTs", () => {
 
     vi.setSystemTime(new Date("2025-02-02T00:00:00.000Z"));
     expect(verifyAppToken(token)).toBeNull();
+  });
+
+  it("keeps support tokens and app tokens apart", () => {
+    const support = signSupportToken("user-7", "session-1", new Date(Date.now() + 60_000));
+
+    expect(verifySupportToken(support)).toEqual({ userId: "user-7", sessionId: "session-1" });
+    expect(verifyAppToken(support)).toBeNull();
+    expect(verifySupportToken(signAppToken("user-7"))).toBeNull();
+  });
+
+  it("rejects expired support tokens", () => {
+    expect(verifySupportToken(signSupportToken("user-7", "session-1", new Date(Date.now() - 1_000)))).toBeNull();
   });
 
   it("fails closed when no signing secret is configured", () => {
