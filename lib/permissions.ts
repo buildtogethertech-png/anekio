@@ -75,6 +75,8 @@ export type AccessUser = {
   permissions: string[];
   scopes: Record<string, AccessScope>;
   isSystemRole: boolean;
+  /** Set when an Anekio admin is signed in as this user via a support session. */
+  support?: { sessionId: string; adminEmail: string; expiresAt: string };
 };
 
 export const PORTAL_HOME: Record<Portal, string> = {

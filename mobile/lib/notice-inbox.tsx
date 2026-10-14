@@ -163,8 +163,9 @@ export function NoticeInboxProvider({ children }: { children: ReactNode }) {
     setSeen(new Set());
     if (!token || !userId) return;
     refresh({ silent: true }).catch(() => undefined);
-    registerPush(token).catch(() => undefined);
-  }, [refresh, token, userId]);
+    // A support login must not register this device for the real user's notifications.
+    if (!user?.support) registerPush(token).catch(() => undefined);
+  }, [refresh, token, userId, user?.support]);
 
   useEffect(() => {
     if (!token || !userId) return;

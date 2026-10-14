@@ -13,6 +13,7 @@ type Session = {
   signInWithGoogle: (idToken: string, accountId?: string) => Promise<AuthAccountChoice[] | null>;
   requestLoginCode: (login: string) => Promise<AuthCodeResponse>;
   signInWithCode: (login: string, code: string) => Promise<void>;
+  signInWithSupportCode: (code: string) => Promise<void>;
   requestPasswordReset: (login: string) => Promise<AuthCodeResponse>;
   resetPassword: (login: string, code: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -62,6 +63,25 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setUser(response.user);
     setNav(response.nav);
   }
+
+  // Support logins expire after 60 minutes; drop the session locally at that moment.
+  useEffect(() => {
+    const expiresAt = user?.support?.expiresAt;
+    if (!expiresAt) return;
+    const ms = new Date(expiresAt).getTime() - Date.now();
+    const clear = async () => {
+      await clearToken();
+      setTok(null);
+      setUser(null);
+      setNav([]);
+    };
+    if (ms <= 0) {
+      void clear();
+      return;
+    }
+    const timer = setTimeout(() => void clear(), Math.min(ms, 2_147_000_000));
+    return () => clearTimeout(timer);
+  }, [user?.support?.expiresAt]);
 
   useEffect(() => {
     (async () => {
@@ -119,6 +139,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         });
         await applyLogin(res);
       },
+      async signInWithSupportCode(code) {
+        const res = await api<LoginSessionResponse>("/login/support/redeem", null, {
+          method: "POST",
+          body: JSON.stringify({ code }),
+        });
+        await applyLogin(res);
+      },
       async requestPasswordReset(login) {
         return api<AuthCodeResponse>("/login/password/request", null, {
           method: "POST",
@@ -133,7 +160,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       },
       async signOut() {
         try {
-          if (token) await act(token, "savePushToken", { token: "" });
+          if (token && user?.support) {
+            // End the support session; never clear the real user's push token.
+            await api<{ ok: true }>("/support/end", token, { method: "POST", body: "{}" });
+          } else if (token) {
+            await act(token, "savePushToken", { token: "" });
+          }
         } catch {
           /* still leave */
         }

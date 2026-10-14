@@ -15,6 +15,7 @@ import {
   createTrialWelcomeResetLink,
 } from "../lib/auth-challenges";
 import { trialEmailOrigins } from "../lib/trial-email-urls";
+import { adminPortalHtml as renderAdminPortal } from "../lib/saas-admin-portal";
 import { hasAny, userFromAuthHeader } from "../lib/http-user";
 import { userForLogin, usersForLogin } from "../lib/login";
 import { verifiedGoogleEmail } from "../lib/mobile-google-auth";
@@ -24,7 +25,15 @@ import { recordPayload } from "../lib/api-v1-record";
 import { queryFeeRegister } from "../lib/fee-register";
 import { homePayload, serializeNotice } from "../lib/api-v1-home";
 import { noticesForUser } from "../lib/data";
-import { runAct } from "../lib/run-act";
+import { actOp, runAct } from "../lib/run-act";
+import {
+  SUPPORT_BLOCKED_OPS,
+  SupportSessionError,
+  createSupportCode,
+  endSupportSession,
+  recordSupportWrite,
+  redeemSupportCode,
+} from "../lib/support-session";
 import {
   completePresignedFileUpload,
   handleFileUpload,
@@ -133,6 +142,7 @@ const appShellRoutes = [
   "/letter",
   "/uploads",
   "/profile",
+  "/support-login",
 ];
 
 app.use(
@@ -261,7 +271,7 @@ type LoginChoice = {
   roleName: string;
 };
 
-function loginSession(row: LoginRow) {
+function loginSession(row: LoginRow, override?: { token: string; support: { adminEmail: string; expiresAt: string } }) {
   const user = {
     id: row.id,
     name: row.name,
@@ -277,8 +287,8 @@ function loginSession(row: LoginRow) {
     isSystemRole: row.role.isSystem,
   };
   return {
-    token: signAppToken(row.id),
-    user: serializeUser(user),
+    token: override?.token ?? signAppToken(row.id),
+    user: { ...serializeUser(user), ...(override ? { support: override.support } : {}) },
     nav: navForPortal(user.portal, user.permissions).map(publicNav),
   };
 }
@@ -392,6 +402,28 @@ app.post("/api/v1/login/password/link/reset", async (req, res) => {
   } catch (error) {
     sendAuthFlowError(res, error);
   }
+});
+
+app.post("/api/v1/login/support/redeem", async (req, res) => {
+  try {
+    await ensureAccessRoles();
+    const redeemed = await redeemSupportCode(String(req.body?.code || ""));
+    const row = await prisma.user.findUnique({
+      where: { id: redeemed.userId },
+      include: { role: { include: { grants: true } }, org: { select: { schoolName: true } } },
+    });
+    if (!row?.role) return sendError(res, 401, "That support code is invalid, used, or expired.");
+    res.json(loginSession(row, { token: redeemed.token, support: { adminEmail: redeemed.support.adminEmail, expiresAt: redeemed.support.expiresAt } }));
+  } catch (error) {
+    if (error instanceof SupportSessionError) return sendError(res, error.status, error.message);
+    sendUnexpectedError(res, error, "Support login is unavailable.");
+  }
+});
+
+app.post("/api/v1/support/end", async (req, res) => {
+  const user = await userFromAuthHeader(req.headers.authorization);
+  if (user?.support) await endSupportSession(user.support.sessionId);
+  res.json({ ok: true });
 });
 
 app.get("/api/v1/me", async (req, res) => {
@@ -532,8 +564,17 @@ app.post("/api/v1/act", async (req, res) => {
   const user = await requireUser(req, res);
   if (!user) return;
   if (!(await requireActiveSubscription(user.id, res))) return;
+  const body = (req.body || {}) as Record<string, unknown>;
+  if (user.support) {
+    const op = actOp(body);
+    // Never touch the real user's device registration; quietly succeed so app flows keep working.
+    if (op === "savePushToken") return res.json({ ok: true });
+    if (SUPPORT_BLOCKED_OPS.has(op)) return sendError(res, 403, "Not available during a support login.");
+  }
   try {
-    res.json(await runAct(user, (req.body || {}) as Record<string, unknown>));
+    const result = await runAct(user, body);
+    if (user.support) await recordSupportWrite(user, actOp(body));
+    res.json(result);
   } catch (e) {
     sendError(res, 400, e instanceof Error ? e.message : "Could not save.");
   }
@@ -673,6 +714,7 @@ async function renderAdminPage(req: express.Request, res: express.Response) {
       id: typeof req.query.id === "string" ? req.query.id : "",
       q: typeof req.query.q === "string" ? req.query.q.trim() : "",
       tab: typeof req.query.tab === "string" ? req.query.tab : "",
+      userQ: typeof req.query.uq === "string" ? req.query.uq : "",
       flash: typeof req.query.saved === "string" ? req.query.saved : "",
       error: typeof req.query.error === "string" ? req.query.error : "",
     })
@@ -859,6 +901,46 @@ app.post("/anekio-admin/orgs/:id", async (req, res) => {
     res.redirect(303, `/anekio-admin?view=org&id=${encodeURIComponent(org.id)}&saved=${encodeURIComponent("Organisation updated.")}`);
   } catch (e) {
     res.redirect(303, `/anekio-admin?view=edit-org&id=${encodeURIComponent(String(req.params.id || ""))}&error=${encodeURIComponent(e instanceof Error ? e.message : "Could not update organisation.")}`);
+  }
+});
+
+app.post(["/orgs/:id/support-code", "/anekio-admin/orgs/:id/support-code"], async (req, res, next) => {
+  if (!adminRouteRequest(req)) return next();
+  const session = requireAdminAction(req, res);
+  if (!session) return;
+  const basePath = adminBase(req);
+  const orgId = String(req.params.id || "");
+  try {
+    const created = await createSupportCode({
+      adminEmail: session.email,
+      orgId,
+      userId: String(req.body?.userId || ""),
+      reason: String(req.body?.reason || ""),
+    });
+    const appOrigin = trialEmailOrigins(hostName(req)).app;
+    const plain = created.code.replace("-", "");
+    res.setHeader("Cache-Control", "no-store");
+    res.type("html").send(
+      await renderAdminPortal({
+        basePath,
+        session,
+        view: "org",
+        id: orgId,
+        tab: "users",
+        flash: `Support code created for ${created.user.name}.`,
+        supportCode: {
+          code: created.code,
+          userName: created.user.name,
+          roleName: created.user.role.name,
+          codeExpiresAt: created.codeExpiresAt,
+          webUrl: `${appOrigin}/support-login?code=${plain}`,
+          appUrl: `anekio://support-login?code=${plain}`,
+        },
+      })
+    );
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Could not create a support login.";
+    res.redirect(303, `${basePath || "/"}?view=org&id=${encodeURIComponent(orgId)}&tab=users&error=${encodeURIComponent(message)}`);
   }
 });
 

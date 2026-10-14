@@ -700,7 +700,9 @@ export default function Login() {
           >
             {!isWideLayout ? (
               <View className="h-[184px] items-center" style={{ marginBottom: 40 }}>
-                <Brand compact centered markSize={124} wordSize={36} />
+                <Pressable onLongPress={() => router.push("/support-login" as never)} delayLongPress={800} accessibilityLabel="Anekio">
+                  <Brand compact centered markSize={124} wordSize={36} />
+                </Pressable>
               </View>
             ) : null}
             <View
@@ -718,9 +720,9 @@ export default function Login() {
             {isWideLayout ? (
               <View className="w-[490px] justify-between bg-[#173B77] px-12 py-10">
                 <View className="flex-1 items-center justify-center pb-12">
-                  <View className="h-32 w-32 items-center justify-center rounded-[36px] bg-white/10">
+                  <Pressable onLongPress={() => router.push("/support-login" as never)} delayLongPress={800} className="h-32 w-32 items-center justify-center rounded-[36px] bg-white/10">
                     <Image source={require("../assets/anekio-mark-transparent.png")} accessibilityLabel="Anekio" style={{ width: 104, height: 104 }} />
-                  </View>
+                  </Pressable>
                   <Text className="mt-6 text-[42px] font-bold lowercase tracking-tight text-white">anekio</Text>
                   <Text className="mt-2 text-sm text-blue-100">One platform. Many possibilities.</Text>
                 </View>

@@ -45,6 +45,8 @@ export type SessionUser = {
   roleName: string;
   portal: "OFFICE" | "TEACHER" | "PARENT" | "STUDENT";
   permissions: string[];
+  /** Present when an Anekio admin is signed in as this user (support login). */
+  support?: { adminEmail: string; expiresAt: string };
 };
 
 export type ChildCard = {

@@ -3,6 +3,8 @@ import { googleAdminAuthConfigured, localAdminLoginAvailable, type SaasAdminSess
 import { PIPELINE_STAGES, firstName, greetingFor, isCustomerOrg } from "./saas-crm";
 import { getSaasEmailSettings, listSaasEmailDeliveryLogs, renderSaasEmailTemplate, type SaasEmailDeliveryLogRow } from "./saas-email";
 import { getSitePricing } from "./saas-pricing";
+import QRCode from "qrcode";
+import { recentSupportSessions, supportUsersForOrg } from "./support-session";
 function escapeHtml(value: unknown) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -217,7 +219,7 @@ function orgTabs(basePath: string, id: string, tab: string, isLead: boolean) {
   const view = isLead ? "lead" : "org";
   const tabs = isLead
     ? [["overview", "Overview"], ["pipeline", "Pipeline"], ["activity", "Activity"], ["notes", "Notes"]]
-    : [["overview", "Overview"], ["subscription", "Subscription"], ["billing", "Billing"], ["onboarding", "Onboarding"], ["activity", "Activity"], ["notes", "Notes"]];
+    : [["overview", "Overview"], ["users", "Users"], ["subscription", "Subscription"], ["billing", "Billing"], ["onboarding", "Onboarding"], ["activity", "Activity"], ["notes", "Notes"]];
   return `<nav class="tabs">${tabs.map(([key, label]) => `<a class="${tab === key ? "active" : ""}" href="${baseUrl(basePath, { view, id, tab: key })}">${label}</a>`).join("")}</nav>`;
 }
 
@@ -227,9 +229,46 @@ export function adminLoginHtml(basePath: string, error = "") {
   return `<!doctype html><html lang="en-IN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Sign in · Anekio Admin</title><style>*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:radial-gradient(circle at top left,#ede9fe,transparent 38%),#f7f8fc;color:#182033;font-family:Inter,system-ui,sans-serif}.card{width:min(430px,100%);background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:32px;box-shadow:0 24px 60px rgba(17,24,39,.12)}.mark{width:46px;height:46px;border-radius:13px;display:grid;place-items:center;background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;font-size:22px;font-weight:900}h1{font-size:27px;margin:22px 0 8px}p{color:#667085;line-height:1.6}.btn{width:100%;display:flex;align-items:center;justify-content:center;border:0;border-radius:10px;padding:12px 16px;background:#4f46e5;color:#fff;text-decoration:none;font-weight:800;margin-top:16px;cursor:pointer}.note,.error{border-radius:10px;padding:12px;margin-top:16px;font-size:13px}.note{background:#f2f4f7;color:#475467}.error{background:#fef3f2;color:#b42318}.fine{font-size:12px;margin-top:18px}.local{display:grid;gap:12px;margin-top:20px;padding-top:20px;border-top:1px solid #e5e7eb}.local label{display:grid;gap:6px;font-size:12px;font-weight:750}.local input{width:100%;border:1px solid #d0d5dd;border-radius:9px;padding:11px;font:inherit}.local input:focus{outline:0;border-color:#4f46e5;box-shadow:0 0 0 3px #e0e7ff}.divider{text-align:center;color:#98a2b3;font-size:12px;margin-top:16px}</style></head><body><main class="card"><div class="mark">A</div><h1>Sign in to Anekio Admin</h1><p>Manage leads, organisations, subscriptions, invoices, payments, and onboarding.</p>${error ? `<div class="error">${escapeHtml(error)}</div>` : ""}${localLogin ? `<form class="local" method="post" action="${basePath}/login"><strong>Local testing</strong><label>Allowed email<input name="email" type="email" required autocomplete="username" value="buildtogether.tech@gmail.com"></label><label>Password<input name="password" type="password" required autocomplete="current-password"></label><button class="btn" type="submit">Sign in locally</button></form>` : ""}${configured ? `${localLogin ? `<div class="divider">OR</div>` : ""}<a class="btn" href="${basePath}/auth/google">Continue with Google</a>` : localLogin ? "" : `<div class="note"><strong>Google sign-in needs configuration.</strong><br>Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET, then register this portal's callback URL in Google Cloud.</div>`}<p class="fine">Access is limited to buildtogether.tech@gmail.com and verified @anekio.com / @anekio.in accounts.${localLogin ? " Local password sign-in is disabled automatically in production." : ""}</p></main></body></html>`;
 }
 
+export type SupportCodeResult = {
+  code: string;
+  userName: string;
+  roleName: string;
+  codeExpiresAt: Date;
+  webUrl: string;
+  appUrl: string;
+};
+
+const PORTAL_LABEL: Record<string, string> = { OFFICE: "Office", TEACHER: "Teacher", PARENT: "Parent", STUDENT: "Student" };
+
+async function supportUsersPanel(input: { basePath: string; session: SaasAdminSession; orgId: string; userQ: string; result?: SupportCodeResult }) {
+  const [users, sessions] = await Promise.all([supportUsersForOrg(input.orgId, input.userQ), recentSupportSessions(input.orgId)]);
+  let resultHtml = "";
+  if (input.result) {
+    const qr = await QRCode.toDataURL(input.result.appUrl, { errorCorrectionLevel: "M", margin: 2, width: 220 });
+    resultHtml = `<section class="panel" style="border-color:#c7d2fe"><div class="panel-head"><h2>Support login ready · ${escapeHtml(input.result.userName)}</h2>${badge("ACTIVE")}</div><div class="panel-body" style="display:flex;gap:24px;flex-wrap:wrap;align-items:center"><img alt="Scan with the phone camera to open the Anekio app" src="${qr}" width="180" height="180" style="border:1px solid var(--line);border-radius:12px"><div class="stack"><div class="muted small">One-time code · ${escapeHtml(input.result.roleName)} · expires ${dateTimeLabel(input.result.codeExpiresAt)}</div><div style="font:700 34px ui-monospace,Menlo,monospace;letter-spacing:4px">${escapeHtml(input.result.code)}</div><div class="muted small">Phone: scan the QR, or long-press the Anekio logo on the login screen and enter the code.<br>Web: open the link below. The code works once and expires in 5 minutes; the session lasts 60 minutes.</div><div class="actions"><a class="btn primary" target="_blank" rel="noopener" href="${escapeHtml(input.result.webUrl)}">Open on web</a></div></div></div></section>`;
+  }
+  const rows = users
+    .map(
+      (u) =>
+        `<tr><td><strong>${escapeHtml(u.name)}</strong><div class="muted small">${escapeHtml(u.role.name)}</div></td><td>${badge(PORTAL_LABEL[u.role.portal] || u.role.portal)}</td><td>${escapeHtml(u.email || "—")}<div class="muted small">${escapeHtml(u.phone || "")}</div></td><td><form method="post" action="${input.basePath}/orgs/${encodeURIComponent(input.orgId)}/support-code" style="display:flex;gap:8px">${csrfField(input.session)}<input type="hidden" name="userId" value="${escapeHtml(u.id)}"><input name="reason" required maxlength="300" placeholder="Reason / ticket" style="min-width:150px"><button class="btn" type="submit">Log in as</button></form></td></tr>`
+    )
+    .join("");
+  const searchForm = `<form method="get" action="${input.basePath || "/"}" style="display:flex;gap:8px"><input type="hidden" name="view" value="org"><input type="hidden" name="id" value="${escapeHtml(input.orgId)}"><input type="hidden" name="tab" value="users"><input name="uq" value="${escapeHtml(input.userQ)}" placeholder="Search name, email, phone"><button class="btn">Search</button></form>`;
+  const usersHtml = `<section class="panel"><div class="panel-head"><h2>Users</h2>${searchForm}</div>${users.length ? `<div class="table-wrap"><table><thead><tr><th>User</th><th>Portal</th><th>Contact</th><th>Support login</th></tr></thead><tbody>${rows}</tbody></table></div>${users.length >= 200 ? `<div class="panel-body muted small">Showing the first 200. Search to narrow down.</div>` : ""}` : empty("No users found", input.userQ ? "Try a different search." : "This school has no users yet.")}</section>`;
+  const sessionsHtml = `<section class="panel"><div class="panel-head"><h2>Recent support logins</h2></div><div class="panel-body"><ul class="activity">${sessions
+    .map((x) => {
+      const state = x.endedAt ? "Ended" : x.redeemedAt ? (x.expiresAt && x.expiresAt > new Date() ? "Active" : "Expired") : x.codeExpiresAt > new Date() ? "Code issued" : "Code unused";
+      return `<li><strong>${escapeHtml(x.targetUser.name)}</strong> · ${escapeHtml(state)}<div class="muted small">${dateTimeLabel(x.createdAt)} · ${escapeHtml(x.adminEmail)} · ${escapeHtml(x.reason)}</div></li>`;
+    })
+    .join("") || "<li class=muted>No support logins yet.</li>"}</ul></div></section>`;
+  return `${resultHtml}${usersHtml}${sessionsHtml}`;
+}
+
 export async function adminPortalHtml(input: {
   basePath: string;
   session: SaasAdminSession;
+  userQ?: string;
+  supportCode?: SupportCodeResult;
   view?: string;
   id?: string;
   q?: string;
@@ -364,7 +403,9 @@ export async function adminPortalHtml(input: {
       const pct = tasks.length ? Math.round((tasks.filter((t) => t.done).length / tasks.length) * 100) : 0;
       const header = `<section class="detail-head"><div><div class="muted small">${isLead ? "LEAD" : "ORGANISATION"} · Customer since ${dateLabel(org.customerSince || org.createdAt)}</div><h1>${escapeHtml(org.schoolName)}</h1><div class="actions">${badge(isLead ? "LEAD" : org.subscriptionStatus)} ${badge(org.pipelineStage)}</div></div><div class="detail-stats"><div><span>Plan</span><strong>${escapeHtml(org.plan || "—")}</strong></div><div><span>Amount</span><strong>${org.monthlyPrice ? `${money(org.monthlyPrice)} / year` : "—"}</strong></div><div><span>Manager</span><strong>${escapeHtml(org.assignedOwner || "Unassigned")}</strong></div></div><div class="actions"><a class="btn" href="${baseUrl(input.basePath, { view: "edit-org", id: org.id })}">Edit</a>${isLead ? `<form method="post" action="${input.basePath}/crm/${org.id}/stage">${csrfField(input.session)}<input type="hidden" name="stage" value="PAYMENT"><button class="btn">Convert to payment</button></form>` : `<a class="btn primary" href="${baseUrl(input.basePath, { view: "new-invoice", id: org.id })}">Create invoice</a>`}</div></section>${orgTabs(input.basePath, org.id, tab, isLead)}`;
       let panel = "";
-      if (tab === "subscription") {
+      if (tab === "users" && !isLead) {
+        panel = await supportUsersPanel({ basePath: input.basePath, session: input.session, orgId: org.id, userQ: input.userQ || "", result: input.supportCode });
+      } else if (tab === "subscription") {
         panel = `<section class="panel"><div class="panel-head"><h2>Subscription</h2></div><div class="panel-body">${currentSub ? `<strong>${escapeHtml(currentSub.plan)}</strong><p>${money(currentSub.amount)} / ${escapeHtml(currentSub.cycle.toLowerCase())}</p><div class="form-grid"><div><span class="muted small">Status</span><div>${badge(currentSub.status)}</div></div><div><span class="muted small">Started</span><div>${dateLabel(currentSub.startedAt)}</div></div><div><span class="muted small">Renews</span><div>${dateLabel(currentSub.renewsAt)}</div></div><div><span class="muted small">Payment</span><div>${badge(currentSub.paymentStatus)}</div></div></div><div class="actions" style="margin-top:16px"><form method="post" action="${input.basePath}/crm/${org.id}/plan">${csrfField(input.session)}<div class="form-grid"><div class="field"><label>Change plan</label><input name="plan" value="${escapeHtml(currentSub.plan)}"></div><div class="field"><label>Amount</label><input name="amount" type="number" value="${currentSub.amount}"></div></div><button class="btn" style="margin-top:10px">Save plan</button></form><form method="post" action="${input.basePath}/crm/${org.id}/cancel" onsubmit="return confirm('Cancel this subscription?')">${csrfField(input.session)}<button class="btn danger">Cancel subscription</button></form></div>` : empty("No subscription", "A subscription is created when a trial starts or payment succeeds.")}<h3 style="margin-top:24px">History</h3><div class="stepper">${org.subscriptions.map((s) => `<div class="on"><strong>${escapeHtml(s.plan)}</strong> ${badge(s.status)}<div class="muted small">${escapeHtml(s.history || dateLabel(s.startedAt))}</div></div>`).join("") || "<div>No history yet.</div>"}</div></div></section>`;
       } else if (tab === "billing") {
         panel = `<section class="panel"><div class="panel-head"><h2>Invoices</h2><a class="btn" href="${baseUrl(input.basePath, { view: "new-invoice", id: org.id })}">＋ New invoice</a></div>${org.invoices.length ? `<div class="table-wrap"><table><thead><tr><th>Invoice</th><th>Date</th><th>Amount</th><th>Status</th></tr></thead><tbody>${org.invoices.map((i) => `<tr><td><a href="${baseUrl(input.basePath, { view: "invoice", id: i.id })}"><strong>${escapeHtml(i.number)}</strong></a></td><td>${dateLabel(i.issueDate)}</td><td class="num">${money(i.total)}</td><td>${badge(i.status)}</td></tr>`).join("")}</tbody></table></div>` : empty("No invoices", "Create an invoice when commercial terms are ready.")}</section>`;
