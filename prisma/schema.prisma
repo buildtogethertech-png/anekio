@@ -1568,3 +1568,57 @@ model SaasEmailDelivery {
   @@index([orgId, createdAt])
   @@index([status, createdAt])
 }
+
+/// Parent ↔ school conversation. Only its members (plus holders of inbox.viewAll) can see it.
+model InboxThread {
+  id            String         @id @default(cuid())
+  orgId         String?
+  studentId     String
+  parentUserId  String
+  /// OFFICE | CLASS_TEACHER | TEACHER
+  target        String         @default("OFFICE")
+  topic         String   @default("")
+  subject       String
+  /// OPEN | WAITING | CLOSED
+  status        String         @default("OPEN")
+  assigneeId    String         @default("")
+  createdById   String
+  lastMessageAt DateTime       @default(now())
+  createdAt     DateTime       @default(now())
+  messages      InboxMessage[]
+  members       InboxMember[]
+
+  @@index([parentUserId])
+  @@index([studentId])
+}
+
+model InboxMessage {
+  id         String      @id @default(cuid())
+  orgId      String?
+  threadId   String
+  thread     InboxThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  authorId   String
+  authorName String      @default("")
+  body       String
+  /// Staff-only note: never sent to the parent.
+  internal   Boolean     @default(false)
+  /// MESSAGE | EVENT (status change, member added…)
+  kind       String      @default("MESSAGE")
+  createdAt  DateTime    @default(now())
+
+  @@index([threadId, createdAt])
+}
+
+model InboxMember {
+  id         String      @id @default(cuid())
+  orgId      String?
+  threadId   String
+  thread     InboxThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  userId     String
+  lastReadAt DateTime?
+  addedById  String      @default("")
+  createdAt  DateTime    @default(now())
+
+  @@unique([threadId, userId])
+  @@index([userId])
+}

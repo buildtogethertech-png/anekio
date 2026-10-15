@@ -59,7 +59,11 @@ export type UpcomingTeacherLeaveRow = {
     room: string;
     substituteId: string;
     substituteName: string;
-    candidates: { id: string; name: string; match: boolean }[];
+    /**
+     * Ranked: 1 = already teaches this class (teaches own subject), 2 = teaches this subject elsewhere,
+     * 3 = any free teacher. Within a tier, fewer cover periods this week first.
+     */
+    candidates: { id: string; name: string; match: boolean; tier: 1 | 2 | 3; reason: string; ownSubject: string; coverCount: number }[];
   }[];
 };
 
@@ -247,7 +251,8 @@ async function upcomingTeacherLeave(requestIds: string[], cal: SchoolCalendar): 
         user: { select: { name: true } },
         skills: true,
         subjects: { select: { name: true, classId: true } },
-        slots: { select: { weekday: true, periodId: true } },
+        slots: { select: { weekday: true, periodId: true, classId: true, subject: { select: { name: true } } } },
+        classes: { select: { classId: true } },
       },
       orderBy: { user: { name: "asc" } },
     }),
@@ -286,20 +291,37 @@ async function upcomingTeacherLeave(requestIds: string[], cal: SchoolCalendar): 
                   (cover) => cover.substituteId === teacher.id && cover.date === date && cover.slot.periodId === slot.periodId
                 ) || assignment?.substituteId === teacher.id
             )
-            .map((teacher) => ({
-              id: teacher.id,
-              name: teacher.user.name,
-              match: Boolean(
-                slot.subject &&
-                  (teacher.skills.some(
-                    (skill) => skill.classId === slot.classId && skill.subjectName.toLowerCase() === slot.subject!.name.toLowerCase()
-                  ) ||
-                    teacher.subjects.some(
-                      (subject) => subject.classId === slot.classId && subject.name.toLowerCase() === slot.subject!.name.toLowerCase()
-                    ))
-              ),
-            }))
-            .sort((a, b) => Number(b.match) - Number(a.match) || a.name.localeCompare(b.name));
+            .map((teacher) => {
+              const subjectName = (slot.subject?.name || "").toLowerCase();
+              const inClassSlots = teacher.slots.filter((s) => s.classId === slot.classId);
+              const ownSubjects = [
+                ...new Set([
+                  ...inClassSlots.map((s) => s.subject?.name || "").filter(Boolean),
+                  ...teacher.subjects.filter((s) => s.classId === slot.classId).map((s) => s.name),
+                  ...teacher.skills.filter((s) => s.classId === slot.classId).map((s) => s.subjectName),
+                ]),
+              ];
+              const isClassTeacher = teacher.classId === slot.classId || teacher.classes.some((c) => c.classId === slot.classId);
+              const teachesClass = ownSubjects.length > 0 || isClassTeacher;
+              const teachesSubject =
+                Boolean(subjectName) &&
+                (teacher.skills.some((s) => s.subjectName.toLowerCase() === subjectName) ||
+                  teacher.subjects.some((s) => s.name.toLowerCase() === subjectName) ||
+                  teacher.slots.some((s) => (s.subject?.name || "").toLowerCase() === subjectName));
+              const tier: 1 | 2 | 3 = teachesClass ? 1 : teachesSubject ? 2 : 3;
+              const own = ownSubjects.find((n) => n.toLowerCase() !== subjectName) || ownSubjects[0] || "";
+              const reason =
+                tier === 1
+                  ? own
+                    ? `Teaches ${slot.class.name}-${slot.class.section} · ${own}`
+                    : `Class teacher of ${slot.class.name}-${slot.class.section}`
+                  : tier === 2
+                    ? `Teaches ${slot.subject?.name} in other classes`
+                    : "Free this period";
+              const coverCount = assignedCover.filter((c) => c.substituteId === teacher.id).length;
+              return { id: teacher.id, name: teacher.user.name, match: tier <= 2, tier, reason, ownSubject: tier === 1 ? own : "", coverCount };
+            })
+            .sort((a, b) => a.tier - b.tier || a.coverCount - b.coverCount || a.name.localeCompare(b.name));
           return {
             slotId: slot.id,
             date,

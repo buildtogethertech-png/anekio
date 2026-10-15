@@ -1,0 +1,265 @@
+
+/* ------------------------------------------------------------------ */
+/* Parent fees on phones: one total, grouped by child, tap for detail.  */
+/* ------------------------------------------------------------------ */
+
+const DAY_MS = 86_400_000;
+
+function daysLate(inv: FeeInv) {
+  const at = Date.parse(inv.dueAt || "");
+  if (!Number.isFinite(at)) return 0;
+  return Math.max(0, Math.floor((Date.now() - at) / DAY_MS));
+}
+
+function lateFeeOf(inv: FeeInv) {
+  return Math.max(0, Math.round(dueOf(inv) - amountOf(inv.remaining)));
+}
+
+/** "Aisha Sharma · September 2026 · Monthly fee" → { month: "September 2026", kind: "Monthly fee" } */
+function splitFeeTitle(title: string, childName: string) {
+  const parts = title
+    .split("·")
+    .map((p) => p.trim())
+    .filter((p) => p && p !== childName);
+  return { month: parts[0] || title, kind: parts.slice(1).join(" · ") };
+}
+
+function FeesPhoneView({
+  groups,
+  openInvoices,
+  paidInvoices,
+  picked,
+  setPicked,
+  busy,
+  onPay,
+  onOpen,
+}: {
+  groups: { id: string; name: string; classLabel: string; open: StatementFee[]; paid: StatementFee[] }[];
+  openInvoices: StatementFee[];
+  paidInvoices: StatementFee[];
+  picked: string[];
+  setPicked: (ids: string[] | ((cur: string[]) => string[])) => void;
+  busy: boolean;
+  onPay: () => void;
+  onOpen: (url?: string) => void;
+}) {
+  const [tab, setTab] = useState<"due" | "receipts">("due");
+  const [choosing, setChoosing] = useState(false);
+  const [expanded, setExpanded] = useState<string>("");
+
+  const totalDue = openInvoices.reduce((n, inv) => n + dueOf(inv), 0);
+  const selected = openInvoices.filter((inv) => picked.includes(inv.id));
+  const selectedDue = selected.reduce((n, inv) => n + dueOf(inv), 0);
+  const overdue = openInvoices.filter((inv) => inv.display === "overdue");
+  const oldest = overdue.slice().sort((a, b) => Date.parse(a.dueAt) - Date.parse(b.dueAt))[0];
+  const nextUp = openInvoices
+    .filter((inv) => inv.display !== "overdue")
+    .sort((a, b) => Date.parse(a.dueAt) - Date.parse(b.dueAt))[0];
+  const months = openInvoices.length;
+
+  function stopChoosing() {
+    setChoosing(false);
+    setPicked(openInvoices.map((inv) => inv.id));
+  }
+
+  const payText = busy
+    ? "Opening payment…"
+    : choosing
+      ? selected.length
+        ? `Pay ${rupees(selectedDue)} for ${selected.length} month${selected.length === 1 ? "" : "s"}`
+        : "Pick at least one month"
+      : `Pay ${rupees(totalDue)}`;
+
+  const initials = (name: string) =>
+    name
+      .split(" ")
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((p) => p[0]?.toUpperCase())
+      .join("");
+
+  return (
+    <View className="pb-6">
+      <Text className="mb-3 text-[22px] font-semibold text-ink-900">Fees</Text>
+
+      {/* Hero */}
+      <View className="rounded-3xl border border-ink-100 bg-white p-4">
+        {totalDue > 0 ? (
+          <>
+            <Text className="text-[13px] font-medium text-ink-500">Total due</Text>
+            <Text className="mt-0.5 text-[32px] font-bold leading-10 text-ink-900">{rupees(totalDue)}</Text>
+            <View className="mt-1 flex-row items-center gap-1.5">
+              {oldest ? <View className="h-2 w-2 rounded-full bg-[#E5484D]" /> : null}
+              <Text className={`text-[13px] font-medium ${oldest ? "text-[#B42318]" : "text-ink-600"}`}>
+                {months} month{months === 1 ? "" : "s"}
+                {oldest ? ` · overdue since ${shortDate(oldest.dueAt)}` : nextUp ? ` · due by ${shortDate(nextUp.dueAt)}` : ""}
+              </Text>
+            </View>
+            <Pressable
+              onPress={onPay}
+              disabled={busy || (choosing && !selected.length)}
+              className={`mt-4 h-12 items-center justify-center rounded-2xl ${busy || (choosing && !selected.length) ? "bg-ink-200" : "bg-[#1F45C7]"}`}
+            >
+              <Text className={`text-[16px] font-semibold ${busy || (choosing && !selected.length) ? "text-ink-500" : "text-white"}`}>{payText}</Text>
+            </Pressable>
+            {months > 1 ? (
+              <Pressable onPress={() => (choosing ? stopChoosing() : (setChoosing(true), setTab("due")))} className="mt-3 items-center" hitSlop={8}>
+                <Text className="text-[13px] font-semibold text-[#1F45C7]">{choosing ? "Pay everything instead" : "Pay for selected months only"}</Text>
+              </Pressable>
+            ) : null}
+          </>
+        ) : (
+          <View className="flex-row items-center gap-3">
+            <View className="h-12 w-12 items-center justify-center rounded-2xl bg-[#ECF8F0]">
+              <Ionicons name="checkmark-circle" size={26} color="#18794E" />
+            </View>
+            <View className="min-w-0 flex-1">
+              <Text className="text-[17px] font-semibold text-ink-900">All paid up</Text>
+              <Text className="mt-0.5 text-[13px] text-ink-500">Nothing due right now. Receipts are below.</Text>
+            </View>
+          </View>
+        )}
+      </View>
+
+      {/* Tabs */}
+      <View className="mt-4 flex-row rounded-xl bg-ink-100 p-1">
+        {([
+          { id: "due", label: `Due${months ? ` · ${months}` : ""}` },
+          { id: "receipts", label: `Receipts${paidInvoices.length ? ` · ${paidInvoices.length}` : ""}` },
+        ] as const).map((t) => (
+          <Pressable key={t.id} onPress={() => setTab(t.id)} className={`h-9 flex-1 items-center justify-center rounded-lg ${tab === t.id ? "bg-white" : ""}`}>
+            <Text className={`text-[13px] font-semibold ${tab === t.id ? "text-ink-900" : "text-ink-500"}`}>{t.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {choosing && tab === "due" ? (
+        <Text className="mt-3 text-[12px] text-ink-500">Tick the months you want to pay now. Older months first is best.</Text>
+      ) : null}
+
+      {/* Lists, one card per child */}
+      {groups.map((g) => {
+        const rows = tab === "due" ? g.open : g.paid;
+        if (!rows.length) return null;
+        const childDue = g.open.reduce((n, inv) => n + dueOf(inv), 0);
+        return (
+          <View key={g.id} className="mt-4">
+            <View className="mb-2 flex-row items-center gap-2.5">
+              <View className="h-8 w-8 items-center justify-center rounded-xl bg-[#EEF3FF]">
+                <Text className="text-[12px] font-bold text-[#1F45C7]">{initials(g.name)}</Text>
+              </View>
+              <Text className="min-w-0 flex-1 text-[15px] font-semibold text-ink-900" numberOfLines={1}>
+                {g.name}
+                {g.classLabel ? <Text className="font-normal text-ink-500"> · {g.classLabel}</Text> : null}
+              </Text>
+              {tab === "due" ? <Text className="text-[14px] font-semibold text-ink-900">{rupees(childDue)}</Text> : null}
+            </View>
+            <View className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
+              {rows.map((inv, i) => {
+                const { month, kind } = splitFeeTitle(inv.title, g.name);
+                const open = expanded === inv.id;
+                const late = inv.display === "overdue" ? daysLate(inv) : 0;
+                const lateFee = lateFeeOf(inv);
+                const on = picked.includes(inv.id);
+                const paidSoFar = amountOf(inv.paid);
+                return (
+                  <View key={inv.id} className={i ? "border-t border-ink-100" : ""}>
+                    <Pressable
+                      onPress={() => (choosing && tab === "due" ? setPicked((cur) => (on ? cur.filter((id) => id !== inv.id) : [...cur, inv.id])) : setExpanded(open ? "" : inv.id))}
+                      className="flex-row items-center gap-3 px-3.5 py-3"
+                    >
+                      {choosing && tab === "due" ? (
+                        <Ionicons name={on ? "checkbox" : "square-outline"} size={22} color={on ? "#1F45C7" : "#CBD5E1"} />
+                      ) : null}
+                      <View className="min-w-0 flex-1">
+                        <Text className="text-[15px] font-semibold text-ink-900" numberOfLines={1}>
+                          {month}
+                        </Text>
+                        <Text className="mt-0.5 text-[12px] text-ink-500" numberOfLines={1}>
+                          {tab === "due" ? kind || "Fee" : `Paid ${inv.paid}${kind ? ` · ${kind}` : ""}`}
+                        </Text>
+                      </View>
+                      <View className="items-end">
+                        <Text className="text-[15px] font-semibold text-ink-900">{tab === "due" ? rupees(dueOf(inv)) : inv.amount}</Text>
+                        {tab === "due" ? (
+                          late ? (
+                            <View className="mt-1 rounded-full bg-[#FDECEC] px-2 py-0.5">
+                              <Text className="text-[11px] font-semibold text-[#B42318]">{late} day{late === 1 ? "" : "s"} late</Text>
+                            </View>
+                          ) : (
+                            <Text className="mt-1 text-[11px] text-ink-500">Due {shortDate(inv.dueAt)}</Text>
+                          )
+                        ) : (
+                          <View className="mt-1 rounded-full bg-[#ECF8F0] px-2 py-0.5">
+                            <Text className="text-[11px] font-semibold text-[#18794E]">Paid</Text>
+                          </View>
+                        )}
+                      </View>
+                      {!choosing || tab !== "due" ? (
+                        <Ionicons name={open ? "chevron-up" : "chevron-down"} size={16} color="#94A3B8" />
+                      ) : null}
+                    </Pressable>
+                    {open && !(choosing && tab === "due") ? (
+                      <View className="mx-3.5 mb-3 rounded-xl bg-ink-50 p-3">
+                        {inv.lines.map((line) => {
+                          const m = line.match(/^(.*)\s(₹[\d,.]+)$/);
+                          return (
+                            <View key={line} className="flex-row justify-between py-0.5">
+                              <Text className="text-[13px] text-ink-600">{m ? m[1] : line}</Text>
+                              <Text className="text-[13px] text-ink-800">{m ? m[2] : ""}</Text>
+                            </View>
+                          );
+                        })}
+                        {lateFee ? (
+                          <View className="flex-row justify-between py-0.5">
+                            <Text className="text-[13px] text-[#B42318]">Late fee{late ? ` (${late} days)` : ""}</Text>
+                            <Text className="text-[13px] text-[#B42318]">{rupees(lateFee)}</Text>
+                          </View>
+                        ) : null}
+                        {paidSoFar && tab === "due" ? (
+                          <View className="flex-row justify-between py-0.5">
+                            <Text className="text-[13px] text-[#18794E]">Paid so far</Text>
+                            <Text className="text-[13px] text-[#18794E]">−{inv.paid}</Text>
+                          </View>
+                        ) : null}
+                        <View className="mt-1.5 flex-row justify-between border-t border-ink-200 pt-1.5">
+                          <Text className="text-[13px] font-semibold text-ink-900">{tab === "due" ? "To pay" : "Total paid"}</Text>
+                          <Text className="text-[13px] font-semibold text-ink-900">{tab === "due" ? rupees(dueOf(inv)) : inv.paid}</Text>
+                        </View>
+                        <View className="mt-3 flex-row gap-2">
+                          {inv.invoiceUrl ? (
+                            <Pressable onPress={() => onOpen(inv.invoiceUrl)} className="h-9 flex-1 flex-row items-center justify-center gap-1.5 rounded-lg border border-ink-200 bg-white">
+                              <Ionicons name="document-text-outline" size={15} color="#1F45C7" />
+                              <Text className="text-[13px] font-semibold text-[#1F45C7]">Invoice</Text>
+                            </Pressable>
+                          ) : null}
+                          {inv.receiptUrl ? (
+                            <Pressable onPress={() => onOpen(inv.receiptUrl)} className="h-9 flex-1 flex-row items-center justify-center gap-1.5 rounded-lg border border-ink-200 bg-white">
+                              <Ionicons name="receipt-outline" size={15} color="#18794E" />
+                              <Text className="text-[13px] font-semibold text-[#18794E]">Receipt</Text>
+                            </Pressable>
+                          ) : null}
+                        </View>
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        );
+      })}
+
+      {tab === "receipts" && !paidInvoices.length ? (
+        <View className="mt-8 items-center px-6">
+          <Ionicons name="receipt-outline" size={30} color="#CBD5E1" />
+          <Text className="mt-2 text-center text-[14px] font-semibold text-ink-700">No receipts yet</Text>
+          <Text className="mt-1 text-center text-[12px] text-ink-500">Once you pay, your receipts show up here to download any time.</Text>
+        </View>
+      ) : null}
+      {tab === "due" && !openInvoices.length && paidInvoices.length ? (
+        <Text className="mt-6 text-center text-[13px] text-ink-500">Nothing due. See your receipts in the other tab.</Text>
+      ) : null}
+    </View>
+  );
+}

@@ -1,723 +1,1190 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
-import { api, type Notice } from "../lib/api";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  AppState,
+  KeyboardAvoidingView,
+  Linking,
+  Modal as RnModal,
+  Platform,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  useWindowDimensions,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { api } from "../lib/api";
 import { act } from "../lib/mutate";
-import { classifyNotice } from "../lib/notice-kind";
 import { useRecord } from "../lib/record";
 import { useSession } from "../lib/session";
-import { Badge, Button, Card, Empty, PageHeader, Toast, useToast } from "./ui";
+import { Toast, useToast } from "./ui";
 
-type InboxStatus = "OPEN" | "WAITING" | "URGENT" | "CLOSED";
-type ComposeMode = "reply" | "note";
-type InboxGroup = {
-  key: string;
-  student: string;
-  classLabel: string;
-  parent: string;
-  tickets: Notice[];
-  primary: Notice;
-  openCount: number;
-  issueCount: number;
-  waitingCount: number;
+/* ------------------------------------------------------------------ types */
+
+type InboxStatus = "OPEN" | "WAITING" | "CLOSED";
+type InboxTarget = "OFFICE" | "CLASS_TEACHER" | "TEACHER";
+
+export type InboxThread = {
+  id: string;
+  subject: string;
+  topic: string;
+  status: InboxStatus;
+  target: InboxTarget;
+  withLabel: string;
+  student: { id: string; name: string; classLabel: string };
+  parent: { userId: string; name: string; phone: string };
+  assignee: { userId: string; name: string } | null;
+  members: { userId: string; name: string; role: string }[];
+  isMember: boolean;
+  lastMessage: { body: string; authorName: string; internal: boolean; kind: string; at: string } | null;
+  lastMessageAt: string;
+  unread: boolean;
+  createdAt: string;
 };
 
-function isInboxNotice(n: Notice, portal?: string | null) {
-  if (classifyNotice(n).kind !== "FEEDBACK") return false;
-  if (portal === "PARENT") return /^(Reply:|Note ·|Parent (query|consult|reply):)/i.test(n.title);
-  return /^(Parent (query|consult|reply):|Mentioned in |Note ·)/i.test(n.title);
+type InboxMessage = {
+  id: string;
+  authorId: string;
+  authorName: string;
+  authorRole: string;
+  body: string;
+  internal: boolean;
+  kind: string;
+  mine: boolean;
+  fromParent: boolean;
+  at: string;
+};
+
+type Person = { userId: string; name: string; role: string };
+type ThreadDetail = { thread: InboxThread; messages: InboxMessage[]; taggable: Person[] };
+type Recipients = {
+  classTeacher: { userId: string; name: string } | null;
+  teachers: { userId: string; name: string; subject: string }[];
+};
+
+/* ---------------------------------------------------------------- helpers */
+
+const BRAND = "#1F45C7";
+const LIST_POLL_MS = 30_000;
+const THREAD_POLL_MS = 25_000;
+const STATUS_RANK: Record<InboxStatus, number> = { OPEN: 0, WAITING: 1, CLOSED: 2 };
+
+const STATUS_STYLE: Record<InboxStatus, { label: string; bg: string; text: string }> = {
+  OPEN: { label: "Open", bg: "bg-[#EEF3FF]", text: "text-[#1F45C7]" },
+  WAITING: { label: "Waiting", bg: "bg-[#FFF7E8]", text: "text-[#B45309]" },
+  CLOSED: { label: "Closed", bg: "bg-ink-100", text: "text-ink-600" },
+};
+
+/** What a parent sees: a school reply is good news, not a warning. */
+function parentStatus(status: InboxStatus, unread: boolean) {
+  if (status === "CLOSED") return { label: "Closed", text: "text-ink-500", bg: "bg-ink-100" };
+  if (status === "WAITING") return unread ? { label: "New reply", text: "text-[#1F45C7]", bg: "bg-[#EEF3FF]" } : { label: "Replied", text: "text-ink-600", bg: "bg-ink-100" };
+  return { label: "Sent", text: "text-ink-600", bg: "bg-ink-100" };
 }
 
-function subjectFor(n: Notice) {
-  return n.title.replace(/^(Reply:|Parent (query|consult|reply):|Note ·)\s*/i, "").trim() || "General query";
+const TOPICS = ["Fees", "Attendance", "Homework", "Exams", "Transport", "Other"];
+
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  return ((parts[0]?.[0] || "") + (parts[1]?.[0] || "")).toUpperCase() || "?";
 }
 
-function ticketNo(n: Notice) {
-  return `REQ-${n.id.replace(/[^a-z0-9]/gi, "").slice(-6).toUpperCase() || "NEW"}`;
+function shortAgo(iso: string) {
+  const at = new Date(iso);
+  const diff = Date.now() - at.getTime();
+  if (!Number.isFinite(diff)) return "";
+  const min = Math.floor(diff / 60_000);
+  if (min < 1) return "now";
+  if (min < 60) return `${min}m`;
+  const hrs = Math.floor(min / 60);
+  if (hrs < 24) return `${hrs}h`;
+  const days = Math.floor(hrs / 24);
+  if (days === 1) return "Yesterday";
+  if (days < 7) return at.toLocaleDateString("en-IN", { weekday: "short" });
+  return at.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
 }
 
-function isThreadRoot(n: Notice) {
-  return /^Parent (query|consult):/i.test(n.title);
+function clockTime(iso: string) {
+  return new Date(iso).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
 }
 
-function isConversationAnchor(n: Notice, portal?: string | null) {
-  if (statusFor(n) === "CLOSED") return false;
-  if (isThreadRoot(n)) return true;
-  if (portal === "PARENT") return /^(Reply:|Note ·|Parent reply:)/i.test(n.title);
-  return /^(Mentioned in |Note ·|Parent reply:)/i.test(n.title);
+function dayLabel(iso: string) {
+  const at = new Date(iso);
+  const today = new Date();
+  const y = new Date();
+  y.setDate(today.getDate() - 1);
+  if (at.toDateString() === today.toDateString()) return "Today";
+  if (at.toDateString() === y.toDateString()) return "Yesterday";
+  return at.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: at.getFullYear() === today.getFullYear() ? undefined : "numeric" });
 }
 
-function bodyParts(body: string) {
-  const [main, ...events] = body.split(/\n--- inbox:/);
-  const lines = main.trim().split("\n");
-  const meta = lines[0] || "";
-  const directedTo = lines.find((line) => /^For /i.test(line))?.replace(/^For /i, "").trim() || "";
-  const message = lines
-    .slice(1)
-    .filter((line) => !/^For |^Replying to:/i.test(line))
-    .join("\n")
-    .trim();
-  const bits = meta.split("·").map((part) => part.trim()).filter(Boolean);
-  const parent = bits.find((part) => /^Parent:/i.test(part))?.replace(/^Parent:\s*/i, "") || "";
-  const from = bits.find((part) => /^From:/i.test(part))?.replace(/^From:\s*/i, "") || "";
-  return {
-    meta,
-    student: bits[0] || "",
-    classLabel: bits[1] || "",
-    parent: parent || from,
-    directedTo,
-    message: message || "No message written.",
-    events: events.map((e) => parseEvent(`inbox:${e.trim()}`)),
-  };
+function sortThreads(rows: InboxThread[]) {
+  return [...rows].sort(
+    (a, b) =>
+      Number(b.unread) - Number(a.unread) ||
+      STATUS_RANK[a.status] - STATUS_RANK[b.status] ||
+      +new Date(b.lastMessageAt) - +new Date(a.lastMessageAt)
+  );
 }
 
-function parseEvent(event: string) {
-  const lines = event.replace(/^inbox:/, "").split("\n").map((line) => line.trim()).filter(Boolean);
-  const stamp = lines.shift()?.replace(/\s*---$/, "") || "";
-  const status = lines.find((line) => /^Status:/i.test(line))?.replace(/^Status:\s*/i, "");
-  const assigned = lines.find((line) => /^Assigned:/i.test(line))?.replace(/^Assigned:\s*/i, "");
-  const note = lines.find((line) => /^Internal note:/i.test(line))?.replace(/^Internal note:\s*/i, "");
-  const reply = lines.find((line) => /^Reply sent by /i.test(line))?.replace(/^Reply sent by /i, "");
-  const parentReply = lines.find((line) => /^Parent replied:/i.test(line))?.replace(/^Parent replied:\s*/i, "");
-  const replyMatch = reply?.match(/^(.+?):\s*([\s\S]*)$/);
-  return {
-    stamp,
-    status,
-    assigned,
-    note,
-    reply,
-    replyAuthor: replyMatch?.[1]?.trim() || "",
-    replyBody: replyMatch?.[2]?.trim() || reply || "",
-    parentReply,
-    raw: lines.join("\n"),
-  };
+function errorText(e: unknown, fallback: string) {
+  return e instanceof Error ? e.message : fallback;
 }
 
-function statusFor(n: Notice): InboxStatus {
-  const matches = [...n.body.matchAll(/Status:\s*(OPEN|WAITING|URGENT|CLOSED)/gi)];
-  return (matches.at(-1)?.[1]?.toUpperCase() as InboxStatus | undefined) || "OPEN";
+/** Runs `fn` now, every `ms` while the app is in the foreground, and again on returning to the app. */
+function usePolling(fn: () => void, ms: number, enabled = true) {
+  const ref = useRef(fn);
+  ref.current = fn;
+  useEffect(() => {
+    if (!enabled) return;
+    let active = AppState.currentState === "active" || Platform.OS === "web";
+    const id = setInterval(() => {
+      if (active) ref.current();
+    }, ms);
+    const sub = AppState.addEventListener("change", (state) => {
+      const next = state === "active";
+      if (next && !active) ref.current();
+      active = next;
+    });
+    return () => {
+      clearInterval(id);
+      sub.remove();
+    };
+  }, [ms, enabled]);
 }
 
-function pillFor(status: InboxStatus) {
-  if (status === "CLOSED") return "ink";
-  if (status === "URGENT") return "danger";
-  if (status === "WAITING") return "warn";
-  return "sky";
+/* ------------------------------------------------------------ small parts */
+
+function StatusPill({ status, parentMode, unread = false }: { status: InboxStatus; parentMode: boolean; unread?: boolean }) {
+  const s = parentMode ? parentStatus(status, unread) : STATUS_STYLE[status];
+  return (
+    <View className={`rounded-full px-2 py-0.5 ${s.bg}`}>
+      <Text className={`text-[11px] font-semibold ${s.text}`}>{s.label}</Text>
+    </View>
+  );
 }
 
-function shortDate(value: string) {
-  return new Date(value).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+function statusWord(status: InboxStatus, parentMode: boolean, unread: boolean) {
+  const s = parentMode ? parentStatus(status, unread) : STATUS_STYLE[status];
+  return <Text className={`text-[12px] font-semibold ${s.text}`}>{s.label}</Text>;
 }
 
-function longDate(value: string) {
-  return new Date(value).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+/** Who the parent is talking to: a building for the office, initials for a teacher. */
+function RecipientAvatar({ thread, size = 40 }: { thread: InboxThread; size?: number }) {
+  if (thread.target === "OFFICE") {
+    return (
+      <View style={{ width: size, height: size, borderRadius: size / 2 }} className="items-center justify-center bg-[#EEF3FF]">
+        <Ionicons name="business" size={size * 0.45} color={BRAND} />
+      </View>
+    );
+  }
+  const name = thread.withLabel.replace(/^Class teacher · /, "");
+  return (
+    <View style={{ width: size, height: size, borderRadius: size / 2 }} className="items-center justify-center bg-[#F3EEFF]">
+      <Text className="font-semibold text-[#6D28D9]" style={{ fontSize: size * 0.36 }}>
+        {initials(name)}
+      </Text>
+    </View>
+  );
 }
 
-function activeMentionQuery(value: string) {
-  const match = value.match(/(^|\s)@([A-Za-z .'-]*)$/);
-  return match ? match[2].trim().toLowerCase() : null;
+function TopicTag({ topic }: { topic: string }) {
+  if (!topic) return null;
+  return (
+    <View className="rounded-md bg-ink-100 px-1.5 py-0.5">
+      <Text className="text-[11px] font-medium text-ink-600">{topic}</Text>
+    </View>
+  );
 }
 
-function groupKeyFor(n: Notice) {
-  const parts = bodyParts(n.body);
-  return (n.studentId || `${parts.student}|${parts.classLabel}`).toLowerCase().replace(/\s+/g, " ").trim() || n.id;
+function Avatar({ name, size = 40, tone = "blue" }: { name: string; size?: number; tone?: "blue" | "ink" }) {
+  return (
+    <View
+      style={{ width: size, height: size, borderRadius: size / 2 }}
+      className={`items-center justify-center ${tone === "blue" ? "bg-[#EEF3FF]" : "bg-ink-100"}`}
+    >
+      <Text className={`font-semibold ${tone === "blue" ? "text-[#1F45C7]" : "text-ink-700"}`} style={{ fontSize: size * 0.36 }}>
+        {initials(name)}
+      </Text>
+    </View>
+  );
 }
 
-function newestFirst(a: Notice, b: Notice) {
-  return +new Date(b.createdAt) - +new Date(a.createdAt);
+function FilterChip({ label, count, active, onPress }: { label: string; count?: number; active: boolean; onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      className={`h-8 flex-row items-center gap-1.5 rounded-full border px-3 ${active ? "border-[#1F45C7] bg-[#1F45C7]" : "border-ink-200 bg-white"}`}
+    >
+      <Text className={`text-[13px] font-semibold ${active ? "text-white" : "text-ink-700"}`}>{label}</Text>
+      {count ? (
+        <Text className={`text-[12px] font-semibold ${active ? "text-white/80" : "text-ink-500"}`}>{count}</Text>
+      ) : null}
+    </Pressable>
+  );
 }
 
-function bestTicket(tickets: Notice[]) {
-  const originals = tickets.filter(isThreadRoot);
-  const pool = originals.length ? originals : tickets;
-  return [...pool].sort((a, b) => {
-    const aClosed = statusFor(a) === "CLOSED" ? 1 : 0;
-    const bClosed = statusFor(b) === "CLOSED" ? 1 : 0;
-    if (aClosed !== bClosed) return aClosed - bClosed;
-    return newestFirst(a, b);
-  })[0];
-}
-
-function openTickets(tickets: Notice[], portal?: string | null) {
-  return tickets.filter((ticket) => isConversationAnchor(ticket, portal));
-}
-
-function closedTickets(tickets: Notice[]) {
-  return tickets.filter((ticket) => isThreadRoot(ticket) && statusFor(ticket) === "CLOSED");
-}
-
-function latestThreadPreview(parts: ReturnType<typeof bodyParts>) {
-  const latest = parts.events.at(-1);
-  if (!latest) return parts.message;
-  if (latest.parentReply) return latest.parentReply;
-  if (latest.replyBody) return latest.replyBody;
-  if (latest.note) return latest.note;
-  if (latest.assigned) return `Assigned to ${latest.assigned}`;
-  if (latest.status) return `Status ${latest.status}`;
-  return parts.message;
-}
-
-function latestThreadAt(n: Notice) {
-  const parts = bodyParts(n.body);
-  const lastStamp = parts.events.at(-1)?.stamp;
-  return +new Date(lastStamp || n.createdAt);
-}
-
-export function InboxBoard() {
-  const { token, user } = useSession();
-  const { data } = useRecord();
-  const toast = useToast();
+/** Bottom sheet on phones, centred card on wide screens. */
+function SheetFrame({
+  open,
+  onClose,
+  title,
+  children,
+  footer,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  children: React.ReactNode;
+  footer?: React.ReactNode;
+}) {
   const { width, height } = useWindowDimensions();
-  const wide = width >= 1000;
-  const [rows, setRows] = useState<Notice[]>([]);
-  const [selectedId, setSelectedId] = useState("");
-  const [selectedGroupKey, setSelectedGroupKey] = useState("");
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [composerOpen, setComposerOpen] = useState(false);
-  const [compose, setCompose] = useState("");
-  const [composeMode, setComposeMode] = useState<ComposeMode>("reply");
-  const [saving, setSaving] = useState(false);
-  const parentMode = user?.portal === "PARENT";
-  const boardHeight = Math.max(560, height - 265);
-  const chatHeight = Math.max(composerOpen ? 190 : 300, boardHeight - (composerOpen ? 345 : 230));
-  const mentionPeople = useMemo(() => {
-    const names = [
-      ...(data?.staff ?? []).map((person) => ({ name: person.name, role: person.role || person.kind || "Staff" })),
-      ...(data?.peopleTeachers ?? []).map((person) => ({ name: person.name, role: person.role || "Teacher" })),
-      ...(data?.teachers ?? []).map((person) => ({ name: person.name, role: "Teacher" })),
-      ...(data?.timetable?.teachers ?? []).map((person) => ({ name: person.name, role: person.team ? "Team" : "Teacher" })),
-      ...(data?.team?.people ?? []).map((person) => ({ name: person.name, role: person.role || "Teacher" })),
-      ...(data?.managers ?? []).map((person) => ({ name: person.name, role: person.role || "Manager" })),
-      ...(data?.officeUsers ?? []).map((person) => ({ name: person.name, role: "Office" })),
-    ];
-    const seen = new Set<string>();
-    return names
-      .filter((person) => {
-        const key = person.name.trim().toLowerCase();
-        if (!key || seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      })
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [data?.managers, data?.officeUsers, data?.peopleTeachers, data?.staff, data?.teachers, data?.team?.people, data?.timetable?.teachers]);
-  const mentionQuery = !parentMode && composeMode === "note" ? activeMentionQuery(compose) : null;
-  const mentionSuggestions = mentionQuery === null
-    ? []
-    : mentionPeople
-        .filter((person) => person.name.toLowerCase().includes(mentionQuery))
-        .slice(0, 6);
+  const phone = width < 768;
+  return (
+    <RnModal visible={open} transparent animationType={phone ? "slide" : "fade"} onRequestClose={onClose}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} className={`flex-1 ${phone ? "justify-end" : "items-center justify-center px-4"}`}>
+        <Pressable accessibilityLabel="Dismiss" className="absolute inset-0 bg-black/40" onPress={onClose} />
+        <View
+          className={`w-full bg-white ${phone ? "rounded-t-3xl pb-6" : "max-w-[520px] rounded-2xl pb-4"}`}
+          style={{ maxHeight: height * (phone ? 0.9 : 0.85) }}
+        >
+          {phone ? <View className="mx-auto mt-2.5 h-1 w-10 rounded-full bg-ink-200" /> : null}
+          <View className="flex-row items-center justify-between px-5 pb-2 pt-3">
+            <Text className="text-[17px] font-semibold text-ink-900">{title}</Text>
+            <Pressable onPress={onClose} hitSlop={10} className="h-8 w-8 items-center justify-center rounded-full bg-ink-100">
+              <Ionicons name="close" size={18} color="#334155" />
+            </Pressable>
+          </View>
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 8 }}>
+            {children}
+          </ScrollView>
+          {footer ? <View className="border-t border-ink-100 px-5 pt-3">{footer}</View> : null}
+        </View>
+      </KeyboardAvoidingView>
+    </RnModal>
+  );
+}
+
+function PrimaryButton({ label, onPress, disabled, busy }: { label: string; onPress: () => void; disabled?: boolean; busy?: boolean }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled || busy}
+      className={`h-12 flex-row items-center justify-center gap-2 rounded-xl ${disabled ? "bg-ink-200" : "bg-[#1F45C7]"}`}
+    >
+      {busy ? <ActivityIndicator color="#fff" size="small" /> : null}
+      <Text className={`text-[15px] font-semibold ${disabled ? "text-ink-500" : "text-white"}`}>{label}</Text>
+    </Pressable>
+  );
+}
+
+/* ----------------------------------------------------- new conversation */
+
+export function NewConversationSheet({
+  open,
+  onClose,
+  studentId,
+  studentName,
+  initialTarget = "OFFICE",
+  initialSubject = "",
+  onSent,
+}: {
+  open: boolean;
+  onClose: () => void;
+  studentId?: string;
+  studentName?: string;
+  initialTarget?: "OFFICE" | "CLASS_TEACHER";
+  initialSubject?: string;
+  onSent?: (threadId: string) => void;
+}) {
+  const { token } = useSession();
+  const [recipients, setRecipients] = useState<Recipients | null>(null);
+  const [target, setTarget] = useState<InboxTarget>(initialTarget);
+  const [teacherId, setTeacherId] = useState("");
+  const [showTeachers, setShowTeachers] = useState(false);
+  const [subject, setSubject] = useState(initialSubject);
+  const [topic, setTopic] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    setTarget(initialTarget);
+    setTeacherId("");
+    setShowTeachers(false);
+    setSubject(initialSubject);
+    setTopic("");
+    setMessage("");
+    setError("");
+    if (!token || !studentId) return;
+    api<Recipients>(`/inbox/recipients?studentId=${encodeURIComponent(studentId)}`, token)
+      .then(setRecipients)
+      .catch(() => setRecipients({ classTeacher: null, teachers: [] }));
+  }, [open, studentId, token, initialTarget, initialSubject]);
+
+  const teacherPick = recipients?.teachers.find((t) => t.userId === teacherId);
+  const ready =
+    Boolean(message.trim()) &&
+    (target === "OFFICE" || (target === "CLASS_TEACHER" && Boolean(recipients?.classTeacher)) || (target === "TEACHER" && Boolean(teacherPick)));
+
+  async function send() {
+    if (!ready) return;
+    setBusy(true);
+    setError("");
+    try {
+      const res = await act<{ ok: true; threadId: string }>(token, "startInboxThread", {
+        studentId,
+        target,
+        teacherUserId: target === "TEACHER" ? teacherId : undefined,
+        subject: subject.trim(),
+        topic,
+        message: message.trim(),
+      });
+      onClose();
+      onSent?.(res.threadId);
+    } catch (e) {
+      setError(errorText(e, "Could not send."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const option = (key: InboxTarget, icon: keyof typeof Ionicons.glyphMap, title: string, sub: string, disabled?: boolean) => {
+    const active = target === key;
+    return (
+      <Pressable
+        key={key}
+        disabled={disabled}
+        onPress={() => {
+          setTarget(key);
+          if (key === "TEACHER") setShowTeachers(true);
+        }}
+        className={`flex-row items-center gap-3 rounded-xl border px-3 py-3 ${active ? "border-[#1F45C7] bg-[#EEF3FF]" : "border-ink-200 bg-white"} ${disabled ? "opacity-50" : ""}`}
+      >
+        <View className={`h-9 w-9 items-center justify-center rounded-full ${active ? "bg-white" : "bg-ink-50"}`}>
+          <Ionicons name={icon} size={18} color={active ? BRAND : "#475569"} />
+        </View>
+        <View className="min-w-0 flex-1">
+          <Text className="text-[14px] font-semibold text-ink-900">{title}</Text>
+          <Text className="mt-0.5 text-[12px] text-ink-500" numberOfLines={1}>
+            {sub}
+          </Text>
+        </View>
+        <Ionicons name={active ? "radio-button-on" : "radio-button-off"} size={20} color={active ? BRAND : "#CBD5E1"} />
+      </Pressable>
+    );
+  };
+
+  return (
+    <SheetFrame
+      open={open}
+      onClose={onClose}
+      title="New message"
+      footer={
+        <View className="gap-2">
+          {error ? <Text className="text-[13px] text-red-600">{error}</Text> : null}
+          <PrimaryButton label="Send" onPress={() => void send()} disabled={!ready} busy={busy} />
+        </View>
+      }
+    >
+      {studentName ? <Text className="mb-3 text-[13px] text-ink-500">About {studentName}</Text> : null}
+      <Text className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-ink-500">Send to</Text>
+      <View className="gap-2">
+        {option("OFFICE", "business-outline", "School office", "Fees, admissions, documents, anything general")}
+        {option(
+          "CLASS_TEACHER",
+          "person-outline",
+          "Class teacher",
+          recipients?.classTeacher ? recipients.classTeacher.name : recipients ? "No class teacher assigned yet" : "Loading…",
+          Boolean(recipients && !recipients.classTeacher)
+        )}
+        {option(
+          "TEACHER",
+          "school-outline",
+          "A subject teacher",
+          teacherPick ? `${teacherPick.name}${teacherPick.subject ? ` · ${teacherPick.subject}` : ""}` : "Pick a teacher",
+          Boolean(recipients && !recipients.teachers.length)
+        )}
+        {target === "TEACHER" && showTeachers && recipients?.teachers.length ? (
+          <View className="overflow-hidden rounded-xl border border-ink-200">
+            {recipients.teachers.map((t, i) => (
+              <Pressable
+                key={t.userId}
+                onPress={() => {
+                  setTeacherId(t.userId);
+                  setShowTeachers(false);
+                }}
+                className={`flex-row items-center gap-3 px-3 py-2.5 ${i ? "border-t border-ink-100" : ""} ${teacherId === t.userId ? "bg-[#EEF3FF]" : "bg-white"}`}
+              >
+                <Avatar name={t.name} size={30} tone="ink" />
+                <View className="min-w-0 flex-1">
+                  <Text className="text-[14px] font-medium text-ink-900">{t.name}</Text>
+                  {t.subject ? <Text className="text-[12px] text-ink-500">{t.subject}</Text> : null}
+                </View>
+                {teacherId === t.userId ? <Ionicons name="checkmark" size={18} color={BRAND} /> : null}
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+      </View>
+
+      <Text className="mb-2 mt-5 text-[12px] font-semibold uppercase tracking-wide text-ink-500">Topic</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingBottom: 10 }}>
+        {TOPICS.map((t) => (
+          <FilterChip key={t} label={t} active={topic === t} onPress={() => setTopic((cur) => (cur === t ? "" : t))} />
+        ))}
+      </ScrollView>
+      <TextInput
+        value={subject}
+        onChangeText={setSubject}
+        placeholder="Subject (optional)"
+        placeholderTextColor="#94A3B8"
+        maxLength={120}
+        className="h-11 rounded-xl border border-ink-200 bg-white px-3 text-[15px] text-ink-900"
+      />
+      <Text className="mb-2 mt-4 text-[12px] font-semibold uppercase tracking-wide text-ink-500">Message</Text>
+      <TextInput
+        value={message}
+        onChangeText={setMessage}
+        placeholder="Write your message…"
+        placeholderTextColor="#94A3B8"
+        multiline
+        textAlignVertical="top"
+        maxLength={4000}
+        className="min-h-[120px] rounded-xl border border-ink-200 bg-white px-3 py-2.5 text-[15px] text-ink-900"
+      />
+      <Text className="mt-2 text-[12px] text-ink-500">No subject? We'll use the first line of your message. Only the people you send this to can see it.</Text>
+    </SheetFrame>
+  );
+}
+
+/* ------------------------------------------------------------ people pick */
+
+function PeopleSheet({
+  open,
+  onClose,
+  title,
+  people,
+  selected,
+  multi,
+  onDone,
+  busy,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  people: Person[];
+  selected: string[];
+  multi?: boolean;
+  onDone: (ids: string[]) => void;
+  busy?: boolean;
+}) {
+  const [q, setQ] = useState("");
+  const [picked, setPicked] = useState<string[]>(selected);
+  useEffect(() => {
+    if (open) {
+      setQ("");
+      setPicked(selected);
+    }
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  const shown = people.filter((p) => !q.trim() || `${p.name} ${p.role}`.toLowerCase().includes(q.trim().toLowerCase()));
+  return (
+    <SheetFrame
+      open={open}
+      onClose={onClose}
+      title={title}
+      footer={multi ? <PrimaryButton label={picked.length ? `Add ${picked.length}` : "Add"} disabled={!picked.length} busy={busy} onPress={() => onDone(picked)} /> : undefined}
+    >
+      <View className="mb-3 h-10 flex-row items-center gap-2 rounded-xl bg-ink-50 px-3">
+        <Ionicons name="search" size={16} color="#64748B" />
+        <TextInput value={q} onChangeText={setQ} placeholder="Search staff" placeholderTextColor="#94A3B8" className="flex-1 text-[14px] text-ink-900" />
+      </View>
+      {shown.map((p) => {
+        const on = picked.includes(p.userId);
+        return (
+          <Pressable
+            key={p.userId}
+            onPress={() => (multi ? setPicked((cur) => (on ? cur.filter((id) => id !== p.userId) : [...cur, p.userId])) : onDone([p.userId]))}
+            className="flex-row items-center gap-3 border-b border-ink-100 py-2.5"
+          >
+            <Avatar name={p.name} size={34} tone="ink" />
+            <View className="min-w-0 flex-1">
+              <Text className="text-[14px] font-medium text-ink-900">{p.name}</Text>
+              {p.role ? <Text className="text-[12px] text-ink-500">{p.role}</Text> : null}
+            </View>
+            {multi ? (
+              <Ionicons name={on ? "checkbox" : "square-outline"} size={20} color={on ? BRAND : "#CBD5E1"} />
+            ) : on ? (
+              <Ionicons name="checkmark" size={18} color={BRAND} />
+            ) : null}
+          </Pressable>
+        );
+      })}
+      {!shown.length ? <Text className="py-6 text-center text-[13px] text-ink-500">No one matches.</Text> : null}
+    </SheetFrame>
+  );
+}
+
+/* ------------------------------------------------------------ parent card */
+
+function ParentCardSheet({
+  open,
+  onClose,
+  thread,
+  threads,
+  onOpenThread,
+}: {
+  open: boolean;
+  onClose: () => void;
+  thread: InboxThread | null;
+  threads: InboxThread[];
+  onOpenThread: (id: string) => void;
+}) {
+  if (!thread) return null;
+  const mine = sortThreads(threads.filter((t) => t.parent.userId === thread.parent.userId));
+  const openCount = mine.filter((t) => t.status !== "CLOSED").length;
+  return (
+    <SheetFrame open={open} onClose={onClose} title="Parent">
+      <View className="flex-row items-center gap-3">
+        <Avatar name={thread.parent.name} size={48} />
+        <View className="min-w-0 flex-1">
+          <Text className="text-[16px] font-semibold text-ink-900">{thread.parent.name}</Text>
+          <Text className="mt-0.5 text-[13px] text-ink-500">
+            Parent of {thread.student.name}
+            {thread.student.classLabel ? ` · ${thread.student.classLabel}` : ""}
+          </Text>
+        </View>
+      </View>
+      {thread.parent.phone ? (
+        <View className="mt-4 flex-row gap-2">
+          <Pressable
+            onPress={() => void Linking.openURL(`tel:${thread.parent.phone}`)}
+            className="h-10 flex-1 flex-row items-center justify-center gap-2 rounded-xl border border-ink-200"
+          >
+            <Ionicons name="call-outline" size={16} color={BRAND} />
+            <Text className="text-[14px] font-semibold text-[#1F45C7]">Call</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => void Linking.openURL(`https://wa.me/${thread.parent.phone.replace(/\D/g, "").replace(/^(\d{10})$/, "91$1")}`)}
+            className="h-10 flex-1 flex-row items-center justify-center gap-2 rounded-xl border border-ink-200"
+          >
+            <Ionicons name="logo-whatsapp" size={16} color="#16A34A" />
+            <Text className="text-[14px] font-semibold text-ink-800">WhatsApp</Text>
+          </Pressable>
+        </View>
+      ) : null}
+      <View className="mt-5 flex-row items-center justify-between">
+        <Text className="text-[12px] font-semibold uppercase tracking-wide text-ink-500">Conversations</Text>
+        <Text className="text-[12px] font-medium text-ink-500">
+          {openCount} open · {mine.length} total
+        </Text>
+      </View>
+      <View className="mt-2 overflow-hidden rounded-xl border border-ink-200">
+        {mine.map((t, i) => (
+          <Pressable
+            key={t.id}
+            onPress={() => {
+              onClose();
+              onOpenThread(t.id);
+            }}
+            className={`flex-row items-center gap-3 px-3 py-3 ${i ? "border-t border-ink-100" : ""} ${t.id === thread.id ? "bg-ink-50" : "bg-white"}`}
+          >
+            <View className="min-w-0 flex-1">
+              <Text className="text-[14px] font-medium text-ink-900" numberOfLines={1}>
+                {t.subject}
+              </Text>
+              <Text className="mt-0.5 text-[12px] text-ink-500" numberOfLines={1}>
+                {t.withLabel} · {shortAgo(t.lastMessageAt)}
+              </Text>
+            </View>
+            <StatusPill status={t.status} parentMode={false} />
+          </Pressable>
+        ))}
+      </View>
+      <Text className="mt-2 text-[12px] text-ink-400">Only conversations you are part of are shown.</Text>
+    </SheetFrame>
+  );
+}
+
+/* ---------------------------------------------------------- thread view */
+
+function ThreadView({
+  threadId,
+  parentMode,
+  allThreads,
+  onBack,
+  onChanged,
+  onOpenThread,
+  showBack,
+}: {
+  threadId: string;
+  parentMode: boolean;
+  allThreads: InboxThread[];
+  onBack: () => void;
+  onChanged: () => void;
+  onOpenThread: (id: string) => void;
+  showBack: boolean;
+}) {
+  const { token, user } = useSession();
+  const toast = useToast();
+  const [detail, setDetail] = useState<ThreadDetail | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const [text, setText] = useState("");
+  const [note, setNote] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [menu, setMenu] = useState(false);
+  const [picker, setPicker] = useState<"assign" | "add" | null>(null);
+  const [parentCard, setParentCard] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const scrollRef = useRef<ScrollView>(null);
+  const lastCount = useRef(0);
 
   const load = useCallback(async () => {
     if (!token) return;
-    const payload = await api<{ notices: Notice[] }>("/notices", token);
-    const tickets = payload.notices.filter((n) => isInboxNotice(n, user?.portal));
-    setRows(tickets);
-    setSelectedId((old) => old || tickets[0]?.id || "");
-    setSelectedGroupKey((old) => old || (tickets[0] ? groupKeyFor(tickets[0]) : ""));
-  }, [token, user?.portal]);
+    try {
+      const d = await api<ThreadDetail>(`/inbox/${encodeURIComponent(threadId)}`, token);
+      setDetail(d);
+      setLoadError("");
+    } catch (e) {
+      setLoadError(errorText(e, "Could not open this conversation."));
+    }
+  }, [threadId, token]);
 
   useEffect(() => {
-    load().catch((e) => toast.show(e instanceof Error ? e.message : "Could not load inbox."));
-  }, [load]);
+    setDetail(null);
+    setText("");
+    setNote(false);
+    lastCount.current = 0;
+    void load().then(onChanged);
+  }, [load]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const allGroups = useMemo(() => {
-    const map = new Map<string, Notice[]>();
-    for (const row of rows) {
-      const key = groupKeyFor(row);
-      map.set(key, [...(map.get(key) || []), row]);
-    }
-    return [...map.entries()]
-      .map(([key, tickets]): InboxGroup => {
-        const ordered = [...tickets].sort(newestFirst);
-        const open = openTickets(ordered, user?.portal);
-        const issueCount = ordered.filter((ticket) => isThreadRoot(ticket) || isConversationAnchor(ticket, user?.portal)).length;
-        const primary = open.sort((a, b) => latestThreadAt(b) - latestThreadAt(a))[0] || bestTicket(ordered);
-        const parts = bodyParts(primary.body);
-        return {
-          key,
-          student: parts.student || "Unknown student",
-          classLabel: parts.classLabel,
-          parent: parts.parent || primary.author,
-          tickets: ordered,
-          primary,
-          openCount: open.length,
-          issueCount,
-          waitingCount: open.filter((n) => statusFor(n) === "WAITING").length,
-        };
-      })
-      .sort((a, b) => latestThreadAt(b.primary) - latestThreadAt(a.primary));
-  }, [rows, user?.portal]);
-  const groups = allGroups.filter((group) => group.openCount > 0);
-  const selectedGroup =
-    groups.find((group) => group.key === selectedGroupKey) ||
-    groups.find((group) => group.tickets.some((ticket) => ticket.id === selectedId)) ||
-    groups[0];
-  const selected =
-    selectedGroup?.tickets.find((n) => n.id === selectedId && isConversationAnchor(n, user?.portal)) ||
-    selectedGroup?.primary;
-  const selectedParts = selected ? bodyParts(selected.body) : null;
-  const selectedStatus = selected ? statusFor(selected) : "OPEN";
-  const selectedIsSchoolReply = parentMode && selected ? /^Reply:/i.test(selected.title) : false;
-  const related = selectedGroup ? closedTickets(selectedGroup.tickets).filter((row) => row.id !== selected?.id) : [];
-  const oldChats = allGroups.flatMap((group) => closedTickets(group.tickets).map((ticket) => ({ group, ticket })));
+  usePolling(() => void load(), THREAD_POLL_MS);
 
-  async function save(status: InboxStatus = selectedStatus) {
-    if (!selected) return;
-    if (!compose.trim() && status === selectedStatus) {
-      toast.show(parentMode ? "Write your reply first." : "Write a reply, @mention, note, or change status.");
-      return;
+  useEffect(() => {
+    const n = detail?.messages.length || 0;
+    if (n !== lastCount.current) {
+      lastCount.current = n;
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: n > 0 }), 60);
     }
-    setSaving(true);
+  }, [detail?.messages.length]);
+
+  const thread = detail?.thread;
+
+  async function send() {
+    const body = text.trim();
+    if (!body || !thread) return;
+    setSending(true);
     try {
-      await act(token, "replyParentQuery", {
-        noticeId: selected.id,
-        reply: composeMode === "reply" ? compose : "",
-        internalNote: !parentMode && composeMode === "note" ? compose : "",
-        assignee: !parentMode ? (compose.match(/@([A-Za-z][A-Za-z .'-]+)/)?.[1] || "") : "",
-        status,
-      });
-      setCompose("");
-      setComposerOpen(false);
-      toast.show(parentMode ? "Reply sent to school." : status === "CLOSED" ? "Request closed." : "Request updated.");
+      await act(token, "sendInboxMessage", { threadId: thread.id, body, internal: !parentMode && note });
+      setText("");
       await load();
+      onChanged();
     } catch (e) {
-      toast.show(e instanceof Error ? e.message : "Could not update inbox.");
+      toast.show(errorText(e, "Could not send."));
     } finally {
-      setSaving(false);
+      setSending(false);
     }
   }
 
-  function insertMention(name: string) {
-    setCompose((current) => {
-      const next = current.replace(/(^|\s)@([A-Za-z .'-]*)$/, (_match, space) => `${space}@${name} `);
-      return next === current ? `${current}${current.endsWith(" ") || !current ? "" : " "}@${name} ` : next;
-    });
+  async function update(patch: { status?: InboxStatus; assigneeId?: string; addUserIds?: string[] }, done: string) {
+    if (!thread) return;
+    setBusy(true);
+    try {
+      await act(token, "updateInboxThread", { threadId: thread.id, ...patch });
+      setMenu(false);
+      setPicker(null);
+      toast.show(done);
+      await load();
+      onChanged();
+    } catch (e) {
+      toast.show(errorText(e, "Could not update."));
+    } finally {
+      setBusy(false);
+    }
   }
 
-  if (!groups.length && !oldChats.length) {
+  if (!detail || !thread) {
     return (
-      <View className="min-h-0 flex-1">
-        <PageHeader
-          title="Inbox"
-          lede={parentMode ? "Your chat threads with the school." : "Parent-school chat threads."}
-        />
-        {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
-        <View className="min-h-[420px] items-center justify-center rounded-md border border-ink-200 bg-white px-6 py-12">
-          <View className="w-full max-w-lg items-center">
-            <View className="h-16 w-16 items-center justify-center rounded-full bg-blue-50">
-              <Ionicons name={parentMode ? "chatbubble-ellipses-outline" : "mail-unread-outline"} size={28} color="#1d4ed8" />
-            </View>
-            <Text className="mt-5 text-center text-xl font-semibold text-ink-900">
-              {parentMode ? "No inbox messages yet" : "No parent requests yet"}
-            </Text>
-            <Text className="mt-2 text-center text-sm leading-6 text-ink-700">
-              {parentMode
-                ? "Replies from the school will appear here as soon as there is an update."
-                : "New parent queries, replies, and follow-ups will appear here as threads."}
-            </Text>
-            <View className="mt-6 w-full rounded-md border border-ink-100 bg-ink-50 px-4 py-3">
-              <View className="flex-row items-start gap-3">
-                <Ionicons name="checkmark-circle-outline" size={18} color="#047857" />
-                <Text className="min-w-0 flex-1 text-sm leading-5 text-ink-700">
-                  {parentMode
-                    ? "You are all caught up. Check back after sending a request or receiving a school reply."
-                    : "You are all caught up. Active conversations will open here with status, history, and replies."}
-                </Text>
-              </View>
-            </View>
-          </View>
-        </View>
+      <View className="flex-1 items-center justify-center bg-white px-6">
+        {loadError ? (
+          <>
+            <Text className="text-center text-[14px] text-ink-700">{loadError}</Text>
+            <Pressable onPress={onBack} className="mt-4 rounded-xl border border-ink-200 px-4 py-2">
+              <Text className="text-[14px] font-semibold text-ink-800">Back</Text>
+            </Pressable>
+          </>
+        ) : (
+          <ActivityIndicator color={BRAND} />
+        )}
       </View>
     );
   }
 
-  if (!groups.length) {
-    return (
-      <View className="min-h-0 flex-1">
-        <PageHeader
-          title="Inbox"
-          lede={parentMode ? "Your chat threads with the school." : "Parent-school chat threads."}
-        />
-        {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
-        <View className="min-h-[420px] rounded-md border border-ink-200 bg-white px-6 py-10">
-          <View className="items-center">
-            <View className="h-14 w-14 items-center justify-center rounded-full bg-blue-50">
-              <Ionicons name="checkmark-circle-outline" size={26} color="#047857" />
-            </View>
-            <Text className="mt-4 text-center text-xl font-semibold text-ink-900">No open issue</Text>
-            <Text className="mt-2 max-w-xl text-center text-sm leading-6 text-ink-700">
-              Closed chats are saved below. A new issue starts only when a parent raises a new query.
+  const closed = thread.status === "CLOSED";
+  const staffMembers = thread.members;
+  const memberIds = staffMembers.map((m) => m.userId);
+  const parentThreads = allThreads.filter((t) => t.parent.userId === thread.parent.userId);
+  const parentOpen = parentThreads.filter((t) => t.status !== "CLOSED").length;
+
+  // Group messages by day for separators.
+  let lastDay = "";
+
+  return (
+    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} className="flex-1 bg-[#F6F7FB]">
+      {/* Header */}
+      <View className="border-b border-ink-100 bg-white px-3 pb-2.5 pt-2">
+        <View className="flex-row items-center gap-2">
+          {showBack ? (
+            <Pressable onPress={onBack} hitSlop={10} className="h-9 w-9 items-center justify-center rounded-full">
+              <Ionicons name="chevron-back" size={22} color="#0F172A" />
+            </Pressable>
+          ) : null}
+          <View className="min-w-0 flex-1">
+            <Text className="text-[16px] font-semibold text-ink-900" numberOfLines={1}>
+              {thread.subject}
+            </Text>
+            <Text className="mt-0.5 text-[12px] text-ink-500" numberOfLines={1}>
+              {parentMode
+                ? `To ${thread.withLabel} · about ${thread.student.name}${thread.student.classLabel ? ` (${thread.student.classLabel})` : ""}`
+                : `${thread.student.name}${thread.student.classLabel ? ` · ${thread.student.classLabel}` : ""} · to ${thread.withLabel}`}
             </Text>
           </View>
-          <View className="mt-8 overflow-hidden rounded-xl border border-ink-100 bg-white">
-            <View className="border-b border-ink-100 px-4 py-3">
-              <Text className="text-xs font-semibold uppercase tracking-wide text-ink-700">Old chats</Text>
-              <Text className="mt-0.5 text-xs text-ink-600">{oldChats.length} closed {oldChats.length === 1 ? "chat" : "chats"}</Text>
-            </View>
-            <ScrollView className="max-h-[260px]">
-              {oldChats.map(({ group, ticket }, index) => (
-                <View key={ticket.id} className={`flex-row items-center gap-3 px-4 py-3 ${index ? "border-t border-ink-100" : ""}`}>
-                  <View className="h-9 w-9 items-center justify-center rounded-full bg-ink-50">
-                    <Ionicons name="checkmark-done-outline" size={16} color="#1e3a5f" />
-                  </View>
-                  <View className="min-w-0 flex-1">
-                    <Text className="text-sm font-bold text-clay-700">{ticketNo(ticket)}</Text>
-                    <Text className="mt-0.5 text-sm font-semibold text-ink-900" numberOfLines={1}>{subjectFor(ticket)}</Text>
-                    <Text className="mt-0.5 text-xs text-ink-600" numberOfLines={1}>
-                      {group.student}{group.classLabel ? ` · ${group.classLabel}` : ""}{group.parent ? ` · ${group.parent}` : ""}
-                    </Text>
-                  </View>
-                  <Text className="text-xs text-ink-600">{shortDate(ticket.createdAt)}</Text>
-                </View>
-              ))}
-            </ScrollView>
-          </View>
+          {thread.topic ? <TopicTag topic={thread.topic} /> : null}
+          <StatusPill status={thread.status} parentMode={parentMode} />
+          {!parentMode ? (
+            <Pressable onPress={() => setMenu(true)} hitSlop={10} className="h-9 w-9 items-center justify-center rounded-full">
+              <Ionicons name="ellipsis-horizontal" size={20} color="#0F172A" />
+            </Pressable>
+          ) : null}
         </View>
+        {!parentMode ? (
+          <View className="mt-2 flex-row items-center gap-2">
+            <Pressable onPress={() => setParentCard(true)} className="min-w-0 flex-1 flex-row items-center gap-2 rounded-xl bg-ink-50 px-2.5 py-1.5">
+              <Avatar name={thread.parent.name} size={24} />
+              <Text className="min-w-0 flex-1 text-[13px] font-medium text-ink-800" numberOfLines={1}>
+                {thread.parent.name}
+                <Text className="font-normal text-ink-500"> · {parentOpen} open · {parentThreads.length} total</Text>
+              </Text>
+              <Ionicons name="chevron-forward" size={14} color="#94A3B8" />
+            </Pressable>
+            <Pressable onPress={() => setPicker("assign")} className="flex-row items-center gap-1.5 rounded-xl bg-ink-50 px-2.5 py-1.5">
+              <Ionicons name="person-circle-outline" size={16} color={thread.assignee ? BRAND : "#64748B"} />
+              <Text className="text-[13px] font-medium text-ink-800" numberOfLines={1}>
+                {thread.assignee ? thread.assignee.name.split(" ")[0] : "Assign"}
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
+      </View>
+
+      {/* Messages */}
+      <ScrollView ref={scrollRef} className="flex-1" contentContainerStyle={{ padding: 12, gap: 6 }} keyboardShouldPersistTaps="handled">
+        {detail.messages.map((m) => {
+          const day = dayLabel(m.at);
+          const sep = day !== lastDay;
+          lastDay = day;
+          const separator = sep ? (
+            <Text key={`d-${m.id}`} className="my-2 self-center rounded-full bg-white px-3 py-1 text-[11px] font-medium text-ink-500">
+              {day}
+            </Text>
+          ) : null;
+          if (m.kind === "EVENT") {
+            return (
+              <View key={m.id}>
+                {separator}
+                <Text className="my-1 self-center px-6 text-center text-[12px] text-ink-500">
+                  {m.body} · {clockTime(m.at)}
+                </Text>
+              </View>
+            );
+          }
+          if (m.internal) {
+            return (
+              <View key={m.id}>
+                {separator}
+                <View className="my-1 rounded-xl border border-[#F5D98B] bg-[#FFF9E6] px-3 py-2">
+                  <View className="flex-row items-center gap-1.5">
+                    <Ionicons name="lock-closed" size={11} color="#B45309" />
+                    <Text className="text-[11px] font-semibold text-[#B45309]">
+                      Internal note · {m.mine ? "You" : m.authorName}
+                    </Text>
+                    <Text className="ml-auto text-[11px] text-[#B45309]/70">{clockTime(m.at)}</Text>
+                  </View>
+                  <Text className="mt-1 text-[14px] leading-5 text-ink-900">{m.body}</Text>
+                </View>
+              </View>
+            );
+          }
+          // Parent sees their own messages on the right; staff see the school side on the right.
+          const right = parentMode ? m.mine : !m.fromParent;
+          return (
+            <View key={m.id}>
+              {separator}
+              <View className={`max-w-[82%] ${right ? "self-end" : "self-start"}`}>
+                {!m.mine ? (
+                  <Text className={`mb-0.5 text-[11px] font-medium text-ink-500 ${right ? "text-right" : ""}`}>
+                    {m.authorName}
+                    {m.authorRole ? <Text className="font-normal text-ink-400"> · {m.authorRole}</Text> : null}
+                  </Text>
+                ) : null}
+                <View className={`rounded-2xl px-3 py-2 ${right ? "rounded-br-md bg-[#1F45C7]" : "rounded-bl-md border border-ink-100 bg-white"}`}>
+                  <Text className={`text-[15px] leading-5 ${right ? "text-white" : "text-ink-900"}`}>{m.body}</Text>
+                  <Text className={`mt-1 text-right text-[10px] ${right ? "text-white/70" : "text-ink-400"}`}>{clockTime(m.at)}</Text>
+                </View>
+              </View>
+            </View>
+          );
+        })}
+      </ScrollView>
+
+      {/* Composer */}
+      <View className="border-t border-ink-100 bg-white px-3 pb-3 pt-2">
+        {closed ? (
+          <Text className="mb-1.5 text-center text-[12px] text-ink-500">
+            {parentMode ? "This conversation is closed. Replying will reopen it." : "Closed. Replying will reopen it as waiting on the parent."}
+          </Text>
+        ) : null}
+        {!parentMode ? (
+          <View className="mb-2 flex-row self-start rounded-lg bg-ink-100 p-0.5">
+            {[
+              { key: false, label: "Reply to parent" },
+              { key: true, label: "Internal note" },
+            ].map((o) => (
+              <Pressable key={String(o.key)} onPress={() => setNote(o.key)} className={`rounded-md px-3 py-1 ${note === o.key ? "bg-white" : ""}`}>
+                <Text className={`text-[12px] font-semibold ${note === o.key ? (o.key ? "text-[#B45309]" : "text-[#1F45C7]") : "text-ink-500"}`}>{o.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+        <View className="flex-row items-end gap-2">
+          <TextInput
+            value={text}
+            onChangeText={setText}
+            placeholder={note ? "Only staff will see this…" : parentMode ? "Write a reply…" : `Reply to ${thread.parent.name.split(" ")[0]}…`}
+            placeholderTextColor="#94A3B8"
+            multiline
+            maxLength={4000}
+            className={`max-h-[120px] min-h-[42px] flex-1 rounded-2xl border px-3 py-2.5 text-[15px] text-ink-900 ${note ? "border-[#F5D98B] bg-[#FFF9E6]" : "border-ink-200 bg-ink-50"}`}
+          />
+          <Pressable
+            onPress={() => void send()}
+            disabled={!text.trim() || sending}
+            className={`h-[42px] w-[42px] items-center justify-center rounded-full ${text.trim() ? (note ? "bg-[#B45309]" : "bg-[#1F45C7]") : "bg-ink-200"}`}
+          >
+            {sending ? <ActivityIndicator color="#fff" size="small" /> : <Ionicons name="arrow-up" size={20} color="#fff" />}
+          </Pressable>
+        </View>
+      </View>
+
+      {/* Staff actions */}
+      <SheetFrame open={menu} onClose={() => setMenu(false)} title="Conversation">
+        {[
+          closed
+            ? { icon: "refresh-outline" as const, label: "Reopen", run: () => void update({ status: "OPEN" }, "Reopened.") }
+            : { icon: "checkmark-done-outline" as const, label: "Close conversation", run: () => void update({ status: "CLOSED" }, "Closed.") },
+          { icon: "person-circle-outline" as const, label: thread.assignee ? `Assigned to ${thread.assignee.name}` : "Assign to someone", run: () => { setMenu(false); setPicker("assign"); } },
+          { icon: "person-add-outline" as const, label: "Add people", run: () => { setMenu(false); setPicker("add"); } },
+          { icon: "card-outline" as const, label: "Parent card", run: () => { setMenu(false); setParentCard(true); } },
+        ].map((a) => (
+          <Pressable key={a.label} disabled={busy} onPress={a.run} className="flex-row items-center gap-3 border-b border-ink-100 py-3.5">
+            <Ionicons name={a.icon} size={20} color="#334155" />
+            <Text className="flex-1 text-[15px] text-ink-900">{a.label}</Text>
+          </Pressable>
+        ))}
+        <Text className="mb-1 mt-4 text-[12px] font-semibold uppercase tracking-wide text-ink-500">In this conversation</Text>
+        <Text className="text-[13px] leading-5 text-ink-700">
+          {thread.parent.name} (parent){staffMembers.length ? `, ${staffMembers.map((m) => m.name).join(", ")}` : ""}
+        </Text>
+      </SheetFrame>
+
+      <PeopleSheet
+        open={picker === "assign"}
+        onClose={() => setPicker(null)}
+        title="Assign to"
+        people={[...staffMembers, ...detail.taggable.filter((p) => !memberIds.includes(p.userId) && p.userId !== user?.id)]}
+        selected={thread.assignee ? [thread.assignee.userId] : []}
+        onDone={([id]) => void update({ assigneeId: id }, "Assigned.")}
+        busy={busy}
+      />
+      <PeopleSheet
+        open={picker === "add"}
+        onClose={() => setPicker(null)}
+        title="Add people"
+        multi
+        people={detail.taggable.filter((p) => !memberIds.includes(p.userId))}
+        selected={[]}
+        onDone={(ids) => void update({ addUserIds: ids }, ids.length === 1 ? "Added." : `Added ${ids.length} people.`)}
+        busy={busy}
+      />
+      <ParentCardSheet open={parentCard} onClose={() => setParentCard(false)} thread={thread} threads={allThreads} onOpenThread={onOpenThread} />
+      {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
+    </KeyboardAvoidingView>
+  );
+}
+
+/* ------------------------------------------------------------ list board */
+
+type Filter = "open" | "unread" | "mine" | "closed";
+
+export function InboxBoard() {
+  const { token, user } = useSession();
+  const { data } = useRecord();
+  const router = useRouter();
+  const params = useLocalSearchParams<{ thread?: string | string[] }>();
+  const { width } = useWindowDimensions();
+  const wide = width >= 1000;
+  const parentMode = user?.portal === "PARENT";
+  const toast = useToast();
+  const [threads, setThreads] = useState<InboxThread[] | null>(null);
+  const [error, setError] = useState("");
+  const [filter, setFilter] = useState<Filter>("open");
+  const [q, setQ] = useState("");
+  const [openId, setOpenId] = useState("");
+  const [composer, setComposer] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await api<{ threads: InboxThread[] }>("/inbox", token);
+      setThreads(res.threads);
+      setError("");
+    } catch (e) {
+      setError(errorText(e, "Could not load inbox."));
+      setThreads((cur) => cur ?? []);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+  usePolling(() => void load(), LIST_POLL_MS);
+
+  const paramThread = Array.isArray(params.thread) ? params.thread[0] : params.thread;
+  useEffect(() => {
+    if (paramThread) setOpenId(paramThread);
+  }, [paramThread]);
+
+  function openThread(id: string) {
+    setOpenId(id);
+    setThreads((cur) => cur?.map((t) => (t.id === id ? { ...t, unread: false } : t)) ?? cur);
+  }
+
+  function closeThread() {
+    setOpenId("");
+    if (paramThread) router.setParams({ thread: "" });
+    void load();
+  }
+
+  const rows = threads ?? [];
+  const counts = useMemo(
+    () => ({
+      open: rows.filter((t) => t.status !== "CLOSED").length,
+      unread: rows.filter((t) => t.unread).length,
+      mine: rows.filter((t) => t.assignee?.userId === user?.id && t.status !== "CLOSED").length,
+      closed: rows.filter((t) => t.status === "CLOSED").length,
+    }),
+    [rows, user?.id]
+  );
+  const openByParent = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const t of rows) if (t.status !== "CLOSED") map.set(t.parent.userId, (map.get(t.parent.userId) || 0) + 1);
+    return map;
+  }, [rows]);
+
+  const shown = sortThreads(
+    rows.filter((t) => {
+      if (filter === "open" && t.status === "CLOSED") return false;
+      if (filter === "unread" && !t.unread) return false;
+      if (filter === "mine" && (t.assignee?.userId !== user?.id || t.status === "CLOSED")) return false;
+      if (filter === "closed" && t.status !== "CLOSED") return false;
+      const needle = q.trim().toLowerCase();
+      if (!needle) return true;
+      return `${t.subject} ${t.student.name} ${t.parent.name} ${t.student.classLabel} ${t.withLabel}`.toLowerCase().includes(needle);
+    })
+  );
+
+  const filters: { key: Filter; label: string }[] = parentMode
+    ? [
+        { key: "open", label: "Active" },
+        { key: "closed", label: "Closed" },
+      ]
+    : [
+        { key: "open", label: "Open" },
+        { key: "unread", label: "Unread" },
+        { key: "mine", label: "Assigned to me" },
+        { key: "closed", label: "Closed" },
+      ];
+
+  const list = (
+    <View className="flex-1 bg-white">
+      <View className="px-4 pb-2 pt-3">
+        <View className="flex-row items-center justify-between">
+          <View>
+            <Text className="text-[22px] font-semibold text-ink-900">Inbox</Text>
+            <Text className="mt-0.5 text-[13px] text-ink-500">
+              {parentMode ? "Your conversations with the school" : counts.unread ? `${counts.unread} unread · ${counts.open} open` : `${counts.open} open`}
+            </Text>
+          </View>
+          {parentMode ? (
+            <Pressable onPress={() => setComposer(true)} disabled={!data?.child} className="h-10 flex-row items-center gap-1.5 rounded-xl bg-[#1F45C7] px-3.5">
+              <Ionicons name="create-outline" size={17} color="#fff" />
+              <Text className="text-[14px] font-semibold text-white">New</Text>
+            </Pressable>
+          ) : null}
+        </View>
+        {!parentMode && rows.length > 6 ? (
+          <View className="mt-3 h-10 flex-row items-center gap-2 rounded-xl bg-ink-50 px-3">
+            <Ionicons name="search" size={16} color="#64748B" />
+            <TextInput value={q} onChangeText={setQ} placeholder="Search student, parent, subject" placeholderTextColor="#94A3B8" className="flex-1 text-[14px] text-ink-900" />
+          </View>
+        ) : null}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingTop: 12 }}>
+          {filters.map((f) => (
+            <FilterChip key={f.key} label={f.label} count={counts[f.key]} active={filter === f.key} onPress={() => setFilter(f.key)} />
+          ))}
+        </ScrollView>
+      </View>
+      {error ? <Text className="px-4 pb-2 text-[13px] text-red-600">{error}</Text> : null}
+      {threads === null ? (
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator color={BRAND} />
+        </View>
+      ) : shown.length ? (
+        <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 24 }}>
+          {shown.map((t) => {
+            const active = t.id === openId;
+            const parentOpen = openByParent.get(t.parent.userId) || 0;
+            const preview = t.lastMessage
+              ? `${t.lastMessage.internal ? "Note: " : ""}${t.lastMessage.kind === "EVENT" ? "" : `${t.lastMessage.authorName.split(" ")[0]}: `}${t.lastMessage.body}`
+              : "";
+            return (
+              <Pressable
+                key={t.id}
+                onPress={() => openThread(t.id)}
+                className={`flex-row gap-3 border-b border-ink-100 px-4 py-3 ${active ? "bg-[#EEF3FF]" : "bg-white"}`}
+              >
+                <View>
+                  {parentMode ? <RecipientAvatar thread={t} /> : <Avatar name={t.student.name} tone={t.status === "CLOSED" ? "ink" : "blue"} />}
+                </View>
+                <View className="min-w-0 flex-1">
+                  <View className="flex-row items-center gap-2">
+                    <Text className={`min-w-0 flex-1 text-[15px] text-ink-900 ${t.unread ? "font-bold" : "font-semibold"}`} numberOfLines={1}>
+                      {parentMode ? t.subject : `${t.student.name}${t.student.classLabel ? ` · ${t.student.classLabel}` : ""}`}
+                    </Text>
+                    <Text className={`text-[12px] ${t.unread ? "font-semibold text-[#1F45C7]" : "text-ink-400"}`}>{shortAgo(t.lastMessageAt)}</Text>
+                  </View>
+                  <View className="mt-0.5 flex-row items-center gap-1.5">
+                    <Text className="min-w-0 shrink text-[12px] text-ink-500" numberOfLines={1}>
+                      {parentMode
+                        ? t.withLabel
+                        : `${t.subject} · ${t.parent.name}${parentOpen > 1 ? ` (${parentOpen} open)` : ""}${t.assignee ? ` · ${t.assignee.userId === user?.id ? "You" : t.assignee.name.split(" ")[0]}` : ""}`}
+                    </Text>
+                    <Text className="text-[12px] text-ink-300">·</Text>
+                    {statusWord(t.status, parentMode, t.unread)}
+                    <TopicTag topic={t.topic} />
+                  </View>
+                  <View className="mt-0.5 flex-row items-center gap-2">
+                    <Text className={`min-w-0 flex-1 text-[13px] ${t.unread ? "font-medium text-ink-900" : "text-ink-500"}`} numberOfLines={1}>
+                      {preview}
+                    </Text>
+                    {t.unread ? <View className="h-2.5 w-2.5 rounded-full bg-[#1F45C7]" /> : null}
+                  </View>
+                </View>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      ) : (
+        <View className="flex-1 items-center justify-center px-8 pb-16">
+          <View className="h-16 w-16 items-center justify-center rounded-full bg-[#EEF3FF]">
+            <Ionicons name={filter === "closed" ? "archive-outline" : "chatbubbles-outline"} size={28} color={BRAND} />
+          </View>
+          <Text className="mt-4 text-center text-[17px] font-semibold text-ink-900">
+            {q ? "Nothing matches" : filter === "closed" ? "No closed conversations" : parentMode ? "No conversations yet" : "All caught up"}
+          </Text>
+          <Text className="mt-1.5 text-center text-[13px] leading-5 text-ink-500">
+            {parentMode
+              ? "Message the office or your child's teacher. Replies show up here."
+              : "Messages parents send to you, or that you are added to, show up here."}
+          </Text>
+          {parentMode && filter !== "closed" ? (
+            <Pressable onPress={() => setComposer(true)} disabled={!data?.child} className="mt-5 h-11 flex-row items-center gap-2 rounded-xl bg-[#1F45C7] px-5">
+              <Ionicons name="create-outline" size={17} color="#fff" />
+              <Text className="text-[14px] font-semibold text-white">New message</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      )}
+    </View>
+  );
+
+  const composerSheet = (
+    <NewConversationSheet
+      open={composer}
+      onClose={() => setComposer(false)}
+      studentId={data?.child?.id}
+      studentName={data?.child?.name}
+      onSent={(id) => {
+        void load();
+        openThread(id);
+      }}
+    />
+  );
+
+  if (wide) {
+    return (
+      <View className="min-h-0 flex-1 flex-row overflow-hidden rounded-2xl border border-ink-200 bg-white" style={{ minHeight: 600 }}>
+        <View className="w-[380px] border-r border-ink-100">{list}</View>
+        <View className="flex-1">
+          {openId ? (
+            <ThreadView
+              key={openId}
+              threadId={openId}
+              parentMode={parentMode}
+              allThreads={rows}
+              onBack={closeThread}
+              onChanged={() => void load()}
+              onOpenThread={openThread}
+              showBack={false}
+            />
+          ) : (
+            <View className="flex-1 items-center justify-center bg-[#F6F7FB]">
+              <Ionicons name="chatbubble-ellipses-outline" size={36} color="#CBD5E1" />
+              <Text className="mt-3 text-[14px] text-ink-500">Pick a conversation</Text>
+            </View>
+          )}
+        </View>
+        {composerSheet}
+        {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
       </View>
     );
   }
 
   return (
     <View className="min-h-0 flex-1">
-      <PageHeader
-        title="Inbox"
-        lede={parentMode ? "Your chat threads with the school." : "Parent-school chat threads."}
-      />
+      {list}
+      <RnModal visible={Boolean(openId)} animationType="slide" presentationStyle="fullScreen" onRequestClose={closeThread}>
+        <SafeAreaView className="flex-1 bg-white" edges={["top", "bottom"]}>
+          {openId ? (
+            <ThreadView
+              key={openId}
+              threadId={openId}
+              parentMode={parentMode}
+              allThreads={rows}
+              onBack={closeThread}
+              onChanged={() => void load()}
+              onOpenThread={openThread}
+              showBack
+            />
+          ) : null}
+        </SafeAreaView>
+      </RnModal>
+      {composerSheet}
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
-      <View
-        className={`min-h-0 overflow-hidden rounded-md border border-ink-200 bg-white ${wide ? "flex-row" : ""}`}
-        style={{ height: boardHeight }}
-      >
-        <View className={`${wide ? "w-[31%] border-r border-ink-200" : "max-h-[320px] border-b border-ink-200"} bg-white`}>
-          <View className="border-b border-ink-100 px-3 py-2">
-            <Text className="text-sm font-semibold text-ink-900">{groups.length} open {groups.length === 1 ? "issue" : "issues"}</Text>
-          </View>
-          <ScrollView className="min-h-0">
-            {groups.map((group) => {
-              const n = group.primary;
-              const on = selectedGroup?.key === group.key;
-              const parts = bodyParts(n.body);
-              return (
-                <Pressable
-                  key={group.key}
-                  onPress={() => {
-                    setSelectedGroupKey(group.key);
-                    setSelectedId(group.primary.id);
-                    setHistoryOpen(false);
-                    setComposerOpen(false);
-                  }}
-                  className={`border-b border-ink-100 px-3 py-2.5 ${on ? "bg-blue-50" : "bg-white"}`}
-                >
-                  <View className="flex-row items-start gap-2.5">
-                    <View className={`mt-0.5 h-8 w-8 items-center justify-center rounded-full ${on ? "bg-clay-500" : "bg-ink-100"}`}>
-                      <Ionicons name="person-outline" size={15} color={on ? "#ffffff" : "#1e3a5f"} />
-                    </View>
-                    <View className="min-w-0 flex-1">
-                      <View className="flex-row items-center gap-2">
-                        <Text className="text-[10px] font-bold uppercase tracking-wide text-clay-600">{group.openCount} open · {group.issueCount} total</Text>
-                        {parentMode && /^Reply:/i.test(n.title) ? <Badge tone="sky">Reply</Badge> : null}
-                      </View>
-                      <Text className="mt-0.5 text-sm font-semibold text-ink-900" numberOfLines={1}>{group.student}</Text>
-                      <Text className="text-xs text-ink-700" numberOfLines={1}>
-                        {group.parent}{group.classLabel ? ` · ${group.classLabel}` : ""}
-                      </Text>
-                      <Text className="mt-1 text-xs font-medium text-ink-900" numberOfLines={1}>{subjectFor(n)}</Text>
-                      <Text className="text-xs text-ink-700" numberOfLines={1}>{latestThreadPreview(parts)}</Text>
-                      <Text className="mt-1 text-[11px] text-ink-600">{shortDate(n.createdAt)} · {n.author}</Text>
-                    </View>
-                  </View>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        </View>
-        <Card className="min-h-[420px] flex-1 border-0 p-0">
-          {!selected || !selectedParts ? (
-            <Empty title={parentMode ? "Select a message" : "Select a request"} body="Choose a thread from the list." />
-          ) : (
-            <View className="min-h-0 flex-1 p-4">
-              <View className="flex-row items-center justify-between gap-4 border-b border-ink-100 pb-3">
-                <View className="min-w-0 flex-1">
-                  <View className="flex-row flex-wrap items-center gap-2">
-                    <Text className="text-xs font-bold uppercase tracking-wide text-clay-600">{ticketNo(selected)}</Text>
-                    <Text className="text-base font-bold text-ink-900" numberOfLines={1}>{subjectFor(selected)}</Text>
-                    <Badge tone={pillFor(selectedStatus)}>{selectedStatus}</Badge>
-                    {selectedGroup ? <Text className="text-xs font-semibold text-ink-600">{selectedGroup.openCount} open · {selectedGroup.issueCount} total</Text> : null}
-                  </View>
-                  <Text className="mt-1 text-xs text-ink-700" numberOfLines={1}>
-                    {selectedParts.student}{selectedParts.classLabel ? ` · ${selectedParts.classLabel}` : ""}{selectedParts.parent ? ` · ${selectedParts.parent}` : ""}
-                  </Text>
-                </View>
-                {!parentMode ? (
-                  <View className="items-end gap-2">
-                    {selectedStatus !== "URGENT" && selectedStatus !== "CLOSED" ? (
-                      <Pressable
-                        disabled={saving}
-                        onPress={() => save("URGENT")}
-                        className="flex-row items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5"
-                      >
-                        <Ionicons name="flag-outline" size={13} color="#92400e" />
-                        <Text className="text-xs font-semibold text-amber-800">Escalate</Text>
-                      </Pressable>
-                    ) : null}
-                  </View>
-                ) : null}
-              </View>
-
-              <ScrollView className="mt-4 rounded-xl bg-ink-50/40" style={{ maxHeight: chatHeight }} contentContainerClassName="gap-3 p-3">
-                <ThreadBubble
-                  label={selectedIsSchoolReply ? "School" : parentMode ? "You" : "Parent"}
-                  author={selectedIsSchoolReply ? selected.author : selectedParts.parent || selected.author}
-                  date={longDate(selected.createdAt)}
-                  body={selectedParts.message}
-                  mine={parentMode && !selectedIsSchoolReply}
-                />
-                {selectedParts.events.map((event, index) => (
-                  <ThreadEvent key={`${event.stamp}-${index}`} event={event} parentName={selectedParts.parent || selected.author} parentMode={parentMode} />
-                ))}
-              </ScrollView>
-
-              {selectedStatus === "CLOSED" ? (
-                <View className="mt-2 rounded-lg border border-ink-200 bg-white px-3 py-3">
-                  <Text className="text-sm font-semibold text-ink-900">Closed chat</Text>
-                  <Text className="mt-1 text-xs text-ink-600">A parent must raise a new query to start a new issue.</Text>
-                </View>
-              ) : (
-              <View className="mt-2 rounded-lg border border-ink-200 bg-white px-3 py-2">
-                {!composerOpen ? (
-                  <View className="flex-row flex-wrap items-center justify-between gap-2">
-                    <View className="flex-row flex-wrap gap-2">
-                      <CompactAction
-                        disabled={saving}
-                        onPress={() => {
-                          setComposeMode("reply");
-                          setComposerOpen(true);
-                        }}
-                      >
-                        Reply
-                      </CompactAction>
-                      {!parentMode ? (
-                        <CompactAction
-                          disabled={saving}
-                          variant="ghost"
-                          onPress={() => {
-                            setComposeMode("note");
-                            setComposerOpen(true);
-                          }}
-                        >
-                          Note
-                        </CompactAction>
-                      ) : null}
-                    </View>
-                    {!parentMode ? <CompactAction disabled={saving} variant="danger" onPress={() => save("CLOSED")}>Close</CompactAction> : null}
-                  </View>
-                ) : (
-                  <>
-                    {!parentMode ? (
-                      <View className="mb-2 flex-row gap-2">
-                        {(["reply", "note"] as const).map((mode) => (
-                          <Pressable
-                            key={mode}
-                            onPress={() => setComposeMode(mode)}
-                            className={`rounded-full border px-3 py-1.5 ${composeMode === mode ? "border-clay-500 bg-blue-50" : "border-ink-200 bg-white"}`}
-                          >
-                            <Text className={`text-xs font-semibold ${composeMode === mode ? "text-clay-700" : "text-ink-700"}`}>
-                              {mode === "reply" ? "Reply to parent" : "Internal note / @mention"}
-                            </Text>
-                          </Pressable>
-                        ))}
-                      </View>
-                    ) : null}
-                    <TextInput
-                      multiline
-                      value={compose}
-                      onChangeText={setCompose}
-                      placeholder={parentMode ? "Write back to school…" : composeMode === "reply" ? "Write reply to parent…" : "Add note, e.g. @Kavita please check admit card issue"}
-                      placeholderTextColor="#64748b"
-                      className="min-h-[76px] rounded-md border border-ink-200 bg-white px-3 py-2 text-sm leading-5 text-ink-900"
-                    />
-                    {mentionSuggestions.length ? (
-                      <View className="mt-2 overflow-hidden rounded-md border border-ink-200 bg-white">
-                        {mentionSuggestions.map((person, index) => (
-                          <Pressable
-                            key={`${person.role}-${person.name}`}
-                            onPress={() => insertMention(person.name)}
-                            className={`flex-row items-center gap-3 px-3 py-2.5 ${index ? "border-t border-ink-100" : ""}`}
-                          >
-                            <View className="h-8 w-8 items-center justify-center rounded-full bg-blue-50">
-                              <Text className="text-xs font-bold text-clay-700">{person.name.slice(0, 1).toUpperCase()}</Text>
-                            </View>
-                            <View className="min-w-0 flex-1">
-                              <Text className="text-sm font-semibold text-ink-900" numberOfLines={1}>{person.name}</Text>
-                              <Text className="text-xs text-ink-600" numberOfLines={1}>{person.role}</Text>
-                            </View>
-                            <Text className="text-xs font-semibold text-clay-700">@ mention</Text>
-                          </Pressable>
-                        ))}
-                      </View>
-                    ) : null}
-                    <View className="mt-2 flex-row flex-wrap items-center justify-between gap-2">
-                      <Text className="text-xs text-ink-600">{parentMode ? "This reply stays inside this request." : "Use @name to notify staff."}</Text>
-                      <View className="flex-row flex-wrap gap-2">
-                        <CompactAction
-                          disabled={saving}
-                          variant="ghost"
-                          onPress={() => {
-                            setCompose("");
-                            setComposerOpen(false);
-                          }}
-                        >
-                          Cancel
-                        </CompactAction>
-                        {!parentMode ? (
-                          <CompactAction disabled={saving} variant="danger" onPress={() => save("CLOSED")}>Close</CompactAction>
-                        ) : null}
-                        <CompactAction disabled={saving} onPress={() => save(parentMode ? "OPEN" : selectedStatus)}>{saving ? "Sending..." : parentMode ? "Send" : "Send update"}</CompactAction>
-                      </View>
-                    </View>
-                  </>
-                )}
-              </View>
-              )}
-
-              {related.length ? (
-                <View className="mt-3 overflow-hidden rounded-xl border border-ink-100 bg-white">
-                  <Pressable
-                    onPress={() => setHistoryOpen((open) => !open)}
-                    className="flex-row items-center justify-between gap-3 px-4 py-2.5"
-                  >
-                    <View className="min-w-0 flex-1">
-                      <Text className="text-xs font-semibold uppercase tracking-wide text-ink-700">Old chats</Text>
-                      <Text className="mt-0.5 text-xs text-ink-600">{related.length} older {related.length === 1 ? "request" : "requests"} hidden</Text>
-                    </View>
-                    <View className="flex-row items-center gap-2">
-                      <Text className="text-xs font-semibold text-clay-700">{historyOpen ? "Hide" : "Show"}</Text>
-                      <Ionicons name={historyOpen ? "chevron-up" : "chevron-down"} size={16} color="#1d4ed8" />
-                    </View>
-                  </Pressable>
-                  {historyOpen ? (
-                    <ScrollView className="max-h-[190px] border-t border-ink-100">
-                      {related.map((row, index) => (
-                        <Pressable
-                          key={row.id}
-                          onPress={() => setSelectedId(row.id)}
-                          className={`flex-row items-center gap-3 px-4 py-3 ${index ? "border-t border-ink-100" : ""}`}
-                        >
-                          <View className="h-9 w-9 items-center justify-center rounded-full bg-ink-50">
-                            <Ionicons name={statusFor(row) === "CLOSED" ? "checkmark-done-outline" : "mail-outline"} size={16} color="#1e3a5f" />
-                          </View>
-                          <View className="min-w-0 flex-1">
-                            <Text className="text-sm font-bold text-clay-700">{ticketNo(row)}</Text>
-                            <Text className="mt-0.5 text-sm font-semibold text-ink-900" numberOfLines={1}>{subjectFor(row)}</Text>
-                          </View>
-                          <View className="items-end gap-1">
-                            <Badge tone={pillFor(statusFor(row))}>{statusFor(row)}</Badge>
-                            <Text className="text-xs text-ink-600">{shortDate(row.createdAt)}</Text>
-                          </View>
-                        </Pressable>
-                      ))}
-                    </ScrollView>
-                  ) : null}
-                </View>
-              ) : null}
-            </View>
-          )}
-        </Card>
-      </View>
-    </View>
-  );
-}
-
-function ThreadBubble({ label, author, date, body, mine }: { label: string; author: string; date: string; body: string; mine?: boolean }) {
-  return (
-    <View className={`max-w-[82%] ${mine ? "self-end items-end" : "self-start items-start"}`}>
-      <View className={`rounded-2xl px-4 py-2.5 ${mine ? "rounded-br-md bg-clay-500" : "rounded-bl-md bg-white"}`}>
-        <Text className={`text-[11px] font-semibold ${mine ? "text-blue-50" : "text-clay-700"}`}>{label}</Text>
-        <Text className={`mt-1 text-sm leading-5 ${mine ? "text-white" : "text-ink-900"}`}>{body}</Text>
-        <Text className={`mt-1 text-[10px] ${mine ? "text-blue-50" : "text-ink-500"}`}>{date}</Text>
-      </View>
-      {author && author !== label ? <Text className="mt-1 px-1 text-[10px] text-ink-500">{author}</Text> : null}
-    </View>
-  );
-}
-
-function CompactAction({
-  children,
-  disabled,
-  onPress,
-  variant = "primary",
-}: {
-  children: string;
-  disabled?: boolean;
-  onPress: () => void;
-  variant?: "primary" | "ghost" | "danger";
-}) {
-  const cls =
-    variant === "danger"
-      ? "border-red-600 bg-red-600"
-      : variant === "ghost"
-        ? "border-ink-200 bg-white"
-        : "border-clay-500 bg-clay-500";
-  const textCls = variant === "ghost" ? "text-ink-800" : "text-white";
-  return (
-    <Pressable
-      disabled={disabled}
-      onPress={onPress}
-      className={`h-9 items-center justify-center rounded-md border px-4 ${cls} ${disabled ? "opacity-60" : ""}`}
-    >
-      <Text className={`text-sm font-semibold ${textCls}`}>{children}</Text>
-    </Pressable>
-  );
-}
-
-function ThreadEvent({
-  event,
-  parentName,
-  parentMode,
-}: {
-  event: ReturnType<typeof parseEvent>;
-  parentName: string;
-  parentMode: boolean;
-}) {
-  const body = event.parentReply || event.replyBody || event.note || event.assigned || event.status || event.raw;
-  const isParentMessage = Boolean(event.parentReply);
-  const isSchoolMessage = Boolean(event.replyBody);
-  const label = isParentMessage
-    ? parentMode ? "You" : "Parent"
-    : isSchoolMessage
-      ? parentMode ? "School" : event.replyAuthor || "School"
-      : event.note
-        ? "Internal note"
-        : event.assigned
-          ? "Assigned"
-          : "Status updated";
-  const author = isParentMessage ? parentName : isSchoolMessage ? event.replyAuthor : "";
-  const mine = parentMode ? isParentMessage : isSchoolMessage;
-  if (isParentMessage || isSchoolMessage) {
-    return (
-      <ThreadBubble
-        label={label}
-        author={author}
-        date={event.stamp ? longDate(event.stamp) : ""}
-        body={body}
-        mine={mine}
-      />
-    );
-  }
-  return (
-    <View className="flex-row gap-3">
-      <View className="mt-1 h-8 w-8 items-center justify-center rounded-full bg-blue-50">
-        <Ionicons name={event.note || event.assigned ? "person-add-outline" : "chatbubble-outline"} size={15} color="#1d4ed8" />
-      </View>
-      <View className="min-w-0 flex-1 rounded-xl border border-ink-100 bg-white px-4 py-3">
-        <Text className="text-sm font-semibold text-ink-900">{label}</Text>
-        {event.stamp ? (
-          <Text className="mt-0.5 text-xs text-ink-600">
-            {[author, longDate(event.stamp)].filter(Boolean).join(" · ")}
-          </Text>
-        ) : null}
-        {body ? <Text className="mt-2 text-sm leading-5 text-ink-800">{body}</Text> : null}
-      </View>
     </View>
   );
 }

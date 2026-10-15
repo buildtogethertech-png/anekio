@@ -109,6 +109,7 @@ export type Notice = {
   createdAt: string;
   author: string;
   studentId?: string | null;
+  audiences?: string[];
   classes: { id: string; label: string }[];
 };
 

@@ -1,5 +1,5 @@
-import { useMemo, useState, type ComponentProps } from "react";
-import { Modal, Pressable, Text, useWindowDimensions, View } from "react-native";
+import { useEffect, useMemo, useState, type ComponentProps } from "react";
+import { Modal, Pressable, Text, TextInput, useWindowDimensions, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Calendar, type DateData } from "react-native-calendars";
 import { closedCaption, prettyDay } from "../lib/calendar";
@@ -34,6 +34,102 @@ function monthDates(cursor: Date) {
   return Array.from({ length: daysInMonth }, (_, index) => toYmd(new Date(cursor.getFullYear(), cursor.getMonth(), index + 1)));
 }
 
+const DEFAULT_TIME_SLOTS: [string, string][] = [
+  ["09:00", "9 AM"],
+  ["10:00", "10 AM"],
+  ["11:00", "11 AM"],
+  ["12:00", "12 PM"],
+  ["14:00", "2 PM"],
+  ["15:00", "3 PM"],
+  ["16:00", "4 PM"],
+  ["17:00", "5 PM"],
+  ["18:00", "6 PM"],
+  ["19:00", "7 PM"],
+];
+
+function TimePicker({ value, onChange }: { value: string; onChange: (next: string) => void }) {
+  const [h24, m] = value.split(":").map((n) => Number(n) || 0);
+  const pm = h24 >= 12;
+  const h12 = ((h24 + 11) % 12) + 1;
+  const [hourText, setHourText] = useState(String(h12));
+  const [minText, setMinText] = useState(String(m).padStart(2, "0"));
+  useEffect(() => {
+    setHourText(String(h12));
+    setMinText(String(m).padStart(2, "0"));
+  }, [value]);
+  const emit = (hour12: number, minute: number, isPm: boolean) => {
+    const hh = (hour12 % 12) + (isPm ? 12 : 0);
+    onChange(`${String(hh).padStart(2, "0")}:${String(minute).padStart(2, "0")}`);
+  };
+  const stepBtn = (icon: "chevron-up" | "chevron-down", onPress: () => void) => (
+    <Pressable accessibilityRole="button" onPress={onPress} hitSlop={6} className="h-8 w-14 items-center justify-center rounded-lg active:bg-ink-50">
+      <Ionicons name={icon} size={18} color="#2456d6" />
+    </Pressable>
+  );
+  const box = "h-14 w-14 rounded-xl border border-ink-200 bg-ink-50 text-center text-[24px] font-bold text-ink-900";
+  return (
+    <View className="flex-row items-center justify-center gap-2">
+      <View className="items-center">
+        {stepBtn("chevron-up", () => emit(h12 === 12 ? 1 : h12 + 1, m, pm))}
+        <TextInput
+          value={hourText}
+          keyboardType="number-pad"
+          maxLength={2}
+          selectTextOnFocus
+          onChangeText={(t) => {
+            const d = t.replace(/\D/g, "");
+            setHourText(d);
+            const n = Number(d);
+            if (n >= 1 && n <= 12) emit(n, m, pm);
+          }}
+          onBlur={() => setHourText(String(h12))}
+          className={box}
+          style={{ includeFontPadding: false }}
+        />
+        {stepBtn("chevron-down", () => emit(h12 === 1 ? 12 : h12 - 1, m, pm))}
+      </View>
+      <Text className="text-[24px] font-bold text-ink-400">:</Text>
+      <View className="items-center">
+        {stepBtn("chevron-up", () => emit(h12, (m + 1) % 60, pm))}
+        <TextInput
+          value={minText}
+          keyboardType="number-pad"
+          maxLength={2}
+          selectTextOnFocus
+          onChangeText={(t) => {
+            const d = t.replace(/\D/g, "");
+            setMinText(d);
+            const n = Number(d);
+            if (d.length && n >= 0 && n <= 59) emit(h12, n, pm);
+          }}
+          onBlur={() => setMinText(String(m).padStart(2, "0"))}
+          className={box}
+          style={{ includeFontPadding: false }}
+        />
+        {stepBtn("chevron-down", () => emit(h12, (m + 59) % 60, pm))}
+      </View>
+      <View className="ml-2 overflow-hidden rounded-xl border border-ink-200">
+        {(["AM", "PM"] as const).map((x) => {
+          const on = (x === "PM") === pm;
+          return (
+            <Pressable key={x} onPress={() => emit(h12, m, x === "PM")} className={`h-11 w-14 items-center justify-center ${on ? "bg-[#2456d6]" : "bg-white"}`}>
+              <Text className={`text-sm font-bold ${on ? "text-white" : "text-ink-700"}`}>{x}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+function timeLabel(value: string, slots: [string, string][]) {
+  const hit = slots.find(([v]) => v === value);
+  if (hit) return hit[1];
+  const [h, m] = value.split(":").map(Number);
+  if (Number.isNaN(h)) return value;
+  return `${((h + 11) % 12) + 1}${m ? `:${String(m).padStart(2, "0")}` : ""} ${h < 12 ? "AM" : "PM"}`;
+}
+
 export function DateField({
   value,
   onChange,
@@ -45,7 +141,14 @@ export function DateField({
   compact,
   placeholder = "Pick a date",
   birthDate,
+  time,
+  onTimeChange,
+  timeSlots = DEFAULT_TIME_SLOTS,
 }: {
+  /** "HH:mm". When set (with onTimeChange), the sheet also picks a time and closes on Done. */
+  time?: string;
+  onTimeChange?: (next: string) => void;
+  timeSlots?: [string, string][];
   /** Date of birth: opens on a year grid about six years back, no Today shortcuts. */
   birthDate?: boolean;
   value: string;
@@ -70,6 +173,8 @@ export function DateField({
   const reason = beforeMin ? "Before start" : futureSelected ? "Future" : value ? closedReason?.(value) || "" : "";
   const caption = beforeMin ? "Choose a day on or after the first day." : futureSelected ? "That day has not come yet." : closedCaption(reason);
   const weekday = WEEKDAY_LONG[selected.getDay()] || "";
+  const withTime = Boolean(onTimeChange);
+  const timeText = withTime && time ? timeLabel(time, timeSlots) : "";
   const sideLabel = value ? (reason ? (reason.length > 18 ? "Off" : reason) : weekday) : "";
   const allowed = (stamp: string) => !((min && stamp < min) || (max && stamp > max) || closedReason?.(stamp));
   const quickPicks = (() => {
@@ -198,7 +303,7 @@ export function DateField({
           const stamp = date.dateString;
           if ((min && stamp < min) || (max && stamp > max) || closedReason?.(stamp)) return;
           onChange(stamp);
-          setOpen(false);
+          if (!withTime) setOpen(false);
         }}
         renderArrow={(direction: "left" | "right") => (
           <View className="h-9 w-9 items-center justify-center rounded-full bg-ink-50">
@@ -307,6 +412,7 @@ export function DateField({
               ? `${WEEKDAY_LONG[selected.getDay()].slice(0, 3)}, ${prettyDay(value, !phone)}`
               : prettyDay(value, true)
           : placeholder}
+        {value && timeText ? ` · ${timeText}` : ""}
       </Text>
       {!plain && sideLabel ? (
         <Text
@@ -333,9 +439,10 @@ export function DateField({
                 </View>
                 <View className="flex-row items-end justify-between px-6 pb-2 pt-3">
                   <View>
-                    <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">Select date</Text>
+                    <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">{withTime ? "Select date & time" : "Select date"}</Text>
                     <Text className="mt-1 text-[26px] font-bold text-ink-900">
                       {value ? `${WEEKDAY_LONG[selected.getDay()].slice(0, 3)}, ${prettyDay(value, false)}` : "—"}
+                      {value && timeText ? <Text className="text-[20px] font-semibold text-[#2456d6]">{`  ${timeText}`}</Text> : null}
                     </Text>
                   </View>
                   <Pressable accessibilityRole="button" onPress={() => setOpen(false)} hitSlop={8} className="pb-1.5">
@@ -349,7 +456,7 @@ export function DateField({
                         key={pick.label}
                         onPress={() => {
                           onChange(pick.value);
-                          setOpen(false);
+                          if (!withTime) setOpen(false);
                         }}
                         className={`rounded-full border px-3.5 py-1.5 ${value === pick.value ? "border-[#2456d6] bg-[#EEF3FF]" : "border-ink-200 bg-white"}`}
                       >
@@ -359,6 +466,22 @@ export function DateField({
                   </View>
                 ) : null}
                 <View className="px-3">{calendar}</View>
+                {withTime ? (
+                  <View className="gap-3 border-t border-ink-100 px-6 pt-3">
+                    <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">Time</Text>
+                    <TimePicker value={time || "10:00"} onChange={(v) => onTimeChange?.(v)} />
+                    <Pressable
+                      accessibilityRole="button"
+                      disabled={!value}
+                      onPress={() => setOpen(false)}
+                      className={`h-12 items-center justify-center rounded-xl ${value ? "bg-[#2456d6]" : "bg-ink-200"}`}
+                    >
+                      <Text className="text-[15px] font-semibold text-white">
+                        {value ? `Done · ${WEEKDAY_LONG[selected.getDay()].slice(0, 3)}, ${prettyDay(value, false)}${timeText ? ` at ${timeText}` : ""}` : "Pick a date"}
+                      </Text>
+                    </Pressable>
+                  </View>
+                ) : null}
                 {closedReason ? (
                   <View className="flex-row items-center gap-4 px-6 pt-1">
                     <View className="flex-row items-center gap-1.5">

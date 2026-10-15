@@ -185,7 +185,8 @@ export function PhoneTopBar() {
   if (width >= 768) return null;
   const schoolName = data?.school?.name || "Anekio";
   // Portals without a "More" tab reach Inbox from here.
-  const showInbox = nav.some((item) => item.key === "inbox") && !visibleTabs(user?.portal, nav).includes("more");
+  const tabs = visibleTabs(user?.portal, nav);
+  const showInbox = nav.some((item) => item.key === "inbox") && !tabs.includes("more") && !tabs.includes("inbox");
   const userInitials = (user?.name || "")
     .split(" ")
     .filter(Boolean)

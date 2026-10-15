@@ -489,7 +489,7 @@ export function FeesBoard() {
   const { data, reload, refreshing } = useRecord();
   const { token, user } = useSession();
   const router = useRouter();
-  const params = useLocalSearchParams<{ tab?: string | string[] }>();
+  const params = useLocalSearchParams<{ tab?: string | string[]; pane?: string | string[] }>();
   const toast = useToast();
   const { width } = useWindowDimensions();
   const didInitialRefresh = useRef(false);
@@ -539,7 +539,9 @@ export function FeesBoard() {
 
   useEffect(() => {
     setTab(feeTabFromParam(params.tab));
-  }, [params.tab]);
+    const pane = Array.isArray(params.pane) ? params.pane[0] : params.pane;
+    if (pane === "class" || pane === "other" || pane === "late") setSetupPane(pane);
+  }, [params.tab, params.pane]);
 
   function selectTab(next: Tab) {
     setTab(next);
@@ -1014,6 +1016,36 @@ export function FeesBoard() {
     }
   }
 
+  const missingFeeClasses = classRows.filter((row) => !row.active).map((row) => row.klass.label);
+  const feesTitle = (
+    <View className="flex-row items-center justify-between gap-3">
+      <Text className="text-[22px] font-bold tracking-tight text-ink-900">Fees</Text>
+    </View>
+  );
+  const missingFeeBanner =
+    configure && missingFeeClasses.length ? (
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => router.push("/fees?tab=setup&pane=class" as never)}
+        className="flex-row items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5"
+      >
+        <Ionicons name="alert-circle-outline" size={16} color="#b45309" />
+        <Text className="flex-1 text-sm text-amber-900" numberOfLines={1}>
+          {missingFeeClasses.length === 1 ? `${missingFeeClasses[0]} has no fee` : `${missingFeeClasses.length} classes have no fee`}
+        </Text>
+        <Text className="text-sm font-semibold text-amber-800">Set up ›</Text>
+      </Pressable>
+    ) : null;
+  const setupHeader = (
+    <View className="mb-3 gap-1">
+      <Pressable accessibilityRole="button" onPress={() => router.push("/school" as never)} className="min-h-[32px] flex-row items-center gap-1 self-start">
+        <Ionicons name="chevron-back" size={19} color="#1F45C7" />
+        <Text className="text-sm font-medium text-[#1F45C7]">Settings</Text>
+      </Pressable>
+      <Text className="text-[22px] font-bold tracking-tight text-ink-900">Fee setup</Text>
+    </View>
+  );
+
   const modeTabs = (
     <View className="flex-row rounded-xl border border-ink-200 bg-white p-1 shadow-sm">
       {(
@@ -1021,7 +1053,6 @@ export function FeesBoard() {
           ["register", "Register"],
           ["report", "History"],
           ["insight", "Report"],
-          ["setup", "Setup"],
         ] as const
       ).map(([id, label]) => (
         <Pressable
@@ -1058,13 +1089,14 @@ export function FeesBoard() {
     <View className="mb-3 gap-3">
       <View className="flex-row flex-wrap items-start justify-between gap-3">
         <View>
-          <Text className="text-[22px] font-bold tracking-tight text-ink-900">Fees</Text>
+          {feesTitle}
           <Text className="mt-0.5 text-sm text-ink-600">
             {tab === "register" ? `${summary.pending} fee periods need attention across ${summary.students} students.` : tab === "report" ? "Review every payment and receipt in one place." : tab === "insight" ? "Collection performance for the current academic session." : "Configure the school’s fee structure."}
           </Text>
         </View>
         {modeTabs}
       </View>
+      {tab === "register" ? missingFeeBanner : null}
       {tab !== "insight" && tab !== "setup" ? metricChips : null}
       <View className="min-w-[220px] flex-1">
         {tab === "setup" ? null : tab === "insight" ? (
@@ -2264,7 +2296,6 @@ export function FeesBoard() {
           ["register", "Register"],
           ["report", "History"],
           ["insight", "Report"],
-          ["setup", "Setup"],
         ] as const
       ).map(([id, label]) => (
         <Pressable
@@ -2419,7 +2450,7 @@ export function FeesBoard() {
           onOpenStudent={(studentId) => setSelectedDueStudentId(studentId)}
           header={
             <View className="gap-3 pb-3">
-              <Text className="text-[22px] font-bold tracking-tight text-ink-900">Fees</Text>
+              {feesTitle}
               {phoneTabs}
             </View>
           }
@@ -2434,8 +2465,9 @@ export function FeesBoard() {
         {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
         <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 110 }} keyboardShouldPersistTaps="handled">
           <View className="gap-3 pb-3">
-            <Text className="text-[22px] font-bold tracking-tight text-ink-900">Fees</Text>
+            {feesTitle}
             {phoneTabs}
+            {tab === "register" ? missingFeeBanner : null}
             {tab === "register" ? phoneSummary : null}
             {phoneSearch}
             {tab === "register" ? statusChips : null}
@@ -2504,15 +2536,10 @@ export function FeesBoard() {
   return (
     <View className="min-h-0 flex-1">
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
-      {compact && selectedDueStudent && (tab === "register" || tab === "insight") ? null : compact && tab === "setup" ? null : toolbar}
+      {compact && selectedDueStudent && (tab === "register" || tab === "insight") ? null : tab === "setup" ? null : toolbar}
       {tab === "setup" ? (
         <ScrollView className="flex-1" contentContainerStyle={compact ? { paddingBottom: 110 } : undefined} keyboardShouldPersistTaps="handled">
-          {compact ? (
-            <View className="gap-3 pb-3">
-              <Text className="text-[22px] font-bold tracking-tight text-ink-900">Fees</Text>
-              {phoneTabs}
-            </View>
-          ) : null}
+          {setupHeader}
           {setupTabs}
           {setupBody}
         </ScrollView>

@@ -3,9 +3,12 @@ import { Animated, Dimensions, Linking, Modal as RnModal, Platform, Pressable, S
 import { useRouter, useLocalSearchParams } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { DateField } from "./date-field";
+import { NewConversationSheet } from "./inbox-board";
+import { ChildPill } from "./child-pill";
+import { DocViewer } from "./doc-viewer";
 import { Badge, Button, Card, Chip, ChipScroller, CloseButton, Empty, Field, Input, Modal, PageHeader, Stat, Toast, useToast } from "./ui";
 import { act } from "../lib/mutate";
-import { webOrigin } from "../lib/api";
+import { api, webOrigin } from "../lib/api";
 import {
   attendanceCbseNote,
   attendanceCountLine,
@@ -39,6 +42,7 @@ function ChildSwitch({ fullWidth = false }: { fullWidth?: boolean } = {}) {
   const triggerRef = useRef<View>(null);
   const [open, setOpen] = useState(false);
   const [menu, setMenu] = useState({ x: 0, y: 0, w: 220 });
+  const { width: phoneWidth } = useWindowDimensions();
   const many = kids.length > 1;
   const activeId = childId || child?.id;
 
@@ -56,6 +60,8 @@ function ChildSwitch({ fullWidth = false }: { fullWidth?: boolean } = {}) {
   }, [open]);
 
   if (!child && !kids.length) return null;
+
+  if (phoneWidth < 768) return <ChildPill />;
 
   function toggle() {
     if (!many) return;
@@ -2293,40 +2299,10 @@ export function FamilyHomeBoard() {
   const child = data?.child;
   const [queryMode, setQueryMode] = useState<"teacher" | "office" | null>(null);
   const [querySubject, setQuerySubject] = useState("");
-  const [queryMessage, setQueryMessage] = useState("");
-  const [queryBusy, setQueryBusy] = useState(false);
 
   function openParentQuery(mode: "teacher" | "office", opts?: { subject?: string }) {
+    setQuerySubject(opts?.subject || "");
     setQueryMode(mode);
-    setQuerySubject(
-      opts?.subject
-        ? `Question about ${opts.subject}`
-        : mode === "teacher"
-          ? "Need to discuss my child"
-          : "General query"
-    );
-    setQueryMessage("");
-  }
-
-  async function sendParentQuery() {
-    if (!child || !queryMode) return;
-    setQueryBusy(true);
-    try {
-      await act(token, "submitParentQuery", {
-        studentId: child.id,
-        target: queryMode,
-        subject: querySubject,
-        message: queryMessage,
-      });
-      setQueryMode(null);
-      setQueryMessage("");
-      toast.show(queryMode === "teacher" ? "Sent to class teacher." : "Sent to office.");
-      await reload();
-    } catch (err) {
-      toast.show(err instanceof Error ? err.message : "Could not send query.");
-    } finally {
-      setQueryBusy(false);
-    }
   }
 
   if (data?.kind === "STUDENT") {
@@ -2536,274 +2512,19 @@ export function FamilyHomeBoard() {
   return (
     <View>
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
-      <View className="mb-4 overflow-hidden rounded-[18px] border border-ink-200 bg-white">
-        <View className="bg-[#EEF6FF] px-4 py-4">
-          <View className="flex-row items-center gap-3">
-            <View className="h-12 w-12 items-center justify-center rounded-2xl bg-clay-500">
-              <Text className="text-[18px] font-bold text-white">
-                {(child?.name || "P")
-                  .split(" ")
-                  .filter(Boolean)
-                  .slice(0, 2)
-                  .map((part) => part[0]?.toUpperCase())
-                  .join("") || "P"}
-              </Text>
-            </View>
-            <View className="min-w-0 flex-1">
-              <Text className="text-[20px] font-bold leading-6 text-ink-900" numberOfLines={1}>
-                {child?.name || "Parent dashboard"}
-              </Text>
-              {child ? (
-                <Text className="mt-0.5 text-[12px] font-medium text-ink-700" numberOfLines={1}>
-                  {studentMetaLine(child)}
-                </Text>
-              ) : (
-                <Text className="mt-0.5 text-[12px] font-medium text-ink-700">No child linked yet.</Text>
-              )}
-            </View>
-          </View>
-        </View>
-        <View className="gap-2.5 px-3 py-3 sm:flex-row sm:items-center">
-          <View className="min-w-0 flex-1">
-            <ChildSwitch fullWidth />
-          </View>
-          <Button disabled={!child} variant="ghost" className="h-[42px] rounded-lg px-3 py-2" onPress={() => openParentQuery("office")}>
-            Raise query
-          </Button>
-        </View>
-      </View>
-      {(() => {
-        const attRows = child?.attendance ?? [];
-        const att = attendanceSummary(attRows);
-        const unpaid = (child?.fees ?? []).filter((f) => f.display !== "paid" && f.dueNow > 0);
-        const totalDue = unpaid.reduce((sum, f) => sum + f.dueNow, 0);
-        const totalDueLabel = totalDue ? `₹${totalDue.toLocaleString("en-IN")}` : "₹0";
-        const subjectsWithMarks = (child?.subjects ?? []).filter((s) => s.n > 0);
-        const avg = subjectsWithMarks.length
-          ? Math.round(subjectsWithMarks.reduce((n, s) => n + s.pct, 0) / subjectsWithMarks.length)
-          : 0;
-        const coming = (data?.upcoming ?? []).slice(0, 4);
-        const notices = (data?.notices ?? []).slice(0, 3);
-        const day = data ? todaySlots(data) : { label: "", periods: [] };
-        const attWord = att.pct >= 90 ? "Excellent" : att.pct >= 75 ? "On track" : att.pct ? "Needs attention" : "No data";
-        const lastAtt = attRows[0];
-        return (
-          <>
-            <Text className="mb-1.5 text-[12px] font-semibold uppercase tracking-[0.12em] text-ink-500">Today</Text>
-            <View className={`mb-4 gap-4 ${twoCol ? "flex-row items-stretch" : ""}`}>
-              <View style={twoCol ? { flex: 11, minWidth: 0 } : { width: "100%" }}>
-                <Card className="px-4 py-4" style={twoCol ? { flex: 1 } : undefined}>
-                  <Text className="mb-3 text-[12px] font-semibold uppercase tracking-[0.1em] text-ink-500">Today's classes</Text>
-                  {day.periods.length ? (
-                    <View>
-                      {day.periods.map((p) => {
-                        const phase = periodPhase(p);
-                        const row =
-                          phase === "now"
-                            ? "rounded-lg border-l-[3px] border-clay-500 bg-[#EEF2FF] px-2 py-2"
-                            : phase === "done"
-                              ? "rounded-lg bg-[#F7FBF8] px-2 py-2"
-                              : "px-2 py-2";
-                        return (
-                          <View key={`${p.period}-${p.start}-${p.subject}`} className={`mb-0.5 flex-row items-start ${row}`}>
-                            <Text className="w-[46px] pt-0.5 text-[12px] tabular-nums text-ink-500">{p.start || p.period}</Text>
-                            <View className="min-w-0 flex-1">
-                              <Text className="text-[14px] font-semibold text-ink-900" numberOfLines={1}>
-                                {p.subject}
-                              </Text>
-                              <Text className="mt-0.5 text-[12px] text-ink-500" numberOfLines={1}>
-                                {p.teacher || p.room || " "}
-                              </Text>
-                            </View>
-                            {phase === "done" ? (
-                              <Text className="ml-2 pt-0.5 text-[11px] font-medium text-[#18794E]">✓ Completed</Text>
-                            ) : phase === "now" ? (
-                              <View className="ml-2 flex-row items-center pt-0.5">
-                                <InProgressDot />
-                                <Text className="text-[11px] font-medium text-clay-500">In progress</Text>
-                              </View>
-                            ) : (
-                              <Text className="ml-2 pt-0.5 text-[11px] text-ink-500">○ Upcoming</Text>
-                            )}
-                          </View>
-                        );
-                      })}
-                    </View>
-                  ) : (
-                    <Text className="text-[13px] text-ink-500">No timetable for today yet.</Text>
-                  )}
-                  <Pressable onPress={() => router.push("/timetable")} className="mt-3 self-start">
-                    <Text className="text-[13px] font-medium text-clay-500">View timetable →</Text>
-                  </Pressable>
-                </Card>
-              </View>
-
-              <View style={twoCol ? { flex: 9, minWidth: 0 } : { width: "100%" }}>
-                <Text className="mb-1.5 text-[12px] font-semibold uppercase tracking-[0.1em] text-ink-500">Needs attention</Text>
-                <View className="gap-2.5" style={twoCol ? { flex: 1, justifyContent: "flex-start" } : undefined}>
-                  <Pressable onPress={() => router.push("/fees")}>
-                    <Card className={`rounded-[10px] px-3.5 py-3.5 ${unpaid.length ? "border-[#F0B4B4] bg-[#FDECEC]" : ""}`}>
-                      <View className="flex-row items-start gap-3">
-                        <View className={`h-10 w-10 items-center justify-center rounded-xl ${unpaid.length ? "bg-red-100" : "bg-emerald-50"}`}>
-                          <Ionicons name="wallet-outline" size={20} color={unpaid.length ? "#B42318" : "#047857"} />
-                        </View>
-                        <View className="min-w-0 flex-1">
-                          <Text className={`text-[11px] font-semibold uppercase tracking-wide ${unpaid.length ? "text-[#B42318]" : "text-ink-500"}`}>
-                            {unpaid.length ? "Fees due" : "Fees"}
-                          </Text>
-                          <Text className="mt-1 text-[22px] font-bold leading-7 text-ink-900">{totalDueLabel}</Text>
-                          <Text className="mt-0.5 text-[12px] text-ink-500">
-                            {unpaid.length
-                              ? `${unpaid.length} month${unpaid.length === 1 ? "" : "s"} pending`
-                              : "Nothing pending"}
-                          </Text>
-                        </View>
-                      </View>
-                      <Text className={`mt-2.5 text-[13px] font-medium ${unpaid.length ? "text-clay-500" : "text-ink-500"}`}>
-                        {unpaid.length ? "Pay fees →" : "View fees →"}
-                      </Text>
-                    </Card>
-                  </Pressable>
-
-                  <Pressable onPress={() => router.push("/attendance")}>
-                    <Card className="rounded-[10px] px-3.5 py-3">
-                      <View className="flex-row items-center justify-between">
-                        <View className="flex-row items-center gap-2">
-                          <View className="h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
-                            <Ionicons name="checkmark-circle-outline" size={18} color="#047857" />
-                          </View>
-                          <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">Attendance</Text>
-                        </View>
-                        <Text className="text-[12px] font-medium text-[#18794E]">{attWord}</Text>
-                      </View>
-                      <View className="mt-1.5 flex-row items-end justify-between">
-                        <Text className="text-[22px] font-semibold leading-7 text-ink-900">{att.pct}%</Text>
-                      </View>
-                      <View className="mt-2 h-1.5 overflow-hidden rounded-full bg-ink-100">
-                        <View
-                          className="h-1.5 rounded-full bg-[#2BB673]"
-                          style={{ width: `${Math.max(att.pct ? 4 : 0, Math.min(100, att.pct))}%` }}
-                        />
-                      </View>
-                      <Text className="mt-2 text-[12px] text-ink-500">
-                        {Math.max(0, att.inDays - att.late)} Present · {att.out} Absent · {att.late} Late
-                      </Text>
-                      <Text className="mt-1.5 text-[13px] font-medium text-clay-500">View attendance →</Text>
-                    </Card>
-                  </Pressable>
-
-                  <Pressable onPress={() => router.push("/notices")}>
-                    <Card className="rounded-[10px] px-3.5 py-2.5">
-                      <View className="flex-row items-start gap-3">
-                        <View className="h-9 w-9 items-center justify-center rounded-xl bg-blue-50">
-                          <Ionicons name="megaphone-outline" size={18} color="#2563EB" />
-                        </View>
-                        <View className="min-w-0 flex-1">
-                          <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">School notice</Text>
-                          <Text className="mt-1 text-[14px] font-semibold leading-5 text-ink-900" numberOfLines={2}>
-                            {notices[0]?.title || "No new notices"}
-                          </Text>
-                        </View>
-                      </View>
-                      <Text className="mt-0.5 text-[12px] text-ink-500">
-                        {notices[0] ? notices[0].createdAt : "School updates will appear here."}
-                      </Text>
-                      <Text className="mt-1.5 text-[13px] font-medium text-clay-500">Read notice →</Text>
-                    </Card>
-                  </Pressable>
-                </View>
-              </View>
-            </View>
-
-            <Text className="mb-1.5 text-[12px] font-semibold uppercase tracking-[0.12em] text-ink-500">Child overview</Text>
-            <View className="mb-4 flex-row flex-wrap gap-3">
-              <Pressable className="min-w-[140px] flex-1" onPress={() => router.push("/attendance")}>
-                <Card className="px-4 py-3">
-                  <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">Attendance</Text>
-                  <Text className="mt-1 text-[22px] font-semibold text-ink-900">{att.pct}%</Text>
-                  <Text className="mt-0.5 text-[12px] text-ink-500">{attWord}</Text>
-                </Card>
-              </Pressable>
-              <Pressable className="min-w-[140px] flex-1" onPress={() => router.push("/tests")}>
-                <Card className="px-4 py-3">
-                  <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">Academics</Text>
-                  <Text className="mt-1 text-[22px] font-semibold text-ink-900">{avg ? `${avg}%` : "—"}</Text>
-                  <Text className="mt-0.5 text-[12px] text-ink-500">
-                    {subjectsWithMarks.length ? `${subjectsWithMarks.length} subjects marked` : "No marks yet"}
-                  </Text>
-                </Card>
-              </Pressable>
-              <Pressable className="min-w-[140px] flex-1" onPress={() => router.push("/fees")}>
-                <Card className="px-4 py-3">
-                  <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">Fees</Text>
-                  <Text className="mt-1 text-[22px] font-semibold text-ink-900">{totalDueLabel}</Text>
-                  <Text className="mt-0.5 text-[12px] text-ink-500">{unpaid.length ? "Outstanding" : "Clear"}</Text>
-                </Card>
-              </Pressable>
-            </View>
-
-            <Text className="mb-1.5 text-[12px] font-semibold uppercase tracking-[0.12em] text-ink-500">Upcoming</Text>
-            <View className={`mb-2 gap-3 ${twoCol ? "flex-row" : ""}`}>
-              <Card className={`px-4 py-3 ${twoCol ? "flex-1" : "w-full"}`}>
-                <Text className="text-[14px] font-semibold text-ink-900">Tests & events</Text>
-                {coming.length ? (
-                  coming.map((e) => (
-                    <Pressable key={e.id} onPress={() => router.push("/tests")} className="mt-2">
-                      <Text className="text-[13px] font-medium text-ink-900">{e.subject || e.title}</Text>
-                      <Text className="mt-0.5 text-[12px] text-ink-500">
-                        {e.title} · {e.date}
-                      </Text>
-                    </Pressable>
-                  ))
-                ) : (
-                  <Text className="mt-2 text-[13px] text-ink-500">No upcoming tests yet.</Text>
-                )}
-              </Card>
-              <Card className={`px-4 py-3 ${twoCol ? "flex-1" : "w-full"}`}>
-                <Text className="text-[14px] font-semibold text-ink-900">Recent activity</Text>
-                {lastAtt ? (
-                  <Text className="mt-2 text-[13px] text-ink-800">
-                    Attendance marked · {lastAtt.status} · {lastAtt.date}
-                  </Text>
-                ) : (
-                  <Text className="mt-2 text-[13px] text-ink-500">No attendance yet this week.</Text>
-                )}
-                {unpaid[0] ? <Text className="mt-1.5 text-[13px] text-ink-800">Fee invoice · {unpaid[0].title}</Text> : null}
-                {notices[0] ? <Text className="mt-1.5 text-[13px] text-ink-800">Notice · {notices[0].title}</Text> : null}
-              </Card>
-            </View>
-          </>
-        );
-      })()}
-      <Modal
+      <ParentPhoneHome wide={width >= 768} onMessage={() => openParentQuery("office")} />
+      <NewConversationSheet
         open={Boolean(queryMode)}
-        title={queryMode === "teacher" ? "Ask teacher" : "Raise query"}
         onClose={() => setQueryMode(null)}
-        footer={
-          <View className="flex-row flex-wrap justify-end gap-2">
-            <Button variant="ghost" disabled={queryBusy} onPress={() => setQueryMode(null)}>
-              Cancel
-            </Button>
-            <Button disabled={queryBusy || !querySubject.trim() || !queryMessage.trim()} onPress={() => void sendParentQuery()}>
-              Send
-            </Button>
-          </View>
-        }
-      >
-        <View className="gap-3">
-          <Text className="text-sm text-ink-700">
-            {queryMode === "teacher"
-              ? "This goes to the class teacher as an in-app notification."
-              : "This goes to the school office/admin as an in-app notification."}
-          </Text>
-          <Field label="Subject">
-            <Input value={querySubject} onChangeText={setQuerySubject} />
-          </Field>
-          <Field label="Message" hint="Mention the problem or feedback clearly.">
-            <Input value={queryMessage} onChangeText={setQueryMessage} multiline className="min-h-[120px]" />
-          </Field>
-        </View>
-      </Modal>
+        studentId={child?.id}
+        studentName={child?.name}
+        initialTarget={queryMode === "teacher" ? "CLASS_TEACHER" : "OFFICE"}
+        initialSubject={querySubject}
+        onSent={(id) => {
+          toast.show("Message sent.");
+          router.push(`/inbox?thread=${encodeURIComponent(id)}`);
+        }}
+      />
     </View>
   );
 }
@@ -2819,6 +2540,17 @@ const PARENT_DAY_STYLE: Record<ParentDayKind, { cell: string; text: string; badg
   pl: { cell: "bg-[#EEF4FF] border-[#C7D7FE]", text: "text-[#1D4ED8]", badge: "PL", label: "Planned leave" },
   nm: { cell: "bg-[#F7F8FA] border-[#E6EAF0]", text: "text-[#64748B]", badge: "NM", label: "Not marked" },
   upcoming: { cell: "bg-white border-[#E6EAF0]", text: "text-[#94A3B8]", badge: "", label: "Upcoming" },
+};
+
+const PARENT_DAY_DOT: Record<ParentDayKind, string> = {
+  present: "#2BB673",
+  absent: "#E5484D",
+  late: "#F59E0B",
+  wo: "#CBD5E1",
+  holiday: "#8B5CF6",
+  pl: "#3B82F6",
+  nm: "#E2E8F0",
+  upcoming: "transparent",
 };
 
 function parentDayKind(opts: {
@@ -2896,6 +2628,20 @@ function ParentAttendanceCalendar({
 
   function DayCell({ day, kind, today, onPress }: { day: number; kind: ParentDayKind; today: boolean; onPress: () => void }) {
     const style = PARENT_DAY_STYLE[kind];
+    if (compact) {
+      const isPicked = picked === days.find((d) => d.day === day)?.key;
+      const muted = kind === "wo" || kind === "upcoming" || kind === "nm";
+      return (
+        <Pressable accessibilityRole="button" accessibilityLabel={`${day} ${style.label}`} onPress={onPress} className="h-[46px] items-center justify-center">
+          <View
+            className={`h-8 w-8 items-center justify-center rounded-full ${isPicked ? "bg-[#1F45C7]" : today ? "border-2 border-[#1F45C7]" : ""}`}
+          >
+            <Text className={`text-[14px] ${isPicked ? "font-semibold text-white" : muted ? "text-ink-400" : "font-semibold text-ink-900"}`}>{day}</Text>
+          </View>
+          <View className="mt-0.5 h-[5px] w-[5px] rounded-full" style={{ backgroundColor: PARENT_DAY_DOT[kind] }} />
+        </Pressable>
+      );
+    }
     return (
       <Pressable
         accessibilityRole="button"
@@ -2916,7 +2662,13 @@ function ParentAttendanceCalendar({
           <Pressable onPress={() => onMonth(shiftMonth(activeMonth, -1))} hitSlop={8} accessibilityLabel="Previous month">
             <Ionicons name="chevron-back" size={18} color="#2855F6" />
           </Pressable>
-          <Text className="min-w-[128px] text-center text-[13px] font-semibold uppercase tracking-[0.08em] text-ink-800">
+          <Text
+            className={
+              compact
+                ? "min-w-[150px] text-center text-[16px] font-semibold text-ink-900"
+                : "min-w-[128px] text-center text-[13px] font-semibold uppercase tracking-[0.08em] text-ink-800"
+            }
+          >
             {monthLabel(activeMonth)}
           </Text>
           <Pressable onPress={() => onMonth(shiftMonth(activeMonth, 1))} hitSlop={8} accessibilityLabel="Next month">
@@ -2929,6 +2681,7 @@ function ParentAttendanceCalendar({
             <Text className="text-[12px] font-medium text-ink-800">Today</Text>
           </Pressable>
         </View>
+        {compact ? null : (
         <View className="flex-row overflow-hidden rounded-md border border-ink-200">
           {(["calendar", "list"] as const).map((id) => (
             <Pressable
@@ -2942,8 +2695,33 @@ function ParentAttendanceCalendar({
             </Pressable>
           ))}
         </View>
+        )}
       </View>
 
+      {compact ? (
+        <View className="mb-2 flex-row flex-wrap gap-x-3 gap-y-1.5">
+          {(
+            [
+              ["present", counts.present],
+              ["absent", counts.absent],
+              ["late", counts.late],
+              ["pl", counts.pl],
+              ["holiday", counts.holiday],
+              ["wo", counts.wo],
+              ["nm", counts.nm],
+            ] as [ParentDayKind, number][]
+          )
+            .filter(([, n]) => n > 0)
+            .map(([k, n]) => (
+              <View key={k} className="flex-row items-center gap-1.5">
+                <View className="h-2 w-2 rounded-full" style={{ backgroundColor: PARENT_DAY_DOT[k] === "#E2E8F0" ? "#CBD5E1" : PARENT_DAY_DOT[k] }} />
+                <Text className="text-[12px] text-ink-600">
+                  <Text className="font-semibold text-ink-900">{n}</Text> {PARENT_DAY_STYLE[k].label}
+                </Text>
+              </View>
+            ))}
+        </View>
+      ) : (
       <View className="mb-2.5 flex-row flex-wrap gap-x-3 gap-y-1">
         {(Object.keys(PARENT_DAY_STYLE) as ParentDayKind[])
           .filter((k) => k !== "upcoming")
@@ -2957,8 +2735,9 @@ function ParentAttendanceCalendar({
             );
           })}
       </View>
+      )}
 
-      {mode === "calendar" ? (
+      {mode === "calendar" || compact ? (
         <>
           <View className="mb-1.5 flex-row">
             {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => (
@@ -3018,6 +2797,7 @@ function ParentAttendanceCalendar({
         </View>
       ) : null}
 
+      {compact ? null : (
       <View className="mt-3 flex-row flex-wrap gap-x-4 gap-y-1 border-t border-ink-100 pt-3">
         {(
           [
@@ -3033,6 +2813,7 @@ function ParentAttendanceCalendar({
           </Text>
         ))}
       </View>
+      )}
     </Card>
   );
 }
@@ -3048,6 +2829,9 @@ export function FamilyAttendance() {
   const todayLabel = todayMarkLabel(today);
   const cbse = attendanceCbseNote(att);
   const pending = (data?.pendingLeave ?? []).filter((r) => !child || r.subjectId === child.id);
+  const { width: attWidth } = useWindowDimensions();
+  const phone = attWidth < 768;
+  const manyKids = (data?.children ?? []).length > 1;
   const progressTone = att.pct >= 75 ? "bg-emerald-400" : att.pct >= 60 ? "bg-amber-400" : "bg-red-400";
   const attendanceMessage = att.pct >= 90
     ? "Excellent consistency"
@@ -3104,6 +2888,32 @@ export function FamilyAttendance() {
 
   return (
     <View>
+      {phone ? (
+        <View className="mb-4">
+          <View className="flex-row items-center gap-3">
+            <View className="min-w-0 flex-1">
+              <Text className="text-[22px] font-semibold leading-7 text-ink-900">Attendance</Text>
+              <Text className="mt-0.5 text-[13px] text-ink-500" numberOfLines={1}>
+                {child ? `${child.name} · ${child.classLabel}` : "Presence, punctuality, and leave."}
+              </Text>
+            </View>
+            {user?.portal === "PARENT" ? (
+              <LeaveApplyCard
+                audience="student"
+                token={token}
+                onDone={async (ok) => { toast.show(ok); await reload(); }}
+                onError={(msg) => toast.show(msg)}
+                triggerOnly
+              />
+            ) : null}
+          </View>
+          {manyKids ? (
+            <View className="mt-3">
+              <ChildSwitch fullWidth />
+            </View>
+          ) : null}
+        </View>
+      ) : (
       <View className="mb-4 flex-row flex-wrap items-center justify-between gap-3">
         <View className="min-w-0 flex-1">
           <Text className="text-[22px] font-semibold leading-7 text-ink-900">Attendance</Text>
@@ -3124,6 +2934,7 @@ export function FamilyAttendance() {
           ) : null}
         </View>
       </View>
+      )}
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
       {user?.portal === "PARENT" ? (
         <LeaveDecideList
@@ -3140,6 +2951,41 @@ export function FamilyAttendance() {
       {!rows.length ? (
         <Empty title="No days marked yet" body="When the teacher marks the class, it appears here. Open days still show as weekly off, holiday, upcoming, or not marked." />
       ) : (
+        phone ? (
+          <View className="mb-4 rounded-3xl border border-ink-100 bg-white p-4">
+            <View className="flex-row items-center gap-4">
+              <View
+                className="h-[72px] w-[72px] items-center justify-center rounded-full border-[6px]"
+                style={{ borderColor: att.pct >= 75 ? "#2BB673" : att.pct >= 60 ? "#F59E0B" : "#E5484D" }}
+              >
+                <Text className="text-[18px] font-bold text-ink-900">{att.pct}%</Text>
+              </View>
+              <View className="min-w-0 flex-1">
+                <Text className="text-[17px] font-semibold text-ink-900">{attendanceMessage}</Text>
+                <Text className="mt-0.5 text-[12px] text-ink-500">
+                  Over the last {att.marked} school day{att.marked === 1 ? "" : "s"} · 75% needed
+                </Text>
+                {todayLabel ? (
+                  <View className="mt-2 self-start rounded-full bg-[#EEF3FF] px-2.5 py-1">
+                    <Text className="text-[11px] font-semibold text-[#1F45C7]">{todayLabel}</Text>
+                  </View>
+                ) : null}
+              </View>
+            </View>
+            <View className="mt-4 flex-row gap-2">
+              {[
+                { label: "Present", value: att.inDays, bg: "bg-[#ECF8F0]", tone: "text-[#18794E]" },
+                { label: "Late", value: att.late, bg: "bg-[#FFF7E8]", tone: "text-[#B45309]" },
+                { label: "Absent", value: att.out, bg: "bg-[#FDECEC]", tone: "text-[#B42318]" },
+              ].map((item) => (
+                <View key={item.label} className={`flex-1 rounded-2xl px-3 py-2.5 ${item.bg}`}>
+                  <Text className={`text-[20px] font-bold ${item.tone}`}>{item.value}</Text>
+                  <Text className="text-[12px] text-ink-600">{item.label}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        ) : (
         <Card className="mb-4 p-4">
           <View className="flex-row flex-wrap items-end justify-between gap-3">
             <View>
@@ -3177,10 +3023,11 @@ export function FamilyAttendance() {
             ))}
           </View>
         </Card>
+        )
       )}
 
           <View className="mb-2 mt-1 flex-row items-end justify-between gap-3">
-            <Text className="text-[15px] font-semibold text-ink-900">Month</Text>
+            <Text className="text-[15px] font-semibold text-ink-900">{phone ? "Calendar" : "Month"}</Text>
             {cbse ? (
               <View className="rounded-full bg-amber-50 px-3 py-1">
                 <Text className="text-[11px] font-medium text-amber-800">{cbse}</Text>
@@ -3763,7 +3610,8 @@ export function FamilyTimetable() {
   function slotMeta(slot: (typeof slots)[number]) {
     const classLabel = "classLabel" in slot ? String(slot.classLabel || "") : "";
     const ownRoom = Boolean(slot.room && classLabel && slot.room.toLowerCase().replace(/\s+/g, "") === `classroom${classLabel}`.toLowerCase().replace(/\s+/g, ""));
-    return [showTeacher ? slot.teacher : "", classLabel, ownRoom ? "" : slot.room].filter(Boolean).join(" · ");
+    const showClass = data?.kind === "TEACHER" || data?.kind === "OFFICE";
+    return [showTeacher ? slot.teacher : "", showClass ? classLabel : "", ownRoom ? "" : slot.room].filter(Boolean).join(" · ");
   }
 
   return (
@@ -3777,7 +3625,7 @@ export function FamilyTimetable() {
             : "Periods for every school day."
         }
       /> : null}
-      <ChildSwitch />
+      {showWeekGrid || !slots.length ? <ChildSwitch /> : null}
       {!slots.length ? (
         <Empty title="No periods assigned" body="When admin fills the grid, it appears here." />
       ) : showWeekGrid ? (
@@ -3857,6 +3705,7 @@ export function FamilyTimetable() {
           onPickDay={setPickedDay}
           slotFor={periodSlot}
           metaFor={slotMeta}
+          switcher={<ChildSwitch />}
         />
       )}
     </View>
@@ -3892,7 +3741,9 @@ function PhoneTimetable<Slot extends { subject: string }>({
   onPickDay,
   slotFor,
   metaFor,
+  switcher,
 }: {
+  switcher?: React.ReactNode;
   weekdays: { n: number; label: string }[];
   periods: TimetablePeriod[];
   activeDay: number;
@@ -3924,20 +3775,20 @@ function PhoneTimetable<Slot extends { subject: string }>({
 
   return (
     <View>
-      <View className="mb-3 flex-row items-end justify-between px-1">
-        <View>
+      <View className="mb-3 flex-row items-center justify-between gap-3 px-1">
+        <View className="min-w-0 flex-1">
           <Text className="text-[22px] font-bold leading-7 text-ink-900">Timetable</Text>
-          <Text className="mt-0.5 text-sm text-ink-700">
+          <Text className="mt-0.5 text-[13px] text-ink-500" numberOfLines={1}>
             {dayDate.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "short" })}
+            {" · "}
+            {teaching.length
+              ? isToday
+                ? `${doneCount} of ${teaching.length} done`
+                : `${teaching.length} lesson${teaching.length === 1 ? "" : "s"}`
+              : "No lessons"}
           </Text>
         </View>
-        <Text className="mb-0.5 text-sm font-medium text-ink-700">
-          {teaching.length
-            ? isToday
-              ? `${doneCount} of ${teaching.length} done`
-              : `${teaching.length} lesson${teaching.length === 1 ? "" : "s"}`
-            : "No lessons"}
-        </Text>
+        {switcher}
       </View>
 
       <View className="mb-4 flex-row gap-1.5">
@@ -4087,6 +3938,8 @@ export function FamilyFees() {
   const familyMode = data?.kind === "PARENT" && familyChildren.length > 1;
   const [tab, setTab] = useState<"overdue" | "paid">("overdue");
   const [picked, setPicked] = useState<string[]>([]);
+  const { width: screenWidth } = useWindowDimensions();
+  const [doc, setDoc] = useState<{ url: string; title: string } | null>(null);
 
   const allFees = useMemo<StatementFee[]>(() => {
     if (familyMode) {
@@ -4153,16 +4006,51 @@ export function FamilyFees() {
     }
   }
 
-  function openDocument(url?: string) {
+  function openDocument(url?: string, title = "Invoice") {
     if (!url) return;
-    void Linking.openURL(url);
+    setDoc({ url, title });
   }
+  const docViewer = <DocViewer url={doc?.url ?? null} title={doc?.title ?? ""} onClose={() => setDoc(null)} />;
 
   function toggleInvoice(id: string) {
     setPicked((ids) => (ids.includes(id) ? ids.filter((row) => row !== id) : [...ids, id]));
   }
 
   const visibleRows = tab === "paid" ? paidInvoices : openInvoices;
+
+  if (screenWidth < 768 && allFees.length) {
+    const order: string[] = [];
+    const byChild = new Map<string, { id: string; name: string; classLabel: string; open: StatementFee[]; paid: StatementFee[] }>();
+    for (const inv of allFees) {
+      if (!byChild.has(inv.childId)) {
+        order.push(inv.childId);
+        byChild.set(inv.childId, { id: inv.childId, name: inv.childName, classLabel: inv.classLabel, open: [], paid: [] });
+      }
+      const g = byChild.get(inv.childId)!;
+      (dueOf(inv) > 0 ? g.open : g.paid).push(inv);
+    }
+    const byDate = (a: StatementFee, b: StatementFee) => Date.parse(a.dueAt || "") - Date.parse(b.dueAt || "");
+    const groups = order.map((id) => {
+      const g = byChild.get(id)!;
+      return { ...g, open: g.open.sort(byDate), paid: g.paid.sort((a, b) => byDate(b, a)) };
+    });
+    return (
+      <View>
+        {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
+        <FeesPhoneView
+          groups={groups}
+          openInvoices={openInvoices}
+          paidInvoices={paidInvoices}
+          picked={picked}
+          setPicked={setPicked}
+          busy={busy}
+          onPay={() => void pay()}
+          onOpen={openDocument}
+        />
+        {docViewer}
+      </View>
+    );
+  }
 
   return (
     <View>
@@ -4274,7 +4162,7 @@ export function FamilyFees() {
                         </Pressable>
                       ) : null}
                       {inv.receiptUrl ? (
-                        <Pressable onPress={() => openDocument(inv.receiptUrl)} hitSlop={8}>
+                        <Pressable onPress={() => openDocument(inv.receiptUrl, "Receipt")} hitSlop={8}>
                           <View className="flex-row items-center gap-1">
                             <Ionicons name="receipt-outline" size={14} color="#2456d6" />
                             <Text className="text-xs font-semibold text-clay-600">Receipt</Text>
@@ -4300,6 +4188,738 @@ export function FamilyFees() {
           </Card>
         </View>
       )}
+      {docViewer}
+    </View>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Parent home on phones: one hero, what needs doing, quick access.     */
+/* ------------------------------------------------------------------ */
+
+type QuickTile = {
+  key: string;
+  label: string;
+  icon: React.ComponentProps<typeof Ionicons>["name"];
+  tint: string;
+  color: string;
+  badge?: number;
+  onPress: () => void;
+};
+
+function ParentPhoneHome({ onMessage, wide = false }: { onMessage: () => void; wide?: boolean }) {
+  const { data, childId, setChildId } = useRecord();
+  const { token } = useSession();
+  const router = useRouter();
+  const [switchOpen, setSwitchOpen] = useState(false);
+  const [inbox, setInbox] = useState<{ unread: number; reply: { id: string; subject: string } | null }>({ unread: 0, reply: null });
+
+  useEffect(() => {
+    if (!token) return;
+    let live = true;
+    api<{ threads: { id: string; subject: string; unread: boolean; status: string }[] }>("/inbox", token)
+      .then((res) => {
+        if (!live) return;
+        const unread = res.threads.filter((t) => t.unread);
+        setInbox({ unread: unread.length, reply: unread[0] ? { id: unread[0].id, subject: unread[0].subject } : null });
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [token, childId]);
+
+  const child = data?.child;
+  const kids = data?.children ?? [];
+  const attRows = child?.attendance ?? [];
+  const att = attendanceSummary(attRows);
+  const unpaid = (child?.fees ?? []).filter((f) => f.display !== "paid" && f.dueNow > 0);
+  const totalDue = unpaid.reduce((sum, f) => sum + f.dueNow, 0);
+  const marked = (child?.subjects ?? []).filter((s) => s.n > 0);
+  const avg = marked.length ? Math.round(marked.reduce((n, s) => n + s.pct, 0) / marked.length) : null;
+  const notices = (data?.notices ?? []).slice(0, 2);
+  const coming = (data?.upcoming ?? []).slice(0, 3);
+  const day = data ? todaySlots(data) : { label: "", periods: [] as ReturnType<typeof todaySlots>["periods"] };
+  const nowMins = new Date().getHours() * 60 + new Date().getMinutes();
+  const current = day.periods.find((p) => periodPhase(p, nowMins) === "now") || null;
+  const upNext = day.periods.find((p) => periodPhase(p, nowMins) === "next") || null;
+  const left = day.periods.filter((p) => periodPhase(p, nowMins) !== "done");
+  const later = data && !left.length ? nextScheduledPeriod(data) : null;
+  const focus = current || upNext;
+  const initialsOf = (name: string) =>
+    name
+      .split(" ")
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join("") || "?";
+  const money = (n: number) => `₹${n.toLocaleString("en-IN")}`;
+
+  const tiles: QuickTile[] = [
+    { key: "message", label: "Message school", icon: "paper-plane-outline", tint: "bg-[#EEF3FF]", color: "#1F45C7", onPress: onMessage },
+    { key: "attendance", label: "Attendance", icon: "checkmark-done-circle-outline", tint: "bg-[#ECF8F0]", color: "#18794E", onPress: () => router.push("/attendance" as never) },
+    { key: "exams", label: "Exams", icon: "document-text-outline", tint: "bg-[#F3EEFF]", color: "#6D28D9", onPress: () => router.push("/tests" as never) },
+  ];
+
+  const sectionTitle = (title: string, action?: { label: string; onPress: () => void }) => (
+    <View className="mb-2 mt-5 flex-row items-center justify-between">
+      <Text className="text-[15px] font-semibold text-ink-900">{title}</Text>
+      {action ? (
+        <Pressable onPress={action.onPress} hitSlop={8}>
+          <Text className="text-[13px] font-semibold text-[#1F45C7]">{action.label}</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+
+  const heroEl = (
+    <>
+      <View className="overflow-hidden rounded-3xl bg-[#1F45C7] p-4">
+        <View className="flex-row items-center gap-3">
+          <View className="h-12 w-12 items-center justify-center rounded-2xl bg-white/15">
+            <Text className="text-[17px] font-bold text-white">{initialsOf(child?.name || "")}</Text>
+          </View>
+          <View className="min-w-0 flex-1">
+            <Text className="text-[19px] font-bold text-white" numberOfLines={1}>
+              {child?.name || "No child linked"}
+            </Text>
+            <Text className="mt-0.5 text-[12px] text-white/75" numberOfLines={1}>
+              {child ? studentMetaLine(child) : "Ask the school to link your child."}
+            </Text>
+          </View>
+          {kids.length > 1 ? (
+            <Pressable onPress={() => setSwitchOpen(true)} className="h-8 flex-row items-center gap-1 rounded-full bg-white/15 px-3">
+              <Ionicons name="swap-horizontal" size={14} color="#fff" />
+              <Text className="text-[12px] font-semibold text-white">Switch</Text>
+            </Pressable>
+          ) : null}
+        </View>
+        <View className="mt-4 flex-row rounded-2xl bg-white/10">
+          {[
+            { label: "Attendance", value: attRows.length ? `${att.pct}%` : "—", go: "/attendance" },
+            { label: "Avg marks", value: avg == null ? "—" : `${avg}%`, go: "/tests" },
+            { label: totalDue ? "Fees due" : "Fees", value: totalDue ? money(totalDue) : "Paid", go: "/fees" },
+          ].map((s, i) => (
+            <Pressable key={s.label} onPress={() => router.push(s.go as never)} className={`flex-1 px-3 py-2.5 ${i ? "border-l border-white/15" : ""}`}>
+              <Text className="text-[17px] font-bold text-white" numberOfLines={1}>
+                {s.value}
+              </Text>
+              <Text className="mt-0.5 text-[11px] text-white/70">{s.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+
+    </>
+  );
+  const attentionEl = (
+    <>
+      {totalDue || inbox.reply ? (
+        <View className="mt-4 gap-2.5">
+          {totalDue ? (
+            <View className="flex-row items-center gap-3 rounded-2xl border border-[#F5C2C2] bg-[#FFF5F5] p-3.5">
+              <View className="h-10 w-10 items-center justify-center rounded-xl bg-[#FDE2E2]">
+                <Ionicons name="receipt-outline" size={20} color="#B42318" />
+              </View>
+              <View className="min-w-0 flex-1">
+                <Text className="text-[15px] font-semibold text-ink-900">{money(totalDue)} due</Text>
+                <Text className="mt-0.5 text-[12px] text-ink-600" numberOfLines={1}>
+                  {unpaid.length === 1 ? unpaid[0].title : `${unpaid.length} months pending`}
+                </Text>
+              </View>
+              <Pressable onPress={() => router.push("/fees" as never)} className="h-9 items-center justify-center rounded-xl bg-[#1F45C7] px-4">
+                <Text className="text-[13px] font-semibold text-white">Pay now</Text>
+              </Pressable>
+            </View>
+          ) : null}
+          {inbox.reply ? (
+            <Pressable
+              onPress={() => router.push(`/inbox?thread=${encodeURIComponent(inbox.reply!.id)}` as never)}
+              className="flex-row items-center gap-3 rounded-2xl border border-[#C7D7FE] bg-[#F5F8FF] p-3.5"
+            >
+              <View className="h-10 w-10 items-center justify-center rounded-xl bg-[#E0E8FF]">
+                <Ionicons name="chatbubble-ellipses" size={19} color="#1F45C7" />
+              </View>
+              <View className="min-w-0 flex-1">
+                <Text className="text-[15px] font-semibold text-ink-900">School replied</Text>
+                <Text className="mt-0.5 text-[12px] text-ink-600" numberOfLines={1}>
+                  {inbox.unread > 1 ? `${inbox.unread} unread conversations` : inbox.reply.subject}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+
+    </>
+  );
+  const quickEl = (
+    <>
+      {sectionTitle("Quick access")}
+      <View className="flex-row flex-wrap rounded-2xl border border-ink-100 bg-white py-2">
+        {tiles.map((t) => (
+          <Pressable key={t.key} onPress={t.onPress} className="w-1/3 items-center px-1 py-2.5">
+            <View className={`h-12 w-12 items-center justify-center rounded-2xl ${t.tint}`}>
+              <Ionicons name={t.icon} size={22} color={t.color} />
+              {t.badge ? (
+                <View className="absolute -right-1.5 -top-1.5 h-5 min-w-[20px] items-center justify-center rounded-full border-2 border-white bg-[#E5484D] px-1">
+                  <Text className="text-[10px] font-bold text-white">{t.badge > 9 ? "9+" : t.badge}</Text>
+                </View>
+              ) : null}
+            </View>
+            <Text className="mt-1.5 text-center text-[11px] font-medium text-ink-700" numberOfLines={2}>
+              {t.label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
+    </>
+  );
+  const todayEl = (
+    <>
+      {sectionTitle(day.label ? `Today · ${day.label}` : "Today", { label: "Timetable", onPress: () => router.push("/timetable" as never) })}
+      <View className="rounded-2xl border border-ink-100 bg-white p-3.5">
+        {focus ? (
+          <>
+            <View className="flex-row items-center gap-3 rounded-xl bg-[#F5F8FF] p-3">
+              <View className="items-center">
+                <Text className="text-[15px] font-bold tabular-nums text-[#1F45C7]">{focus.start || focus.period}</Text>
+                {focus.end ? <Text className="text-[11px] tabular-nums text-ink-500">{focus.end}</Text> : null}
+              </View>
+              <View className="h-9 w-px bg-[#C7D7FE]" />
+              <View className="min-w-0 flex-1">
+                <View className="flex-row items-center gap-1.5">
+                  {current ? <InProgressDot /> : null}
+                  <Text className={`text-[11px] font-semibold uppercase tracking-wide ${current ? "text-[#1F45C7]" : "text-ink-500"}`}>
+                    {current ? "In class now" : "Up next"}
+                  </Text>
+                </View>
+                <Text className="mt-0.5 text-[16px] font-semibold text-ink-900" numberOfLines={1}>
+                  {focus.subject}
+                </Text>
+                <Text className="text-[12px] text-ink-500" numberOfLines={1}>
+                  {[focus.teacher, focus.room].filter(Boolean).join(" · ") || " "}
+                </Text>
+              </View>
+            </View>
+            {left.filter((p) => p !== focus).length ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mt-3" contentContainerStyle={{ gap: 6 }}>
+                {left
+                  .filter((p) => p !== focus)
+                  .map((p) => (
+                    <View key={`${p.period}-${p.start}-${p.subject}`} className="rounded-xl border border-ink-100 px-2.5 py-1.5">
+                      <Text className="text-[11px] tabular-nums text-ink-500">{p.start || p.period}</Text>
+                      <Text className="text-[13px] font-medium text-ink-900" numberOfLines={1}>
+                        {p.subject}
+                      </Text>
+                    </View>
+                  ))}
+              </ScrollView>
+            ) : null}
+          </>
+        ) : (
+          <View className="flex-row items-center gap-3">
+            <View className="h-10 w-10 items-center justify-center rounded-xl bg-ink-50">
+              <Ionicons name={day.periods.length ? "checkmark-done" : "cafe-outline"} size={20} color="#64748B" />
+            </View>
+            <View className="min-w-0 flex-1">
+              <Text className="text-[14px] font-semibold text-ink-900">
+                {day.periods.length ? "Classes are over for today" : "No classes today"}
+              </Text>
+              <Text className="mt-0.5 text-[12px] text-ink-500" numberOfLines={1}>
+                {later ? `Next: ${later.subject} · ${later.dayLabel}${later.start ? ` ${later.start}` : ""}` : "Enjoy the break."}
+              </Text>
+            </View>
+          </View>
+        )}
+      </View>
+
+    </>
+  );
+  const testsEl = (
+    <>
+      {coming.length ? (
+        <>
+          {sectionTitle("Upcoming tests", { label: "Exams", onPress: () => router.push("/tests" as never) })}
+          <View className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
+            {coming.map((e, i) => (
+              <View key={e.id} className={`flex-row items-center gap-3 px-3.5 py-3 ${i ? "border-t border-ink-100" : ""}`}>
+                <View className="h-9 w-9 items-center justify-center rounded-xl bg-[#F3EEFF]">
+                  <Ionicons name="create-outline" size={17} color="#6D28D9" />
+                </View>
+                <View className="min-w-0 flex-1">
+                  <Text className="text-[14px] font-medium text-ink-900" numberOfLines={1}>
+                    {e.subject || e.title}
+                  </Text>
+                  <Text className="text-[12px] text-ink-500" numberOfLines={1}>
+                    {e.title} · {e.date}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        </>
+      ) : null}
+
+    </>
+  );
+  const noticesEl = (
+    <>
+      {sectionTitle("Notices", { label: "See all", onPress: () => router.push("/notices" as never) })}
+      <View className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
+        {notices.length ? (
+          notices.map((n, i) => (
+            <Pressable
+              key={n.id}
+              onPress={() => router.push("/notices" as never)}
+              className={`flex-row items-center gap-3 px-3.5 py-3 ${i ? "border-t border-ink-100" : ""}`}
+            >
+              <View className="h-9 w-9 items-center justify-center rounded-xl bg-[#FFF4E5]">
+                <Ionicons name="megaphone-outline" size={17} color="#C2410C" />
+              </View>
+              <View className="min-w-0 flex-1">
+                <Text className="text-[14px] font-medium text-ink-900" numberOfLines={1}>
+                  {n.title}
+                </Text>
+                <Text className="text-[12px] text-ink-500" numberOfLines={1}>
+                  {n.createdAt}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color="#CBD5E1" />
+            </Pressable>
+          ))
+        ) : (
+          <Text className="px-3.5 py-4 text-[13px] text-ink-500">No notices yet. School updates will show here.</Text>
+        )}
+      </View>
+
+    </>
+  );
+  const switcherEl = (
+    <>
+      <RnModal visible={switchOpen} transparent animationType={wide ? "fade" : "slide"} onRequestClose={() => setSwitchOpen(false)}>
+        <View className={`flex-1 ${wide ? "items-center justify-center px-4" : "justify-end"}`}>
+          <Pressable className="absolute inset-0 bg-black/40" onPress={() => setSwitchOpen(false)} />
+          <View className={wide ? "w-full max-w-[420px] rounded-3xl bg-white px-5 pb-6 pt-3" : "rounded-t-3xl bg-white px-5 pb-8 pt-3"}>
+            <View className="mx-auto mb-3 h-1 w-10 rounded-full bg-ink-200" />
+            <Text className="mb-2 text-[17px] font-semibold text-ink-900">Switch child</Text>
+            {kids.map((k) => {
+              const on = (childId || child?.id) === k.id;
+              return (
+                <Pressable
+                  key={k.id}
+                  onPress={() => {
+                    void setChildId(k.id);
+                    setSwitchOpen(false);
+                  }}
+                  className={`mt-2 flex-row items-center gap-3 rounded-2xl border p-3 ${on ? "border-[#1F45C7] bg-[#EEF3FF]" : "border-ink-200"}`}
+                >
+                  <View className="h-10 w-10 items-center justify-center rounded-xl bg-[#1F45C7]">
+                    <Text className="text-[14px] font-bold text-white">{initialsOf(k.name)}</Text>
+                  </View>
+                  <View className="min-w-0 flex-1">
+                    <Text className="text-[15px] font-semibold text-ink-900">{k.name}</Text>
+                    <Text className="text-[12px] text-ink-500">{k.classLabel}</Text>
+                  </View>
+                  {on ? <Ionicons name="checkmark-circle" size={22} color="#1F45C7" /> : null}
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      </RnModal>
+    </>
+  );
+
+  if (wide) {
+    const stats = [
+      { label: "Attendance", value: attRows.length ? `${att.pct}%` : "—", go: "/attendance" },
+      { label: "Avg marks", value: avg == null ? "—" : `${avg}%`, go: "/tests" },
+      { label: totalDue ? "Fees due" : "Fees", value: totalDue ? money(totalDue) : "Paid", go: "/fees" },
+    ];
+    return (
+      <View className="pb-8">
+        <View className="flex-row flex-wrap items-center gap-5 rounded-3xl bg-[#1F45C7] px-6 py-5">
+          <View className="min-w-[240px] flex-1 flex-row items-center gap-4">
+            <View className="h-14 w-14 items-center justify-center rounded-2xl bg-white/15">
+              <Text className="text-[20px] font-bold text-white">{initialsOf(child?.name || "")}</Text>
+            </View>
+            <View className="min-w-0 flex-1">
+              <Text className="text-[22px] font-bold text-white" numberOfLines={1}>
+                {child?.name || "No child linked"}
+              </Text>
+              <Text className="mt-0.5 text-[13px] text-white/75" numberOfLines={1}>
+                {child ? studentMetaLine(child) : "Ask the school to link your child."}
+              </Text>
+            </View>
+          </View>
+          <View className="flex-row">
+            {stats.map((st, i) => (
+              <Pressable key={st.label} onPress={() => router.push(st.go as never)} className={`px-5 ${i ? "border-l border-white/20" : ""}`}>
+                <Text className="text-[22px] font-bold text-white">{st.value}</Text>
+                <Text className="mt-0.5 text-[12px] text-white/70">{st.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <View className="flex-row gap-2">
+            {kids.length > 1 ? (
+              <Pressable onPress={() => setSwitchOpen(true)} className="h-10 flex-row items-center gap-1.5 rounded-xl bg-white/15 px-3.5">
+                <Ionicons name="swap-horizontal" size={16} color="#fff" />
+                <Text className="text-[13px] font-semibold text-white">Switch child</Text>
+              </Pressable>
+            ) : null}
+            <Pressable onPress={onMessage} className="h-10 flex-row items-center gap-1.5 rounded-xl bg-white px-3.5">
+              <Ionicons name="paper-plane-outline" size={15} color="#1F45C7" />
+              <Text className="text-[13px] font-semibold text-[#1F45C7]">Message school</Text>
+            </Pressable>
+          </View>
+        </View>
+
+        <View className="mt-1 flex-row items-start gap-6">
+          <View style={{ flex: 3, minWidth: 0 }}>
+            {sectionTitle(day.label ? `Today · ${day.label}` : "Today", { label: "Full timetable", onPress: () => router.push("/timetable" as never) })}
+            <View className="overflow-hidden rounded-2xl border border-ink-100 bg-white py-1">
+              {day.periods.length ? (
+                day.periods.map((p, i) => {
+                  const phase = periodPhase(p, nowMins);
+                  const isFocus = p === focus;
+                  const color = subjectColor(p.subject);
+                  return (
+                    <View
+                      key={`${p.period}-${p.start}-${p.subject}`}
+                      className={`flex-row items-center gap-4 px-4 py-3 ${i ? "border-t border-ink-50" : ""} ${isFocus ? "bg-[#F5F8FF]" : ""}`}
+                      style={{ opacity: phase === "done" ? 0.55 : 1 }}
+                    >
+                      <View className="w-14">
+                        <Text className={`text-[14px] font-semibold tabular-nums ${isFocus ? "text-[#1F45C7]" : "text-ink-900"}`}>{p.start || p.period}</Text>
+                        {p.end ? <Text className="text-[11px] tabular-nums text-ink-500">{p.end}</Text> : null}
+                      </View>
+                      <View className="h-9 w-1 rounded-full" style={{ backgroundColor: color }} />
+                      <View className="min-w-0 flex-1">
+                        <Text className="text-[15px] font-semibold text-ink-900" numberOfLines={1}>
+                          {p.subject}
+                        </Text>
+                        <Text className="text-[12px] text-ink-500" numberOfLines={1}>
+                          {p.teacher || " "}
+                        </Text>
+                      </View>
+                      {phase === "done" ? (
+                        <Text className="text-[12px] font-medium text-[#18794E]">Done</Text>
+                      ) : phase === "now" ? (
+                        <View className="flex-row items-center gap-1.5 rounded-full bg-[#1F45C7] px-2.5 py-1">
+                          <View className="h-1.5 w-1.5 rounded-full bg-white" />
+                          <Text className="text-[11px] font-bold text-white">In class now</Text>
+                        </View>
+                      ) : isFocus ? (
+                        <View className="rounded-full bg-[#EEF3FF] px-2.5 py-1">
+                          <Text className="text-[11px] font-bold text-[#1F45C7]">Up next</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                  );
+                })
+              ) : (
+                <View className="flex-row items-center gap-3 p-4">
+                  <Ionicons name="cafe-outline" size={20} color="#64748B" />
+                  <Text className="text-[14px] text-ink-600">
+                    No classes today{later ? ` · Next: ${later.subject}, ${later.dayLabel}${later.start ? ` ${later.start}` : ""}` : ""}
+                  </Text>
+                </View>
+              )}
+            </View>
+            {testsEl}
+          </View>
+          <View style={{ flex: 2, minWidth: 0 }}>
+            {totalDue || inbox.reply ? (
+              <>
+                {sectionTitle("Needs attention")}
+                <View className="-mt-4">{attentionEl}</View>
+              </>
+            ) : null}
+            {noticesEl}
+          </View>
+        </View>
+        {switcherEl}
+      </View>
+    );
+  }
+
+  return (
+    <View className="pb-6">
+      {heroEl}
+      {attentionEl}
+      {quickEl}
+      {todayEl}
+      {testsEl}
+      {noticesEl}
+      {switcherEl}
+    </View>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Parent fees on phones: one total, grouped by child, tap for detail.  */
+/* ------------------------------------------------------------------ */
+
+const DAY_MS = 86_400_000;
+
+function daysLate(inv: FeeInv) {
+  const at = Date.parse(inv.dueAt || "");
+  if (!Number.isFinite(at)) return 0;
+  return Math.max(0, Math.floor((Date.now() - at) / DAY_MS));
+}
+
+function lateFeeOf(inv: FeeInv) {
+  return Math.max(0, Math.round(dueOf(inv) - amountOf(inv.remaining)));
+}
+
+/** "Aisha Sharma · September 2026 · Monthly fee" → { month: "September 2026", kind: "Monthly fee" } */
+function splitFeeTitle(title: string, childName: string) {
+  const parts = title
+    .split("·")
+    .map((p) => p.trim())
+    .filter((p) => p && p !== childName);
+  return { month: parts[0] || title, kind: parts.slice(1).join(" · ") };
+}
+
+function FeesPhoneView({
+  groups,
+  openInvoices,
+  paidInvoices,
+  picked,
+  setPicked,
+  busy,
+  onPay,
+  onOpen,
+}: {
+  groups: { id: string; name: string; classLabel: string; open: StatementFee[]; paid: StatementFee[] }[];
+  openInvoices: StatementFee[];
+  paidInvoices: StatementFee[];
+  picked: string[];
+  setPicked: (ids: string[] | ((cur: string[]) => string[])) => void;
+  busy: boolean;
+  onPay: () => void;
+  onOpen: (url?: string, title?: string) => void;
+}) {
+  const [tab, setTab] = useState<"due" | "receipts">("due");
+  const [choosing, setChoosing] = useState(false);
+  const [expanded, setExpanded] = useState<string>("");
+
+  const totalDue = openInvoices.reduce((n, inv) => n + dueOf(inv), 0);
+  const selected = openInvoices.filter((inv) => picked.includes(inv.id));
+  const selectedDue = selected.reduce((n, inv) => n + dueOf(inv), 0);
+  const overdue = openInvoices.filter((inv) => inv.display === "overdue");
+  const oldest = overdue.slice().sort((a, b) => Date.parse(a.dueAt) - Date.parse(b.dueAt))[0];
+  const nextUp = openInvoices
+    .filter((inv) => inv.display !== "overdue")
+    .sort((a, b) => Date.parse(a.dueAt) - Date.parse(b.dueAt))[0];
+  const months = openInvoices.length;
+
+  function stopChoosing() {
+    setChoosing(false);
+    setPicked(openInvoices.map((inv) => inv.id));
+  }
+
+  const payText = busy
+    ? "Opening payment…"
+    : choosing
+      ? selected.length
+        ? `Pay ${rupees(selectedDue)} for ${selected.length} month${selected.length === 1 ? "" : "s"}`
+        : "Pick at least one month"
+      : `Pay ${rupees(totalDue)}`;
+
+  const initials = (name: string) =>
+    name
+      .split(" ")
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((p) => p[0]?.toUpperCase())
+      .join("");
+
+  return (
+    <View className="pb-6">
+      <Text className="mb-3 text-[22px] font-semibold text-ink-900">Fees</Text>
+
+      {/* Hero */}
+      <View className="rounded-3xl border border-ink-100 bg-white p-4">
+        {totalDue > 0 ? (
+          <>
+            <Text className="text-[13px] font-medium text-ink-500">Total due</Text>
+            <Text className="mt-0.5 text-[32px] font-bold leading-10 text-ink-900">{rupees(totalDue)}</Text>
+            <View className="mt-1 flex-row items-center gap-1.5">
+              {oldest ? <View className="h-2 w-2 rounded-full bg-[#E5484D]" /> : null}
+              <Text className={`text-[13px] font-medium ${oldest ? "text-[#B42318]" : "text-ink-600"}`}>
+                {months} month{months === 1 ? "" : "s"}
+                {oldest ? ` · overdue since ${shortDate(oldest.dueAt)}` : nextUp ? ` · due by ${shortDate(nextUp.dueAt)}` : ""}
+              </Text>
+            </View>
+            <Pressable
+              onPress={onPay}
+              disabled={busy || (choosing && !selected.length)}
+              className={`mt-4 h-12 items-center justify-center rounded-2xl ${busy || (choosing && !selected.length) ? "bg-ink-200" : "bg-[#1F45C7]"}`}
+            >
+              <Text className={`text-[16px] font-semibold ${busy || (choosing && !selected.length) ? "text-ink-500" : "text-white"}`}>{payText}</Text>
+            </Pressable>
+            {months > 1 ? (
+              <Pressable onPress={() => (choosing ? stopChoosing() : (setChoosing(true), setTab("due")))} className="mt-3 items-center" hitSlop={8}>
+                <Text className="text-[13px] font-semibold text-[#1F45C7]">{choosing ? "Pay everything instead" : "Pay for selected months only"}</Text>
+              </Pressable>
+            ) : null}
+          </>
+        ) : (
+          <View className="flex-row items-center gap-3">
+            <View className="h-12 w-12 items-center justify-center rounded-2xl bg-[#ECF8F0]">
+              <Ionicons name="checkmark-circle" size={26} color="#18794E" />
+            </View>
+            <View className="min-w-0 flex-1">
+              <Text className="text-[17px] font-semibold text-ink-900">All paid up</Text>
+              <Text className="mt-0.5 text-[13px] text-ink-500">Nothing due right now. Receipts are below.</Text>
+            </View>
+          </View>
+        )}
+      </View>
+
+      {/* Tabs */}
+      <View className="mt-4 flex-row rounded-xl bg-ink-100 p-1">
+        {([
+          { id: "due", label: `Due${months ? ` · ${months}` : ""}` },
+          { id: "receipts", label: `Receipts${paidInvoices.length ? ` · ${paidInvoices.length}` : ""}` },
+        ] as const).map((t) => (
+          <Pressable key={t.id} onPress={() => setTab(t.id)} className={`h-9 flex-1 items-center justify-center rounded-lg ${tab === t.id ? "bg-white" : ""}`}>
+            <Text className={`text-[13px] font-semibold ${tab === t.id ? "text-ink-900" : "text-ink-500"}`}>{t.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {choosing && tab === "due" ? (
+        <Text className="mt-3 text-[12px] text-ink-500">Tick the months you want to pay now. Older months first is best.</Text>
+      ) : null}
+
+      {/* Lists, one card per child */}
+      {groups.map((g) => {
+        const rows = tab === "due" ? g.open : g.paid;
+        if (!rows.length) return null;
+        const childDue = g.open.reduce((n, inv) => n + dueOf(inv), 0);
+        return (
+          <View key={g.id} className="mt-4">
+            <View className="mb-2 flex-row items-center gap-2.5">
+              <View className="h-8 w-8 items-center justify-center rounded-xl bg-[#EEF3FF]">
+                <Text className="text-[12px] font-bold text-[#1F45C7]">{initials(g.name)}</Text>
+              </View>
+              <Text className="min-w-0 flex-1 text-[15px] font-semibold text-ink-900" numberOfLines={1}>
+                {g.name}
+                {g.classLabel ? <Text className="font-normal text-ink-500"> · {g.classLabel}</Text> : null}
+              </Text>
+              {tab === "due" ? <Text className="text-[14px] font-semibold text-ink-900">{rupees(childDue)}</Text> : null}
+            </View>
+            <View className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
+              {rows.map((inv, i) => {
+                const { month, kind } = splitFeeTitle(inv.title, g.name);
+                const open = expanded === inv.id;
+                const late = inv.display === "overdue" ? daysLate(inv) : 0;
+                const lateFee = lateFeeOf(inv);
+                const on = picked.includes(inv.id);
+                const paidSoFar = amountOf(inv.paid);
+                return (
+                  <View key={inv.id} className={i ? "border-t border-ink-100" : ""}>
+                    <Pressable
+                      onPress={() => (choosing && tab === "due" ? setPicked((cur) => (on ? cur.filter((id) => id !== inv.id) : [...cur, inv.id])) : setExpanded(open ? "" : inv.id))}
+                      className="flex-row items-center gap-3 px-3.5 py-3"
+                    >
+                      {choosing && tab === "due" ? (
+                        <Ionicons name={on ? "checkbox" : "square-outline"} size={22} color={on ? "#1F45C7" : "#CBD5E1"} />
+                      ) : null}
+                      <View className="min-w-0 flex-1">
+                        <Text className="text-[15px] font-semibold text-ink-900" numberOfLines={1}>
+                          {month}
+                        </Text>
+                        <Text className="mt-0.5 text-[12px] text-ink-500" numberOfLines={1}>
+                          {tab === "due" ? kind || "Fee" : `Paid ${inv.paid}${kind ? ` · ${kind}` : ""}`}
+                        </Text>
+                      </View>
+                      <View className="items-end">
+                        <Text className="text-[15px] font-semibold text-ink-900">{tab === "due" ? rupees(dueOf(inv)) : inv.amount}</Text>
+                        {tab === "due" ? (
+                          late ? (
+                            <View className="mt-1 rounded-full bg-[#FDECEC] px-2 py-0.5">
+                              <Text className="text-[11px] font-semibold text-[#B42318]">{late} day{late === 1 ? "" : "s"} late</Text>
+                            </View>
+                          ) : (
+                            <Text className="mt-1 text-[11px] text-ink-500">Due {shortDate(inv.dueAt)}</Text>
+                          )
+                        ) : (
+                          <View className="mt-1 rounded-full bg-[#ECF8F0] px-2 py-0.5">
+                            <Text className="text-[11px] font-semibold text-[#18794E]">Paid</Text>
+                          </View>
+                        )}
+                      </View>
+                      {!choosing || tab !== "due" ? (
+                        <Ionicons name={open ? "chevron-up" : "chevron-down"} size={16} color="#94A3B8" />
+                      ) : null}
+                    </Pressable>
+                    {open && !(choosing && tab === "due") ? (
+                      <View className="mx-3.5 mb-3 rounded-xl bg-ink-50 p-3">
+                        {inv.lines.map((line) => {
+                          const m = line.match(/^(.*)\s(₹[\d,.]+)$/);
+                          return (
+                            <View key={line} className="flex-row justify-between py-0.5">
+                              <Text className="text-[13px] text-ink-600">{m ? m[1] : line}</Text>
+                              <Text className="text-[13px] text-ink-800">{m ? m[2] : ""}</Text>
+                            </View>
+                          );
+                        })}
+                        {lateFee ? (
+                          <View className="flex-row justify-between py-0.5">
+                            <Text className="text-[13px] text-[#B42318]">Late fee{late ? ` (${late} days)` : ""}</Text>
+                            <Text className="text-[13px] text-[#B42318]">{rupees(lateFee)}</Text>
+                          </View>
+                        ) : null}
+                        {paidSoFar && tab === "due" ? (
+                          <View className="flex-row justify-between py-0.5">
+                            <Text className="text-[13px] text-[#18794E]">Paid so far</Text>
+                            <Text className="text-[13px] text-[#18794E]">−{inv.paid}</Text>
+                          </View>
+                        ) : null}
+                        <View className="mt-1.5 flex-row justify-between border-t border-ink-200 pt-1.5">
+                          <Text className="text-[13px] font-semibold text-ink-900">{tab === "due" ? "To pay" : "Total paid"}</Text>
+                          <Text className="text-[13px] font-semibold text-ink-900">{tab === "due" ? rupees(dueOf(inv)) : inv.paid}</Text>
+                        </View>
+                        <View className="mt-3 flex-row gap-2">
+                          {inv.invoiceUrl ? (
+                            <Pressable onPress={() => onOpen(inv.invoiceUrl, `Invoice · ${month}`)} className="h-9 flex-1 flex-row items-center justify-center gap-1.5 rounded-lg border border-ink-200 bg-white">
+                              <Ionicons name="document-text-outline" size={15} color="#1F45C7" />
+                              <Text className="text-[13px] font-semibold text-[#1F45C7]">Invoice</Text>
+                            </Pressable>
+                          ) : null}
+                          {inv.receiptUrl ? (
+                            <Pressable onPress={() => onOpen(inv.receiptUrl, `Receipt · ${month}`)} className="h-9 flex-1 flex-row items-center justify-center gap-1.5 rounded-lg border border-ink-200 bg-white">
+                              <Ionicons name="receipt-outline" size={15} color="#18794E" />
+                              <Text className="text-[13px] font-semibold text-[#18794E]">Receipt</Text>
+                            </Pressable>
+                          ) : null}
+                        </View>
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        );
+      })}
+
+      {tab === "receipts" && !paidInvoices.length ? (
+        <View className="mt-8 items-center px-6">
+          <Ionicons name="receipt-outline" size={30} color="#CBD5E1" />
+          <Text className="mt-2 text-center text-[14px] font-semibold text-ink-700">No receipts yet</Text>
+          <Text className="mt-1 text-center text-[12px] text-ink-500">Once you pay, your receipts show up here to download any time.</Text>
+        </View>
+      ) : null}
+      {tab === "due" && !openInvoices.length && paidInvoices.length ? (
+        <Text className="mt-6 text-center text-[13px] text-ink-500">Nothing due. See your receipts in the other tab.</Text>
+      ) : null}
     </View>
   );
 }

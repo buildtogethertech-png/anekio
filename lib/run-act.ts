@@ -134,6 +134,7 @@ import {
   saveDocumentTemplateCore,
   uploadStudentDocumentCore,
 } from "./document-studio";
+import { startInboxThreadCore, sendInboxMessageCore, updateInboxThreadCore } from "./inbox";
 
 export function actOp(body: Record<string, unknown>) {
   const op = String(body.op || body.action || "").trim();
@@ -201,6 +202,14 @@ export async function runAct(
       break;
     case "submitParentQuery":
       await submitParentQueryCore(user, body as never);
+      break;
+    case "startInboxThread":
+      return { ok: true, ...(await startInboxThreadCore(user, body as never)) };
+    case "sendInboxMessage":
+      await sendInboxMessageCore(user, body as never);
+      break;
+    case "updateInboxThread":
+      await updateInboxThreadCore(user, body as never);
       break;
     case "replyParentQuery":
       await replyParentQueryCore(user, body as never);

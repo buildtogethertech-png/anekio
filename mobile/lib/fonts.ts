@@ -112,9 +112,14 @@ export function applyAppFont() {
     patchRender(TextInput as unknown as AnyComponent);
     return;
   }
-  const modules = nativeTextModules();
-  if (!modules) return;
-  const text = patchNative("Text", modules.Text as { default?: AnyComponent });
-  const input = patchNative("TextInput", modules.TextInput as { default?: AnyComponent });
-  if (__DEV__) console.log(`[fonts] Inter default: Text=${text}, TextInput=${input}`);
+  // Never let the font patch take the app down: on any failure the app keeps the system font.
+  try {
+    const modules = nativeTextModules();
+    if (!modules) return;
+    const text = patchNative("Text", modules.Text as { default?: AnyComponent });
+    const input = patchNative("TextInput", modules.TextInput as { default?: AnyComponent });
+    if (__DEV__) console.log(`[fonts] Inter default: Text=${text}, TextInput=${input}`);
+  } catch (error) {
+    if (__DEV__) console.warn("[fonts] Inter patch skipped", error);
+  }
 }

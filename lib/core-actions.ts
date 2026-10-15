@@ -50,7 +50,7 @@ import {
 } from "./school-session";
 import { placeFields, parseMonthlySalary, requireJoinedOn, STAFF_FIRST_PASSWORD, todayJoinedOn } from "./staff-profile";
 import { assertManagerChoice, defaultManagerIdForRole, managerIdForNewUser, teamClassIds } from "./reports";
-import { admissionCustomValues, admissionFormFields, admissionFormJson, admissionLeadInput, effectiveAdmissionFormJson, staffOnboardingFormFields, staffOnboardingFormJson, studentAdmissionCustomValues, websiteFormFields, websiteFormJson } from "./admission-form";
+import { admissionCustomValues, admissionFormFields, admissionFormJson, admissionLeadInput, effectiveAdmissionFormJson, isPersonName, staffOnboardingFormFields, staffOnboardingFormJson, studentAdmissionCustomValues, websiteFormFields, websiteFormJson } from "./admission-form";
 import { configuredAdmissionFormJson, configuredFormJson } from "./admission-form-config";
 import { markOnboardingConfigured } from "./onboarding";
 
@@ -204,6 +204,7 @@ export async function createStudentCore(
 ) {
   need(user, "people.edit");
   const name = input.name.trim();
+  if (!isPersonName(name)) throw new Error("Student name should be a real name, not numbers.");
   const leadId = String(input.leadId || "").trim();
   const lead = leadId ? await prisma.admissionLead.findFirst({ where: { id: leadId } }) : null;
   if (leadId) {
@@ -1493,6 +1494,7 @@ export async function createStaffMemberCore(
   need(user, "staff.edit");
   const name = String(input.name || "").trim();
   if (!name) throw new Error("Enter their name");
+  if (!isPersonName(name)) throw new Error("Name should be a real name, not numbers.");
   const phone = normalizeMobile(input.phone);
   if (!phone) throw new Error("Enter a 10-digit mobile number");
   if (!input.roleId) throw new Error("Pick a role");
@@ -2213,6 +2215,7 @@ export async function createAdmissionLeadCore(user: AccessUser, input: Record<st
       message: values.message,
       customFieldsJson: JSON.stringify(values.customValues),
       source: "walk_in",
+      ...(/^\d{4}-\d{2}-\d{2}$/.test(String(input.followUpAt || "")) ? { followUpAt: String(input.followUpAt), status: "FOLLOW_UP" } : {}),
       events: {
         create: {
           kind: "NEW",

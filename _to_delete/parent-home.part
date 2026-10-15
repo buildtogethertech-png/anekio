@@ -1,0 +1,329 @@
+
+/* ------------------------------------------------------------------ */
+/* Parent home on phones: one hero, what needs doing, quick access.     */
+/* ------------------------------------------------------------------ */
+
+type QuickTile = {
+  key: string;
+  label: string;
+  icon: React.ComponentProps<typeof Ionicons>["name"];
+  tint: string;
+  color: string;
+  badge?: number;
+  onPress: () => void;
+};
+
+function ParentPhoneHome({ onMessage }: { onMessage: () => void }) {
+  const { data, childId, setChildId } = useRecord();
+  const { token } = useSession();
+  const router = useRouter();
+  const [switchOpen, setSwitchOpen] = useState(false);
+  const [inbox, setInbox] = useState<{ unread: number; reply: { id: string; subject: string } | null }>({ unread: 0, reply: null });
+
+  useEffect(() => {
+    if (!token) return;
+    let live = true;
+    api<{ threads: { id: string; subject: string; unread: boolean; status: string }[] }>("/inbox", token)
+      .then((res) => {
+        if (!live) return;
+        const unread = res.threads.filter((t) => t.unread);
+        setInbox({ unread: unread.length, reply: unread[0] ? { id: unread[0].id, subject: unread[0].subject } : null });
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [token, childId]);
+
+  const child = data?.child;
+  const kids = data?.children ?? [];
+  const attRows = child?.attendance ?? [];
+  const att = attendanceSummary(attRows);
+  const unpaid = (child?.fees ?? []).filter((f) => f.display !== "paid" && f.dueNow > 0);
+  const totalDue = unpaid.reduce((sum, f) => sum + f.dueNow, 0);
+  const marked = (child?.subjects ?? []).filter((s) => s.n > 0);
+  const avg = marked.length ? Math.round(marked.reduce((n, s) => n + s.pct, 0) / marked.length) : null;
+  const notices = (data?.notices ?? []).slice(0, 2);
+  const coming = (data?.upcoming ?? []).slice(0, 3);
+  const day = data ? todaySlots(data) : { label: "", periods: [] as ReturnType<typeof todaySlots>["periods"] };
+  const nowMins = new Date().getHours() * 60 + new Date().getMinutes();
+  const current = day.periods.find((p) => periodPhase(p, nowMins) === "now") || null;
+  const upNext = day.periods.find((p) => periodPhase(p, nowMins) === "next") || null;
+  const left = day.periods.filter((p) => periodPhase(p, nowMins) !== "done");
+  const later = data && !left.length ? nextScheduledPeriod(data) : null;
+  const focus = current || upNext;
+  const initialsOf = (name: string) =>
+    name
+      .split(" ")
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join("") || "?";
+  const money = (n: number) => `₹${n.toLocaleString("en-IN")}`;
+
+  const tiles: QuickTile[] = [
+    { key: "message", label: "Message school", icon: "create-outline", tint: "bg-[#EEF3FF]", color: "#1F45C7", onPress: onMessage },
+    { key: "inbox", label: "Inbox", icon: "chatbubbles-outline", tint: "bg-[#EEF3FF]", color: "#1F45C7", badge: inbox.unread, onPress: () => router.push("/inbox" as never) },
+    { key: "notices", label: "Notices", icon: "megaphone-outline", tint: "bg-[#FFF4E5]", color: "#C2410C", onPress: () => router.push("/notices" as never) },
+    { key: "attendance", label: "Attendance", icon: "calendar-outline", tint: "bg-[#ECF8F0]", color: "#18794E", onPress: () => router.push("/attendance" as never) },
+    { key: "exams", label: "Exams", icon: "ribbon-outline", tint: "bg-[#F3EEFF]", color: "#6D28D9", onPress: () => router.push("/tests" as never) },
+    { key: "timetable", label: "Timetable", icon: "time-outline", tint: "bg-[#E8F7FA]", color: "#0E7490", onPress: () => router.push("/timetable" as never) },
+    { key: "fees", label: "Fees", icon: "wallet-outline", tint: "bg-[#FDECEC]", color: "#B42318", onPress: () => router.push("/fees" as never) },
+    { key: "profile", label: "Profile", icon: "person-outline", tint: "bg-ink-100", color: "#334155", onPress: () => router.push("/profile" as never) },
+  ];
+
+  const sectionTitle = (title: string, action?: { label: string; onPress: () => void }) => (
+    <View className="mb-2 mt-5 flex-row items-center justify-between">
+      <Text className="text-[15px] font-semibold text-ink-900">{title}</Text>
+      {action ? (
+        <Pressable onPress={action.onPress} hitSlop={8}>
+          <Text className="text-[13px] font-semibold text-[#1F45C7]">{action.label}</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+
+  return (
+    <View className="pb-6">
+      {/* Hero */}
+      <View className="overflow-hidden rounded-3xl bg-[#1F45C7] p-4">
+        <View className="flex-row items-center gap-3">
+          <View className="h-12 w-12 items-center justify-center rounded-2xl bg-white/15">
+            <Text className="text-[17px] font-bold text-white">{initialsOf(child?.name || "")}</Text>
+          </View>
+          <View className="min-w-0 flex-1">
+            <Text className="text-[19px] font-bold text-white" numberOfLines={1}>
+              {child?.name || "No child linked"}
+            </Text>
+            <Text className="mt-0.5 text-[12px] text-white/75" numberOfLines={1}>
+              {child ? studentMetaLine(child) : "Ask the school to link your child."}
+            </Text>
+          </View>
+          {kids.length > 1 ? (
+            <Pressable onPress={() => setSwitchOpen(true)} className="h-8 flex-row items-center gap-1 rounded-full bg-white/15 px-3">
+              <Ionicons name="swap-horizontal" size={14} color="#fff" />
+              <Text className="text-[12px] font-semibold text-white">Switch</Text>
+            </Pressable>
+          ) : null}
+        </View>
+        <View className="mt-4 flex-row rounded-2xl bg-white/10">
+          {[
+            { label: "Attendance", value: attRows.length ? `${att.pct}%` : "—", go: "/attendance" },
+            { label: "Avg marks", value: avg == null ? "—" : `${avg}%`, go: "/tests" },
+            { label: totalDue ? "Fees due" : "Fees", value: totalDue ? money(totalDue) : "Paid", go: "/fees" },
+          ].map((s, i) => (
+            <Pressable key={s.label} onPress={() => router.push(s.go as never)} className={`flex-1 px-3 py-2.5 ${i ? "border-l border-white/15" : ""}`}>
+              <Text className="text-[17px] font-bold text-white" numberOfLines={1}>
+                {s.value}
+              </Text>
+              <Text className="mt-0.5 text-[11px] text-white/70">{s.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+
+      {/* Needs attention: only what actually needs doing */}
+      {totalDue || inbox.reply ? (
+        <View className="mt-4 gap-2.5">
+          {totalDue ? (
+            <View className="flex-row items-center gap-3 rounded-2xl border border-[#F5C2C2] bg-[#FFF5F5] p-3.5">
+              <View className="h-10 w-10 items-center justify-center rounded-xl bg-[#FDE2E2]">
+                <Ionicons name="wallet-outline" size={20} color="#B42318" />
+              </View>
+              <View className="min-w-0 flex-1">
+                <Text className="text-[15px] font-semibold text-ink-900">{money(totalDue)} due</Text>
+                <Text className="mt-0.5 text-[12px] text-ink-600" numberOfLines={1}>
+                  {unpaid.length === 1 ? unpaid[0].title : `${unpaid.length} months pending`}
+                </Text>
+              </View>
+              <Pressable onPress={() => router.push("/fees" as never)} className="h-9 items-center justify-center rounded-xl bg-[#1F45C7] px-4">
+                <Text className="text-[13px] font-semibold text-white">Pay now</Text>
+              </Pressable>
+            </View>
+          ) : null}
+          {inbox.reply ? (
+            <Pressable
+              onPress={() => router.push(`/inbox?thread=${encodeURIComponent(inbox.reply!.id)}` as never)}
+              className="flex-row items-center gap-3 rounded-2xl border border-[#C7D7FE] bg-[#F5F8FF] p-3.5"
+            >
+              <View className="h-10 w-10 items-center justify-center rounded-xl bg-[#E0E8FF]">
+                <Ionicons name="chatbubble-ellipses" size={19} color="#1F45C7" />
+              </View>
+              <View className="min-w-0 flex-1">
+                <Text className="text-[15px] font-semibold text-ink-900">School replied</Text>
+                <Text className="mt-0.5 text-[12px] text-ink-600" numberOfLines={1}>
+                  {inbox.unread > 1 ? `${inbox.unread} unread conversations` : inbox.reply.subject}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+
+      {/* Quick access */}
+      {sectionTitle("Quick access")}
+      <View className="flex-row flex-wrap rounded-2xl border border-ink-100 bg-white py-2">
+        {tiles.map((t) => (
+          <Pressable key={t.key} onPress={t.onPress} className="w-1/4 items-center px-1 py-2.5">
+            <View className={`h-12 w-12 items-center justify-center rounded-2xl ${t.tint}`}>
+              <Ionicons name={t.icon} size={22} color={t.color} />
+              {t.badge ? (
+                <View className="absolute -right-1.5 -top-1.5 h-5 min-w-[20px] items-center justify-center rounded-full border-2 border-white bg-[#E5484D] px-1">
+                  <Text className="text-[10px] font-bold text-white">{t.badge > 9 ? "9+" : t.badge}</Text>
+                </View>
+              ) : null}
+            </View>
+            <Text className="mt-1.5 text-center text-[11px] font-medium text-ink-700" numberOfLines={2}>
+              {t.label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {/* Today */}
+      {sectionTitle(day.label ? `Today · ${day.label}` : "Today", { label: "Timetable", onPress: () => router.push("/timetable" as never) })}
+      <View className="rounded-2xl border border-ink-100 bg-white p-3.5">
+        {focus ? (
+          <>
+            <View className="flex-row items-center gap-3 rounded-xl bg-[#F5F8FF] p-3">
+              <View className="items-center">
+                <Text className="text-[15px] font-bold tabular-nums text-[#1F45C7]">{focus.start || focus.period}</Text>
+                {focus.end ? <Text className="text-[11px] tabular-nums text-ink-500">{focus.end}</Text> : null}
+              </View>
+              <View className="h-9 w-px bg-[#C7D7FE]" />
+              <View className="min-w-0 flex-1">
+                <View className="flex-row items-center gap-1.5">
+                  {current ? <InProgressDot /> : null}
+                  <Text className={`text-[11px] font-semibold uppercase tracking-wide ${current ? "text-[#1F45C7]" : "text-ink-500"}`}>
+                    {current ? "In class now" : "Up next"}
+                  </Text>
+                </View>
+                <Text className="mt-0.5 text-[16px] font-semibold text-ink-900" numberOfLines={1}>
+                  {focus.subject}
+                </Text>
+                <Text className="text-[12px] text-ink-500" numberOfLines={1}>
+                  {[focus.teacher, focus.room].filter(Boolean).join(" · ") || " "}
+                </Text>
+              </View>
+            </View>
+            {left.filter((p) => p !== focus).length ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mt-3" contentContainerStyle={{ gap: 6 }}>
+                {left
+                  .filter((p) => p !== focus)
+                  .map((p) => (
+                    <View key={`${p.period}-${p.start}-${p.subject}`} className="rounded-xl border border-ink-100 px-2.5 py-1.5">
+                      <Text className="text-[11px] tabular-nums text-ink-500">{p.start || p.period}</Text>
+                      <Text className="text-[13px] font-medium text-ink-900" numberOfLines={1}>
+                        {p.subject}
+                      </Text>
+                    </View>
+                  ))}
+              </ScrollView>
+            ) : null}
+          </>
+        ) : (
+          <View className="flex-row items-center gap-3">
+            <View className="h-10 w-10 items-center justify-center rounded-xl bg-ink-50">
+              <Ionicons name={day.periods.length ? "checkmark-done" : "cafe-outline"} size={20} color="#64748B" />
+            </View>
+            <View className="min-w-0 flex-1">
+              <Text className="text-[14px] font-semibold text-ink-900">
+                {day.periods.length ? "Classes are over for today" : "No classes today"}
+              </Text>
+              <Text className="mt-0.5 text-[12px] text-ink-500" numberOfLines={1}>
+                {later ? `Next: ${later.subject} · ${later.dayLabel}${later.start ? ` ${later.start}` : ""}` : "Enjoy the break."}
+              </Text>
+            </View>
+          </View>
+        )}
+      </View>
+
+      {/* Tests */}
+      {coming.length ? (
+        <>
+          {sectionTitle("Upcoming tests", { label: "Exams", onPress: () => router.push("/tests" as never) })}
+          <View className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
+            {coming.map((e, i) => (
+              <View key={e.id} className={`flex-row items-center gap-3 px-3.5 py-3 ${i ? "border-t border-ink-100" : ""}`}>
+                <View className="h-9 w-9 items-center justify-center rounded-xl bg-[#F3EEFF]">
+                  <Ionicons name="ribbon-outline" size={17} color="#6D28D9" />
+                </View>
+                <View className="min-w-0 flex-1">
+                  <Text className="text-[14px] font-medium text-ink-900" numberOfLines={1}>
+                    {e.subject || e.title}
+                  </Text>
+                  <Text className="text-[12px] text-ink-500" numberOfLines={1}>
+                    {e.title} · {e.date}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        </>
+      ) : null}
+
+      {/* Notices */}
+      {sectionTitle("Notices", { label: "See all", onPress: () => router.push("/notices" as never) })}
+      <View className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
+        {notices.length ? (
+          notices.map((n, i) => (
+            <Pressable
+              key={n.id}
+              onPress={() => router.push("/notices" as never)}
+              className={`flex-row items-center gap-3 px-3.5 py-3 ${i ? "border-t border-ink-100" : ""}`}
+            >
+              <View className="h-9 w-9 items-center justify-center rounded-xl bg-[#FFF4E5]">
+                <Ionicons name="megaphone-outline" size={17} color="#C2410C" />
+              </View>
+              <View className="min-w-0 flex-1">
+                <Text className="text-[14px] font-medium text-ink-900" numberOfLines={1}>
+                  {n.title}
+                </Text>
+                <Text className="text-[12px] text-ink-500" numberOfLines={1}>
+                  {n.createdAt}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color="#CBD5E1" />
+            </Pressable>
+          ))
+        ) : (
+          <Text className="px-3.5 py-4 text-[13px] text-ink-500">No notices yet. School updates will show here.</Text>
+        )}
+      </View>
+
+      {/* Child switcher */}
+      <RnModal visible={switchOpen} transparent animationType="slide" onRequestClose={() => setSwitchOpen(false)}>
+        <View className="flex-1 justify-end">
+          <Pressable className="absolute inset-0 bg-black/40" onPress={() => setSwitchOpen(false)} />
+          <View className="rounded-t-3xl bg-white px-5 pb-8 pt-3">
+            <View className="mx-auto mb-3 h-1 w-10 rounded-full bg-ink-200" />
+            <Text className="mb-2 text-[17px] font-semibold text-ink-900">Switch child</Text>
+            {kids.map((k) => {
+              const on = (childId || child?.id) === k.id;
+              return (
+                <Pressable
+                  key={k.id}
+                  onPress={() => {
+                    void setChildId(k.id);
+                    setSwitchOpen(false);
+                  }}
+                  className={`mt-2 flex-row items-center gap-3 rounded-2xl border p-3 ${on ? "border-[#1F45C7] bg-[#EEF3FF]" : "border-ink-200"}`}
+                >
+                  <View className="h-10 w-10 items-center justify-center rounded-xl bg-[#1F45C7]">
+                    <Text className="text-[14px] font-bold text-white">{initialsOf(k.name)}</Text>
+                  </View>
+                  <View className="min-w-0 flex-1">
+                    <Text className="text-[15px] font-semibold text-ink-900">{k.name}</Text>
+                    <Text className="text-[12px] text-ink-500">{k.classLabel}</Text>
+                  </View>
+                  {on ? <Ionicons name="checkmark-circle" size={22} color="#1F45C7" /> : null}
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      </RnModal>
+    </View>
+  );
+}

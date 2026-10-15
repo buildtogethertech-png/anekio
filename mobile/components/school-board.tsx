@@ -31,13 +31,18 @@ const TABS = [
   { id: "subjects", label: "Subjects", hint: "What the school teaches. Add at the start.", group: "Academics" },
   { id: "exams", label: "Exams", hint: "Grade scale and this year's sittings. Every class follows this.", group: "Academics" },
   { id: "leave", label: "Leave", hint: "Planned and sick. Who can use them, and how much notice.", group: "Staff & Leave" },
-  { id: "collect", label: "Collect", hint: "UPI, bank, gateway", group: "Fees" },
+  { id: "feeClasses", label: "Class fees", hint: "Monthly and admission fee for each class", group: "Fees" },
+  { id: "feeAddons", label: "Add-ons", hint: "Optional charges like transport or meals", group: "Fees" },
+  { id: "feeLate", label: "Late fee & due date", hint: "When fees are due and the late charge", group: "Fees" },
+  { id: "collect", label: "Payment methods", hint: "UPI, bank, gateway", group: "Fees" },
   { id: "documents", label: "Document Studio", hint: "Design printable PDFs. Fee amounts stay in Fees.", group: "Documents" },
   { id: "forms", label: "Forms & Templates", hint: "Configure reusable student and staff forms", group: "Admissions" },
   { id: "website", label: "School website", hint: "Public school page, admissions, enquiry form, and incoming leads", group: "Admissions" },
 ] as const;
 
 type Tab = (typeof TABS)[number]["id"];
+/** Fee structure pages live in the Fees setup screen; Settings links straight to the right pane. */
+const FEE_SETUP_PANE: Partial<Record<Tab, string>> = { feeClasses: "class", feeAddons: "other", feeLate: "late" };
 type Door = (typeof TABS)[number]["group"];
 type Level = "doors" | "group" | "page";
 
@@ -47,7 +52,7 @@ const DOOR_LEDE: Record<Door, string> = {
   "School Setup": "Identity, sessions, classes, calendar, and days.",
   Academics: "Subjects and this year's exams.",
   "Staff & Leave": "Leave rules for teachers, staff, and students.",
-  Fees: "How parents pay and how the school collects.",
+  Fees: "Fee structure, add-ons, late fee, and how parents pay.",
   Documents: "Design report cards, IDs, receipts, certificates, and letters.",
   Admissions: "Admissions website and incoming enquiries.",
 };
@@ -182,6 +187,9 @@ const TAB_ICONS: Record<Tab, { icon: keyof typeof Ionicons.glyphMap; tone: strin
   exams: { icon: "clipboard-outline", tone: "#9333ea" },
   leave: { icon: "airplane-outline", tone: "#0284c7" },
   collect: { icon: "wallet-outline", tone: "#059669" },
+  feeClasses: { icon: "cash-outline", tone: "#059669" },
+  feeAddons: { icon: "add-circle-outline", tone: "#0d9488" },
+  feeLate: { icon: "alarm-outline", tone: "#d97706" },
   documents: { icon: "document-text-outline", tone: "#4f46e5" },
   forms: { icon: "list-outline", tone: "#db2777" },
   website: { icon: "globe-outline", tone: "#0f766e" },
@@ -190,7 +198,8 @@ const TAB_ICONS: Record<Tab, { icon: keyof typeof Ionicons.glyphMap; tone: strin
 const PHONE_SECTIONS: { title: string; groups: Door[] }[] = [
   { title: "School", groups: ["School Setup"] },
   { title: "Academics", groups: ["Academics"] },
-  { title: "People & money", groups: ["Staff & Leave", "Fees"] },
+  { title: "People", groups: ["Staff & Leave"] },
+  { title: "Money", groups: ["Fees"] },
   { title: "Documents & admissions", groups: ["Documents", "Admissions"] },
 ];
 
@@ -1439,6 +1448,10 @@ export function SchoolBoard() {
 
   useEffect(() => {
     const nextTab = tabFromParam(tabParam);
+    if (nextTab && FEE_SETUP_PANE[nextTab.id]) {
+      router.replace(`/fees?tab=setup&pane=${FEE_SETUP_PANE[nextTab.id]}` as never);
+      return;
+    }
     if (nextTab) {
       setTab(nextTab.id);
       setDoor(nextTab.group);
@@ -1678,6 +1691,10 @@ export function SchoolBoard() {
   }
 
   function openPage(id: Tab) {
+    if (FEE_SETUP_PANE[id]) {
+      router.push(`/fees?tab=setup&pane=${FEE_SETUP_PANE[id]}` as never);
+      return;
+    }
     const item = TABS.find((row) => row.id === id);
     if (item) setDoor(item.group);
     setTab(id);
@@ -1731,6 +1748,21 @@ export function SchoolBoard() {
     out.leave = leaveTypes.length ? { text: plural(leaveTypes.length, "type") } : { text: "Not set", warn: true };
     const pay = [s?.upiId ? "UPI" : "", s?.pay?.gateway && s.pay.gateway !== "NONE" ? s.pay.gateway.charAt(0) + s.pay.gateway.slice(1).toLowerCase() : ""].filter(Boolean);
     out.collect = pay.length ? { text: `Cash, ${pay.join(", ")}` } : { text: "Cash only" };
+    const curSession = sessions.find((row) => row.current)?.id || s?.sessionId || "";
+    const feeClassIds = new Set(
+      (data?.feeTemplates ?? [])
+        .filter((t) => (!curSession || !t.sessionId || t.sessionId === curSession) && (t.lines ?? []).some((l) => Number(l.amount) > 0))
+        .map((t) => t.classId)
+    );
+    const allClasses = data?.classes ?? [];
+    const setCount = allClasses.filter((c) => feeClassIds.has(c.id)).length;
+    out.feeClasses = allClasses.length ? { text: `${setCount} of ${allClasses.length} set`, warn: setCount < allClasses.length } : { text: "No classes", warn: true };
+    const addOns = (data?.feeCatalog?.items ?? []).filter((i) => i.active).length;
+    out.feeAddons = { text: addOns ? `${addOns} item${addOns === 1 ? "" : "s"}` : "None" };
+    const cat = data?.feeCatalog;
+    out.feeLate = {
+      text: `Due ${cat?.dueDay || 10}${cat?.late?.enabled && cat.late.amount ? ` · ₹${cat.late.amount} late` : " · no late fee"}`,
+    };
     const tpl = data?.documentStudio?.templates?.length ?? 0;
     out.documents = { text: tpl ? plural(tpl, "template") : "None yet", warn: !tpl };
     out.website = form.websiteEnabled ? { text: "Live" } : { text: "Off" };

@@ -25,6 +25,7 @@ import { recordPayload } from "../lib/api-v1-record";
 import { queryFeeRegister } from "../lib/fee-register";
 import { homePayload, serializeNotice } from "../lib/api-v1-home";
 import { noticesForUser } from "../lib/data";
+import { inboxRecipients, inboxThreadDetail, listInboxThreads } from "../lib/inbox";
 import { actOp, runAct } from "../lib/run-act";
 import {
   SUPPORT_BLOCKED_OPS,
@@ -581,6 +582,39 @@ app.get("/api/v1/notices", async (req, res) => {
     return res.json({ notices: exactNotices.map(serializeNotice) });
   }
   res.json({ notices: notices.map(serializeNotice) });
+});
+
+app.get("/api/v1/inbox", async (req, res) => {
+  const user = await requireUser(req, res);
+  if (!user) return;
+  if (!(await requireActiveSubscription(user.id, res))) return;
+  try {
+    res.json({ threads: await listInboxThreads(user) });
+  } catch (error) {
+    sendError(res, 400, error instanceof Error ? error.message : "Could not load inbox.");
+  }
+});
+
+app.get("/api/v1/inbox/recipients", async (req, res) => {
+  const user = await requireUser(req, res);
+  if (!user) return;
+  if (!(await requireActiveSubscription(user.id, res))) return;
+  try {
+    res.json(await inboxRecipients(user, String(req.query.studentId || "")));
+  } catch (error) {
+    sendError(res, 400, error instanceof Error ? error.message : "Could not load recipients.");
+  }
+});
+
+app.get("/api/v1/inbox/:id", async (req, res) => {
+  const user = await requireUser(req, res);
+  if (!user) return;
+  if (!(await requireActiveSubscription(user.id, res))) return;
+  try {
+    res.json(await inboxThreadDetail(user, req.params.id));
+  } catch (error) {
+    sendError(res, 404, error instanceof Error ? error.message : "Conversation not found.");
+  }
 });
 
 app.post("/api/v1/act", async (req, res) => {

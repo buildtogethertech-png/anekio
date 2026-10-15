@@ -454,6 +454,8 @@ export function DeskBoard() {
   const { width } = useWindowDimensions();
   const [coverageFor, setCoverageFor] = useState("");
   const [coverBusy, setCoverBusy] = useState("");
+  const [coverMore, setCoverMore] = useState<Record<string, boolean>>({});
+  const [autoBusy, setAutoBusy] = useState(false);
   const desk = data?.desk;
   if (!desk) return <Empty title="The desk" body="Loading the school pulse." />;
   const desktop = width >= 900;
@@ -757,56 +759,174 @@ export function DeskBoard() {
         </Card>
       </View>
 
-      <Modal
-        open={Boolean(selectedLeave)}
-        title={selectedLeave ? `Cover · ${selectedLeave.teacherName}` : "Leave coverage"}
-        onClose={() => setCoverageFor("")}
-        wide
+      <RnModal
+        visible={Boolean(selectedLeave)}
+        transparent={desktop}
+        animationType={desktop ? "fade" : "slide"}
+        presentationStyle={desktop ? undefined : "fullScreen"}
+        onRequestClose={() => setCoverageFor("")}
       >
-        {selectedLeave ? (
-          <View>
-            <View className="mb-4 rounded-md bg-ink-50 px-4 py-3">
-              <Text className="text-sm font-medium text-ink-900">{selectedLeave.typeName} · {leaveRange(selectedLeave.from, selectedLeave.to)}</Text>
-              <Text className="mt-1 text-xs text-ink-700">Recommended teachers match the subject and are free in that period.</Text>
-            </View>
-            {selectedLeave.slots.map((slot, index) => {
-              const key = `${slot.date}:${slot.slotId}`;
-              return (
-                <View key={key} className={`py-4 ${index ? "border-t border-ink-100" : ""}`}>
-                  <View className="flex-row flex-wrap items-start justify-between gap-3">
-                    <View className="min-w-0 flex-1">
-                      <Text className="text-sm font-semibold text-ink-900">{slot.classLabel} · {slot.subject}</Text>
-                      <Text className="mt-0.5 text-xs text-ink-700">
-                        {leaveRange(slot.date, slot.date)} · {slot.period}{slot.startsAt ? ` · ${slot.startsAt}${slot.endsAt ? `–${slot.endsAt}` : ""}` : ""}{slot.room ? ` · ${slot.room}` : ""}
-                      </Text>
-                    </View>
-                    {slot.substituteName ? <Badge tone="leaf">{slot.substituteName}</Badge> : <Badge tone="warn">Uncovered</Badge>}
-                  </View>
-                  <View className="mt-3 flex-row flex-wrap gap-2">
-                    {slot.candidates.length ? slot.candidates.slice(0, 8).map((candidate) => (
-                      <Chip
-                        key={candidate.id}
-                        label={`${candidate.match ? "★ " : ""}${candidate.name}`}
-                        active={slot.substituteId === candidate.id}
-                        onPress={() => void setCover(selectedLeave.requestId, slot.slotId, slot.date, candidate.id)}
-                      />
-                    )) : <Text className="text-xs text-red-700">No teacher is free in this period.</Text>}
-                    {slot.substituteId ? (
-                      <Pressable
-                        disabled={coverBusy === key}
-                        onPress={() => void setCover(selectedLeave.requestId, slot.slotId, slot.date, "")}
-                        className="justify-center px-2"
-                      >
-                        <Text className="text-xs text-red-700">Clear</Text>
+        <View className={desktop ? "flex-1 flex-row justify-end" : "flex-1 bg-ink-50"}>
+          {desktop ? <Pressable accessibilityLabel="Close" className="absolute inset-0 bg-black/30" onPress={() => setCoverageFor("")} /> : null}
+          <View className={desktop ? "h-full w-full max-w-[540px] border-l border-ink-200 bg-ink-50 shadow-xl" : "flex-1 bg-ink-50"}>
+            <SafeAreaView className="flex-1" edges={["top", "bottom"]}>
+              {selectedLeave ? (() => {
+                const uncovered = selectedLeave.slots.filter((sl) => !sl.substituteId);
+                const autoable = uncovered.filter((sl) => sl.candidates.length);
+                const blocked = uncovered.filter((sl) => !sl.candidates.length).length;
+                const tierTone = (t?: number) =>
+                  t === 1 ? { bg: "#ECFDF5", fg: "#047857", label: "Teaches this class" } : t === 2 ? { bg: "#EEF3FF", fg: "#1F45C7", label: "Same subject" } : { bg: "#F1F5F9", fg: "#475569", label: "Free" };
+                async function autoAssign() {
+                  if (!selectedLeave) return;
+                  setAutoBusy(true);
+                  const usedAt = new Set<string>();
+                  let done = 0;
+                  try {
+                    for (const sl of autoable) {
+                      const pick = sl.candidates.find((c) => !usedAt.has(`${sl.date}:${sl.period}:${c.id}`));
+                      if (!pick) continue;
+                      usedAt.add(`${sl.date}:${sl.period}:${pick.id}`);
+                      await act(token, "assignSubstitute", { requestId: selectedLeave.requestId, slotId: sl.slotId, date: sl.date, substituteId: pick.id });
+                      done += 1;
+                    }
+                    toast.show(`${done} ${done === 1 ? "period" : "periods"} covered.`);
+                    await reload();
+                  } catch (error) {
+                    toast.show(error instanceof Error ? error.message : "Could not auto-assign.");
+                  } finally {
+                    setAutoBusy(false);
+                  }
+                }
+                return (
+                  <>
+                    <View className="flex-row items-center gap-2 border-b border-ink-100 bg-white px-3 py-2">
+                      <Pressable accessibilityRole="button" accessibilityLabel="Close" hitSlop={8} onPress={() => setCoverageFor("")} className="flex-row items-center px-1 py-1">
+                        <Ionicons name={desktop ? "close" : "chevron-back"} size={22} color="#1F45C7" />
+                        {desktop ? null : <Text className="text-[15px] font-medium text-[#1F45C7]">Desk</Text>}
                       </Pressable>
+                    </View>
+                    <ScrollView className="flex-1" contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 24 }}>
+                      <View>
+                        <Text className="text-[22px] font-bold text-ink-900">Cover {selectedLeave.teacherName}</Text>
+                        <Text className="mt-0.5 text-sm text-ink-500">
+                          {selectedLeave.typeName} · {leaveRange(selectedLeave.from, selectedLeave.to)} ·{" "}
+                          <Text className={uncovered.length ? "font-semibold text-amber-700" : "font-semibold text-emerald-700"}>
+                            {selectedLeave.covered}/{selectedLeave.total} covered
+                          </Text>
+                        </Text>
+                      </View>
+                      {blocked ? (
+                        <View className="flex-row items-start gap-2.5 rounded-2xl border border-amber-200 bg-amber-50 px-3.5 py-3">
+                          <Ionicons name="people-outline" size={18} color="#b45309" style={{ marginTop: 1 }} />
+                          <View className="min-w-0 flex-1">
+                            <Text className="text-sm font-semibold text-amber-900">
+                              {blocked === uncovered.length ? "No teacher is free for any of these periods" : `${blocked} ${blocked === 1 ? "period has" : "periods have"} no free teacher`}
+                            </Text>
+                            <Text className="mt-0.5 text-xs leading-4 text-amber-900/80">
+                              Every other teacher has a class at that time. Combine the class with another section, or give the class a self-study period.
+                            </Text>
+                          </View>
+                        </View>
+                      ) : null}
+                      {selectedLeave.slots.some((sl) => sl.candidates.length) ? (
+                      <View className="flex-row flex-wrap gap-x-3 gap-y-1">
+                        {[1, 2, 3].map((t) => {
+                          const tone = tierTone(t);
+                          return (
+                            <View key={t} className="flex-row items-center gap-1.5">
+                              <View className="h-2 w-2 rounded-full" style={{ backgroundColor: tone.fg }} />
+                              <Text className="text-[11px] text-ink-500">{t}. {tone.label}</Text>
+                            </View>
+                          );
+                        })}
+                      </View>
+                      ) : null}
+                      {selectedLeave.slots.map((slot) => {
+                        const key = `${slot.date}:${slot.slotId}`;
+                        const more = coverMore[key];
+                        const shown = more ? slot.candidates : slot.candidates.slice(0, 3);
+                        return (
+                          <View key={key} className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
+                            <View className="flex-row items-center gap-3 px-4 py-3">
+                              <View className="w-14">
+                                <Text className="text-xs font-semibold text-ink-800">{slot.startsAt || slot.period}</Text>
+                                <Text className="text-[11px] text-ink-400">{leaveRange(slot.date, slot.date).replace(/^\w+, /, "")}</Text>
+                              </View>
+                              <View className="min-w-0 flex-1">
+                                <Text className="text-[15px] font-semibold text-ink-900">{slot.classLabel} · {slot.subject}</Text>
+                                <Text className="text-xs text-ink-500" numberOfLines={1}>{slot.period}{slot.room ? ` · ${slot.room}` : ""}</Text>
+                              </View>
+                              {!slot.substituteName && !slot.candidates.length ? (
+                                <Text className="text-[11px] font-medium text-ink-400">No one free</Text>
+                              ) : slot.substituteName ? (
+                                <View className="items-end">
+                                  <Text className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">Covered</Text>
+                                  <Pressable hitSlop={6} disabled={coverBusy === key} onPress={() => void setCover(selectedLeave.requestId, slot.slotId, slot.date, "")}>
+                                    <Text className="mt-1 text-[11px] font-medium text-red-600">Clear</Text>
+                                  </Pressable>
+                                </View>
+                              ) : (
+                                <Text className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Needs cover</Text>
+                              )}
+                            </View>
+                            {slot.candidates.length ? (
+                              <View className="border-t border-ink-100">
+                                {shown.map((c, i) => {
+                                  const tone = tierTone(c.tier);
+                                  const on = slot.substituteId === c.id;
+                                  return (
+                                    <Pressable
+                                      key={c.id}
+                                      disabled={coverBusy === key || on}
+                                      onPress={() => void setCover(selectedLeave.requestId, slot.slotId, slot.date, c.id)}
+                                      className={`flex-row items-center gap-3 px-4 py-2.5 ${i ? "border-t border-ink-50" : ""} ${on ? "bg-emerald-50/60" : "active:bg-slate-50"}`}
+                                    >
+                                      <View className="h-2 w-2 rounded-full" style={{ backgroundColor: tone.fg }} />
+                                      <View className="min-w-0 flex-1">
+                                        <Text className="text-sm font-semibold text-ink-900" numberOfLines={1}>
+                                          {c.name}
+                                          {i === 0 && !slot.substituteId ? <Text className="text-[11px] font-semibold text-emerald-700">  · Best fit</Text> : null}
+                                        </Text>
+                                        <Text className="text-[11px] text-ink-500" numberOfLines={1}>
+                                          {c.reason || tone.label}
+                                          {c.ownSubject ? ` · teaches ${c.ownSubject} in this period` : ""}
+                                          {typeof c.coverCount === "number" && c.coverCount ? ` · ${c.coverCount} cover${c.coverCount === 1 ? "" : "s"} this week` : ""}
+                                        </Text>
+                                      </View>
+                                      {on ? (
+                                        <Ionicons name="checkmark-circle" size={20} color="#047857" />
+                                      ) : (
+                                        <Text className="rounded-lg border border-[#1F45C7] px-2.5 py-1 text-xs font-semibold text-[#1F45C7]">{coverBusy === key ? "…" : "Assign"}</Text>
+                                      )}
+                                    </Pressable>
+                                  );
+                                })}
+                                {slot.candidates.length > 3 ? (
+                                  <Pressable onPress={() => setCoverMore((cur) => ({ ...cur, [key]: !cur[key] }))} className="border-t border-ink-50 px-4 py-2">
+                                    <Text className="text-xs font-semibold text-[#1F45C7]">{more ? "Show fewer" : `Show ${slot.candidates.length - 3} more`}</Text>
+                                  </Pressable>
+                                ) : null}
+                              </View>
+                            ) : null}
+                          </View>
+                        );
+                      })}
+                    </ScrollView>
+                    {autoable.length ? (
+                      <View className="border-t border-ink-100 bg-white px-4 pb-2 pt-3">
+                        <Pressable disabled={autoBusy} onPress={() => void autoAssign()} className={`h-12 flex-row items-center justify-center gap-2 rounded-xl ${autoBusy ? "bg-ink-300" : "bg-[#1F45C7]"}`}>
+                          <Ionicons name="flash-outline" size={17} color="#fff" />
+                          <Text className="text-[15px] font-semibold text-white">{autoBusy ? "Assigning…" : `Auto-assign best fit · ${autoable.length} ${autoable.length === 1 ? "period" : "periods"}`}</Text>
+                        </Pressable>
+                      </View>
                     ) : null}
-                  </View>
-                </View>
-              );
-            })}
+                  </>
+                );
+              })() : null}
+            </SafeAreaView>
           </View>
-        ) : null}
-      </Modal>
+        </View>
+      </RnModal>
     </View>
   );
 }
@@ -2915,7 +3035,7 @@ export function AdmissionsBoard() {
     })
     .filter((option) => option.id);
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("ALL");
+  const [status, setStatus] = useState("OPEN");
   const [selectedId, setSelectedId] = useState(leads[0]?.id || "");
   const [leadOpen, setLeadOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -2924,6 +3044,11 @@ export function AdmissionsBoard() {
   const [admitOpen, setAdmitOpen] = useState(false);
   const [websiteFormDraft, setWebsiteFormDraft] = useState<AdmissionFormField[] | null>(null);
   const [walkInValues, setWalkInValues] = useState<Record<string, string>>({});
+  const [walkInFollowUp, setWalkInFollowUp] = useState("");
+  const [walkInMenu, setWalkInMenu] = useState(false);
+  const [walkInPickDate, setWalkInPickDate] = useState(false);
+  const { width: admissionsWidth } = useWindowDimensions();
+  const admissionsWide = admissionsWidth >= 768;
   const [draft, setDraft] = useState({
     studentName: "",
     guardianName: "",
@@ -2937,12 +3062,16 @@ export function AdmissionsBoard() {
   const filtered = leads.filter((lead) => {
     const needle = query.trim().toLowerCase();
     const matchText = [lead.studentName, lead.guardianName, lead.phone, lead.email, lead.classWanted, lead.message].join(" ").toLowerCase();
-    return (!needle || matchText.includes(needle)) && (status === "ALL" || lead.status === status);
+    const isOpen = lead.status !== "ADMITTED" && lead.status !== "REJECTED";
+    return (!needle || matchText.includes(needle)) && (status === "ALL" || (status === "OPEN" ? isOpen : lead.status === status));
   });
-  const counts = LEAD_STATUSES.map((row) => ({
-    ...row,
-    n: row.id === "ALL" ? leads.length : leads.filter((lead) => lead.status === row.id).length,
-  }));
+  const counts = [
+    { id: "OPEN", label: "Open", n: leads.filter((lead) => lead.status !== "ADMITTED" && lead.status !== "REJECTED").length },
+    ...LEAD_STATUSES.map((row) => ({
+      ...row,
+      n: row.id === "ALL" ? leads.length : leads.filter((lead) => lead.status === row.id).length,
+    })),
+  ];
 
   useEffect(() => {
     if (!selected) return;
@@ -2987,15 +3116,17 @@ export function AdmissionsBoard() {
       toast.show(`${requiredMissing.label} is required.`);
       return;
     }
-    if (!String(walkInValues.phone || "").trim()) {
-      toast.show("Phone number is required.");
+    if (String(walkInValues.phone || "").replace(/\D/g, "").length !== 10) {
+      toast.show("Enter a 10-digit mobile number.");
       return;
     }
     try {
-      const result = await act<{ ok: true; leadId: string }>(token, "createAdmissionLead", walkInValues);
-      toast.show("Walk-in lead added.");
+      const result = await act<{ ok: true; leadId: string }>(token, "createAdmissionLead", { ...walkInValues, followUpAt: walkInFollowUp || undefined });
+      toast.show(walkInFollowUp ? "Walk-in lead added with a follow-up." : "Walk-in lead added.");
       setWalkInOpen(false);
       setWalkInValues({});
+      setWalkInFollowUp("");
+      setWalkInPickDate(false);
       setSelectedId(result.leadId);
       await reload();
     } catch (e) {
@@ -3137,210 +3268,246 @@ export function AdmissionsBoard() {
     </View>
   );
 
-  return (
-    <ScrollView className="h-full" keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 48 }}>
-      <View className="mb-5 flex-row flex-wrap items-end justify-between gap-3">
-        <View>
-          <Text className="text-2xl font-semibold text-ink-900">Admissions</Text>
-          <Text className="mt-1 text-sm text-ink-700">Enquiries, follow-ups and student onboarding in one place.</Text>
-        </View>
-        <View className="items-end gap-2">
-          {can(user, "admissions.manage") ? <Button onPress={() => setWalkInOpen(true)}>Add walk-in lead</Button> : null}
-          <Text className="text-xs text-ink-700">{leads.length} total {leads.length === 1 ? "enquiry" : "enquiries"}</Text>
-        </View>
-      </View>
-      {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
-      <View className="mb-5 flex-row flex-wrap gap-3">
-        <AdmissionMetric icon="people-outline" label="Total leads" value={String(leads.length)} color="#475569" />
-        <AdmissionMetric icon="sparkles-outline" label="New leads" value={String(counts.find((c) => c.id === "NEW")?.n || 0)} color="#2563eb" />
-        <AdmissionMetric icon="time-outline" label="Need follow-up" value={String(counts.find((c) => c.id === "FOLLOW_UP")?.n || 0)} color="#d97706" />
-        <AdmissionMetric icon="checkmark-circle-outline" label="Admitted" value={String(counts.find((c) => c.id === "ADMITTED")?.n || 0)} color="#15803d" />
-      </View>
-      <View className="overflow-hidden rounded-md bg-white">
-          <View className="flex-row flex-wrap items-end gap-3 px-4 pb-4 pt-5">
-            <View className="min-w-[260px] flex-1">
-              <Field label="Search leads">
-                <Input value={query} onChangeText={setQuery} placeholder="Student, guardian, phone, class…" />
-              </Field>
-            </View>
-            <View className="min-w-[220px]">
-              <Dropdown label="Status" value={status} options={counts.map((row) => ({ id: row.id, label: `${row.label} (${row.n})` }))} onChange={setStatus} />
-            </View>
-          </View>
-          <View className="border-t border-ink-100">
-            {filtered.length ? (
-              <View className="flex-row">
-                <View className="min-w-0 flex-1">
-                  <ScrollView horizontal showsHorizontalScrollIndicator>
-                    {leadDataTable}
-                  </ScrollView>
-                </View>
-                {leadActionColumn}
-              </View>
-            ) : <Empty title="No leads" body="No admission enquiries match this filter." />}
-          </View>
-      </View>
-      <Modal open={walkInOpen} wide title="Add walk-in lead" onClose={() => setWalkInOpen(false)}>
-        <View className="gap-4">
-          <View className="flex-row flex-wrap items-start justify-between gap-3">
-            <Text className="min-w-0 flex-1 text-sm leading-5 text-ink-700">
-              Record an enquiry received at the school office. It will enter the same admissions pipeline with source Walk-in.
-            </Text>
-            {can(user, "school.edit") ? (
-              <Pressable
-                accessibilityRole="link"
-                accessibilityLabel="Change admission form fields"
-                onPress={openAdmissionFormSettings}
-                className="flex-row items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-3 py-2"
-              >
-                <Ionicons name="settings-outline" size={16} color="#1d4ed8" />
-                <Text className="text-xs font-semibold text-blue-700">Change form</Text>
-              </Pressable>
-            ) : null}
-          </View>
-          {admissionFields.length ? (
-            <View className="flex-row flex-wrap gap-3">
-              {admissionFields.map((field) => (
-                <View key={field.id} className={field.type === "textarea" ? "w-full" : "min-w-[240px] flex-1"}>
-                  <AdmissionFieldControl
-                    field={field}
-                    value={walkInValues[field.id] || ""}
-                    onChange={(value) => setWalkInValues((current) => ({ ...current, [field.id]: value }))}
-                  />
-                </View>
-              ))}
-            </View>
-          ) : <Text className="text-sm text-ink-700">No admission fields are currently visible.</Text>}
-          <View className="flex-row justify-end gap-2 border-t border-ink-100 pt-4">
-            <Button variant="ghost" onPress={() => setWalkInOpen(false)}>Cancel</Button>
-            <Button onPress={createWalkInLead}>Add lead</Button>
-          </View>
-        </View>
-      </Modal>
-      <Modal open={leadOpen && Boolean(selected)} wide title={selected ? `${selected.studentName || selected.guardianName || "Admission"} · lead` : "Lead"} onClose={() => { setEditOpen(false); setLeadOpen(false); }}>
-        <View className="p-1">
-          {selected ? (
-            <View>
-              <View className="flex-row flex-wrap items-start justify-between gap-3">
-                <View className="min-w-0 flex-1">
-                  <View className="flex-row items-center gap-2">
-                    <Text className="min-w-0 text-xl font-semibold text-ink-900" numberOfLines={1}>{selected.studentName || selected.guardianName || "Admission lead"}</Text>
-                    <LeadPencilButton
-                      editing={editOpen}
-                      onPress={() => {
-                        if (editOpen) resetLeadDraft();
-                        setEditOpen((open) => !open);
-                      }}
-                    />
-                  </View>
-                  <Text className="mt-1 text-sm text-ink-700">{selected.classWanted ? `Interested in ${selected.classWanted}` : "Class interest not recorded"}</Text>
-                </View>
-                <View className="items-end gap-3">
-                  <View className="flex-row items-center gap-1.5">
-                    <View className="h-2 w-2 rounded-full" style={{ backgroundColor: leadStatusColor(selected.status) }} />
-                    <Text className="text-xs font-medium text-ink-800">{leadStatusLabel(selected.status)}</Text>
-                  </View>
-                  <View className="flex-row gap-2">
-                    <LeadCompactAction icon="time-outline" label="Timeline" onPress={() => setTimelineOpen(true)} />
-                    {selected.status !== "ADMITTED" ? (
-                      <LeadCompactAction icon="school-outline" label="Admit as student" onPress={() => setAdmitOpen(true)} />
-                    ) : null}
-                  </View>
-                </View>
-              </View>
-              {editOpen ? (
-                <View className="mt-4 gap-3 border-t border-ink-100 pt-4">
-                  <View className="flex-row flex-wrap gap-3">
-                    <View className="min-w-[220px] flex-1">
-                      <Field label="Student name"><Input value={draft.studentName} onChangeText={(v) => setDraft((old) => ({ ...old, studentName: v }))} /></Field>
+  const ago = (raw: string) => {
+    let t = new Date(raw).getTime();
+    if (Number.isNaN(t)) t = new Date(String(raw || "").split(",")[0]).getTime();
+    if (Number.isNaN(t)) return "";
+    const days = Math.floor((Date.now() - t) / 86400000);
+    return days <= 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`;
+  };
+  const leadModals = (
+    <>
+      <RnModal
+        visible={leadOpen && Boolean(selected)}
+        transparent={admissionsWide}
+        animationType={admissionsWide ? "fade" : "slide"}
+        presentationStyle={admissionsWide ? undefined : "fullScreen"}
+        onRequestClose={() => { setEditOpen(false); setLeadOpen(false); }}
+      >
+        <View className={admissionsWide ? "flex-1 flex-row justify-end" : "flex-1 bg-white"}>
+          {admissionsWide ? <Pressable accessibilityLabel="Close" className="absolute inset-0 bg-black/30" onPress={() => { setEditOpen(false); setLeadOpen(false); }} /> : null}
+          <View className={admissionsWide ? "h-full w-full max-w-[520px] border-l border-ink-200 bg-ink-50 shadow-xl" : "flex-1 bg-ink-50"}>
+            <SafeAreaView className="flex-1" edges={["top", "bottom"]}>
+              {selected ? (() => {
+                const digits = String(selected.phone || "").replace(/\D/g, "").slice(-10);
+                const name = selected.studentName || selected.guardianName || "Admission lead";
+                const custom = Object.entries(selected.customFields || {}).filter(([, v]) => v);
+                const rows: [string, string][] = [
+                  ["Parent", selected.guardianName],
+                  ["Phone", selected.phone ? `+91 ${digits || selected.phone}` : ""],
+                  ["Email", selected.email],
+                  ["Follow-up", selected.followUpAt ? String(selected.followUpAt).replace("T", " ") : ""],
+                  ...custom.map(([id, v]): [string, string] => [admissionFields.find((r) => r.id === id)?.label || id.replace(/^custom_/, "").replaceAll("_", " "), String(v)]),
+                ].filter(([, v]) => Boolean(v)) as [string, string][];
+                const quick = (days: number) => {
+                  const d = new Date();
+                  d.setDate(d.getDate() + days);
+                  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} 10:00`;
+                };
+                const action = (icon: keyof typeof Ionicons.glyphMap, label: string, onPress: () => void, disabled = false, color = "#1F45C7") => (
+                  <Pressable key={label} disabled={disabled} onPress={onPress} className={`flex-1 items-center gap-1 ${disabled ? "opacity-40" : ""}`}>
+                    <View className="h-11 w-11 items-center justify-center rounded-full bg-white" style={{ borderWidth: 1, borderColor: "#e2e8f0" }}>
+                      <Ionicons name={icon} size={19} color={color} />
                     </View>
-                    <View className="min-w-[220px] flex-1">
-                      <Field label="Guardian name"><Input value={draft.guardianName} onChangeText={(v) => setDraft((old) => ({ ...old, guardianName: v }))} /></Field>
-                    </View>
-                  </View>
-                  <View className="flex-row flex-wrap gap-3">
-                    <View className="min-w-[220px] flex-1">
-                      <Field label="Phone"><Input value={draft.phone} onChangeText={(v) => setDraft((old) => ({ ...old, phone: v }))} /></Field>
-                    </View>
-                    <View className="min-w-[220px] flex-1">
-                      <Field label="Email"><Input value={draft.email} onChangeText={(v) => setDraft((old) => ({ ...old, email: v }))} /></Field>
-                    </View>
-                  </View>
-                  {classOptions.length ? (
-                    <Dropdown
-                      label="Class interested"
-                      value={draft.classWanted}
-                      options={classOptions.some((option) => option.id === draft.classWanted) || !draft.classWanted ? classOptions : [{ id: draft.classWanted, label: draft.classWanted }, ...classOptions]}
-                      onChange={(v) => setDraft((old) => ({ ...old, classWanted: v }))}
-                    />
-                  ) : (
-                    <Field label="Class interested"><Input value={draft.classWanted} onChangeText={(v) => setDraft((old) => ({ ...old, classWanted: v }))} /></Field>
-                  )}
-                  <Field label="Message"><Input multiline value={draft.message} onChangeText={(v) => setDraft((old) => ({ ...old, message: v }))} /></Field>
-                </View>
-              ) : (
-                <>
-                  <View className="mt-4 flex-row flex-wrap gap-2 border-t border-ink-100 pt-4">
-                    <LeadDetailTile label="Guardian" value={selected.guardianName} />
-                    <LeadDetailTile label="Phone" value={selected.phone} />
-                    <LeadDetailTile label="Email" value={selected.email || "—"} />
-                    <LeadDetailTile label="Stage" value={leadStatusLabel(selected.status)} />
-                    <LeadDetailTile label="Follow-up" value={selected.followUpAt || "—"} />
-                    <LeadDetailTile label="Source" value={leadSourceLabel(selected.source)} />
-                    {Object.entries(selected.customFields || {}).filter(([, value]) => value).map(([id, value]) => {
-                      const field = admissionFields.find((row) => row.id === id);
-                      return <LeadDetailTile key={id} label={field?.label || id.replace(/^custom_/, "").replaceAll("_", " ")} value={value} />;
-                    })}
-                  </View>
-                  {selected.message ? <View className="mt-3 border-l-2 border-blue-300 bg-blue-50 px-3 py-2.5"><Text className="text-sm leading-5 text-ink-800">{selected.message}</Text></View> : null}
-                </>
-              )}
-              <View className="mt-4 gap-3 rounded-md border border-ink-100 bg-white p-4">
-                <View>
-                  <SectionLabel>Lead update</SectionLabel>
-                </View>
-                <View className="flex-row flex-wrap gap-3">
-                  <View className="min-w-[220px] flex-1">
-                    <Dropdown
-                      label="Lead stage"
-                      value={activityDraft.status}
-                      options={LEAD_STATUSES.filter((s) => s.id !== "ALL" && (s.id !== "ADMITTED" || selected.status === "ADMITTED"))}
-                      onChange={(v) => setActivityDraft((old) => ({ ...old, status: v }))}
-                    />
-                  </View>
-                  <View className="min-w-[220px] flex-1">
-                    <Field label="Next follow-up">
-                      <LeadDateTimeInput value={activityDraft.followUpAt} placeholder="Pick follow-up date and time" onChangeText={(v) => setActivityDraft((old) => ({ ...old, followUpAt: v }))} />
-                    </Field>
-                  </View>
-                </View>
-                <Field label="Remark">
-                  <Input multiline value={activityDraft.remark} placeholder="Write the latest update for this lead." onChangeText={(v) => setActivityDraft((old) => ({ ...old, remark: v }))} />
-                </Field>
-              </View>
-              <View className="mt-4 flex-row justify-end gap-2 border-t border-ink-100 pt-4">
-                {editOpen ? <Button variant="ghost" onPress={() => { resetLeadDraft(); setEditOpen(false); }}>Cancel</Button> : null}
-                <Button onPress={async () => {
-                  await updateLead({
-                    ...draft,
-                    status: activityDraft.status || selected.status,
-                    followUpAt: activityDraft.followUpAt,
-                    remark: activityDraft.remark,
-                    eventKind: "UPDATE",
-                  }, "Lead saved.");
-                  setActivityDraft((old) => ({ ...old, remark: "" }));
+                    <Text className="text-[11px] font-medium text-ink-700">{label}</Text>
+                  </Pressable>
+                );
+                const save = async () => {
+                  await updateLead({ ...draft, status: activityDraft.status || selected.status, followUpAt: activityDraft.followUpAt, remark: activityDraft.remark, eventKind: "UPDATE" }, "Lead saved.");
+                  setActivityDraft((o) => ({ ...o, remark: "" }));
                   setEditOpen(false);
-                }}>
-                  Save
-                </Button>
-              </View>
-              {selected.notes ? <View className="mt-5 border-t border-ink-100 pt-4"><SectionLabel>Office notes</SectionLabel><Text className="mt-2 text-sm leading-5 text-ink-800">{selected.notes}</Text></View> : null}
-            </View>
-          ) : (
-            <Empty title="Select a lead" body="Choose an enquiry to call, follow up, or move through admissions." />
-          )}
+                };
+                const label = (t: string) => <Text className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-500">{t}</Text>;
+                const box = "h-11 rounded-xl border border-ink-200 bg-white px-3 text-[15px] text-ink-900";
+                return (
+                  <>
+                    <View className="flex-row items-center border-b border-ink-100 bg-white px-2 py-2">
+                      <Pressable accessibilityRole="button" accessibilityLabel="Back" hitSlop={8} onPress={() => { setEditOpen(false); setLeadOpen(false); }} className="flex-row items-center px-1 py-1">
+                        <Ionicons name={admissionsWide ? "close" : "chevron-back"} size={22} color="#1F45C7" />
+                        {admissionsWide ? null : <Text className="text-[15px] font-medium text-[#1F45C7]">Admissions</Text>}
+                      </Pressable>
+                    </View>
+                    <ScrollView className="flex-1" contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
+                      <View>
+                        <View className="flex-row items-center gap-2">
+                          <Text className="min-w-0 flex-1 text-[22px] font-bold text-ink-900" numberOfLines={2}>{name}</Text>
+                          <View className="flex-row items-center gap-1.5 rounded-full bg-white px-2.5 py-1" style={{ borderWidth: 1, borderColor: "#e2e8f0" }}>
+                            <View className="h-2 w-2 rounded-full" style={{ backgroundColor: leadStatusColor(selected.status) }} />
+                            <Text className="text-xs font-semibold text-ink-800">{leadStatusLabel(selected.status)}</Text>
+                          </View>
+                        </View>
+                        <Text className="mt-0.5 text-sm text-ink-500">
+                          {[selected.classWanted, leadSourceLabel(selected.source), ago(selected.createdAt)].filter(Boolean).join(" · ")}
+                        </Text>
+                      </View>
+                      <View className="flex-row">
+                        {action("call", "Call", () => void Linking.openURL(`tel:+91${digits}`), digits.length !== 10)}
+                        {action("logo-whatsapp", "WhatsApp", () => void Linking.openURL(`https://wa.me/91${digits}`), digits.length !== 10, "#16a34a")}
+                        {action("mail-outline", "Email", () => void Linking.openURL(`mailto:${selected.email}`), !selected.email)}
+                        {action(editOpen ? "close" : "create-outline", editOpen ? "Cancel" : "Edit", () => { if (editOpen) resetLeadDraft(); setEditOpen((o) => !o); })}
+                      </View>
+                      {editOpen ? (
+                        <View className="gap-3 rounded-2xl border border-ink-100 bg-white p-4">
+                          {([
+                            ["Student name", "studentName"],
+                            ["Parent name", "guardianName"],
+                            ["Phone", "phone"],
+                            ["Email", "email"],
+                          ] as const).map(([t, k]) => (
+                            <View key={k}>
+                              {label(t)}
+                              <TextInput value={draft[k]} onChangeText={(v) => setDraft((o) => ({ ...o, [k]: v }))} className={box} style={{ includeFontPadding: false }} autoCapitalize={k === "email" ? "none" : "words"} />
+                            </View>
+                          ))}
+                          <View>
+                            {label("Class")}
+                            <View className="flex-row flex-wrap gap-2">
+                              {classOptions.map((o) => {
+                                const on = draft.classWanted === o.id;
+                                return (
+                                  <Pressable key={o.id} onPress={() => setDraft((d) => ({ ...d, classWanted: o.id }))} className={`h-9 justify-center rounded-full border px-3 ${on ? "border-[#1F45C7] bg-[#1F45C7]" : "border-ink-200 bg-white"}`}>
+                                    <Text className={`text-sm font-semibold ${on ? "text-white" : "text-ink-700"}`}>{o.label}</Text>
+                                  </Pressable>
+                                );
+                              })}
+                            </View>
+                          </View>
+                          <View>
+                            {label("Message")}
+                            <TextInput value={draft.message} onChangeText={(v) => setDraft((o) => ({ ...o, message: v }))} multiline textAlignVertical="top" className="rounded-xl border border-ink-200 bg-white px-3 py-3 text-[15px] text-ink-900" style={{ minHeight: 80, includeFontPadding: false }} />
+                          </View>
+                        </View>
+                      ) : (
+                        <View className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
+                          {rows.map(([k, v], i) => (
+                            <View key={k} className={`flex-row gap-3 px-4 py-3 ${i ? "border-t border-ink-100" : ""}`}>
+                              <Text className="w-24 text-sm text-ink-500">{k}</Text>
+                              <Text className="min-w-0 flex-1 text-sm font-medium text-ink-900">{v}</Text>
+                            </View>
+                          ))}
+                          {selected.message ? (
+                            <View className="border-t border-ink-100 bg-[#EEF3FF]/50 px-4 py-3">
+                              <Text className="text-sm leading-5 text-ink-800">"{selected.message}"</Text>
+                            </View>
+                          ) : null}
+                        </View>
+                      )}
+                      {selected.status !== "ADMITTED" ? (
+                        <View className="gap-3 rounded-2xl border border-ink-100 bg-white p-4">
+                          <Text className="text-[15px] font-semibold text-ink-900">Next step</Text>
+                          <View className="flex-row flex-wrap gap-2">
+                            {LEAD_STATUSES.filter((st) => st.id !== "ALL" && st.id !== "ADMITTED").map((st) => {
+                              const on = activityDraft.status === st.id;
+                              return (
+                                <Pressable key={st.id} onPress={() => setActivityDraft((o) => ({ ...o, status: st.id }))} className={`h-9 flex-row items-center gap-1.5 rounded-full border px-3 ${on ? "border-[#1F45C7] bg-[#EEF3FF]" : "border-ink-200 bg-white"}`}>
+                                  <View className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: leadStatusColor(st.id) }} />
+                                  <Text className={`text-[13px] font-medium ${on ? "text-[#1F45C7]" : "text-ink-700"}`}>{st.label}</Text>
+                                </Pressable>
+                              );
+                            })}
+                          </View>
+                          <View>
+                            {label("Follow up")}
+                            <View className="flex-row flex-wrap gap-2">
+                              {([["Tomorrow", 1], ["In 3 days", 3], ["Next week", 7]] as const).map(([t, d]) => {
+                                const stamp = quick(d);
+                                const on = activityDraft.followUpAt.slice(0, 10) === stamp.slice(0, 10);
+                                return (
+                                  <Pressable key={t} onPress={() => setActivityDraft((o) => ({ ...o, followUpAt: on ? "" : stamp }))} className={`h-9 justify-center rounded-full border px-3 ${on ? "border-[#1F45C7] bg-[#EEF3FF]" : "border-ink-200 bg-white"}`}>
+                                    <Text className={`text-[13px] font-medium ${on ? "text-[#1F45C7]" : "text-ink-700"}`}>{t}</Text>
+                                  </Pressable>
+                                );
+                              })}
+                            </View>
+                            {(() => {
+                              const fu = activityDraft.followUpAt;
+                              const day = fu.slice(0, 10);
+                              const time = fu.slice(11, 16) || "10:00";
+                              const setDay = (d: string) => setActivityDraft((o) => ({ ...o, followUpAt: d ? `${d} ${time}` : "" }));
+                              const setTime = (t: string) => setActivityDraft((o) => ({ ...o, followUpAt: `${(o.followUpAt.slice(0, 10) || quick(0).slice(0, 10))} ${t}` }));
+                              return (
+                                <View className="mt-2">
+                                  <DateField
+                                    value={day}
+                                    min={quick(0).slice(0, 10)}
+                                    placeholder="Pick date & time"
+                                    onChange={setDay}
+                                    time={time}
+                                    onTimeChange={setTime}
+                                  />
+                                </View>
+                              );
+                            })()}
+                          </View>
+                          <TextInput
+                            value={activityDraft.remark}
+                            onChangeText={(v) => setActivityDraft((o) => ({ ...o, remark: v }))}
+                            multiline
+                            textAlignVertical="top"
+                            placeholder="What happened? e.g. Called, asked for fee details"
+                            placeholderTextColor="#94a3b8"
+                            className="rounded-xl border border-ink-200 bg-white px-3 py-3 text-[15px] text-ink-900"
+                            style={{ minHeight: 72, includeFontPadding: false }}
+                          />
+                          <Pressable onPress={() => void save()} className="h-11 items-center justify-center rounded-xl border border-[#1F45C7]">
+                            <Text className="text-sm font-semibold text-[#1F45C7]">Save update</Text>
+                          </Pressable>
+                        </View>
+                      ) : editOpen ? (
+                        <Pressable onPress={() => void save()} className="h-11 items-center justify-center rounded-xl border border-[#1F45C7] bg-white">
+                          <Text className="text-sm font-semibold text-[#1F45C7]">Save changes</Text>
+                        </Pressable>
+                      ) : null}
+                      <View>
+                        {label("Activity")}
+                        <View className="gap-0">
+                          {timelineEvents.map((event, index) => {
+                            const tone = admissionTimelineTone(event.kind);
+                            return (
+                              <View key={event.id} className="flex-row gap-3">
+                                <View className="items-center">
+                                  <View className={`h-8 w-8 items-center justify-center rounded-full border ${tone.border} ${tone.bg}`}>
+                                    <Ionicons name={admissionTimelineIcon(event.kind) as keyof typeof Ionicons.glyphMap} size={15} color={tone.icon} />
+                                  </View>
+                                  {index < timelineEvents.length - 1 ? <View className="w-px flex-1 bg-ink-200" style={{ minHeight: 12 }} /> : null}
+                                </View>
+                                <View className="min-w-0 flex-1 pb-4">
+                                  <Text className="text-sm font-semibold text-ink-900">{event.title}</Text>
+                                  <Text className="text-[11px] text-ink-500">{[event.actorName, event.createdAt].filter(Boolean).join(" · ")}</Text>
+                                  {event.body ? <AdmissionTimelineBody body={event.body} /> : null}
+                                </View>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      </View>
+                      {selected.notes ? (
+                        <View className="rounded-2xl border border-ink-100 bg-white p-4">
+                          {label("Office notes")}
+                          <Text className="text-sm leading-5 text-ink-800">{selected.notes}</Text>
+                        </View>
+                      ) : null}
+                    </ScrollView>
+                    <View className="border-t border-ink-100 bg-white px-4 pb-2 pt-3">
+                      {selected.status === "ADMITTED" ? (
+                        <Pressable onPress={() => { setLeadOpen(false); router.push("/people" as never); }} className="h-12 flex-row items-center justify-center gap-1.5 rounded-xl border border-ink-200">
+                          <Ionicons name="person-outline" size={17} color="#1F45C7" />
+                          <Text className="text-[15px] font-semibold text-[#1F45C7]">View students</Text>
+                        </Pressable>
+                      ) : (
+                        <Pressable onPress={() => setAdmitOpen(true)} className="h-12 flex-row items-center justify-center gap-1.5 rounded-xl bg-[#1F45C7]">
+                          <Ionicons name="school-outline" size={17} color="#fff" />
+                          <Text className="text-[15px] font-semibold text-white">Admit as student</Text>
+                        </Pressable>
+                      )}
+                    </View>
+                  </>
+                );
+              })() : null}
+            </SafeAreaView>
+          </View>
         </View>
-      </Modal>
+      </RnModal>
       <FormBuilderModal
         open={Boolean(websiteFormDraft)}
         title="Website enquiry form"
@@ -3355,7 +3522,37 @@ export function AdmissionsBoard() {
         onSave={saveWebsiteForm}
         onClose={closeWebsiteForm}
       />
-      <Modal open={admitOpen && Boolean(selected)} wide title={selected ? `Admit ${selected.studentName || "student"}` : "Admit student"} onClose={() => setAdmitOpen(false)}>
+      {!admissionsWide ? (
+        <RnModal visible={admitOpen && Boolean(selected)} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setAdmitOpen(false)}>
+          <SafeAreaView className="flex-1 bg-white" edges={["top", "bottom"]}>
+            <View className="flex-row items-center px-2 py-2">
+              <Pressable accessibilityRole="button" accessibilityLabel="Back" hitSlop={8} onPress={() => setAdmitOpen(false)} className="flex-row items-center px-1 py-1">
+                <Ionicons name="chevron-back" size={22} color="#1F45C7" />
+                <Text className="text-[15px] font-medium text-[#1F45C7]">Lead</Text>
+              </Pressable>
+            </View>
+            <Text className="px-4 text-[22px] font-bold text-ink-900" numberOfLines={1}>
+              Admit {selected?.studentName || "student"}
+            </Text>
+            <Text className="px-4 pb-2 text-xs text-ink-500">Filled in from the enquiry</Text>
+            {selected ? (
+              <StudentAdmitForm
+                key={selected.id}
+                wizard
+                classes={data?.classes ?? []}
+                parents={data?.peopleParents ?? []}
+                admissionFeeLines={data?.admissionFeeLines ?? []}
+                admissionForm={data?.school?.admissionForm ?? []}
+                monthlyFees={monthlyFeeByClass(data)}
+                initial={admitInitial(selected)}
+                submitLabel="Admit student"
+                onSubmit={admitLead}
+              />
+            ) : null}
+          </SafeAreaView>
+        </RnModal>
+      ) : null}
+      <Modal open={admissionsWide && admitOpen && Boolean(selected)} wide title={selected ? `Admit ${selected.studentName || "student"}` : "Admit student"} onClose={() => setAdmitOpen(false)}>
         {selected ? (
           <View className="gap-3">
             <Text className="text-sm text-ink-700">Filled in from the enquiry. Check the details, pick the class and billing month, then admit.</Text>
@@ -3413,6 +3610,381 @@ export function AdmissionsBoard() {
           </View>
         </View>
       </Modal>
+    </>
+  );
+  const walkInSheet = (
+      <RnModal visible={walkInOpen} transparent={admissionsWide} animationType={admissionsWide ? "fade" : "slide"} presentationStyle={admissionsWide ? undefined : "fullScreen"} onRequestClose={() => setWalkInOpen(false)}>
+        <View className={admissionsWide ? "flex-1 flex-row justify-end" : "flex-1 bg-white"}>
+          {admissionsWide ? <Pressable accessibilityLabel="Close" className="absolute inset-0 bg-black/30" onPress={() => setWalkInOpen(false)} /> : null}
+          <View className={admissionsWide ? "h-full w-full max-w-[480px] border-l border-ink-200 bg-white shadow-xl" : "flex-1 bg-white"}>
+            <SafeAreaView className="flex-1" edges={["top", "bottom"]}>
+              <View className="flex-row items-center gap-2 border-b border-ink-100 px-4 py-3">
+                <Text className="flex-1 text-lg font-semibold text-ink-900">New walk-in</Text>
+                {can(user, "school.edit") ? (
+                  <Pressable accessibilityRole="button" accessibilityLabel="More" onPress={() => setWalkInMenu((v) => !v)} className="h-8 w-8 items-center justify-center rounded-full bg-ink-100">
+                    <Ionicons name="ellipsis-horizontal" size={17} color="#3d4f66" />
+                  </Pressable>
+                ) : null}
+                <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={() => setWalkInOpen(false)} className="h-8 w-8 items-center justify-center rounded-full bg-ink-100">
+                  <Ionicons name="close" size={18} color="#3d4f66" />
+                </Pressable>
+              </View>
+              {walkInMenu ? (
+                <Pressable
+                  onPress={() => {
+                    setWalkInMenu(false);
+                    openAdmissionFormSettings();
+                  }}
+                  className="mx-4 mt-2 flex-row items-center gap-2 rounded-xl border border-ink-100 bg-white px-3 py-3 shadow-sm"
+                >
+                  <Ionicons name="settings-outline" size={17} color="#1F45C7" />
+                  <Text className="flex-1 text-sm text-ink-900">Change enquiry form fields</Text>
+                  <Ionicons name="chevron-forward" size={15} color="#94a3b8" />
+                </Pressable>
+              ) : null}
+              <ScrollView className="flex-1" contentContainerStyle={{ padding: 16, gap: 16 }} keyboardShouldPersistTaps="handled">
+                {admissionFields.map((field) => {
+                  const label = `${field.label}${field.required ? " *" : ""}`;
+                  const head = <Text className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500">{label}</Text>;
+                  const box = "h-12 rounded-xl border border-ink-200 bg-white px-3 text-[15px] text-ink-900";
+                  const value = walkInValues[field.id] || "";
+                  const set = (v: string) => setWalkInValues((current) => ({ ...current, [field.id]: v }));
+                  if (field.id === "classWanted") {
+                    const options = field.options.length ? field.options : classOptions.map((o) => o.label);
+                    return (
+                      <View key={field.id}>
+                        {head}
+                        <View className="flex-row flex-wrap gap-2">
+                          {options.map((opt) => {
+                            const on = value === opt;
+                            return (
+                              <Pressable key={opt} onPress={() => set(opt)} className={`h-10 min-w-[52px] items-center justify-center rounded-xl border px-3 ${on ? "border-[#1F45C7] bg-[#1F45C7]" : "border-ink-200 bg-white"}`}>
+                                <Text className={`text-sm font-semibold ${on ? "text-white" : "text-ink-800"}`}>{opt}</Text>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                      </View>
+                    );
+                  }
+                  if (field.id === "phone") {
+                    const digits = value.replace(/\D/g, "");
+                    const match = digits.length === 10 ? leads.find((l) => String(l.phone || "").replace(/\D/g, "").slice(-10) === digits) : undefined;
+                    return (
+                      <View key={field.id}>
+                        {head}
+                        <View className="h-12 flex-row items-center rounded-xl border border-ink-200 bg-white">
+                          <View className="h-full justify-center border-r border-ink-200 bg-ink-50 px-3">
+                            <Text className="text-[15px] font-medium text-ink-600">+91</Text>
+                          </View>
+                          <TextInput
+                            value={value}
+                            onChangeText={(v) => set(v.replace(/[^\d]/g, "").slice(0, 10))}
+                            keyboardType="phone-pad"
+                            placeholder="10-digit mobile"
+                            placeholderTextColor="#94a3b8"
+                            className="h-full flex-1 px-3 text-[15px] text-ink-900"
+                            style={{ includeFontPadding: false }}
+                          />
+                          {digits.length === 10 ? <Ionicons name="checkmark-circle" size={18} color="#16a34a" style={{ marginRight: 12 }} /> : null}
+                        </View>
+                        {match ? (
+                          <Pressable
+                            onPress={() => {
+                              setWalkInOpen(false);
+                              setSelectedId(match.id);
+                              setLeadOpen(true);
+                            }}
+                            className="mt-2 flex-row items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5"
+                          >
+                            <Ionicons name="alert-circle-outline" size={16} color="#b45309" />
+                            <Text className="flex-1 text-xs text-amber-900" numberOfLines={2}>
+                              Already enquired on {new Date(match.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })} · {match.studentName || match.guardianName}
+                              {match.classWanted ? ` (${match.classWanted})` : ""}
+                            </Text>
+                            <Text className="text-xs font-semibold text-amber-800">Open lead ›</Text>
+                          </Pressable>
+                        ) : null}
+                      </View>
+                    );
+                  }
+                  if (field.id === "message" || field.type === "textarea") {
+                    return (
+                      <View key={field.id}>
+                        {head}
+                        <TextInput
+                          value={value}
+                          onChangeText={set}
+                          multiline
+                          textAlignVertical="top"
+                          placeholder={field.id === "message" ? "What did they ask about?" : field.helpText || ""}
+                          placeholderTextColor="#94a3b8"
+                          className="rounded-xl border border-ink-200 bg-white px-3 py-3 text-[15px] text-ink-900"
+                          style={{ minHeight: 96, includeFontPadding: false }}
+                        />
+                      </View>
+                    );
+                  }
+                  if (["text", "email", "number"].includes(field.type)) {
+                    return (
+                      <View key={field.id}>
+                        {head}
+                        <TextInput
+                          value={value}
+                          onChangeText={set}
+                          keyboardType={field.type === "email" ? "email-address" : field.type === "number" ? "numeric" : "default"}
+                          autoCapitalize={field.type === "email" ? "none" : "words"}
+                          placeholder={field.id === "studentName" ? "Child's full name" : field.id === "guardianName" ? "Parent or guardian" : field.type === "email" ? "name@email.com" : field.helpText || ""}
+                          placeholderTextColor="#94a3b8"
+                          className={box}
+                          style={{ includeFontPadding: false }}
+                        />
+                      </View>
+                    );
+                  }
+                  return (
+                    <View key={field.id}>
+                      <AdmissionFieldControl field={field} value={value} onChange={set} />
+                    </View>
+                  );
+                })}
+                {!admissionFields.length ? <Text className="text-sm text-ink-700">No enquiry fields are visible.</Text> : null}
+                <View>
+                  <Text className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500">Follow up</Text>
+                  <View className="flex-row flex-wrap gap-2">
+                    {(
+                      [
+                        ["Tomorrow", 1],
+                        ["In 3 days", 3],
+                        ["Next week", 7],
+                      ] as const
+                    ).map(([text, days]) => {
+                      const d = new Date();
+                      d.setDate(d.getDate() + days);
+                      const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+                      const on = walkInFollowUp === stamp && !walkInPickDate;
+                      return (
+                        <Pressable
+                          key={text}
+                          onPress={() => {
+                            setWalkInPickDate(false);
+                            setWalkInFollowUp(on ? "" : stamp);
+                          }}
+                          className={`h-9 justify-center rounded-full border px-3.5 ${on ? "border-[#1F45C7] bg-[#EEF3FF]" : "border-ink-200 bg-white"}`}
+                        >
+                          <Text className={`text-sm font-medium ${on ? "text-[#1F45C7]" : "text-ink-700"}`}>{text}</Text>
+                        </Pressable>
+                      );
+                    })}
+                    <Pressable
+                      onPress={() => setWalkInPickDate((v) => !v)}
+                      className={`h-9 justify-center rounded-full border px-3.5 ${walkInPickDate ? "border-[#1F45C7] bg-[#EEF3FF]" : "border-ink-200 bg-white"}`}
+                    >
+                      <Text className={`text-sm font-medium ${walkInPickDate ? "text-[#1F45C7]" : "text-ink-700"}`}>Pick date</Text>
+                    </Pressable>
+                  </View>
+                  {walkInPickDate ? (
+                    <View className="mt-2">
+                      <DateField value={walkInFollowUp} onChange={setWalkInFollowUp} />
+                    </View>
+                  ) : null}
+                  <Text className="mt-1.5 text-xs text-ink-500">
+                    {walkInFollowUp
+                      ? `Follow-up set for ${new Date(`${walkInFollowUp}T00:00:00`).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}.`
+                      : "Optional. Leave empty if no call-back is needed."}
+                  </Text>
+                </View>
+              </ScrollView>
+              <View className="border-t border-ink-100 px-4 pb-2 pt-3">
+                <Pressable onPress={() => void createWalkInLead()} className="h-12 flex-row items-center justify-center gap-1.5 rounded-xl bg-[#1F45C7]">
+                  <Ionicons name="add" size={18} color="#fff" />
+                  <Text className="text-[15px] font-semibold text-white">Add lead</Text>
+                </Pressable>
+              </View>
+            </SafeAreaView>
+          </View>
+        </View>
+      </RnModal>
+  );
+  const todayStamp = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  })();
+  const dueCount = leads.filter((l) => l.followUpAt && l.followUpAt <= todayStamp && l.status !== "ADMITTED" && l.status !== "REJECTED").length;
+  const followText = (raw: string) => {
+    const stamp = String(raw || "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(stamp)) return "";
+    const diff = Math.round((new Date(`${stamp}T00:00:00`).getTime() - new Date(`${todayStamp}T00:00:00`).getTime()) / 86400000);
+    if (diff < 0) return `Call back overdue · ${-diff}d`;
+    if (diff === 0) return "Call back today";
+    if (diff === 1) return "Call back tomorrow";
+    return `Call back ${new Date(`${stamp}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}`;
+  };
+  const phoneSorted = [...filtered].sort((a, b) => {
+    const da = a.followUpAt && a.status !== "ADMITTED" && a.status !== "REJECTED" ? a.followUpAt : "9999";
+    const db = b.followUpAt && b.status !== "ADMITTED" && b.status !== "REJECTED" ? b.followUpAt : "9999";
+    return da.localeCompare(db) || String(b.createdAt).localeCompare(String(a.createdAt));
+  });
+
+  if (!admissionsWide) {
+    return (
+      <View className="min-h-0 flex-1">
+        <ScrollView className="h-full" keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 110 }}>
+          <View className="gap-3 pb-3">
+            <View className="flex-row items-center justify-between">
+              <Text className="text-[22px] font-bold tracking-tight text-ink-900">Admissions</Text>
+              {can(user, "admissions.manage") ? (
+                <Pressable accessibilityRole="button" onPress={() => setWalkInOpen(true)} className="h-10 flex-row items-center gap-1 rounded-full bg-[#1F45C7] px-4">
+                  <Ionicons name="add" size={18} color="#fff" />
+                  <Text className="text-sm font-semibold text-white">Walk-in</Text>
+                </Pressable>
+              ) : null}
+            </View>
+            {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+              {counts.map((row) => {
+                const on = status === row.id;
+                const warn = row.id === "FOLLOW_UP" && dueCount > 0;
+                return (
+                  <Pressable
+                    key={row.id}
+                    onPress={() => setStatus(row.id)}
+                    className={`h-9 flex-row items-center gap-1.5 rounded-full border px-3 ${on ? "border-[#1F45C7] bg-[#EEF3FF]" : warn ? "border-amber-300 bg-amber-50" : "border-ink-200 bg-white"}`}
+                  >
+                    <Text className={`text-[13px] font-medium ${on ? "text-[#1F45C7]" : warn ? "text-amber-800" : "text-ink-700"}`}>{row.label}</Text>
+                    <Text className={`text-[12px] ${on ? "text-[#1F45C7]" : warn ? "text-amber-700" : "text-ink-400"}`}>{row.n}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+            <View className="h-11 flex-row items-center rounded-xl border border-ink-200 bg-white pl-3">
+              <Ionicons name="search-outline" size={16} color="#94a3b8" />
+              <TextInput
+                value={query}
+                onChangeText={setQuery}
+                placeholder="Search name, phone, class"
+                placeholderTextColor="#94a3b8"
+                className="h-full flex-1 px-2 text-sm text-ink-900"
+                style={{ includeFontPadding: false }}
+              />
+            </View>
+          </View>
+          {phoneSorted.length ? (
+            <View className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
+              {phoneSorted.map((lead, i) => {
+                const name = lead.studentName || lead.guardianName || "Enquiry";
+                const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
+                const open = lead.status !== "ADMITTED" && lead.status !== "REJECTED";
+                const fu = open ? followText(lead.followUpAt) : "";
+                const digits = String(lead.phone || "").replace(/\D/g, "").slice(-10);
+                return (
+                  <Pressable
+                    key={lead.id}
+                    onPress={() => {
+                      setSelectedId(lead.id);
+                      setEditOpen(false);
+                      setLeadOpen(true);
+                    }}
+                    className={`flex-row items-center gap-3 px-3 py-3 active:bg-slate-50 ${i ? "border-t border-ink-100" : ""}`}
+                  >
+                    <View className="h-10 w-10 items-center justify-center rounded-full bg-[#EEF3FF]">
+                      <Text className="text-[13px] font-semibold text-[#1F45C7]">{initials || "?"}</Text>
+                    </View>
+                    <View className="min-w-0 flex-1">
+                      <Text className="text-[15px] font-semibold text-ink-900" numberOfLines={1}>{name}</Text>
+                      <Text className="text-xs text-ink-500" numberOfLines={1}>
+                        {[lead.classWanted, lead.guardianName ? `Parent: ${lead.guardianName}` : ""].filter(Boolean).join(" · ") || "No class yet"}
+                      </Text>
+                      <View className="mt-1 flex-row flex-wrap items-center gap-1.5">
+                        <View className="flex-row items-center gap-1 rounded-full bg-ink-50 px-2 py-0.5">
+                          <View className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: leadStatusColor(lead.status) }} />
+                          <Text className="text-[11px] font-semibold text-ink-700">{leadStatusLabel(lead.status)}</Text>
+                        </View>
+                        {fu ? (
+                          <Text className={`text-[11px] font-semibold ${fu.includes("overdue") || fu.includes("today") ? "text-red-600" : "text-amber-700"}`}>{fu}</Text>
+                        ) : (
+                          <Text className="text-[11px] text-ink-400">
+                            {lead.source === "walk_in" ? "Walk-in" : "Website"} · {ago(lead.createdAt)}
+                          </Text>
+                        )}
+                      </View>
+                    </View>
+                    {digits.length === 10 ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Call ${lead.guardianName || "parent"}`}
+                        onPress={(e) => {
+                          e.stopPropagation?.();
+                          void Linking.openURL(`tel:+91${digits}`);
+                        }}
+                        className="h-10 w-10 items-center justify-center rounded-full bg-[#EEF3FF]"
+                      >
+                        <Ionicons name="call" size={17} color="#1F45C7" />
+                      </Pressable>
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : (
+            <View className="items-center rounded-2xl border border-ink-100 bg-white px-6 py-10">
+              <Ionicons name="people-outline" size={28} color="#94a3b8" />
+              <Text className="mt-2 text-sm font-semibold text-ink-900">No leads here</Text>
+              <Text className="mt-1 text-center text-xs text-ink-500">Enquiries from the website and walk-ins show up here.</Text>
+            </View>
+          )}
+        </ScrollView>
+        {walkInSheet}
+        {leadModals}
+      </View>
+    );
+  }
+
+  return (
+    <ScrollView className="h-full" keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 48 }}>
+      <View className="mb-5 flex-row flex-wrap items-end justify-between gap-3">
+        <View>
+          <Text className="text-2xl font-semibold text-ink-900">Admissions</Text>
+          <Text className="mt-1 text-sm text-ink-700">Enquiries, follow-ups and student onboarding in one place.</Text>
+        </View>
+        <View className="items-end gap-2">
+          {can(user, "admissions.manage") ? <Button onPress={() => setWalkInOpen(true)}>Add walk-in lead</Button> : null}
+          <Text className="text-xs text-ink-700">{leads.length} total {leads.length === 1 ? "enquiry" : "enquiries"}</Text>
+        </View>
+      </View>
+      {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
+      <View className="mb-5 flex-row flex-wrap gap-3">
+        <AdmissionMetric icon="people-outline" label="Total leads" value={String(leads.length)} color="#475569" />
+        <AdmissionMetric icon="sparkles-outline" label="New leads" value={String(counts.find((c) => c.id === "NEW")?.n || 0)} color="#2563eb" />
+        <AdmissionMetric icon="time-outline" label="Need follow-up" value={String(counts.find((c) => c.id === "FOLLOW_UP")?.n || 0)} color="#d97706" />
+        <AdmissionMetric icon="checkmark-circle-outline" label="Admitted" value={String(counts.find((c) => c.id === "ADMITTED")?.n || 0)} color="#15803d" />
+      </View>
+      <View className="overflow-hidden rounded-md bg-white">
+          <View className="flex-row flex-wrap items-end gap-3 px-4 pb-4 pt-5">
+            <View className="min-w-[260px] flex-1">
+              <Field label="Search leads">
+                <Input value={query} onChangeText={setQuery} placeholder="Student, guardian, phone, class…" />
+              </Field>
+            </View>
+            <View className="min-w-[220px]">
+              <Dropdown label="Status" value={status} options={counts.map((row) => ({ id: row.id, label: `${row.label} (${row.n})` }))} onChange={setStatus} />
+            </View>
+          </View>
+          <View className="border-t border-ink-100">
+            {filtered.length ? (
+              <View className="flex-row">
+                <View className="min-w-0 flex-1">
+                  <ScrollView horizontal showsHorizontalScrollIndicator>
+                    {leadDataTable}
+                  </ScrollView>
+                </View>
+                {leadActionColumn}
+              </View>
+            ) : <Empty title="No leads" body="No admission enquiries match this filter." />}
+          </View>
+      </View>
+      {walkInSheet}
+      {leadModals}
     </ScrollView>
   );
 }

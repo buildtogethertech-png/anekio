@@ -3,7 +3,6 @@ import {
   Dimensions,
   Modal as RnModal,
   Platform,
-  Image,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -20,6 +19,7 @@ import { openMarksheetPdf } from "../lib/print-html";
 import { parentTimetableGroups, parentUpcomingPapers, type ParentUpcomingPaper } from "../lib/parent-examination";
 import { Toast, useToast } from "./ui";
 import { studentMetaLine } from "../lib/student-label";
+import { ChildPill } from "./child-pill";
 
 type IonName = ComponentProps<typeof Ionicons>["name"];
 
@@ -126,7 +126,6 @@ function statusStyle(session: ExamSession) {
 export function ParentExaminationLoading() {
   return (
     <View className="parent-examination-page mx-auto w-full max-w-[1140px]">
-      <Skeleton className="parent-exam-hero mb-8 h-[188px] w-full rounded-[18px]" />
       <Skeleton className="h-7 w-44" />
       <Skeleton className="mt-2 h-3.5 w-full max-w-lg" />
       <View className="mt-4 flex-row flex-wrap gap-3">
@@ -160,63 +159,6 @@ export function ParentExaminationError({
       >
         <Text className="text-[13px] font-semibold text-white">Try again</Text>
       </Pressable>
-    </View>
-  );
-}
-
-function ParentExamHero({ wide }: { wide: boolean }) {
-  return (
-    <View
-      accessible
-      accessibilityLabel="Anekio. One platform, many possibilities. Track exams, timetables, and report cards in one place."
-      className="parent-exam-hero"
-    >
-      <View className="parent-exam-hero-bg" pointerEvents="none" />
-      <View className="parent-exam-hero-grid">
-        <View className="parent-exam-hero-copy">
-          <View className="parent-exam-hero-brand">
-            <Text className="parent-exam-hero-kicker">ANEKIO</Text>
-            <View className="parent-exam-hero-brand-line" />
-          </View>
-          <Text className="parent-exam-hero-title" maxFontSizeMultiplier={1.12}>
-            One platform,{"\n"}many possibilities
-          </Text>
-          <Text className="parent-exam-hero-lede" numberOfLines={wide ? 2 : 3}>
-            Track exams, timetables, and report cards in one place.
-          </Text>
-          <Text className="parent-exam-hero-signature">
-            <Text className="parent-exam-hero-sig-word">Prepare</Text>
-            {"  ·  "}
-            <Text className="parent-exam-hero-sig-word">Review</Text>
-            {"  ·  "}
-            <Text className="parent-exam-hero-sig-word">Improve</Text>
-          </Text>
-        </View>
-        <View className="parent-exam-hero-art" pointerEvents="none">
-          <View className="parent-exam-hero-glow" />
-          <View className="parent-exam-hero-particle parent-exam-hero-p1" />
-          <View className="parent-exam-hero-particle parent-exam-hero-p2" />
-          <View className="parent-exam-hero-particle parent-exam-hero-p3" />
-          <View className="parent-exam-hero-particle parent-exam-hero-p4" />
-          <View className="parent-exam-hero-particle parent-exam-hero-p5" />
-          <View className="parent-exam-hero-particle parent-exam-hero-p6" />
-          <Text className="parent-exam-hero-glyph parent-exam-hero-glyph-book">{"\u{1F4DA}"}</Text>
-          <Text className="parent-exam-hero-glyph parent-exam-hero-glyph-star">{"\u2726"}</Text>
-          <View className="parent-exam-hero-float">
-            <Image
-              source={require("../assets/parent-exam-hero.png")}
-              accessibilityElementsHidden
-              importantForAccessibility="no-hide-descendants"
-              resizeMode="contain"
-              className="parent-exam-hero-photo"
-              style={{ width: 168, height: 200 }}
-            />
-          </View>
-          <View className="parent-exam-hero-badge">
-            <Text className="parent-exam-hero-badge-text">{"\u2726"} Learn & Grow</Text>
-          </View>
-        </View>
-      </View>
     </View>
   );
 }
@@ -684,14 +626,44 @@ export function ParentExamination() {
         </ScrollView>
       ) : (
         <ScrollView className="min-h-0 flex-1" refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => reload()} />}>
-          <ParentExamHero wide={wide} />
+          {wide ? (
           <View className="mb-3.5">
             <Text accessibilityRole="header" className="text-[22px] font-bold text-ink-900">
               Examination
             </Text>
           </View>
+          ) : (
+            <>
+              <View className="mb-3 flex-row items-center justify-between gap-3">
+                <View className="min-w-0 flex-1">
+                  <Text accessibilityRole="header" className="text-[22px] font-bold text-ink-900">
+                    Examination
+                  </Text>
+                  <Text className="mt-0.5 text-[13px] text-ink-500" numberOfLines={1}>
+                    {child ? `${child.name} · ${child.classLabel}` : "Exams and report cards"}
+                  </Text>
+                </View>
+                <ChildPill />
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setShowTimetable(true)}
+                className="mb-5 flex-row items-center gap-3 rounded-2xl border border-ink-100 bg-white p-3.5"
+              >
+                <View className="h-10 w-10 items-center justify-center rounded-xl bg-[#EEF3FF]">
+                  <Ionicons name="calendar-outline" size={19} color="#1F45C7" />
+                </View>
+                <View className="min-w-0 flex-1">
+                  <Text className="text-[15px] font-semibold text-ink-900">Exam timetable</Text>
+                  <Text className="mt-0.5 text-[12px] text-ink-500">Dates and subjects for upcoming papers</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+              </Pressable>
+            </>
+          )}
 
-          <View className={`mb-5 ${wide ? "flex-row items-center justify-between gap-3" : "gap-3"}`}>
+          {wide ? (
+          <View className="mb-5 flex-row items-center justify-between gap-3">
             <ParentChildSwitcher wide={wide} />
             <Pressable
               accessibilityRole="button"
@@ -703,9 +675,10 @@ export function ParentExamination() {
               <Text className="text-[13px] font-semibold text-ink-900">View timetable</Text>
             </Pressable>
           </View>
+          ) : null}
 
-          <Text className="text-[17px] font-bold text-ink-900">Exam sessions</Text>
-          <Text className="mt-0.5 text-[12px] text-ink-500">Select an examination to view the report card</Text>
+          <Text className="text-[17px] font-bold text-ink-900">{wide ? "Exam sessions" : "Report cards"}</Text>
+          <Text className="mt-0.5 text-[12px] text-ink-500">{wide ? "Select an examination to view the report card" : "Tap an exam to see marks"}</Text>
 
           {!sessions.length ? (
             <View className="mt-4 items-center rounded-[14px] border border-ink-200 bg-white px-4 py-6">
@@ -713,6 +686,51 @@ export function ParentExamination() {
               <Text className="mt-1 max-w-md text-center text-[12px] leading-4 text-ink-600">
                 When the school schedules examinations for this class, they will appear here.
               </Text>
+            </View>
+          ) : !wide ? (
+            <View className="mt-3 overflow-hidden rounded-2xl border border-ink-100 bg-white">
+              {sessions.map((session, index) => {
+                const tone = sittingTone(session.name, index);
+                const badge = statusStyle(session);
+                const ready = session.status === "published" || session.status === "held";
+                const when =
+                  session.status === "upcoming"
+                    ? session.examDate && session.examDate !== "—"
+                      ? `Starts ${session.examDate}`
+                      : "Dates coming soon"
+                    : session.examDate && session.examDate !== "—"
+                      ? `Held ${session.examDate}`
+                      : sessionYear(session.sessionLabel);
+                return (
+                  <Pressable
+                    key={session.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${session.name} ${badge.label}`}
+                    onPress={() => setSelectedExamId(session.id)}
+                    className={`flex-row items-center gap-3 px-3.5 py-3.5 ${index ? "border-t border-ink-100" : ""}`}
+                  >
+                    <View className="h-11 w-11 items-center justify-center rounded-xl" style={{ backgroundColor: tone.bg }}>
+                      <Ionicons name={sittingIcon(session.name, session.status)} size={19} color={tone.fg} />
+                    </View>
+                    <View className="min-w-0 flex-1">
+                      <Text className="text-[15px] font-semibold text-ink-900" numberOfLines={1}>
+                        {session.name}
+                      </Text>
+                      <Text className="mt-0.5 text-[12px] text-ink-500" numberOfLines={1}>
+                        {when}
+                      </Text>
+                    </View>
+                    <View className="items-end gap-1">
+                      <View className="rounded-full px-2 py-0.5" style={{ backgroundColor: badge.bg }}>
+                        <Text className="text-[11px] font-semibold" style={{ color: badge.fg }}>
+                          {badge.label}
+                        </Text>
+                      </View>
+                      {ready ? <Text className="text-[12px] font-semibold text-[#1F45C7]">View report ›</Text> : null}
+                    </View>
+                  </Pressable>
+                );
+              })}
             </View>
           ) : (
             <View

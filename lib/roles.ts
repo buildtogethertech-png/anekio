@@ -30,7 +30,7 @@ async function prepareAccessRoles() {
       update: { name: spec.name, portal: spec.portal, description: spec.description, isSystem: true },
       create: { ...spec, isSystem: true },
     });
-    const grants = spec.slug === "ADMIN" ? PERMISSION_KEYS : defaultGrants(spec.slug);
+    const grants = defaultGrants(spec.slug);
     const have = await prisma.roleGrant.findMany({
       where: { roleId: role.id },
       select: { permission: true, scope: true },

@@ -126,6 +126,7 @@ export function serializeNotice(
     createdAt: n.createdAt.toISOString(),
     author: n.author.name,
     studentId: n.studentId,
+    audiences: n.audiences.map((a) => a.portal),
     classes: n.classes.map((c) => ({
       id: c.classId,
       label: `${c.class.name}-${c.class.section}`,

@@ -207,7 +207,12 @@ export function NoticeInboxProvider({ children }: { children: ReactNode }) {
             shouldSetBadge: true,
           }),
         });
-        tap = Notifications.addNotificationResponseReceivedListener(() => {
+        tap = Notifications.addNotificationResponseReceivedListener((response) => {
+          const data = (response?.notification?.request?.content?.data || {}) as { kind?: string; threadId?: string };
+          if (data.kind === "inbox" && data.threadId) {
+            router.push(`/inbox?thread=${encodeURIComponent(data.threadId)}`);
+            return;
+          }
           router.replace("/");
         });
         incoming = Notifications.addNotificationReceivedListener(() => {

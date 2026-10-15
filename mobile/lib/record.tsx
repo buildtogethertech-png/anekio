@@ -881,7 +881,7 @@ export type UpcomingTeacherLeaveRow = {
     room: string;
     substituteId: string;
     substituteName: string;
-    candidates: { id: string; name: string; match: boolean }[];
+    candidates: { id: string; name: string; match: boolean; tier?: 1 | 2 | 3; reason?: string; ownSubject?: string; coverCount?: number }[];
   }[];
 };
 

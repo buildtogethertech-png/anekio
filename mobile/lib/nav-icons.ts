@@ -6,15 +6,15 @@ export type IoniconName = ComponentProps<typeof Ionicons>["name"];
 export const TAB_ICONS: Record<string, { outline: IoniconName; filled: IoniconName }> = {
   home: { outline: "home-outline", filled: "home" },
   notices: { outline: "megaphone-outline", filled: "megaphone" },
-  inbox: { outline: "mail-unread-outline", filled: "mail-unread" },
+  inbox: { outline: "chatbubbles-outline", filled: "chatbubbles" },
   more: { outline: "grid-outline", filled: "grid" },
-  timetable: { outline: "time-outline", filled: "time" },
-  fees: { outline: "card-outline", filled: "card" },
+  timetable: { outline: "calendar-outline", filled: "calendar" },
+  fees: { outline: "wallet-outline", filled: "wallet" },
   profile: { outline: "person-outline", filled: "person" },
   people: { outline: "people-outline", filled: "people" },
   staff: { outline: "briefcase-outline", filled: "briefcase" },
-  attendance: { outline: "checkbox-outline", filled: "checkbox" },
-  exams: { outline: "clipboard-outline", filled: "clipboard" },
+  attendance: { outline: "checkmark-done-circle-outline", filled: "checkmark-done-circle" },
+  exams: { outline: "document-text-outline", filled: "document-text" },
   leave: { outline: "airplane-outline", filled: "airplane" },
   class: { outline: "people-outline", filled: "people" },
 };
@@ -30,21 +30,21 @@ export function tabIcon(key: string, focused: boolean): IoniconName {
 const NAV_ICONS: Record<string, IoniconName> = {
   home: "home-outline",
   notices: "megaphone-outline",
-  inbox: "mail-unread-outline",
+  inbox: "chatbubbles-outline",
   people: "people-outline",
   onboarding: "rocket-outline",
   staff: "briefcase-outline",
   school: "school-outline",
-  timetable: "time-outline",
-  fees: "card-outline",
+  timetable: "calendar-outline",
+  fees: "wallet-outline",
   exams: "clipboard-outline",
   leave: "airplane-outline",
   class: "people-outline",
   roles: "shield-checkmark-outline",
   subscription: "receipt-outline",
-  attendance: "checkbox-outline",
+  attendance: "checkmark-done-circle-outline",
   subjects: "book-outline",
-  tests: "reader-outline",
+  tests: "document-text-outline",
   papers: "documents-outline",
   path: "trail-sign-outline",
   letter: "mail-outline",
@@ -57,7 +57,8 @@ export function iconForNav(key: string): IoniconName {
 }
 
 export function tabsForPortal(portal?: string | null) {
-  if (portal === "PARENT") return ["home", "timetable", "fees", "more"];
+  // Parents: no "More" tab. Everything else sits in Quick access on the home screen.
+  if (portal === "PARENT") return ["home", "timetable", "fees", "inbox"];
   // Teachers: no "More" tab. Leave is on the dashboard, Inbox and Profile sit in the top bar.
   if (portal === "TEACHER") return ["home", "attendance", "class", "exams", "timetable"];
   if (portal === "OFFICE") return ["home", "people", "staff", "fees", "more"];

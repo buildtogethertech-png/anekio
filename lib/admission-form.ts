@@ -161,6 +161,10 @@ export function admissionLeadInput(fieldsValue: unknown, input: Record<string, u
   }
 
   const builtin = (id: AdmissionBuiltinId, max: number) => String(values[id] || "").slice(0, max);
+  for (const id of ["studentName", "guardianName"] as const) {
+    const value = String(values[id] || "");
+    if (value && !isPersonName(value)) throw new Error(`${fields.find((f) => f.id === id)?.label || "Name"} should be a real name, not numbers.`);
+  }
   const customValues = Object.fromEntries(fields.filter((field) => !field.builtin && field.visible).map((field) => [field.id, values[field.id] || ""]));
   return {
     fields,
@@ -173,6 +177,14 @@ export function admissionLeadInput(fieldsValue: unknown, input: Record<string, u
     message: builtin("message", 800),
     customValues,
   };
+}
+
+/** A person's name needs at least two letters (any script) and can't be mostly digits. */
+export function isPersonName(value: string) {
+  const v = String(value || "").trim();
+  const letters = (v.match(/\p{L}/gu) || []).length;
+  const digits = (v.match(/\d/g) || []).length;
+  return letters >= 2 && digits <= letters;
 }
 
 /**

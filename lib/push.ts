@@ -77,6 +77,7 @@ export async function notifyNoticeRecipients(input: {
   title: string;
   body: string;
   userIds: string[];
+  kind?: "notice" | "inbox";
 }) {
   const users = await prisma.user.findMany({
     where: {
@@ -92,7 +93,7 @@ export async function notifyNoticeRecipients(input: {
     sound: "default" as const,
     title: input.title,
     body: input.body.slice(0, 140),
-    data: { kind: "notice", noticeId: input.noticeId },
+    data: input.kind === "inbox" ? { kind: "inbox", threadId: input.noticeId } : { kind: "notice", noticeId: input.noticeId },
     channelId: "notices",
   }));
   for (let i = 0; i < messages.length; i += 100) {

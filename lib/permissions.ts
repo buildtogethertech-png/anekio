@@ -22,6 +22,7 @@ export const PERMISSIONS = [
   { key: "onboarding.manage", group: "Onboarding", label: "Run school onboarding", hint: "Download templates, review imports, and apply opening balances", portals: ["OFFICE"], see: true },
   { key: "inbox.view", group: "Inbox", label: "See inbox", hint: "Parent-school messages, replies, assignments, and closures", portals: ["OFFICE", "TEACHER", "PARENT"], see: true },
   { key: "inbox.manage", group: "Inbox", label: "Reply in inbox", hint: "Respond to messages and update threads", portals: ["OFFICE", "TEACHER", "PARENT"] },
+  { key: "inbox.viewAll", group: "Inbox", label: "See every conversation", hint: "Open any parent conversation, even ones you are not part of", portals: ["OFFICE"] },
   { key: "admissions.view", group: "Admissions", label: "See admission leads", hint: "Website enquiries, follow-ups, and lead details", portals: ["OFFICE"], see: true },
   { key: "admissions.manage", group: "Admissions", label: "Manage admission leads", hint: "Call, WhatsApp, add remarks, schedule tests, dispose, and admit", portals: ["OFFICE"] },
   { key: "staff.view", group: "Employees", label: "See employees", hint: "Teachers and office staff", portals: ["OFFICE"], see: true },
@@ -145,7 +146,8 @@ export function permissionsForPortal(portal: Portal) {
 }
 
 export function defaultGrants(slug: string): string[] {
-  if (slug === "ADMIN") return PERMISSION_KEYS.slice();
+  // Admin gets everything except reading other people's private parent conversations (opt-in per school).
+  if (slug === "ADMIN") return PERMISSION_KEYS.filter((key) => key !== "inbox.viewAll");
   if (slug === "FEES") {
     return ["desk.view", "people.view", "fees.view", "fees.collect", "fees.remind", "fees.configure", "documents.view", "documents.issue", "documents.batch"];
   }
