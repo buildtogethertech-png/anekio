@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Image, Pressable, Text, useWindowDimensions, View } from "react-native";
+import { useEffect, useState, type ReactNode } from "react";
+import { Image, Linking, Platform, Pressable, Text, useWindowDimensions, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Dropdown } from "./form";
@@ -10,6 +10,7 @@ import { DocumentStudio } from "./document-studio";
 import { ClockForm, SchoolSubjectsForm } from "./school-setup";
 import { useAssetUrl } from "../lib/assets";
 import { act } from "../lib/mutate";
+import { webOrigin } from "../lib/api";
 import { useRecord, type AdmissionFormField, type RecordPayload } from "../lib/record";
 import { useSession } from "../lib/session";
 import { pickFile, uploadFile } from "../lib/upload";
@@ -323,6 +324,29 @@ function schoolClassOptions(classes?: RecordPayload["classes"]) {
   return [...new Set((classes || []).map((row) => row.label || [row.name, row.section].filter(Boolean).join("-")).filter(Boolean))];
 }
 
+const WEBSITE_THEMES = [
+  { id: "blue", label: "Blue", color: "#2563EB" },
+  { id: "green", label: "Green", color: "#059669" },
+  { id: "purple", label: "Purple", color: "#7C3AED" },
+  { id: "orange", label: "Orange", color: "#EA580C" },
+];
+
+/** One collapsible block of the website editor. Closed blocks show a one-line summary. */
+function WebSection({ title, summary, open, onToggle, children }: { title: string; summary: string; open?: boolean; onToggle: () => void; children: ReactNode }) {
+  return (
+    <View className="overflow-hidden rounded-2xl border border-ink-200 bg-white">
+      <Pressable accessibilityRole="button" accessibilityState={{ expanded: Boolean(open) }} onPress={onToggle} className="flex-row items-center gap-3 px-4 py-3.5">
+        <View className="min-w-0 flex-1">
+          <Text className="text-sm font-semibold text-ink-900">{title}</Text>
+          {!open ? <Text className="mt-0.5 text-xs text-ink-700" numberOfLines={1}>{summary}</Text> : null}
+        </View>
+        <Ionicons name={open ? "chevron-up" : "chevron-down"} size={18} color="#64748B" />
+      </Pressable>
+      {open ? <View className="border-t border-ink-100 px-4 pb-4 pt-3">{children}</View> : null}
+    </View>
+  );
+}
+
 export function SchoolBoard() {
   const { data, reload } = useRecord();
   const { token, user } = useSession();
@@ -342,6 +366,7 @@ export function SchoolBoard() {
   const [level, setLevel] = useState<Level>(linked ? "page" : linkedGroup ? "group" : "doors");
   const [form, setForm] = useState<SchoolForm>(blankForm(s));
   const [websiteSlugStatus, setWebsiteSlugStatus] = useState<{ slug: string; kind: "idle" | "checking" | "available" | "taken" | "invalid"; message: string }>({ slug: "", kind: "idle", message: "" });
+  const [webOpen, setWebOpen] = useState<Record<string, boolean>>({ address: true, hero: true, about: true });
   const [holiday, setHoliday] = useState({ date: "", name: "" });
   const [addOpen, setAddOpen] = useState(false);
   const [classOpen, setClassOpen] = useState(false);
@@ -578,6 +603,9 @@ export function SchoolBoard() {
 
   const hint = TABS.find((t) => t.id === tab)?.hint;
   const current = TABS.find((t) => t.id === tab) ?? TABS[0];
+  const savedWebsite = (s as unknown as { website?: { slug?: string; enabled?: boolean } } | undefined)?.website;
+  const slugIsOwn = Boolean(form.websiteSlug && savedWebsite?.slug && form.websiteSlug.trim() === savedWebsite.slug);
+  const websiteDirtyHint = Boolean(savedWebsite) && Boolean(savedWebsite?.enabled) !== form.websiteEnabled;
   const showSave = tab !== "forms" && tab !== "calendar" && tab !== "exams" && tab !== "clock" && tab !== "subjects" && tab !== "sessions" && tab !== "classes" && tab !== "leave" && tab !== "documents";
   const showPreview = tab === "identity" || tab === "exams";
 
@@ -1651,212 +1679,197 @@ export function SchoolBoard() {
             ) : null}
 
             {tab === "website" ? (
-              <View className="w-full max-w-[1160px] self-center">
-                <View className="rounded-xl border border-ink-200 bg-white p-4">
-                  <View className="flex-row flex-wrap items-start justify-between gap-3">
-                    <View className="min-w-0 flex-1">
-                      <Text className="text-base font-semibold text-ink-900">{form.name || "School website"}</Text>
-                      <Text className="mt-1 text-sm text-ink-700">
-                        Your public school website, admissions page, and enquiry form.
-                      </Text>
-                      <View className="mt-2 flex-row flex-wrap items-center gap-2">
-                        <Ionicons name="globe-outline" size={14} color="#1d4ed8" />
-                        <Text className="text-xs font-semibold text-blue-700">{form.websiteSlug ? `${form.websiteSlug}.anekio.com` : "Choose a website address"}</Text>
-                        <View className={`h-2 w-2 rounded-full ${form.websiteEnabled ? "bg-green-600" : "bg-ink-400"}`} />
-                        <Text className="text-xs font-semibold text-ink-800">{form.websiteEnabled ? "Live" : "Offline"}</Text>
-                      </View>
-                    </View>
-                    <View className="flex-row flex-wrap items-center gap-2">
-                      <View className="flex-row items-center gap-3 rounded-md border border-ink-200 bg-white px-3 py-2">
-                        <View>
-                          <Text className="text-xs font-medium text-ink-700">Website enquiry form</Text>
-                          <Text className="text-[11px] font-semibold text-ink-900">
-                            {form.websiteForm.filter((field) => field.visible).length} shown · {form.websiteForm.filter((field) => field.required).length} required
-                          </Text>
-                        </View>
-                        <Button variant="ghost" className="h-9 px-3" onPress={() => setWebsiteFormOpen(true)}>
-                          Edit
-                        </Button>
-                      </View>
-                      <Button
-                        variant="ghost"
-                        disabled={!form.websiteSlug || websiteSlugStatus.kind === "taken" || websiteSlugStatus.kind === "invalid"}
-                        onPress={() => {
-                          if (typeof window !== "undefined") window.open(`https://${form.websiteSlug}.anekio.com`, "_blank");
-                        }}
+              <View className="w-full max-w-[1240px] gap-4 self-center">
+                {/* Live / offline banner: the most important state on this page. */}
+                <View
+                  className={`flex-row flex-wrap items-center gap-3 rounded-2xl px-4 py-3 ${form.websiteEnabled ? "bg-emerald-50" : "bg-amber-50"}`}
+                >
+                  <View className={`h-2.5 w-2.5 rounded-full ${form.websiteEnabled ? "bg-emerald-500" : "bg-amber-500"}`} />
+                  <View className="min-w-0 flex-1">
+                    <Text className={`text-sm font-semibold ${form.websiteEnabled ? "text-emerald-900" : "text-amber-900"}`}>
+                      {form.websiteEnabled ? "Live" : "Offline — parents can't see your website yet"}
+                    </Text>
+                    {form.websiteSlug ? (
+                      <Pressable onPress={() => { if (typeof window !== "undefined") window.open(`https://${form.websiteSlug}.anekio.com`, "_blank"); }}>
+                        <Text className="mt-0.5 text-xs font-medium text-blue-700">{form.websiteSlug}.anekio.com ↗</Text>
+                      </Pressable>
+                    ) : (
+                      <Text className="mt-0.5 text-xs text-ink-700">Choose a website address below to publish.</Text>
+                    )}
+                  </View>
+                  {savedWebsite?.slug ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() => {
+                        const url = `${webOrigin()}/school/${encodeURIComponent(savedWebsite.slug || "")}?preview=1`;
+                        if (Platform.OS === "web" && typeof window !== "undefined") window.open(url, "_blank", "noopener");
+                        else void Linking.openURL(url);
+                      }}
+                      className="h-10 flex-row items-center gap-1.5 rounded-xl border border-ink-200 bg-white px-3.5"
+                    >
+                      <Ionicons name="eye-outline" size={16} color="#1F45C7" />
+                      <Text className="text-sm font-semibold text-[#1F45C7]">Preview</Text>
+                    </Pressable>
+                  ) : null}
+                  {edit ? (
+                    form.websiteEnabled ? (
+                      <Pressable onPress={() => patch("websiteEnabled", false)} hitSlop={8}>
+                        <Text className="text-xs font-semibold text-ink-700">Take offline</Text>
+                      </Pressable>
+                    ) : (
+                      <Pressable
+                        disabled={!form.websiteSlug}
+                        onPress={() => patch("websiteEnabled", true)}
+                        className={`h-10 items-center justify-center rounded-xl bg-[#1F45C7] px-4 ${form.websiteSlug ? "" : "opacity-40"}`}
                       >
-                        Preview website
-                      </Button>
-                      <View className="flex-row items-center gap-3 rounded-md border border-ink-200 bg-white px-3 py-2">
-                        <View className="items-end">
-                          <Text className="text-xs font-medium text-ink-700">Website</Text>
-                          <Text className="text-[11px] font-medium text-ink-600">{form.websiteEnabled ? "On" : "Off"}</Text>
-                        </View>
-                        <Switch on={form.websiteEnabled} onPress={() => patch("websiteEnabled", !form.websiteEnabled)} />
-                      </View>
-                    </View>
-                  </View>
+                        <Text className="text-sm font-semibold text-white">Publish site</Text>
+                      </Pressable>
+                    )
+                  ) : null}
+                </View>
+                {websiteDirtyHint ? (
+                  <Text className="-mt-2 px-1 text-[11px] text-ink-700">Press Save below to apply {form.websiteEnabled ? "publishing" : "taking the site offline"}.</Text>
+                ) : null}
 
-                  <View className="mt-4 border-t border-ink-100 pt-4">
-                    <Text className="mb-3 text-sm font-semibold text-ink-900">Website setup</Text>
-                    <View className="flex-row flex-wrap gap-3">
-                      <View className={phone ? "w-full min-w-full" : "min-w-[520px] flex-[1.6]"}>
-                        <View className="h-full rounded-lg border border-ink-200 bg-white p-3">
-                          <Text className="mb-2 text-xs font-medium text-ink-700">Website address</Text>
-                          <View className="overflow-hidden rounded-md border border-ink-200 bg-white">
-                            <View className="flex-row items-center">
-                              <View className="border-r border-ink-100 bg-ink-50 px-3 py-2.5">
-                                <Text className="text-sm font-medium text-ink-600">https://</Text>
-                              </View>
-                              <View className="min-w-0 flex-1">
-                                <Input
-                                  autoCapitalize="none"
-                                  className="h-10 rounded-none border-0 bg-transparent"
-                                  value={form.websiteSlug}
-                                  placeholder="green-valley"
-                                  onChangeText={(v) => patch("websiteSlug", v.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-+/g, "").slice(0, 48))}
-                                />
-                              </View>
-                              <View className="border-l border-ink-100 bg-ink-50 px-3 py-2.5">
-                                <Text className="text-sm font-medium text-ink-600">.anekio.com</Text>
-                              </View>
-                            </View>
-                          </View>
-                          <Text className={`mt-2 text-xs font-medium ${["taken", "invalid"].includes(websiteSlugStatus.kind) ? "text-red-700" : websiteSlugStatus.kind === "available" ? "text-green-700" : "text-ink-600"}`}>
-                            {websiteSlugStatus.slug === form.websiteSlug.trim() ? websiteSlugStatus.message : "Checking address…"}
-                          </Text>
-                        </View>
-                      </View>
-                      <View className={phone ? "w-full min-w-full" : "min-w-[260px] flex-1"}>
-                        <View className="h-full rounded-lg border border-ink-200 bg-white p-3">
-                          <Dropdown
-                            label="Theme"
-                            value={form.websiteTheme}
-                            options={[
-                              { id: "blue", label: "Blue" },
-                              { id: "green", label: "Green" },
-                              { id: "purple", label: "Purple" },
-                              { id: "orange", label: "Orange" },
-                            ]}
-                            onChange={(v) => patch("websiteTheme", v)}
-                          />
-                        </View>
-                      </View>
-                    </View>
-                  </View>
-
-                  <View className="mt-4 border-t border-ink-100 pt-4">
-                    <Text className="text-sm font-semibold text-ink-900">Homepage hero</Text>
-                    <Text className="mt-0.5 text-xs text-ink-700">The first thing parents see when they visit your website.</Text>
-                    <View className="mt-3 flex-row flex-wrap gap-3">
-                      <View className={phone ? "w-full min-w-full" : "min-w-[360px] flex-1"}>
-                        <Field label="Hero title">
+                <View>
+                  <View className="min-w-0 flex-1 gap-3">
+                    <WebSection
+                      title="Address & theme"
+                      summary={`${form.websiteSlug || "no address"}.anekio.com · ${form.websiteTheme}`}
+                      open={webOpen.address}
+                      onToggle={() => setWebOpen((o) => ({ ...o, address: !o.address }))}
+                    >
+                      <Text className="mb-1.5 text-xs font-medium text-ink-700">Website address</Text>
+                      <View className="flex-row items-center overflow-hidden rounded-xl border border-ink-200 bg-white">
+                        <Text className="bg-ink-50 px-3 py-2.5 text-sm text-ink-600">https://</Text>
+                        <View className="min-w-0 flex-1">
                           <Input
-                            className="h-10"
-                            value={form.websiteHeroTitle}
-                            placeholder={`${form.name || "School"} admissions are open`}
-                            onChangeText={(v) => patch("websiteHeroTitle", v)}
+                            autoCapitalize="none"
+                            className="h-10 rounded-none border-0 bg-transparent"
+                            value={form.websiteSlug}
+                            placeholder="green-valley"
+                            onChangeText={(v) => patch("websiteSlug", v.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-+/g, "").slice(0, 48))}
                           />
-                        </Field>
+                        </View>
+                        <Text className="bg-ink-50 px-3 py-2.5 text-sm text-ink-600">.anekio.com</Text>
                       </View>
-                      <View className={phone ? "w-full min-w-full" : "min-w-[360px] flex-1"}>
-                        <Field label="Hero subtitle">
-                          <Input
-                            className="h-10"
-                            value={form.websiteHeroSubtitle}
-                            placeholder="Tell parents why they should enquire."
-                            onChangeText={(v) => patch("websiteHeroSubtitle", v)}
-                          />
-                        </Field>
+                      <Text
+                        className={`mt-1.5 text-xs font-medium ${
+                          slugIsOwn ? "text-emerald-700" : ["taken", "invalid"].includes(websiteSlugStatus.kind) ? "text-red-700" : websiteSlugStatus.kind === "available" ? "text-emerald-700" : "text-ink-600"
+                        }`}
+                      >
+                        {slugIsOwn
+                          ? "✓ Your address"
+                          : websiteSlugStatus.slug === form.websiteSlug.trim()
+                            ? websiteSlugStatus.message
+                            : "Checking address…"}
+                      </Text>
+                      <Text className="mb-2 mt-4 text-xs font-medium text-ink-700">Theme</Text>
+                      <View className="flex-row flex-wrap gap-2">
+                        {WEBSITE_THEMES.map((theme) => {
+                          const on = form.websiteTheme === theme.id;
+                          return (
+                            <Pressable
+                              key={theme.id}
+                              accessibilityRole="button"
+                              accessibilityLabel={`${theme.label} theme`}
+                              onPress={() => patch("websiteTheme", theme.id)}
+                              className={`flex-row items-center gap-2 rounded-full border px-3 py-1.5 ${on ? "border-ink-900 bg-white" : "border-ink-200 bg-white"}`}
+                            >
+                              <View className="h-4 w-4 items-center justify-center rounded-full" style={{ backgroundColor: theme.color }}>
+                                {on ? <Ionicons name="checkmark" size={11} color="#FFFFFF" /> : null}
+                              </View>
+                              <Text className={`text-xs ${on ? "font-semibold text-ink-900" : "text-ink-700"}`}>{theme.label}</Text>
+                            </Pressable>
+                          );
+                        })}
                       </View>
-                    </View>
-                  </View>
+                    </WebSection>
 
-                  <View className="mt-4 border-t border-ink-100 pt-4">
-                    <Text className="text-sm font-semibold text-ink-900">About your school</Text>
-                    <Text className="mt-0.5 text-xs text-ink-700">Tell parents what makes your school special.</Text>
-                    <View className="mt-3">
-                      <Field label="About school">
-                        <Input
-                          multiline
-                          className="min-h-[72px]"
-                          value={form.websiteAbout}
-                          placeholder="Short intro, teaching style, campus, values..."
-                          onChangeText={(v) => patch("websiteAbout", v)}
-                        />
+                    <WebSection
+                      title="Homepage hero"
+                      summary={form.websiteHeroTitle || `${form.name || "School"} admissions are open`}
+                      open={webOpen.hero}
+                      onToggle={() => setWebOpen((o) => ({ ...o, hero: !o.hero }))}
+                    >
+                      <Field label="Headline">
+                        <Input className="h-10" value={form.websiteHeroTitle} placeholder={`${form.name || "School"} admissions are open`} onChangeText={(v) => patch("websiteHeroTitle", v)} />
                       </Field>
-                    </View>
-                  </View>
-
-                  <View className="mt-4 border-t border-ink-100 pt-4">
-                    <Text className="text-sm font-semibold text-ink-900">Admissions</Text>
-                    <Text className="mt-0.5 text-xs text-ink-700">How parents understand availability and next steps.</Text>
-                    <View className="mt-3 flex-row flex-wrap gap-3">
-                      <View className={phone ? "w-full min-w-full" : "min-w-[220px] flex-1"}>
-                        <Dropdown
-                          label="Admission status"
-                          value={form.websiteAdmissionOpen ? "open" : "closed"}
-                          options={[
-                            { id: "open", label: "Admissions open" },
-                            { id: "closed", label: "Only collect enquiries" },
-                          ]}
-                          onChange={(v) => patch("websiteAdmissionOpen", v === "open")}
-                        />
+                      <View className="mt-3">
+                        <Field label="Subheading">
+                          <Input className="h-10" value={form.websiteHeroSubtitle} placeholder="Tell parents why they should enquire." onChangeText={(v) => patch("websiteHeroSubtitle", v)} />
+                        </Field>
                       </View>
-                      <View className={phone ? "w-full min-w-full" : "min-w-[520px] flex-[2]"}>
-                        <Field label="Admission note">
+                    </WebSection>
+
+                    <WebSection
+                      title="About your school"
+                      summary={form.websiteAbout ? form.websiteAbout.slice(0, 70) : "Not written yet"}
+                      open={webOpen.about}
+                      onToggle={() => setWebOpen((o) => ({ ...o, about: !o.about }))}
+                    >
+                      <Input multiline className="min-h-[88px]" value={form.websiteAbout} placeholder="Short intro, teaching style, campus, values..." onChangeText={(v) => patch("websiteAbout", v)} />
+                    </WebSection>
+
+                    <WebSection
+                      title="Admissions"
+                      summary={form.websiteAdmissionOpen ? "Admissions open" : "Only collecting enquiries"}
+                      open={webOpen.admissions}
+                      onToggle={() => setWebOpen((o) => ({ ...o, admissions: !o.admissions }))}
+                    >
+                      <View className="flex-row gap-2">
+                        {([
+                          [true, "Admissions open"],
+                          [false, "Only collect enquiries"],
+                        ] as const).map(([value, label]) => (
+                          <Pressable
+                            key={label}
+                            onPress={() => patch("websiteAdmissionOpen", value)}
+                            className={`h-10 flex-1 items-center justify-center rounded-xl border ${form.websiteAdmissionOpen === value ? "border-[#1F45C7] bg-[#EEF3FF]" : "border-ink-200 bg-white"}`}
+                          >
+                            <Text className={`text-sm ${form.websiteAdmissionOpen === value ? "font-semibold text-[#1F45C7]" : "text-ink-800"}`}>{label}</Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                      <View className="mt-3">
+                        <Field label="Note for parents">
                           <Input className="h-10" value={form.websiteAdmissionNote} onChangeText={(v) => patch("websiteAdmissionNote", v)} />
                         </Field>
                       </View>
+                    </WebSection>
+
+                    <WebSection
+                      title="Highlights & facilities"
+                      summary={`${listLines(form.websiteHighlights).length} highlights · ${listLines(form.websiteFacilities).length} facilities`}
+                      open={webOpen.highlights}
+                      onToggle={() => setWebOpen((o) => ({ ...o, highlights: !o.highlights }))}
+                    >
+                      <Field label="Highlights (one per line)">
+                        <Input multiline className="min-h-[72px]" value={form.websiteHighlights} placeholder={"Admissions open\nSafe campus\nSmart updates"} onChangeText={(v) => patch("websiteHighlights", v)} />
+                      </Field>
+                      <View className="mt-3">
+                        <Field label="Facilities (one per line)">
+                          <Input multiline className="min-h-[72px]" value={form.websiteFacilities} placeholder={"Library\nComputer lab\nTransport"} onChangeText={(v) => patch("websiteFacilities", v)} />
+                        </Field>
+                      </View>
+                    </WebSection>
+
+                    <View className="flex-row items-center gap-3 rounded-2xl border border-ink-200 bg-white px-4 py-3.5">
+                      <View className="h-9 w-9 items-center justify-center rounded-xl bg-[#EEF3FF]">
+                        <Ionicons name="document-text-outline" size={18} color="#1F45C7" />
+                      </View>
+                      <View className="min-w-0 flex-1">
+                        <Text className="text-sm font-semibold text-ink-900">Enquiry form</Text>
+                        <Text className="mt-0.5 text-xs text-ink-700">
+                          {form.websiteForm.filter((field) => field.visible).length} fields shown · {form.websiteForm.filter((field) => field.required).length} required
+                        </Text>
+                      </View>
+                      <Button variant="ghost" className="h-9 px-3" onPress={() => setWebsiteFormOpen(true)}>
+                        Edit form
+                      </Button>
                     </View>
                   </View>
 
-                  <View className="mt-4 border-t border-ink-100 pt-4">
-                    <Text className="text-sm font-semibold text-ink-900">What parents will see</Text>
-                    <Text className="mt-0.5 text-xs text-ink-700">Highlights and facilities displayed on your public website.</Text>
-                    <View className="mt-3 flex-row flex-wrap gap-3">
-                      <View className={phone ? "w-full min-w-full" : "min-w-[320px] flex-1"}>
-                        <Field label="Highlights">
-                          <View className="rounded-lg border border-ink-200 bg-white p-3">
-                            <Input
-                              multiline
-                              className="min-h-[64px] border-0 bg-transparent p-0"
-                              value={form.websiteHighlights}
-                              placeholder="One per line: Admissions open, Safe campus, Smart updates"
-                              onChangeText={(v) => patch("websiteHighlights", v)}
-                            />
-                            <View className="mt-3 flex-row flex-wrap gap-2">
-                              {listLines(form.websiteHighlights).map((item) => (
-                                <Text key={item} className="rounded-full bg-brand-50 px-3 py-1 text-xs font-medium text-brand-700">
-                                  {item}
-                                </Text>
-                              ))}
-                            </View>
-                          </View>
-                        </Field>
-                      </View>
-                      <View className={phone ? "w-full min-w-full" : "min-w-[320px] flex-1"}>
-                        <Field label="Facilities">
-                          <View className="rounded-lg border border-ink-200 bg-white p-3">
-                            <Input
-                              multiline
-                              className="min-h-[64px] border-0 bg-transparent p-0"
-                              value={form.websiteFacilities}
-                              placeholder="One per line: Library, Computer lab, Transport"
-                              onChangeText={(v) => patch("websiteFacilities", v)}
-                            />
-                            <View className="mt-3 flex-row flex-wrap gap-2">
-                              {listLines(form.websiteFacilities).map((item) => (
-                                <Text key={item} className="rounded-full bg-ink-100 px-3 py-1 text-xs font-medium text-ink-800">
-                                  {item}
-                                </Text>
-                              ))}
-                            </View>
-                          </View>
-                        </Field>
-                      </View>
-                    </View>
-                  </View>
                 </View>
               </View>
             ) : null}
@@ -1933,8 +1946,8 @@ export function SchoolBoard() {
             ) : null}
 
             {showSave ? (
-              <View className={`mt-5 flex-row flex-wrap items-center justify-between gap-3 border-t border-ink-100 pt-4 ${tab === "website" ? "pr-20" : ""}`}>
-                <Text className="text-[11px] text-ink-700">{tab === "website" ? "Saves website settings only." : "Saves school identity and settings only."}</Text>
+              <View className={`mt-5 flex-row flex-wrap items-center justify-between gap-3 border-t border-ink-100 pt-4 ${tab === "website" ? "sticky bottom-0 z-10 bg-white pb-3 pr-20" : ""}`}>
+                <Text className="text-[11px] text-ink-700">{tab === "website" ? "Changes go live on your website when you save." : "Saves school identity and settings only."}</Text>
                 {edit ? <Button onPress={save}>Save</Button> : null}
               </View>
             ) : null}
