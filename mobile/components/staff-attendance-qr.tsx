@@ -1,14 +1,15 @@
 import { createElement, useEffect, useRef, useState } from "react";
-import { Image, Platform, Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Image, Modal as RnModal, Platform, Pressable, Text, useWindowDimensions, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { act } from "../lib/mutate";
-import { Badge, Button, Field, Input, Modal } from "./ui";
+import { Button, Field, Input, Modal } from "./ui";
 
 type StaffQrResult = {
   qrText: string;
   qrDataUrl: string;
   expiresAt: string;
   ttlSeconds: number;
+  checkedInAt?: string;
   person: { kind: "teacher" | "staff"; id: string; name: string; employeeId: string };
 };
 
@@ -20,13 +21,6 @@ type ScanResult = {
 };
 
 type ResultTone = "idle" | "success" | "warn" | "danger";
-
-function expiryLabel(value?: string) {
-  if (!value) return "";
-  const time = new Date(value);
-  if (Number.isNaN(+time)) return "";
-  return time.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
-}
 
 function ResultPanel({ tone, title, body }: { tone: ResultTone; title: string; body: string }) {
   const classes =
@@ -52,6 +46,120 @@ function ResultPanel({ tone, title, body }: { tone: ResultTone; title: string; b
         </View>
       </View>
     </View>
+  );
+}
+
+function clockLabel(value?: string) {
+  const m = /^(\d{1,2}):(\d{2})/.exec(String(value || ""));
+  if (!m) {
+    const d = new Date(String(value || ""));
+    return Number.isNaN(+d) ? "" : d.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
+  }
+  const h = Number(m[1]);
+  return `${h % 12 || 12}:${m[2]} ${h >= 12 ? "PM" : "AM"}`;
+}
+
+/** Bottom sheet (phone) / centred card (wide) with a big QR, a live countdown and auto refresh. */
+function QrSheet({
+  open,
+  qr,
+  busy,
+  onRefresh,
+  onClose,
+}: {
+  open: boolean;
+  qr: StaffQrResult | null;
+  busy: boolean;
+  onRefresh: () => void;
+  onClose: () => void;
+}) {
+  const { width } = useWindowDimensions();
+  const phone = width < 768;
+  const [now, setNow] = useState(Date.now());
+  const refreshing = useRef(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [open]);
+
+  const expiresAt = qr ? Date.parse(qr.expiresAt) : 0;
+  const total = Math.max(1, (qr?.ttlSeconds || 120) * 1000);
+  const left = Math.max(0, expiresAt - now);
+  const secs = Math.ceil(left / 1000);
+  const countdown = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
+  const frac = Math.min(1, left / total);
+
+  // Expired while open: fetch a fresh code automatically.
+  useEffect(() => {
+    if (!open || !qr || left > 0 || busy || refreshing.current) return;
+    refreshing.current = true;
+    onRefresh();
+  }, [open, qr, left, busy, onRefresh]);
+  useEffect(() => {
+    refreshing.current = false;
+  }, [qr?.expiresAt]);
+
+  const qrSize = Math.min(phone ? width - 96 : 300, 300);
+  const urgent = secs <= 20;
+
+  return (
+    <RnModal visible={open} transparent animationType={phone ? "slide" : "fade"} onRequestClose={onClose}>
+      <View className={`flex-1 ${phone ? "justify-end" : "items-center justify-center px-4"}`}>
+        <Pressable accessibilityLabel="Close" className="absolute inset-0 bg-black/50" onPress={onClose} />
+        <View className={`w-full bg-white px-5 ${phone ? "rounded-t-3xl pb-8 pt-3" : "max-w-[420px] rounded-3xl pb-6 pt-4"}`}>
+          {phone ? <View className="mx-auto mb-3 h-1 w-10 rounded-full bg-ink-200" /> : null}
+          <View className="flex-row items-center justify-between">
+            <Text className="text-[18px] font-semibold text-ink-900">My attendance QR</Text>
+            <Pressable onPress={onClose} hitSlop={10} className="h-8 w-8 items-center justify-center rounded-full bg-ink-100">
+              <Ionicons name="close" size={18} color="#334155" />
+            </Pressable>
+          </View>
+
+          {qr?.checkedInAt ? (
+            <View className="mt-3 flex-row items-center gap-2 rounded-xl bg-[#ECF8F0] px-3 py-2.5">
+              <Ionicons name="checkmark-circle" size={18} color="#18794E" />
+              <Text className="text-[13px] font-semibold text-[#18794E]">Checked in today at {clockLabel(qr.checkedInAt)}</Text>
+            </View>
+          ) : null}
+
+          <View className="mt-4 items-center">
+            <View className="items-center justify-center rounded-3xl border border-ink-100 bg-white p-3" style={{ width: qrSize + 24, height: qrSize + 24 }}>
+              {qr && left > 0 ? (
+                <Image source={{ uri: qr.qrDataUrl }} resizeMode="contain" style={{ width: qrSize, height: qrSize }} />
+              ) : (
+                <View className="items-center">
+                  <ActivityIndicator color="#1F45C7" />
+                  <Text className="mt-2 text-[13px] text-ink-500">Getting a fresh code…</Text>
+                </View>
+              )}
+            </View>
+          </View>
+
+          <View className="mt-4 items-center">
+            <Text className={`text-[28px] font-bold tabular-nums ${urgent ? "text-[#B42318]" : "text-ink-900"}`}>{left > 0 ? countdown : "0:00"}</Text>
+            <View className="mt-2 h-1.5 w-48 overflow-hidden rounded-full bg-ink-100">
+              <View className={`h-full rounded-full ${urgent ? "bg-[#E5484D]" : "bg-[#1F45C7]"}`} style={{ width: `${frac * 100}%` }} />
+            </View>
+            <Text className="mt-2 text-[12px] text-ink-500">Refreshes by itself · works once</Text>
+          </View>
+
+          {qr ? (
+            <Text className="mt-4 text-center text-[14px] font-medium text-ink-800">
+              {qr.person.name}
+              {qr.person.employeeId ? <Text className="text-ink-500"> · {qr.person.employeeId}</Text> : null}
+            </Text>
+          ) : null}
+          <Text className="mt-1 text-center text-[12px] text-ink-500">Hold your phone up to the school's scanner.</Text>
+
+          <Pressable onPress={onRefresh} disabled={busy} className="mt-4 flex-row items-center justify-center gap-1.5 self-center px-3 py-1.5" hitSlop={8}>
+            <Ionicons name="refresh" size={15} color={busy ? "#94A3B8" : "#1F45C7"} />
+            <Text className={`text-[13px] font-semibold ${busy ? "text-ink-400" : "text-[#1F45C7]"}`}>{busy ? "Refreshing…" : "New code"}</Text>
+          </Pressable>
+        </View>
+      </View>
+    </RnModal>
   );
 }
 
@@ -119,25 +227,13 @@ export function StaffAttendanceQrButton({
           {busy ? "Generating..." : compact ? "Show QR" : "Show attendance QR"}
         </Button>
       )}
-      <Modal open={open} title="My attendance QR" onClose={() => setOpen(false)} footer={<Button onPress={() => setOpen(false)}>Done</Button>}>
-        {qr ? (
-          <View className="items-center gap-4">
-            <View className="items-center rounded-md border border-ink-100 bg-white p-3">
-              <Image source={{ uri: qr.qrDataUrl }} resizeMode="contain" className="h-64 w-64" />
-            </View>
-            <View className="w-full gap-2">
-              <View className="flex-row flex-wrap items-center justify-center gap-2">
-                <Badge tone="leaf">{qr.person.name}</Badge>
-                <Badge>{qr.person.employeeId}</Badge>
-                <Badge tone="warn">{`Expires ${expiryLabel(qr.expiresAt)}`}</Badge>
-              </View>
-              <Text className="text-center text-xs leading-5 text-ink-700">
-                Show this to the attendance scanner. It expires in {Math.round(qr.ttlSeconds / 60)} minutes and works once.
-              </Text>
-            </View>
-          </View>
-        ) : null}
-      </Modal>
+      <QrSheet
+        open={open}
+        qr={qr}
+        busy={busy}
+        onRefresh={() => void generate()}
+        onClose={() => setOpen(false)}
+      />
     </>
   );
 }

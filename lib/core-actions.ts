@@ -1229,10 +1229,12 @@ export async function generateStaffAttendanceQrCore(user: AccessUser) {
   const expiresAt = Date.now() + STAFF_ATTENDANCE_QR_TTL_MS;
   staffAttendanceQrTokens.set(token, { ...self, expiresAt });
   const qrText = staffAttendanceQrPayload(token);
+  const todayRows = await staffDaysOnStamp(self.kind, self.id, staffDayYmd(new Date())).catch(() => []);
+  const checkedInAt = todayRows.find((row) => row.inAt)?.inAt || "";
   const qrDataUrl = await QRCode.toDataURL(qrText, {
     errorCorrectionLevel: "M",
     margin: 2,
-    width: 280,
+    width: 560,
     color: { dark: "#102a43", light: "#ffffff" },
   });
   return {
@@ -1241,6 +1243,7 @@ export async function generateStaffAttendanceQrCore(user: AccessUser) {
     qrDataUrl,
     expiresAt: new Date(expiresAt).toISOString(),
     ttlSeconds: Math.floor(STAFF_ATTENDANCE_QR_TTL_MS / 1000),
+    checkedInAt,
     person: {
       kind: self.kind,
       id: self.id,
