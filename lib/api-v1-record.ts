@@ -39,7 +39,7 @@ import { parseSubjectCatalog, parseWeekdays, weekCapacity, WEEKDAY_SHORT } from 
 import { ensureSchoolSessions } from "./school-session";
 import { documentStudioBundle } from "./document-studio";
 import { CONTEST_TYPE_LABEL, daysLate, formatInr, LEVEL_LABEL, PATH_LABEL, percent, publicOrigin } from "./utils";
-import { admissionCustomValues, admissionFormFields, effectiveAdmissionFormJson, staffOnboardingFormFields } from "./admission-form";
+import { admissionCustomValues, admissionFormFields, effectiveFormJson, staffOnboardingFormFields, websiteFormFields } from "./admission-form";
 import { subscriptionLockForUser } from "./anekio-site";
 
 function inDate(value: Date | string) {
@@ -674,6 +674,7 @@ async function teacherPayload(user: AccessUser) {
         parentCity: s.parent.city || "",
         parentState: s.parent.state || "",
         parentPincode: s.parent.pincode || "",
+        admissionData: admissionCustomValues(s.admissionDataJson),
         born: s.dateOfBirth.toLocaleDateString("en-IN"),
         dateOfBirth: ymd(s.dateOfBirth),
         attendance: s.attendance.map((attendance) => ({ status: attendance.status })),
@@ -1138,6 +1139,7 @@ async function officePayload(user: AccessUser) {
         parentCity: s.parent.city || "",
         parentState: s.parent.state || "",
         parentPincode: s.parent.pincode || "",
+        admissionData: admissionCustomValues(s.admissionDataJson),
         billed: formatInr(totals.billed),
         paid: formatInr(totals.paid),
         dueNow: formatInr(totals.due),
@@ -1298,8 +1300,15 @@ async function officePayload(user: AccessUser) {
       sessionId: current.id,
       sessionLabel: current.label,
       admissionCharge: config?.admissionCharge || 0,
-      admissionForm: admissionFormFields(effectiveAdmissionFormJson(config?.admissionFormJson, platformConfig?.admissionFormJson)),
-      staffOnboardingForm: staffOnboardingFormFields(config?.staffOnboardingFormJson),
+      admissionForm: admissionFormFields(effectiveFormJson(config?.admissionFormJson, platformConfig?.admissionFormJson)),
+      websiteForm: websiteFormFields(effectiveFormJson(config?.websiteFormJson, platformConfig?.websiteFormJson)),
+      staffOnboardingForm: staffOnboardingFormFields(effectiveFormJson(config?.staffOnboardingFormJson, platformConfig?.staffOnboardingFormJson)),
+      // Anekio defaults: the editor offers their fields (e.g. common documents) as quick adds.
+      platformForms: {
+        admission: admissionFormFields(platformConfig?.admissionFormJson),
+        website: websiteFormFields(platformConfig?.websiteFormJson),
+        staff: staffOnboardingFormFields(platformConfig?.staffOnboardingFormJson),
+      },
       whatsappCommunityUrl: config?.whatsappCommunityUrl || "",
       website: {
         enabled: config?.websiteEnabled || false,
@@ -1321,6 +1330,7 @@ async function officePayload(user: AccessUser) {
         phone: lead.phone,
         email: lead.email,
         classWanted: lead.classWanted,
+        billingStartPeriod: lead.billingStartPeriod || "",
         message: lead.message,
         customFields: admissionCustomValues(lead.customFieldsJson),
         source: lead.source,

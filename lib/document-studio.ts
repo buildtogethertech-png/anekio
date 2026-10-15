@@ -29,6 +29,8 @@ import { gradePolicyFrom, seriesRanks, studentSeriesScore } from "./exams";
 import { parentSeesOfficialSeries } from "./exam-marks";
 import { schoolFromConfig } from "./school";
 import { readUploadDataUrl, resolveUploadPath } from "./uploads";
+import { admissionCustomValues, admissionFormFields, type AdmissionFormField } from "./admission-form";
+import { configuredAdmissionFormJson } from "./admission-form-config";
 
 const DEFAULT_DOCUMENT_SCHOOL_ID = "school";
 const DESIGNER_QR_PREVIEW_URL = "https://verify.anekio.example/preview";
@@ -1263,7 +1265,7 @@ export async function documentStudioBundle(user: AccessUser) {
   return {
     categories: libraryDocumentCategories(),
     types: libraryDocumentTypes(),
-    fields: DOCUMENT_FIELDS,
+    fields: [...DOCUMENT_FIELDS, ...(await admissionTemplateFields())],
     defaults: libraryBuiltInTemplates(),
     verifyQrPreviewSrc: await QRCode.toDataURL(issuedQrUrl("STUDENT_ID", DESIGNER_QR_PREVIEW_URL), {
       errorCorrectionLevel: "Q",
@@ -1637,6 +1639,42 @@ function incomingMarkRows(raw: unknown) {
   });
 }
 
+/** The school's student admission form (its own, else the Anekio default). */
+async function schoolAdmissionForm() {
+  const config = await prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { admissionFormJson: true } });
+  return admissionFormFields(await configuredAdmissionFormJson(config?.admissionFormJson));
+}
+
+/** `student.photo` maps to the first image-only file field on the admission form (e.g. "Student photo"). */
+function admissionPhotoField(fields: AdmissionFormField[]) {
+  return fields.find((field) => field.type === "file" && !field.builtin && field.fileType === "image");
+}
+
+/** Template fields built from the school's admission form, so templates can map any answer or uploaded file. */
+async function admissionTemplateFields() {
+  const fields = await schoolAdmissionForm().catch(() => [] as AdmissionFormField[]);
+  return fields
+    .filter((field) => !field.builtin)
+    .map((field) => ({ group: "Admission form", id: `admission.${field.id}`, label: field.label, ...(field.type === "file" ? { media: true } : {}) }));
+}
+
+const SAMPLE_PHOTO_SRC = `data:image/svg+xml;base64,${Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 150"><rect width="120" height="150" fill="#dbe7f7"/><circle cx="60" cy="58" r="26" fill="#8aa4c8"/><path d="M14 150c4-34 24-52 46-52s42 18 46 52z" fill="#8aa4c8"/></svg>').toString("base64")}`;
+
+/** Adds the student's admission answers as `admission.*` and fills `student.photo` from the mapped photo field. Server-side, so issued documents never depend on what the app sent. */
+async function withAdmissionData(data: Record<string, unknown>, studentId: string) {
+  if (!studentId) return data;
+  const student = await prisma.student.findFirst({ where: { id: studentId }, select: { admissionDataJson: true } }).catch(() => null);
+  if (!student) return data;
+  const values = admissionCustomValues(student.admissionDataJson);
+  const photoField = admissionPhotoField(await schoolAdmissionForm().catch(() => [] as AdmissionFormField[]));
+  const studentIn = (data.student && typeof data.student === "object" ? data.student : {}) as Record<string, unknown>;
+  return {
+    ...data,
+    admission: { ...((data.admission && typeof data.admission === "object" ? data.admission : {}) as Record<string, unknown>), ...values },
+    student: { ...studentIn, photo: (photoField && values[photoField.id]) || studentIn.photo || "" },
+  };
+}
+
 async function hydrateIssuedDocumentData(
   type: string,
   subjectType: string,
@@ -1668,6 +1706,7 @@ async function hydrateIssuedDocumentData(
       principalName: ((data.staff as Record<string, unknown> | undefined)?.principalName) || schoolIn.signatory || "Principal",
     },
   };
+  if (subjectType === "STUDENT" && subjectId) next = await withAdmissionData(next, subjectId);
   const reportType = isReportCardType(type);
   if (!reportType || subjectType !== "STUDENT" || !subjectId) return next;
 
@@ -1816,10 +1855,15 @@ export async function previewDocumentTemplateCore(user: AccessUser, input: Recor
     : isFeeDocumentType(type)
       ? mergeFeePreviewData(sampleFeePreviewData(type), incoming)
       : incoming;
+  const previewStudentId = String(atPath(data, "student.id") || "");
   if (isReportCardType(type)) {
-    const studentId = String(atPath(data, "student.id") || "");
-    if (studentId) data = await hydrateIssuedDocumentData(type, "STUDENT", studentId, data);
+    if (previewStudentId) data = await hydrateIssuedDocumentData(type, "STUDENT", previewStudentId, data);
+  } else if (previewStudentId) {
+    data = await withAdmissionData(data, previewStudentId);
   }
+  // Preview with the sample student: show a placeholder face so the layout can be judged.
+  const previewStudent = (data.student && typeof data.student === "object" ? data.student : null) as Record<string, unknown> | null;
+  if (previewStudent && !previewStudent.photo) data = { ...data, student: { ...previewStudent, photo: SAMPLE_PHOTO_SRC } };
   const documentIn = (data.document && typeof data.document === "object" ? data.document : {}) as Record<string, unknown>;
   data.document = {
     ...documentIn,

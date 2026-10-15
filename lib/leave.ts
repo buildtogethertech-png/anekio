@@ -33,6 +33,8 @@ export type LeaveRequestRow = {
   subjectName: string;
   classLabel: string;
   waitingOn: "guardian" | "teacher" | "";
+  /** "FIRST" / "SECOND" half of a single day; "" = full day(s). */
+  halfDay: "FIRST" | "SECOND" | "";
   days: number;
 };
 
@@ -126,6 +128,7 @@ export function serializeLeaveRequest(row: {
   status: "ACTIVE" | "WAITING" | "REJECTED";
   guardianAt: Date | null;
   classTeacherAt: Date | null;
+  halfDay?: string | null;
   type: { name: string };
   teacher: { id: string; user: { name: string } } | null;
   staff: { id: string; name: string } | null;
@@ -152,6 +155,7 @@ export function serializeLeaveRequest(row: {
     subjectName,
     classLabel,
     waitingOn,
+    halfDay: row.halfDay === "FIRST" || row.halfDay === "SECOND" ? row.halfDay : "",
     days: 0,
   };
 }
@@ -197,7 +201,7 @@ export async function usedLeaveDays(input: {
       ...(input.studentId ? { studentId: input.studentId } : {}),
     },
   });
-  return rows.reduce((n, r) => n + schoolDaysInRange(r.from, r.to, input.cal).length, 0);
+  return rows.reduce((n, r) => n + (r.halfDay ? 0.5 : schoolDaysInRange(r.from, r.to, input.cal).length), 0);
 }
 
 async function staffLeaveForManager(userId: string, scope: AccessScope) {
@@ -347,7 +351,7 @@ export async function loadLeaveRequests(where: {
   const cal = await loadSchoolCalendar();
   return rows.map((r) => {
     const row = serializeLeaveRequest(r);
-    return { ...row, days: schoolDaysInRange(r.from, r.to, cal).length };
+    return { ...row, days: row.halfDay ? 0.5 : schoolDaysInRange(r.from, r.to, cal).length };
   });
 }
 

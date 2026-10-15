@@ -392,7 +392,7 @@ function ExamSummaryCard({
 export function TeacherExamsBoard(_props: { uploads?: boolean }) {
   const { data, reload, error } = useRecord();
   const { token } = useSession();
-  const params = useLocalSearchParams<{ examId?: string; view?: string }>();
+  const params = useLocalSearchParams<{ examId?: string; view?: string; lane?: string }>();
   const toast = useToast();
   const { width } = useWindowDimensions();
   const compactRows = width < 768;
@@ -410,6 +410,12 @@ export function TeacherExamsBoard(_props: { uploads?: boolean }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<EntryFilter>("all");
   const [lane, setLane] = useState<Lane>(null);
+
+  // Deep link from the dashboard's To do: /exams?lane=paper|take|marks
+  useEffect(() => {
+    const wanted = Array.isArray(params.lane) ? params.lane[0] : params.lane;
+    if (wanted === "paper" || wanted === "take" || wanted === "marks" || wanted === "office" || wanted === "correction") setLane(wanted);
+  }, [params.lane]);
 
   useEffect(() => {
     if (!data) return;
@@ -653,8 +659,11 @@ export function TeacherExamsBoard(_props: { uploads?: boolean }) {
 
   return (
     <View className="min-h-0 flex-1 overflow-hidden" style={{ backgroundColor: PAGE_BG }} testID="teacher-exams-workspace">
-      <View className={`shrink-0 flex-row items-center ${phone ? "flex-wrap justify-end gap-1.5" : "h-12 justify-end gap-2"}`}>
-        <View className={`flex-row items-center justify-center gap-1.5 rounded-[9px] border bg-white ${phone ? "h-9 px-2.5" : "h-10 w-[138px] px-2.5"}`} style={{ borderColor: LINE }}>
+      <View className={`shrink-0 flex-row items-center ${phone ? "mb-1 gap-1.5" : "h-12 justify-end gap-2"}`}>
+        {phone ? (
+          <Text className="mr-auto text-lg font-bold" style={{ color: INK }}>Exams</Text>
+        ) : null}
+        <View className="h-10 w-[138px] flex-row items-center justify-center gap-1.5 rounded-[9px] border bg-white px-2.5" style={{ borderColor: LINE, display: phone ? "none" : "flex" }}>
           <Ionicons name="calendar-outline" size={phone ? 14 : 16} color="#64748B" />
           <View>
             {phone ? null : <Text className="text-[10px] leading-3" style={{ color: MUTED }}>Today</Text>}
@@ -734,38 +743,45 @@ export function TeacherExamsBoard(_props: { uploads?: boolean }) {
             className={`anekio-exam-btn anekio-class-test-btn flex-row items-center justify-center rounded-[9px] bg-[#2563EB] ${phone ? "h-9 px-2.5 gap-0.5" : "h-10 w-[128px] gap-1"}`}
           >
             <Ionicons name="add" size={16} color="#ffffff" />
-            <Text className={`font-semibold text-white ${phone ? "text-[12px]" : "text-[13px]"}`}>{phone ? "+ Test" : "Class test"}</Text>
+            <Text className={`font-semibold text-white ${phone ? "text-[12px]" : "text-[13px]"}`}>{phone ? "Test" : "Class test"}</Text>
           </Pressable>
         ) : null}
       </View>
 
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
 
-      <View className="mt-2 min-h-0 flex-1 md:hidden" testID="teacher-exams-phone">
-        <View className="shrink-0 flex-row flex-wrap" style={{ gap: 8 }} testID="teacher-exam-lanes" accessibilityRole="tablist">
-          {summary.map((card) => (
-            <View key={card.id} style={{ width: "31%", flexGrow: 1, minWidth: "30%" }}>
-              <ExamSummaryCard
-                compact
-                card={{
-                  ...card,
-                  label:
-                    card.id === "paper"
-                      ? "Set Paper"
-                      : card.id === "take"
-                        ? "Take Exam"
-                        : card.id === "marks"
-                          ? "Enter Marks"
-                          : card.id === "office"
-                            ? "Sent Office"
-                            : "Correction",
-                }}
-                selected={selectedLane === card.id}
+      <View className="mt-2 min-h-0 flex-1" style={{ display: phone ? "flex" : "none" }} testID="teacher-exams-phone">
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          className="shrink-0 grow-0"
+          style={{ flexGrow: 0 }}
+          contentContainerStyle={{ gap: 8, paddingRight: 4 }}
+          testID="teacher-exam-lanes"
+          accessibilityRole="tablist"
+        >
+          {summary.map((card) => {
+            const on = selectedLane === card.id;
+            const label = card.id === "office" ? "Sent" : card.id === "correction" ? "Fix" : card.label;
+            return (
+              <Pressable
+                key={card.id}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: on }}
+                accessibilityLabel={`${card.label}, ${card.value}`}
                 onPress={() => selectLane(card.id)}
-              />
-            </View>
-          ))}
-        </View>
+                className="h-10 flex-row items-center gap-2 rounded-full px-3.5"
+                style={{ backgroundColor: on ? card.accent : "#FFFFFF", borderWidth: 1, borderColor: on ? card.accent : LINE }}
+              >
+                <Ionicons name={card.icon} size={15} color={on ? "#FFFFFF" : card.accent} />
+                <Text className="text-[13px] font-semibold" style={{ color: on ? "#FFFFFF" : INK }}>{label}</Text>
+                <View className="min-w-[20px] items-center rounded-full px-1.5 py-0.5" style={{ backgroundColor: on ? "rgba(255,255,255,0.25)" : card.iconBg }}>
+                  <Text className="text-[11px] font-bold" style={{ color: on ? "#FFFFFF" : card.accent }}>{card.value}</Text>
+                </View>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
         <View className="mt-3 min-h-0 flex-1 overflow-hidden rounded-[16px] border bg-white" style={{ borderColor: LINE }} testID="teacher-exam-lane-panel">
           <View className="shrink-0 px-3 pb-2 pt-3">
             <View className="flex-row items-center justify-between gap-2">
@@ -784,9 +800,21 @@ export function TeacherExamsBoard(_props: { uploads?: boolean }) {
                   : `${visibleLaneSheets.length}`}
               </Text>
             </View>
-            <View className="mt-2 h-9 flex-row items-center gap-2 rounded-[9px] border bg-[#F8FAFC] px-3" style={{ borderColor: LINE }}>
-              <Ionicons name="search-outline" size={15} color="#64748B" />
-              <TextInput value={query} onChangeText={setQuery} placeholder="Search exams..." placeholderTextColor="#94A3B8" className="min-w-0 flex-1 text-[13px] text-slate-900" />
+            <View className="mt-2.5 h-11 flex-row items-center gap-2 rounded-xl bg-[#F1F5F9] px-3">
+              <Ionicons name="search" size={16} color="#94A3B8" />
+              <TextInput
+                value={query}
+                onChangeText={setQuery}
+                placeholder="Search subject or exam"
+                placeholderTextColor="#94A3B8"
+                className="min-w-0 flex-1 text-[14px] text-slate-900"
+                style={{ height: 44, paddingVertical: 0, textAlignVertical: "center", includeFontPadding: false }}
+              />
+              {query ? (
+                <Pressable hitSlop={8} onPress={() => setQuery("")}>
+                  <Ionicons name="close-circle" size={17} color="#94A3B8" />
+                </Pressable>
+              ) : null}
             </View>
           </View>
           <ScrollView className="min-h-0 flex-1" contentContainerStyle={{ paddingBottom: 20 }} nestedScrollEnabled>
@@ -828,7 +856,7 @@ export function TeacherExamsBoard(_props: { uploads?: boolean }) {
         </View>
       </View>
 
-      <View className="mt-2.5 hidden min-h-0 flex-1 flex-row gap-4 md:flex" testID="teacher-exams-desktop">
+      <View className="mt-2.5 min-h-0 flex-1 flex-row gap-4" style={{ display: phone ? "none" : "flex" }} testID="teacher-exams-desktop">
         <View
           className="min-h-0 min-w-0"
           style={{ flexGrow: 68, flexShrink: 1, flexBasis: 0, minHeight: 0 }}

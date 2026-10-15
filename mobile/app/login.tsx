@@ -216,7 +216,7 @@ export default function Login() {
       const choices = await signIn(login, password, accountId);
       if (choices?.length) {
         setAccountChoices(choices);
-        setNotice("Choose which school account to open.");
+        setNotice("");
         return;
       }
       router.replace("/(app)");
@@ -236,7 +236,7 @@ export default function Login() {
       if (choices?.length) {
         setGoogleIdToken(idToken);
         setAccountChoices(choices);
-        setNotice("Choose which school account to open.");
+        setNotice("");
         return;
       }
       router.replace("/(app)");
@@ -554,29 +554,18 @@ export default function Login() {
                   ) : null}
 
                   {accountChoices.length ? (
-                    <View className="gap-2 rounded-md border border-clay-200 bg-clay-50 p-3">
-                      <Text className="text-xs font-semibold text-ink-900">Choose school</Text>
-                      {accountChoices.map((choice) => (
-                        <Pressable
-                          key={choice.id}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Sign in to ${choice.schoolName}`}
-                          disabled={pending}
-                          onPress={() => googleIdToken ? onGoogleSignIn(googleIdToken, choice.id) : onPasswordSignIn(choice.id)}
-                          className="rounded-md border border-[#D8E2EC] bg-white px-3 py-2.5"
-                        >
-                          <Text className="text-sm font-semibold text-ink-900">{choice.schoolName}</Text>
-                          <Text className="mt-0.5 text-xs text-ink-700">{choice.name} · {choice.roleName}</Text>
-                        </Pressable>
-                      ))}
-                    </View>
+                    <AccountChoiceList
+                      choices={accountChoices}
+                      pending={pending}
+                      onPick={(id) => (googleIdToken ? onGoogleSignIn(googleIdToken, id) : onPasswordSignIn(id))}
+                    />
                   ) : null}
 
                   {mode === "password" ? (
                     <>
-                      <Button testID="login-submit" accessibilityLabel="Sign in" onPress={() => onPasswordSignIn()} disabled={pending || !login || !password} className={`${isWideLayout ? "h-12" : "h-14"} justify-center bg-[#2955DB] shadow-lg shadow-blue-300`} style={!isWideLayout ? { borderRadius: 18, shadowColor: "#2955DB", shadowOpacity: 0.24, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 4 } : undefined}>
+                      {accountChoices.length ? null : <Button testID="login-submit" accessibilityLabel="Sign in" onPress={() => onPasswordSignIn()} disabled={pending || !login || !password} className={`${isWideLayout ? "h-12" : "h-14"} justify-center bg-[#2955DB] shadow-lg shadow-blue-300`} style={!isWideLayout ? { borderRadius: 18, shadowColor: "#2955DB", shadowOpacity: 0.24, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 4 } : undefined}>
                         {pending ? "Signing in..." : "Sign in securely"}
-                      </Button>
+                      </Button>}
                     </>
                   ) : codeSent && !resetLinkSent ? (
                     <Button
@@ -739,5 +728,72 @@ export default function Login() {
       </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
+  );
+}
+
+
+const PORTAL_LOOK: Record<string, { icon: keyof typeof Ionicons.glyphMap; app: string; tint: string; bg: string }> = {
+  OFFICE: { icon: "briefcase-outline", app: "Office app", tint: "#1d4ed8", bg: "#EEF4FF" },
+  TEACHER: { icon: "school-outline", app: "Teacher app", tint: "#1d4ed8", bg: "#EEF4FF" },
+  PARENT: { icon: "people-outline", app: "Parent app", tint: "#047857", bg: "#ECFDF5" },
+  STUDENT: { icon: "person-outline", app: "Student app", tint: "#7c3aed", bg: "#F5F3FF" },
+};
+
+function schoolInitials(name: string) {
+  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "S";
+}
+
+/** After sign-in: every school and role this login can open, grouped by school. */
+function AccountChoiceList({ choices, pending, onPick }: { choices: AuthAccountChoice[]; pending: boolean; onPick: (id: string) => void }) {
+  const schools = [...new Set(choices.map((choice) => choice.schoolName))];
+  const names = [...new Set(choices.map((choice) => choice.name).filter(Boolean))];
+  return (
+    <View className="gap-3">
+      <View>
+        <Text className="text-base font-semibold text-ink-900">Continue as</Text>
+        <Text className="mt-0.5 text-xs text-ink-600">
+          {names.length === 1 ? `${names[0]} · ` : ""}
+          {choices.length} accounts{schools.length > 1 ? ` in ${schools.length} schools` : ""}
+        </Text>
+      </View>
+      {schools.map((school) => (
+        <View key={school} className="overflow-hidden rounded-xl border border-[#D8E2EC] bg-white">
+          <View className="flex-row items-center gap-2.5 border-b border-[#E8EEF5] bg-[#F7F9FC] px-3 py-2.5">
+            <View className="h-7 w-7 items-center justify-center rounded-md bg-[#1E3A6E]">
+              <Text className="text-[10px] font-bold text-white">{schoolInitials(school)}</Text>
+            </View>
+            <Text className="min-w-0 flex-1 text-sm font-semibold text-ink-900" numberOfLines={1}>{school}</Text>
+          </View>
+          {choices
+            .filter((choice) => choice.schoolName === school)
+            .map((choice, index) => {
+              const look = PORTAL_LOOK[choice.portal] || PORTAL_LOOK.OFFICE;
+              return (
+                <Pressable
+                  key={choice.id}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open ${school} as ${choice.roleName}`}
+                  disabled={pending}
+                  onPress={() => onPick(choice.id)}
+                  className={`flex-row items-center gap-3 px-3 py-3 active:bg-[#F2F6FC] ${index ? "border-t border-[#EEF2F7]" : ""}`}
+                  style={({ hovered }: { hovered?: boolean }) => (hovered ? { backgroundColor: "#F5F8FD" } : undefined)}
+                >
+                  <View className="h-9 w-9 items-center justify-center rounded-full" style={{ backgroundColor: look.bg }}>
+                    <Ionicons name={look.icon} size={18} color={look.tint} />
+                  </View>
+                  <View className="min-w-0 flex-1">
+                    <Text className="text-sm font-semibold text-ink-900" numberOfLines={1}>{choice.roleName}</Text>
+                    <Text className="mt-0.5 text-xs text-ink-600" numberOfLines={1}>
+                      {look.app}
+                      {names.length > 1 ? ` · ${choice.name}` : ""}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+                </Pressable>
+              );
+            })}
+        </View>
+      ))}
+    </View>
   );
 }

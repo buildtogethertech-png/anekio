@@ -11,6 +11,7 @@ import {
   attendanceCountLine,
   attendanceHint,
   attendanceSummary,
+  attendanceLetter,
   lastAttendanceDots,
   todayMark,
   todayMarkLabel,
@@ -159,6 +160,49 @@ function parentWa(phone?: string, text?: string) {
           : "";
   if (!n) return "";
   return `https://wa.me/${n}${text ? `?text=${encodeURIComponent(text)}` : ""}`;
+}
+
+const CARD_SHADOW = { shadowColor: "#0f2744", shadowOpacity: 0.06, shadowRadius: 14, shadowOffset: { width: 0, height: 4 }, elevation: 2 };
+const HERO_SHADOW = { shadowColor: "#1F45C7", shadowOpacity: 0.28, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 6 };
+
+function dayGreeting() {
+  const hour = new Date().getHours();
+  return hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+}
+
+/** "14:30" → "2:30 PM". */
+function prettyTime(value?: string) {
+  const match = /^(\d{1,2}):(\d{2})/.exec(String(value || ""));
+  if (!match) return value || "";
+  const hour = Number(match[1]);
+  return `${hour % 12 || 12}:${match[2]} ${hour < 12 ? "AM" : "PM"}`;
+}
+
+function timeRange(start?: string, end?: string) {
+  if (!start) return "";
+  return end ? `${prettyTime(start)} – ${prettyTime(end)}` : prettyTime(start);
+}
+
+/** How far into the current lesson we are. */
+function lessonProgress(start?: string, end?: string) {
+  const toMinutes = (value?: string) => {
+    const match = /^(\d{1,2}):(\d{2})/.exec(String(value || ""));
+    return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+  };
+  const from = toMinutes(start);
+  const to = toMinutes(end);
+  if (from === null || to === null || to <= from) return null;
+  const now = new Date();
+  const current = now.getHours() * 60 + now.getMinutes();
+  if (current < from) return { started: false, done: 0, left: to - from };
+  return { started: true, done: Math.min(1, (current - from) / (to - from)), left: Math.max(0, to - current) };
+}
+
+/** "due 2026-09-14" → "due 14 Sep". */
+function friendlyHint(text?: string) {
+  return String(text || "").replace(/\b(\d{4})-(\d{2})-(\d{2})\b/g, (_, y: string, m: string, d: string) =>
+    new Date(Number(y), Number(m) - 1, Number(d)).toLocaleDateString("en-IN", { day: "numeric", month: "short" })
+  );
 }
 
 export function TeacherDeskBoard() {
@@ -368,44 +412,7 @@ export function TeacherDeskBoard() {
         : closed
           ? closed.hint
           : "No lesson scheduled now";
-    if (phoneDashboard) {
-      const headline = next ? next.subject : "No class now";
-      const subline = closed
-        ? upcoming
-          ? `Next: ${upcoming.dayLabel} · ${upcoming.subject}${upcoming.start ? ` · ${upcoming.start}` : ""}${upcoming.classLabel ? ` · ${upcoming.classLabel}` : ""}`
-          : `Next working day: ${nextWorkingDayLabel()}`
-        : next
-          ? `${next.period || "Now"}${next.start ? ` · ${next.start}${next.end ? `-${next.end}` : ""}` : ""}${next.classLabel ? ` · ${next.classLabel}` : ""}`
-          : upcoming
-            ? `Next: ${upcoming.dayLabel} · ${upcoming.subject}${upcoming.start ? ` · ${upcoming.start}` : ""}${upcoming.classLabel ? ` · ${upcoming.classLabel}` : ""}`
-          : day.periods.length
-            ? "All scheduled lessons are complete"
-            : "Use the quick actions below";
-      return (
-        <Card className="mb-3 overflow-hidden border-clay-100">
-          <View className="bg-white px-4 py-4">
-            <View className="flex-row items-start justify-between gap-2">
-              <View className="min-w-0 flex-1">
-                <Text className="text-xs font-medium uppercase tracking-wide text-clay-600">
-                  {new Date().toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}
-                </Text>
-                <Text className="mt-1 text-2xl font-semibold text-ink-900">
-                  {headline}
-                </Text>
-                <Text className="mt-1 text-sm leading-5 text-ink-700">{subline}</Text>
-              </View>
-              {!closed && data?.classTeacher && !data.markedToday ? <Badge tone="danger">Pending</Badge> : null}
-            </View>
-          </View>
-          <View className="border-t border-ink-100 bg-ink-50 px-4 py-3">
-            <View className="flex-row items-center justify-between gap-3">
-              <Text className="min-w-0 flex-1 text-sm font-medium text-ink-900" numberOfLines={1}>{registerText}</Text>
-              <Text className="text-xs text-ink-700">{closed ? "Closed" : data?.markedToday ? "Review" : "Mark now"}</Text>
-            </View>
-          </View>
-        </Card>
-      );
-    }
+    if (phoneDashboard) return PhoneHeroCard();
     return (
       <Card className="mb-4 p-4">
         <View className="flex-row flex-wrap items-start justify-between gap-3">
@@ -454,156 +461,255 @@ export function TeacherDeskBoard() {
     );
   }
 
-  function PhoneActionTile({ icon, label, route, danger }: { icon: keyof typeof Ionicons.glyphMap; label: string; route: string; danger?: boolean }) {
+  /** Current lesson, as the one strong card on the phone dashboard. Owns the register call-to-action. */
+  function PhoneHeroCard() {
+    const closed = todayClosed ? closedDayVoice(todayClosed) : null;
+    const registerDue = Boolean(data?.classTeacher && !data.markedToday && !closed);
+    const progress = next ? lessonProgress(next.start, next.end) : null;
+    const label = closed
+      ? "Today"
+      : next
+        ? progress?.started === false
+          ? `Up next${next.period ? ` · ${next.period}` : ""}`
+          : `Now${next.period ? ` · ${next.period}` : ""}`
+        : upcoming
+          ? `Next · ${upcoming.dayLabel}`
+          : "Today";
+    const title = closed ? closed.title : next ? next.subject : upcoming ? upcoming.subject : day.periods.length ? "Done for today" : "No class now";
+    const meta = closed
+      ? closed.hint
+      : next
+        ? [timeRange(next.start, next.end), next.classLabel, next.room].filter(Boolean).join(" · ")
+        : upcoming
+          ? [prettyTime(upcoming.start), upcoming.classLabel].filter(Boolean).join(" · ")
+          : day.periods.length
+            ? "All your lessons for today are complete."
+            : "Your periods show here once the timetable is set.";
+    const out = outToday.length;
+    const late = lateToday.length;
     return (
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={label}
-        onPress={() => router.push(route as never)}
-        className="min-w-[72px] flex-1 items-center rounded-md border border-ink-100 bg-white px-2 py-3"
-      >
-        <Ionicons name={icon} size={20} color={danger ? "#b91c1c" : "#2855F6"} />
-        <Text className={`mt-1 text-xs font-medium ${danger ? "text-red-700" : "text-ink-900"}`}>{label}</Text>
-      </Pressable>
+      <View className="mb-4 overflow-hidden rounded-3xl bg-[#1F45C7] px-5 pb-5 pt-4" style={HERO_SHADOW}>
+        <View className="absolute -right-10 -top-12 h-40 w-40 rounded-full bg-white/10" />
+        <View className="absolute -bottom-16 right-10 h-32 w-32 rounded-full bg-white/5" />
+        <Pressable onPress={() => router.push("/timetable")}>
+          <Text className="text-[11px] font-semibold uppercase tracking-[1.2px] text-white/70">{label}</Text>
+          <Text className="mt-1.5 text-[28px] font-bold leading-[34px] text-white" numberOfLines={2}>{title}</Text>
+          <Text className="mt-1 text-sm text-white/80">{meta}</Text>
+          {progress && progress.started ? (
+            <View className="mt-4">
+              <View className="h-1.5 overflow-hidden rounded-full bg-white/20">
+                <View className="h-full rounded-full bg-white" style={{ width: `${Math.round(progress.done * 100)}%` }} />
+              </View>
+              <Text className="mt-1.5 text-xs text-white/75">
+                {progress.left > 0 ? `${progress.left} min left` : "Ending now"}
+                {rest.length ? ` · ${rest.length} more today` : ""}
+              </Text>
+            </View>
+          ) : rest.length && next ? (
+            <Text className="mt-3 text-xs text-white/75">{rest.length} more lesson{rest.length === 1 ? "" : "s"} today</Text>
+          ) : null}
+        </Pressable>
+        {registerDue ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => router.push("/attendance")}
+            className="mt-4 h-12 flex-row items-center justify-center gap-2 rounded-2xl bg-white active:opacity-90"
+          >
+            <Ionicons name="checkmark-done" size={19} color="#1F45C7" />
+            <Text className="text-[15px] font-semibold text-[#1F45C7]">Mark {homeroomLabel || "class"} attendance</Text>
+          </Pressable>
+        ) : data?.classTeacher && !closed ? (
+          <Pressable onPress={() => router.push("/attendance")} className="mt-4 flex-row items-center gap-2 rounded-2xl bg-white/10 px-3 py-2.5">
+            <Ionicons name="checkmark-circle" size={18} color="#BBF7D0" />
+            <Text className="min-w-0 flex-1 text-sm font-medium text-white" numberOfLines={1}>
+              {homeroomLabel || "Class"} register marked
+              {out || late ? ` · ${[out ? `${out} absent` : "", late ? `${late} late` : ""].filter(Boolean).join(", ")}` : " · all present"}
+            </Text>
+            <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.7)" />
+          </Pressable>
+        ) : null}
+      </View>
     );
   }
 
   function phoneQuickActions() {
     if (!phoneDashboard) return null;
+    const actions: { icon: keyof typeof Ionicons.glyphMap; label: string; route: string }[] = [
+      { icon: "people-outline", label: "My class", route: "/class" },
+      { icon: "create-outline", label: "Marks", route: "/exams" },
+      { icon: "airplane-outline", label: "Leave", route: "/leave" },
+    ];
+    if (!data?.staffAttendanceSelf) actions.push({ icon: "time-outline", label: "Timetable", route: "/timetable" });
     return (
-      <View className="mb-3 flex-row gap-2">
+      <View className="mb-4 flex-row justify-between rounded-3xl bg-white px-3 py-4" style={CARD_SHADOW}>
         {data?.staffAttendanceSelf ? (
-          <StaffAttendanceQrButton token={token} disabled={Boolean(todayClosed)} tile onMessage={toast.show} />
+          <StaffAttendanceQrButton token={token} disabled={Boolean(todayClosed)} tile round onMessage={toast.show} />
         ) : null}
-        <PhoneActionTile icon="checkmark-circle-outline" label="Attend" route="/attendance" danger={Boolean(data?.classTeacher && !data.markedToday && !todayClosed)} />
-        <PhoneActionTile icon="people-outline" label="Class" route="/class" />
-        <PhoneActionTile icon="document-text-outline" label="Marks" route="/exams" danger={Boolean(overdueTodos)} />
-        <PhoneActionTile icon="calendar-outline" label="Leave" route="/leave" />
+        {actions.map((action) => (
+          <Pressable
+            key={action.label}
+            accessibilityRole="button"
+            accessibilityLabel={action.label}
+            onPress={() => router.push(action.route as never)}
+            className="flex-1 items-center gap-1.5 active:opacity-70"
+          >
+            <View className="h-12 w-12 items-center justify-center rounded-2xl bg-[#EEF3FF]">
+              <Ionicons name={action.icon} size={22} color="#1F45C7" />
+            </View>
+            <Text className="text-xs font-medium text-ink-800">{action.label}</Text>
+          </Pressable>
+        ))}
       </View>
     );
   }
 
   function phoneNeedsAttentionCard() {
     if (!phoneDashboard) return null;
-    const attention: { title: string; hint: string; route: string; tone?: "danger" | "warn" | "ink" }[] = [];
-    if (data?.classTeacher && !data.markedToday && !todayClosed) {
-      attention.push({ title: "Class register pending", hint: "Mark attendance before office follows up.", route: "/attendance", tone: "danger" });
+    type Item = { key: string; icon: keyof typeof Ionicons.glyphMap; title: string; hint: string; route: string; tel?: string; status?: "Overdue" | "Soon" | "Absent" | "Late" | "Call" };
+    const items: Item[] = [];
+    for (const todo of todos) {
+      const tone = examTodoTone(todo);
+      const kind = examTodoKind(todo);
+      items.push({
+        key: todo.id,
+        icon: kind === "paper" ? "document-text-outline" : kind === "marks" ? "create-outline" : "clipboard-outline",
+        title: todo.title.replace(/^Take exam · /, ""),
+        hint: friendlyHint(todo.hint),
+        route: `/exams?lane=${kind === "take" ? "take" : kind === "marks" ? "marks" : "paper"}`,
+        status: tone === "overdue" ? "Overdue" : tone === "soon" ? "Soon" : undefined,
+      });
     }
-    for (const name of lateToday.slice(0, 2)) {
-      attention.push({ title: name, hint: "Late today. Check if parent follow-up is needed.", route: "/class", tone: "warn" });
+    // Students absent 3+ school days in a row: the class teacher should call home.
+    const streakNames = new Set<string>();
+    for (const student of roster) {
+      const days = (student.days ?? []).slice().sort((a, b) => b.date.localeCompare(a.date));
+      let streak = 0;
+      for (const day of days) {
+        const status = day.status.trim().toLowerCase();
+        if (status === "absent" || status === "out") streak += 1;
+        else break;
+      }
+      if (streak < 3) continue;
+      streakNames.add(student.name);
+      const digits = String(student.phone || "").replace(/\D/g, "");
+      items.push({
+        key: `streak-${student.id}`,
+        icon: "call-outline",
+        title: student.name,
+        hint: `Absent ${streak} days in a row${student.parentName ? ` · call ${student.parentName}` : " · call the parent"}`,
+        route: "/class",
+        tel: digits.length === 10 ? `tel:+91${digits}` : digits.length >= 8 ? `tel:+${digits}` : undefined,
+        status: "Call",
+      });
     }
-    for (const name of outToday.slice(0, 2)) {
-      attention.push({ title: name, hint: "Absent today. Review before calling home.", route: "/class", tone: "danger" });
+    for (const name of outToday.slice(0, 3)) {
+      if (streakNames.has(name)) continue;
+      items.push({ key: `out-${name}`, icon: "person-remove-outline", title: name, hint: "Absent today", route: "/class", status: "Absent" });
     }
-    for (const todo of dashboardTodos.slice(0, 2)) {
-      if (examTodoTone(todo) === "overdue") attention.push({ title: todo.title.replace(/^Take exam · /, ""), hint: todo.hint, route: "/exams", tone: "danger" });
-    }
-    const shown = attention.slice(0, 4);
+    for (const name of lateToday.slice(0, 3)) items.push({ key: `late-${name}`, icon: "time-outline", title: name, hint: "Came late today", route: "/class", status: "Late" });
+    const rank = (item: Item) => (item.status === "Call" ? 0 : item.status === "Overdue" ? 1 : item.status === "Absent" ? 2 : item.status === "Late" ? 3 : item.status === "Soon" ? 4 : 5);
+    items.sort((a, b) => rank(a) - rank(b));
+    const shown = items.slice(0, 4);
+    const statusStyle: Record<NonNullable<Item["status"]>, string> = {
+      Call: "bg-red-600 text-white",
+      Overdue: "bg-red-50 text-red-700",
+      Absent: "bg-red-50 text-red-700",
+      Late: "bg-amber-50 text-amber-800",
+      Soon: "bg-amber-50 text-amber-800",
+    };
     return (
-      <Card className="mb-3">
-        <View className="flex-row items-center justify-between border-b border-ink-100 px-4 py-3">
-          <View>
-            <Text className="text-sm font-semibold text-ink-900">Needs attention</Text>
-            <Text className="mt-0.5 text-xs text-ink-700">{shown.length ? `${shown.length} items` : "No urgent student issue"}</Text>
+      <View className="mb-4 overflow-hidden rounded-3xl bg-white" style={CARD_SHADOW}>
+        <View className="flex-row items-center justify-between px-5 pb-2 pt-4">
+          <View className="flex-row items-center gap-2">
+            <Text className="text-base font-semibold text-ink-900">To do</Text>
+            {items.length ? (
+              <View className="rounded-full bg-[#EEF3FF] px-2 py-0.5">
+                <Text className="text-xs font-semibold text-[#1F45C7]">{items.length}</Text>
+              </View>
+            ) : null}
           </View>
-          <Pressable onPress={() => router.push(shown[0]?.route as never || "/class")}>
-            <Text className="text-sm font-medium text-clay-600">Open</Text>
-          </Pressable>
+          {items.length > shown.length ? (
+            <Pressable hitSlop={8} onPress={() => router.push("/exams")}>
+              <Text className="text-sm font-medium text-[#1F45C7]">See all</Text>
+            </Pressable>
+          ) : null}
         </View>
         {shown.length ? (
-          shown.map((item, index) => (
-            <Pressable key={`${item.title}-${index}`} onPress={() => router.push(item.route as never)} className="flex-row items-center gap-3 border-t border-ink-100 px-4 py-3">
-              <View className={`h-2.5 w-2.5 rounded-full ${item.tone === "danger" ? "bg-red-500" : item.tone === "warn" ? "bg-amber-500" : "bg-ink-300"}`} />
-              <View className="min-w-0 flex-1">
-                <Text className="text-sm font-medium text-ink-900" numberOfLines={1}>{item.title}</Text>
-                <Text className="mt-1 text-xs text-ink-700" numberOfLines={1}>{item.hint}</Text>
+          shown.map((item) => (
+            <Pressable
+              key={item.key}
+              onPress={() => (item.tel ? void Linking.openURL(item.tel) : router.push(item.route as never))}
+              className="flex-row items-center gap-3 px-5 py-3 active:bg-ink-50"
+            >
+              <View className={`h-10 w-10 items-center justify-center rounded-xl ${item.status === "Call" ? "bg-red-50" : "bg-ink-50"}`}>
+                <Ionicons name={item.icon} size={19} color={item.status === "Call" ? "#B91C1C" : "#1e3a5f"} />
               </View>
+              <View className="min-w-0 flex-1">
+                <Text className="text-[15px] font-medium text-ink-900" numberOfLines={1}>{item.title}</Text>
+                <Text className="mt-0.5 text-xs text-ink-700" numberOfLines={1}>{item.hint}</Text>
+              </View>
+              {item.status ? (
+                <View className={`rounded-full px-2 py-0.5 ${statusStyle[item.status].split(" ")[0]}`}>
+                  <Text className={`text-[11px] font-semibold ${statusStyle[item.status].split(" ")[1]}`}>{item.status}</Text>
+                </View>
+              ) : (
+                <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
+              )}
             </Pressable>
           ))
         ) : (
-          <Text className="px-4 py-4 text-sm text-ink-700">Students and tasks that need action will appear here.</Text>
-        )}
-      </Card>
-    );
-  }
-
-  function phoneWorkCard() {
-    if (!phoneDashboard) return null;
-    const top = dashboardTodos.slice(0, 4);
-    return (
-      <Card className="mb-4">
-        <View className="flex-row items-center justify-between border-b border-ink-100 px-4 py-3">
-          <View>
-            <Text className="text-sm font-semibold text-ink-900">Pending work</Text>
-            <Text className="mt-0.5 text-xs text-ink-700">
-              {overdueTodos ? `${overdueTodos} overdue` : todos.length ? `${todos.length} open` : "Nothing urgent"}
-            </Text>
+          <View className="flex-row items-center gap-3 px-5 pb-3 pt-2">
+            <View className="h-10 w-10 items-center justify-center rounded-xl bg-emerald-50">
+              <Ionicons name="checkmark-done" size={20} color="#047857" />
+            </View>
+            <Text className="min-w-0 flex-1 text-sm text-ink-700">You're all caught up.</Text>
           </View>
-          <Pressable onPress={() => router.push("/exams")}>
-            <Text className="text-sm font-medium text-clay-600">Open</Text>
-          </Pressable>
-        </View>
-        {top.length ? (
-          top.map((todo) => (
-            <Pressable key={todo.id} onPress={() => router.push("/exams")} className="flex-row items-center gap-3 border-t border-ink-100 px-4 py-3">
-              <View className="min-w-0 flex-1">
-                <Text className="text-sm font-medium text-ink-900" numberOfLines={1}>{todo.title.replace(/^Take exam · /, "")}</Text>
-                <Text className="mt-1 text-xs text-ink-700" numberOfLines={1}>{todo.hint}</Text>
-              </View>
-              <Text className="text-xs font-medium text-clay-600">Open</Text>
-            </Pressable>
-          ))
-        ) : (
-          <Text className="px-4 py-4 text-sm text-ink-700">Nothing waiting right now.</Text>
         )}
-      </Card>
+        <View className="h-2" />
+      </View>
     );
   }
 
   function phoneSummaryStrip() {
     if (!phoneDashboard) return null;
-    const attendanceValue = classAtt
-      ? `${classAtt.pct}%`
+    const attendancePct = classAtt
+      ? classAtt.pct
       : data?.markedToday
-        ? `${Math.max(0, 100 - Math.round((outToday.length / Math.max(1, data.studentCount || roster.length)) * 100))}%`
-        : "--";
-    const stats = [
+        ? Math.max(0, 100 - Math.round((outToday.length / Math.max(1, data.studentCount || roster.length)) * 100))
+        : null;
+    const stats: { value: string; label: string; route: string; tone?: string }[] = [
       {
-        label: data?.classTeacher ? "Students" : "Classes",
         value: String(data?.classTeacher ? data.studentCount || roster.length : taughtClasses.length),
+        label: data?.classTeacher ? `Students in ${homeroomLabel || "class"}` : "Classes you teach",
         route: "/class",
-        tone: "text-clay-600",
       },
-      { label: "Attendance", value: attendanceValue, route: "/attendance", tone: "text-green-700" },
-      { label: "Lessons", value: String(weekSlots.length), route: "/timetable", tone: "text-violet-700" },
-      { label: "Work", value: String(todos.length), route: "/exams", tone: overdueTodos ? "text-red-700" : "text-amber-800" },
+      {
+        value: attendancePct === null ? "—" : `${attendancePct}%`,
+        label: "Attendance, recent",
+        route: "/attendance",
+        tone: attendancePct === null ? undefined : attendancePct < 75 ? "text-red-700" : attendancePct < 85 ? "text-amber-700" : undefined,
+      },
+      { value: String(weekSlots.length), label: "Lessons this week", route: "/timetable" },
+      { value: String(todos.length), label: overdueTodos ? `Tasks · ${overdueTodos} overdue` : "Open tasks", route: "/exams", tone: overdueTodos ? "text-red-700" : undefined },
     ];
     return (
-      <Card className="mb-3 p-0">
-        <View className="border-b border-ink-100 px-4 py-3">
-          <Text className="text-sm font-semibold text-ink-900">Snapshot</Text>
-          <Text className="mt-0.5 text-xs text-ink-700">
-            {homeroomLabel ? `Your class ${homeroomLabel}` : "Week at a glance"}
-          </Text>
-        </View>
-        <View className="flex-row flex-wrap">
-          {stats.map((stat, index) => (
+      <View className="mb-4 rounded-3xl bg-white px-4 pb-4 pt-4" style={CARD_SHADOW}>
+        <Text className="mb-3 px-1 text-base font-semibold text-ink-900">This week</Text>
+        <View className="flex-row flex-wrap justify-between gap-y-2.5">
+          {stats.map((stat) => (
             <Pressable
               key={stat.label}
               accessibilityRole="button"
               accessibilityLabel={`${stat.label}: ${stat.value}`}
               onPress={() => router.push(stat.route as never)}
-              className={`w-1/2 px-4 py-3 ${index > 1 ? "border-t border-ink-100" : ""} ${index % 2 ? "border-l border-ink-100" : ""}`}
+              className="w-[48.5%] rounded-2xl bg-ink-50 px-4 py-3.5 active:opacity-80"
             >
-              <View className="flex-row items-center justify-between gap-2">
-                <Text className="text-[11px] font-medium uppercase tracking-wide text-ink-700">{stat.label}</Text>
-                <Ionicons name="arrow-forward" size={13} color="#64748B" />
-              </View>
-              <Text className={`mt-1 text-xl font-semibold ${stat.tone}`}>{stat.value}</Text>
+              <Text className={`text-[26px] font-bold leading-8 ${stat.tone || "text-ink-900"}`}>{stat.value}</Text>
+              <Text className="mt-0.5 text-xs text-ink-700" numberOfLines={1}>{stat.label}</Text>
             </Pressable>
           ))}
         </View>
-      </Card>
+      </View>
     );
   }
 
@@ -612,7 +718,23 @@ export function TeacherDeskBoard() {
 
   return (
     <View>
-      <View className={phoneDashboard ? "mb-3 flex-row items-end justify-between gap-3" : "mb-4 flex-row flex-wrap items-end justify-between gap-2"}>
+      {phoneDashboard ? (
+        <View className="mb-4 flex-row items-center justify-between gap-3 px-1">
+          <View className="min-w-0 flex-1">
+            <Text className="text-[22px] font-bold leading-7 text-ink-900" numberOfLines={1}>{dayGreeting()}, {first}</Text>
+            <Text className="mt-0.5 text-sm text-ink-700" numberOfLines={1}>
+              {new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "short" })}
+              {homeroomLabel ? ` · Class teacher ${homeroomLabel}` : ""}
+            </Text>
+          </View>
+          {homeroomLabel ? (
+            <Pressable onPress={() => router.push("/class")} className="h-11 min-w-[44px] items-center justify-center rounded-2xl bg-[#EEF3FF] px-3">
+              <Text className="text-sm font-bold text-[#1F45C7]">{homeroomLabel}</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : (
+      <View className="mb-4 flex-row flex-wrap items-end justify-between gap-2">
         <View className="min-w-0 flex-1">
           <Text className="text-xs font-medium uppercase tracking-wide text-clay-600">{phoneDashboard ? "Teacher" : "Teacher desk"}</Text>
           <Text className={phoneDashboard ? "mt-1 text-3xl font-semibold text-ink-900" : "mt-1 text-xl font-semibold text-ink-900"}>
@@ -631,6 +753,7 @@ export function TeacherDeskBoard() {
           <Text className="text-xs text-ink-700">{todayClosed ? "Closed day" : data?.markedToday ? "Register marked" : "Needs attention"}</Text>
         ) : null}
       </View>
+      )}
 
       {todayFocusCard()}
 
@@ -764,6 +887,7 @@ export function TeacherDeskBoard() {
                 <Text key={row.id} className="mt-1 text-sm text-ink-900">
                   {row.subjectName} · {row.typeName}
                   {row.from ? ` · ${row.from === row.to ? row.from : `${row.from}–${row.to}`}` : ""}
+                  {row.halfDay ? ` · ${row.halfDay === "FIRST" ? "first half" : "second half"}` : ""}
                 </Text>
               ))}
             </View>
@@ -840,8 +964,6 @@ export function TeacherDeskBoard() {
         {nowCard()}
         {registerCard()}
       </View> : null}
-
-      {phoneWorkCard()}
 
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
 
@@ -1021,6 +1143,30 @@ export function TeacherDeskBoard() {
   );
 }
 
+const LEAVE_TINTS = [
+  { bar: "#1F45C7", soft: "#EEF3FF", icon: "airplane-outline" as const },
+  { bar: "#0F9F6E", soft: "#E8F7F0", icon: "medkit-outline" as const },
+  { bar: "#C2410C", soft: "#FFF1E8", icon: "home-outline" as const },
+  { bar: "#7C3AED", soft: "#F3EEFF", icon: "sparkles-outline" as const },
+];
+
+const LEAVE_STATUS: Record<string, { label: string; box: string; text: string }> = {
+  ACTIVE: { label: "Approved", box: "bg-emerald-50", text: "text-emerald-700" },
+  WAITING: { label: "Pending", box: "bg-amber-50", text: "text-amber-800" },
+  REJECTED: { label: "Declined", box: "bg-red-50", text: "text-red-700" },
+};
+
+/** "16 Oct" or "16 – 18 Oct" or "30 Oct – 2 Nov". */
+function leaveRange(from: string, to: string) {
+  const a = new Date(`${from.slice(0, 10)}T00:00:00`);
+  const b = new Date(`${(to || from).slice(0, 10)}T00:00:00`);
+  const day = (d: Date) => d.toLocaleDateString("en-IN", { day: "numeric" });
+  const dayMonth = (d: Date) => d.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+  if (a.getTime() === b.getTime()) return dayMonth(a);
+  if (a.getMonth() === b.getMonth() && a.getFullYear() === b.getFullYear()) return `${day(a)} – ${dayMonth(b)}`;
+  return `${dayMonth(a)} – ${dayMonth(b)}`;
+}
+
 export function TeacherLeaveBoard() {
   const { data, reload } = useRecord();
   const { token } = useSession();
@@ -1028,38 +1174,172 @@ export function TeacherLeaveBoard() {
   const pending = data?.pendingLeave ?? [];
   const studentLeave = pending.filter((r) => r.who === "student");
   const teamLeave = pending.filter((r) => r.who !== "student");
+  const today = ymd(new Date());
+
+  // Leave year = the current school session, else the calendar year.
+  const session = (data?.school?.sessions ?? []).find((row) => row.current);
+  const yearStart = session?.startsOn?.slice(0, 10) || `${today.slice(0, 4)}-01-01`;
+  const yearEnd = session?.endsOn?.slice(0, 10) || `${today.slice(0, 4)}-12-31`;
+  const yearLabel = session?.label || today.slice(0, 4);
+
+  const types = (data?.leaveTypes ?? []).filter((type) => type.forTeacher).sort((a, b) => a.sortOrder - b.sortOrder);
+  const mine = (data?.myLeave ?? []).slice().sort((a, b) => b.from.localeCompare(a.from));
+  const inYear = mine.filter((row) => row.from.slice(0, 10) >= yearStart && row.from.slice(0, 10) <= yearEnd);
+  const balances = types.map((type, index) => {
+    const rows = inYear.filter((row) => row.typeId === type.id);
+    const used = rows.filter((row) => row.status === "ACTIVE").reduce((sum, row) => sum + (row.days || 0), 0);
+    const waiting = rows.filter((row) => row.status === "WAITING").reduce((sum, row) => sum + (row.days || 0), 0);
+    const cap = type.yearlyCap || 0;
+    return { type, used, waiting, cap, left: cap ? Math.max(0, cap - used) : null, tint: LEAVE_TINTS[index % LEAVE_TINTS.length] };
+  });
+  const capped = balances.filter((row) => row.cap > 0);
+  const totalCap = capped.reduce((sum, row) => sum + row.cap, 0);
+  const totalUsed = capped.reduce((sum, row) => sum + row.used, 0);
+  const totalWaiting = balances.reduce((sum, row) => sum + row.waiting, 0);
+  const totalLeft = Math.max(0, totalCap - totalUsed);
+  const upcoming = mine.filter((row) => (row.to || row.from).slice(0, 10) >= today && row.status !== "REJECTED");
+  const past = mine.filter((row) => !upcoming.includes(row)).slice(0, 8);
+  const tintFor = (typeId: string) => balances.find((row) => row.type.id === typeId)?.tint || LEAVE_TINTS[0];
+
+  const done = async (ok: string) => {
+    toast.show(ok);
+    await reload();
+  };
+
+  function requestRow(row: (typeof mine)[number]) {
+    const tint = tintFor(row.typeId);
+    const status = LEAVE_STATUS[row.status] || LEAVE_STATUS.WAITING;
+    return (
+      <View key={row.id} className="flex-row items-center gap-3 px-5 py-3">
+        <View className="h-10 w-10 items-center justify-center rounded-xl" style={{ backgroundColor: tint.soft }}>
+          <Ionicons name={tint.icon} size={19} color={tint.bar} />
+        </View>
+        <View className="min-w-0 flex-1">
+          <Text className="text-[15px] font-medium text-ink-900" numberOfLines={1}>
+            {leaveRange(row.from, row.to)}
+            {row.halfDay ? ` · ${row.halfDay === "FIRST" ? "First half" : "Second half"}` : ""}
+          </Text>
+          <Text className="mt-0.5 text-xs text-ink-700" numberOfLines={1}>
+            {row.typeName} · {row.halfDay ? "½ day" : `${row.days} day${row.days === 1 ? "" : "s"}`}
+            {row.reason ? ` · ${row.reason}` : ""}
+          </Text>
+        </View>
+        <View className={`rounded-full px-2.5 py-1 ${status.box}`}>
+          <Text className={`text-[11px] font-semibold ${status.text}`}>{status.label}</Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View>
-      <PageHeader kicker="Teacher" title="Leave" lede="Plan time away and track your leave requests." />
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
-      <LeaveDecideList
-        rows={studentLeave}
-        token={token}
-        onDone={async (ok) => {
-          toast.show(ok);
-          await reload();
-        }}
-        onError={(msg) => toast.show(msg)}
-      />
-      <LeaveDecideList
-        rows={teamLeave}
-        title="Team leave requests"
-        token={token}
-        onDone={async (ok) => {
-          toast.show(ok);
-          await reload();
-        }}
-        onError={(msg) => toast.show(msg)}
-      />
-      <LeaveApplyCard
-        audience="teacher"
-        token={token}
-        onDone={async (ok) => {
-          toast.show(ok);
-          await reload();
-        }}
-        onError={(msg) => toast.show(msg)}
-      />
+      <View className="mb-4 flex-row items-center justify-between gap-3 px-1">
+        <View className="min-w-0 flex-1">
+          <Text className="text-[22px] font-bold leading-7 text-ink-900">Leave</Text>
+          <Text className="mt-0.5 text-sm text-ink-700">Session {yearLabel}</Text>
+        </View>
+        <LeaveApplyCard audience="teacher" token={token} triggerOnly onDone={done} onError={(msg) => toast.show(msg)} />
+      </View>
+
+      {types.length ? (
+        <View className="mb-4 overflow-hidden rounded-3xl bg-[#1F45C7] px-5 pb-5 pt-4" style={{ shadowColor: "#1F45C7", shadowOpacity: 0.25, shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 5 }}>
+          <View className="absolute -right-10 -top-12 h-40 w-40 rounded-full bg-white/10" />
+          <Text className="text-[11px] font-semibold uppercase tracking-[1.2px] text-white/70">Leave balance</Text>
+          {totalCap ? (
+            <>
+              <View className="mt-1 flex-row items-end gap-2">
+                <Text className="text-[40px] font-bold leading-[46px] text-white">{totalLeft}</Text>
+                <Text className="mb-1.5 text-base text-white/80">of {totalCap} days left</Text>
+              </View>
+              <View className="mt-3 h-2 flex-row overflow-hidden rounded-full bg-white/20">
+                <View className="h-full bg-white" style={{ width: `${Math.min(100, (totalUsed / totalCap) * 100)}%` }} />
+                <View className="h-full bg-white/50" style={{ width: `${Math.min(100, (totalWaiting / totalCap) * 100)}%` }} />
+              </View>
+              <View className="mt-2 flex-row gap-4">
+                <Text className="text-xs text-white/80">● {totalUsed} used</Text>
+                {totalWaiting ? <Text className="text-xs text-white/70">◐ {totalWaiting} pending</Text> : null}
+                {upcoming.length ? <Text className="text-xs text-white/70">{upcoming.length} upcoming</Text> : null}
+              </View>
+            </>
+          ) : (
+            <Text className="mt-1 text-2xl font-bold text-white">No yearly limit</Text>
+          )}
+        </View>
+      ) : null}
+
+      {balances.length ? (
+        <View className="mb-4 flex-row flex-wrap justify-between gap-y-3">
+          {balances.map(({ type, used, waiting, cap, left, tint }) => (
+            <View key={type.id} className="w-[48.5%] rounded-3xl bg-white p-4" style={CARD_SHADOW}>
+              <View className="flex-row items-center justify-between">
+                <View className="h-9 w-9 items-center justify-center rounded-xl" style={{ backgroundColor: tint.soft }}>
+                  <Ionicons name={tint.icon} size={18} color={tint.bar} />
+                </View>
+                {waiting ? (
+                  <View className="rounded-full bg-amber-50 px-2 py-0.5">
+                    <Text className="text-[10px] font-semibold text-amber-800">{waiting} pending</Text>
+                  </View>
+                ) : null}
+              </View>
+              <Text className="mt-3 text-sm font-medium text-ink-800" numberOfLines={1}>{type.name}</Text>
+              <View className="mt-0.5 flex-row items-end gap-1">
+                <Text className="text-[26px] font-bold leading-8 text-ink-900">{left === null ? "∞" : left}</Text>
+                <Text className="mb-1 text-xs text-ink-700">{cap ? `of ${cap} left` : "no limit"}</Text>
+              </View>
+              {cap ? (
+                <View className="mt-2 h-1.5 overflow-hidden rounded-full bg-ink-100">
+                  <View className="h-full rounded-full" style={{ width: `${Math.min(100, ((cap - used) / cap) * 100)}%`, backgroundColor: tint.bar }} />
+                </View>
+              ) : (
+                <Text className="mt-2 text-[11px] text-ink-700">{used} used this session</Text>
+              )}
+              {type.noticeDays ? (
+                <Text className="mt-2 text-[11px] text-ink-500">Apply {type.noticeDays} day{type.noticeDays === 1 ? "" : "s"} ahead</Text>
+              ) : (
+                <Text className="mt-2 text-[11px] text-ink-500">Same-day allowed</Text>
+              )}
+            </View>
+          ))}
+        </View>
+      ) : (
+        <View className="mb-4 rounded-3xl bg-white p-5" style={CARD_SHADOW}>
+          <Text className="text-sm text-ink-700">The office hasn't set up leave types yet.</Text>
+        </View>
+      )}
+
+      <LeaveDecideList rows={studentLeave} token={token} onDone={done} onError={(msg) => toast.show(msg)} />
+      <LeaveDecideList rows={teamLeave} title="Team leave requests" token={token} onDone={done} onError={(msg) => toast.show(msg)} />
+
+      <View className="mb-4 overflow-hidden rounded-3xl bg-white" style={CARD_SHADOW}>
+        <View className="flex-row items-center gap-2 px-5 pb-1 pt-4">
+          <Text className="text-base font-semibold text-ink-900">Upcoming</Text>
+          {upcoming.length ? (
+            <View className="rounded-full bg-[#EEF3FF] px-2 py-0.5">
+              <Text className="text-xs font-semibold text-[#1F45C7]">{upcoming.length}</Text>
+            </View>
+          ) : null}
+        </View>
+        {upcoming.length ? (
+          upcoming.map(requestRow)
+        ) : (
+          <View className="flex-row items-center gap-3 px-5 pb-2 pt-2">
+            <View className="h-10 w-10 items-center justify-center rounded-xl bg-emerald-50">
+              <Ionicons name="sunny-outline" size={20} color="#047857" />
+            </View>
+            <Text className="min-w-0 flex-1 text-sm text-ink-700">No leave planned. Tap “Apply for leave” when you need time off.</Text>
+          </View>
+        )}
+        <View className="h-3" />
+      </View>
+
+      {past.length ? (
+        <View className="mb-4 overflow-hidden rounded-3xl bg-white" style={CARD_SHADOW}>
+          <Text className="px-5 pb-1 pt-4 text-base font-semibold text-ink-900">History</Text>
+          {past.map(requestRow)}
+          <View className="h-3" />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -1266,7 +1546,8 @@ export function TeacherAttendanceBoard() {
         date,
         rows: roster.map((s) => ({ studentId: s.id, status: statusOf(s).toUpperCase() })),
       });
-      toast.show("Saved the day.");
+      toast.show("Attendance saved.");
+      setMarks({});
       await reload();
     } catch (e) {
       toast.show(e instanceof Error ? e.message : "Could not save.");
@@ -1394,7 +1675,49 @@ export function TeacherAttendanceBoard() {
   const no = roster.filter((s) => statusOf(s).toUpperCase() === "ABSENT").length;
   const onLeave = roster.filter((s) => statusOf(s).toUpperCase() === "LEAVE").length;
   const needle = q.trim().toLowerCase();
-  const shown = needle ? roster.filter((s) => s.name.toLowerCase().includes(needle)) : roster;
+  // Roll order, the way a class teacher calls the register.
+  const ordered = [...roster].sort((a, b) => (a.rollNumber ?? 9999) - (b.rollNumber ?? 9999) || a.name.localeCompare(b.name));
+  const shown = needle
+    ? ordered.filter((s) => s.name.toLowerCase().includes(needle) || String(s.rollNumber ?? "") === needle)
+    : ordered;
+  const marked = roster.length - onLeave;
+  const pctToday = marked > 0 ? Math.round(((yes + late) / marked) * 100) : null;
+  const dirty = Object.keys(marks).length > 0;
+  const savedForDate = date === today ? Boolean(data?.markedToday) : roster.some((s) => s.days?.some((d) => d.date === date));
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  // The 3 school days before the selected date, oldest first (per-student history on phone).
+  const historyDays = (() => {
+    const days: string[] = [];
+    let cursor = date;
+    for (let i = 0; i < 30 && days.length < 3; i += 1) {
+      cursor = addDays(cursor, -1);
+      if (!closedReason(cursor, calendar)) days.push(cursor);
+    }
+    return days.reverse();
+  })();
+
+  /** ‹ › : previous / next school day (skips holidays and weekends), never past today. */
+  function stepDay(direction: -1 | 1) {
+    let next = date;
+    for (let i = 0; i < 21; i += 1) {
+      next = addDays(next, direction);
+      if (direction > 0 && next > today) return;
+      if (!closedReason(next, calendar)) {
+        setDate(next);
+        setMarks({});
+        return;
+      }
+    }
+  }
+
+  function markAllPresent() {
+    if (locked) return;
+    const next: Record<string, string> = {};
+    for (const student of roster) if (statusOf(student).toUpperCase() !== "LEAVE") next[student.id] = "PRESENT";
+    setMarks(next);
+    toast.show("Everyone marked present. Change the few who are absent, then save.");
+  }
 
   return (
     <View className="min-h-0 flex-1">
@@ -1412,6 +1735,25 @@ export function TeacherAttendanceBoard() {
         />
       ) : (
         <>
+      {phone ? (
+        <View className="mb-2 flex-row items-center justify-between gap-3 px-1">
+          <Text className="min-w-0 flex-1 text-lg font-bold text-ink-900" numberOfLines={1}>
+            Attendance
+            <Text className="text-sm font-normal text-ink-700">{`  ${data?.classLabel ? `${data.classLabel} · ` : ""}${roster.length} students`}</Text>
+          </Text>
+          {roster.length ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Monthly attendance"
+              onPress={() => setMonthly(true)}
+              className="h-8 flex-row items-center gap-1.5 rounded-full bg-[#EEF3FF] px-3"
+            >
+              <Ionicons name="calendar-outline" size={14} color="#1F45C7" />
+              <Text className="text-xs font-semibold text-[#1F45C7]">Month</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : (
       <View className="mb-3 flex-row flex-wrap items-start justify-between gap-3">
         <View className="min-w-0 flex-1">
           <PageHeader
@@ -1432,6 +1774,7 @@ export function TeacherAttendanceBoard() {
           </Pressable>
         ) : null}
       </View>
+      )}
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
       <LeaveDecideList
         rows={data?.pendingLeave ?? []}
@@ -1445,7 +1788,109 @@ export function TeacherAttendanceBoard() {
       {!roster.length ? (
         <Empty title="No class teacher section" body="When you are class teacher, the register is here." />
       ) : (
-        <Card className="min-h-0 flex-1">
+        <Card className={`min-h-0 flex-1 ${phone ? "rounded-3xl border-0" : ""}`}>
+          {phone ? (
+            <View className="gap-2.5 border-b border-ink-100 px-3 pb-3 pt-3">
+              <View className="flex-row items-center gap-1.5">
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Previous school day"
+                  onPress={() => stepDay(-1)}
+                  className="h-11 w-10 items-center justify-center rounded-xl bg-ink-50 active:opacity-70"
+                >
+                  <Ionicons name="chevron-back" size={20} color="#1F45C7" />
+                </Pressable>
+                <View className="min-w-0 flex-1 items-center">
+                  <DateField
+                    plain
+                    bare
+                    value={date}
+                    max={today}
+                    closedReason={(value) => closedReason(value, calendar)}
+                    onChange={(next) => {
+                      setDate(next);
+                      setMarks({});
+                    }}
+                  />
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Next school day"
+                  disabled={date >= today}
+                  onPress={() => stepDay(1)}
+                  className={`h-11 w-10 items-center justify-center rounded-xl bg-ink-50 active:opacity-70 ${date >= today ? "opacity-40" : ""}`}
+                >
+                  <Ionicons name="chevron-forward" size={20} color="#1F45C7" />
+                </Pressable>
+                {pctToday !== null && !locked ? <Text className="ml-1 text-xl font-bold text-ink-900">{pctToday}%</Text> : null}
+              </View>
+              <View className="flex-row items-center gap-2">
+                {locked ? (
+                  <Text className="min-w-0 flex-1 text-sm text-amber-800" numberOfLines={2}>{lockedNote.replace(/\.$/, "")}.</Text>
+                ) : (
+                  <View className="min-w-0 flex-1 flex-row flex-wrap items-center gap-x-3 gap-y-0.5">
+                    {[
+                      { n: yes, label: "P", dot: "#10B981" },
+                      { n: late, label: "L", dot: "#F59E0B" },
+                      { n: no, label: "A", dot: "#EF4444" },
+                      ...(onLeave ? [{ n: onLeave, label: "leave", dot: "#6366F1" }] : []),
+                    ].map((row) => (
+                      <View key={row.label} className="flex-row items-center gap-1">
+                        <View className="h-2 w-2 rounded-full" style={{ backgroundColor: row.dot }} />
+                        <Text className="text-sm text-ink-800">
+                          <Text className="font-semibold text-ink-900">{row.n}</Text> {row.label}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Mark all present"
+                  disabled={locked}
+                  onPress={markAllPresent}
+                  className={`h-9 flex-row items-center gap-1 rounded-xl bg-emerald-50 px-2.5 ${locked ? "opacity-50" : ""}`}
+                >
+                  <Ionicons name="checkmark-done" size={16} color="#047857" />
+                  <Text className="text-xs font-semibold text-emerald-800">All P</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Search"
+                  onPress={() => {
+                    setSearchOpen((open) => !open);
+                    if (searchOpen) setQ("");
+                  }}
+                  className={`h-9 w-9 items-center justify-center rounded-xl ${searchOpen ? "bg-[#1F45C7]" : "bg-[#EEF3FF]"}`}
+                >
+                  <Ionicons name="search" size={16} color={searchOpen ? "#FFFFFF" : "#1F45C7"} />
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Scan ID card"
+                  disabled={locked}
+                  onPress={() => setScanOpen(true)}
+                  className={`h-9 w-9 items-center justify-center rounded-xl bg-[#EEF3FF] ${locked ? "opacity-50" : ""}`}
+                >
+                  <Ionicons name="qr-code-outline" size={16} color="#1F45C7" />
+                </Pressable>
+              </View>
+              {searchOpen ? (
+                <View className="h-11 flex-row items-center gap-2 rounded-xl bg-ink-50 px-3">
+                  <Ionicons name="search" size={16} color="#94A3B8" />
+                  <Input
+                    value={q}
+                    onChangeText={setQ}
+                    placeholder="Name or roll number"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    autoFocus
+                    className="min-w-0 flex-1 border-0 bg-transparent"
+                  />
+                </View>
+              ) : null}
+            </View>
+          ) : (
           <View className="gap-3 border-b border-ink-100 px-4 py-4">
             <View className="flex-row items-start gap-2">
               <View className="min-w-0 flex-1">
@@ -1497,6 +1942,7 @@ export function TeacherAttendanceBoard() {
               </View>
             )}
           </View>
+          )}
           <ScrollView className="min-h-0 flex-1" keyboardShouldPersistTaps="handled">
             {!shown.length ? (
               <View className="px-4 py-8">
@@ -1518,14 +1964,24 @@ export function TeacherAttendanceBoard() {
                     />
                   );
                 return phone ? (
-                  <View key={s.id} className="gap-2 border-t border-ink-100 px-4 py-3">
-                    <View className="flex-row items-center justify-between gap-3">
-                      <Text className="min-w-0 flex-1 text-sm font-medium text-ink-900" numberOfLines={1}>
+                  <View key={s.id} className="flex-row items-center gap-3 border-t border-ink-100 px-4 py-2.5">
+                    <View className="h-9 w-9 items-center justify-center rounded-full bg-[#EEF3FF]">
+                      <Text className="text-[13px] font-bold text-[#1F45C7]">{s.rollNumber ?? "–"}</Text>
+                    </View>
+                    <View className="min-w-0 flex-1">
+                      <Text className="text-[15px] font-medium text-ink-900" numberOfLines={1}>
                         {s.name}
                       </Text>
-                      {mark}
+                      <View className="mt-1 flex-row items-center gap-1" accessibilityLabel="Last 3 school days">
+                        {historyDays.map((day) => {
+                          const hit = s.days?.find((row) => row.date === day);
+                          const letter = hit ? attendanceLetter(hit.status) : "";
+                          const color = letter === "P" ? "#10B981" : letter === "A" ? "#EF4444" : letter === "L" ? "#F59E0B" : "#D5DEEA";
+                          return <View key={day} className="h-1.5 w-4 rounded-full" style={{ backgroundColor: color }} />;
+                        })}
+                      </View>
                     </View>
-                    <AttendanceDots dots={dots} compact activeDate={locked ? undefined : date} />
+                    {mark}
                   </View>
                 ) : (
                   <View key={s.id} className="flex-row items-center gap-4 border-t border-ink-100 px-4 py-3">
@@ -1541,7 +1997,13 @@ export function TeacherAttendanceBoard() {
           </ScrollView>
           <View className="border-t border-ink-100 bg-white p-4">
             <Button onPress={save} disabled={locked}>
-              Save the day
+              {locked
+                ? "Attendance closed"
+                : dirty
+                  ? `Save attendance · ${roster.length} students`
+                  : savedForDate
+                    ? "✓ Saved · tap to save again"
+                    : `Save attendance · ${roster.length} students`}
             </Button>
           </View>
           <Modal
@@ -3299,24 +3761,22 @@ export function FamilyTimetable() {
   }
 
   function slotMeta(slot: (typeof slots)[number]) {
-    return [
-      showTeacher ? slot.teacher : "",
-      "classLabel" in slot ? slot.classLabel : "",
-      slot.room,
-    ].filter(Boolean).join(" · ");
+    const classLabel = "classLabel" in slot ? String(slot.classLabel || "") : "";
+    const ownRoom = Boolean(slot.room && classLabel && slot.room.toLowerCase().replace(/\s+/g, "") === `classroom${classLabel}`.toLowerCase().replace(/\s+/g, ""));
+    return [showTeacher ? slot.teacher : "", classLabel, ownRoom ? "" : slot.room].filter(Boolean).join(" · ");
   }
 
   return (
     <View>
-      <PageHeader
+      {showWeekGrid || !slots.length ? <PageHeader
         kicker="Reports"
         title={title}
         lede={
           child
-            ? `${child.name.split(" ")[0]} · Class ${child.classLabel}. The week as the school actually runs it.`
-            : "The week as the school actually runs it."
+            ? `${child.name.split(" ")[0]} · Class ${child.classLabel}`
+            : "Periods for every school day."
         }
-      />
+      /> : null}
       <ChildSwitch />
       {!slots.length ? (
         <Empty title="No periods assigned" body="When admin fills the grid, it appears here." />
@@ -3341,7 +3801,7 @@ export function FamilyTimetable() {
             ))}
           </View>
           {periods.map((period) => {
-            const isBreak = period.isBreak;
+            const isBreak = isBreakPeriod(period);
             return (
               <View key={period.id} className="flex-row border-t border-ink-200">
                 <View className="w-32 justify-center bg-ink-50 px-4 py-3">
@@ -3389,47 +3849,184 @@ export function FamilyTimetable() {
           })}
         </View>
       ) : (
-        <View>
-          <ChipScroller>
-            {weekdays.map((day) => (
-              <Chip
-                key={day.n}
-                label={day.n === today ? `${day.label} · Today` : day.label}
-                active={day.n === activeDay}
-                onPress={() => setPickedDay(day.n)}
-              />
-            ))}
-          </ChipScroller>
-          <View className="mt-4 gap-2">
-            {periods.map((period) => {
-              const slot = periodSlot(activeDay, period);
-              const isBreak = period.isBreak;
-              return (
-                <Card key={period.id} className={`flex-row overflow-hidden ${isBreak ? "bg-amber-50" : ""}`}>
-                  <View className="w-24 justify-center border-r border-ink-200 bg-ink-50 px-3 py-3">
-                    <Text className="text-xs font-semibold text-ink-900">{period.name}</Text>
-                    {period.start ? (
-                      <Text className="mt-1 text-[10px] text-ink-700">{period.start}</Text>
-                    ) : null}
-                  </View>
-                  <View className="min-h-[72px] flex-1 justify-center px-4 py-3">
-                    {isBreak ? (
-                      <Text className="text-sm font-medium text-amber-800">Break</Text>
-                    ) : slot ? (
-                      <>
-                        <Text className="font-semibold text-ink-900">{slot.subject}</Text>
-                        {slotMeta(slot) ? <Text className="mt-1 text-sm text-ink-700">{slotMeta(slot)}</Text> : null}
-                      </>
-                    ) : (
-                      <Text className="text-sm text-ink-400">Free period</Text>
-                    )}
-                  </View>
-                </Card>
-              );
-            })}
-          </View>
-        </View>
+        <PhoneTimetable
+          weekdays={weekdays}
+          periods={periods}
+          activeDay={activeDay}
+          today={today}
+          onPickDay={setPickedDay}
+          slotFor={periodSlot}
+          metaFor={slotMeta}
+        />
       )}
+    </View>
+  );
+}
+
+const SUBJECT_COLORS = ["#2563EB", "#F97316", "#10B981", "#8B5CF6", "#E11D48", "#0EA5E9", "#CA8A04", "#14B8A6", "#DB2777", "#64748B"];
+
+/** Same subject, same colour, on every screen. */
+function subjectColor(subject: string) {
+  let hash = 0;
+  for (const char of subject.toLowerCase()) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  return SUBJECT_COLORS[hash % SUBJECT_COLORS.length];
+}
+
+function isBreakPeriod(period: { name: string; isBreak?: boolean }) {
+  return Boolean(period.isBreak) || /recess|lunch|break|assembly/i.test(period.name);
+}
+
+function minutesOf(value?: string) {
+  const match = /^(\d{1,2}):(\d{2})/.exec(String(value || ""));
+  return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+}
+
+type TimetablePeriod = { id: string; name: string; start?: string; end?: string; isBreak?: boolean };
+
+/** Phone timetable: day pills with dates, then a timeline with Now/Next, breaks as dividers and free periods as gaps. */
+function PhoneTimetable<Slot extends { subject: string }>({
+  weekdays,
+  periods,
+  activeDay,
+  today,
+  onPickDay,
+  slotFor,
+  metaFor,
+}: {
+  weekdays: { n: number; label: string }[];
+  periods: TimetablePeriod[];
+  activeDay: number;
+  today: number;
+  onPickDay: (day: number) => void;
+  slotFor: (day: number, period: TimetablePeriod) => Slot | undefined;
+  metaFor: (slot: Slot) => string;
+}) {
+  const now = new Date();
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const isToday = activeDay === today;
+  const dateFor = (day: number) => {
+    const date = new Date(now);
+    date.setDate(now.getDate() + (day - today));
+    return date;
+  };
+  const teaching = periods.filter((period) => !isBreakPeriod(period) && slotFor(activeDay, period));
+  const doneCount = isToday ? teaching.filter((period) => (minutesOf(period.end) ?? 0) <= nowMinutes).length : 0;
+  // "Now" = running lesson; otherwise the next one still to come today.
+  const nowId = isToday
+    ? teaching.find((period) => {
+        const from = minutesOf(period.start);
+        const to = minutesOf(period.end);
+        return from !== null && to !== null && nowMinutes >= from && nowMinutes < to;
+      })?.id
+    : undefined;
+  const nextId = isToday && !nowId ? teaching.find((period) => (minutesOf(period.start) ?? 0) > nowMinutes)?.id : undefined;
+  const dayDate = dateFor(activeDay);
+
+  return (
+    <View>
+      <View className="mb-3 flex-row items-end justify-between px-1">
+        <View>
+          <Text className="text-[22px] font-bold leading-7 text-ink-900">Timetable</Text>
+          <Text className="mt-0.5 text-sm text-ink-700">
+            {dayDate.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "short" })}
+          </Text>
+        </View>
+        <Text className="mb-0.5 text-sm font-medium text-ink-700">
+          {teaching.length
+            ? isToday
+              ? `${doneCount} of ${teaching.length} done`
+              : `${teaching.length} lesson${teaching.length === 1 ? "" : "s"}`
+            : "No lessons"}
+        </Text>
+      </View>
+
+      <View className="mb-4 flex-row gap-1.5">
+        {weekdays.map((day) => {
+          const on = day.n === activeDay;
+          const date = dateFor(day.n);
+          return (
+            <Pressable
+              key={day.n}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: on }}
+              accessibilityLabel={`${day.label}${day.n === today ? ", today" : ""}`}
+              onPress={() => onPickDay(day.n)}
+              className={`flex-1 items-center rounded-2xl py-2 ${on ? "bg-[#1F45C7]" : "bg-white"}`}
+              style={on ? undefined : { shadowColor: "#0f2744", shadowOpacity: 0.04, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1 }}
+            >
+              <Text className={`text-[11px] font-medium ${on ? "text-white/80" : "text-ink-700"}`}>{day.label.slice(0, 3)}</Text>
+              <Text className={`mt-0.5 text-base font-bold ${on ? "text-white" : "text-ink-900"}`}>{date.getDate()}</Text>
+              <View className={`mt-1 h-1 w-1 rounded-full ${day.n === today ? (on ? "bg-white" : "bg-[#1F45C7]") : "bg-transparent"}`} />
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <View className="mb-6 overflow-hidden rounded-3xl bg-white py-1" style={{ shadowColor: "#0f2744", shadowOpacity: 0.06, shadowRadius: 14, shadowOffset: { width: 0, height: 4 }, elevation: 2 }}>
+        {periods.map((period, index) => {
+          if (isBreakPeriod(period)) {
+            return (
+              <View key={period.id} className="flex-row items-center gap-2 px-4 py-2">
+                <View className="h-px flex-1 bg-ink-100" />
+                <Ionicons name={/lunch/i.test(period.name) ? "restaurant-outline" : "cafe-outline"} size={13} color="#B45309" />
+                <Text className="text-xs font-medium text-amber-800">
+                  {period.name}
+                  {period.start ? ` · ${prettyTime(period.start)}${period.end ? ` – ${prettyTime(period.end)}` : ""}` : ""}
+                </Text>
+                <View className="h-px flex-1 bg-ink-100" />
+              </View>
+            );
+          }
+          const slot = slotFor(activeDay, period);
+          const past = isToday && (minutesOf(period.end) ?? -1) <= nowMinutes && (minutesOf(period.end) ?? -1) >= 0;
+          const isNow = period.id === nowId;
+          const isNext = period.id === nextId;
+          const color = slot ? subjectColor(slot.subject) : "#CBD5E1";
+          const from = minutesOf(period.start);
+          const to = minutesOf(period.end);
+          const progress = isNow && from !== null && to !== null ? Math.min(1, (nowMinutes - from) / Math.max(1, to - from)) : 0;
+          return (
+            <View
+              key={period.id}
+              className={`flex-row gap-3 px-4 py-2.5 ${index ? "" : ""} ${isNow ? "bg-[#F3F6FF]" : ""}`}
+              style={{ opacity: past && !isNow ? 0.5 : 1 }}
+            >
+              <View className="w-[58px] pt-0.5">
+                <Text className={`text-[13px] font-semibold ${isNow ? "text-[#1F45C7]" : "text-ink-900"}`}>{period.start ? prettyTime(period.start) : period.name}</Text>
+                {period.end ? <Text className="text-[11px] text-ink-500">{prettyTime(period.end)}</Text> : null}
+              </View>
+              <View className="w-1 rounded-full" style={{ backgroundColor: slot ? color : "transparent", borderWidth: slot ? 0 : 1, borderColor: "#E2E8F0", borderStyle: "dashed" }} />
+              <View className="min-w-0 flex-1 justify-center">
+                {slot ? (
+                  <>
+                    <View className="flex-row items-center gap-2">
+                      <Text className="min-w-0 flex-shrink text-[15px] font-semibold text-ink-900" numberOfLines={1}>{slot.subject}</Text>
+                      {isNow ? (
+                        <View className="rounded-full bg-[#1F45C7] px-2 py-0.5">
+                          <Text className="text-[10px] font-bold text-white">NOW</Text>
+                        </View>
+                      ) : isNext ? (
+                        <View className="rounded-full bg-[#EEF3FF] px-2 py-0.5">
+                          <Text className="text-[10px] font-bold text-[#1F45C7]">NEXT</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    {metaFor(slot) ? <Text className="mt-0.5 text-xs text-ink-700" numberOfLines={1}>{metaFor(slot)}</Text> : null}
+                    {isNow ? (
+                      <View className="mt-2 h-1 overflow-hidden rounded-full bg-[#DCE5FF]">
+                        <View className="h-full rounded-full bg-[#1F45C7]" style={{ width: `${Math.round(progress * 100)}%` }} />
+                      </View>
+                    ) : null}
+                  </>
+                ) : (
+                  <Text className="text-sm text-ink-500">Free · no class</Text>
+                )}
+              </View>
+              <Text className="self-center text-[10px] font-medium text-ink-400">{period.name.replace(/^Period\s*/i, "P")}</Text>
+            </View>
+          );
+        })}
+      </View>
     </View>
   );
 }

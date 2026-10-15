@@ -22,6 +22,64 @@ function navLabel(portal: string | undefined, item: { key: string; label: string
   return item.label;
 }
 
+/** Shown only to a staff login that is also a parent: flips between the staff app and the parent app. */
+export function HatSwitch({ variant = "pill" }: { variant?: "pill" | "row" }) {
+  const { user, switchHat } = useSession();
+  const router = useRouter();
+  const hats = user?.hats || [];
+  if (hats.length < 2 || user?.support) return null;
+  const toParent = user?.portal !== "PARENT";
+  const staffLabel = hats.find((hat) => hat !== "PARENT") === "TEACHER" ? "Teacher" : "Office";
+  const label = toParent ? "Switch to Parent" : `Switch to ${staffLabel}`;
+  async function flip() {
+    try {
+      await switchHat(toParent ? "PARENT" : "STAFF");
+      router.replace("/" as never);
+    } catch {
+      /* stays in the current app */
+    }
+  }
+  if (variant === "row") {
+    return (
+      <Pressable onPress={() => void flip()} className="min-h-[56px] flex-row items-center gap-3 border-t border-ink-200 px-4 py-3">
+        <Ionicons name="swap-horizontal-outline" size={21} color="#1e3a5f" />
+        <Text className="min-w-0 flex-1 text-base text-ink-900">{label}</Text>
+        <Ionicons name="chevron-forward" size={18} color="#64748b" />
+      </Pressable>
+    );
+  }
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={() => void flip()}
+      className="h-9 flex-row items-center gap-1.5 rounded-full border border-blue-100 bg-blue-50 px-3"
+    >
+      <Ionicons name="swap-horizontal-outline" size={15} color="#1d4ed8" />
+      <Text className="text-xs font-semibold text-blue-700">{label}</Text>
+    </Pressable>
+  );
+}
+
+/** Profile footer: switch app (staff who are parents) and sign out. Phones without a "More" tab rely on this. */
+export function AccountActions() {
+  const { signOut, user } = useSession();
+  const canSwitch = (user?.hats || []).length > 1 && !user?.support;
+  return (
+    <View className="mt-4 overflow-hidden rounded-2xl border border-ink-200 bg-white">
+      {canSwitch ? (
+        <View className="-mt-px">
+          <HatSwitch variant="row" />
+        </View>
+      ) : null}
+      <Pressable onPress={() => void signOut()} className={`min-h-[56px] flex-row items-center gap-3 px-4 py-3 ${canSwitch ? "border-t border-ink-200" : ""}`}>
+        <Ionicons name="log-out-outline" size={21} color="#b91c1c" />
+        <Text className="text-base font-medium text-red-700">Sign out</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 export function NavMenu({ onNavigate }: { onNavigate?: () => void }) {
   const { user, nav, signOut } = useSession();
   const pathname = usePathname();
@@ -144,6 +202,7 @@ export function MoreBoard() {
           <Text className="min-w-0 flex-1 text-base text-ink-900">Profile</Text>
           <Ionicons name="chevron-forward" size={18} color="#64748b" />
         </Pressable>
+        <HatSwitch variant="row" />
         <Pressable
           onPress={() => signOut()}
           className="min-h-[56px] flex-row items-center gap-3 border-t border-ink-200 px-4 py-3"

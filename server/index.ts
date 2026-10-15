@@ -5,7 +5,7 @@ import { existsSync } from "fs";
 import path from "path";
 import multer from "multer";
 import bcrypt from "bcryptjs";
-import { signAppToken } from "../lib/app-jwt";
+import { signAppToken, type AppHat } from "../lib/app-jwt";
 import {
   AuthFlowError,
   consumeAuthCode,
@@ -48,7 +48,7 @@ import { captureRazorpayPayment, captureRazorpayMonths, verifyWebhookSignature }
 import { issueDueFeesCore } from "../lib/fee-run";
 import { marksheetHtmlForUser } from "../lib/marksheet-html";
 import { runExamCronNotifications } from "../lib/exam-notification-run";
-import { ensureAccessRoles } from "../lib/roles";
+import { ensureAccessRoles, loadAccess } from "../lib/roles";
 import { scopePolicyFor } from "../lib/permissions";
 import { onboardingSpreadsheetTemplate } from "../lib/onboarding";
 import { finishOnboardingGoogleAuth } from "../lib/onboarding-google";
@@ -271,36 +271,40 @@ type LoginChoice = {
   roleName: string;
 };
 
-function loginSession(row: LoginRow, override?: { token: string; support: { adminEmail: string; expiresAt: string } }) {
-  const user = {
-    id: row.id,
-    name: row.name,
-    email: row.email,
-    role: row.role.slug,
-    roleName: row.role.name,
-    roleId: row.roleId,
-    portal: row.role.portal,
-    permissions: row.role.grants.map((grant) => grant.permission),
-    scopes: Object.fromEntries(
-      row.role.grants.map((grant) => [grant.permission, grant.scope ?? scopePolicyFor(grant.permission, row.role.portal).defaultScope])
-    ),
-    isSystemRole: row.role.isSystem,
-  };
+/** Builds the signed-in session. `as: "PARENT"` opens a staff member's parent hat (same login). */
+async function loginSession(
+  userId: string,
+  opts: { as?: AppHat; override?: { token: string; support: { adminEmail: string; expiresAt: string } } } = {}
+) {
+  const access = await loadAccess(userId, opts.as);
+  if (!access) throw new Error("Sign in again.");
+  const hat = opts.as === "PARENT" && access.portal === "PARENT" && (access.hats || []).length > 1 ? "PARENT" : undefined;
   return {
-    token: override?.token ?? signAppToken(row.id),
-    user: { ...serializeUser(user), ...(override ? { support: override.support } : {}) },
-    nav: navForPortal(user.portal, user.permissions).map(publicNav),
+    token: opts.override?.token ?? signAppToken(userId, hat),
+    user: { ...serializeUser(access), ...(opts.override ? { support: opts.override.support } : {}) },
+    nav: navForPortal(access.portal, access.permissions).map(publicNav),
   };
 }
 
+/** One choice per login, plus a "Parent" choice for staff who are also parents. Choice ids: `<userId>` or `<userId>:parent`. */
 function loginChoices(rows: LoginRow[]): LoginChoice[] {
-  return rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    schoolName: row.org?.schoolName || "Anekio School",
-    portal: row.role.portal,
-    roleName: row.role.name,
-  }));
+  return rows.flatMap((row) => {
+    const base = {
+      id: row.id,
+      name: row.name,
+      schoolName: row.org?.schoolName || "Anekio School",
+      portal: row.role.portal,
+      roleName: row.role.name,
+    };
+    if (!row.parent || row.role.portal === "PARENT") return [base];
+    const kids = row.parent.students.map((student) => student.name).filter(Boolean);
+    return [base, { ...base, id: `${row.id}:parent`, portal: "PARENT", roleName: kids.length ? `Parent of ${kids.join(", ")}` : "Parent" }];
+  });
+}
+
+function parseAccountChoice(value: string) {
+  const [id, hat] = value.split(":");
+  return { id: id || "", as: hat === "parent" ? ("PARENT" as const) : undefined };
 }
 
 function sendAuthFlowError(res: express.Response, error: unknown) {
@@ -316,17 +320,19 @@ app.post("/api/v1/login", async (req, res) => {
   if (!login || !password) return sendError(res, 400, "Email or number, and password.");
   await ensureAccessRoles();
   const rows = await usersForLogin(login);
-  const picked = accountId ? rows.find((row) => row.id === accountId) : null;
+  const choice = parseAccountChoice(accountId);
+  const picked = choice.id ? rows.find((row) => row.id === choice.id) : null;
   const candidates = picked ? [picked] : rows;
   const valid: LoginRow[] = [];
   for (const row of candidates) {
     if (row.role && await bcrypt.compare(password, row.password)) valid.push(row);
   }
   if (!valid.length) return sendError(res, 401, "Those credentials are not in this school.");
-  if (!accountId && valid.length > 1) {
-    return res.json({ accountChoices: loginChoices(valid) });
+  const choices = loginChoices(valid);
+  if (!accountId && choices.length > 1) {
+    return res.json({ accountChoices: choices });
   }
-  res.json(loginSession(valid[0]));
+  res.json(await loginSession(valid[0].id, { as: choice.as }));
 });
 
 app.post("/api/v1/login/google", async (req, res) => {
@@ -340,10 +346,12 @@ app.post("/api/v1/login/google", async (req, res) => {
     if (!rows.length) {
       return sendError(res, 403, "This Google account is not linked to an Anekio school account. Use your registered email or contact your school administrator.");
     }
-    const picked = accountId ? rows.find((row) => row.id === accountId) : null;
+    const choice = parseAccountChoice(accountId);
+    const picked = choice.id ? rows.find((row) => row.id === choice.id) : null;
     if (accountId && !picked) return sendError(res, 403, "That school account is not linked to this Google email.");
-    if (!accountId && rows.length > 1) return res.json({ accountChoices: loginChoices(rows) });
-    res.json(loginSession(picked || rows[0]));
+    const choices = loginChoices(rows);
+    if (!accountId && choices.length > 1) return res.json({ accountChoices: choices });
+    res.json(await loginSession((picked || rows[0]).id, { as: choice.as }));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Google sign-in could not be completed.";
     console.error("Google sign-in failed", error);
@@ -368,7 +376,8 @@ app.post("/api/v1/login/otp/verify", async (req, res) => {
       include: { role: { include: { grants: true } }, org: { select: { schoolName: true } } },
     });
     if (!row?.role) return sendError(res, 401, "That code is invalid or has expired.");
-    res.json(loginSession(row));
+    // OTP signs in with the main role; a teacher who is also a parent switches hats from the profile menu.
+    res.json(await loginSession(row.id));
   } catch (error) {
     sendAuthFlowError(res, error);
   }
@@ -413,10 +422,24 @@ app.post("/api/v1/login/support/redeem", async (req, res) => {
       include: { role: { include: { grants: true } }, org: { select: { schoolName: true } } },
     });
     if (!row?.role) return sendError(res, 401, "That support code is invalid, used, or expired.");
-    res.json(loginSession(row, { token: redeemed.token, support: { adminEmail: redeemed.support.adminEmail, expiresAt: redeemed.support.expiresAt } }));
+    res.json(await loginSession(row.id, { override: { token: redeemed.token, support: { adminEmail: redeemed.support.adminEmail, expiresAt: redeemed.support.expiresAt } } }));
   } catch (error) {
     if (error instanceof SupportSessionError) return sendError(res, error.status, error.message);
     sendUnexpectedError(res, error, "Support login is unavailable.");
+  }
+});
+
+/** Switch between a staff login's own role and its parent hat, without signing out. */
+app.post("/api/v1/session/switch", async (req, res) => {
+  const user = await requireUser(req, res);
+  if (!user) return;
+  if (user.support) return sendError(res, 403, "Switching is not available in a support session.");
+  const as = String(req.body?.as || "").toUpperCase() === "PARENT" ? ("PARENT" as const) : undefined;
+  if (as && !(user.hats || []).includes("PARENT")) return sendError(res, 403, "This login is not a parent.");
+  try {
+    res.json(await loginSession(user.id, { as }));
+  } catch (error) {
+    sendUnexpectedError(res, error, "Could not switch.");
   }
 });
 

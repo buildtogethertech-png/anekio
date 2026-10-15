@@ -374,6 +374,10 @@ model Student {
   notices             Notice[]
   payToken            String?                  @unique
   billingStartPeriod  String                   @default("")
+  /// Values for the school's custom admission-form fields (custom_* ids), as JSON.
+  admissionDataJson   String                   @default("{}")
+  /// The enquiry this student was admitted from (one student per enquiry).
+  admissionLeadId     String?                  @unique
   enrollments         StudentClassEnrollment[]
 
   @@unique([orgId, admissionNo])
@@ -815,8 +819,11 @@ model Application {
 }
 
 model PlatformConfig {
-  id                String   @id @default("global")
-  admissionFormJson String   @default("[]")
+  id                      String   @id @default("global")
+  /// Anekio-wide defaults, used when a school has not saved its own form.
+  admissionFormJson       String   @default("[]")
+  websiteFormJson         String   @default("[]")
+  staffOnboardingFormJson String   @default("[]")
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 }
@@ -873,6 +880,7 @@ model SchoolConfig {
   websiteAdmissionNote    String                    @default("Admissions are open. Submit an enquiry and our office will contact you.")
   admissionFormJson       String                    @default("[]")
   staffOnboardingFormJson String                    @default("[]")
+  websiteFormJson         String                    @default("[]")
   admissionCharge         Int                       @default(0)
   sessionStart            String                    @default("")
   sessionEnd              String                    @default("")
@@ -1102,6 +1110,8 @@ model LeaveRequest {
   student          Student?               @relation(fields: [studentId], references: [id], onDelete: Cascade)
   guardianAt       DateTime?
   classTeacherAt   DateTime?
+  /// Half-day leave: "FIRST" or "SECOND" half of a single day; "" = full day(s).
+  halfDay          String                 @default("")
   createdAt        DateTime               @default(now())
   coverAssignments SubstituteAssignment[]
 }

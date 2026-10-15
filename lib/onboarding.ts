@@ -12,7 +12,7 @@ import { parseWeekdays } from "./schedule";
 import { examPlanWeight, parseExamPlan } from "./exams";
 import { currentTenantOrg, runWithoutTenant } from "./tenant-context";
 import { admissionFormFields, staffOnboardingFormFields, type AdmissionFormField } from "./admission-form";
-import { configuredAdmissionFormJson } from "./admission-form-config";
+import { configuredAdmissionFormJson, configuredFormJson } from "./admission-form-config";
 import { assignStudentRollNumber } from "./student-rolls";
 import { feePeriodAfter } from "./fees";
 
@@ -294,7 +294,7 @@ async function configuredImportForms(): Promise<ConfiguredImportForms> {
   });
   return {
     admission: admissionFormFields(await configuredAdmissionFormJson(config?.admissionFormJson)),
-    staff: staffOnboardingFormFields(config?.staffOnboardingFormJson),
+    staff: staffOnboardingFormFields(await configuredFormJson("staff", config?.staffOnboardingFormJson)),
   };
 }
 
@@ -1721,9 +1721,18 @@ async function applyStudents(
     const phone = normalizeMobile(configuredImportValue(row, forms.admission, "phone", "Parent mobile", "Parent phone"));
     const suppliedEmail = configuredImportValue(row, forms.admission, "email", "Parent email").toLowerCase();
     const email = suppliedEmail || placeholderEmail("parent", phone);
-    const user = await db.user.findFirst({ where: { orgId: setup.orgId, OR: [{ email }, { phone }] }, include: { parent: true } });
+    const user = await db.user.findFirst({ where: { orgId: setup.orgId, OR: [{ email }, { phone }] }, include: { parent: true, role: { select: { portal: true } } } });
     let parentId = user?.parent?.id || "";
-    if (user && !parentId) throw new Error(rowError(row, `${user.email} is already used by a non-parent account.`));
+    const staffParent = Boolean(user && !parentId);
+    if (user && !parentId) {
+      // Staff who is also a parent: add a parent hat to the same login.
+      if (user.role.portal === "STUDENT") throw new Error(rowError(row, `${user.email} is a student's own login. Use the parent's number.`));
+      try {
+        parentId = (await db.parent.create({ data: { orgId: setup.orgId, userId: user.id, phone: phone || user.phone || "" } })).id;
+      } catch (error) {
+        throw onboardingImportWriteError(row, error);
+      }
+    }
     if (!parentId) {
       let parentUser: { parent: { id: string } | null };
       try {
@@ -1743,7 +1752,7 @@ async function applyStudents(
         throw onboardingImportWriteError(row, error);
       }
       parentId = parentUser.parent!.id;
-    } else if (user) {
+    } else if (user && !staffParent && user.role.portal === "PARENT") {
       await db.user.update({ where: { id: user.id }, data: { name: configuredImportValue(row, forms.admission, "guardianName", "Parent name") || user.name } });
     }
     const studentId = sheetCell(row, "Anekio student ID");

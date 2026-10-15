@@ -348,6 +348,10 @@ function mediaTypeForField(field?: string): DocumentElementType {
   return "IMAGE";
 }
 
+const SAMPLE_PHOTO_URI =
+  "data:image/svg+xml;utf8," +
+  encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 150"><rect width="120" height="150" fill="#dbe7f7"/><circle cx="60" cy="58" r="26" fill="#8aa4c8"/><path d="M14 150c4-34 24-52 46-52s42 18 46 52z" fill="#8aa4c8"/></svg>');
+
 function isMediaField(field?: string) {
   return Boolean(field && MEDIA_FIELD_LABELS[field]);
 }
@@ -594,9 +598,20 @@ function TemplateEditor({ template, studio, data, onClose, onSaved }: { template
       employee: kind === "employee" ? data.staff?.find((row) => row.id === id) : undefined,
     };
   })();
+  // Same rule as the server: `student.photo` is the first image-only file field on the admission form.
+  const admissionPhotoFieldId = (data.school?.admissionForm || []).find((field) => field.type === "file" && !field.builtin && field.fileType === "image")?.id;
+  const previewAdmission: Record<string, string> = previewSelection.student?.admissionData || {};
+  const previewPhoto = (admissionPhotoFieldId && previewAdmission[admissionPhotoFieldId]) || (previewSelection.student ? "" : SAMPLE_PHOTO_URI);
   const canvasPreviewData = {
     school: { name: "Anekio Public School", address: "Sector 21, Indiranagar, Bengaluru - 560038", phone: "office@anekioschool.edu.in | +91 80 4567 2100", ...(data.school || {}) },
-    student: previewSelection.student || sampleStudent,
+    student: { ...(previewSelection.student || sampleStudent), photo: previewPhoto },
+    admission: previewSelection.student
+      ? previewAdmission
+      : Object.fromEntries(
+          (data.school?.admissionForm || [])
+            .filter((field) => !field.builtin)
+            .map((field) => [field.id, field.type === "file" ? (field.fileType === "image" ? SAMPLE_PHOTO_URI : "") : `[${field.label}]`])
+        ),
     guardian: {
       name: previewSelection.student?.parent || sampleStudent.parent,
       phone: previewSelection.student?.parentPhone || sampleStudent.parentPhone,
@@ -634,8 +649,8 @@ function TemplateEditor({ template, studio, data, onClose, onSaved }: { template
   };
   const selectedField = selected?.field ? studio.fields.find((row) => row.id === selected.field) : null;
   const selectedPreviewValue = selected?.field
-    ? isMediaField(selected.field) && previewText(atPath(canvasPreviewData, selected.field))
-      ? "Uploaded image"
+    ? (isMediaField(selected.field) || selectedField?.media) && previewText(atPath(canvasPreviewData, selected.field))
+      ? String(atPath(canvasPreviewData, selected.field)).startsWith("data:") ? "Sample photo (real one prints when issued)" : "Uploaded image"
       : previewText(atPath(canvasPreviewData, selected.field))
     : "";
   const selectedTitle = selectedField?.label || selected?.label || (selected ? ELEMENTS.find((row) => row.type === selected.type)?.label || selected.type : "");
@@ -905,7 +920,25 @@ function TemplateEditor({ template, studio, data, onClose, onSaved }: { template
             <View className="mt-5 gap-3 border-t border-ink-100 pt-4">
               <View className="flex-row items-center justify-between gap-2"><Text className="min-w-0 flex-1 text-sm font-semibold text-ink-900" numberOfLines={1}>{selectedTitle}</Text><Badge>{selected.locked ? "Locked" : selectedField ? "Dynamic" : "Selected"}</Badge></View>
               {selected.type === "TEXT" ? <Field label="Text"><Input multiline value={selected.value || ""} onChangeText={(value) => patchElement(selected.id, { value })} /></Field> : null}
-              {["FIELD", "TABLE", "BARCODE"].includes(selected.type) ? <Dropdown label="Shows" value={selected.field || ""} options={studio.fields.map((field) => ({ id: field.id, label: `${field.group} · ${field.label}`, searchText: `${field.group} ${field.label}` }))} onChange={(field) => patchElement(selected.id, { field, label: studio.fields.find((row) => row.id === field)?.label })} /> : null}
+              {["PHOTO", "IMAGE"].includes(selected.type) ? (
+                <Dropdown
+                  label="Maps to"
+                  value={selected.field || defaultMediaField(selected.type)}
+                  options={[
+                    ...(selected.type === "PHOTO"
+                      ? [
+                          { id: "student.photo", label: "Student photo · from admission form", searchText: "student photo" },
+                          { id: "employee.photo", label: "Staff photo", searchText: "staff employee photo" },
+                        ]
+                      : [{ id: "school.logoPath", label: "School logo", searchText: "school logo" }]),
+                    ...studio.fields
+                      .filter((field) => field.media)
+                      .map((field) => ({ id: field.id, label: `${field.group} · ${field.label}`, searchText: `${field.group} ${field.label}` })),
+                  ]}
+                  onChange={(field) => patchElement(selected.id, { field, label: studio.fields.find((row) => row.id === field)?.label || MEDIA_FIELD_LABELS[field] || selected.label })}
+                />
+              ) : null}
+              {["FIELD", "TABLE", "BARCODE"].includes(selected.type) ? <Dropdown label="Shows" value={selected.field || ""} options={studio.fields.filter((field) => !field.media).map((field) => ({ id: field.id, label: `${field.group} · ${field.label}`, searchText: `${field.group} ${field.label}` }))} onChange={(field) => patchElement(selected.id, { field, label: studio.fields.find((row) => row.id === field)?.label })} /> : null}
               {selectedField ? (
                 <View className="rounded-md border border-blue-100 bg-blue-50 p-3">
                   <Text className="text-[11px] font-semibold text-blue-900">{selectedField.group} data</Text>
@@ -1076,29 +1109,8 @@ function issuableTemplates(studio: RecordPayload["documentStudio"] | undefined, 
     ? [...new Set([...allowedTypes, "REPORT_CARD", "GRADE_SHEET", "PROGRESS_REPORT", "CONSOLIDATED_REPORT"])]
     : allowedTypes;
   const active = (studio?.templates || []).filter((row) => row.status === "ACTIVE" && related.includes(row.type));
-  const reportOnly = allowedTypes.every((type) => type === "REPORT_CARD" || type.startsWith("REPORT_CARD_") || type === "GRADE_SHEET" || type === "CONSOLIDATED_REPORT" || type === "PROGRESS_REPORT");
-  const admitOnly = allowedTypes.length > 0 && allowedTypes.every((type) => type === "ADMIT_CARD");
-  if (reportOnly || admitOnly) return active.sort((a, b) => a.name.localeCompare(b.name));
-  const used = new Set(active.map((row) => row.type));
-  const defaults = (studio?.defaults || []).filter((row) => allowedTypes.includes(row.type) && !used.has(row.type));
-  for (const row of defaults) used.add(row.type);
-  const missing: DocumentTemplateSummary[] = allowedTypes
-    .filter((type) => !used.has(type))
-    .map((type) => ({
-      id: `builtin:${type}`,
-      builtIn: true,
-      type,
-      category: "ACADEMIC",
-      name: type.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase()),
-      description: "",
-      pageSize: "A4",
-      orientation: "PORTRAIT",
-      status: "DEFAULT",
-      activeVersion: null,
-      updatedAt: null,
-      layout: { elements: [] },
-    }));
-  return [...active, ...defaults, ...missing].sort((a, b) => {
+  // Only templates the school has activated; unused document types stay out of the way.
+  return active.sort((a, b) => {
     const rank = (type: string) => type === "REPORT_CARD" ? 2 : type.startsWith("REPORT_CARD") ? 1 : 0;
     return rank(b.type) - rank(a.type) || a.name.localeCompare(b.name);
   });
@@ -1229,6 +1241,22 @@ export function QuickDocumentButton({
     } finally { setPending(false); }
   }
 
+  // Nothing active to issue: no empty popup, just a pointer to set documents up.
+  if (!templates.length && !resultIssue && !admitOnly) {
+    return (
+      <View className="flex-row items-center gap-2">
+        <Text className="text-xs text-ink-700">No documents set up</Text>
+        <Pressable
+          hitSlop={8}
+          accessibilityRole="link"
+          onPress={() => router.push({ pathname: "/school", params: { tab: "documents" } } as never)}
+        >
+          <Text className="text-xs font-semibold text-clay-600">Set up</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
   return (
     <>
       <Button variant="ghost" onPress={() => setOpen(true)}>{label}</Button>
@@ -1277,15 +1305,18 @@ export function QuickDocumentButton({
                     className={`rounded-md border px-3 py-2.5 ${selected ? "border-clay-500 bg-blue-50" : "border-ink-200 bg-white"}`}
                   >
                     <Text className="text-sm font-semibold text-ink-900">{row.name}</Text>
-                    <Text className="mt-0.5 text-xs text-ink-700">{row.builtIn || row.status === "DEFAULT" ? "School default" : `Active · v${row.activeVersion}`}</Text>
+                    <Text className="mt-0.5 text-xs text-ink-700">{`Active · v${row.activeVersion}`}</Text>
                   </Pressable>
                 );
               })}
             </View>
           ) : (
             <View className="rounded-md border border-amber-300 bg-amber-50 p-3">
-              <Text className="text-sm font-semibold text-amber-900">No template available</Text>
-              <Text className="mt-1 text-xs leading-5 text-amber-900">Add a document type in Settings → Documents, then issue it here.</Text>
+              <Text className="text-sm font-semibold text-amber-900">No active documents yet</Text>
+              <Text className="mt-1 text-xs leading-5 text-amber-900">Design and publish the documents your school uses, then issue them here.</Text>
+              <Pressable className="mt-2" onPress={() => { setOpen(false); router.push({ pathname: "/school", params: { tab: "documents" } } as never); }}>
+                <Text className="text-xs font-semibold text-amber-950">Open Document Studio</Text>
+              </Pressable>
             </View>
           )}
           {batchSubjects?.length && reportGate ? (

@@ -28,7 +28,7 @@ import {
 } from "./family-boards";
 import { TeacherExamsBoard } from "./teacher-exams-workspace";
 import { Button, Empty, PageHeader } from "./ui";
-import { MoreBoard } from "./nav-menu";
+import { AccountActions, MoreBoard } from "./nav-menu";
 import { ParentExamination, ParentExaminationError, ParentExaminationLoading } from "./parent-examination";
 import { OnboardingBoard } from "./onboarding-board";
 import { PORTAL_PATH, examsScreenForKind, testsScreenForKind } from "../lib/paths";
@@ -96,7 +96,13 @@ export function PortalBody({ screen }: { screen: string }) {
     return <Text className="text-sm text-ink-700">Loading…</Text>;
   }
   if (data.subscriptionLock) return <SubscriptionLocked lock={data.subscriptionLock} />;
-  if (screen === "profile") return <FamilyProfile />;
+  if (screen === "profile")
+    return (
+      <View>
+        <FamilyProfile />
+        <AccountActions />
+      </View>
+    );
 
   const allowed = new Set(nav.map((item) => item.key));
   if (screen !== "more" && screen in PORTAL_PATH && !allowed.has(screen)) {

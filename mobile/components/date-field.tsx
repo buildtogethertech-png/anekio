@@ -68,6 +68,22 @@ export function DateField({
   const caption = beforeMin ? "Choose a day on or after the first day." : futureSelected ? "That day has not come yet." : closedCaption(reason);
   const weekday = WEEKDAY_LONG[selected.getDay()] || "";
   const sideLabel = value ? (reason ? (reason.length > 18 ? "Off" : reason) : weekday) : "";
+  const allowed = (stamp: string) => !((min && stamp < min) || (max && stamp > max) || closedReason?.(stamp));
+  const quickPicks = (() => {
+    const today = toYmd(new Date());
+    const picks: { label: string; value: string }[] = [];
+    if (allowed(today)) picks.push({ label: "Today", value: today });
+    const next = new Date();
+    for (let i = 0; i < 10; i += 1) {
+      next.setDate(next.getDate() + 1);
+      const stamp = toYmd(next);
+      if (allowed(stamp)) {
+        picks.push({ label: i === 0 ? "Tomorrow" : `Next school day`, value: stamp });
+        break;
+      }
+    }
+    return picks;
+  })();
   const markedDates = useMemo<CalendarMarks>(() => {
     const marks: CalendarMarks = {};
     for (const stamp of monthDates(cursor)) {
@@ -91,7 +107,7 @@ export function DateField({
     return marks;
   }, [closedReason, cursor, max, min, value]);
 
-  const monthYearPicker = (
+  const monthYearPicker = picker === "calendar" ? null : (
     <View className="px-2 pt-2">
       <View className="flex-row items-center justify-center gap-2">
         <Pressable
@@ -166,7 +182,7 @@ export function DateField({
     <View className="rounded-lg bg-white px-1 py-1">
       {monthYearPicker}
       {picker === "calendar" ? <Calendar
-        style={{ width: DESKTOP_CALENDAR_SIZE.width }}
+        style={{ width: phone ? undefined : DESKTOP_CALENDAR_SIZE.width }}
         current={toYmd(cursor)}
         firstDay={0}
         hideExtraDays
@@ -182,11 +198,27 @@ export function DateField({
           setOpen(false);
         }}
         renderArrow={(direction: "left" | "right") => (
-          <View className="h-7 w-7 items-center justify-center rounded-full bg-ink-50">
-            <Ionicons name={direction === "left" ? "chevron-back" : "chevron-forward"} size={17} color="#1e3a5f" />
+          <View className="h-9 w-9 items-center justify-center rounded-full bg-ink-50">
+            <Ionicons name={direction === "left" ? "chevron-back" : "chevron-forward"} size={18} color="#1e3a5f" />
           </View>
         )}
+        renderHeader={() => (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Choose month and year"
+            onPress={() => setPicker("month")}
+            className="flex-row items-center gap-1 rounded-full px-3 py-1.5 active:bg-ink-50"
+          >
+            <Text style={{ fontFamily: "Inter_700Bold", fontSize: 16, color: "#102a43" }}>
+              {MONTHS[cursor.getMonth()]} {cursor.getFullYear()}
+            </Text>
+            <Ionicons name="chevron-down" size={15} color="#52667d" />
+          </Pressable>
+        )}
         theme={{
+          textDayFontFamily: "Inter_500Medium",
+          textMonthFontFamily: "Inter_700Bold",
+          textDayHeaderFontFamily: "Inter_600SemiBold",
           calendarBackground: "#ffffff",
           textSectionTitleColor: "#52667d",
           selectedDayBackgroundColor: "#2456d6",
@@ -196,7 +228,7 @@ export function DateField({
           monthTextColor: "#102a43",
           textDisabledColor: "#9aa7b7",
           arrowColor: "#1e3a5f",
-          textDayFontSize: 13,
+          textDayFontSize: phone ? 15 : 13,
           textMonthFontSize: 15,
           textDayHeaderFontSize: 11,
           textDayFontWeight: "500",
@@ -221,13 +253,19 @@ export function DateField({
           },
           "stylesheet.day.basic": {
             base: {
-              width: 30,
-              height: 30,
+              width: phone ? 40 : 30,
+              height: phone ? 40 : 30,
               alignItems: "center",
               justifyContent: "center",
             },
             selected: {
-              borderRadius: 15,
+              borderRadius: phone ? 20 : 15,
+            },
+            // Today: outlined ring (Material-style), selected day stays solid blue.
+            today: {
+              borderRadius: phone ? 20 : 15,
+              borderWidth: 1.5,
+              borderColor: "#2456d6",
             },
           },
         } as CalendarTheme}
@@ -276,10 +314,52 @@ export function DateField({
       {phone ? (
         <>
           {trigger}
-          <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-            <Pressable className="flex-1 items-center justify-center bg-black/40 px-4 py-8" onPress={() => setOpen(false)}>
-              <Pressable className="w-full max-w-md rounded-[10px] border border-ink-200 bg-white" onPress={() => {}}>
-                {calendar}
+          <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
+            <Pressable className="flex-1 justify-end bg-black/40" onPress={() => setOpen(false)}>
+              <Pressable className="w-full rounded-t-3xl bg-white pb-6" onPress={() => {}}>
+                <View className="items-center pt-2.5">
+                  <View className="h-1 w-10 rounded-full bg-ink-200" />
+                </View>
+                <View className="flex-row items-end justify-between px-6 pb-2 pt-3">
+                  <View>
+                    <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">Select date</Text>
+                    <Text className="mt-1 text-[26px] font-bold text-ink-900">
+                      {value ? `${WEEKDAY_LONG[selected.getDay()].slice(0, 3)}, ${prettyDay(value, false)}` : "—"}
+                    </Text>
+                  </View>
+                  <Pressable accessibilityRole="button" onPress={() => setOpen(false)} hitSlop={8} className="pb-1.5">
+                    <Text className="text-sm font-semibold text-[#2456d6]">Cancel</Text>
+                  </Pressable>
+                </View>
+                {quickPicks.length ? (
+                  <View className="flex-row gap-2 px-6 pb-1">
+                    {quickPicks.map((pick) => (
+                      <Pressable
+                        key={pick.label}
+                        onPress={() => {
+                          onChange(pick.value);
+                          setOpen(false);
+                        }}
+                        className={`rounded-full border px-3.5 py-1.5 ${value === pick.value ? "border-[#2456d6] bg-[#EEF3FF]" : "border-ink-200 bg-white"}`}
+                      >
+                        <Text className={`text-xs font-semibold ${value === pick.value ? "text-[#2456d6]" : "text-ink-800"}`}>{pick.label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : null}
+                <View className="px-3">{calendar}</View>
+                {closedReason ? (
+                  <View className="flex-row items-center gap-4 px-6 pt-1">
+                    <View className="flex-row items-center gap-1.5">
+                      <View className="h-3 w-3 rounded-full border-[1.5px] border-[#2456d6]" />
+                      <Text className="text-[11px] text-ink-700">Today</Text>
+                    </View>
+                    <View className="flex-row items-center gap-1.5">
+                      <Text className="text-[13px] font-medium text-[#9aa7b7]">12</Text>
+                      <Text className="text-[11px] text-ink-700">Holiday / weekly off</Text>
+                    </View>
+                  </View>
+                ) : null}
               </Pressable>
             </Pressable>
           </Modal>
@@ -343,6 +423,9 @@ export function MonthField({
           </View>
         )}
         theme={{
+          textDayFontFamily: "Inter_500Medium",
+          textMonthFontFamily: "Inter_700Bold",
+          textDayHeaderFontFamily: "Inter_600SemiBold",
           calendarBackground: "#ffffff",
           textSectionTitleColor: "#52667d",
           selectedDayBackgroundColor: "#2456d6",

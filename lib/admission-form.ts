@@ -18,19 +18,12 @@ export type AdmissionFormField = {
 };
 
 const BUILTIN_IDS = ["studentName", "classWanted", "billingStartPeriod", "guardianName", "phone", "email", "message"] as const;
+/** Every admission needs these, so schools can rename them but never hide them or make them optional. */
+export const LOCKED_ADMISSION_FIELD_IDS: readonly string[] = ["studentName", "classWanted", "guardianName", "phone"];
+/** Admission also needs the billing month: invoices start from it. Not asked on the website. */
+export const LOCKED_STUDENT_ADMISSION_FIELD_IDS: readonly string[] = [...LOCKED_ADMISSION_FIELD_IDS, "billingStartPeriod"];
 export type AdmissionBuiltinId = (typeof BUILTIN_IDS)[number];
 const STAFF_ONBOARDING_BUILTIN_IDS = ["staffName", "phone", "email", "role", "department", "joiningDate", "qualification", "address"] as const;
-
-export const DEFAULT_STAFF_ONBOARDING_FORM: AdmissionFormField[] = [
-  { id: "staffName", label: "Staff name", type: "text", required: true, visible: true, options: [], builtin: true },
-  { id: "phone", label: "Phone", type: "phone", required: true, visible: true, options: [], builtin: true },
-  { id: "email", label: "Email", type: "email", required: false, visible: true, options: [], builtin: true },
-  { id: "role", label: "Role", type: "select", required: true, visible: true, options: ["Teacher", "Office staff", "Support staff"], builtin: true },
-  { id: "department", label: "Department", type: "text", required: false, visible: true, options: [], builtin: true },
-  { id: "joiningDate", label: "Joining date", type: "date", required: true, visible: true, options: [], builtin: true },
-  { id: "qualification", label: "Qualification", type: "text", required: false, visible: true, options: [], builtin: true },
-  { id: "address", label: "Address", type: "textarea", required: false, visible: true, options: [], builtin: true },
-];
 
 function cleanOptions(value: unknown) {
   const source = Array.isArray(value) ? value : String(value || "").split(/\n|,/);
@@ -48,83 +41,8 @@ function customId(value: unknown, index: number) {
   return clean.startsWith("custom_") ? clean : `custom_${clean || index + 1}`;
 }
 
-function formFields(value: unknown, defaults: AdmissionFormField[], builtinIds: readonly string[]): AdmissionFormField[] {
-  let parsed = value;
-  if (typeof value === "string") {
-    try {
-      parsed = JSON.parse(value);
-    } catch {
-      return defaults.map((field) => ({ ...field, options: [...field.options] }));
-    }
-  }
-  if (!Array.isArray(parsed) || !parsed.length) {
-    return defaults.map((field) => ({ ...field, options: [...field.options] }));
-  }
-
-  const incoming = parsed.filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === "object");
-  const byId = new Map(incoming.map((row) => [String(row.id || ""), row]));
-  const builtins = defaults.map((fallback) => {
-    const row = byId.get(fallback.id);
-    const type = ADMISSION_FIELD_TYPES.includes(String(row?.type || "") as AdmissionFieldType)
-      ? (String(row?.type) as AdmissionFieldType)
-      : fallback.type;
-    const options = ["select", "radio", "multi"].includes(type) ? cleanOptions(row?.options) : [];
-    return {
-      ...fallback,
-      label: String(row?.label || fallback.label).trim().slice(0, 80) || fallback.label,
-      type,
-      required: row?.required === undefined ? fallback.required : Boolean(row.required),
-      visible: row?.visible === undefined ? fallback.visible : Boolean(row.visible),
-      options,
-      helpText: String(row?.helpText || "").trim().slice(0, 140) || undefined,
-    };
-  });
-
-  const used = new Set<string>(builtinIds);
-  const custom = incoming
-    .filter((row) => !used.has(String(row.id || "")))
-    .slice(0, 14)
-    .map((row, index) => {
-      let id = customId(row.id, index);
-      while (used.has(id)) id = `${id}_${index + 1}`.slice(0, 55);
-      used.add(id);
-      const type = ADMISSION_FIELD_TYPES.includes(String(row.type || "") as AdmissionFieldType)
-        ? (String(row.type) as AdmissionFieldType)
-        : "text";
-      const fileType = ADMISSION_FILE_TYPES.includes(String(row.fileType || "") as AdmissionFileType)
-        ? (String(row.fileType) as AdmissionFileType)
-        : "image_pdf";
-      const maxFileSizeMb = Math.min(12, Math.max(1, Math.round(Number(row.maxFileSizeMb || 5) || 5)));
-      return {
-        id,
-        label: String(row.label || `Custom field ${index + 1}`).trim().slice(0, 80) || `Custom field ${index + 1}`,
-        type,
-        required: Boolean(row.required),
-        visible: row.visible === undefined ? true : Boolean(row.visible),
-        options: ["select", "radio", "multi"].includes(type) ? cleanOptions(row.options) : [],
-        builtin: false,
-        helpText: String(row.helpText || "").trim().slice(0, 140) || undefined,
-        ...(type === "file" ? { fileType, maxFileSizeMb } : {}),
-      } satisfies AdmissionFormField;
-    });
-
-  return [...builtins, ...custom].map((field) => ({ ...field, required: field.visible && field.required }));
-}
-
-function formJson(value: unknown, defaults: AdmissionFormField[], builtinIds: readonly string[]) {
-  const fields = formFields(value, defaults, builtinIds);
-  for (const field of fields) {
-    if (["select", "radio", "multi"].includes(field.type) && field.visible && !field.options.length) {
-      throw new Error(`${field.label} needs at least one option.`);
-    }
-    if (field.type === "file" && field.visible && !field.fileType) {
-      throw new Error(`${field.label} needs accepted file types.`);
-    }
-  }
-  return JSON.stringify(fields);
-}
-
-export function admissionFormFields(value: unknown): AdmissionFormField[] {
+/** Parses a saved form. Built-in ids are the code's field contract; everything else is the school's own field. */
+function parseFormFields(value: unknown, builtinIds: readonly string[], lockedIds: readonly string[] = []): AdmissionFormField[] {
   let parsed = value;
   if (typeof value === "string") {
     try { parsed = JSON.parse(value); } catch { return []; }
@@ -132,23 +50,24 @@ export function admissionFormFields(value: unknown): AdmissionFormField[] {
   if (!Array.isArray(parsed)) return [];
   const used = new Set<string>();
   return parsed.filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === "object")
-    .slice(0, BUILTIN_IDS.length + 14)
+    .slice(0, builtinIds.length + 14)
     .map((row, index): AdmissionFormField | null => {
       const rawId = String(row.id || "");
-      const builtin = BUILTIN_IDS.includes(rawId as AdmissionBuiltinId);
-      let id = builtin ? rawId : customId(rawId, index);
+      const builtin = builtinIds.includes(rawId);
+      const id = builtin ? rawId : customId(rawId, index);
       if (used.has(id)) return null;
       used.add(id);
       const type = ADMISSION_FIELD_TYPES.includes(String(row.type || "") as AdmissionFieldType)
         ? String(row.type) as AdmissionFieldType : "text";
       const fileType = ADMISSION_FILE_TYPES.includes(String(row.fileType || "") as AdmissionFileType)
         ? String(row.fileType) as AdmissionFileType : "image_pdf";
-      const visible = row.visible === undefined ? true : Boolean(row.visible);
+      const locked = builtin && lockedIds.includes(id);
+      const visible = locked || row.visible === undefined ? true : Boolean(row.visible);
       return {
         id,
         label: String(row.label || id).trim().slice(0, 80) || id,
         type,
-        required: visible && Boolean(row.required),
+        required: locked || (visible && Boolean(row.required)),
         visible,
         options: ["select", "radio", "multi"].includes(type) ? cleanOptions(row.options) : [],
         builtin,
@@ -158,25 +77,48 @@ export function admissionFormFields(value: unknown): AdmissionFormField[] {
     }).filter((field): field is AdmissionFormField => field !== null);
 }
 
-export function admissionFormJson(value: unknown) {
-  const fields = admissionFormFields(value);
+function validatedFormJson(fields: AdmissionFormField[]) {
   for (const field of fields) {
     if (["select", "radio", "multi"].includes(field.type) && field.visible && !field.options.length) throw new Error(`${field.label} needs at least one option.`);
   }
   return JSON.stringify(fields);
 }
 
-export function effectiveAdmissionFormJson(schoolValue: unknown, platformValue: unknown): unknown {
-  const schoolFields = admissionFormFields(schoolValue);
-  return schoolFields.length ? schoolValue : platformValue;
+/** Student admission form: used by Add student in the office. */
+export function admissionFormFields(value: unknown): AdmissionFormField[] {
+  return parseFormFields(value, BUILTIN_IDS, LOCKED_STUDENT_ADMISSION_FIELD_IDS);
+}
+
+/** Website enquiry form: used by the public school website and enquiries. */
+export function websiteFormFields(value: unknown): AdmissionFormField[] {
+  return parseFormFields(value, BUILTIN_IDS, LOCKED_ADMISSION_FIELD_IDS);
 }
 
 export function staffOnboardingFormFields(value: unknown): AdmissionFormField[] {
-  return formFields(value, DEFAULT_STAFF_ONBOARDING_FORM, STAFF_ONBOARDING_BUILTIN_IDS);
+  return parseFormFields(value, STAFF_ONBOARDING_BUILTIN_IDS);
 }
 
+export function websiteFormJson(value: unknown) {
+  return validatedFormJson(websiteFormFields(value));
+}
+
+export function admissionFormJson(value: unknown) {
+  return validatedFormJson(admissionFormFields(value));
+}
+
+/** A school's own saved form wins; otherwise the Anekio default from PlatformConfig. No defaults live in code. */
+export function effectiveFormJson(schoolValue: unknown, platformValue: unknown): unknown {
+  let parsed = schoolValue;
+  if (typeof schoolValue === "string") {
+    try { parsed = JSON.parse(schoolValue); } catch { parsed = []; }
+  }
+  return Array.isArray(parsed) && parsed.length ? schoolValue : platformValue;
+}
+
+export const effectiveAdmissionFormJson = effectiveFormJson;
+
 export function staffOnboardingFormJson(value: unknown) {
-  return formJson(value, DEFAULT_STAFF_ONBOARDING_FORM, STAFF_ONBOARDING_BUILTIN_IDS);
+  return validatedFormJson(staffOnboardingFormFields(value));
 }
 
 export function admissionCustomValues(value: unknown): Record<string, string> {
@@ -195,8 +137,9 @@ export function admissionCustomValues(value: unknown): Record<string, string> {
   }
 }
 
+/** Validates an enquiry (website or walk-in) against the website enquiry form. Billing month is not asked here. */
 export function admissionLeadInput(fieldsValue: unknown, input: Record<string, unknown>) {
-  const fields = admissionFormFields(fieldsValue);
+  const fields = websiteFormFields(fieldsValue);
   const values: Record<string, string> = {};
   for (const field of fields.filter((row) => row.visible)) {
     const inputValue = input[field.id];
@@ -227,4 +170,27 @@ export function admissionLeadInput(fieldsValue: unknown, input: Record<string, u
     message: builtin("message", 800),
     customValues,
   };
+}
+
+/**
+ * Validates the school's custom admission-form fields for a student added by the office.
+ * File fields are uploaded after the student exists, so they are skipped here.
+ */
+export function studentAdmissionCustomValues(fieldsValue: unknown, input: unknown): Record<string, string> {
+  const source = input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
+  const values: Record<string, string> = {};
+  for (const field of admissionFormFields(fieldsValue).filter((row) => row.visible && !row.builtin && row.type !== "file")) {
+    const raw = Array.isArray(source[field.id]) ? (source[field.id] as unknown[]).map((item) => String(item || "")).join(", ") : source[field.id];
+    const value = String(raw ?? "").trim().slice(0, field.type === "textarea" ? 1000 : 180);
+    if (field.required && !value) throw new Error(`${field.label} is required.`);
+    if (!value) continue;
+    if (["select", "radio"].includes(field.type) && !field.options.includes(value)) throw new Error(`Choose a valid ${field.label}.`);
+    if (field.type === "multi" && value.split(",").map((row) => row.trim()).filter(Boolean).some((option) => !field.options.includes(option))) throw new Error(`Choose valid ${field.label} options.`);
+    if (field.type === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) throw new Error(`Enter a valid ${field.label}.`);
+    if (field.type === "number" && !Number.isFinite(Number(value))) throw new Error(`Enter a valid ${field.label}.`);
+    if (field.type === "month" && !/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) throw new Error(`Choose a valid ${field.label}.`);
+    if (field.type === "date" && Number.isNaN(new Date(value).getTime())) throw new Error(`Enter a valid ${field.label}.`);
+    values[field.id] = value;
+  }
+  return values;
 }

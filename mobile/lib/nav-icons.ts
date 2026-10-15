@@ -8,14 +8,14 @@ export const TAB_ICONS: Record<string, { outline: IoniconName; filled: IoniconNa
   notices: { outline: "megaphone-outline", filled: "megaphone" },
   inbox: { outline: "mail-unread-outline", filled: "mail-unread" },
   more: { outline: "grid-outline", filled: "grid" },
-  timetable: { outline: "calendar-outline", filled: "calendar" },
+  timetable: { outline: "time-outline", filled: "time" },
   fees: { outline: "card-outline", filled: "card" },
   profile: { outline: "person-outline", filled: "person" },
   people: { outline: "people-outline", filled: "people" },
   staff: { outline: "briefcase-outline", filled: "briefcase" },
-  attendance: { outline: "checkmark-circle-outline", filled: "checkmark-circle" },
-  exams: { outline: "document-text-outline", filled: "document-text" },
-  leave: { outline: "walk-outline", filled: "walk" },
+  attendance: { outline: "checkbox-outline", filled: "checkbox" },
+  exams: { outline: "clipboard-outline", filled: "clipboard" },
+  leave: { outline: "airplane-outline", filled: "airplane" },
   class: { outline: "people-outline", filled: "people" },
 };
 
@@ -35,14 +35,14 @@ const NAV_ICONS: Record<string, IoniconName> = {
   onboarding: "rocket-outline",
   staff: "briefcase-outline",
   school: "school-outline",
-  timetable: "calendar-outline",
+  timetable: "time-outline",
   fees: "card-outline",
-  exams: "document-text-outline",
-  leave: "walk-outline",
+  exams: "clipboard-outline",
+  leave: "airplane-outline",
   class: "people-outline",
   roles: "shield-checkmark-outline",
   subscription: "receipt-outline",
-  attendance: "checkmark-circle-outline",
+  attendance: "checkbox-outline",
   subjects: "book-outline",
   tests: "reader-outline",
   papers: "documents-outline",
@@ -58,7 +58,8 @@ export function iconForNav(key: string): IoniconName {
 
 export function tabsForPortal(portal?: string | null) {
   if (portal === "PARENT") return ["home", "timetable", "fees", "more"];
-  if (portal === "TEACHER") return ["home", "attendance", "class", "exams", "more"];
+  // Teachers: no "More" tab. Leave is on the dashboard, Inbox and Profile sit in the top bar.
+  if (portal === "TEACHER") return ["home", "attendance", "class", "exams", "timetable"];
   if (portal === "OFFICE") return ["home", "people", "staff", "fees", "more"];
   return ["home", "timetable", "fees", "profile", "more"];
 }

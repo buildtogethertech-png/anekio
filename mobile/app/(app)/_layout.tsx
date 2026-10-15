@@ -6,7 +6,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { AppTabBar } from "../../components/app-tab-bar";
 import { AnekioLoader } from "../../components/anekio-loader";
-import { NavMenu } from "../../components/nav-menu";
+import { HatSwitch, NavMenu } from "../../components/nav-menu";
 import { NoticeBell } from "../../components/notice-bell";
 import { OnboardingBoard } from "../../components/onboarding-board";
 import { RecordProvider, useRecord } from "../../lib/record";
@@ -370,6 +370,7 @@ export default function AppLayout() {
           <Sidebar />
           <View className="min-h-0 flex-1 overflow-hidden">
             <View className="h-14 shrink-0 flex-row items-center justify-end gap-2 border-b border-ink-200 bg-white px-5">
+              <HatSwitch />
               <NoticeBell />
               <ProfileChip />
             </View>

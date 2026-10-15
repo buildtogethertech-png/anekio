@@ -1,6 +1,6 @@
 import { createElement, useMemo, useState, useEffect, useRef } from "react";
 import type { ReactNode } from "react";
-import { Alert, Linking, Modal as RnModal, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { Alert, Linking, Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { GeneratePayment } from "./generate-payment";
@@ -10,7 +10,8 @@ import { DateField, MonthField } from "./date-field";
 import { FilterBar, type FilterConfig, type FilterValues } from "./filter";
 import { StaffAdmitForm, type StaffAdmitPayload } from "./staff-admit-form";
 import { StaffAttendanceDetail } from "./staff-attendance-detail";
-import { StudentAdmitForm, type StudentAdmitPayload } from "./student-admit-form";
+import { StudentAdmitForm, type StudentAdmitFiles, type StudentAdmitInitial, type StudentAdmitPayload } from "./student-admit-form";
+import { useAssetUrl } from "../lib/assets";
 import { ReportCardSheet, type ReportCardData } from "./report-card-sheet";
 import { studentSeriesScore, studentYearScore } from "../lib/exams";
 import { act, saveLateTiming } from "../lib/mutate";
@@ -25,6 +26,7 @@ import { inr, parsePayrollRules, type PayrollRules } from "../lib/payroll";
 import { lastAttendanceDots } from "../lib/attendance-summary";
 import { calendarFrom, closedCaption, closedReason, ymd } from "../lib/calendar";
 import { QuickDocumentButton } from "./document-studio";
+import { cloneFields, FormBuilderModal } from "./form-builder";
 import { StaffHoursForm, type StaffHoursFormHandle } from "./staff-hours-form";
 import { StaffTimesheet } from "./staff-timesheet";
 import { OnboardingBoard } from "./onboarding-board";
@@ -220,6 +222,77 @@ function DetailField({ label, value }: { label: string; value?: string }) {
       <Text className="mt-1 text-sm font-medium text-ink-900" numberOfLines={2}>
         {value || "Not provided"}
       </Text>
+    </View>
+  );
+}
+
+function openInNewTab(url: string) {
+  if (!url) return;
+  if (Platform.OS === "web" && typeof window !== "undefined") window.open(url, "_blank", "noopener");
+  else void Linking.openURL(url).catch(() => undefined);
+}
+
+function admissionFileAccept(field: AdmissionFormField) {
+  if (field.fileType === "image") return "image/png,image/jpeg,image/webp";
+  if (field.fileType === "pdf") return "application/pdf,.pdf";
+  return "image/png,image/jpeg,image/webp,application/pdf,.pdf";
+}
+
+/** One document the school's admission form asks for (School setup → Forms & Templates). */
+function AdmissionDocumentRow({
+  field,
+  path,
+  first,
+  pending,
+  canUpload,
+  onUpload,
+}: {
+  field: AdmissionFormField;
+  path?: string;
+  first: boolean;
+  pending: boolean;
+  canUpload: boolean;
+  onUpload: () => void;
+}) {
+  const url = useAssetUrl(path);
+  const name = path ? path.split("/").pop() || "File" : "";
+  return (
+    <View className={`flex-row items-center justify-between gap-3 px-3 py-3 ${first ? "" : "border-t border-ink-100"}`}>
+      <View className="min-w-0 flex-1">
+        <Text className="text-sm font-medium text-ink-900">
+          {field.label}
+          {field.required ? <Text className="text-red-600"> *</Text> : null}
+        </Text>
+        <Text className="mt-1 text-xs text-ink-700" numberOfLines={1}>
+          {path ? name : field.helpText || "Not uploaded"}
+        </Text>
+      </View>
+      <View className="flex-row items-center gap-3">
+        <Badge tone={path ? "leaf" : "ink"}>{path ? "uploaded" : "missing"}</Badge>
+        {path ? (
+          <Pressable disabled={!url} onPress={() => openInNewTab(url)} hitSlop={8}>
+            <Text className="text-xs font-medium text-clay-600">{url ? "Preview" : "Loading…"}</Text>
+          </Pressable>
+        ) : null}
+        {canUpload ? (
+          <Pressable disabled={pending} onPress={onUpload} hitSlop={8}>
+            <Text className="text-xs font-medium text-clay-600">{pending ? "Uploading..." : path ? "Replace" : "Upload"}</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function AdmissionDetails({ fields, values }: { fields: AdmissionFormField[]; values?: Record<string, string> }) {
+  // Files live on the Documents tab; Overview shows the written answers only.
+  const custom = fields.filter((field) => !field.builtin && field.type !== "file" && (field.visible || values?.[field.id]));
+  if (!custom.length) return null;
+  return (
+    <View className="flex-row flex-wrap gap-x-6">
+      {custom.map((field) => (
+        <DetailField key={field.id} label={field.label} value={values?.[field.id]} />
+      ))}
     </View>
   );
 }
@@ -737,6 +810,164 @@ export function DeskBoard() {
   );
 }
 
+const ROSTER_STATUS: Record<string, { label: string; dot: string; box: string; text: string }> = {
+  present: { label: "Present", dot: "#10B981", box: "bg-emerald-50", text: "text-emerald-700" },
+  late: { label: "Late", dot: "#F59E0B", box: "bg-amber-50", text: "text-amber-800" },
+  absent: { label: "Absent", dot: "#EF4444", box: "bg-red-50", text: "text-red-700" },
+  leave: { label: "Leave", dot: "#6366F1", box: "bg-indigo-50", text: "text-indigo-700" },
+};
+
+function rosterStatus(value?: string) {
+  const key = String(value || "").trim().toLowerCase();
+  if (key === "present" || key === "in") return "present";
+  if (key === "absent" || key === "out") return "absent";
+  if (key === "late") return "late";
+  if (key === "leave" || key === "on leave") return "leave";
+  return "";
+}
+
+/** Class teacher's phone roster: roll order, today's status, one-tap call to the parent. */
+function TeacherRoster({
+  title,
+  onPick,
+}: {
+  title: string;
+  onPick: (studentId: string) => void;
+}) {
+  const { data } = useRecord();
+  const router = useRouter();
+  const [q, setQ] = useState("");
+  const todayById = new Map((data?.roster ?? []).map((row) => [row.id, rosterStatus(row.today)]));
+  const students = [...(data?.people ?? [])].sort(
+    (a, b) => (a.rollNumber ?? 9999) - (b.rollNumber ?? 9999) || a.name.localeCompare(b.name)
+  );
+  const needle = q.trim().toLowerCase();
+  const shown = needle
+    ? students.filter((s) => [s.name, s.rollNumber ?? "", s.parent].join(" ").toLowerCase().includes(needle))
+    : students;
+  const counts = { present: 0, absent: 0, late: 0, leave: 0 };
+  for (const s of students) {
+    const status = todayById.get(s.id);
+    if (status) counts[status as keyof typeof counts] += 1;
+  }
+  const marked = Boolean(data?.markedToday);
+  const attended = counts.present + counts.late;
+  const pct = students.length && marked ? Math.round((attended / students.length) * 100) : null;
+  const { user } = useSession();
+  const teacherName = user?.name;
+
+  return (
+    <View className="flex-1">
+      <View className="mb-4 flex-row items-end justify-between gap-3 px-1">
+        <View className="min-w-0 flex-1">
+          <Text className="text-[26px] font-bold leading-8 text-ink-900">{title}</Text>
+          <Text className="mt-0.5 text-sm text-ink-700" numberOfLines={1}>
+            {students.length} student{students.length === 1 ? "" : "s"}
+            {teacherName ? ` · Class teacher ${teacherName}` : " · Your class"}
+          </Text>
+        </View>
+      </View>
+
+      <Pressable
+        onPress={() => router.push("/attendance")}
+        className="mb-4 rounded-3xl bg-white px-4 py-3.5 active:opacity-90"
+        style={{ shadowColor: "#0f2744", shadowOpacity: 0.06, shadowRadius: 14, shadowOffset: { width: 0, height: 4 }, elevation: 2 }}
+      >
+        {marked ? (
+          <View className="flex-row items-center justify-between gap-2">
+            <View className="flex-row flex-wrap items-center gap-x-4 gap-y-1">
+              {(["present", "absent", "late"] as const).map((key) => (
+                <View key={key} className="flex-row items-center gap-1.5">
+                  <View className="h-2 w-2 rounded-full" style={{ backgroundColor: ROSTER_STATUS[key].dot }} />
+                  <Text className="text-sm text-ink-800">
+                    <Text className="font-semibold text-ink-900">{counts[key]}</Text> {ROSTER_STATUS[key].label.toLowerCase()}
+                  </Text>
+                </View>
+              ))}
+            </View>
+            {pct !== null ? <Text className="text-lg font-bold text-ink-900">{pct}%</Text> : null}
+          </View>
+        ) : (
+          <View className="flex-row items-center gap-3">
+            <View className="h-9 w-9 items-center justify-center rounded-xl bg-amber-50">
+              <Ionicons name="alert-circle-outline" size={19} color="#B45309" />
+            </View>
+            <View className="min-w-0 flex-1">
+              <Text className="text-sm font-semibold text-ink-900">Today's register isn't marked</Text>
+              <Text className="mt-0.5 text-xs text-ink-700">Tap to mark attendance</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={17} color="#94A3B8" />
+          </View>
+        )}
+      </Pressable>
+
+      <View className="mb-3 h-12 flex-row items-center gap-2 rounded-2xl bg-white px-4" style={{ shadowColor: "#0f2744", shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 1 }}>
+        <Ionicons name="search" size={18} color="#94A3B8" />
+        <TextInput
+          value={q}
+          onChangeText={setQ}
+          placeholder="Search name or roll number"
+          placeholderTextColor="#94A3B8"
+          className="min-w-0 flex-1 text-[15px] text-ink-900"
+          style={{ paddingVertical: 0 }}
+        />
+        {q ? (
+          <Pressable hitSlop={8} onPress={() => setQ("")}>
+            <Ionicons name="close-circle" size={18} color="#94A3B8" />
+          </Pressable>
+        ) : null}
+      </View>
+
+      <View className="mb-6 overflow-hidden rounded-3xl bg-white" style={{ shadowColor: "#0f2744", shadowOpacity: 0.06, shadowRadius: 14, shadowOffset: { width: 0, height: 4 }, elevation: 2 }}>
+        {shown.length ? (
+          shown.map((student, index) => {
+            const status = todayById.get(student.id) || "";
+            const look = status ? ROSTER_STATUS[status] : null;
+            const tel = phoneHref(student.parentPhone);
+            return (
+              <Pressable
+                key={student.id}
+                accessibilityRole="button"
+                accessibilityLabel={`${student.name}${student.rollNumber ? `, roll ${student.rollNumber}` : ""}`}
+                onPress={() => onPick(student.id)}
+                className={`flex-row items-center gap-3 px-4 py-3 active:bg-ink-50 ${index ? "border-t border-ink-100" : ""}`}
+              >
+                <View className="h-10 w-10 items-center justify-center rounded-full bg-[#EEF3FF]">
+                  <Text className="text-sm font-bold text-[#1F45C7]">{student.rollNumber ?? "–"}</Text>
+                </View>
+                <View className="min-w-0 flex-1">
+                  <Text className="text-[15px] font-medium text-ink-900" numberOfLines={1}>{student.name}</Text>
+                  {student.parent ? (
+                    <Text className="mt-0.5 text-xs text-ink-700" numberOfLines={1}>{student.parent}</Text>
+                  ) : null}
+                </View>
+                {look ? (
+                  <View className={`rounded-full px-2.5 py-1 ${look.box}`}>
+                    <Text className={`text-[11px] font-semibold ${look.text}`}>{look.label}</Text>
+                  </View>
+                ) : null}
+                {tel ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Call ${student.parent || "parent"}`}
+                    hitSlop={6}
+                    onPress={() => void Linking.openURL(tel)}
+                    className="h-9 w-9 items-center justify-center rounded-full bg-emerald-50"
+                  >
+                    <Ionicons name="call-outline" size={17} color="#047857" />
+                  </Pressable>
+                ) : null}
+              </Pressable>
+            );
+          })
+        ) : (
+          <Text className="px-5 py-6 text-center text-sm text-ink-700">{needle ? "No student matches that search." : "No students in this class yet."}</Text>
+        )}
+      </View>
+    </View>
+  );
+}
+
 export function PeopleBoard({ studentOnly = false, title = "Students" }: { studentOnly?: boolean; title?: string }) {
   const { data, reload } = useRecord();
   const { token, user } = useSession();
@@ -773,6 +1004,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   const [editTags, setEditTags] = useState<string[]>([]);
   const [idCardPending, setIdCardPending] = useState(false);
   const [documentUploadPending, setDocumentUploadPending] = useState("");
+  const [docView, setDocView] = useState<"uploaded" | "issued">("uploaded");
   const people = data?.people ?? [];
   const teachersAll = data?.peopleTeachers ?? [];
   const parentsAll = data?.peopleParents ?? [];
@@ -831,12 +1063,13 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
     setKind("student");
     setPicked({ kind: "student", id: studentId });
     setFileTab(tab);
+    if (studentOnly) return;
     router.replace({ pathname: "/people", params: { student: studentId, tab } } as never);
   }
 
   function selectStudentTab(tab: StudentTab) {
     setFileTab(tab);
-    if (selected) router.replace({ pathname: "/people", params: { student: selected.id, tab } } as never);
+    if (selected && !studentOnly) router.replace({ pathname: "/people", params: { student: selected.id, tab } } as never);
   }
 
   useEffect(() => {
@@ -992,16 +1225,12 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
     }
   }
 
-  async function addStudent(values: StudentAdmitPayload) {
+  async function addStudent(values: StudentAdmitPayload, files: StudentAdmitFiles) {
     try {
-      const result = await act<{ admissionNo: string; admissionCharge?: number; admissionCollected?: boolean }>(token, "createStudent", values);
+      const { result, failedUploads } = await createStudentWithFiles(token, values, files);
       setAdd(null);
       setForm({});
-      toast.show(
-        result.admissionCharge
-          ? `Student added · ${result.admissionNo} · Admission fee ${result.admissionCollected ? "collected" : "invoiced"}`
-          : `Student added · ${result.admissionNo}`
-      );
+      toast.show(studentAddedMessage(result, failedUploads));
       await reload();
     } catch (e) {
       toast.show(e instanceof Error ? e.message : "Could not save.");
@@ -1092,31 +1321,16 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
     }
   }
 
-  async function uploadStudentDocument(doc: { type: string; label: string; uploadType?: string }) {
-    if (!data || !selected) return;
-    const file = await pickFile(".pdf,.doc,.docx,image/png,image/jpeg,image/webp,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+  async function uploadAdmissionDocument(field: AdmissionFormField) {
+    if (!selected) return;
+    const file = await pickFile(admissionFileAccept(field)).catch(() => null);
     if (!file) return;
-    setDocumentUploadPending(doc.type);
+    setDocumentUploadPending(field.id);
     try {
-      const uploaded = await uploadFile(token, file, {
-        kind: "studentDocument",
-        studentId: selected.id,
-        type: doc.uploadType || doc.type,
-      });
-      const result = await act<{ ok: true; documentUrl: string }>(token, "uploadStudentDocument", {
-        studentId: selected.id,
-        subjectLabel: selected.name,
-        type: doc.uploadType || doc.type,
-        label: doc.label,
-        filePath: uploaded.path,
-        fileName: uploaded.fileName || file.name,
-        data: {
-          school: data.school,
-          student: selected,
-        },
-      });
+      const uploaded = await uploadFile(token, file, { kind: "studentDocument", studentId: selected.id, type: "CUSTOM_LETTER" });
+      await act(token, "setStudentAdmissionFile", { studentId: selected.id, fieldId: field.id, path: uploaded.path });
+      toast.show(`${field.label} uploaded.`);
       await reload();
-      await Linking.openURL(result.documentUrl);
     } catch (e) {
       toast.show(e instanceof Error ? e.message : "Could not upload document.");
     } finally {
@@ -1397,6 +1611,11 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
             <DetailField label="Address" value={selected.parentAddress} />
           </View>
         </DetailSection>
+        {(data?.school?.admissionForm ?? []).some((field) => !field.builtin && (field.visible || selected.admissionData?.[field.id])) ? (
+          <DetailSection title="Admission details">
+            <AdmissionDetails fields={data?.school?.admissionForm ?? []} values={selected.admissionData} />
+          </DetailSection>
+        ) : null}
         <DetailSection
           title="Academic"
           action={
@@ -1711,66 +1930,104 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
         )}
       </View>
     );
-    const documentRows = [
-      { type: "STUDENT_ID", label: "Student ID", uploadType: "STUDENT_ID" },
-      { type: "DOB_CERTIFICATE", label: "Birth certificate", uploadType: "DOB_CERTIFICATE" },
-      { type: "TRANSFER_CERTIFICATE", label: "Transfer certificate", uploadType: "TRANSFER_CERTIFICATE" },
-      { type: "OTHER", label: "Other documents", uploadType: "OTHER" },
-    ];
     const canUploadDocuments = can(user, "documents.issue") || can(user, "people.edit") || can(user, "school.edit");
+    const admissionValues = selected.admissionData || {};
+    // Driven by the school's admission form; nothing hard-coded here.
+    const admissionDocFields = (data?.school?.admissionForm ?? []).filter(
+      (field) => field.type === "file" && !field.builtin && (field.visible || admissionValues[field.id])
+    );
+    const uploadedCount = admissionDocFields.filter((field) => admissionValues[field.id]).length;
     const documentsBody = (
       <View className="mt-5 gap-4">
-        <View className="flex-row flex-wrap items-center justify-between gap-3">
-          <View>
-            <Text className="text-sm font-semibold text-ink-900">Documents</Text>
-            <Text className="mt-1 text-xs text-ink-700">{studentDocs.length} issued for this student</Text>
-          </View>
-          {data ? (
-            <QuickDocumentButton
-              data={data}
-              subjectType="STUDENT"
-              subjectId={selected.id}
-              subjectLabel={selected.name}
-              allowedTypes={["STUDENT_ID", "BONAFIDE", "STUDY_CERTIFICATE", "DOB_CERTIFICATE", "CHARACTER_CERTIFICATE", "ATTENDANCE_CERTIFICATE", "PROMOTION_CERTIFICATE", "TRANSFER_CERTIFICATE", "NO_DUES", "GATE_PASS", "LIBRARY_CARD", "TRANSPORT_CARD", "BUS_PASS", "CUSTOM_LETTER"]}
-            />
-          ) : null}
-        </View>
-        <View className="overflow-hidden rounded-md bg-white">
-          {documentRows.map((doc, index) => {
-            const issued =
-              doc.type === "OTHER"
-                ? studentDocs.find((row) => row.uploadSourceType === "OTHER" || !["STUDENT_ID", "DOB_CERTIFICATE", "TRANSFER_CERTIFICATE"].includes(row.type))
-                : studentDocs.find((row) => row.type === doc.type);
-            const issuedLabel = issued?.uploadLabel || (issued ? docTypeLabel(issued.type) : doc.label);
-            const issuedVerb = issued?.uploadLabel ? "Uploaded" : "Issued";
+        <View className="flex-row flex-wrap gap-2">
+          {([
+            { id: "uploaded", label: "Uploaded documents", count: admissionDocFields.length ? `${uploadedCount}/${admissionDocFields.length}` : "0" },
+            { id: "issued", label: "Issued by school", count: String(studentDocs.length) },
+          ] as const).map((tab) => {
+            const on = docView === tab.id;
             return (
-              <View
-                key={doc.type}
-                className={`flex-row items-center justify-between gap-3 px-3 py-3 ${index ? "border-t border-ink-100" : ""}`}
+              <Pressable
+                key={tab.id}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: on }}
+                onPress={() => setDocView(tab.id)}
+                className={`h-9 flex-row items-center gap-2 rounded-full px-4 ${on ? "bg-ink-900" : "bg-ink-50"}`}
               >
-                <View className="min-w-0 flex-1">
-                  <Text className="text-sm font-medium text-ink-900">{issued ? issuedLabel : doc.label}</Text>
-                  <Text className="mt-1 text-xs text-ink-700">
-                    {issued ? `${issuedVerb} ${new Date(issued.issuedAt).toLocaleDateString("en-IN")} · ${issued.documentNumber}` : "Not uploaded"}
-                  </Text>
+                <Text className={`text-sm font-semibold ${on ? "text-white" : "text-ink-700"}`}>{tab.label}</Text>
+                <View className={`rounded-full px-1.5 py-0.5 ${on ? "bg-white/20" : "bg-white"}`}>
+                  <Text className={`text-[11px] font-semibold ${on ? "text-white" : "text-ink-700"}`}>{tab.count}</Text>
                 </View>
-                <View className="flex-row items-center gap-2">
-                  <Badge tone={issued ? "leaf" : "ink"}>{issued ? issued.status.toLowerCase() : "missing"}</Badge>
-                  {issued ? (
-                    <Pressable onPress={() => void Linking.openURL(issued.documentUrl)} hitSlop={8}>
-                      <Text className="text-xs font-medium text-clay-600">Open</Text>
-                    </Pressable>
-                  ) : null}
-                  {canUploadDocuments ? (
-                    <Pressable disabled={documentUploadPending === doc.type} onPress={() => void uploadStudentDocument(doc)} hitSlop={8}>
-                      <Text className="text-xs font-medium text-clay-600">{documentUploadPending === doc.type ? "Uploading..." : issued ? "Replace" : "Upload"}</Text>
-                    </Pressable>
-                  ) : null}
-                </View>
-              </View>
+              </Pressable>
             );
           })}
         </View>
+        {docView === "uploaded" ? (
+        <View className="gap-3">
+          <View className="flex-row flex-wrap items-center justify-between gap-3">
+            <View>
+              <Text className="text-sm font-semibold text-ink-900">Admission documents</Text>
+              <Text className="mt-1 text-xs text-ink-700">
+                {admissionDocFields.length
+                  ? `${uploadedCount}/${admissionDocFields.length} uploaded · as asked in your admission form`
+                  : "Your admission form doesn't ask for any documents."}
+              </Text>
+            </View>
+          </View>
+          {admissionDocFields.length ? (
+            <View className="overflow-hidden rounded-md bg-white">
+              {admissionDocFields.map((field, index) => (
+                <AdmissionDocumentRow
+                  key={field.id}
+                  field={field}
+                  path={admissionValues[field.id]}
+                  first={index === 0}
+                  pending={documentUploadPending === field.id}
+                  canUpload={can(user, "people.edit")}
+                  onUpload={() => void uploadAdmissionDocument(field)}
+                />
+              ))}
+            </View>
+          ) : null}
+        </View>
+        ) : (
+        <View className="gap-3">
+          <View className="flex-row flex-wrap items-center justify-between gap-3">
+            <View>
+              <Text className="text-sm font-semibold text-ink-900">Issued by school</Text>
+              <Text className="mt-1 text-xs text-ink-700">{studentDocs.length ? `${studentDocs.length} for this student` : "Certificates, ID cards and letters you issue show here."}</Text>
+            </View>
+            {data && canUploadDocuments ? (
+              <QuickDocumentButton
+                data={data}
+                subjectType="STUDENT"
+                subjectId={selected.id}
+                subjectLabel={selected.name}
+                allowedTypes={["STUDENT_ID", "BONAFIDE", "STUDY_CERTIFICATE", "DOB_CERTIFICATE", "CHARACTER_CERTIFICATE", "ATTENDANCE_CERTIFICATE", "PROMOTION_CERTIFICATE", "TRANSFER_CERTIFICATE", "NO_DUES", "GATE_PASS", "LIBRARY_CARD", "TRANSPORT_CARD", "BUS_PASS", "CUSTOM_LETTER"]}
+              />
+            ) : null}
+          </View>
+          {studentDocs.length ? (
+            <View className="overflow-hidden rounded-md bg-white">
+              {studentDocs.map((doc, index) => (
+                <View key={doc.id} className={`flex-row items-center justify-between gap-3 px-3 py-3 ${index ? "border-t border-ink-100" : ""}`}>
+                  <View className="min-w-0 flex-1">
+                    <Text className="text-sm font-medium text-ink-900">{doc.uploadLabel || docTypeLabel(doc.type)}</Text>
+                    <Text className="mt-1 text-xs text-ink-700">
+                      {`${doc.uploadLabel ? "Uploaded" : "Issued"} ${new Date(doc.issuedAt).toLocaleDateString("en-IN")} · ${doc.documentNumber}`}
+                    </Text>
+                  </View>
+                  <View className="flex-row items-center gap-3">
+                    <Badge tone="leaf">{doc.status.toLowerCase()}</Badge>
+                    <Pressable onPress={() => openInNewTab(doc.documentUrl)} hitSlop={8}>
+                      <Text className="text-xs font-medium text-clay-600">Open</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ))}
+            </View>
+          ) : null}
+        </View>
+        )}
       </View>
     );
     const tabBody =
@@ -2106,6 +2363,19 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
     </Card>
   );
 
+  // Class teacher on a phone: roll-order roster with today's status; the student file opens in the sheet below.
+  if (studentOnly && !wide) {
+    return (
+      <View className="flex-1">
+        <TeacherRoster title={title} onPick={(id) => selectStudent(id)} />
+        <Sheet open={Boolean(picked)} onClose={() => setPicked(null)}>
+          <FilePane bare />
+        </Sheet>
+        {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
+      </View>
+    );
+  }
+
   return (
     <View className="flex-1">
       <View className="mb-4 flex-row items-center justify-between gap-2">
@@ -2246,6 +2516,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
         open={Boolean(add)}
         title={add === "parent" ? "Add parent" : "Add student"}
         onClose={() => setAdd(null)}
+        wide={add === "student"}
       >
         <View className="gap-3">
           {add === "student" ? (
@@ -2253,6 +2524,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
               classes={data?.classes ?? []}
               parents={data?.peopleParents ?? []}
               admissionFeeLines={data?.admissionFeeLines ?? []}
+              admissionForm={data?.school?.admissionForm ?? []}
               onSubmit={addStudent}
             />
           ) : null}
@@ -2434,6 +2706,34 @@ function LeadDetailTile({ label, value }: { label: string; value: string }) {
   );
 }
 
+type CreatedStudent = { studentId?: string; admissionNo: string; admissionCharge?: number; admissionCollected?: boolean };
+
+/** Creates the student, then uploads any files picked for custom admission-form fields. Returns the names of files that failed. */
+async function createStudentWithFiles(token: string | null, values: StudentAdmitPayload & { leadId?: string }, files: StudentAdmitFiles) {
+  const result = await act<CreatedStudent>(token, "createStudent", values);
+  const failedUploads: string[] = [];
+  for (const [fieldId, file] of Object.entries(files)) {
+    try {
+      if (!result.studentId) throw new Error("Missing student");
+      const uploaded = await uploadFile(token, file, { kind: "studentDocument", studentId: result.studentId, type: "CUSTOM_LETTER" });
+      await act(token, "setStudentAdmissionFile", { studentId: result.studentId, fieldId, path: uploaded.path });
+    } catch {
+      failedUploads.push(file.name);
+    }
+  }
+  return { result, failedUploads };
+}
+
+function studentAddedMessage(result: CreatedStudent, failedUploads: string[], verb = "Student added") {
+  if (failedUploads.length) return `${verb} · ${result.admissionNo} · Could not upload ${failedUploads.join(", ")}. Add it from the student's Documents.`;
+  if (result.admissionCharge) return `${verb} · ${result.admissionNo} · Admission fee ${result.admissionCollected ? "collected" : "invoiced"}`;
+  return `${verb} · ${result.admissionNo}`;
+}
+
+function phoneKey(value?: string) {
+  return String(value || "").replace(/\D/g, "").slice(-10);
+}
+
 function LeadCompactAction({
   icon,
   label,
@@ -2567,7 +2867,8 @@ export function AdmissionsBoard() {
   const toast = useToast();
   const router = useRouter();
   const leads = data?.school?.admissionLeads || [];
-  const admissionFields = (data?.school?.admissionForm || []).filter((field) => field.visible);
+  // Enquiries (website and walk-in) use the website enquiry form.
+  const admissionFields = (data?.school?.websiteForm || []).filter((field) => field.visible);
   const classOptions = (data?.classes || [])
     .map((klass) => {
       const label = klass.label || [klass.name, klass.section].filter(Boolean).join("-") || klass.id;
@@ -2581,6 +2882,8 @@ export function AdmissionsBoard() {
   const [editOpen, setEditOpen] = useState(false);
   const [timelineOpen, setTimelineOpen] = useState(false);
   const [walkInOpen, setWalkInOpen] = useState(false);
+  const [admitOpen, setAdmitOpen] = useState(false);
+  const [websiteFormDraft, setWebsiteFormDraft] = useState<AdmissionFormField[] | null>(null);
   const [walkInValues, setWalkInValues] = useState<Record<string, string>>({});
   const [draft, setDraft] = useState({
     studentName: "",
@@ -2661,9 +2964,72 @@ export function AdmissionsBoard() {
     }
   }
 
+  /** Add student form pre-filled from the enquiry: matched class, matched parent by phone, and the enquiry's answers. */
+  function admitInitial(lead: NonNullable<typeof selected>): StudentAdmitInitial {
+    const wanted = lead.classWanted.trim().toLowerCase();
+    const klass = wanted
+      ? (data?.classes || []).find((row) => {
+          const label = (row.label || [row.name, row.section].filter(Boolean).join("-")).toLowerCase();
+          return label === wanted || row.id === lead.classWanted;
+        })
+      : undefined;
+    const key = phoneKey(lead.phone);
+    const parent = key.length === 10 ? (data?.peopleParents || []).find((row) => phoneKey(row.phone) === key) : undefined;
+    const customValues: Record<string, string> = {};
+    const enquiryFiles: Record<string, string> = {};
+    for (const [fieldId, value] of Object.entries(lead.customFields || {})) {
+      if (!value) continue;
+      if (value.startsWith("private/")) enquiryFiles[fieldId] = value;
+      else customValues[fieldId] = value;
+    }
+    return {
+      name: lead.studentName,
+      classId: klass?.id,
+      billingStartPeriod: lead.billingStartPeriod || undefined,
+      parentId: parent ? parent.id : "__new__",
+      parentName: lead.guardianName,
+      parentPhone: lead.phone,
+      parentEmail: lead.email,
+      customValues,
+      enquiryFiles,
+    };
+  }
+
+  async function admitLead(values: StudentAdmitPayload, files: StudentAdmitFiles) {
+    if (!selected) return;
+    try {
+      const { result, failedUploads } = await createStudentWithFiles(token, { ...values, leadId: selected.id }, files);
+      setAdmitOpen(false);
+      setLeadOpen(false);
+      toast.show(studentAddedMessage(result, failedUploads, "Student admitted"));
+      await reload();
+    } catch (e) {
+      toast.show(e instanceof Error ? e.message : "Could not admit student.");
+      throw e;
+    }
+  }
+
+  /** Edit the website enquiry form right here; the walk-in form reopens with the new fields once saved. */
   function openAdmissionFormSettings() {
     setWalkInOpen(false);
-    router.push({ pathname: "/school", params: { tab: "website" } } as never);
+    setWebsiteFormDraft(cloneFields(data?.school?.websiteForm || []));
+  }
+
+  function closeWebsiteForm() {
+    setWebsiteFormDraft(null);
+    setWalkInOpen(true);
+  }
+
+  async function saveWebsiteForm() {
+    if (!websiteFormDraft) return;
+    try {
+      await act(token, "saveWebsiteForm", { fields: websiteFormDraft });
+      toast.show("Website enquiry form saved.");
+      await reload();
+      closeWebsiteForm();
+    } catch (e) {
+      toast.show(e instanceof Error ? e.message : "Could not save the form.");
+    }
   }
 
   const timelineEvents = groupAdmissionTimelineEvents(selected
@@ -2837,6 +3203,9 @@ export function AdmissionsBoard() {
                   </View>
                   <View className="flex-row gap-2">
                     <LeadCompactAction icon="time-outline" label="Timeline" onPress={() => setTimelineOpen(true)} />
+                    {selected.status !== "ADMITTED" ? (
+                      <LeadCompactAction icon="school-outline" label="Admit as student" onPress={() => setAdmitOpen(true)} />
+                    ) : null}
                   </View>
                 </View>
               </View>
@@ -2932,6 +3301,37 @@ export function AdmissionsBoard() {
             <Empty title="Select a lead" body="Choose an enquiry to call, follow up, or move through admissions." />
           )}
         </View>
+      </Modal>
+      <FormBuilderModal
+        open={Boolean(websiteFormDraft)}
+        title="Website enquiry form"
+        intro="Shown to parents on your school website and used for walk-in enquiries. Keep it short so more parents submit it."
+        audience="parents"
+        fields={websiteFormDraft || []}
+        suggestions={data?.school?.platformForms?.website ?? []}
+        lockedIds={["studentName", "classWanted", "guardianName", "phone"]}
+        classOptions={[...new Set(classOptions.map((option) => option.label))]}
+        canEdit={can(user, "school.edit")}
+        onChange={(fields) => setWebsiteFormDraft(fields)}
+        onSave={saveWebsiteForm}
+        onClose={closeWebsiteForm}
+      />
+      <Modal open={admitOpen && Boolean(selected)} wide title={selected ? `Admit ${selected.studentName || "student"}` : "Admit student"} onClose={() => setAdmitOpen(false)}>
+        {selected ? (
+          <View className="gap-3">
+            <Text className="text-sm text-ink-700">Filled in from the enquiry. Check the details, pick the class and billing month, then admit.</Text>
+            <StudentAdmitForm
+              key={selected.id}
+              classes={data?.classes ?? []}
+              parents={data?.peopleParents ?? []}
+              admissionFeeLines={data?.admissionFeeLines ?? []}
+              admissionForm={data?.school?.admissionForm ?? []}
+              initial={admitInitial(selected)}
+              submitLabel="Admit student"
+              onSubmit={admitLead}
+            />
+          </View>
+        ) : null}
       </Modal>
       <Modal open={timelineOpen && Boolean(selected)} title="Lead timeline" onClose={() => setTimelineOpen(false)}>
         <View className="gap-4">
@@ -3468,6 +3868,7 @@ export function StaffBoard() {
                 </Text>
                 <Text className="text-xs text-ink-700">
                   {row.from === row.to ? row.from : `${row.from}–${row.to}`}
+                  {row.halfDay ? ` · ${row.halfDay === "FIRST" ? "First half" : "Second half"}` : ""}
                   {row.reason ? ` · ${row.reason}` : ""}
                 </Text>
               </View>

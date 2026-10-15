@@ -148,6 +148,10 @@ repository root and create a fresh bundle:
 npm run build:aab:production
 ```
 
+```bash
+npx eas-cli build --platform android --profile production --local
+```
+
 To prevent this manual step for future production builds, add
 `"autoIncrement": true` to the `production` profile in `mobile/eas.json`. With
 the existing remote version source, EAS increments the Android version code for

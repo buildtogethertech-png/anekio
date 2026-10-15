@@ -1,12 +1,14 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { ActivityIndicator, Image, Modal, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Modal, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { hrefForNotice } from "../lib/notice-kind";
 import { classifyNotice, CLASSIFIED_NOTICE_LABEL, noticeBellVisible, type ClassifiedNoticeKind } from "../lib/notice-kind";
 import { useNoticeInbox } from "../lib/notice-inbox";
 import { useSession } from "../lib/session";
+import { useRecord } from "../lib/record";
+import { visibleTabs } from "../lib/nav-icons";
 
 const TAG_STYLE: Record<ClassifiedNoticeKind, string> = {
   ADMISSION: "bg-amber-100 text-amber-900",
@@ -48,6 +50,11 @@ export function NoticeBell() {
   const panelHeight = Math.max(240, Math.min(520, height - panelTop - 16));
 
   async function openPanel() {
+    // Phones get a full notifications page; the popover is for desktop/tablet headers.
+    if (width < 768) {
+      router.push("/notifications" as never);
+      return;
+    }
     setOpen(true);
     if (!inbox) return;
     setRefreshing(true);
@@ -169,25 +176,46 @@ export function NoticeBell() {
   );
 }
 
+/** Phone header, kept minimal: the school name, then inbox, bell and profile. */
 export function PhoneTopBar() {
   const { width } = useWindowDimensions();
   const router = useRouter();
+  const { user, nav } = useSession();
+  const { data } = useRecord();
   if (width >= 768) return null;
+  const schoolName = data?.school?.name || "Anekio";
+  // Portals without a "More" tab reach Inbox from here.
+  const showInbox = nav.some((item) => item.key === "inbox") && !visibleTabs(user?.portal, nav).includes("more");
+  const userInitials = (user?.name || "")
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
   return (
-    <View className="flex-row items-center border-b border-ink-200 bg-white px-3 py-2">
-      <Pressable onPress={() => router.push("/")} className="min-w-0 flex-1 flex-row items-center gap-2 py-1">
-        <Image source={require("../assets/anekio-mark-transparent.png")} style={{ width: 36, height: 36 }} />
-        <View className="min-w-0 flex-1">
-          <Text className="text-base font-bold lowercase leading-5 tracking-tight text-ink-900">anekio</Text>
-          <Text className="text-[10px] font-medium leading-3 text-ink-500" numberOfLines={1}>
-            One platform, many possibilities
-          </Text>
-        </View>
+    <View className="flex-row items-center border-b border-ink-100 bg-white px-4 py-2">
+      <Pressable onPress={() => router.push("/")} className="min-w-0 flex-1 py-1">
+        <Text className="text-[17px] font-semibold text-ink-900" numberOfLines={1}>{schoolName}</Text>
       </Pressable>
-      <View className="flex-row items-center gap-1">
+      <View className="flex-row items-center gap-1.5">
+        {showInbox ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Inbox"
+            onPress={() => router.push("/inbox" as never)}
+            className="h-10 w-10 items-center justify-center rounded-full bg-white"
+          >
+            <Ionicons name="chatbubble-ellipses-outline" size={21} color="#0f2744" />
+          </Pressable>
+        ) : null}
         <NoticeBell />
-        <Pressable onPress={() => router.push("/profile")} className="h-10 w-10 items-center justify-center rounded-full">
-          <Ionicons name="person-outline" size={20} color="#102033" />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Profile"
+          onPress={() => router.push("/profile")}
+          className="ml-0.5 h-9 w-9 items-center justify-center rounded-full bg-[#EEF3FF]"
+        >
+          <Text className="text-xs font-bold text-[#1F45C7]">{userInitials || "Me"}</Text>
         </Pressable>
       </View>
     </View>

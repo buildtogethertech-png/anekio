@@ -15,7 +15,7 @@ function parsePart(part: string) {
   return JSON.parse(Buffer.from(part, "base64url").toString("utf8"));
 }
 
-type TokenBody = { sub?: string; typ?: string; sid?: string; iat?: number; exp?: number };
+type TokenBody = { sub?: string; typ?: string; sid?: string; as?: string; iat?: number; exp?: number };
 
 function signBody(body: Record<string, unknown>) {
   const header = b64url(JSON.stringify({ alg: "HS256", typ: "JWT" }));
@@ -39,15 +39,22 @@ function verifiedBody(token: string): TokenBody | null {
   return body;
 }
 
-export function signAppToken(userId: string) {
+/** `as: "PARENT"` signs in a staff member who is also a parent with their parent hat. */
+export function signAppToken(userId: string, as?: AppHat) {
   const now = Math.floor(Date.now() / 1000);
-  return signBody({ sub: userId, typ: "app", iat: now, exp: now + 60 * 60 * 24 * 30 });
+  return signBody({ sub: userId, typ: "app", ...(as ? { as } : {}), iat: now, exp: now + 60 * 60 * 24 * 30 });
 }
 
+export type AppHat = "PARENT";
+
 export function verifyAppToken(token: string) {
+  return verifyAppTokenClaims(token)?.userId ?? null;
+}
+
+export function verifyAppTokenClaims(token: string): { userId: string; as?: AppHat } | null {
   const body = verifiedBody(token);
   if (!body || body.typ !== "app" || !body.sub) return null;
-  return body.sub;
+  return { userId: body.sub, ...(body.as === "PARENT" ? { as: "PARENT" as const } : {}) };
 }
 
 /** Short-lived token for an Anekio staff "log in as" session. Revocable via SupportSession.endedAt. */

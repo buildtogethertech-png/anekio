@@ -1,4 +1,4 @@
-import { verifyAppToken, verifySupportToken } from "./app-jwt";
+import { verifyAppTokenClaims, verifySupportToken, type AppHat } from "./app-jwt";
 import { can, type AccessUser } from "./permissions";
 import { loadAccess } from "./roles";
 import { setTenantOrg } from "./tenant-context";
@@ -14,9 +14,12 @@ export async function userFromAuthHeader(header?: string | null): Promise<Access
   const token = readBearer(header);
   if (!token) return null;
   let userId: string | null = null;
+  let hat: AppHat | undefined;
   let supportSessionId: string | null = null;
   try {
-    userId = verifyAppToken(token);
+    const claims = verifyAppTokenClaims(token);
+    userId = claims?.userId ?? null;
+    hat = claims?.as;
     if (!userId) {
       const support = verifySupportToken(token);
       if (support) {
@@ -30,7 +33,7 @@ export async function userFromAuthHeader(header?: string | null): Promise<Access
   if (!userId) return null;
   const support = supportSessionId ? await activeSupportSession(supportSessionId, userId) : null;
   if (supportSessionId && !support) return null;
-  const user = await loadAccess(userId);
+  const user = await loadAccess(userId, hat);
   if (user?.orgId) setTenantOrg(user.orgId);
   if (user && support) user.support = support;
   return user;
@@ -49,6 +52,7 @@ export function serializeUser(user: AccessUser) {
     roleName: user.roleName,
     portal: user.portal,
     permissions: user.permissions,
+    hats: user.hats ?? [user.portal],
     ...(user.support ? { support: { adminEmail: user.support.adminEmail, expiresAt: user.support.expiresAt } } : {}),
   };
 }

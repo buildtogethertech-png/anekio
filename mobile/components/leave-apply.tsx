@@ -1,17 +1,25 @@
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Modal as RnModal, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { DateField } from "./date-field";
-import { Badge, Button, Card, Chip, Field, Input, Modal } from "./ui";
+import { Badge, Button, Card, Modal } from "./ui";
 import { act } from "../lib/mutate";
 import { useRecord, type LeaveRow, type RecordPayload } from "../lib/record";
-import { calendarFrom, closedReason, isSchoolDay, nextSchoolDay, snapToSchoolDay, ymd, type SchoolCalendar } from "../lib/calendar";
+import { addDays, calendarFrom, closedReason, isSchoolDay, nextSchoolDay, snapToSchoolDay, ymd, type SchoolCalendar } from "../lib/calendar";
 
 const EMPTY_CHILDREN: NonNullable<RecordPayload["children"]> = [];
 const EMPTY_LEAVE_TYPES: NonNullable<RecordPayload["leaveTypes"]> = [];
 
-function prettyRange(from: string, to: string) {
+/** "15 Oct · First half" for half days. */
+export function halfDayLabel(halfDay?: string) {
+  return halfDay === "FIRST" ? "First half" : halfDay === "SECOND" ? "Second half" : "";
+}
+
+function prettyRange(from: string, to: string, halfDay?: string) {
   if (!from) return "";
   const a = new Date(`${from}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+  if (halfDayLabel(halfDay)) return `${a} · ${halfDayLabel(halfDay)}`;
   if (!to || from === to) return a;
   const b = new Date(`${to}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
   return `${a}–${b}`;
@@ -37,7 +45,7 @@ export function LeaveList({ rows, empty }: { rows: LeaveRow[]; empty?: string })
               {row.subjectName && row.who === "student" ? ` · ${row.subjectName}` : ""}
             </Text>
             <Text className="text-xs text-ink-700">
-              {prettyRange(row.from, row.to)}
+              {prettyRange(row.from, row.to, row.halfDay)}
               {row.classLabel ? ` · ${row.classLabel}` : ""}
               {row.reason ? ` · ${row.reason}` : ""}
             </Text>
@@ -82,7 +90,7 @@ export function LeaveDecideList({
               {row.subjectName} · {row.typeName}
             </Text>
             <Text className="text-xs text-ink-700">
-              {prettyRange(row.from, row.to)}
+              {prettyRange(row.from, row.to, row.halfDay)}
               {row.classLabel ? ` · ${row.classLabel}` : ""}
             </Text>
           </View>
@@ -169,6 +177,37 @@ export function LeaveApplyCard({
   const [typeId, setTypeId] = useState(types[0]?.id || "");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [duration, setDuration] = useState<"FULL" | "FIRST" | "SECOND">("FULL");
+  const half = duration !== "FULL";
+  const [reason, setReason] = useState("");
+  const { width } = useWindowDimensions();
+  const phoneSheet = width < 768;
+  const endDate = half ? from : to || from;
+  // School days in the request (half day = 0.5).
+  const requestDays = (() => {
+    if (!from) return 0;
+    if (half) return isSchoolDay(from, schoolCalendar) ? 0.5 : 0;
+    let count = 0;
+    for (let day = from, i = 0; day <= endDate && i < 120; day = addDays(day, 1), i += 1) {
+      if (isSchoolDay(day, schoolCalendar)) count += 1;
+    }
+    return count;
+  })();
+  // Balance per leave type for staff (approved days in the current school session or calendar year).
+  const session = (data?.school?.sessions ?? []).find((row) => row.current);
+  const yearStart = session?.startsOn?.slice(0, 10) || `${ymd(new Date()).slice(0, 4)}-01-01`;
+  const yearEnd = session?.endsOn?.slice(0, 10) || `${ymd(new Date()).slice(0, 4)}-12-31`;
+  const leftFor = (type: { id: string; yearlyCap: number }) => {
+    if (audience === "student" || !type.yearlyCap) return null;
+    const used = (data?.myLeave ?? [])
+      .filter((row) => row.typeId === type.id && row.status === "ACTIVE" && row.from.slice(0, 10) >= yearStart && row.from.slice(0, 10) <= yearEnd)
+      .reduce((sum, row) => sum + (row.days || 0), 0);
+    return Math.max(0, type.yearlyCap - used);
+  };
+  const dayText = (n: number) => `${n % 1 ? n.toFixed(1) : n} day${n === 1 ? "" : "s"}`;
+  const pretty = (value: string) =>
+    value ? new Date(`${value}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "Pick date";
+  const weekdayOf = (value: string) => (value ? new Date(`${value}T00:00:00`).toLocaleDateString("en-IN", { weekday: "short" }) : "");
   const [formError, setFormError] = useState("");
   const [busy, setBusy] = useState(false);
   const picked = useMemo(() => types.find((t) => t.id === typeId) || types[0], [types, typeId]);
@@ -224,150 +263,258 @@ export function LeaveApplyCard({
     }}>Apply for leave</Button>
   );
   const allChildrenSelected = Boolean(children.length) && selectedStudentIds.length === children.length;
-  const modal = (
-    <Modal open={open} title="Request leave" onClose={() => setOpen(false)}>
-      <View className="gap-5">
-        {audience === "student" && !studentId && children.length > 1 ? (
-          <View>
-            <View className="flex-row items-center justify-between">
-              <Text className="text-xs font-semibold uppercase tracking-wide text-ink-700">Apply for</Text>
-              <Pressable
-                onPress={() => setSelectedStudentIds(allChildrenSelected ? [] : children.map((child) => child.id))}
-                hitSlop={8}
-              >
-                <Text className="text-xs font-medium text-clay-600">{allChildrenSelected ? "Clear" : "Select all"}</Text>
-              </Pressable>
-            </View>
-            <View className="mt-2 flex-row flex-wrap gap-2">
-              {children.map((child) => (
+  async function submitLeave() {
+    if (!from) {
+      setFormError("Choose the start date.");
+      onError("Choose the start date.");
+      return;
+    }
+    const blockedFrom = leaveClosedReason(from);
+    const blockedTo = leaveClosedReason(endDate);
+    if (blockedFrom || blockedTo) {
+      const message = blockedFrom || blockedTo;
+      setFormError(message);
+      onError(message);
+      return;
+    }
+    if (reason.trim().length < 3) {
+      setFormError("Add a short note for the approver.");
+      onError("Add a short note for the approver.");
+      return;
+    }
+    const targetStudentIds = studentId ? [studentId] : selectedStudentIds;
+    if (audience === "student" && !targetStudentIds.length) {
+      setFormError("Choose at least one child.");
+      onError("Choose at least one child.");
+      return;
+    }
+    setFormError("");
+    setBusy(true);
+    try {
+      const leaveTargets = audience === "student" ? targetStudentIds : [undefined];
+      for (const selected of leaveTargets) {
+        await act(token, "applyLeave", {
+          typeId: picked?.id,
+          from,
+          to: endDate,
+          reason,
+          studentId: selected || undefined,
+          halfDay: half ? duration : "",
+        });
+      }
+      setOpen(false);
+      setFrom("");
+      setTo("");
+      setReason("");
+      setDuration("FULL");
+      await onDone(audience === "student" && targetStudentIds.length > 1 ? `Leave sent for ${targetStudentIds.length} children.` : "Leave sent.");
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Could not apply.";
+      setFormError(message);
+      onError(message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const pickedLeft = picked ? leftFor(picked) : null;
+  const overBalance = pickedLeft !== null && requestDays > pickedLeft;
+
+  const formBody = (
+    <View className="gap-6">
+      {audience === "student" && !studentId && children.length > 1 ? (
+        <View>
+          <View className="flex-row items-center justify-between">
+            <Text className="text-sm font-semibold text-ink-900">Apply for</Text>
+            <Pressable onPress={() => setSelectedStudentIds(allChildrenSelected ? [] : children.map((child) => child.id))} hitSlop={8}>
+              <Text className="text-xs font-semibold text-[#1F45C7]">{allChildrenSelected ? "Clear" : "Select all"}</Text>
+            </Pressable>
+          </View>
+          <View className="mt-2 flex-row flex-wrap gap-2">
+            {children.map((child) => {
+              const on = selectedStudentIds.includes(child.id);
+              return (
                 <Pressable
                   key={child.id}
-                  onPress={() =>
-                    setSelectedStudentIds((current) =>
-                      current.includes(child.id)
-                        ? current.filter((id) => id !== child.id)
-                        : [...current, child.id]
-                    )
-                  }
-                  className={`min-w-[150px] flex-1 rounded-md border px-3 py-3 ${
-                    selectedStudentIds.includes(child.id) ? "border-clay-500 bg-blue-50" : "border-ink-200 bg-white"
-                  }`}
+                  onPress={() => setSelectedStudentIds((current) => (current.includes(child.id) ? current.filter((id) => id !== child.id) : [...current, child.id]))}
+                  className={`h-10 flex-row items-center gap-2 rounded-full px-3.5 ${on ? "bg-[#1F45C7]" : "bg-ink-50"}`}
                 >
-                  <View className="flex-row items-center gap-2">
-                    <View className={`h-5 w-5 items-center justify-center rounded border ${
-                      selectedStudentIds.includes(child.id) ? "border-clay-500 bg-clay-500" : "border-ink-300 bg-white"
-                    }`}>
-                      {selectedStudentIds.includes(child.id) ? <Text className="text-xs font-bold text-white">✓</Text> : null}
-                    </View>
-                    <Text className="text-sm font-medium text-ink-900">{child.name}</Text>
-                  </View>
+                  <Ionicons name={on ? "checkmark-circle" : "ellipse-outline"} size={16} color={on ? "#FFFFFF" : "#94A3B8"} />
+                  <Text className={`text-sm font-medium ${on ? "text-white" : "text-ink-800"}`}>{child.name}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      ) : null}
+
+      {/* Dates, Keka-style: start | n days | end */}
+      <View className="relative flex-row items-start overflow-hidden rounded-2xl bg-ink-50">
+        <View pointerEvents="none" className="absolute inset-0 z-10 items-center justify-center">
+          <View className="rounded-full border border-ink-200 bg-white px-2.5 py-1">
+            <Text className="text-xs font-semibold text-ink-900">{from ? dayText(requestDays) : "—"}</Text>
+          </View>
+        </View>
+        <View className="min-w-0 flex-1 py-3 pl-4 pr-10">
+          <Text className="text-xs text-ink-700">{half ? "Date" : "Start date"}</Text>
+          <DateField
+            plain
+            bare
+            placeholder="Pick date"
+            value={from}
+            closedReason={leaveClosedReason}
+            onChange={(next) => {
+              setFrom(next);
+              if (half || !to || to < next) setTo(next);
+            }}
+          />
+        </View>
+        <View className="w-px self-stretch bg-ink-200" />
+        <View className={`min-w-0 flex-1 items-end py-3 pl-10 pr-4 ${half ? "opacity-50" : ""}`}>
+          <Text className="text-xs text-ink-700">End date</Text>
+          {half ? (
+            <Text className="mt-2.5 text-[15px] font-semibold text-ink-900">{from ? pretty(from) : "—"}</Text>
+          ) : (
+            <DateField plain bare placeholder="Pick date" value={to || from} min={from || undefined} closedReason={leaveClosedReason} onChange={setTo} />
+          )}
+        </View>
+      </View>
+
+      <View>
+        <View className="flex-row gap-2">
+          {([
+            ["FULL", "Full day"],
+            ["HALF", "Half day"],
+          ] as const).map(([id, label]) => {
+            const on = id === "FULL" ? !half : half;
+            return (
+              <Pressable
+                key={id}
+                onPress={() => {
+                  if (id === "FULL") setDuration("FULL");
+                  else {
+                    setDuration(duration === "SECOND" ? "SECOND" : "FIRST");
+                    if (from) setTo(from);
+                  }
+                }}
+                className={`h-10 flex-1 items-center justify-center rounded-full border ${on ? "border-[#1F45C7] bg-[#1F45C7]" : "border-ink-200 bg-white"}`}
+              >
+                <Text className={`text-sm font-semibold ${on ? "text-white" : "text-ink-800"}`}>{label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        {half ? (
+          <View className="mt-3 flex-row items-center justify-between rounded-2xl bg-ink-50 px-4 py-2.5">
+            <Text className="text-sm text-ink-800">
+              <Text className="font-semibold text-ink-900">{from ? new Date(`${from}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "—"}</Text>
+              {from ? `, ${weekdayOf(from)}` : ""}
+            </Text>
+            <View className="flex-row rounded-full bg-white p-0.5">
+              {([
+                ["FIRST", "1st half"],
+                ["SECOND", "2nd half"],
+              ] as const).map(([id, label]) => (
+                <Pressable key={id} onPress={() => setDuration(id)} className={`rounded-full px-3 py-1.5 ${duration === id ? "bg-[#EEF3FF]" : ""}`}>
+                  <Text className={`text-xs font-semibold ${duration === id ? "text-[#1F45C7]" : "text-ink-700"}`}>{label}</Text>
                 </Pressable>
               ))}
             </View>
-            <Text className="mt-2 text-xs text-ink-700">You can choose one child or both children for the same leave.</Text>
           </View>
         ) : null}
-        <View>
-          <Text className="text-xs font-semibold uppercase tracking-wide text-ink-700">Leave type</Text>
-          <View className="mt-2 flex-row gap-2">
-            {types.map((t) => (
-              <Chip
+      </View>
+
+      <View>
+        <Text className="mb-2 text-sm font-semibold text-ink-900">Leave type</Text>
+        <View className="overflow-hidden rounded-2xl border border-ink-100">
+          {types.map((t, index) => {
+            const on = picked?.id === t.id;
+            const left = leftFor(t);
+            return (
+              <Pressable
                 key={t.id}
-                label={t.name}
-                active={picked?.id === t.id}
-                className="flex-1 items-center py-2"
                 onPress={() => setTypeId(t.id)}
-              />
-            ))}
-          </View>
+                className={`flex-row items-center gap-3 px-4 py-3 ${index ? "border-t border-ink-100" : ""} ${on ? "bg-[#F3F6FF]" : "bg-white"}`}
+              >
+                <Ionicons name={on ? "radio-button-on" : "radio-button-off"} size={20} color={on ? "#1F45C7" : "#94A3B8"} />
+                <View className="min-w-0 flex-1">
+                  <Text className="text-[15px] font-medium text-ink-900">{t.name}</Text>
+                  <Text className="mt-0.5 text-xs text-ink-700">
+                    {t.noticeDays ? `Apply ${t.noticeDays} day${t.noticeDays === 1 ? "" : "s"} ahead` : "Same-day allowed"}
+                  </Text>
+                </View>
+                {left !== null ? (
+                  <Text className={`text-xs font-semibold ${left <= 0 ? "text-red-700" : "text-ink-700"}`}>
+                    {left % 1 ? left.toFixed(1) : left} of {t.yearlyCap} left
+                  </Text>
+                ) : t.yearlyCap ? (
+                  <Text className="text-xs text-ink-500">{t.yearlyCap}/yr</Text>
+                ) : null}
+              </Pressable>
+            );
+          })}
         </View>
-        {picked ? (
-          <View className="rounded-md bg-ink-50 px-3 py-2">
-            <Text className="text-xs text-ink-700">
-              {picked.noticeDays
-                ? `Apply ${picked.noticeDays} school day${picked.noticeDays === 1 ? "" : "s"} in advance · earliest ${prettyRange(earliest, earliest)}`
-                : "Same-day request allowed"}
-              {picked.yearlyCap ? ` · ${picked.yearlyCap}-day yearly allowance` : ""}
-            </Text>
-          </View>
+        {overBalance ? (
+          <Text className="mt-2 text-xs text-amber-800">
+            This asks for more {picked?.name.toLowerCase()} leave than you have left. The school can still approve it.
+          </Text>
         ) : null}
-        <View className="flex-col gap-3 sm:flex-row sm:items-start">
-          <View className="min-w-0 flex-1">
-            <Field label="Start date">
-              <DateField
-                placeholder="Select start date"
-                value={from}
-                closedReason={leaveClosedReason}
-                onChange={(next) => {
-                  setFrom(next);
-                  if (!to || to < next) setTo(next);
-                }}
-              />
-            </Field>
-          </View>
-          <View className="min-w-0 flex-1">
-            <Field label="End date">
-              <DateField
-                placeholder="Select end date"
-                value={to || from}
-                min={from || undefined}
-                closedReason={leaveClosedReason}
-                onChange={setTo}
-              />
-            </Field>
-          </View>
-        </View>
-        {formError ? <Text className="text-xs text-red-700">{formError}</Text> : null}
-        <LeaveReason
-          onCancel={() => setOpen(false)}
-          busy={busy}
-          onSubmit={async (reason) => {
-            if (!from) {
-              setFormError("Choose the start date.");
-              onError("Choose the start date.");
-              return;
-            }
-            const blockedFrom = leaveClosedReason(from);
-            const blockedTo = leaveClosedReason(to || from);
-            if (blockedFrom || blockedTo) {
-              const message = blockedFrom || blockedTo;
-              setFormError(message);
-              onError(message);
-              return;
-            }
-            const targetStudentIds = studentId ? [studentId] : selectedStudentIds;
-            if (audience === "student" && !targetStudentIds.length) {
-              setFormError("Choose at least one child.");
-              onError("Choose at least one child.");
-              return;
-            }
-            setFormError("");
-            setBusy(true);
-            try {
-              const leaveTargets = audience === "student" ? targetStudentIds : [undefined];
-              for (const selected of leaveTargets) {
-                await act(token, "applyLeave", {
-                  typeId: picked?.id,
-                  from,
-                  to: to || from,
-                  reason,
-                  studentId: selected || undefined,
-                });
-              }
-              setOpen(false);
-              setFrom("");
-              setTo("");
-              await onDone(audience === "student" && targetStudentIds.length > 1 ? `Leave sent for ${targetStudentIds.length} children.` : "Leave sent.");
-            } catch (e) {
-              const message = e instanceof Error ? e.message : "Could not apply.";
-              setFormError(message);
-              onError(message);
-            } finally {
-              setBusy(false);
-            }
-          }}
+      </View>
+
+      <View>
+        <Text className="mb-2 text-sm font-semibold text-ink-900">
+          Note to approver <Text className="text-red-600">*</Text>
+        </Text>
+        <TextInput
+          value={reason}
+          onChangeText={setReason}
+          placeholder="e.g. Family function, doctor's appointment"
+          placeholderTextColor="#94A3B8"
+          multiline
+          className="min-h-[88px] rounded-2xl bg-ink-50 px-4 py-3 text-[15px] text-ink-900"
+          style={{ textAlignVertical: "top" }}
         />
       </View>
+      {formError ? <Text className="text-sm text-red-700">{formError}</Text> : null}
+    </View>
+  );
+
+  const footer = (
+    <View className="gap-2.5">
+      <Text className="text-center text-sm text-ink-700">
+        Leave request is for <Text className="font-bold text-ink-900">{from ? dayText(requestDays) : "—"}</Text>
+        {picked ? ` · ${picked.name}` : ""}
+      </Text>
+      <Pressable
+        accessibilityRole="button"
+        disabled={busy || !from || !picked || reason.trim().length < 3}
+        onPress={() => void submitLeave()}
+        className={`h-12 items-center justify-center rounded-2xl ${busy || !from || !picked || reason.trim().length < 3 ? "bg-[#1F45C7]/40" : "bg-[#1F45C7]"}`}
+      >
+        <Text className="text-[15px] font-semibold text-white">{busy ? "Sending…" : "Request leave"}</Text>
+      </Pressable>
+    </View>
+  );
+
+  const modal = phoneSheet ? (
+    <RnModal visible={open} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setOpen(false)}>
+      <SafeAreaView className="flex-1 bg-white" edges={["top", "bottom"]}>
+        <View className="h-14 flex-row items-center px-2">
+          <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={() => setOpen(false)} className="h-11 w-11 items-center justify-center">
+            <Ionicons name="close" size={24} color="#0f2744" />
+          </Pressable>
+          <Text className="flex-1 text-center text-[17px] font-semibold text-ink-900">Apply leave</Text>
+          <View className="w-11" />
+        </View>
+        <ScrollView className="flex-1" contentContainerStyle={{ padding: 16, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
+          {formBody}
+        </ScrollView>
+        <View className="border-t border-ink-100 px-4 pb-3 pt-3">{footer}</View>
+      </SafeAreaView>
+    </RnModal>
+  ) : (
+    <Modal open={open} title="Apply leave" onClose={() => setOpen(false)} footer={footer}>
+      {formBody}
     </Modal>
   );
 
@@ -426,21 +573,6 @@ export function LeaveApplyCard({
         ) : null}
       </Card>
       {modal}
-    </View>
-  );
-}
-
-function LeaveReason({ onSubmit, onCancel, busy }: { onSubmit: (reason: string) => Promise<void>; onCancel: () => void; busy?: boolean }) {
-  const [reason, setReason] = useState("");
-  return (
-    <View className="gap-3">
-      <Field label="Reason">
-        <Input value={reason} onChangeText={setReason} placeholder="Add a short note (optional)" />
-      </Field>
-      <View className="flex-row justify-end gap-2 border-t border-ink-100 pt-4">
-        <Button variant="ghost" disabled={busy} onPress={onCancel}>Cancel</Button>
-        <Button disabled={busy} onPress={() => onSubmit(reason)}>{busy ? "Sending..." : "Submit request"}</Button>
-      </View>
     </View>
   );
 }

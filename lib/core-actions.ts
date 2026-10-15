@@ -50,8 +50,8 @@ import {
 } from "./school-session";
 import { placeFields, parseMonthlySalary, requireJoinedOn, STAFF_FIRST_PASSWORD, todayJoinedOn } from "./staff-profile";
 import { assertManagerChoice, defaultManagerIdForRole, managerIdForNewUser, teamClassIds } from "./reports";
-import { admissionFormFields, admissionFormJson, admissionLeadInput, effectiveAdmissionFormJson, staffOnboardingFormJson } from "./admission-form";
-import { configuredAdmissionFormJson } from "./admission-form-config";
+import { admissionCustomValues, admissionFormFields, admissionFormJson, admissionLeadInput, effectiveAdmissionFormJson, staffOnboardingFormJson, studentAdmissionCustomValues, websiteFormFields, websiteFormJson } from "./admission-form";
+import { configuredAdmissionFormJson, configuredFormJson } from "./admission-form-config";
 import { markOnboardingConfigured } from "./onboarding";
 
 function need(user: AccessUser, ...keys: string[]) {
@@ -196,10 +196,31 @@ export async function createStudentCore(
     collectAdmissionFee?: boolean;
     paymentMethod?: string;
     paymentReference?: string;
+    parentEmail?: string;
+    customValues?: Record<string, unknown>;
+    /** Admitting an enquiry: its answers are copied to the student and the enquiry is marked Admitted. */
+    leadId?: string;
   }
 ) {
   need(user, "people.edit");
   const name = input.name.trim();
+  const leadId = String(input.leadId || "").trim();
+  const lead = leadId ? await prisma.admissionLead.findFirst({ where: { id: leadId } }) : null;
+  if (leadId) {
+    if (!lead) throw new Error("Enquiry not found.");
+    if (lead.status === "ADMITTED") throw new Error("This enquiry is already admitted.");
+    const already = await prisma.student.findFirst({ where: { admissionLeadId: leadId }, select: { admissionNo: true } });
+    if (already) throw new Error(`This enquiry is already admitted as ${already.admissionNo}.`);
+  }
+  const admissionConfig = await prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { admissionFormJson: true } });
+  const admissionFields = await configuredAdmissionFormJson(admissionConfig?.admissionFormJson);
+  // Enquiry answers (incl. website-only fields and uploaded files) are the base; what the office enters wins.
+  const admissionData = {
+    ...(lead ? admissionCustomValues(lead.customFieldsJson) : {}),
+    ...studentAdmissionCustomValues(admissionFields, input.customValues),
+  };
+  const parentEmail = String(input.parentEmail || "").trim().toLowerCase();
+  if (parentEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(parentEmail)) throw new Error("Enter a valid parent email.");
   const billingStartPeriod = String(input.billingStartPeriod || feePeriod(new Date().getFullYear(), new Date().getMonth()));
   feePeriodBefore(billingStartPeriod);
   const requestedParentId = String(input.parentId || "").trim();
@@ -228,16 +249,21 @@ export async function createStudentCore(
           const parent = await tx.parent.findFirst({ where: { id: parentId }, select: { id: true } });
           if (!parent) throw new Error("Pick a valid parent.");
         } else {
-          const parentUser = await tx.user.findFirst({ where: { phone: parentPhone }, include: { parent: true } });
-          if (parentUser && !parentUser.parent) throw new Error("That number already belongs to a non-parent account.");
+          const parentUser = await tx.user.findFirst({ where: { phone: parentPhone }, include: { parent: true, role: { select: { portal: true } } } });
           if (parentUser?.parent) {
             parentId = parentUser.parent.id;
+          } else if (parentUser) {
+            // Staff (teacher, office) who is also a parent: same login, one more hat. Their staff profile is untouched.
+            if (parentUser.role.portal === "STUDENT") throw new Error("That number is a student's own login. Use the parent's number.");
+            const hat = await tx.parent.create({ data: { orgId: user.orgId ?? null, userId: parentUser.id, phone: parentPhone } });
+            parentId = hat.id;
           } else {
+            const emailTaken = parentEmail ? await tx.user.findFirst({ where: { email: parentEmail }, select: { id: true } }) : null;
             const createdParent = await tx.user.create({
               data: {
                 orgId: user.orgId ?? null,
                 name: parentName,
-                email: `parent.${parentPhone}@mobile.local`,
+                email: parentEmail && !emailTaken ? parentEmail : `parent.${parentPhone}@mobile.local`,
                 password: await bcrypt.hash("12345", 10),
                 roleId: await roleIdBySlug("PARENT"),
                 phone: parentPhone,
@@ -256,8 +282,9 @@ export async function createStudentCore(
         });
         const admissionLines = pickAdmissionFeeLines([], admissionRows, config?.admissionCharge || 0);
         const admissionCharge = admissionLines.reduce((sum, line) => sum + line.amount, 0);
-        if (collectAdmissionFee && admissionCharge <= 0) {
-          throw new Error("Set an admission fee for this class before collecting it.");
+        // Every admission needs a fee structure first; set it in Fees → Setup.
+        if (admissionCharge <= 0) {
+          throw new Error("Set the admission fee for this class in Fees → Setup before admitting.");
         }
         const existing = await tx.student.findMany({ select: { admissionNo: true } });
         let nextNumber = Math.max(
@@ -280,6 +307,8 @@ export async function createStudentCore(
             parentId,
             dateOfBirth: new Date(input.dateOfBirth),
             billingStartPeriod,
+            admissionDataJson: JSON.stringify(admissionData),
+            admissionLeadId: lead?.id ?? null,
             interests: { create: tags.map((tag) => ({ tag })) },
           },
         });
@@ -316,7 +345,22 @@ export async function createStudentCore(
               },
             })
           : null;
+        if (lead) {
+          const klass = await tx.class.findFirst({ where: { id: input.classId }, select: { name: true, section: true } });
+          await tx.admissionLead.update({ where: { id: lead.id }, data: { status: "ADMITTED" } });
+          await tx.admissionLeadEvent.create({
+            data: {
+              orgId: user.orgId ?? null,
+              leadId: lead.id,
+              kind: "ADMITTED",
+              title: "Student admitted",
+              body: `Admission no ${student.admissionNo}${klass ? ` · ${klass.name}-${klass.section}` : ""}`,
+              actorName: user.name || "School office",
+            },
+          });
+        }
         return {
+          studentId: student.id,
           admissionNo: student.admissionNo,
           admissionInvoiceId: admissionInvoice?.id,
           admissionCharge,
@@ -515,6 +559,8 @@ export async function admitLeadAsStudentCore(
         parentId,
         dateOfBirth: born,
         billingStartPeriod: lead.billingStartPeriod || feePeriod(new Date().getFullYear(), new Date().getMonth()),
+        admissionDataJson: JSON.stringify(admissionCustomValues(lead.customFieldsJson)),
+        admissionLeadId: lead.id,
       },
     });
     await assignStudentRollNumber(tx, { studentId: student.id, classId, orgId: user.orgId ?? null });
@@ -2072,10 +2118,21 @@ export async function saveStaffOnboardingFormCore(user: AccessUser, input: { fie
   });
 }
 
+export async function saveWebsiteFormCore(user: AccessUser, input: { fields?: unknown }) {
+  needSchoolScope(user, "admissions.manage");
+  const fields = websiteFormJson(input.fields);
+  await prisma.schoolConfig.upsert({
+    where: { id: "school" },
+    update: { websiteFormJson: fields },
+    create: { id: "school", websiteFormJson: fields },
+  });
+}
+
+/** Walk-in enquiries are leads, so they use the website enquiry form. */
 export async function createAdmissionLeadCore(user: AccessUser, input: Record<string, unknown>) {
   needSchoolScope(user, "admissions.manage");
   const config = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
-  const values = admissionLeadInput(await configuredAdmissionFormJson(config?.admissionFormJson), input);
+  const values = admissionLeadInput(await configuredFormJson("website", config?.websiteFormJson), input);
   const actorName = user.name || "School office";
   const customSummary = values.fields
     .filter((field) => !field.builtin && values.customValues[field.id])
@@ -2158,8 +2215,8 @@ export async function updateAdmissionLeadCore(
   if (input.message !== undefined) data.message = String(input.message || "").trim().slice(0, 800);
   if (input.followUpAt !== undefined) data.followUpAt = String(input.followUpAt || "").trim().slice(0, 20);
   if (input.notes !== undefined) data.notes = String(input.notes || "").trim().slice(0, 2000);
-  const config = await prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { admissionFormJson: true } });
-  const requiredBuiltin = admissionFormFields(await configuredAdmissionFormJson(config?.admissionFormJson)).filter((field) => field.builtin && field.visible && field.required && field.id !== "billingStartPeriod");
+  const config = await prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { websiteFormJson: true } });
+  const requiredBuiltin = websiteFormFields(await configuredFormJson("website", config?.websiteFormJson)).filter((field) => field.builtin && field.visible && field.required && field.id !== "billingStartPeriod");
   for (const field of requiredBuiltin) {
     const value = String((data as Record<string, unknown>)[field.id] ?? (existing as unknown as Record<string, unknown>)[field.id] ?? "").trim();
     if (!value) throw new Error(`${field.label} is required.`);
@@ -3563,4 +3620,21 @@ export async function sendClassNoteCore(
     studentId: student.id,
     authorId: user.id,
   }).catch(() => undefined);
+}
+
+/** Attaches a file uploaded for one of the school's custom admission-form file fields. */
+export async function setStudentAdmissionFileCore(user: AccessUser, input: { studentId?: string; fieldId?: string; path?: string }) {
+  need(user, "people.edit");
+  const studentId = String(input.studentId || "").trim();
+  const fieldId = String(input.fieldId || "").trim();
+  const path = String(input.path || "").replace(/^\/+/, "");
+  const student = await prisma.student.findFirst({ where: { id: studentId }, select: { id: true, admissionDataJson: true } });
+  if (!student) throw new Error("Student not found.");
+  const config = await prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { admissionFormJson: true } });
+  const field = admissionFormFields(await configuredAdmissionFormJson(config?.admissionFormJson)).find((row) => row.id === fieldId && row.type === "file" && !row.builtin);
+  if (!field) throw new Error("That admission form field does not take a file.");
+  if (!path.startsWith("private/") || !path.includes(`/students/${studentId}/documents/`)) throw new Error("Upload the file for this student first.");
+  const data = admissionCustomValues(student.admissionDataJson);
+  data[fieldId] = path;
+  await prisma.student.update({ where: { id: student.id }, data: { admissionDataJson: JSON.stringify(data) } });
 }

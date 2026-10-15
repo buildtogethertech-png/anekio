@@ -60,12 +60,15 @@ export function StaffAttendanceQrButton({
   disabled,
   compact,
   tile,
+  round,
   onMessage,
 }: {
   token: string | null;
   disabled?: boolean;
   compact?: boolean;
   tile?: boolean;
+  /** Round icon style used in the teacher phone dashboard's quick actions. */
+  round?: boolean;
   onMessage: (message: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -87,7 +90,20 @@ export function StaffAttendanceQrButton({
 
   return (
     <>
-      {tile ? (
+      {tile && round ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Show my attendance QR"
+          disabled={disabled || busy}
+          onPress={() => void generate()}
+          className={`flex-1 items-center gap-1.5 active:opacity-70 ${disabled || busy ? "opacity-50" : ""}`}
+        >
+          <View className="h-12 w-12 items-center justify-center rounded-2xl bg-[#EEF3FF]">
+            <Ionicons name="qr-code-outline" size={22} color="#1F45C7" />
+          </View>
+          <Text className="text-xs font-medium text-ink-800">{busy ? "Wait…" : "My QR"}</Text>
+        </Pressable>
+      ) : tile ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Show attendance QR"

@@ -2,7 +2,12 @@ import { prisma } from "./prisma";
 import { looksLikeEmail, normalizeMobile } from "./phone";
 
 const roleInclude = { role: { include: { grants: true } } } as const;
-const loginInclude = { ...roleInclude, org: { select: { schoolName: true } } } as const;
+const loginInclude = {
+  ...roleInclude,
+  org: { select: { schoolName: true } },
+  // A staff login that is also a parent offers a second "Parent" choice at sign-in.
+  parent: { select: { id: true, students: { select: { name: true }, take: 3 } } },
+} as const;
 
 export async function usersForLogin(raw: string) {
   if (looksLikeEmail(raw)) {

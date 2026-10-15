@@ -20,6 +20,7 @@ export function AppTabBar() {
   const tabs = visibleTabs(user?.portal, nav);
 
   if (pathname === "/pay" || pathname.startsWith("/pay/")) return null;
+  if (pathname === "/notifications") return null;
   if (!tabs.length) return null;
 
   const primary = tabs.filter((key) => key !== "more");

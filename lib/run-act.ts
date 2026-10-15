@@ -70,6 +70,8 @@ import {
   saveAdmissionFormCore,
   saveStaffOnboardingFormCore,
   createAdmissionLeadCore,
+  setStudentAdmissionFileCore,
+  saveWebsiteFormCore,
 } from "./core-actions";
 import {
   archiveClassCore,
@@ -450,6 +452,12 @@ export async function runAct(
         current: String(body.current || ""),
         next: String(body.next || ""),
       });
+      break;
+    case "saveWebsiteForm":
+      await saveWebsiteFormCore(user, body as never);
+      break;
+    case "setStudentAdmissionFile":
+      await setStudentAdmissionFileCore(user, body as never);
       break;
     case "savePushToken":
       await savePushTokenCore(user, { token: String(body.token || "") });

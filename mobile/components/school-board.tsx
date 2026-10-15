@@ -13,6 +13,12 @@ import { act } from "../lib/mutate";
 import { useRecord, type AdmissionFormField, type RecordPayload } from "../lib/record";
 import { useSession } from "../lib/session";
 import { pickFile, uploadFile } from "../lib/upload";
+import { cloneFields, FormBuilderModal } from "./form-builder";
+
+/** Mirrors LOCKED_ADMISSION_FIELD_IDS on the server: every admission needs these. */
+const LOCKED_ADMISSION_FIELDS = ["studentName", "classWanted", "guardianName", "phone"];
+/** Student admission also locks the billing month (mirrors LOCKED_STUDENT_ADMISSION_FIELD_IDS). */
+const LOCKED_STUDENT_ADMISSION_FIELDS = [...LOCKED_ADMISSION_FIELDS, "billingStartPeriod"];
 
 const TABS = [
   { id: "identity", label: "Identity & brand assets", hint: "Name, address, logo, signatures, and stamps", group: "School Setup" },
@@ -306,117 +312,15 @@ type SchoolForm = {
   websiteAdmissionOpen: boolean;
   websiteAdmissionNote: string;
   admissionForm: AdmissionFormField[];
+  websiteForm: AdmissionFormField[];
   staffOnboardingForm: AdmissionFormField[];
   admissionCharge: string;
   sessionStart: string;
   sessionEnd: string;
 };
 
-const ADMISSION_FIELD_TYPE_OPTIONS = [
-  { id: "text", label: "Short text" },
-  { id: "textarea", label: "Long text" },
-  { id: "email", label: "Email" },
-  { id: "phone", label: "Phone" },
-  { id: "number", label: "Number" },
-  { id: "date", label: "Date" },
-  { id: "month", label: "Month and year" },
-  { id: "select", label: "Dropdown" },
-  { id: "radio", label: "Single choice" },
-  { id: "multi", label: "Multiple choice" },
-  { id: "checkbox", label: "Checkbox" },
-  { id: "file", label: "File upload" },
-] as const;
-
-const SCHOOL_CLASSES_FIELD_TYPE = "schoolClasses";
-
-const ADMISSION_FILE_TYPE_OPTIONS = [
-  { id: "image_pdf", label: "Image or PDF" },
-  { id: "pdf", label: "PDF only" },
-  { id: "image", label: "Image only" },
-] as const;
-
-const COMMON_ADMISSION_DOCUMENTS = [
-  { label: "Birth certificate", fileType: "image_pdf" },
-  { label: "Student photo", fileType: "image" },
-  { label: "Transfer certificate", fileType: "pdf" },
-  { label: "Previous marksheet", fileType: "image_pdf" },
-  { label: "Parent ID proof", fileType: "image_pdf" },
-  { label: "Address proof", fileType: "image_pdf" },
-] as const;
-
-const DEFAULT_STAFF_ONBOARDING_FIELDS: AdmissionFormField[] = [
-  { id: "staffName", label: "Staff name", type: "text", required: true, visible: true, options: [], builtin: true },
-  { id: "phone", label: "Phone", type: "phone", required: true, visible: true, options: [], builtin: true },
-  { id: "email", label: "Email", type: "email", required: false, visible: true, options: [], builtin: true },
-  { id: "role", label: "Role", type: "select", required: true, visible: true, options: ["Teacher", "Office staff", "Support staff"], builtin: true },
-  { id: "department", label: "Department", type: "text", required: false, visible: true, options: [], builtin: true },
-  { id: "joiningDate", label: "Joining date", type: "date", required: true, visible: true, options: [], builtin: true },
-  { id: "qualification", label: "Qualification", type: "text", required: false, visible: true, options: [], builtin: true },
-  { id: "address", label: "Address", type: "textarea", required: false, visible: true, options: [], builtin: true },
-];
-
-const DEFAULT_STAFF_ONBOARDING_DOCUMENTS = ["Photo", "ID proof", "Address proof", "Qualification certificate", "Experience letter"] as const;
-
-function admissionFieldId(label: string) {
-  return `custom_${label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "field"}_${Date.now()}`;
-}
-
-function newAdmissionField(overrides: Partial<AdmissionFormField> = {}): AdmissionFormField {
-  const type = overrides.type || "text";
-  return {
-    id: overrides.id || admissionFieldId(overrides.label || "field"),
-    label: overrides.label || "New field",
-    type,
-    required: Boolean(overrides.required),
-    visible: overrides.visible ?? true,
-    options: overrides.options || [],
-    builtin: false,
-    helpText: overrides.helpText || "",
-    fileType: type === "file" ? overrides.fileType || "image_pdf" : undefined,
-    maxFileSizeMb: type === "file" ? overrides.maxFileSizeMb || 5 : undefined,
-  };
-}
-
-function fieldError(field: AdmissionFormField) {
-  if (!field.visible) return "";
-  if (!field.label.trim()) return "Field label is required.";
-  if (["select", "radio", "multi"].includes(field.type) && !field.options.length) return "Add at least one option.";
-  if (field.type === "file" && !field.fileType) return "Choose accepted file types.";
-  return "";
-}
-
-function fileTypeSummary(field: AdmissionFormField) {
-  if (field.fileType === "image") return "JPG, PNG";
-  if (field.fileType === "pdf") return "PDF";
-  return "JPG, PNG, PDF";
-}
-
 function schoolClassOptions(classes?: RecordPayload["classes"]) {
   return [...new Set((classes || []).map((row) => row.label || [row.name, row.section].filter(Boolean).join("-")).filter(Boolean))];
-}
-
-function sameOptions(left: string[], right: string[]) {
-  return left.length === right.length && left.every((option, index) => option === right[index]);
-}
-
-function admissionFieldTypeValue(field: AdmissionFormField, classOptions: string[]) {
-  if (field.id === "classWanted" && field.type === "select" && classOptions.length && sameOptions(field.options, classOptions)) {
-    return SCHOOL_CLASSES_FIELD_TYPE;
-  }
-  return field.type;
-}
-
-function admissionFieldTypeOptions(field: AdmissionFormField) {
-  if (field.id !== "classWanted") return [...ADMISSION_FIELD_TYPE_OPTIONS];
-  return [
-    ...ADMISSION_FIELD_TYPE_OPTIONS.slice(0, 7),
-    { id: SCHOOL_CLASSES_FIELD_TYPE, label: "School classes" },
-    ...ADMISSION_FIELD_TYPE_OPTIONS.slice(7),
-  ];
-}
-
-function cloneAdmissionForm(fields: AdmissionFormField[]) {
-  return fields.map((field) => ({ ...field, options: [...field.options] }));
 }
 
 export function SchoolBoard() {
@@ -452,11 +356,9 @@ export function SchoolBoard() {
   const [reportCardUnpaidMonths, setReportCardUnpaidMonths] = useState(String(s?.policy?.reportCardUnpaidMonths ?? 0));
   const [admitCardPendingMonths, setAdmitCardPendingMonths] = useState(String(s?.policy?.admitCardPendingMonths ?? 0));
   const [uploadingAsset, setUploadingAsset] = useState("");
-  const [selectedDocs, setSelectedDocs] = useState<string[]>([]);
   const [admissionFormOpen, setAdmissionFormOpen] = useState(false);
+  const [websiteFormOpen, setWebsiteFormOpen] = useState(false);
   const [staffFormOpen, setStaffFormOpen] = useState(false);
-  const [editingAdmissionFieldId, setEditingAdmissionFieldId] = useState("");
-  const [editingStaffFieldId, setEditingStaffFieldId] = useState("");
   const [savingYearPlan, setSavingYearPlan] = useState(false);
   const [plan, setPlan] = useState<ExamPlanDraft[]>(normalizeExamPlan(s?.plan));
   const [leaveTypes, setLeaveTypes] = useState<LeaveTypeDraft[]>(normalizeLeaveTypes(data?.leaveTypes));
@@ -549,94 +451,15 @@ export function SchoolBoard() {
     setForm((row) => ({ ...row, [key]: value }));
   }
 
-  function patchAdmissionField(id: string, change: Partial<AdmissionFormField>) {
-    setForm((row) => ({
-      ...row,
-      admissionForm: row.admissionForm.map((field) => field.id === id ? { ...field, ...change } : field),
-    }));
-  }
-
-  function patchStaffField(id: string, change: Partial<AdmissionFormField>) {
-    setForm((row) => ({
-      ...row,
-      staffOnboardingForm: row.staffOnboardingForm.map((field) => field.id === id ? { ...field, ...change } : field),
-    }));
-  }
-
-  function openNewAdmissionField(overrides: Partial<AdmissionFormField> = {}) {
-    const next = newAdmissionField(overrides);
-    patch("admissionForm", [...form.admissionForm, next]);
-    setEditingAdmissionFieldId(next.id);
-  }
-
-  function openNewStaffField(overrides: Partial<AdmissionFormField> = {}) {
-    const next = newAdmissionField(overrides);
-    patch("staffOnboardingForm", [...form.staffOnboardingForm, next]);
-    setEditingStaffFieldId(next.id);
-  }
-
-  function duplicateAdmissionField(field: AdmissionFormField) {
-    const copy = newAdmissionField({
-      ...field,
-      id: undefined,
-      label: `${field.label} copy`,
-      builtin: false,
-      options: [...field.options],
-    });
-    patch("admissionForm", [...form.admissionForm, copy]);
-    setEditingAdmissionFieldId(copy.id);
-  }
-
-  function duplicateStaffField(field: AdmissionFormField) {
-    const copy = newAdmissionField({
-      ...field,
-      id: undefined,
-      label: `${field.label} copy`,
-      builtin: false,
-      options: [...field.options],
-    });
-    patch("staffOnboardingForm", [...form.staffOnboardingForm, copy]);
-    setEditingStaffFieldId(copy.id);
-  }
-
-  function moveAdmissionField(id: string, direction: -1 | 1) {
-    const index = form.admissionForm.findIndex((field) => field.id === id);
-    const nextIndex = index + direction;
-    if (index < 0 || nextIndex < 0 || nextIndex >= form.admissionForm.length) return;
-    const next = [...form.admissionForm];
-    const [field] = next.splice(index, 1);
-    next.splice(nextIndex, 0, field);
-    patch("admissionForm", next);
-  }
-
-  function moveStaffField(id: string, direction: -1 | 1) {
-    const index = form.staffOnboardingForm.findIndex((field) => field.id === id);
-    const nextIndex = index + direction;
-    if (index < 0 || nextIndex < 0 || nextIndex >= form.staffOnboardingForm.length) return;
-    const next = [...form.staffOnboardingForm];
-    const [field] = next.splice(index, 1);
-    next.splice(nextIndex, 0, field);
-    patch("staffOnboardingForm", next);
-  }
-
-  function addSelectedDocuments() {
-    const existing = new Set(form.admissionForm.map((field) => field.label.trim().toLowerCase()));
-    const docs = COMMON_ADMISSION_DOCUMENTS.filter((doc) => selectedDocs.includes(doc.label) && !existing.has(doc.label.toLowerCase()));
-    if (!docs.length) {
-      toast.show("Selected documents are already added.");
-      return;
+  async function saveForm(op: string, fields: AdmissionFormField[], ok: string, close: () => void) {
+    try {
+      await act(token, op, { fields });
+      toast.show(ok);
+      await reload();
+      close();
+    } catch (error) {
+      toast.show(error instanceof Error ? error.message : "Could not save the form.");
     }
-    patch("admissionForm", [
-      ...form.admissionForm,
-      ...docs.map((doc) => newAdmissionField({
-        label: doc.label,
-        type: "file",
-        required: true,
-        fileType: doc.fileType as AdmissionFormField["fileType"],
-        helpText: doc.fileType === "image" ? "Upload a clear image." : "Upload a readable document.",
-      })),
-    ]);
-    setSelectedDocs([]);
   }
 
   async function run(op: string, body: Record<string, unknown>, ok: string) {
@@ -690,6 +513,7 @@ export function SchoolBoard() {
         });
       } else if (tab === "forms") {
         await act(token, "saveAdmissionForm", { fields: form.admissionForm });
+        await act(token, "saveWebsiteForm", { fields: form.websiteForm });
         await act(token, "saveStaffOnboardingForm", { fields: form.staffOnboardingForm });
       } else {
         await act(token, "saveSchoolIdentity", form);
@@ -754,7 +578,7 @@ export function SchoolBoard() {
 
   const hint = TABS.find((t) => t.id === tab)?.hint;
   const current = TABS.find((t) => t.id === tab) ?? TABS[0];
-  const showSave = tab !== "calendar" && tab !== "exams" && tab !== "clock" && tab !== "subjects" && tab !== "sessions" && tab !== "classes" && tab !== "leave" && tab !== "documents";
+  const showSave = tab !== "forms" && tab !== "calendar" && tab !== "exams" && tab !== "clock" && tab !== "subjects" && tab !== "sessions" && tab !== "classes" && tab !== "leave" && tab !== "documents";
   const showPreview = tab === "identity" || tab === "exams";
 
   function showSchool(next: { tab?: Tab; group?: Door } = {}) {
@@ -807,8 +631,6 @@ export function SchoolBoard() {
       : level === "group"
         ? DOOR_LEDE[door]
         : current.hint;
-  const editingAdmissionField = form.admissionForm.find((field) => field.id === editingAdmissionFieldId);
-  const editingStaffField = form.staffOnboardingForm.find((field) => field.id === editingStaffFieldId);
   const admissionClassOptions = schoolClassOptions(data?.classes);
 
   return (
@@ -1847,12 +1669,12 @@ export function SchoolBoard() {
                     <View className="flex-row flex-wrap items-center gap-2">
                       <View className="flex-row items-center gap-3 rounded-md border border-ink-200 bg-white px-3 py-2">
                         <View>
-                          <Text className="text-xs font-medium text-ink-700">Admission form</Text>
+                          <Text className="text-xs font-medium text-ink-700">Website enquiry form</Text>
                           <Text className="text-[11px] font-semibold text-ink-900">
-                            {form.admissionForm.filter((field) => field.visible).length} shown · {form.admissionForm.filter((field) => field.required).length} required
+                            {form.websiteForm.filter((field) => field.visible).length} shown · {form.websiteForm.filter((field) => field.required).length} required
                           </Text>
                         </View>
-                        <Button variant="ghost" className="h-9 px-3" onPress={() => setAdmissionFormOpen(true)}>
+                        <Button variant="ghost" className="h-9 px-3" onPress={() => setWebsiteFormOpen(true)}>
                           Edit
                         </Button>
                       </View>
@@ -2040,76 +1862,79 @@ export function SchoolBoard() {
             ) : null}
 
             {tab === "forms" ? (
-              <View className="w-full max-w-[1160px] self-center">
-                <View className="rounded-xl border border-ink-200 bg-white p-4">
-                  <View className="border-b border-ink-100 pb-4">
-                    <Text className="text-base font-semibold text-ink-900">Forms & Templates</Text>
-                    <Text className="mt-1 max-w-3xl text-sm text-ink-700">
-                      Configure the fields once, then reuse the same structure across website forms, office entry, downloads, and imports.
-                    </Text>
-                  </View>
-
-                  <View className="mt-4 flex-row flex-wrap gap-3">
-                    <View className={phone ? "w-full min-w-full" : "min-w-[360px] flex-1"}>
-                      <View className="h-full rounded-lg border border-blue-100 bg-blue-50 p-4">
+              <View className="w-full max-w-[1160px] gap-4 self-center">
+                <View className="flex-row items-start gap-3 rounded-lg border border-blue-100 bg-blue-50/60 px-4 py-3">
+                  <Ionicons name="link-outline" size={18} color="#1d4ed8" style={{ marginTop: 1 }} />
+                  <Text className="min-w-0 flex-1 text-sm leading-5 text-ink-800">
+                    <Text className="font-semibold text-ink-900">Fields with the same name share answers.</Text> What a parent fills on the website enquiry is already filled in when you admit the student.
+                  </Text>
+                </View>
+                <View className="flex-row flex-wrap gap-4">
+                  {([
+                    { key: "website", title: "Website enquiry form", body: "Short form for your school website and walk-in enquiries.", who: "Parents", where: "School website", icon: "globe-outline", fields: form.websiteForm, open: () => setWebsiteFormOpen(true) },
+                    { key: "admission", title: "Student admission form", body: "The full record the office needs to enrol a student.", who: "Office", where: "Add student", icon: "school-outline", fields: form.admissionForm, open: () => setAdmissionFormOpen(true) },
+                    { key: "staff", title: "Staff onboarding form", body: "Employee details, upload templates and document collection.", who: "Office & staff", where: "Add employee", icon: "briefcase-outline", fields: form.staffOnboardingForm, open: () => setStaffFormOpen(true) },
+                  ] as const).map((card) => {
+                    const shownCount = card.fields.filter((field) => field.visible).length;
+                    const requiredCount = card.fields.filter((field) => field.required).length;
+                    const hiddenCount = card.fields.length - shownCount;
+                    const ready = card.fields.length > 0;
+                    return (
+                      <Pressable
+                        key={card.key}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${edit ? "Edit" : "View"} ${card.title}`}
+                        onPress={card.open}
+                        className={`${phone ? "w-full" : "min-w-[280px] flex-1"} rounded-xl border border-ink-200 bg-white p-5 hover:border-blue-300 hover:bg-slate-50`}
+                      >
                         <View className="flex-row items-start justify-between gap-3">
-                          <View className="min-w-0 flex-1">
-                            <Text className="text-sm font-semibold text-ink-900">Student admission form</Text>
-                            <Text className="mt-1 text-xs leading-5 text-ink-700">
-                              Used by the public school website, office walk-in leads, and future admission templates.
-                            </Text>
+                          <View className="h-11 w-11 items-center justify-center rounded-xl bg-blue-50">
+                            <Ionicons name={card.icon} size={22} color="#1d4ed8" />
                           </View>
-                          <View className="rounded-md border border-blue-100 bg-white px-2.5 py-1.5">
-                            <Text className="text-[11px] font-semibold text-blue-700">
-                              {form.admissionForm.filter((field) => field.visible).length} shown · {form.admissionForm.filter((field) => field.required).length} required
-                            </Text>
-                          </View>
+                          <Badge tone={ready ? "leaf" : "warn"}>{ready ? "Ready" : "Not set up"}</Badge>
                         </View>
-                        <View className="mt-4 flex-row flex-wrap gap-2">
-                          <Button onPress={() => setAdmissionFormOpen(true)}>Edit form</Button>
-                        </View>
-                      </View>
-                    </View>
+                        <Text className="mt-4 text-base font-semibold text-ink-900">{card.title}</Text>
+                        <Text className="mt-1 text-sm leading-5 text-ink-700">{card.body}</Text>
 
-                    <View className={phone ? "w-full min-w-full" : "min-w-[360px] flex-1"}>
-                      <View className="h-full rounded-lg border border-ink-200 bg-white p-4">
-                        <View className="flex-row items-start justify-between gap-3">
-                          <View className="min-w-0 flex-1">
-                            <Text className="text-sm font-semibold text-ink-900">Staff onboarding form</Text>
-                            <Text className="mt-1 text-xs leading-5 text-ink-700">
-                              Default staff intake fields for onboarding, upload templates, and document collection.
-                            </Text>
+                        <View className="mt-4 gap-1.5">
+                          <View className="flex-row items-center gap-2">
+                            <Ionicons name="person-outline" size={13} color="#64748b" />
+                            <Text className="text-xs text-ink-700">Filled by <Text className="font-semibold text-ink-900">{card.who}</Text></Text>
                           </View>
-                          <View className="rounded-md border border-ink-100 bg-ink-50 px-2.5 py-1.5">
-                            <Text className="text-[11px] font-semibold text-ink-800">
-                              {form.staffOnboardingForm.filter((field) => field.visible).length} shown · {form.staffOnboardingForm.filter((field) => field.required).length} required
-                            </Text>
+                          <View className="flex-row items-center gap-2">
+                            <Ionicons name="location-outline" size={13} color="#64748b" />
+                            <Text className="text-xs text-ink-700">Used in <Text className="font-semibold text-ink-900">{card.where}</Text></Text>
                           </View>
                         </View>
-                        <View className="mt-4 flex-row flex-wrap gap-2">
-                          <Button onPress={() => setStaffFormOpen(true)}>Edit form</Button>
-                        </View>
-                      </View>
-                    </View>
-                  </View>
 
-                  <View className="mt-4 rounded-lg border border-ink-200 bg-ink-50 p-4">
-                    <Text className="text-sm font-semibold text-ink-900">How this connects</Text>
-                    <View className="mt-3 flex-row flex-wrap gap-2">
-                      {["Website form", "Office walk-in form", "Download template", "Import validation"].map((item) => (
-                        <Text key={item} className="rounded-full bg-white px-3 py-1 text-xs font-medium text-ink-800">
-                          {item}
-                        </Text>
-                      ))}
-                    </View>
-                  </View>
+                        <View className="mt-auto pt-5">
+                          <View className="flex-row overflow-hidden rounded-lg border border-ink-100 bg-ink-50">
+                            {[
+                              { label: "Shown", value: shownCount },
+                              { label: "Required", value: requiredCount },
+                              { label: "Hidden", value: hiddenCount },
+                            ].map((stat, i) => (
+                              <View key={stat.label} className={`flex-1 items-center py-2.5 ${i ? "border-l border-ink-100" : ""}`}>
+                                <Text className="text-lg font-semibold text-ink-900">{stat.value}</Text>
+                                <Text className="text-[11px] text-ink-600">{stat.label}</Text>
+                              </View>
+                            ))}
+                          </View>
+                          <View className="mt-4 flex-row items-center justify-between border-t border-ink-100 pt-3">
+                            <Text className="text-sm font-semibold text-blue-700">{edit ? (ready ? "Edit form" : "Set up form") : "View form"}</Text>
+                            <Ionicons name="arrow-forward" size={16} color="#1d4ed8" />
+                          </View>
+                        </View>
+                      </Pressable>
+                    );
+                  })}
                 </View>
               </View>
             ) : null}
 
             {showSave ? (
-              <View className={`mt-5 flex-row flex-wrap items-center justify-between gap-3 border-t border-ink-100 pt-4 ${tab === "website" || tab === "forms" ? "pr-20" : ""}`}>
-                <Text className="text-[11px] text-ink-700">{tab === "website" ? "Saves website settings only." : tab === "forms" ? "Saves form settings only." : "Saves school identity and settings only."}</Text>
+              <View className={`mt-5 flex-row flex-wrap items-center justify-between gap-3 border-t border-ink-100 pt-4 ${tab === "website" ? "pr-20" : ""}`}>
+                <Text className="text-[11px] text-ink-700">{tab === "website" ? "Saves website settings only." : "Saves school identity and settings only."}</Text>
                 {edit ? <Button onPress={save}>Save</Button> : null}
               </View>
             ) : null}
@@ -2159,475 +1984,48 @@ export function SchoolBoard() {
       </Card>
       )}
 
-      <Modal open={admissionFormOpen} title="Admission form" onClose={() => setAdmissionFormOpen(false)}>
-        <View className="gap-4">
-          <View className="rounded-md border border-blue-100 bg-white p-3">
-            <View className="flex-row flex-wrap items-center justify-between gap-2">
-              <View className="min-w-0 flex-1">
-                <Text className="text-sm font-semibold text-ink-900">Common documents</Text>
-                <Text className="mt-1 text-[11px] leading-4 text-ink-700">Select proofs to request during enquiry.</Text>
-              </View>
-              <Button variant="ghost" disabled={!selectedDocs.length} onPress={addSelectedDocuments}>
-                Add {selectedDocs.length || ""}
-              </Button>
-            </View>
-            <View className="mt-3 flex-row flex-wrap gap-2">
-              {COMMON_ADMISSION_DOCUMENTS.map((doc) => {
-                const selected = selectedDocs.includes(doc.label);
-                const added = form.admissionForm.some((field) => field.label.trim().toLowerCase() === doc.label.toLowerCase());
-                return (
-                  <Pressable
-                    key={doc.label}
-                    disabled={added}
-                    onPress={() => setSelectedDocs((rows) => selected ? rows.filter((row) => row !== doc.label) : [...rows, doc.label])}
-                    className={`flex-row items-center gap-1 rounded-md border px-2.5 py-1.5 ${
-                      added ? "border-ink-100 bg-ink-50" : selected ? "border-blue-300 bg-blue-50" : "border-ink-200 bg-white"
-                    }`}
-                  >
-                    <Ionicons
-                      name={added ? "checkmark-done-outline" : selected ? "checkbox-outline" : "square-outline"}
-                      size={15}
-                      color={added ? "#64748b" : selected ? "#1d4ed8" : "#3d4f66"}
-                    />
-                    <Text className={`text-[11px] font-medium ${added ? "text-ink-500" : selected ? "text-blue-900" : "text-ink-800"}`}>
-                      {doc.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
-          <View className="overflow-hidden rounded-md border border-ink-200 bg-white">
-            <View className="flex-row flex-wrap items-center justify-between gap-2 border-b border-ink-100 bg-ink-50 px-3 py-2.5">
-              <View>
-                <Text className="text-sm font-semibold text-ink-900">Form fields</Text>
-                <Text className="mt-0.5 text-[11px] text-ink-700">{form.admissionForm.filter((field) => field.visible).length} shown to parents</Text>
-              </View>
-              <Button variant="ghost" onPress={() => openNewAdmissionField()} className="py-2">
-                Add field
-              </Button>
-            </View>
-            {!form.admissionForm.length ? (
-              <View className="items-center p-5">
-                <Ionicons name="document-text-outline" size={26} color="#64748b" />
-                <Text className="mt-2 text-sm font-semibold text-ink-900">No fields yet</Text>
-                <Button variant="ghost" className="mt-3" onPress={() => openNewAdmissionField()}>
-                  Add field
-                </Button>
-              </View>
-            ) : null}
-            {form.admissionForm.map((field, index) => (
-              <View key={field.id} className="border-b border-ink-100 px-3 py-2.5 last:border-b-0">
-                <View className={phone ? "gap-2" : "flex-row items-center gap-3"}>
-                  <View className="flex-row gap-1">
-                    <Pressable
-                      accessibilityLabel={`Move ${field.label} up`}
-                      disabled={index === 0}
-                      onPress={() => moveAdmissionField(field.id, -1)}
-                      className="h-8 w-8 items-center justify-center rounded-md border border-ink-200 bg-white"
-                    >
-                      <Ionicons name="chevron-up" size={16} color={index === 0 ? "#94a3b8" : "#3d4f66"} />
-                    </Pressable>
-                    <Pressable
-                      accessibilityLabel={`Move ${field.label} down`}
-                      disabled={index === form.admissionForm.length - 1}
-                      onPress={() => moveAdmissionField(field.id, 1)}
-                      className="h-8 w-8 items-center justify-center rounded-md border border-ink-200 bg-white"
-                    >
-                      <Ionicons name="chevron-down" size={16} color={index === form.admissionForm.length - 1 ? "#94a3b8" : "#3d4f66"} />
-                    </Pressable>
-                  </View>
-                  <Pressable onPress={() => setEditingAdmissionFieldId(field.id)} className="min-w-0 flex-1">
-                    <View className="flex-row flex-wrap items-center gap-2">
-                      <Text className="text-sm font-semibold text-ink-900">{field.label || "Untitled field"}</Text>
-                      <Badge tone={field.visible ? "clay" : "ink"}>{field.visible ? "Shown" : "Hidden"}</Badge>
-                      {field.required ? <Badge tone="warn">Required</Badge> : null}
-                      {fieldError(field) ? <Badge tone="danger">Fix</Badge> : null}
-                    </View>
-                    <Text className="mt-1 text-[11px] text-ink-700" numberOfLines={1}>
-                      {ADMISSION_FIELD_TYPE_OPTIONS.find((option) => option.id === field.type)?.label || field.type}
-                      {field.type === "file" ? ` · ${fileTypeSummary(field)} · ${field.maxFileSizeMb || 5} MB` : ""}
-                      {field.helpText ? ` · ${field.helpText}` : ""}
-                    </Text>
-                  </Pressable>
-                  <View className="flex-row items-center gap-2">
-                    <Pressable
-                      accessibilityLabel={`${field.visible ? "Hide" : "Show"} ${field.label}`}
-                      onPress={() => patchAdmissionField(field.id, { visible: !field.visible, required: field.visible ? false : field.required })}
-                      className={`h-8 w-8 items-center justify-center rounded-md border ${field.visible ? "border-blue-200 bg-blue-50" : "border-ink-200 bg-white"}`}
-                    >
-                      <Ionicons name={field.visible ? "eye-outline" : "eye-off-outline"} size={16} color={field.visible ? "#1d4ed8" : "#64748b"} />
-                    </Pressable>
-                    <Pressable
-                      accessibilityLabel={`Edit ${field.label}`}
-                      onPress={() => setEditingAdmissionFieldId(field.id)}
-                      className="h-8 w-8 items-center justify-center rounded-md border border-ink-200 bg-white"
-                    >
-                      <Ionicons name="create-outline" size={16} color="#3d4f66" />
-                    </Pressable>
-                  </View>
-                </View>
-              </View>
-            ))}
-          </View>
-          <View className="items-end">
-            <Button
-              onPress={async () => {
-                try {
-                  await act(token, "saveAdmissionForm", { fields: form.admissionForm });
-                  toast.show("Admission form saved.");
-                  await reload();
-                  setAdmissionFormOpen(false);
-                } catch (error) {
-                  toast.show(error instanceof Error ? error.message : "Could not save admission form.");
-                }
-              }}
-            >
-              Save
-            </Button>
-          </View>
-        </View>
-      </Modal>
+      <FormBuilderModal
+        open={admissionFormOpen}
+        title="Student admission form"
+        intro="Used by Add student in the office. The full record your school needs to enrol a student."
+        audience="the office"
+        fields={form.admissionForm}
+        suggestions={data?.school?.platformForms?.admission ?? []}
+        lockedIds={LOCKED_STUDENT_ADMISSION_FIELDS}
+        classOptions={admissionClassOptions}
+        canEdit={edit}
+        onChange={(fields) => patch("admissionForm", fields)}
+        onSave={() => saveForm("saveAdmissionForm", form.admissionForm, "Admission form saved.", () => setAdmissionFormOpen(false))}
+        onClose={() => setAdmissionFormOpen(false)}
+      />
 
-      <Modal open={staffFormOpen} title="Staff onboarding form" onClose={() => setStaffFormOpen(false)}>
-        <View className="gap-4">
-          <View className="rounded-md border border-ink-200 bg-ink-50 p-3">
-            <Text className="text-sm font-semibold text-ink-900">Staff onboarding form</Text>
-            <Text className="mt-1 text-xs leading-4 text-ink-700">
-              Configure the fields used for staff onboarding and staff intake.
-            </Text>
-          </View>
-          <View className="overflow-hidden rounded-md border border-ink-200 bg-white">
-            <View className="flex-row flex-wrap items-center justify-between gap-2 border-b border-ink-100 bg-ink-50 px-3 py-2.5">
-              <View>
-                <Text className="text-sm font-semibold text-ink-900">Form fields</Text>
-                <Text className="mt-0.5 text-[11px] text-ink-700">{form.staffOnboardingForm.filter((field) => field.visible).length} shown for staff intake</Text>
-              </View>
-              <Button variant="ghost" onPress={() => openNewStaffField()} className="py-2">
-                Add field
-              </Button>
-            </View>
-            {!form.staffOnboardingForm.length ? (
-              <View className="items-center p-5">
-                <Ionicons name="document-text-outline" size={26} color="#64748b" />
-                <Text className="mt-2 text-sm font-semibold text-ink-900">No fields yet</Text>
-                <Button variant="ghost" className="mt-3" onPress={() => openNewStaffField()}>
-                  Add field
-                </Button>
-              </View>
-            ) : null}
-            {form.staffOnboardingForm.map((field, index) => (
-              <View key={field.id} className="border-b border-ink-100 px-3 py-2.5 last:border-b-0">
-                <View className={phone ? "gap-2" : "flex-row items-center gap-3"}>
-                  <View className="flex-row gap-1">
-                    <Pressable
-                      accessibilityLabel={`Move ${field.label} up`}
-                      disabled={index === 0}
-                      onPress={() => moveStaffField(field.id, -1)}
-                      className="h-8 w-8 items-center justify-center rounded-md border border-ink-200 bg-white"
-                    >
-                      <Ionicons name="chevron-up" size={16} color={index === 0 ? "#94a3b8" : "#3d4f66"} />
-                    </Pressable>
-                    <Pressable
-                      accessibilityLabel={`Move ${field.label} down`}
-                      disabled={index === form.staffOnboardingForm.length - 1}
-                      onPress={() => moveStaffField(field.id, 1)}
-                      className="h-8 w-8 items-center justify-center rounded-md border border-ink-200 bg-white"
-                    >
-                      <Ionicons name="chevron-down" size={16} color={index === form.staffOnboardingForm.length - 1 ? "#94a3b8" : "#3d4f66"} />
-                    </Pressable>
-                  </View>
-                  <Pressable onPress={() => setEditingStaffFieldId(field.id)} className="min-w-0 flex-1">
-                    <View className="flex-row flex-wrap items-center gap-2">
-                      <Text className="text-sm font-semibold text-ink-900">{field.label || "Untitled field"}</Text>
-                      <Badge tone={field.visible ? "clay" : "ink"}>{field.visible ? "Shown" : "Hidden"}</Badge>
-                      {field.required ? <Badge tone="warn">Required</Badge> : null}
-                      {fieldError(field) ? <Badge tone="danger">Fix</Badge> : null}
-                    </View>
-                    <Text className="mt-1 text-[11px] text-ink-700" numberOfLines={1}>
-                      {ADMISSION_FIELD_TYPE_OPTIONS.find((option) => option.id === field.type)?.label || field.type}
-                      {field.type === "file" ? ` · ${fileTypeSummary(field)} · ${field.maxFileSizeMb || 5} MB` : ""}
-                      {field.helpText ? ` · ${field.helpText}` : ""}
-                    </Text>
-                  </Pressable>
-                  <View className="flex-row items-center gap-2">
-                    <Pressable
-                      accessibilityLabel={`${field.visible ? "Hide" : "Show"} ${field.label}`}
-                      onPress={() => patchStaffField(field.id, { visible: !field.visible, required: field.visible ? false : field.required })}
-                      className={`h-8 w-8 items-center justify-center rounded-md border ${field.visible ? "border-blue-200 bg-blue-50" : "border-ink-200 bg-white"}`}
-                    >
-                      <Ionicons name={field.visible ? "eye-outline" : "eye-off-outline"} size={16} color={field.visible ? "#1d4ed8" : "#64748b"} />
-                    </Pressable>
-                    <Pressable
-                      accessibilityLabel={`Edit ${field.label}`}
-                      onPress={() => setEditingStaffFieldId(field.id)}
-                      className="h-8 w-8 items-center justify-center rounded-md border border-ink-200 bg-white"
-                    >
-                      <Ionicons name="create-outline" size={16} color="#3d4f66" />
-                    </Pressable>
-                  </View>
-                </View>
-              </View>
-            ))}
-          </View>
-          <View className="rounded-md border border-ink-200 bg-white p-3">
-            <Text className="text-sm font-semibold text-ink-900">Documents</Text>
-            <View className="mt-3 flex-row flex-wrap gap-2">
-              {DEFAULT_STAFF_ONBOARDING_DOCUMENTS.map((doc) => (
-                <Text key={doc} className="rounded-md border border-ink-200 bg-ink-50 px-2.5 py-1.5 text-[11px] font-medium text-ink-800">
-                  {doc}
-                </Text>
-              ))}
-            </View>
-          </View>
-          <View className="flex-row justify-end gap-2">
-            <Button
-              onPress={async () => {
-                if (await save()) setStaffFormOpen(false);
-              }}
-            >
-              Save
-            </Button>
-          </View>
-        </View>
-      </Modal>
+      <FormBuilderModal
+        open={websiteFormOpen}
+        title="Website enquiry form"
+        intro="Shown to parents on your school website and used for walk-in enquiries. Keep it short so more parents submit it."
+        audience="parents"
+        fields={form.websiteForm}
+        suggestions={data?.school?.platformForms?.website ?? []}
+        lockedIds={LOCKED_ADMISSION_FIELDS}
+        classOptions={admissionClassOptions}
+        canEdit={edit}
+        onChange={(fields) => patch("websiteForm", fields)}
+        onSave={() => saveForm("saveWebsiteForm", form.websiteForm, "Website enquiry form saved.", () => setWebsiteFormOpen(false))}
+        onClose={() => setWebsiteFormOpen(false)}
+      />
 
-      <Modal open={Boolean(editingAdmissionField)} title="Edit admission field" onClose={() => setEditingAdmissionFieldId("")}>
-        {editingAdmissionField ? (
-          <View className="gap-3">
-            <Field label="Field label">
-              <Input
-                value={editingAdmissionField.label}
-                onChangeText={(label) => patchAdmissionField(editingAdmissionField.id, { label })}
-              />
-            </Field>
-            <Dropdown
-              label="Input type"
-              value={admissionFieldTypeValue(editingAdmissionField, admissionClassOptions)}
-              options={admissionFieldTypeOptions(editingAdmissionField)}
-              onChange={(type) => {
-                const useSchoolClasses = type === SCHOOL_CLASSES_FIELD_TYPE;
-                const nextType = (useSchoolClasses ? "select" : type) as AdmissionFormField["type"];
-                const choiceType = ["select", "radio", "multi"].includes(nextType);
-                const seededOptions = useSchoolClasses
-                  ? admissionClassOptions
-                  : editingAdmissionField.options;
-                patchAdmissionField(editingAdmissionField.id, {
-                  type: nextType,
-                  options: choiceType ? seededOptions : [],
-                  fileType: nextType === "file" ? editingAdmissionField.fileType || "image_pdf" : undefined,
-                  maxFileSizeMb: nextType === "file" ? editingAdmissionField.maxFileSizeMb || 5 : undefined,
-                });
-              }}
-            />
-            {["select", "radio", "multi"].includes(editingAdmissionField.type) ? (
-              <Field
-                label="Options"
-                hint={admissionFieldTypeValue(editingAdmissionField, admissionClassOptions) === SCHOOL_CLASSES_FIELD_TYPE ? "Linked from School setup classes. Edit lines here to override." : "One option per line"}
-              >
-                <Input
-                  multiline
-                  value={editingAdmissionField.options.join("\n")}
-                  onChangeText={(value) =>
-                    patchAdmissionField(editingAdmissionField.id, {
-                      options: value.split(/\n|,/).map((option) => option.trim()).filter(Boolean),
-                    })
-                  }
-                />
-              </Field>
-            ) : null}
-            {editingAdmissionField.type === "file" ? (
-              <View className="flex-row flex-wrap gap-3">
-                <View className="min-w-[180px] flex-1">
-                  <Dropdown
-                    label="Accepted files"
-                    value={editingAdmissionField.fileType || "image_pdf"}
-                    options={[...ADMISSION_FILE_TYPE_OPTIONS]}
-                    onChange={(fileType) => patchAdmissionField(editingAdmissionField.id, { fileType: fileType as AdmissionFormField["fileType"] })}
-                  />
-                </View>
-                <View className="min-w-[150px] flex-1">
-                  <Field label="Max size (MB)">
-                    <Input
-                      keyboardType="number-pad"
-                      value={String(editingAdmissionField.maxFileSizeMb || 5)}
-                      onChangeText={(value) =>
-                        patchAdmissionField(editingAdmissionField.id, {
-                          maxFileSizeMb: Math.min(12, Math.max(1, Number(value.replace(/[^0-9]/g, "")) || 1)),
-                        })
-                      }
-                    />
-                  </Field>
-                </View>
-              </View>
-            ) : null}
-            <Field label="Help text">
-              <Input
-                value={editingAdmissionField.helpText || ""}
-                placeholder={editingAdmissionField.type === "file" ? `Accepted: ${fileTypeSummary(editingAdmissionField)} · up to ${editingAdmissionField.maxFileSizeMb || 5} MB` : "Optional parent guidance"}
-                onChangeText={(helpText) => patchAdmissionField(editingAdmissionField.id, { helpText })}
-              />
-            </Field>
-            <View className="flex-row flex-wrap items-center gap-5">
-              <View className="flex-row items-center gap-2">
-                <Switch
-                  on={editingAdmissionField.visible}
-                  onPress={() =>
-                    patchAdmissionField(editingAdmissionField.id, {
-                      visible: !editingAdmissionField.visible,
-                      required: editingAdmissionField.visible ? false : editingAdmissionField.required,
-                    })
-                  }
-                />
-                <Text className="text-xs font-medium text-ink-800">Show field</Text>
-              </View>
-              <View className="flex-row items-center gap-2">
-                <Switch
-                  disabled={!editingAdmissionField.visible}
-                  on={editingAdmissionField.required}
-                  onPress={() => patchAdmissionField(editingAdmissionField.id, { required: !editingAdmissionField.required })}
-                />
-                <Text className="text-xs font-medium text-ink-800">Required</Text>
-              </View>
-            </View>
-            {fieldError(editingAdmissionField) ? <Text className="text-xs font-medium text-red-700">{fieldError(editingAdmissionField)}</Text> : null}
-            <View className="mt-2 flex-row flex-wrap items-center justify-between gap-2 border-t border-ink-100 pt-3">
-              <View className="flex-row flex-wrap gap-2">
-                <Button variant="ghost" onPress={() => duplicateAdmissionField(editingAdmissionField)}>
-                  Duplicate
-                </Button>
-                {!editingAdmissionField.builtin ? (
-                  <Button
-                    variant="ghost"
-                    onPress={() => {
-                      patch("admissionForm", form.admissionForm.filter((row) => row.id !== editingAdmissionField.id));
-                      setEditingAdmissionFieldId("");
-                    }}
-                  >
-                    Delete
-                  </Button>
-                ) : null}
-              </View>
-              <Button onPress={() => setEditingAdmissionFieldId("")}>Done</Button>
-            </View>
-          </View>
-        ) : null}
-      </Modal>
-
-      <Modal open={Boolean(editingStaffField)} title="Edit staff field" onClose={() => setEditingStaffFieldId("")}>
-        {editingStaffField ? (
-          <View className="gap-3">
-            <Field label="Field label">
-              <Input
-                value={editingStaffField.label}
-                onChangeText={(label) => patchStaffField(editingStaffField.id, { label })}
-              />
-            </Field>
-            <Dropdown
-              label="Input type"
-              value={editingStaffField.type}
-              options={[...ADMISSION_FIELD_TYPE_OPTIONS]}
-              onChange={(type) => {
-                const nextType = type as AdmissionFormField["type"];
-                const choiceType = ["select", "radio", "multi"].includes(nextType);
-                patchStaffField(editingStaffField.id, {
-                  type: nextType,
-                  options: choiceType ? editingStaffField.options : [],
-                  fileType: nextType === "file" ? editingStaffField.fileType || "image_pdf" : undefined,
-                  maxFileSizeMb: nextType === "file" ? editingStaffField.maxFileSizeMb || 5 : undefined,
-                });
-              }}
-            />
-            {["select", "radio", "multi"].includes(editingStaffField.type) ? (
-              <Field label="Options" hint="One option per line">
-                <Input
-                  multiline
-                  value={editingStaffField.options.join("\n")}
-                  onChangeText={(value) =>
-                    patchStaffField(editingStaffField.id, {
-                      options: value.split(/\n|,/).map((option) => option.trim()).filter(Boolean),
-                    })
-                  }
-                />
-              </Field>
-            ) : null}
-            {editingStaffField.type === "file" ? (
-              <View className="flex-row flex-wrap gap-3">
-                <View className="min-w-[180px] flex-1">
-                  <Dropdown
-                    label="Accepted files"
-                    value={editingStaffField.fileType || "image_pdf"}
-                    options={[...ADMISSION_FILE_TYPE_OPTIONS]}
-                    onChange={(fileType) => patchStaffField(editingStaffField.id, { fileType: fileType as AdmissionFormField["fileType"] })}
-                  />
-                </View>
-                <View className="min-w-[150px] flex-1">
-                  <Field label="Max size (MB)">
-                    <Input
-                      keyboardType="number-pad"
-                      value={String(editingStaffField.maxFileSizeMb || 5)}
-                      onChangeText={(value) =>
-                        patchStaffField(editingStaffField.id, {
-                          maxFileSizeMb: Math.min(12, Math.max(1, Number(value.replace(/[^0-9]/g, "")) || 1)),
-                        })
-                      }
-                    />
-                  </Field>
-                </View>
-              </View>
-            ) : null}
-            <Field label="Help text">
-              <Input
-                value={editingStaffField.helpText || ""}
-                placeholder={editingStaffField.type === "file" ? `Accepted: ${fileTypeSummary(editingStaffField)} · up to ${editingStaffField.maxFileSizeMb || 5} MB` : "Optional staff guidance"}
-                onChangeText={(helpText) => patchStaffField(editingStaffField.id, { helpText })}
-              />
-            </Field>
-            <View className="flex-row flex-wrap items-center gap-5">
-              <View className="flex-row items-center gap-2">
-                <Switch
-                  on={editingStaffField.visible}
-                  onPress={() =>
-                    patchStaffField(editingStaffField.id, {
-                      visible: !editingStaffField.visible,
-                      required: editingStaffField.visible ? false : editingStaffField.required,
-                    })
-                  }
-                />
-                <Text className="text-xs font-medium text-ink-800">Show field</Text>
-              </View>
-              <View className="flex-row items-center gap-2">
-                <Switch
-                  disabled={!editingStaffField.visible}
-                  on={editingStaffField.required}
-                  onPress={() => patchStaffField(editingStaffField.id, { required: !editingStaffField.required })}
-                />
-                <Text className="text-xs font-medium text-ink-800">Required</Text>
-              </View>
-            </View>
-            {fieldError(editingStaffField) ? <Text className="text-xs font-medium text-red-700">{fieldError(editingStaffField)}</Text> : null}
-            <View className="mt-2 flex-row flex-wrap items-center justify-between gap-2 border-t border-ink-100 pt-3">
-              <View className="flex-row flex-wrap gap-2">
-                <Button variant="ghost" onPress={() => duplicateStaffField(editingStaffField)}>
-                  Duplicate
-                </Button>
-                {!editingStaffField.builtin ? (
-                  <Button
-                    variant="ghost"
-                    onPress={() => {
-                      patch("staffOnboardingForm", form.staffOnboardingForm.filter((row) => row.id !== editingStaffField.id));
-                      setEditingStaffFieldId("");
-                    }}
-                  >
-                    Delete
-                  </Button>
-                ) : null}
-              </View>
-              <Button onPress={() => setEditingStaffFieldId("")}>Done</Button>
-            </View>
-          </View>
-        ) : null}
-      </Modal>
+      <FormBuilderModal
+        open={staffFormOpen}
+        title="Staff onboarding form"
+        intro="Used when adding employees, for staff upload templates and document collection."
+        audience="staff"
+        fields={form.staffOnboardingForm}
+        suggestions={data?.school?.platformForms?.staff ?? []}
+        canEdit={edit}
+        onChange={(fields) => patch("staffOnboardingForm", fields)}
+        onSave={() => saveForm("saveStaffOnboardingForm", form.staffOnboardingForm, "Staff onboarding form saved.", () => setStaffFormOpen(false))}
+        onClose={() => setStaffFormOpen(false)}
+      />
 
       <Modal open={addOpen} title="Add session" onClose={() => setAddOpen(false)}>
         <View className="gap-3">
@@ -2773,8 +2171,9 @@ function blankForm(s?: RecordPayload["school"]): SchoolForm {
     websiteFacilities: (website?.facilities || ["Digital classrooms", "Library", "Computer lab", "Sports", "Transport"]).join("\n"),
     websiteAdmissionOpen: website?.admissionOpen ?? true,
     websiteAdmissionNote: website?.admissionNote || "Admissions are open. Submit an enquiry and our office will contact you.",
-    admissionForm: cloneAdmissionForm(s?.admissionForm || []),
-    staffOnboardingForm: cloneAdmissionForm(s?.staffOnboardingForm?.length ? s.staffOnboardingForm : DEFAULT_STAFF_ONBOARDING_FIELDS),
+    admissionForm: cloneFields(s?.admissionForm || []),
+    websiteForm: cloneFields(s?.websiteForm || []),
+    staffOnboardingForm: cloneFields(s?.staffOnboardingForm || []),
     admissionCharge: String(s?.admissionCharge || 0),
     sessionStart: s?.sessionStart || "",
     sessionEnd: s?.sessionEnd || "",
@@ -2807,7 +2206,7 @@ function WebsiteMiniPreview({ form, logoPath }: { form: SchoolForm; logoPath?: s
       <View className="p-4">
         <Text className="text-xs font-semibold text-ink-900">Admission enquiry form</Text>
         <View className="mt-2 gap-2">
-          {form.admissionForm.filter((field) => field.visible).slice(0, 8).map((field) => (
+          {form.websiteForm.filter((field) => field.visible).slice(0, 8).map((field) => (
             <View key={field.id} className="rounded-md border border-ink-200 bg-ink-50 px-3 py-2">
               <Text className="text-xs text-ink-700">{field.label}{field.required ? " *" : ""}</Text>
             </View>

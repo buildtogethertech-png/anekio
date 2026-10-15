@@ -450,6 +450,7 @@ export type RecordPayload = {
     parentCity?: string;
     parentState?: string;
     parentPincode?: string;
+    admissionData?: Record<string, string>;
     born?: string;
     dateOfBirth?: string;
     dueAmount?: number;
@@ -629,7 +630,9 @@ export type RecordPayload = {
     sessionLabel?: string;
     admissionCharge?: number;
     admissionForm?: AdmissionFormField[];
+    websiteForm?: AdmissionFormField[];
     staffOnboardingForm?: AdmissionFormField[];
+    platformForms?: { admission: AdmissionFormField[]; website: AdmissionFormField[]; staff: AdmissionFormField[] };
     whatsappCommunityUrl?: string;
     website?: {
       enabled: boolean;
@@ -652,6 +655,7 @@ export type RecordPayload = {
       phone: string;
       email: string;
       classWanted: string;
+      billingStartPeriod?: string;
       message: string;
       customFields: Record<string, string>;
       source: string;
@@ -766,7 +770,7 @@ export type RecordPayload = {
   documentStudio?: {
     categories: { id: string; label: string; hint: string }[];
     types: { id: string; label: string; category: string; hint: string; priority?: boolean }[];
-    fields: { group: string; id: string; label: string }[];
+    fields: { group: string; id: string; label: string; media?: boolean }[];
     defaults: DocumentTemplateSummary[];
     templates: DocumentTemplateSummary[];
     verifyQrPreviewSrc?: string;
@@ -851,6 +855,8 @@ export type LeaveRow = {
   subjectName: string;
   classLabel: string;
   waitingOn: "guardian" | "teacher" | "";
+  /** "FIRST" / "SECOND" half of a single day; "" = full day(s). */
+  halfDay?: "FIRST" | "SECOND" | "";
   days: number;
 };
 

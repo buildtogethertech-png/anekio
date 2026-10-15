@@ -17,6 +17,8 @@ type Session = {
   requestPasswordReset: (login: string) => Promise<AuthCodeResponse>;
   resetPassword: (login: string, code: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
+  /** Teacher/office login that is also a parent: open the parent app ("PARENT") or go back to the staff app. */
+  switchHat: (as: "PARENT" | "STAFF") => Promise<void>;
 };
 
 export type AuthAccountChoice = {
@@ -157,6 +159,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           method: "POST",
           body: JSON.stringify({ login, code, password }),
         });
+      },
+      async switchHat(as) {
+        if (!token) return;
+        const res = await api<LoginSessionResponse>("/session/switch", token, {
+          method: "POST",
+          body: JSON.stringify({ as: as === "PARENT" ? "PARENT" : "" }),
+        });
+        await applyLogin(res);
       },
       async signOut() {
         try {

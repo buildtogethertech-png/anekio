@@ -1,12 +1,20 @@
 import "../global.css";
+import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { NoticeInboxProvider } from "../lib/notice-inbox";
 import { SessionProvider } from "../lib/session";
+import { APP_FONTS, applyAppFont } from "../lib/fonts";
+
+applyAppFont();
 
 export default function RootLayout() {
+  const [fontsLoaded, fontError] = useFonts(APP_FONTS);
+  if (__DEV__ && fontError) console.warn("[fonts] Inter failed to load", fontError);
+  // Wait for Inter so the first frame doesn't flash the phone's fallback font.
+  if (!fontsLoaded && !fontError) return null;
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>

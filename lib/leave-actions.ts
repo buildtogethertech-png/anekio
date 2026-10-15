@@ -19,20 +19,23 @@ async function writeStaffLeave(input: {
   teacherId?: string | null;
   staffId?: string | null;
   markedById: string;
+  halfDay?: boolean;
 }) {
+  // Half-day leave is recorded as HALF_DAY so payroll pays the half that was worked.
+  const status = input.halfDay ? AttendanceStatus.HALF_DAY : AttendanceStatus.LEAVE;
   for (const day of input.days) {
     const date = dayDate(day);
     if (input.teacherId) {
       await prisma.staffDay.upsert({
         where: { teacherId_date: { teacherId: input.teacherId, date } },
-        update: { status: AttendanceStatus.LEAVE, markedById: input.markedById },
-        create: { date, status: AttendanceStatus.LEAVE, teacherId: input.teacherId, markedById: input.markedById },
+        update: { status, markedById: input.markedById },
+        create: { date, status, teacherId: input.teacherId, markedById: input.markedById },
       });
     } else if (input.staffId) {
       await prisma.staffDay.upsert({
         where: { staffId_date: { staffId: input.staffId, date } },
-        update: { status: AttendanceStatus.LEAVE, markedById: input.markedById },
-        create: { date, status: AttendanceStatus.LEAVE, staffId: input.staffId, markedById: input.markedById },
+        update: { status, markedById: input.markedById },
+        create: { date, status, staffId: input.staffId, markedById: input.markedById },
       });
     }
   }
@@ -42,7 +45,7 @@ async function clearStaffLeave(input: { days: string[]; teacherId?: string | nul
   const dates = input.days.map(dayDate);
   await prisma.staffDay.deleteMany({
     where: {
-      status: AttendanceStatus.LEAVE,
+      status: { in: [AttendanceStatus.LEAVE, AttendanceStatus.HALF_DAY] },
       date: { in: dates },
       ...(input.teacherId ? { teacherId: input.teacherId } : {}),
       ...(input.staffId ? { staffId: input.staffId } : {}),
@@ -66,12 +69,19 @@ async function writeStudentLeave(input: { days: string[]; studentId: string; mar
   }
 }
 
-export async function applyLeave(user: AccessUser, input: { typeId?: string; from?: string; to?: string; reason?: string; studentId?: string }) {
+export async function applyLeave(
+  user: AccessUser,
+  input: { typeId?: string; from?: string; to?: string; reason?: string; studentId?: string; halfDay?: string }
+) {
   const typeId = String(input.typeId || "");
   const from = String(input.from || "").slice(0, 10);
-  const to = String(input.to || from).slice(0, 10);
+  const halfRaw = String(input.halfDay || "").toUpperCase();
+  const halfDay = halfRaw === "FIRST" || halfRaw === "SECOND" ? halfRaw : "";
+  // A half day is always a single date.
+  const to = halfDay ? from : String(input.to || from).slice(0, 10);
   const reason = String(input.reason || "").trim();
   if (!typeId || !from || !to) throw new Error("Pick a leave type and the dates");
+  if (reason.length < 3) throw new Error("Add a short note for the approver.");
   if (from > to) throw new Error("End date is before the start");
   const type = await prisma.leaveType.findUnique({ where: { id: typeId } });
   if (!type) throw new Error("That leave type is gone. Ask the office to set Planned and Sick.");
@@ -109,12 +119,13 @@ export async function applyLeave(user: AccessUser, input: { typeId?: string; fro
         requesterId: user.id,
         teacherId,
         staffId,
+        halfDay,
       },
     });
     await postLeaveNotice({
       authorId: user.id,
       title: `Leave request · ${user.name || "Staff"}`,
-      body: `${user.name} requested ${type.name.toLowerCase()} leave ${prettyRange(from, to)}${reason ? `. ${reason}` : "."}`,
+      body: `${user.name} requested ${type.name.toLowerCase()} leave ${prettyRange(from, to, halfDay)}${reason ? `. ${reason}` : "."}`,
       portals: ["OFFICE"],
     });
     return created;
@@ -140,6 +151,7 @@ export async function applyLeave(user: AccessUser, input: { typeId?: string; fro
       requesterId: user.id,
       studentId: child.id,
       guardianAt: parentStarted ? new Date() : null,
+      halfDay,
     },
   });
   const label = `${child.class.name}-${child.class.section}`;
@@ -147,7 +159,7 @@ export async function applyLeave(user: AccessUser, input: { typeId?: string; fro
     await postLeaveNotice({
       authorId: user.id,
       title: `Leave waiting · ${child.name}`,
-      body: `${child.name} · ${label} · ${type.name} ${prettyRange(from, to)}. Class teacher to approve.`,
+      body: `${child.name} · ${label} · ${type.name} ${prettyRange(from, to, halfDay)}. Class teacher to approve.`,
       portals: ["TEACHER"],
       classIds: [child.classId],
     });
@@ -155,7 +167,7 @@ export async function applyLeave(user: AccessUser, input: { typeId?: string; fro
     await postLeaveNotice({
       authorId: user.id,
       title: `Waiting on you · ${child.name}`,
-      body: `${child.name} asked for ${type.name.toLowerCase()} leave ${prettyRange(from, to)}. Guardian to approve.`,
+      body: `${child.name} asked for ${type.name.toLowerCase()} leave ${prettyRange(from, to, halfDay)}. Guardian to approve.`,
       portals: ["PARENT"],
       classIds: [child.classId],
     });
@@ -193,11 +205,11 @@ export async function decideLeave(user: AccessUser, input: { requestId?: string;
     if (yes) {
       if (row.status === "ACTIVE") throw new Error("Leave is already approved");
       await prisma.leaveRequest.update({ where: { id: row.id }, data: { status: "ACTIVE" } });
-      await writeStaffLeave({ days, teacherId: row.teacherId, staffId: row.staffId, markedById: user.id });
+      await writeStaffLeave({ days, teacherId: row.teacherId, staffId: row.staffId, markedById: user.id, halfDay: Boolean(row.halfDay) });
       await postLeaveNotice({
         authorId: user.id,
         title: `Leave approved · ${name}`,
-        body: `${name}'s ${row.type.name.toLowerCase()} leave ${prettyRange(row.from, row.to)} was approved.`,
+        body: `${name}'s ${row.type.name.toLowerCase()} leave ${prettyRange(row.from, row.to, row.halfDay)} was approved.`,
         portals: row.teacherId ? ["TEACHER"] : ["OFFICE"],
       });
       return;
@@ -207,7 +219,7 @@ export async function decideLeave(user: AccessUser, input: { requestId?: string;
     await postLeaveNotice({
       authorId: user.id,
       title: `Leave rejected · ${name}`,
-      body: `${name}'s ${row.type.name.toLowerCase()} leave ${prettyRange(row.from, row.to)} was rejected.`,
+      body: `${name}'s ${row.type.name.toLowerCase()} leave ${prettyRange(row.from, row.to, row.halfDay)} was rejected.`,
       portals: row.teacherId ? ["TEACHER"] : ["OFFICE"],
     });
     return;
@@ -227,7 +239,7 @@ export async function decideLeave(user: AccessUser, input: { requestId?: string;
       await postLeaveNotice({
         authorId: user.id,
         title: `Leave declined · ${child.name}`,
-        body: `Guardian declined ${row.type.name.toLowerCase()} leave ${prettyRange(row.from, row.to)}.`,
+        body: `Guardian declined ${row.type.name.toLowerCase()} leave ${prettyRange(row.from, row.to, row.halfDay)}.`,
         portals: ["STUDENT", "TEACHER"],
         classIds: [child.classId],
       });
@@ -237,7 +249,7 @@ export async function decideLeave(user: AccessUser, input: { requestId?: string;
     await postLeaveNotice({
       authorId: user.id,
       title: `Leave waiting · ${child.name}`,
-      body: `${child.name} · ${child.class.name}-${child.class.section} · ${row.type.name} ${prettyRange(row.from, row.to)}. Class teacher to approve.`,
+      body: `${child.name} · ${child.class.name}-${child.class.section} · ${row.type.name} ${prettyRange(row.from, row.to, row.halfDay)}. Class teacher to approve.`,
       portals: ["TEACHER"],
       classIds: [child.classId],
     });
@@ -251,7 +263,7 @@ export async function decideLeave(user: AccessUser, input: { requestId?: string;
       await postLeaveNotice({
         authorId: user.id,
         title: `Leave declined · ${child.name}`,
-        body: `Class teacher declined ${row.type.name.toLowerCase()} leave ${prettyRange(row.from, row.to)}.`,
+        body: `Class teacher declined ${row.type.name.toLowerCase()} leave ${prettyRange(row.from, row.to, row.halfDay)}.`,
         portals: ["PARENT", "STUDENT"],
         classIds: [child.classId],
       });
@@ -261,11 +273,11 @@ export async function decideLeave(user: AccessUser, input: { requestId?: string;
       where: { id: row.id },
       data: { classTeacherAt: new Date(), status: "ACTIVE" },
     });
-    await writeStudentLeave({ days, studentId: child.id, markedById: user.id });
+    if (!row.halfDay) await writeStudentLeave({ days, studentId: child.id, markedById: user.id });
     await postLeaveNotice({
       authorId: user.id,
       title: `Leave granted · ${child.name}`,
-      body: `${child.name} has ${row.type.name.toLowerCase()} leave ${prettyRange(row.from, row.to)}.`,
+      body: `${child.name} has ${row.type.name.toLowerCase()} leave ${prettyRange(row.from, row.to, row.halfDay)}.`,
       portals: ["PARENT", "STUDENT"],
       classIds: [child.classId],
     });
@@ -347,8 +359,9 @@ async function assertNoOverlap(input: {
   }
 }
 
-function prettyRange(from: string, to: string) {
+function prettyRange(from: string, to: string, halfDay?: string | null) {
   const a = new Date(`${from}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+  if (halfDay === "FIRST" || halfDay === "SECOND") return `${a} (${halfDay === "FIRST" ? "first" : "second"} half)`;
   if (from === to) return a;
   const b = new Date(`${to}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
   return `${a}–${b}`;

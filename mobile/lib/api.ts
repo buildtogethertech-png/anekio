@@ -45,6 +45,8 @@ export type SessionUser = {
   roleName: string;
   portal: "OFFICE" | "TEACHER" | "PARENT" | "STUDENT";
   permissions: string[];
+  /** Apps this login can open, e.g. ["TEACHER", "PARENT"] for a teacher who is also a parent. */
+  hats?: ("OFFICE" | "TEACHER" | "PARENT" | "STUDENT")[];
   /** Present when an Anekio admin is signed in as this user (support login). */
   support?: { adminEmail: string; expiresAt: string };
 };

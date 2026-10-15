@@ -41,8 +41,8 @@ export function UploadCsvPanel({
         <Ionicons name="arrow-up-outline" size={34} color="#2855F6" />
         <Text className="mt-3 text-base font-semibold text-blue-700">{heading}</Text>
         <Text className="mt-1 text-center text-sm text-ink-700">{description}</Text>
-        <Button className="mt-4" disabled={isBrowseDisabled} onPress={onBrowse}>
-          {browseLabel}
+        <Button className="mt-4" variant={isBrowseDisabled ? "ghost" : "primary"} disabled={isBrowseDisabled} onPress={onBrowse}>
+          {isBrowseDisabled && browseLabel === "Browse" ? "Locked until setup step is done" : browseLabel}
         </Button>
         <Text className="mt-4 text-xs text-ink-600">Supported format: {supportedFormat}</Text>
       </View>
