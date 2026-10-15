@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Modal as RnModal, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { KeyboardAvoidingView, Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Dropdown } from "./form";
 import { Badge, Button, Field, Input, Modal, Switch } from "./ui";
@@ -42,7 +42,7 @@ function newField(overrides: Partial<AdmissionFormField> = {}): AdmissionFormFie
   const type = overrides.type || "text";
   return {
     id: overrides.id || fieldId(overrides.label || "field"),
-    label: overrides.label || "New field",
+    label: overrides.label ?? "New field",
     type,
     required: Boolean(overrides.required),
     visible: overrides.visible ?? true,
@@ -90,6 +90,327 @@ export function cloneFields(fields: AdmissionFormField[]) {
 
 function sameField(a: AdmissionFormField, b: AdmissionFormField) {
   return a.id === b.id || a.label.trim().toLowerCase() === b.label.trim().toLowerCase();
+}
+
+const TYPE_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
+  text: "text-outline",
+  textarea: "reorder-four-outline",
+  email: "mail-outline",
+  phone: "call-outline",
+  number: "keypad-outline",
+  date: "calendar-outline",
+  month: "calendar-number-outline",
+  select: "chevron-down-circle-outline",
+  radio: "radio-button-on-outline",
+  multi: "checkbox-outline",
+  checkbox: "checkmark-done-outline",
+  file: "attach-outline",
+  [SCHOOL_CLASSES_FIELD_TYPE]: "school-outline",
+};
+
+function FieldPreview({ field }: { field: AdmissionFormField }) {
+  const box = (text: string, icon?: keyof typeof Ionicons.glyphMap) => (
+    <View className="mt-1.5 flex-row items-center rounded-lg border border-ink-200 bg-white px-3 py-2.5">
+      <Text className="flex-1 text-sm text-ink-400" numberOfLines={1}>{text}</Text>
+      {icon ? <Ionicons name={icon} size={16} color="#94a3b8" /> : null}
+    </View>
+  );
+  const opts = field.options.length ? field.options : ["Option 1", "Option 2"];
+  return (
+    <View className="rounded-2xl bg-ink-50 p-3">
+      <Text className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-ink-400">How it looks</Text>
+      {field.type === "checkbox" ? (
+        <View className="flex-row items-center gap-2">
+          <View className="h-5 w-5 rounded border border-ink-300 bg-white" />
+          <Text className="text-sm text-ink-900">
+            {field.label || "Field label"}
+            {field.required ? <Text className="text-red-600"> *</Text> : null}
+          </Text>
+        </View>
+      ) : (
+        <Text className="text-sm font-medium text-ink-900">
+          {field.label || "Field label"}
+          {field.required ? <Text className="text-red-600"> *</Text> : null}
+        </Text>
+      )}
+      {field.helpText ? <Text className="mt-0.5 text-xs text-ink-500">{field.helpText}</Text> : null}
+      {field.type === "textarea" ? (
+        <View className="mt-1.5 h-16 rounded-lg border border-ink-200 bg-white" />
+      ) : field.type === "select" ? (
+        box(opts[0], "chevron-down")
+      ) : field.type === "radio" || field.type === "multi" ? (
+        <View className="mt-1.5 flex-row flex-wrap gap-1.5">
+          {opts.slice(0, 4).map((o) => (
+            <Text key={o} className="rounded-full border border-ink-200 bg-white px-2.5 py-1 text-xs text-ink-700">{o}</Text>
+          ))}
+        </View>
+      ) : field.type === "file" ? (
+        <View className="mt-1.5 flex-row items-center gap-2 rounded-lg border-2 border-dashed border-ink-200 bg-white px-3 py-3">
+          <Ionicons name="cloud-upload-outline" size={18} color="#1F45C7" />
+          <Text className="text-xs text-ink-600">Tap to upload · {fileTypeSummary(field)}</Text>
+        </View>
+      ) : field.type === "checkbox" ? null : (
+        box(
+          field.type === "date" ? "Pick a date" : field.type === "month" ? "Pick a month" : field.type === "phone" ? "10-digit mobile" : field.type === "email" ? "name@email.com" : field.type === "number" ? "0" : "Type here",
+          field.type === "date" || field.type === "month" ? "calendar-outline" : undefined
+        )
+      )}
+    </View>
+  );
+}
+
+function PhoneFieldSheet({
+  field,
+  audience,
+  classOptions,
+  isLocked,
+  isFirst,
+  isLast,
+  onPatch,
+  onMove,
+  onDuplicate,
+  onDelete,
+  onClose,
+}: {
+  field: AdmissionFormField;
+  audience: string;
+  classOptions: string[];
+  isLocked: boolean;
+  isFirst: boolean;
+  isLast: boolean;
+  onPatch: (change: Partial<AdmissionFormField>) => void;
+  onMove: (dir: -1 | 1) => void;
+  onDuplicate: () => void;
+  onDelete?: () => void;
+  onClose: () => void;
+}) {
+  const [menu, setMenu] = useState(false);
+  const [newOption, setNewOption] = useState("");
+  const current = typeValue(field, classOptions);
+  const choice = ["select", "radio", "multi"].includes(field.type);
+  const error = fieldError(field);
+  const label = (text: string) => <Text className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500">{text}</Text>;
+  const input = "rounded-xl border border-ink-200 bg-white px-3 py-3 text-[15px] text-ink-900";
+
+  function setType(type: string) {
+    const useClasses = type === SCHOOL_CLASSES_FIELD_TYPE;
+    const nextType = (useClasses ? "select" : type) as AdmissionFormField["type"];
+    const isChoice = ["select", "radio", "multi"].includes(nextType);
+    onPatch({
+      type: nextType,
+      options: isChoice ? (useClasses ? classOptions : field.options) : [],
+      fileType: nextType === "file" ? field.fileType || "image_pdf" : undefined,
+      maxFileSizeMb: nextType === "file" ? field.maxFileSizeMb || 5 : undefined,
+    });
+  }
+
+  const toggleRow = (title: string, hint: string, on: boolean, disabled: boolean, press: () => void, first?: boolean) => (
+    <View className={`flex-row items-center gap-3 px-3 py-3 ${first ? "" : "border-t border-ink-100"}`}>
+      <View className="min-w-0 flex-1">
+        <Text className="text-[15px] font-medium text-ink-900">{title}</Text>
+        <Text className="text-xs text-ink-500">{hint}</Text>
+      </View>
+      <Switch on={on} disabled={disabled} onPress={press} />
+    </View>
+  );
+
+  return (
+    <RnModal visible transparent animationType="slide" onRequestClose={onClose}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} className="flex-1 justify-end">
+        <Pressable accessibilityRole="button" accessibilityLabel="Close" className="absolute inset-0 bg-black/40" onPress={onClose} />
+        <View className="rounded-t-3xl bg-white" style={{ maxHeight: "92%" }}>
+          <SafeAreaView edges={["bottom"]}>
+            <View className="items-center pt-2">
+              <View className="h-1 w-10 rounded-full bg-ink-200" />
+            </View>
+            <View className="flex-row items-center px-5 pb-2 pt-3">
+              <Text className="flex-1 text-lg font-semibold text-ink-900" numberOfLines={1}>
+                {field.label ? field.label : "New field"}
+              </Text>
+              <Pressable accessibilityRole="button" accessibilityLabel="Close" hitSlop={10} onPress={onClose} className="h-8 w-8 items-center justify-center rounded-full bg-ink-100">
+                <Ionicons name="close" size={18} color="#3d4f66" />
+              </Pressable>
+            </View>
+            <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 16, gap: 16 }} keyboardShouldPersistTaps="handled">
+              <FieldPreview field={field} />
+              {isLocked ? (
+                <View className="flex-row items-center gap-2 rounded-xl bg-amber-50 px-3 py-2.5">
+                  <Ionicons name="lock-closed" size={14} color="#b45309" />
+                  <Text className="flex-1 text-xs text-amber-900">Every form needs this field. You can rename it and change the help text.</Text>
+                </View>
+              ) : null}
+              <View>
+                {label("Label")}
+                <TextInput
+                  value={field.label}
+                  autoFocus={!field.label}
+                  placeholder="e.g. Blood group"
+                  placeholderTextColor="#94a3b8"
+                  onChangeText={(v) => onPatch({ label: v })}
+                  className={input}
+                  style={{ includeFontPadding: false }}
+                />
+              </View>
+              <View>
+                {label("Type")}
+                <View className="flex-row flex-wrap gap-2">
+                  {typeOptions(field, classOptions).map((opt) => {
+                    const on = current === opt.id;
+                    return (
+                      <Pressable
+                        key={opt.id}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: on }}
+                        disabled={isLocked}
+                        onPress={() => setType(opt.id)}
+                        className={`flex-row items-center gap-1.5 rounded-xl border px-3 py-2 ${on ? "border-[#1F45C7] bg-[#EEF3FF]" : "border-ink-200 bg-white"} ${isLocked && !on ? "opacity-40" : ""}`}
+                      >
+                        <Ionicons name={TYPE_ICONS[opt.id] || "ellipse-outline"} size={15} color={on ? "#1F45C7" : "#64748b"} />
+                        <Text className={`text-[13px] font-medium ${on ? "text-[#1F45C7]" : "text-ink-700"}`}>{opt.label}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+              {choice ? (
+                <View>
+                  {label(current === SCHOOL_CLASSES_FIELD_TYPE ? "Options · from your classes" : "Options")}
+                  <View className="overflow-hidden rounded-xl border border-ink-200">
+                    {field.options.map((opt, i) => (
+                      <View key={`${opt}-${i}`} className={`flex-row items-center gap-2 px-3 py-2 ${i ? "border-t border-ink-100" : ""}`}>
+                        <TextInput
+                          value={opt}
+                          onChangeText={(v) => onPatch({ options: field.options.map((o, j) => (j === i ? v : o)) })}
+                          className="min-w-0 flex-1 py-1 text-[15px] text-ink-900"
+                          style={{ includeFontPadding: false }}
+                        />
+                        <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${opt}`} hitSlop={8} onPress={() => onPatch({ options: field.options.filter((_, j) => j !== i) })}>
+                          <Ionicons name="close" size={16} color="#94a3b8" />
+                        </Pressable>
+                      </View>
+                    ))}
+                    <View className={`flex-row items-center gap-2 px-3 py-2 ${field.options.length ? "border-t border-ink-100" : ""}`}>
+                      <Ionicons name="add" size={16} color="#1F45C7" />
+                      <TextInput
+                        value={newOption}
+                        onChangeText={setNewOption}
+                        placeholder="Add option"
+                        placeholderTextColor="#94a3b8"
+                        returnKeyType="done"
+                        onSubmitEditing={() => {
+                          const v = newOption.trim();
+                          if (v) onPatch({ options: [...field.options, v] });
+                          setNewOption("");
+                        }}
+                        className="min-w-0 flex-1 py-1 text-[15px] text-ink-900"
+                        style={{ includeFontPadding: false }}
+                      />
+                      {newOption.trim() ? (
+                        <Pressable
+                          onPress={() => {
+                            onPatch({ options: [...field.options, newOption.trim()] });
+                            setNewOption("");
+                          }}
+                        >
+                          <Text className="text-sm font-semibold text-[#1F45C7]">Add</Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  </View>
+                </View>
+              ) : null}
+              {field.type === "file" ? (
+                <View>
+                  {label("Accepts")}
+                  <View className="flex-row gap-2">
+                    {(
+                      [
+                        ["image", "Photo"],
+                        ["pdf", "PDF"],
+                        ["image_pdf", "Either"],
+                      ] as const
+                    ).map(([id, text]) => {
+                      const on = (field.fileType || "image_pdf") === id;
+                      return (
+                        <Pressable
+                          key={id}
+                          onPress={() => onPatch({ fileType: id })}
+                          className={`flex-1 items-center rounded-xl border py-2.5 ${on ? "border-[#1F45C7] bg-[#EEF3FF]" : "border-ink-200 bg-white"}`}
+                        >
+                          <Text className={`text-sm font-semibold ${on ? "text-[#1F45C7]" : "text-ink-700"}`}>{text}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                  <Text className="mt-1.5 text-xs text-ink-500">Up to {field.maxFileSizeMb || 5} MB</Text>
+                </View>
+              ) : null}
+              <View>
+                {label("Help text")}
+                <TextInput
+                  value={field.helpText || ""}
+                  placeholder={`Optional hint for ${audience}`}
+                  placeholderTextColor="#94a3b8"
+                  onChangeText={(helpText) => onPatch({ helpText })}
+                  className={input}
+                  style={{ includeFontPadding: false }}
+                />
+              </View>
+              <View className="overflow-hidden rounded-xl border border-ink-200">
+                {toggleRow(
+                  "Required",
+                  `${audience.charAt(0).toUpperCase()}${audience.slice(1)} must fill this`,
+                  field.required,
+                  !field.visible || isLocked,
+                  () => onPatch({ required: !field.required }),
+                  true
+                )}
+                {toggleRow("Visible on form", "Hide without deleting", field.visible, isLocked, () =>
+                  onPatch({ visible: !field.visible, required: field.visible ? false : field.required })
+                )}
+              </View>
+              {error ? <Text className="text-sm font-medium text-red-700">{error}</Text> : null}
+            </ScrollView>
+            {menu ? (
+              <View className="mx-5 mb-2 overflow-hidden rounded-xl border border-ink-100 bg-white shadow-lg">
+                {(
+                  [
+                    ["arrow-up", "Move up", () => onMove(-1), !isFirst, false],
+                    ["arrow-down", "Move down", () => onMove(1), !isLast, false],
+                    ["copy-outline", "Duplicate", () => { setMenu(false); onDuplicate(); }, true, false],
+                    ["trash-outline", "Delete field", () => { setMenu(false); onDelete?.(); }, Boolean(onDelete), true],
+                  ] as const
+                ).map(([icon, text, run, enabled, danger], i) => (
+                  <Pressable
+                    key={text}
+                    disabled={!enabled}
+                    onPress={run}
+                    className={`flex-row items-center gap-3 px-4 py-3 ${i ? "border-t border-ink-100" : ""} ${enabled ? "" : "opacity-40"}`}
+                  >
+                    <Ionicons name={icon} size={18} color={danger ? "#b91c1c" : "#334155"} />
+                    <Text className={`text-[15px] ${danger ? "font-semibold text-red-700" : "text-ink-900"}`}>{text}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+            <View className="flex-row gap-2 border-t border-ink-100 px-5 pb-2 pt-3">
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="More actions"
+                onPress={() => setMenu((v) => !v)}
+                className={`h-12 w-12 items-center justify-center rounded-xl border ${menu ? "border-[#1F45C7] bg-[#EEF3FF]" : "border-ink-200"}`}
+              >
+                <Ionicons name="ellipsis-horizontal" size={20} color="#334155" />
+              </Pressable>
+              <Pressable accessibilityRole="button" onPress={onClose} className="h-12 flex-1 items-center justify-center rounded-xl bg-[#1F45C7]">
+                <Text className="text-[15px] font-semibold text-white">Done</Text>
+              </Pressable>
+            </View>
+          </SafeAreaView>
+        </View>
+      </KeyboardAvoidingView>
+    </RnModal>
+  );
 }
 
 export function FormBuilderModal({
@@ -185,8 +506,31 @@ export function FormBuilderModal({
     }
   }
 
+  const phoneEdit = editing ? (
+    <PhoneFieldSheet
+      field={editing}
+      audience={audience}
+      classOptions={classOptions}
+      isLocked={locked(editing.id)}
+      isFirst={fields[0]?.id === editing.id}
+      isLast={fields[fields.length - 1]?.id === editing.id}
+      onPatch={(change) => patchField(editing.id, change)}
+      onMove={(dir) => move(editing.id, dir)}
+      onDuplicate={() => duplicate(editing)}
+      onDelete={
+        editing.builtin
+          ? undefined
+          : () => {
+              onChange(fields.filter((row) => row.id !== editing.id));
+              setEditingId("");
+            }
+      }
+      onClose={() => setEditingId("")}
+    />
+  ) : null;
+
   const phoneMain = (
-    <RnModal visible={open && !editing} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
+    <RnModal visible={open} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
       <SafeAreaView className="flex-1 bg-white" edges={["top", "bottom"]}>
         <View className="h-14 flex-row items-center border-b border-ink-100 px-2">
           <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} className="h-11 w-11 items-center justify-center">
@@ -242,7 +586,7 @@ export function FormBuilderModal({
           {!fields.length ? <Text className="text-center text-sm text-ink-600">No fields yet. Add one below.</Text> : null}
           {canEdit ? (
             <View className="gap-2">
-              <Pressable onPress={() => addField()} className="h-11 flex-row items-center justify-center gap-1.5 rounded-xl border border-dashed border-[#1F45C7]/40 bg-[#EEF3FF]/50">
+              <Pressable onPress={() => addField({ label: "" })} className="h-11 flex-row items-center justify-center gap-1.5 rounded-xl border border-dashed border-[#1F45C7]/40 bg-[#EEF3FF]/50">
                 <Ionicons name="add" size={18} color="#1F45C7" />
                 <Text className="text-sm font-semibold text-[#1F45C7]">Add field</Text>
               </Pressable>
@@ -274,6 +618,7 @@ export function FormBuilderModal({
             <Text className="text-center text-[11px] text-ink-500" numberOfLines={2}>{intro}</Text>
           </View>
         ) : null}
+        {phoneEdit}
       </SafeAreaView>
     </RnModal>
   );
@@ -444,7 +789,7 @@ export function FormBuilderModal({
         </View>
       </Modal>
 
-      <Modal open={open && Boolean(editing)} title="Edit field" onClose={() => setEditingId("")}>
+      <Modal open={!phone && open && Boolean(editing)} title="Edit field" onClose={() => setEditingId("")}>
         {editing ? (
           <View className="gap-3">
             <Field label="Field label">
