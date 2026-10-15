@@ -2,6 +2,7 @@ import { createElement, useMemo, useState, useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import { Alert, Linking, Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { SafeAreaView } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { GeneratePayment } from "./generate-payment";
 import { Dropdown } from "./form";
@@ -3378,6 +3379,22 @@ export function AdmissionsBoard() {
   );
 }
 
+function shiftDay(value: string, delta: number) {
+  const [y, m, d] = value.split("-").map(Number);
+  const next = new Date(y, m - 1, d + delta);
+  return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`;
+}
+
+function leaveDay(value: string) {
+  const [y, m, d] = value.split("-").map(Number);
+  if (!y || !m || !d) return value;
+  return new Date(y, m - 1, d).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
+}
+
+function leaveRange(from: string, to: string) {
+  return !to || from === to ? leaveDay(from) : `${leaveDay(from)} – ${leaveDay(to)}`;
+}
+
 export function StaffBoard() {
   const { data, reload } = useRecord();
   const { token, user } = useSession();
@@ -3404,6 +3421,9 @@ export function StaffBoard() {
   const [infoFor, setInfoFor] = useState<(typeof staff)[number] | null>(null);
   const [detailFor, setDetailFor] = useState<(typeof staff)[number] | null>(null);
   const [editFor, setEditFor] = useState<(typeof staff)[number] | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [decidedOpen, setDecidedOpen] = useState(false);
+  const [leaveBusy, setLeaveBusy] = useState("");
   const pendingLeave = data?.pendingLeave ?? [];
   const calendar = useMemo(
     () => calendarFrom(data?.school?.holidays, data?.timetable?.weekdays),
@@ -3494,6 +3514,19 @@ export function StaffBoard() {
     }
   }
 
+  async function decide(requestId: string, yesDecision: boolean) {
+    setLeaveBusy(`${requestId}:${yesDecision ? "yes" : "no"}`);
+    try {
+      await act(token, "decideLeave", { requestId, yes: yesDecision });
+      toast.show(yesDecision ? "Leave approved." : "Leave rejected.");
+      await reload();
+    } catch (e) {
+      toast.show(e instanceof Error ? e.message : "Could not save.");
+    } finally {
+      setLeaveBusy("");
+    }
+  }
+
   async function addStaff(values: StaffAdmitPayload) {
     await act(token, "createStaffMember", values);
     setAddOpen(false);
@@ -3534,6 +3567,7 @@ export function StaffBoard() {
     await reload();
   }
 
+  const pendingWaiting = pendingLeave.filter((row) => row.status === "WAITING");
   const yes = staff.filter((p) => arrivalOf(p) === "PRESENT").length;
   const late = staff.filter((p) => arrivalOf(p) === "LATE").length;
   const no = staff.filter((p) => arrivalOf(p) === "ABSENT").length;
@@ -3565,30 +3599,35 @@ export function StaffBoard() {
       <View className={phone ? "gap-2 border-b border-ink-100 px-3 py-2" : "gap-3 border-b border-ink-100 px-4 py-4"}>
         {phone ? (
           <>
-            <View testID="staff-toolbar-controls" className="flex-row items-center gap-1.5">
-              {pendingLeave.length ? (
-                <Button
-                  variant="ghost"
-                  accessibilityLabel={`Leave requests (${pendingLeave.length})`}
-                  onPress={() => setLeaveOpen(true)}
-                  className="shrink-0 px-2 py-2"
-                >
-                  {`Leave (${pendingLeave.length})`}
-                </Button>
+            <View testID="staff-toolbar-controls" className="flex-row items-center gap-2">
+              <Text className="flex-1 text-[22px] font-bold tracking-tight text-ink-900">Staff</Text>
+              {canMark ? (
+                <StaffAttendanceQrScanButton token={token} compact disabled={locked} onMessage={toast.show} onDone={reload} />
               ) : null}
-              <View className="min-w-0 flex-1 flex-row items-center rounded-md border border-ink-200 bg-white pl-2">
-                <Ionicons name="search-outline" size={16} color="#3d4f66" />
-                <Input
-                  value={q}
-                  onChangeText={setQ}
-                  placeholder="Name"
-                  accessibilityLabel="Search"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  className="min-w-0 flex-1 border-0 px-2 py-2"
-                />
-              </View>
-              <View testID="staff-date" className="w-[108px] shrink-0">
+              {data?.staffAttendanceSelf ? <StaffAttendanceQrButton token={token} compact disabled={locked} onMessage={toast.show} /> : null}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="More staff actions"
+                onPress={() => setMenuOpen(true)}
+                className="h-10 w-10 items-center justify-center rounded-full border border-ink-200 bg-white"
+              >
+                <Ionicons name="ellipsis-horizontal" size={18} color="#334155" />
+              </Pressable>
+            </View>
+            <View className="flex-row items-center gap-2">
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Previous day"
+                onPress={() => {
+                  setDate(shiftDay(date, -1));
+                  setMarks({});
+                  setTimes({});
+                }}
+                className="h-10 w-10 items-center justify-center rounded-full border border-ink-200 bg-white"
+              >
+                <Ionicons name="chevron-back" size={18} color="#1F45C7" />
+              </Pressable>
+              <View testID="staff-date" className="min-w-0 flex-1">
                 <DateField
                   compact
                   plain
@@ -3602,41 +3641,74 @@ export function StaffBoard() {
                   }}
                 />
               </View>
-              {canMark ? (
-                <Button variant="ghost" accessibilityLabel="+ Add employee" onPress={() => setAddOpen(true)} className="shrink-0 px-2 py-2">
-                  + Add
-                </Button>
-              ) : null}
-              {canMark ? (
-                <Button variant="ghost" accessibilityLabel="Import employees" onPress={() => setBulkOpen(true)} className="shrink-0 px-2 py-2">
-                  Import
-                </Button>
-              ) : null}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Next day"
+                disabled={date >= today}
+                onPress={() => {
+                  setDate(shiftDay(date, 1));
+                  setMarks({});
+                  setTimes({});
+                }}
+                className={`h-10 w-10 items-center justify-center rounded-full border border-ink-200 bg-white ${date >= today ? "opacity-40" : ""}`}
+              >
+                <Ionicons name="chevron-forward" size={18} color="#1F45C7" />
+              </Pressable>
             </View>
-            <View testID="staff-toolbar-actions" className="flex-row items-center gap-1.5">
-              <Button variant="ghost" accessibilityLabel="Timesheet" onPress={() => setTimesheetOpen(true)} className="shrink-0 px-2 py-2">
-                Timesheet
-              </Button>
-              <Button variant="ghost" accessibilityLabel="Late timing" onPress={() => setHoursOpen(true)} className="shrink-0 px-2 py-2">
-                Late timing
-              </Button>
-              {canMark ? (
-                <StaffAttendanceQrScanButton token={token} compact disabled={locked} onMessage={toast.show} onDone={reload} />
-              ) : null}
-              {data?.staffAttendanceSelf ? <StaffAttendanceQrButton token={token} compact disabled={locked} onMessage={toast.show} /> : null}
-            </View>
-            <View testID="staff-toolbar-summary" className="flex-row flex-wrap items-center gap-2">
+            {pendingWaiting.length ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setLeaveOpen(true)}
+                className="flex-row items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5"
+              >
+                <Ionicons name="airplane-outline" size={16} color="#b45309" />
+                <Text className="flex-1 text-sm font-medium text-amber-900">
+                  {pendingWaiting.length} leave {pendingWaiting.length === 1 ? "request" : "requests"} waiting
+                </Text>
+                <Text className="text-sm font-semibold text-amber-800">Review</Text>
+                <Ionicons name="chevron-forward" size={14} color="#b45309" />
+              </Pressable>
+            ) : pendingLeave.length ? (
+              <Pressable accessibilityRole="button" onPress={() => setLeaveOpen(true)} className="self-start">
+                <Text className="text-xs font-medium text-[#1F45C7]">Leave requests ({pendingLeave.length})</Text>
+              </Pressable>
+            ) : null}
+            <View testID="staff-toolbar-summary">
               {locked ? (
                 <Text className="text-sm text-amber-800">{lockedNote.replace(/\.$/, "")}.</Text>
               ) : (
-                <View className="flex-row flex-wrap gap-2">
-                  <Badge tone="leaf">{`${yes} P`}</Badge>
-                  {late ? <Badge tone="warn">{`${late} late`}</Badge> : null}
-                  <Badge tone="danger">{`${no} A`}</Badge>
-                  {onLeave ? <Badge tone="sky">{`${onLeave} on leave`}</Badge> : null}
-                  {needle ? <Badge>{`${shown.length} shown`}</Badge> : null}
-                </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+                  {(
+                    [
+                      [`${yes} present`, "bg-green-50 text-green-700", true],
+                      [`${late} late`, "bg-amber-50 text-amber-800", late > 0],
+                      [`${no} absent`, "bg-red-50 text-red-700", true],
+                      [`${onLeave} on leave`, "bg-sky-50 text-sky-700", onLeave > 0],
+                      [`${shown.length} shown`, "bg-ink-50 text-ink-700", Boolean(needle)],
+                    ] as const
+                  )
+                    .filter(([, , on]) => on)
+                    .map(([label, tone]) => (
+                      <Text key={label} className={`rounded-full px-2.5 py-1 text-xs font-semibold ${tone}`}>
+                        {label}
+                      </Text>
+                    ))}
+                </ScrollView>
               )}
+            </View>
+            <View className="flex-row items-center rounded-xl border border-ink-200 bg-white pl-3">
+              <Ionicons name="search-outline" size={16} color="#94a3b8" />
+              <TextInput
+                value={q}
+                onChangeText={setQ}
+                placeholder="Search staff"
+                placeholderTextColor="#94a3b8"
+                accessibilityLabel="Search"
+                autoCapitalize="none"
+                autoCorrect={false}
+                className="min-w-0 flex-1 px-2 py-2.5 text-sm text-ink-900"
+                style={{ includeFontPadding: false }}
+              />
             </View>
           </>
         ) : (
@@ -3740,7 +3812,39 @@ export function StaffBoard() {
                 )}
               </View>
             );
-            const who = (
+            const who = phone ? (
+              <View className="min-w-0 flex-1 flex-row items-center gap-2.5">
+                <Pressable
+                  onPress={() => setInfoFor(p)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`View ${p.name} details`}
+                  className="h-9 w-9 items-center justify-center rounded-full bg-[#EEF3FF]"
+                >
+                  <Text className="text-xs font-semibold text-[#1F45C7]">
+                    {p.name
+                      .split(/\s+/)
+                      .filter(Boolean)
+                      .slice(0, 2)
+                      .map((w) => w[0])
+                      .join("")
+                      .toUpperCase()}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setDetailFor(p)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${p.name} monthly attendance`}
+                  className="min-w-0 flex-1"
+                >
+                  <Text className="text-[15px] font-semibold text-ink-900" numberOfLines={1}>
+                    {p.name}
+                  </Text>
+                  <Text className="text-xs text-ink-500" numberOfLines={1}>
+                    {p.kind === "teacher" ? "Teacher" : p.role}
+                  </Text>
+                </Pressable>
+              </View>
+            ) : (
               <View className={phone ? "min-w-0 flex-1" : "w-56 shrink-0"}>
                 <View className="min-w-0">
                   <View className="flex-row items-center gap-1.5">
@@ -3855,7 +3959,147 @@ export function StaffBoard() {
       />
       )}
       {register}
-      <Modal open={leaveOpen && Boolean(pendingLeave.length)} title="Leave requests" onClose={() => setLeaveOpen(false)}>
+      {phone ? (
+        <RnModal
+          visible={leaveOpen && Boolean(pendingLeave.length)}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setLeaveOpen(false)}
+        >
+          <View className="flex-1 justify-end">
+            <Pressable accessibilityRole="button" accessibilityLabel="Close" className="absolute inset-0 bg-black/40" onPress={() => setLeaveOpen(false)} />
+            <View className="rounded-t-3xl bg-white" style={{ maxHeight: "88%" }}>
+              <SafeAreaView edges={["bottom"]}>
+                <View className="items-center pt-2">
+                  <View className="h-1 w-10 rounded-full bg-ink-200" />
+                </View>
+                <View className="flex-row items-center px-5 pb-2 pt-3">
+                  <Text className="flex-1 text-lg font-semibold text-ink-900">Leave requests</Text>
+                  <Pressable accessibilityRole="button" accessibilityLabel="Close" hitSlop={10} onPress={() => setLeaveOpen(false)} className="h-8 w-8 items-center justify-center rounded-full bg-ink-100">
+                    <Ionicons name="close" size={18} color="#3d4f66" />
+                  </Pressable>
+                </View>
+                <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 20, gap: 10 }}>
+                  <Text className="text-xs font-semibold uppercase tracking-wide text-ink-500">
+                    Pending ({pendingWaiting.length})
+                  </Text>
+                  {!pendingWaiting.length ? <Text className="text-sm text-ink-500">Nothing waiting. All caught up.</Text> : null}
+                  {[...pendingWaiting]
+                    .sort((a, b) => a.from.localeCompare(b.from))
+                    .map((row) => (
+                      <View key={row.id} className="rounded-2xl border border-ink-100 bg-white p-3.5">
+                        <View className="flex-row items-center gap-2">
+                          <Text className="min-w-0 flex-1 text-[15px] font-semibold text-ink-900" numberOfLines={1}>
+                            {row.subjectName}
+                          </Text>
+                          <Text className="rounded-full bg-[#EEF3FF] px-2 py-0.5 text-[11px] font-semibold text-[#1F45C7]">{row.typeName}</Text>
+                        </View>
+                        <Text className="mt-1 text-sm text-ink-700">
+                          {leaveRange(row.from, row.to)}
+                          {" · "}
+                          {row.halfDay ? (row.halfDay === "FIRST" ? "First half" : "Second half") : `${row.days || 1} ${row.days === 1 || !row.days ? "day" : "days"}`}
+                        </Text>
+                        {row.reason ? (
+                          <View className="mt-2 rounded-lg bg-ink-50 px-3 py-2">
+                            <Text className="text-sm text-ink-700">{row.reason}</Text>
+                          </View>
+                        ) : null}
+                        <View className="mt-3 flex-row gap-2">
+                          <Pressable
+                            accessibilityRole="button"
+                            disabled={Boolean(leaveBusy)}
+                            onPress={() => void decide(row.id, false)}
+                            className="h-11 flex-1 items-center justify-center rounded-xl border border-ink-200"
+                          >
+                            <Text className="text-sm font-semibold text-red-700">{leaveBusy === `${row.id}:no` ? "Rejecting…" : "Reject"}</Text>
+                          </Pressable>
+                          <Pressable
+                            accessibilityRole="button"
+                            disabled={Boolean(leaveBusy)}
+                            onPress={() => void decide(row.id, true)}
+                            className="h-11 flex-[1.4] items-center justify-center rounded-xl bg-[#1F45C7]"
+                          >
+                            <Text className="text-sm font-semibold text-white">{leaveBusy === `${row.id}:yes` ? "Approving…" : "Approve"}</Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                    ))}
+                  {pendingLeave.length > pendingWaiting.length ? (
+                    <>
+                      <Pressable accessibilityRole="button" onPress={() => setDecidedOpen((v) => !v)} className="mt-2 flex-row items-center gap-1">
+                        <Text className="text-xs font-semibold uppercase tracking-wide text-ink-500">
+                          Decided ({pendingLeave.length - pendingWaiting.length})
+                        </Text>
+                        <Ionicons name={decidedOpen ? "chevron-up" : "chevron-down"} size={14} color="#64748b" />
+                      </Pressable>
+                      {decidedOpen
+                        ? pendingLeave
+                            .filter((row) => row.status !== "WAITING")
+                            .sort((a, b) => a.from.localeCompare(b.from))
+                            .map((row) => (
+                              <View key={row.id} className="flex-row items-center gap-3 rounded-xl border border-ink-100 px-3 py-2.5">
+                                <View className="min-w-0 flex-1">
+                                  <Text className="text-sm font-medium text-ink-900" numberOfLines={1}>
+                                    {row.subjectName} · {row.typeName}
+                                  </Text>
+                                  <Text className="text-xs text-ink-500">
+                                    {leaveRange(row.from, row.to)}
+                                    {row.halfDay ? ` · ${row.halfDay === "FIRST" ? "First half" : "Second half"}` : ""}
+                                  </Text>
+                                </View>
+                                <Text className="text-xs font-semibold text-green-700">Approved</Text>
+                                <Pressable accessibilityRole="button" hitSlop={8} disabled={Boolean(leaveBusy)} onPress={() => void decide(row.id, false)}>
+                                  <Text className="text-xs font-semibold text-red-700">Revoke</Text>
+                                </Pressable>
+                              </View>
+                            ))
+                        : null}
+                    </>
+                  ) : null}
+                </ScrollView>
+              </SafeAreaView>
+            </View>
+          </View>
+        </RnModal>
+      ) : null}
+      {phone ? (
+        <RnModal visible={menuOpen} transparent animationType="slide" onRequestClose={() => setMenuOpen(false)}>
+          <View className="flex-1 justify-end">
+            <Pressable accessibilityRole="button" accessibilityLabel="Close" className="absolute inset-0 bg-black/40" onPress={() => setMenuOpen(false)} />
+            <View className="rounded-t-3xl bg-white pb-2">
+              <SafeAreaView edges={["bottom"]}>
+                <View className="items-center pb-1 pt-2">
+                  <View className="h-1 w-10 rounded-full bg-ink-200" />
+                </View>
+                {(
+                  [
+                    ["person-add-outline", "Add employee", () => setAddOpen(true), canMark],
+                    ["cloud-upload-outline", "Import employees", () => setBulkOpen(true), canMark],
+                    ["time-outline", "Timesheet", () => setTimesheetOpen(true), true],
+                    ["alarm-outline", "Late timing", () => setHoursOpen(true), true],
+                  ] as const
+                )
+                  .filter(([, , , on]) => on)
+                  .map(([icon, label, run]) => (
+                    <Pressable
+                      key={label}
+                      accessibilityRole="button"
+                      onPress={() => {
+                        setMenuOpen(false);
+                        run();
+                      }}
+                      className="flex-row items-center gap-3 px-5 py-3.5 active:bg-slate-50"
+                    >
+                      <Ionicons name={icon} size={20} color="#1F45C7" />
+                      <Text className="text-[15px] text-ink-900">{label}</Text>
+                    </Pressable>
+                  ))}
+              </SafeAreaView>
+            </View>
+          </View>
+        </RnModal>
+      ) : null}
+      <Modal open={!phone && leaveOpen && Boolean(pendingLeave.length)} title="Leave requests" onClose={() => setLeaveOpen(false)}>
         <View>
           {pendingLeave.map((row, index) => (
             <View
@@ -5244,6 +5488,9 @@ export function RolesBoard() {
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [form, setForm] = useState<Record<string, string>>({});
   const [managerFor, setManagerFor] = useState<string | null>(null);
+  const [detailGroup, setDetailGroup] = useState<string | null>(null);
+  const { width } = useWindowDimensions();
+  const phone = width < 768;
 
   useEffect(() => {
     if (role) {
@@ -5430,16 +5677,192 @@ export function RolesBoard() {
     );
   }
 
+  const peopleIn = (id: string) => users.filter((u) => u.roleId === id).length;
+  const allGroups = [...new Set(catalog.map((p) => p.group))];
+  const groupOn = (mod: (typeof groups)[number]) =>
+    mod.see ? grants.includes(mod.see.key) : mod.all.some((p) => grants.includes(p.key));
+  const onCount = allGroups.filter((g) => {
+    const rows = catalog.filter((p) => p.group === g);
+    const see = rows.find((p) => p.see);
+    return see ? grants.includes(see.key) : rows.some((p) => grants.includes(p.key));
+  }).length;
+  const detail = detailGroup ? groups.find((m) => m.group === detailGroup) ?? null : null;
+
+  const permRow = (perm: (typeof catalog)[number], dim: boolean, strong?: boolean) => (
+    <View
+      key={perm.key}
+      className={`flex-row items-center gap-3 border-b border-ink-100 px-4 py-3 ${dim ? "opacity-40" : ""}`}
+    >
+      <View className="min-w-0 flex-1">
+        <Text className={`text-[15px] text-ink-900 ${strong ? "font-semibold" : ""}`}>{perm.label}</Text>
+        {perm.hint ? <Text className="mt-0.5 text-xs text-ink-500">{perm.hint}</Text> : null}
+        {scopeControl(perm)}
+      </View>
+      {locked(perm.key) ? (
+        <Ionicons name="lock-closed" size={16} color="#94a3b8" />
+      ) : (
+        <Switch
+          on={grants.includes(perm.key)}
+          disabled={pending || (dim && !grants.includes(perm.key))}
+          onPress={() => flip(perm.key, !grants.includes(perm.key))}
+        />
+      )}
+    </View>
+  );
+
+  const phonePermissions = (
+    <View className={role.portal === "OFFICE" ? "gap-3" : "gap-3 pb-24"}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingRight: 8 }}>
+        {[...office, ...portals].map((r) => {
+          const active = r.id === role.id;
+          const count = peopleIn(r.id);
+          const tail = r.portal === "OFFICE" ? (count ? ` · ${count}` : "") : ` · ${PORTAL_LABEL[r.portal] || r.portal}`;
+          return (
+            <Pressable
+              key={r.id}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
+              onPress={() => {
+                setRoleId(r.id);
+                setQuery("");
+              }}
+              className={`rounded-full border px-3.5 py-2 ${active ? "border-[#1F45C7] bg-[#1F45C7]" : "border-ink-200 bg-white"}`}
+            >
+              <Text className={`text-sm font-medium ${active ? "text-white" : "text-ink-800"}`}>
+                {r.name}
+                <Text className={active ? "text-white/80" : "text-ink-500"}>{tail}</Text>
+              </Text>
+            </Pressable>
+          );
+        })}
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => {
+            setForm({});
+            setMakeOpen(true);
+          }}
+          className="flex-row items-center gap-1 rounded-full border border-dashed border-[#1F45C7] px-3.5 py-2"
+        >
+          <Ionicons name="add" size={16} color="#1F45C7" />
+          <Text className="text-sm font-medium text-[#1F45C7]">New</Text>
+        </Pressable>
+      </ScrollView>
+
+      <View className="flex-row items-center justify-between">
+        <Text className="text-sm text-ink-700">
+          <Text className="font-semibold text-ink-900">{onCount}</Text> of {allGroups.length} areas on
+          {role.portal === "OFFICE" ? ` · ${onRole.length} ${onRole.length === 1 ? "person" : "people"}` : ""}
+        </Text>
+        {pending ? <Text className="text-xs text-ink-500">Saving…</Text> : null}
+      </View>
+
+      <View className="flex-row items-center gap-2 rounded-lg border border-ink-200 bg-white px-3">
+        <Ionicons name="search" size={16} color="#94a3b8" />
+        <TextInput
+          value={query}
+          onChangeText={setQuery}
+          placeholder="Filter permissions"
+          placeholderTextColor="#94a3b8"
+          className="flex-1 py-2.5 text-sm text-ink-900"
+          style={{ includeFontPadding: false }}
+        />
+        {query ? (
+          <Pressable hitSlop={8} onPress={() => setQuery("")}>
+            <Ionicons name="close-circle" size={16} color="#94a3b8" />
+          </Pressable>
+        ) : null}
+      </View>
+
+      <View className="overflow-hidden rounded-xl border border-ink-200 bg-white">
+        {groups.map((mod, i) => {
+          const on = groupOn(mod);
+          const isLocked = Boolean(mod.see && locked(mod.see.key));
+          const actionsOn = mod.actions.filter((p) => grants.includes(p.key)).length;
+          return (
+            <View
+              key={mod.group}
+              className={`flex-row items-center gap-3 px-4 py-3 ${i < groups.length - 1 ? "border-b border-ink-100" : ""}`}
+            >
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Open ${mod.group} permissions`}
+                onPress={() => setDetailGroup(mod.group)}
+                className="min-w-0 flex-1"
+              >
+                <Text className={`text-[15px] font-semibold ${on ? "text-ink-900" : "text-ink-500"}`}>{mod.group}</Text>
+                <Text className="mt-0.5 text-xs text-ink-500" numberOfLines={1}>
+                  {on && mod.actions.length
+                    ? `${actionsOn} of ${mod.actions.length} actions`
+                    : MODULE_COPY[mod.group] ?? ""}
+                </Text>
+              </Pressable>
+              {isLocked ? (
+                <Ionicons name="lock-closed" size={16} color="#94a3b8" />
+              ) : (
+                <Switch on={on} disabled={pending} onPress={() => flipModule(mod, !on)} />
+              )}
+            </View>
+          );
+        })}
+        {!groups.length ? (
+          <Text className="px-4 py-8 text-center text-sm text-ink-700">Nothing matches “{query}”.</Text>
+        ) : null}
+      </View>
+    </View>
+  );
+
+  const phoneDetail = (
+    <RnModal
+      visible={phone && Boolean(detail)}
+      animationType="slide"
+      presentationStyle="fullScreen"
+      onRequestClose={() => setDetailGroup(null)}
+    >
+      <SafeAreaView className="flex-1 bg-white" edges={["top", "bottom"]}>
+        {detail ? (
+          <>
+            <View className="flex-row items-center gap-3 border-b border-ink-100 px-4 py-3">
+              <Pressable accessibilityRole="button" accessibilityLabel="Back" hitSlop={10} onPress={() => setDetailGroup(null)}>
+                <Ionicons name="chevron-back" size={22} color="#1F45C7" />
+              </Pressable>
+              <View className="min-w-0 flex-1">
+                <Text className="text-base font-semibold text-ink-900">{detail.group}</Text>
+                <Text className="text-xs text-ink-500">{role.name}</Text>
+              </View>
+              {detail.see && locked(detail.see.key) ? (
+                <Ionicons name="lock-closed" size={16} color="#94a3b8" />
+              ) : (
+                <Switch on={groupOn(detail)} disabled={pending} onPress={() => flipModule(detail, !groupOn(detail))} />
+              )}
+            </View>
+            <ScrollView contentContainerStyle={{ paddingBottom: 32 }}>
+              {MODULE_COPY[detail.group] ? (
+                <Text className="px-4 pb-1 pt-3 text-xs text-ink-500">{MODULE_COPY[detail.group]}</Text>
+              ) : null}
+              {detail.see ? permRow(detail.see, false, true) : null}
+              {detail.actions.length ? (
+                <Text className="px-4 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wide text-ink-500">Actions</Text>
+              ) : null}
+              {detail.actions.map((perm) => permRow(perm, !groupOn(detail)))}
+            </ScrollView>
+          </>
+        ) : null}
+      </SafeAreaView>
+    </RnModal>
+  );
+
   return (
     <View>
       <PageHeader
         kicker="Admin · Reports"
         title="Roles & permissions"
-        lede="Choose a role, then switch on the access that belongs to it."
+        lede={phone ? undefined : "Choose a role, then switch on the access that belongs to it."}
       />
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
+      {phoneDetail}
       <View className="gap-4">
         <View className="min-w-0 gap-4">
+          {phone ? phonePermissions : (
           <Card className="p-4">
             <View className="flex-row flex-wrap items-end justify-between gap-3">
               <View>
@@ -5470,7 +5893,7 @@ export function RolesBoard() {
             <View className="mt-3">
               <Input
                 className="py-1.5"
-                placeholder="Find people, fees, exams..."
+                placeholder="Filter permissions"
                 value={query}
                 onChangeText={setQuery}
               />
@@ -5557,9 +5980,10 @@ export function RolesBoard() {
               ) : null}
             </View>
           </Card>
+          )}
 
           {role.portal === "OFFICE" ? (
-            <Card className="p-4">
+            <Card className={phone ? "mb-24 p-4" : "p-4"}>
               <View className="flex-row items-center justify-between gap-2">
                 <View>
                   <Text className="text-sm font-semibold text-ink-900">Users in this role</Text>

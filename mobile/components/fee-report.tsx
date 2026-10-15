@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { Linking, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { Chip } from "./ui";
 import { inr } from "../lib/payroll";
 import { useRecord } from "../lib/record";
@@ -96,7 +97,9 @@ export function FeeReport({
   people,
   classes,
   onOpenStudent,
+  header,
 }: {
+  header?: ReactNode;
   people: Person[];
   classes: Klass[];
   sessions?: { id: string; label: string; startsOn: string; endsOn: string; current: boolean }[];
@@ -144,6 +147,7 @@ export function FeeReport({
         label: klass.label,
         students: rows.length,
         outstanding: classOutstanding,
+        billed: classBilled,
         overdue: classOverdue,
         collectionRate: ratio(classPaid, classBilled),
       };
@@ -180,6 +184,166 @@ export function FeeReport({
 
   function monthsOf(person: Person) {
     return (person.invoices ?? []).filter((inv) => inv.status !== "paid").length;
+  }
+
+  if (compact) {
+    const total = Math.max(paid + outstanding, 1);
+    const seg = (value: number) => (value > 0 ? Math.max(2, (value / total) * 100) : 0);
+    const pendingStudents = Math.max(0, reportDueStudents.length - reportOverdueStudents.length);
+    return (
+      <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 110 }}>
+        {header}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 12 }}>
+          {[{ id: "all", label: "All classes" }, ...classes.map((k) => ({ id: k.id, label: k.label }))].map((item) => {
+            const on = classId === item.id;
+            return (
+              <Pressable
+                key={item.id}
+                accessibilityRole="button"
+                accessibilityState={{ selected: on }}
+                onPress={() => setClassId(item.id)}
+                className={`rounded-full border px-3.5 py-1.5 ${on ? "border-[#1F45C7] bg-[#1F45C7]" : "border-ink-200 bg-white"}`}
+              >
+                <Text className={`text-[13px] font-medium ${on ? "text-white" : "text-ink-700"}`}>{item.label}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
+        <View className="gap-3">
+          <View className="rounded-2xl border border-ink-100 bg-white p-4">
+            <Text className="text-xs font-medium text-ink-500">{selectedClass ? `${selectedClass.label} · collected` : "Collected"}</Text>
+            <View className="mt-0.5 flex-row items-baseline gap-2">
+              <Text className="text-[30px] font-bold leading-9 text-ink-900">{collectionRate}%</Text>
+              <Text className="text-sm text-ink-600">
+                {compactInr(paid)} of {compactInr(billed)} billed
+              </Text>
+            </View>
+            <View className="mt-3 h-3 flex-row overflow-hidden rounded-full bg-ink-100">
+              <View className="h-full bg-emerald-500" style={{ width: `${seg(paid)}%` }} />
+              <View className="h-full bg-amber-400" style={{ width: `${seg(currentDue)}%` }} />
+              <View className="h-full bg-red-500" style={{ width: `${seg(overdue)}%` }} />
+            </View>
+            <View className="mt-2 flex-row flex-wrap gap-x-4 gap-y-1">
+              {(
+                [
+                  ["bg-emerald-500", "Collected", paid],
+                  ["bg-amber-400", "Pending", currentDue],
+                  ["bg-red-500", "Overdue", overdue],
+                ] as const
+              ).map(([dot, label, value]) => (
+                <View key={label} className="flex-row items-center gap-1.5">
+                  <View className={`h-2 w-2 rounded-full ${dot}`} />
+                  <Text className="text-xs text-ink-600">
+                    {label} <Text className="font-semibold text-ink-900">{compactInr(value)}</Text>
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </View>
+
+          <View className="flex-row gap-3">
+            <View className="flex-1 rounded-xl border border-red-100 bg-red-50/60 px-3 py-3">
+              <Text className="text-xs font-medium text-red-700">Overdue</Text>
+              <Text className="mt-0.5 text-lg font-bold text-red-700">{compactInr(overdue)}</Text>
+              <Text className="text-xs text-ink-600">
+                {reportOverdueStudents.length} {reportOverdueStudents.length === 1 ? "student" : "students"}
+              </Text>
+            </View>
+            <View className="flex-1 rounded-xl border border-amber-100 bg-amber-50/60 px-3 py-3">
+              <Text className="text-xs font-medium text-amber-800">Pending</Text>
+              <Text className="mt-0.5 text-lg font-bold text-amber-800">{compactInr(currentDue)}</Text>
+              <Text className="text-xs text-ink-600">
+                {pendingStudents} {pendingStudents === 1 ? "student" : "students"}
+              </Text>
+            </View>
+          </View>
+
+          <View className="rounded-xl border border-ink-100 bg-white p-4">
+            <Text className="text-sm font-semibold text-ink-900">How long pending</Text>
+            <View className="mt-3 flex-row gap-2">
+              {pendingBuckets.map((row, i) => (
+                <View
+                  key={row.label}
+                  className={`flex-1 items-center rounded-lg py-2 ${i === 2 ? "bg-red-50" : i === 1 ? "bg-amber-50" : "bg-[#EEF3FF]"}`}
+                >
+                  <Text className={`text-lg font-bold ${i === 2 ? "text-red-700" : i === 1 ? "text-amber-800" : "text-[#1F45C7]"}`}>
+                    {row.count}
+                  </Text>
+                  <Text className="text-[11px] text-ink-600">{row.label}</Text>
+                </View>
+              ))}
+            </View>
+            <Text className="mt-2 text-xs text-ink-500">{reportPeople.length - reportDueStudents.length} students fully paid</Text>
+          </View>
+
+          {classId === "all" && classHealth.length ? (
+            <View className="overflow-hidden rounded-xl border border-ink-100 bg-white">
+              <Text className="px-4 pb-1 pt-3 text-sm font-semibold text-ink-900">By class</Text>
+              {classHealth.map((row) => (
+                <Pressable
+                  key={row.id}
+                  accessibilityRole="button"
+                  onPress={() => setClassId(row.id)}
+                  className="border-b border-ink-50 px-4 py-2.5 active:bg-slate-50"
+                >
+                  <View className="flex-row items-center justify-between gap-2">
+                    <Text className="text-sm font-medium text-ink-900">{row.label}</Text>
+                    {row.billed > 0 ? (
+                      <Text className="text-xs text-ink-600">
+                        <Text className={`font-semibold ${row.overdue ? "text-red-700" : "text-amber-800"}`}>{compactInr(row.outstanding)}</Text> due ·{" "}
+                        {row.collectionRate}% paid
+                      </Text>
+                    ) : (
+                      <Text className="text-xs text-ink-400">Not billed yet</Text>
+                    )}
+                  </View>
+                  {row.billed > 0 ? (
+                    <View className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-ink-100">
+                      <View className="h-full rounded-full bg-emerald-500" style={{ width: `${row.collectionRate}%` }} />
+                    </View>
+                  ) : null}
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+
+          <View className="overflow-hidden rounded-xl border border-ink-100 bg-white">
+            <Text className="px-4 pb-1 pt-3 text-sm font-semibold text-ink-900">Call first</Text>
+            {topFollowUps.length ? (
+              topFollowUps.map((person) => {
+                const phone = String((person as { parentPhone?: string }).parentPhone || "").trim();
+                return (
+                  <View key={person.id} className="flex-row items-center gap-3 border-b border-ink-50 px-4 py-2.5">
+                    <Pressable accessibilityRole="button" onPress={() => onOpenStudent(person.id)} className="min-w-0 flex-1">
+                      <Text className="text-sm font-semibold text-ink-900" numberOfLines={1}>
+                        {person.name} <Text className="font-normal text-ink-500">· {person.classLabel}</Text>
+                      </Text>
+                      <Text className="mt-0.5 text-xs text-red-600">
+                        {monthsOf(person)} pending · {person.overdueCount || 0} overdue ·{" "}
+                        <Text className="font-semibold">{compactInr(person.dueAmount || 0)}</Text>
+                      </Text>
+                    </Pressable>
+                    {phone ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Call parent of ${person.name}`}
+                        onPress={() => void Linking.openURL(`tel:${phone.replace(/[^\d+]/g, "")}`)}
+                        className="h-9 w-9 items-center justify-center rounded-full bg-[#EEF3FF]"
+                      >
+                        <Ionicons name="call" size={16} color="#1F45C7" />
+                      </Pressable>
+                    ) : null}
+                  </View>
+                );
+              })
+            ) : (
+              <Text className="px-4 py-4 text-sm text-ink-600">No follow-ups pending.</Text>
+            )}
+          </View>
+        </View>
+      </ScrollView>
+    );
   }
 
   return (

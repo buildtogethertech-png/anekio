@@ -96,7 +96,10 @@ function LaunchPanelButton() {
   const pointerStart = useRef<LauncherPosition | null>(null);
   const dragged = useRef(false);
   const onboarding = data?.onboarding;
-  const show = user?.portal === "OFFICE" && onboarding && onboarding.progress.percent < 100;
+  const pathname = usePathname();
+  const params = useGlobalSearchParams<{ tab?: string; group?: string }>();
+  const settingsHub = width < 640 && pathname === "/school" && !params.tab && !params.group;
+  const show = user?.portal === "OFFICE" && onboarding && onboarding.progress.percent < 100 && !settingsHub;
 
   const buttonSize = 64;
   const panelWidth = Math.min(760, Math.max(360, width - 48));

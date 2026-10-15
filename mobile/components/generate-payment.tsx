@@ -1,17 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Linking, Platform, Pressable, Share, Text, View } from "react-native";
+import { KeyboardAvoidingView, Linking, Modal as RnModal, Platform, Pressable, ScrollView, Share, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { webOrigin } from "../lib/api";
 import { act } from "../lib/mutate";
 import { useSession } from "../lib/session";
 import { Button, Field, Input, Modal } from "./ui";
 
 const PAYMENT_METHODS = [
-  { id: "CASH", label: "Cash", hint: "Collected at the desk" },
-  { id: "UPI", label: "UPI", hint: "GPay / PhonePe / school QR — enter UTR" },
-  { id: "RAZORPAY", label: "Pay link", hint: "Parent pays themselves. Copy or send the link." },
-  { id: "BANK", label: "Bank transfer", hint: "NEFT / IMPS — enter the UTR" },
-  { id: "CHEQUE", label: "Cheque", hint: "Cheque number and bank" },
+  { id: "CASH", label: "Cash", short: "Cash", icon: "cash-outline", hint: "Collected at the desk" },
+  { id: "UPI", label: "UPI", short: "UPI", icon: "qr-code-outline", hint: "GPay / PhonePe / school QR — enter UTR" },
+  { id: "RAZORPAY", label: "Pay link", short: "Pay link", icon: "link-outline", hint: "Parent pays themselves. Copy or send the link." },
+  { id: "BANK", label: "Bank transfer", short: "Bank", icon: "business-outline", hint: "NEFT / IMPS — enter the UTR" },
+  { id: "CHEQUE", label: "Cheque", short: "Cheque", icon: "document-text-outline", hint: "Cheque number and bank" },
 ] as const;
 
 type Method = (typeof PAYMENT_METHODS)[number]["id"];
@@ -111,9 +112,11 @@ export function GeneratePayment({
   student,
   students,
   title,
+  startMethod,
   onClose,
   onDone,
 }: {
+  startMethod?: "CASH" | "UPI" | "RAZORPAY" | "BANK" | "CHEQUE";
   open: boolean;
   student: StudentPay | null;
   students?: StudentPay[];
@@ -130,6 +133,11 @@ export function GeneratePayment({
   const [busy, setBusy] = useState<Busy>(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
+  const [showNote, setShowNote] = useState(false);
+  const [editBy, setEditBy] = useState(false);
+  const [done, setDone] = useState<null | { message: string; amount: number; method: string; range: string; when: string }>(null);
+  const { width } = useWindowDimensions();
+  const phone = width < 768;
   const roster = students?.length ? students : student ? [student] : [];
   const lead = roster[0] || null;
 
@@ -163,14 +171,17 @@ export function GeneratePayment({
   useEffect(() => {
     if (!open) return;
     setPicked(months.map((m) => m.id));
-    setMethod("CASH");
+    setMethod(startMethod || "CASH");
     setReference("");
     setCollectedBy(user?.name || "");
     setNotes("");
     setBusy(null);
     setCopied(false);
     setError("");
-  }, [open, lead?.id, months.length, user?.name]);
+    setShowNote(false);
+    setEditBy(false);
+    setDone(null);
+  }, [open, lead?.id, months.length, user?.name, startMethod]);
 
   function toggle(id: string) {
     setPicked((ids) => (ids.includes(id) ? ids.filter((row) => row !== id) : [...ids, id]));
@@ -216,7 +227,18 @@ export function GeneratePayment({
           notes: notes.trim() || undefined,
         });
       }
-      await onDone(selected.length === 1 ? "Collected 1 month." : `Collected ${selected.length} months.`);
+      const message = selected.length === 1 ? "Collected 1 month." : `Collected ${selected.length} months.`;
+      if (phone) {
+        setDone({
+          message,
+          amount: due,
+          method: current.label,
+          range: payRangeLabel(selected.map((m) => m.title)),
+          when: new Date().toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }),
+        });
+      } else {
+        await onDone(message);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not collect.");
     } finally {
@@ -299,6 +321,275 @@ export function GeneratePayment({
   const callLabel = busy === "call" ? "Calling" : "Call";
   const collectLabel = busy === "collect" ? "Collecting…" : `Collect ${selected.length} ${monthWord}`;
   const manualReady = method === "RAZORPAY" || Boolean(collectedBy.trim());
+
+  if (phone) {
+    const receiptText = done
+      ? `Dear Parent,\n\nWe have received ${rupees(done.amount)} towards the school fee for ${lead?.name || "your child"} (${done.range}).\n\nMode: ${done.method}\nDate: ${done.when}\n\nThank you.`
+      : "";
+    const finish = async () => {
+      const message = done?.message || "";
+      setDone(null);
+      await onDone(message);
+    };
+    const sub = lead ? [lead.classLabel, roster.length > 1 ? `${roster.length} children` : ""].filter(Boolean).join(" · ") : "";
+    const allOn = months.length > 0 && picked.length === months.length;
+    const lateTotal = selected.reduce((sum, m) => sum + m.lateAmt, 0);
+    const needsRef = method === "UPI" || method === "BANK" || method === "CHEQUE";
+    return (
+      <RnModal visible={open} transparent animationType="slide" onRequestClose={done ? () => void finish() : onClose}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} className="flex-1 justify-end">
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close"
+            className="absolute inset-0 bg-black/40"
+            onPress={done ? () => void finish() : onClose}
+          />
+          <View className="max-h-[92%] rounded-t-3xl bg-white" style={{ maxHeight: "92%" }}>
+            <SafeAreaView edges={["bottom"]}>
+              <View className="items-center pt-2">
+                <View className="h-1 w-10 rounded-full bg-ink-200" />
+              </View>
+              {done ? (
+                <View className="items-center px-5 pb-4 pt-6">
+                  <View className="h-16 w-16 items-center justify-center rounded-full bg-green-100">
+                    <Ionicons name="checkmark" size={36} color="#15803d" />
+                  </View>
+                  <Text className="mt-4 text-[28px] font-bold text-ink-900">{rupees(done.amount)}</Text>
+                  <Text className="mt-1 text-sm text-ink-600">received from {lead?.name}</Text>
+                  <Text className="mt-0.5 text-xs text-ink-500">
+                    {done.range} · {done.method} · {done.when}
+                  </Text>
+                  <View className="mt-6 w-full gap-2">
+                    {wa ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={() => void Linking.openURL(`https://wa.me/${wa}?text=${encodeURIComponent(receiptText)}`)}
+                        className="h-12 flex-row items-center justify-center gap-2 rounded-xl bg-green-600"
+                      >
+                        <Ionicons name="logo-whatsapp" size={18} color="#fff" />
+                        <Text className="text-[15px] font-semibold text-white">Send receipt on WhatsApp</Text>
+                      </Pressable>
+                    ) : null}
+                    {Platform.OS !== "web" || (typeof navigator !== "undefined" && "share" in navigator) ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={() => void Share.share({ message: receiptText }).catch(() => undefined)}
+                        className="h-12 flex-row items-center justify-center gap-2 rounded-xl border border-ink-200"
+                      >
+                        <Ionicons name="share-outline" size={18} color="#1F45C7" />
+                        <Text className="text-[15px] font-semibold text-[#1F45C7]">Share receipt</Text>
+                      </Pressable>
+                    ) : null}
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() => void finish()}
+                      className="h-12 items-center justify-center rounded-xl"
+                    >
+                      <Text className="text-[15px] font-semibold text-ink-700">Done</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : (
+                <>
+                  <View className="flex-row items-start gap-3 px-5 pb-2 pt-3">
+                    <View className="min-w-0 flex-1">
+                      <Text className="text-lg font-semibold text-ink-900" numberOfLines={1}>
+                        {roster.length > 1 ? `${roster.length} children` : lead?.name || "Payment"}
+                      </Text>
+                      {sub ? <Text className="text-xs text-ink-500">{sub}</Text> : null}
+                    </View>
+                    <Pressable accessibilityRole="button" accessibilityLabel="Close" hitSlop={10} onPress={onClose} className="h-8 w-8 items-center justify-center rounded-full bg-ink-100">
+                      <Ionicons name="close" size={18} color="#3d4f66" />
+                    </Pressable>
+                  </View>
+
+                  {months.length ? (
+                    <>
+                      <ScrollView className="px-5" contentContainerStyle={{ paddingBottom: 12 }} keyboardShouldPersistTaps="handled">
+                        <View className="items-center py-3">
+                          <Text className="text-[34px] font-bold leading-10 text-ink-900">{rupees(due)}</Text>
+                          <Text className="mt-0.5 text-xs text-ink-500">
+                            {selected.length} {monthWord}
+                            {lateTotal ? ` · includes ${rupees(lateTotal)} late` : ""}
+                          </Text>
+                        </View>
+
+                        <View className="mb-1 flex-row items-center justify-between">
+                          <Text className="text-xs font-semibold uppercase tracking-wide text-ink-500">Months</Text>
+                          {months.length > 1 ? (
+                            <Pressable accessibilityRole="button" hitSlop={8} onPress={() => setPicked(allOn ? [] : months.map((m) => m.id))}>
+                              <Text className="text-xs font-semibold text-[#1F45C7]">{allOn ? "Clear" : "Select all"}</Text>
+                            </Pressable>
+                          ) : null}
+                        </View>
+                        <View className="overflow-hidden rounded-xl border border-ink-100">
+                          {months.map((inv, i) => {
+                            const on = picked.includes(inv.id);
+                            return (
+                              <Pressable
+                                key={inv.id}
+                                accessibilityRole="checkbox"
+                                accessibilityState={{ checked: on }}
+                                disabled={locked}
+                                onPress={() => toggle(inv.id)}
+                                className={`flex-row items-center gap-3 px-3 py-3 ${i ? "border-t border-ink-100" : ""} ${on ? "bg-[#EEF3FF]/50" : ""}`}
+                              >
+                                <View className={`h-5 w-5 items-center justify-center rounded-md border-2 ${on ? "border-[#1F45C7] bg-[#1F45C7]" : "border-ink-300 bg-white"}`}>
+                                  {on ? <Ionicons name="checkmark" size={14} color="#fff" /> : null}
+                                </View>
+                                <View className="min-w-0 flex-1">
+                                  <Text numberOfLines={1} className="text-sm font-medium text-ink-900">{inv.title}</Text>
+                                  {inv.lateAmt ? (
+                                    <Text className="mt-0.5 text-xs text-ink-500">
+                                      Fee {rupees(inv.remainingAmt)} · <Text className="text-amber-700">Late {rupees(inv.lateAmt)}</Text>
+                                    </Text>
+                                  ) : null}
+                                </View>
+                                <Text className="text-sm font-semibold text-ink-900">{rupees(inv.dueNow)}</Text>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+
+                        <Text className="mb-2 mt-4 text-xs font-semibold uppercase tracking-wide text-ink-500">Paid by</Text>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }} keyboardShouldPersistTaps="handled">
+                          {PAYMENT_METHODS.map((m) => {
+                            const on = method === m.id;
+                            return (
+                              <Pressable
+                                key={m.id}
+                                accessibilityRole="button"
+                                accessibilityState={{ selected: on }}
+                                disabled={locked}
+                                onPress={() => {
+                                  setMethod(m.id);
+                                  setReference("");
+                                  setCopied(false);
+                                  setError("");
+                                }}
+                                className={`h-[64px] w-[76px] items-center justify-center gap-1 rounded-xl border ${on ? "border-[#1F45C7] bg-[#EEF3FF]" : "border-ink-200 bg-white"}`}
+                              >
+                                <Ionicons name={m.icon as keyof typeof Ionicons.glyphMap} size={20} color={on ? "#1F45C7" : "#475569"} />
+                                <Text className={`text-xs font-medium ${on ? "text-[#1F45C7]" : "text-ink-700"}`}>{m.short}</Text>
+                              </Pressable>
+                            );
+                          })}
+                        </ScrollView>
+
+                        {needsRef ? (
+                          <TextInput
+                            value={reference}
+                            onChangeText={setReference}
+                            editable={!locked}
+                            placeholder={method === "CHEQUE" ? "Cheque no. · bank" : "UTR / reference no."}
+                            placeholderTextColor="#94a3b8"
+                            className="mt-3 rounded-xl border border-ink-200 px-3 py-3 text-sm text-ink-900"
+                            style={{ includeFontPadding: false }}
+                          />
+                        ) : null}
+
+                        {method === "RAZORPAY" ? (
+                          <View className="mt-3 gap-2 rounded-xl border border-ink-100 bg-ink-50 p-3">
+                            <Text className="text-sm text-ink-800">
+                              Parent pays the {selected.length} {monthWord} ticked above.
+                            </Text>
+                            <View className="flex-row gap-2">
+                              <PayLinkAction icon={copied ? "checkmark" : "copy-outline"} label={copyLabel} disabled={!selected.length || locked} onPress={copyLink} />
+                              <PayLinkAction icon="logo-whatsapp" label={waLabel} disabled={!selected.length || locked || !wa} onPress={sendWhatsApp} color="#16a34a" />
+                              <PayLinkAction icon="call-outline" label={callLabel} disabled={locked || !wa} onPress={callParent} />
+                            </View>
+                            {!wa ? <Text className="text-[11px] text-ink-600">{channelHint({ wa: false })}</Text> : null}
+                          </View>
+                        ) : (
+                          <View className="mt-3 gap-2">
+                            {showNote ? (
+                              <TextInput
+                                value={notes}
+                                onChangeText={setNotes}
+                                editable={!locked}
+                                autoFocus
+                                placeholder="Receipt note"
+                                placeholderTextColor="#94a3b8"
+                                className="rounded-xl border border-ink-200 px-3 py-3 text-sm text-ink-900"
+                                style={{ includeFontPadding: false }}
+                              />
+                            ) : null}
+                            {editBy ? (
+                              <TextInput
+                                value={collectedBy}
+                                onChangeText={setCollectedBy}
+                                editable={!locked}
+                                placeholder="Collected by"
+                                placeholderTextColor="#94a3b8"
+                                className="rounded-xl border border-ink-200 px-3 py-3 text-sm text-ink-900"
+                                style={{ includeFontPadding: false }}
+                              />
+                            ) : null}
+                            <View className="flex-row items-center justify-between">
+                              {!showNote ? (
+                                <Pressable accessibilityRole="button" hitSlop={8} onPress={() => setShowNote(true)}>
+                                  <Text className="text-sm font-medium text-[#1F45C7]">+ Add note</Text>
+                                </Pressable>
+                              ) : (
+                                <View />
+                              )}
+                              {!editBy ? (
+                                <Pressable accessibilityRole="button" hitSlop={8} onPress={() => setEditBy(true)}>
+                                  <Text className="text-xs text-ink-500">
+                                    Recorded by {collectedBy || "—"} · <Text className="text-[#1F45C7]">Change</Text>
+                                  </Text>
+                                </Pressable>
+                              ) : null}
+                            </View>
+                          </View>
+                        )}
+
+                        {error ? <Text className="mt-3 text-sm text-red-700">{error}</Text> : null}
+                      </ScrollView>
+
+                      {method !== "RAZORPAY" ? (
+                        <View className="border-t border-ink-100 px-5 pb-2 pt-3">
+                          <Pressable
+                            accessibilityRole="button"
+                            disabled={!selected.length || locked || !manualReady}
+                            onPress={collect}
+                            className={`h-12 items-center justify-center rounded-xl ${!selected.length || locked || !manualReady ? "bg-ink-200" : "bg-[#1F45C7]"}`}
+                          >
+                            <Text className="text-[15px] font-semibold text-white">
+                              {busy === "collect"
+                                ? "Collecting…"
+                                : selected.length
+                                  ? `Collect ${rupees(due)} · ${current.short}`
+                                  : "Tick a month to collect"}
+                            </Text>
+                          </Pressable>
+                        </View>
+                      ) : null}
+                    </>
+                  ) : (
+                    <View className="gap-4 px-5 pb-4 pt-2">
+                      <Text className="text-sm text-ink-700">
+                        No bills yet. Run fees for {lead?.classLabel || "their class"} to create months through today, then collect.
+                      </Text>
+                      {error ? <Text className="text-sm text-red-700">{error}</Text> : null}
+                      <Pressable
+                        accessibilityRole="button"
+                        disabled={locked}
+                        onPress={runFees}
+                        className="h-12 items-center justify-center rounded-xl bg-[#1F45C7]"
+                      >
+                        <Text className="text-[15px] font-semibold text-white">{busy === "fees" ? "Running…" : "Run fees now"}</Text>
+                      </Pressable>
+                    </View>
+                  )}
+                </>
+              )}
+            </SafeAreaView>
+          </View>
+        </KeyboardAvoidingView>
+      </RnModal>
+    );
+  }
 
   return (
     <Modal open={open} title={heading} onClose={onClose} wide>

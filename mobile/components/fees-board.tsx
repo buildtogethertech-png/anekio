@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Linking, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { Linking, Modal as RnModal, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { GeneratePayment } from "./generate-payment";
@@ -31,17 +32,167 @@ function can(user: { permissions: string[] } | null, key: string) {
   return Boolean(user?.permissions.includes(key));
 }
 
-const CLASS_CHARGE_SUGGESTIONS = ["Tuition", "Lab", "Books", "Hostel", "Computer", "Exam", "Activity", "Uniform"];
-const CLASS_ADDON_SUGGESTIONS = ["Project", "Picnic", "Workshop", "Smart class", "Sports kit"];
+// Monthly = billed every month for everyone; one-time items (books, uniform) belong to admission.
+const CLASS_CHARGE_SUGGESTIONS = ["Tuition", "Lab", "Computer", "Activity"];
+const CLASS_ADDON_SUGGESTIONS = ["Transport", "Hostel", "Smart class", "Sports kit", "Picnic"];
 const OTHER_FEE_SUGGESTIONS = ["Computer fee", "Exam fee", "Activity", "Uniform", "Smart class", "Annual function"];
-const ADMISSION_SUGGESTIONS = ["Prospectus", "Registration", "ID card", "Caution deposit"];
+const ADMISSION_SUGGESTIONS = ["Registration", "Prospectus", "Books", "Uniform", "ID card", "Caution deposit"];
+
+type ChargeLine = { id: string; label: string; amount: string };
+
+const CHARGE_TONES = {
+  blue: { chip: "bg-blue-50", text: "text-blue-800" },
+  amber: { chip: "bg-amber-50", text: "text-amber-900" },
+  violet: { chip: "bg-violet-50", text: "text-violet-800" },
+};
+
+/** One group of fee charges: rows of name + ₹ amount, add/remove, suggestions and a total. */
+function ChargeSection<L extends ChargeLine>({
+  hero,
+  collapsed,
+  onToggle,
+  title,
+  hint,
+  tone,
+  lines,
+  setLines,
+  canEdit,
+  keepOne,
+  addLabel,
+  placeholder,
+  newLine,
+  suggestions,
+  totalLabel,
+  total,
+}: {
+  hero?: boolean;
+  collapsed?: boolean;
+  onToggle?: () => void;
+  title: string;
+  hint: string;
+  tone: keyof typeof CHARGE_TONES;
+  lines: L[];
+  setLines: (update: (rows: L[]) => L[]) => void;
+  canEdit: boolean;
+  keepOne?: boolean;
+  addLabel: string;
+  placeholder: string;
+  newLine: () => L;
+  suggestions: string[];
+  totalLabel: string;
+  total: number;
+}) {
+  const look = CHARGE_TONES[tone];
+  const filled = lines.filter((line) => Number(line.amount) > 0).length;
+  if (collapsed) {
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: false }}
+        onPress={onToggle}
+        className="flex-row items-center gap-3 rounded-2xl border border-ink-200 bg-white px-4 py-3.5 active:bg-ink-50"
+      >
+        <View className="min-w-0 flex-1">
+          <Text className="text-[15px] font-semibold text-ink-900">{title}</Text>
+          <Text className="mt-0.5 text-xs text-ink-600" numberOfLines={1}>
+            {total ? `${inr(total)} ${totalLabel}` : filled ? `${filled} charge${filled === 1 ? "" : "s"}` : `Not set · ${hint}`}
+          </Text>
+        </View>
+        <Ionicons name="chevron-down" size={18} color="#64748B" />
+      </Pressable>
+    );
+  }
+  return (
+    <View className="rounded-2xl border border-ink-200 bg-white p-4">
+      <Pressable disabled={!onToggle} onPress={onToggle} className="mb-3 flex-row items-start justify-between gap-3">
+        <View className="min-w-0 flex-1">
+          <Text className={hero ? "text-lg font-bold text-ink-900" : "text-[15px] font-semibold text-ink-900"}>{title}</Text>
+          <Text className="mt-0.5 text-xs text-ink-600">{hint}</Text>
+        </View>
+        {onToggle ? (
+          <Ionicons name="chevron-up" size={18} color="#64748B" />
+        ) : total ? (
+          <View className={`rounded-full px-2.5 py-1 ${look.chip}`}>
+            <Text className={`text-xs font-bold ${look.text}`}>{inr(total)}</Text>
+          </View>
+        ) : null}
+      </Pressable>
+      <View className="gap-2">
+        {lines.map((line) => (
+          <View key={line.id} className="flex-row items-center gap-2">
+            <View className="min-w-0 flex-1">
+              <Input
+                placeholder={placeholder}
+                value={line.label}
+                className="h-12 text-[15px]"
+                onChangeText={(label) => setLines((rows) => rows.map((row) => (row.id === line.id ? { ...row, label } : row)))}
+              />
+            </View>
+            <View className="h-12 w-[124px] flex-row items-center rounded-md border border-ink-200 bg-white pl-3">
+              <Text className="text-[15px] font-medium text-ink-700">₹</Text>
+              <Input
+                keyboardType="number-pad"
+                placeholder="0"
+                value={line.amount === "0" ? "" : line.amount}
+                className="h-11 min-w-0 flex-1 border-0 bg-transparent pl-1 text-[15px]"
+                onChangeText={(amount) =>
+                  setLines((rows) => rows.map((row) => (row.id === line.id ? { ...row, amount: amount.replace(/[^\d]/g, "") } : row)))
+                }
+              />
+            </View>
+            {canEdit && !(keepOne && lines.length <= 1) ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Remove ${line.label || "charge"}`}
+                disabled={keepOne && lines.length <= 1}
+                onPress={() => setLines((rows) => (keepOne && rows.length <= 1 ? rows : rows.filter((row) => row.id !== line.id)))}
+                className={`h-10 w-9 items-center justify-center ${keepOne && lines.length <= 1 ? "opacity-30" : ""}`}
+              >
+                <Ionicons name="trash-outline" size={18} color="#B91C1C" />
+              </Pressable>
+            ) : null}
+          </View>
+        ))}
+      </View>
+      {canEdit ? (
+        <View className="mt-2 flex-row flex-wrap items-center gap-x-3 gap-y-2">
+          <Pressable onPress={() => setLines((rows) => [...rows, newLine()])} className="h-9 flex-row items-center gap-1.5">
+            <Ionicons name="add-circle-outline" size={18} color="#1F45C7" />
+            <Text className="text-sm font-semibold text-[#1F45C7]">{addLabel}</Text>
+          </Pressable>
+          <SuggestionPills
+            soft
+            options={suggestions}
+            used={lines.map((line) => line.label)}
+            onPick={(label) =>
+              setLines((rows) => {
+                if (rows.some((row) => row.label.trim().toLowerCase() === label.toLowerCase())) return rows;
+                const empty = rows.find((row) => !row.label.trim());
+                if (empty) return rows.map((row) => (row.id === empty.id ? { ...row, label } : row));
+                return [...rows, { ...newLine(), label }];
+              })
+            }
+          />
+        </View>
+      ) : null}
+      {total ? (
+        <Text className={`mt-2 text-right ${hero ? "text-sm" : "text-xs"} text-ink-700`}>
+          Total <Text className="font-semibold text-ink-900">{inr(total)}</Text> {totalLabel}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
 
 function SuggestionPills({
   options,
   used = [],
   selected,
   onPick,
+  soft,
 }: {
+  /** Quiet "+ Lab" chips (used next to an Add button). */
+  soft?: boolean;
   options: string[];
   used?: string[];
   selected?: string;
@@ -51,6 +202,17 @@ function SuggestionPills({
   const selectedKey = selected?.trim().toLowerCase() || "";
   const visible = options.filter((label) => !usedSet.has(label.toLowerCase()) || label.toLowerCase() === selectedKey);
   if (!visible.length) return null;
+  if (soft) {
+    return (
+      <View className="flex-row flex-wrap gap-1.5">
+        {visible.map((label) => (
+          <Pressable key={label} accessibilityRole="button" onPress={() => onPick(label)} className="h-8 justify-center rounded-full bg-ink-50 px-3 active:bg-ink-100">
+            <Text className="text-xs font-medium text-ink-700">+ {label}</Text>
+          </Pressable>
+        ))}
+      </View>
+    );
+  }
   return (
     <View className="flex-row flex-wrap gap-1.5">
       {visible.map((label) => {
@@ -343,11 +505,15 @@ export function FeesBoard() {
   const [historyTo, setHistoryTo] = useState("");
   const [selectedDueStudentId, setSelectedDueStudentId] = useState("");
   const [payDueStudentId, setPayDueStudentId] = useState("");
+  const [payStartMethod, setPayStartMethod] = useState<"CASH" | "RAZORPAY">("CASH");
+  const [includedOpen, setIncludedOpen] = useState(true);
   const [feeEditorOpen, setFeeEditorOpen] = useState(false);
   const [setupPane, setSetupPane] = useState<SetupPane>("class");
   const [editorClassId, setEditorClassId] = useState("");
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [tplName, setTplName] = useState("Monthly fee");
+  const [admissionOpen, setAdmissionOpen] = useState(false);
+  const [optionalOpen, setOptionalOpen] = useState(false);
   const [tplStartPeriod, setTplStartPeriod] = useState("");
   const [tplEndPeriod, setTplEndPeriod] = useState("");
   const [tplLines, setTplLines] = useState<FeeLineDraft[]>([newFeeLine("Tuition", "")]);
@@ -500,6 +666,30 @@ export function FeesBoard() {
       pending: dueRows.reduce((sum, row) => sum + row.months, 0),
     };
   }, [registerRows, people]);
+
+  const todayKey = new Date().toDateString();
+  const collectedToday = useMemo(
+    () =>
+      people.reduce(
+        (sum, person) =>
+          sum +
+          paymentHistory(person)
+            .filter((pay) => pay.paidAt && new Date(pay.paidAt).toDateString() === todayKey)
+            .reduce((acc, pay) => acc + moneyNumber(pay.amount), 0),
+        0
+      ),
+    [people, todayKey]
+  );
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = { all: 0, overdue: 0, unpaid: 0, partial: 0, paid: 0 };
+    for (const person of people) {
+      if (classId !== "all" && person.classId !== classId) continue;
+      counts.all += 1;
+      const id = statusOf(unpaidInvoices(person)).id;
+      counts[id] = (counts[id] || 0) + 1;
+    }
+    return counts;
+  }, [people, classId]);
 
   const reportEvents = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -700,7 +890,11 @@ export function FeesBoard() {
         templateId: classTemplate?.id,
         classId: editorClassId,
         sessionId: currentSession?.id,
-        name: tplName,
+        // Name is implied by class + period; keep a custom one if the school set it earlier.
+        name:
+          tplName && tplName !== "Monthly fee"
+            ? tplName
+            : `${classes.find((row) => row.id === editorClassId)?.label || "Class"} · ${periodRangeLabel(tplStartPeriod || defaultStartPeriod, tplEndPeriod || defaultEndPeriod)}`,
         startsPeriod: tplStartPeriod,
         endsPeriod: tplEndPeriod,
         dueDay: sessionDueDay,
@@ -1144,6 +1338,295 @@ export function FeesBoard() {
     );
   }
 
+  const parentDigits = (() => {
+    const d = String(selectedDueStudent?.parentPhone || "").replace(/\D/g, "");
+    if (d.length === 10) return `91${d}`;
+    if (d.length === 12 && d.startsWith("91")) return d;
+    if (d.length === 11 && d.startsWith("0")) return `91${d.slice(1)}`;
+    return "";
+  })();
+  const chargeList = selectedDueStudent
+    ? [
+        ...(breakdown.chargeRows.length
+          ? breakdown.chargeRows
+          : selectedStructure.lines.map((line) => ({ label: line.label, rate: line.amount, months: 1, total: line.amount }))
+        ).map((row) => ({ ...row, late: false })),
+        ...breakdown.lateRows.map((row) => ({ ...row, late: true })),
+      ]
+    : [];
+  const openRange = breakdown.monthLabels.length
+    ? breakdown.monthLabels.length === 1
+      ? breakdown.monthLabels[0]
+      : `${breakdown.monthLabels[0]} – ${breakdown.monthLabels[breakdown.monthLabels.length - 1]}`
+    : "";
+
+  const upcomingMonths = (() => {
+    if (!selectedDueStudent) return [] as { period: string; amount: number; due: string }[];
+    const tpl = templates
+      .filter((row) => row.classId === selectedDueStudent.classId && (!currentSession || row.sessionId === currentSession.id || !row.sessionId))
+      .sort((a, b) => (b.startsPeriod || "").localeCompare(a.startsPeriod || ""))[0];
+    if (!tpl?.endsPeriod) return [];
+    const monthly = selectedStructure.lines.reduce((sum, line) => sum + line.amount, 0);
+    if (monthly <= 0) return [];
+    const periods = selectedMonths.map((inv) => inv.period).filter((v): v is string => Boolean(v && /^\d{4}-\d{2}$/.test(v))).sort();
+    let cursor = periods.length ? nextPeriod(periods[periods.length - 1]) : tpl.startsPeriod || currentFeePeriod();
+    const out: { period: string; amount: number; due: string }[] = [];
+    while (cursor <= tpl.endsPeriod && out.length < 12) {
+      const [y, m] = cursor.split("-").map(Number);
+      out.push({
+        period: cursor,
+        amount: monthly,
+        due: new Date(y, m - 1, tpl.dueDay || 10).toLocaleDateString("en-IN", { day: "numeric", month: "short" }),
+      });
+      cursor = nextPeriod(cursor);
+    }
+    return out;
+  })();
+  const sessionBilled = moneyNumber(selectedDueStudent?.billed);
+  const sessionPaid = moneyNumber(selectedDueStudent?.paid);
+  const sessionAhead = upcomingMonths.reduce((sum, row) => sum + row.amount, 0);
+  const lastPay = selectedDueStudent ? lastPaymentOf(selectedDueStudent) : null;
+
+  const phoneDuePanel = selectedDueStudent ? (
+    <View className="min-h-0 flex-1 bg-white">
+      <View className="flex-row items-center border-b border-ink-100 px-2 py-2">
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Back to fees"
+          hitSlop={8}
+          onPress={() => {
+            setSelectedDueStudentId("");
+            setIncludedOpen(false);
+          }}
+          className="flex-row items-center px-1 py-1"
+        >
+          <Ionicons name="chevron-back" size={22} color="#1F45C7" />
+          <Text className="text-[15px] font-medium text-[#1F45C7]">Fees</Text>
+        </Pressable>
+      </View>
+      <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 24 }}>
+        <View className="flex-row items-center gap-3 px-4 pt-4">
+          <View className="h-12 w-12 items-center justify-center rounded-full bg-[#EEF3FF]">
+            <Text className="text-base font-semibold text-[#1F45C7]">
+              {selectedDueStudent.name
+                .split(/\s+/)
+                .filter(Boolean)
+                .slice(0, 2)
+                .map((part) => part[0])
+                .join("")
+                .toUpperCase()}
+            </Text>
+          </View>
+          <View className="min-w-0 flex-1">
+            <Text className="text-lg font-bold text-ink-900" numberOfLines={1}>
+              {selectedDueStudent.name}
+            </Text>
+            <Text className="text-xs text-ink-500" numberOfLines={1}>
+              {selectedDueStudent.classLabel}
+              {selectedDueStudent.admissionNo ? ` · ${selectedDueStudent.admissionNo}` : ""}
+            </Text>
+          </View>
+        </View>
+
+        {selectedDueStudent.parent || parentDigits ? (
+          <View className="mx-4 mt-3 flex-row items-center gap-3 rounded-xl border border-ink-100 px-3 py-2.5">
+            <Ionicons name="people-outline" size={18} color="#64748b" />
+            <View className="min-w-0 flex-1">
+              <Text className="text-sm font-medium text-ink-900" numberOfLines={1}>
+                {selectedDueStudent.parent || "Parent"}
+              </Text>
+              <Text className="text-xs text-ink-500">{selectedDueStudent.parentPhone || "No phone saved"}</Text>
+            </View>
+            {parentDigits ? (
+              <>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Call parent"
+                  onPress={() => void Linking.openURL(`tel:+${parentDigits}`)}
+                  className="h-10 w-10 items-center justify-center rounded-full bg-[#EEF3FF]"
+                >
+                  <Ionicons name="call" size={17} color="#1F45C7" />
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="WhatsApp parent"
+                  onPress={() => void Linking.openURL(`https://wa.me/${parentDigits}`)}
+                  className="h-10 w-10 items-center justify-center rounded-full bg-green-50"
+                >
+                  <Ionicons name="logo-whatsapp" size={18} color="#16a34a" />
+                </Pressable>
+              </>
+            ) : null}
+          </View>
+        ) : null}
+
+        <View className={`mx-4 mt-3 rounded-2xl px-4 py-4 ${selectedDue ? "bg-amber-50" : "bg-green-50"}`}>
+          {selectedDue ? (
+            <>
+              <Text className="text-xs font-medium text-amber-800">Due now</Text>
+              <Text className="mt-0.5 text-[30px] font-bold leading-9 text-ink-900">{inr(selectedDue)}</Text>
+              <Text className="mt-0.5 text-xs text-ink-600">
+                {openRange}
+                {selectedLate ? ` · includes ${inr(selectedLate)} late` : ""}
+              </Text>
+            </>
+          ) : (
+            <View className="flex-row items-center gap-2">
+              <Ionicons name="checkmark-circle" size={22} color="#15803d" />
+              <Text className="text-base font-semibold text-green-800">All paid</Text>
+            </View>
+          )}
+          {chargeList.length && selectedDue ? (
+            <>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setIncludedOpen((v) => !v)}
+                className="mt-3 flex-row items-center gap-1 self-start"
+              >
+                <Text className="text-xs font-semibold text-[#1F45C7]">What's included</Text>
+                <Ionicons name={includedOpen ? "chevron-up" : "chevron-down"} size={14} color="#1F45C7" />
+              </Pressable>
+              {includedOpen ? (
+                <View className="mt-2 gap-1.5 border-t border-amber-100 pt-2">
+                  {chargeList.map((row) => (
+                    <View key={`${row.label}-${row.rate}-${row.late}`} className="flex-row justify-between gap-3">
+                      <Text className={`text-sm ${row.late ? "text-amber-800" : "text-ink-700"}`}>
+                        {row.label}
+                        {row.months > 1 ? ` × ${row.months}` : ""}
+                      </Text>
+                      <Text className={`text-sm font-medium ${row.late ? "text-amber-800" : "text-ink-900"}`}>{inr(row.total)}</Text>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+            </>
+          ) : null}
+        </View>
+
+        <View className="mx-4 mt-3 flex-row gap-4">
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => router.push({ pathname: "/people", params: { student: selectedDueStudent.id } } as never)}
+            className="flex-row items-center gap-1"
+          >
+            <Ionicons name="person-outline" size={15} color="#1F45C7" />
+            <Text className="text-sm font-medium text-[#1F45C7]">Student profile</Text>
+          </Pressable>
+          {collect && selectedDue > 0 ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                setPayStartMethod("RAZORPAY");
+                setPayDueStudentId(selectedDueStudent.id);
+              }}
+              className="flex-row items-center gap-1"
+            >
+              <Ionicons name="link-outline" size={15} color="#1F45C7" />
+              <Text className="text-sm font-medium text-[#1F45C7]">Send pay link</Text>
+            </Pressable>
+          ) : null}
+        </View>
+
+        <View className="mx-4 mt-4 flex-row overflow-hidden rounded-xl border border-ink-100">
+          {(
+            [
+              ["Billed", sessionBilled, "text-ink-900"],
+              ["Paid", sessionPaid, "text-green-700"],
+              ["Still to bill", sessionAhead, "text-ink-500"],
+            ] as const
+          ).map(([label, value, tone], i) => (
+            <View key={label} className={`flex-1 px-3 py-2.5 ${i ? "border-l border-ink-100" : ""}`}>
+              <Text className="text-[11px] text-ink-500">{label}</Text>
+              <Text className={`mt-0.5 text-sm font-semibold ${tone}`}>{compactInr(value)}</Text>
+            </View>
+          ))}
+        </View>
+        <Text className="mx-4 mt-2 text-xs text-ink-500">
+          {lastPay ? `Last paid ${lastPay.amount} on ${lastPay.date} · ${lastPay.mode}` : "No payment yet this session"}
+        </Text>
+
+        <Text className="mx-4 mb-1 mt-5 text-xs font-semibold uppercase tracking-wide text-ink-500">This session</Text>
+        <View className="mx-4 overflow-hidden rounded-xl border border-ink-100">
+          {selectedMonths.map((inv, i) => {
+            const parts = invoiceDueParts(inv);
+            const paid = inv.status === "paid" || parts.dueNow <= 0;
+            const overdue = !paid && inv.status === "overdue";
+            const latestPay = [...(inv.payments ?? [])].sort((a, b) => String(b.paidAt || "").localeCompare(String(a.paidAt || "")))[0];
+            const when = clockLabel(latestPay?.paidAt);
+            return (
+              <View key={inv.id} className={`flex-row items-center gap-3 px-3 py-3 ${i ? "border-t border-ink-100" : ""}`}>
+                <View className={`h-2.5 w-2.5 rounded-full ${paid ? "bg-green-500" : overdue ? "bg-red-500" : "bg-amber-400"}`} />
+                <View className="min-w-0 flex-1">
+                  <View className="flex-row items-center gap-2">
+                    <Text className="text-sm font-semibold text-ink-900">{shortMonth(inv.period, inv.title)}</Text>
+                    <Text
+                      className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                        paid ? "bg-green-50 text-green-700" : overdue ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-800"
+                      }`}
+                    >
+                      {paid ? "Paid" : overdue ? "Overdue" : "Due"}
+                    </Text>
+                  </View>
+                  <Text className="mt-0.5 text-xs text-ink-500" numberOfLines={1}>
+                    {paid
+                      ? `${when.day !== "—" ? when.day : "Paid"}${latestPay ? ` · ${paymentMethodLabel(latestPay.method)}` : ""}`
+                      : parts.late
+                        ? `includes ${inr(parts.late)} late`
+                        : "Not paid yet"}
+                  </Text>
+                </View>
+                <View className="items-end">
+                  <Text className={`text-sm font-semibold ${paid ? "text-green-700" : "text-ink-900"}`}>
+                    {paid ? inv.paid || inv.amount : inr(parts.dueNow)}
+                  </Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    hitSlop={6}
+                    onPress={() => void openDueFeeDocument(inv, paid)}
+                  >
+                    <Text className="mt-0.5 text-xs font-medium text-[#1F45C7]">{paid ? "Receipt" : "Invoice"}</Text>
+                  </Pressable>
+                </View>
+              </View>
+            );
+          })}
+          {upcomingMonths.map((row, i) => (
+            <View
+              key={row.period}
+              className={`flex-row items-center gap-3 px-3 py-3 ${selectedMonths.length || i ? "border-t border-ink-100" : ""}`}
+            >
+              <View className="h-2.5 w-2.5 rounded-full border border-ink-300 bg-white" />
+              <View className="min-w-0 flex-1">
+                <View className="flex-row items-center gap-2">
+                  <Text className="text-sm font-medium text-ink-500">{shortMonth(row.period)}</Text>
+                  <Text className="rounded-full bg-ink-50 px-2 py-0.5 text-[11px] font-semibold text-ink-500">Upcoming</Text>
+                </View>
+                <Text className="mt-0.5 text-xs text-ink-400">Due {row.due}</Text>
+              </View>
+              <Text className="text-sm font-medium text-ink-400">{inr(row.amount)}</Text>
+            </View>
+          ))}
+          {!selectedMonths.length && !upcomingMonths.length ? <Text className="px-3 py-4 text-sm text-ink-600">No fee months yet.</Text> : null}
+        </View>
+      </ScrollView>
+      {collect && selectedDue > 0 ? (
+        <View className="border-t border-ink-100 bg-white px-4 pb-3 pt-3">
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              setPayStartMethod("CASH");
+              setPayDueStudentId(selectedDueStudent.id);
+            }}
+            className="h-12 flex-row items-center justify-center gap-2 rounded-xl bg-[#1F45C7]"
+          >
+            <Ionicons name="cash-outline" size={18} color="#fff" />
+            <Text className="text-[15px] font-semibold text-white">Collect {inr(selectedDue)}</Text>
+          </Pressable>
+        </View>
+      ) : null}
+    </View>
+  ) : null;
+
   const dueStudentPanel = selectedDueStudent ? (
     <ScrollView className="min-h-0 flex-1 bg-white" contentContainerStyle={{ paddingBottom: 28 }}>
       <View className="border-b border-ink-100 px-4 py-4 sm:px-5">
@@ -1308,7 +1791,7 @@ export function FeesBoard() {
   ) : null;
 
   const setupTabs = (
-    <View className="mb-3 flex-row flex-wrap gap-1 rounded-md border border-ink-200 bg-white p-0.5 self-start">
+    <View className={compact ? "mb-3 flex-row gap-2" : "mb-3 flex-row flex-wrap gap-1.5 self-start"}>
       {(
         [
           ["class", "Class Fees"],
@@ -1320,9 +1803,19 @@ export function FeesBoard() {
           key={id}
           accessibilityRole="button"
           onPress={() => setSetupPane(id)}
-          className={`rounded-md px-3 py-1.5 ${setupPane === id ? "bg-blue-600" : "bg-white"}`}
+          className={
+            compact
+              ? `rounded-full border px-3.5 py-1.5 ${setupPane === id ? "border-[#1F45C7] bg-[#EEF3FF]" : "border-ink-200 bg-white"}`
+              : `rounded-full px-3.5 py-1.5 ${setupPane === id ? "bg-ink-900" : "bg-white"}`
+          }
         >
-          <Text className={`text-sm font-semibold ${setupPane === id ? "text-white" : "text-ink-800"}`}>{label}</Text>
+          <Text
+            className={`text-[13px] font-semibold ${
+              compact ? (setupPane === id ? "text-[#1F45C7]" : "text-ink-700") : setupPane === id ? "text-white" : "text-ink-700"
+            }`}
+          >
+            {label}
+          </Text>
         </Pressable>
       ))}
     </View>
@@ -1543,6 +2036,97 @@ export function FeesBoard() {
           </View>
         </View>
       </View>
+    ) : setupPane === "class" && width < 768 ? (
+      (() => {
+        const admissionByClass = new Map<string, number>();
+        for (const line of data?.admissionFeeLines || []) {
+          if (!line.classId) continue;
+          admissionByClass.set(line.classId, (admissionByClass.get(line.classId) || 0) + Math.max(0, Number(line.amount) || 0));
+        }
+        const missing = classes.filter((klass) => !feeStructures.some((row) => row.classId === klass.id));
+        const dueDay = feeStructures[0]?.dueDay || sessionDueDay || 10;
+        return (
+          <View>
+            <View className="mb-2 flex-row items-center justify-between px-1">
+              <Text className="text-sm font-semibold text-ink-900">
+                Class fees <Text className="font-normal text-ink-600">· due on the {ordinalDay(dueDay)}</Text>
+              </Text>
+              {configure ? (
+                <Pressable onPress={openNewClassFee} className="h-9 flex-row items-center gap-1 rounded-full bg-[#1F45C7] px-3.5">
+                  <Ionicons name="add" size={16} color="#FFFFFF" />
+                  <Text className="text-[13px] font-semibold text-white">Add</Text>
+                </Pressable>
+              ) : null}
+            </View>
+            <View className="overflow-hidden rounded-2xl border border-ink-200 bg-white">
+              {feeStructures.map((template, index) => {
+                const monthly = (template.lines || [])
+                  .filter((line) => line.scope !== "ADD_ON")
+                  .reduce((sum, line) => sum + Math.max(0, Math.round(Number(line.amount) || 0)), 0);
+                const label = classes.find((row) => row.id === template.classId)?.label || "Class";
+                const range = template.startsPeriod && template.endsPeriod ? periodRangeLabel(template.startsPeriod, template.endsPeriod) : "";
+                const admission = admissionByClass.get(template.classId) || 0;
+                const customName = template.name && template.name !== "Monthly fee" && !template.name.startsWith(`${label} ·`) ? template.name : "";
+                return (
+                  <Pressable
+                    key={template.id}
+                    disabled={!configure}
+                    onPress={() => openClassFee(template.id, template.classId)}
+                    className={`flex-row items-center gap-3 px-4 py-3 active:bg-ink-50 ${index ? "border-t border-ink-100" : ""}`}
+                  >
+                    <View className="min-w-0 flex-1">
+                      <View className="flex-row items-baseline justify-between gap-2">
+                        <Text className="text-[15px] font-semibold text-ink-900" numberOfLines={1}>
+                          {label}
+                          {customName ? <Text className="text-xs font-normal text-ink-600">{`  ${customName}`}</Text> : null}
+                        </Text>
+                        <Text className="text-[15px] font-semibold text-ink-900">
+                          {inr(monthly)}
+                          <Text className="text-xs font-normal text-ink-600"> /month</Text>
+                        </Text>
+                      </View>
+                      {range ? (
+                        <Text className="mt-0.5 text-xs text-ink-600" numberOfLines={1}>
+                          {range}
+                          {admission ? ` · + ${inr(admission)} admission` : ""}
+                        </Text>
+                      ) : (
+                        <Text className="mt-0.5 text-xs font-medium text-amber-700">⚠ No period set · tap to fix</Text>
+                      )}
+                    </View>
+                    {configure ? <Ionicons name="chevron-forward" size={16} color="#94A3B8" /> : null}
+                  </Pressable>
+                );
+              })}
+              {missing.map((klass, index) => (
+                <View
+                  key={klass.id}
+                  className={`flex-row items-center gap-3 bg-ink-50/60 px-4 py-3 ${feeStructures.length || index ? "border-t border-ink-100" : ""}`}
+                >
+                  <View className="min-w-0 flex-1">
+                    <Text className="text-[15px] font-semibold text-ink-900">{klass.label}</Text>
+                    <Text className="mt-0.5 text-xs text-ink-500">No fee set</Text>
+                  </View>
+                  {configure ? (
+                    <Pressable
+                      onPress={() => {
+                        openNewClassFee();
+                        setEditorClassId(klass.id);
+                      }}
+                      className="h-8 justify-center rounded-full border border-[#1F45C7] px-3"
+                    >
+                      <Text className="text-xs font-semibold text-[#1F45C7]">Set up</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              ))}
+              {!feeStructures.length && !missing.length ? (
+                <Text className="px-4 py-6 text-sm text-ink-600">Add classes first, then set their fees here.</Text>
+              ) : null}
+            </View>
+          </View>
+        );
+      })()
     ) : setupPane === "class" ? (
       <View className="overflow-hidden rounded-md border border-ink-100 bg-white">
         <View className="flex-row items-center justify-between gap-3 border-b border-ink-100 px-3 py-3">
@@ -1673,18 +2257,268 @@ export function FeesBoard() {
       </View>
     );
 
+  const phoneTabs = (
+    <View className="flex-row rounded-xl bg-ink-100 p-1">
+      {(
+        [
+          ["register", "Register"],
+          ["report", "History"],
+          ["insight", "Report"],
+          ["setup", "Setup"],
+        ] as const
+      ).map(([id, label]) => (
+        <Pressable
+          key={id}
+          accessibilityRole="tab"
+          accessibilityState={{ selected: tab === id }}
+          onPress={() => selectTab(id)}
+          className={`flex-1 items-center rounded-lg py-2 ${tab === id ? "bg-white shadow-sm" : ""}`}
+        >
+          <Text className={`text-[13px] font-semibold ${tab === id ? "text-[#1F45C7]" : "text-ink-600"}`}>{label}</Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+
+  const phoneSummary = (
+    <View className="flex-row items-end justify-between rounded-2xl bg-[#1F45C7] px-4 py-4">
+      <View className="min-w-0 flex-1">
+        <Text className="text-xs font-medium text-white/70">Total due</Text>
+        <Text className="mt-0.5 text-[28px] font-bold leading-8 text-white">{compactInr(summary.outstanding)}</Text>
+        <Text className="mt-1 text-xs text-white/85">
+          {summary.overdue ? `${compactInr(summary.overdue)} overdue · ` : ""}
+          {summary.students} {summary.students === 1 ? "student" : "students"}
+        </Text>
+      </View>
+      <View className="items-end rounded-xl bg-white/15 px-3 py-2">
+        <Text className="text-[11px] text-white/75">Collected today</Text>
+        <Text className="text-base font-bold text-white">{compactInr(collectedToday)}</Text>
+      </View>
+    </View>
+  );
+
+  const statusChips = (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+      {(
+        [
+          ["", "All", statusCounts.all],
+          ["overdue", "Overdue", statusCounts.overdue],
+          ["unpaid", "Unpaid", statusCounts.unpaid],
+          ["partial", "Partial", statusCounts.partial],
+          ["paid", "Paid", statusCounts.paid],
+        ] as const
+      )
+        .filter(([id, , count]) => !id || count > 0)
+        .map(([id, label, count]) => {
+          const on = status === id;
+          return (
+            <Pressable
+              key={label}
+              accessibilityRole="button"
+              accessibilityState={{ selected: on }}
+              onPress={() => setStatus(id)}
+              className={`flex-row items-center gap-1.5 rounded-full border px-3 py-1.5 ${on ? "border-[#1F45C7] bg-[#EEF3FF]" : "border-ink-200 bg-white"}`}
+            >
+              <Text className={`text-[13px] font-medium ${on ? "text-[#1F45C7]" : "text-ink-700"}`}>{label}</Text>
+              <Text className={`text-[12px] ${on ? "text-[#1F45C7]" : "text-ink-400"}`}>{count}</Text>
+            </Pressable>
+          );
+        })}
+    </ScrollView>
+  );
+
+  const phoneSearch = (
+    <FilterBar
+      searchValue={query}
+      onSearchChange={setQuery}
+      searchPlaceholder={tab === "report" ? "Search student or receipt" : "Search student or parent"}
+      filters={tab === "report" ? historyFilters : registerFilters}
+      values={
+        tab === "report"
+          ? { classId: historyClassId, mode: historyMode, from: historyFrom, to: historyTo }
+          : { classId: classId === "all" ? "" : classId, section, status, months: monthsGte }
+      }
+      onApply={(values: FilterValues) => {
+        if (tab === "report") {
+          setHistoryClassId(String(values.classId || ""));
+          setHistoryMode(String(values.mode || ""));
+          setHistoryFrom(String(values.from || ""));
+          setHistoryTo(String(values.to || ""));
+          return;
+        }
+        setClassId(String(values.classId || "all"));
+        setSection(String(values.section || ""));
+        setStatus(String(values.status || ""));
+        setMonthsGte(String(values.months || ""));
+      }}
+    />
+  );
+
+  const phoneRegisterRow = (row: (typeof registerRows)[number]) => {
+    const overdue = row.status.id === "overdue";
+    const paid = row.status.id === "paid";
+    const first = [...row.open].sort((a, b) => (a.period || a.title).localeCompare(b.period || b.title))[0];
+    const oldest = first ? shortMonth(first.period, first.title).replace(/ \d{4}$/, "") : "";
+    return (
+      <Pressable
+        key={row.person.id}
+        accessibilityRole="button"
+        accessibilityLabel={`${row.person.name} fee detail`}
+        onPress={() => setSelectedDueStudentId(row.person.id)}
+        className="flex-row items-center gap-3 border-b border-ink-100 px-4 py-3 active:bg-slate-50"
+      >
+        <View className={`h-10 w-10 items-center justify-center rounded-full ${overdue ? "bg-red-50" : paid ? "bg-green-50" : "bg-[#EEF3FF]"}`}>
+          <Text className={`text-[13px] font-semibold ${overdue ? "text-red-700" : paid ? "text-green-700" : "text-[#1F45C7]"}`}>
+            {row.person.name
+              .split(/\s+/)
+              .filter(Boolean)
+              .slice(0, 2)
+              .map((part) => part[0])
+              .join("")
+              .toUpperCase()}
+          </Text>
+        </View>
+        <View className="min-w-0 flex-1">
+          <Text numberOfLines={1} className="text-[15px] font-semibold text-ink-900">{row.person.name}</Text>
+          <Text numberOfLines={1} className="mt-0.5 text-xs text-ink-500">
+            {row.person.classLabel}
+            {row.person.admissionNo ? ` · ${row.person.admissionNo}` : ""}
+          </Text>
+          {row.months ? (
+            <Text numberOfLines={1} className={`mt-0.5 text-xs font-medium ${overdue ? "text-red-600" : "text-amber-700"}`}>
+              {row.months} {row.months === 1 ? "month" : "months"}
+              {oldest ? ` · since ${oldest}` : ""}
+              {row.late ? ` · +${compactInr(row.late)} late` : ""}
+            </Text>
+          ) : null}
+        </View>
+        <View className="items-end">
+          <Text className={`text-[15px] font-bold ${paid ? "text-green-700" : overdue ? "text-red-700" : "text-ink-900"}`}>
+            {row.dueNow ? compactInr(row.dueNow) : "Paid"}
+          </Text>
+        </View>
+        <Ionicons name="chevron-forward" size={16} color="#94a3b8" />
+      </Pressable>
+    );
+  };
+
+  const phoneList = compact && !selectedDueStudent && (tab === "register" || tab === "report");
+  const phoneInsight = compact && !selectedDueStudent && tab === "insight";
+
+
+  if (phoneInsight) {
+    return (
+      <View className="min-h-0 flex-1">
+        {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
+        <FeeReport
+          people={people}
+          classes={classes}
+          sessions={data?.school?.sessions ?? []}
+          refreshing={refreshing}
+          onOpenPayment={(inv, paid) => void openDueFeeDocument(inv, paid)}
+          onOpenStudent={(studentId) => setSelectedDueStudentId(studentId)}
+          header={
+            <View className="gap-3 pb-3">
+              <Text className="text-[22px] font-bold tracking-tight text-ink-900">Fees</Text>
+              {phoneTabs}
+            </View>
+          }
+        />
+      </View>
+    );
+  }
+
+  if (phoneList) {
+    return (
+      <View className="min-h-0 flex-1">
+        {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
+        <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 110 }} keyboardShouldPersistTaps="handled">
+          <View className="gap-3 pb-3">
+            <Text className="text-[22px] font-bold tracking-tight text-ink-900">Fees</Text>
+            {phoneTabs}
+            {tab === "register" ? phoneSummary : null}
+            {phoneSearch}
+            {tab === "register" ? statusChips : null}
+          </View>
+          <View className="overflow-hidden rounded-xl border border-ink-100 bg-white">
+            {tab === "register"
+              ? refreshing && !registerRows.length
+                ? Array.from({ length: 6 }).map((_, index) => (
+                    <View key={`sk-${index}`} className="h-[68px] justify-center border-b border-ink-50 px-4">
+                      <View className="h-3 w-2/3 rounded bg-ink-100" />
+                    </View>
+                  ))
+                : registerRows.map(phoneRegisterRow)
+              : reportEvents.map((row) => {
+                  const when = clockLabel(row.paidAt);
+                  return (
+                    <Pressable
+                      key={row.key}
+                      accessibilityRole="button"
+                      onPress={() => void openDueFeeDocument({ id: row.invoiceId, invoiceUrl: row.invoiceUrl, receiptUrl: row.receiptUrl }, true)}
+                      className="flex-row items-center gap-3 border-b border-ink-100 px-4 py-3 active:bg-slate-50"
+                    >
+                      <View className="h-10 w-10 items-center justify-center rounded-full bg-green-50">
+                        <Ionicons name="receipt-outline" size={18} color="#047857" />
+                      </View>
+                      <View className="min-w-0 flex-1">
+                        <Text numberOfLines={1} className="text-[15px] font-semibold text-ink-900">{row.studentName}</Text>
+                        <Text numberOfLines={1} className="mt-0.5 text-xs text-ink-500">
+                          {row.fee} · {row.mode}
+                        </Text>
+                      </View>
+                      <View className="items-end">
+                        <Text className="text-[15px] font-bold text-green-700">{row.amount}</Text>
+                        <Text className="mt-0.5 text-[11px] text-ink-500">
+                          {when.day}
+                          {when.time ? `, ${when.time}` : ""}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+            {tab === "register" && !refreshing && !registerRows.length ? (
+              <Text className="px-4 py-8 text-center text-sm text-ink-600">No students match.</Text>
+            ) : null}
+            {tab === "report" && !reportEvents.length ? (
+              <Text className="px-4 py-8 text-center text-sm text-ink-600">No payments match these filters.</Text>
+            ) : null}
+          </View>
+        </ScrollView>
+        <GeneratePayment
+          open={Boolean(payDueStudent)}
+          student={payDueStudent}
+          title={payDueStudent ? `Payment · ${payDueStudent.name}` : undefined}
+          startMethod={payStartMethod}
+          onClose={() => setPayDueStudentId("")}
+          onDone={async (message) => {
+            setPayDueStudentId("");
+            toast.show(message);
+            await reload();
+          }}
+        />
+      </View>
+    );
+  }
+
   return (
     <View className="min-h-0 flex-1">
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
-      {compact && selectedDueStudent && (tab === "register" || tab === "insight") ? null : toolbar}
+      {compact && selectedDueStudent && (tab === "register" || tab === "insight") ? null : compact && tab === "setup" ? null : toolbar}
       {tab === "setup" ? (
-        <ScrollView className="flex-1">
+        <ScrollView className="flex-1" contentContainerStyle={compact ? { paddingBottom: 110 } : undefined} keyboardShouldPersistTaps="handled">
+          {compact ? (
+            <View className="gap-3 pb-3">
+              <Text className="text-[22px] font-bold tracking-tight text-ink-900">Fees</Text>
+              {phoneTabs}
+            </View>
+          ) : null}
           {setupTabs}
           {setupBody}
         </ScrollView>
       ) : compact && selectedDueStudent && (tab === "register" || tab === "insight") ? (
         <View className="min-h-0 flex-1 overflow-hidden rounded-xl border border-ink-100 bg-white">
-          {dueStudentPanel}
+          {phoneDuePanel}
         </View>
       ) : tab === "insight" ? (
         <View className="min-h-0 flex-1 flex-row overflow-hidden rounded-xl border border-ink-100 bg-white">
@@ -1763,6 +2597,7 @@ export function FeesBoard() {
         open={Boolean(payDueStudent)}
         student={payDueStudent}
         title={payDueStudent ? `Payment · ${payDueStudent.name}` : undefined}
+        startMethod={payStartMethod}
         onClose={() => setPayDueStudentId("")}
         onDone={async (message) => {
           setPayDueStudentId("");
@@ -1771,39 +2606,19 @@ export function FeesBoard() {
         }}
       />
 
-      <Modal
-        open={feeEditorOpen}
-        wide
-        title={classes.find((row) => row.id === editorClassId)?.label || "Class fee"}
-        onClose={() => setFeeEditorOpen(false)}
-        footer={
-          <View className="flex-row flex-wrap justify-end gap-2">
-            <Button variant="ghost" onPress={() => setFeeEditorOpen(false)}>
-              Cancel
-            </Button>
-            {collect && classTemplate ? (
-              <Button variant="ghost" onPress={() => void issueFeeTemplate(editorClassId, classTemplate.id)}>
-                Generate invoices
-              </Button>
-            ) : null}
-            {configure ? <Button onPress={() => void saveFeeTemplate()}>Save</Button> : null}
-          </View>
-        }
-      >
-        <View className="gap-5 pb-1">
-          <View className="rounded-xl border border-ink-100 bg-ink-50/70 p-4">
-            <View className="flex-row items-start justify-between gap-3">
-              <View className="min-w-0 flex-1">
-                <Text className="text-sm font-semibold text-ink-900">Class fee structure</Text>
-                <Text className="mt-1 text-xs leading-5 text-ink-600">Set when this structure applies. Class fee periods cannot overlap.</Text>
-              </View>
-              <View className="rounded-full bg-blue-100 px-2.5 py-1">
-                <Text className="text-[11px] font-semibold text-blue-800">All fee types</Text>
-              </View>
-            </View>
-          </View>
-          <View className="-mt-2 flex-row flex-wrap gap-3">
-            <View className="min-w-[220px] flex-1">
+      {(() => {
+        const startP = tplStartPeriod || defaultStartPeriod;
+        const endP = tplEndPeriod || defaultEndPeriod;
+        const months = (() => {
+          const a = /^(\d{4})-(\d{2})/.exec(startP || "");
+          const b = /^(\d{4})-(\d{2})/.exec(endP || "");
+          if (!a || !b) return 0;
+          return Math.max(0, (Number(b[1]) - Number(a[1])) * 12 + Number(b[2]) - Number(a[2]) + 1);
+        })();
+        const phoneEditor = width < 768;
+        const editorBody = (
+          <View className="gap-4 pb-1">
+            <View className="gap-3">
               <Select
                 label="Class"
                 value={editorClassId}
@@ -1811,223 +2626,146 @@ export function FeesBoard() {
                 placeholder="Choose class"
                 onChange={setEditorClassId}
               />
-            </View>
-          </View>
-          <Field label="Name">
-            <Input value={tplName} onChangeText={setTplName} />
-          </Field>
-          <View className="flex-row flex-wrap gap-3">
-            <View className="min-w-[160px] flex-1">
-              <Field label="Starts">
-                <MonthField placeholder={defaultStartPeriod} value={tplStartPeriod} onChange={setTplStartPeriod} />
-              </Field>
-            </View>
-            <View className="min-w-[160px] flex-1">
-              <Field label="Ends">
-                <MonthField placeholder={defaultEndPeriod} value={tplEndPeriod} onChange={setTplEndPeriod} />
-              </Field>
-            </View>
-          </View>
-          {structureRange ? <Text className="-mt-2 text-xs font-medium text-ink-700">Applies {structureRange}</Text> : null}
-          <View className="gap-2 rounded-xl border border-ink-100 bg-white p-4">
-            <View className="flex-row items-center justify-between gap-3">
               <View>
-                <Text className="text-sm font-semibold text-ink-900">Monthly charges</Text>
-                <Text className="mt-0.5 text-xs text-ink-600">Included every month during this schedule.</Text>
-              </View>
-              <View className="items-end gap-1">
-                <View className="rounded-full bg-blue-100 px-2.5 py-1"><Text className="text-[11px] font-semibold text-blue-800">Monthly</Text></View>
-                <Text className="text-sm font-semibold text-clay-600">{inr(tplTotal)}</Text>
-              </View>
-            </View>
-            <View className="flex-row px-1">
-              <Text className="flex-1 text-[11px] font-semibold uppercase tracking-wide text-ink-500">Charge</Text>
-              <Text className="w-32 text-right text-[11px] font-semibold uppercase tracking-wide text-ink-500">Amount</Text>
-              <View className="w-16" />
-            </View>
-            {tplLines.map((line) => (
-              <View key={line.id} className="flex-row items-center gap-2">
-                <View className="min-w-0 flex-1">
-                  <Input
-                    placeholder="e.g. Lab"
-                    value={line.label}
-                    onChangeText={(label) => setTplLines((rows) => rows.map((row) => (row.id === line.id ? { ...row, label } : row)))}
-                  />
+                <View className="mb-1.5 flex-row items-center justify-between">
+                  <Text className="text-xs font-medium text-ink-700">Applies</Text>
+                  {months ? <Text className="text-xs font-semibold text-ink-900">{months} month{months === 1 ? "" : "s"}</Text> : null}
                 </View>
-                <View className="w-32">
-                  <Input
-                    keyboardType="number-pad"
-                    value={line.amount}
-                    onChangeText={(amount) => setTplLines((rows) => rows.map((row) => (row.id === line.id ? { ...row, amount } : row)))}
-                  />
+                <View className="flex-row items-center gap-2">
+                  <View className="min-w-0 flex-1">
+                    <MonthField placeholder={defaultStartPeriod} value={tplStartPeriod} onChange={setTplStartPeriod} />
+                  </View>
+                  <Ionicons name="arrow-forward" size={16} color="#94A3B8" />
+                  <View className="min-w-0 flex-1">
+                    <MonthField placeholder={defaultEndPeriod} value={tplEndPeriod} onChange={setTplEndPeriod} />
+                  </View>
                 </View>
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => setTplLines((rows) => (rows.length > 1 ? rows.filter((row) => row.id !== line.id) : rows))}
-                  className="w-16 items-center py-2"
-                >
-                  <Text className="text-xs font-semibold text-red-700">Remove</Text>
-                </Pressable>
               </View>
-            ))}
-            {configure ? (
-              <View className="gap-2 pt-1">
-                <Pressable onPress={() => setTplLines((rows) => [...rows, newFeeLine()])} className="self-start py-1">
-                  <Text className="text-xs font-semibold text-blue-700">+ Add charge</Text>
-                </Pressable>
-                <SuggestionPills
-                  options={CLASS_CHARGE_SUGGESTIONS}
-                  used={tplLines.map((line) => line.label)}
-                  onPick={(label) =>
-                    setTplLines((rows) => {
-                      if (rows.some((row) => row.label.trim().toLowerCase() === label.toLowerCase())) return rows;
-                      const empty = rows.find((row) => !row.label.trim());
-                      if (empty) return rows.map((row) => (row.id === empty.id ? { ...row, label } : row));
-                      return [...rows, newFeeLine(label)];
-                    })
-                  }
-                />
-              </View>
-            ) : null}
-            <View className="mt-2 flex-row items-center justify-between rounded-lg bg-ink-50 px-3 py-2.5">
-              <Text className="text-sm font-semibold text-ink-900">Monthly total</Text>
-              <Text className="text-sm font-semibold text-ink-900">{inr(tplTotal)}</Text>
             </View>
+
+            <ChargeSection
+              hero
+              title="Monthly fee"
+              hint="Billed to every student in this class, every month."
+              tone="blue"
+              lines={tplLines}
+              setLines={setTplLines}
+              canEdit={configure}
+              keepOne
+              addLabel="Add charge"
+              placeholder="e.g. Tuition"
+              newLine={() => newFeeLine()}
+              suggestions={CLASS_CHARGE_SUGGESTIONS}
+              totalLabel="per month"
+              total={tplTotal}
+            />
+            <ChargeSection
+              collapsed={!admissionOpen}
+              onToggle={() => setAdmissionOpen((open) => !open)}
+              title="Admission fee"
+              hint="One-time, when a student joins this class."
+              tone="amber"
+              lines={admissionLines}
+              setLines={setAdmissionLines}
+              canEdit={configure}
+              keepOne
+              addLabel="Add admission charge"
+              placeholder="e.g. Admission fee"
+              newLine={() => newFeeLine("Admission fee", "")}
+              suggestions={ADMISSION_SUGGESTIONS}
+              totalLabel="one time"
+              total={admissionTotal}
+            />
+            <ChargeSection
+              collapsed={!optionalOpen}
+              onToggle={() => setOptionalOpen((open) => !open)}
+              title="Optional charges"
+              hint="Only for students who opt in."
+              tone="violet"
+              lines={tplAddOnLines}
+              setLines={setTplAddOnLines}
+              canEdit={configure}
+              addLabel="Add optional charge"
+              placeholder="e.g. Transport"
+              newLine={() => newFeeLine("", "", "ADD_ON")}
+              suggestions={CLASS_ADDON_SUGGESTIONS}
+              totalLabel="per month, only if opted in"
+              total={tplAddOnTotal}
+            />
           </View>
-          <View className="gap-2 rounded-xl border border-amber-100 bg-amber-50/50 p-4">
-            <View className="flex-row items-start justify-between gap-3">
-              <View className="min-w-0 flex-1">
-                <Text className="text-sm font-semibold text-ink-900">Admission fee</Text>
-                <Text className="mt-0.5 text-xs leading-5 text-ink-600">A one-time invoice created when a student joins this class. It never includes monthly charges.</Text>
-              </View>
-              <View className="items-end gap-1">
-                <View className="rounded-full bg-amber-100 px-2.5 py-1">
-                  <Text className="text-[11px] font-semibold text-amber-900">One time</Text>
-                </View>
-                <Text className="text-sm font-semibold text-amber-900">{inr(admissionTotal)}</Text>
-              </View>
+        );
+        const summary = (
+          <View className="flex-row items-end justify-between gap-3">
+            <View className="min-w-0 flex-1">
+              {tplTotal ? (
+                <>
+                  <Text className="text-lg font-bold text-ink-900">
+                    {inr(tplTotal)}
+                    <Text className="text-sm font-normal text-ink-700"> / month</Text>
+                  </Text>
+                  <Text className="text-xs text-ink-700" numberOfLines={1}>
+                    {months ? `${inr(tplTotal)} × ${months} = ${inr(tplTotal * months)} per year` : ""}
+                    {admissionTotal ? ` · + ${inr(admissionTotal)} admission` : ""}
+                  </Text>
+                </>
+              ) : (
+                <Text className="text-xs text-ink-500">Yearly total appears once you add amounts.</Text>
+              )}
             </View>
-            <View className="mt-1 flex-row px-1">
-              <Text className="flex-1 text-[11px] font-semibold uppercase tracking-wide text-ink-500">Charge</Text>
-              <Text className="w-32 text-right text-[11px] font-semibold uppercase tracking-wide text-ink-500">Amount</Text>
-              <View className="w-16" />
-            </View>
-            {admissionLines.map((line) => (
-              <View key={line.id} className="flex-row items-center gap-2">
-                <View className="min-w-0 flex-1">
-                  <Input
-                    placeholder="e.g. Admission fee"
-                    value={line.label}
-                    onChangeText={(label) => setAdmissionLines((rows) => rows.map((row) => (row.id === line.id ? { ...row, label } : row)))}
-                  />
-                </View>
-                <View className="w-32">
-                  <Input
-                    keyboardType="number-pad"
-                    value={line.amount}
-                    onChangeText={(amount) => setAdmissionLines((rows) => rows.map((row) => (row.id === line.id ? { ...row, amount } : row)))}
-                  />
-                </View>
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => setAdmissionLines((rows) => (rows.length > 1 ? rows.filter((row) => row.id !== line.id) : rows))}
-                  className="w-16 items-center py-2"
-                >
-                  <Text className="text-xs font-semibold text-red-700">Remove</Text>
-                </Pressable>
-              </View>
-            ))}
-            {configure ? (
-              <View className="gap-2 pt-1">
-                <Pressable onPress={() => setAdmissionLines((rows) => [...rows, newFeeLine("Admission fee", "")])} className="self-start py-1">
-                  <Text className="text-xs font-semibold text-blue-700">+ Add admission charge</Text>
-                </Pressable>
-                <SuggestionPills
-                  options={ADMISSION_SUGGESTIONS}
-                  used={admissionLines.map((line) => line.label)}
-                  onPick={(label) =>
-                    setAdmissionLines((rows) => {
-                      if (rows.some((row) => row.label.trim().toLowerCase() === label.toLowerCase())) return rows;
-                      const empty = rows.find((row) => !row.label.trim());
-                      if (empty) return rows.map((row) => (row.id === empty.id ? { ...row, label } : row));
-                      return [...rows, newFeeLine(label, "")];
-                    })
-                  }
-                />
-              </View>
+            {collect && classTemplate ? (
+              <Button variant="ghost" onPress={() => void issueFeeTemplate(editorClassId, classTemplate.id)}>
+                Generate invoices
+              </Button>
             ) : null}
-            <View className="mt-2 flex-row items-center justify-between rounded-lg bg-amber-100/50 px-3 py-2.5">
-              <Text className="text-sm font-semibold text-ink-900">Admission total</Text>
-              <Text className="text-sm font-semibold text-ink-900">{inr(admissionTotal)}</Text>
-            </View>
           </View>
-          <View className="gap-2 rounded-xl border border-ink-100 bg-white p-4">
-            <View className="flex-row items-start justify-between gap-3">
-              <View className="min-w-0 flex-1">
-                <Text className="text-sm font-semibold text-ink-900">Optional monthly charges</Text>
-                <Text className="mt-0.5 text-xs leading-5 text-ink-600">Students opt in from Manage Fees; only opted-in students are billed each month.</Text>
-              </View>
-              <View className="items-end gap-1">
-                <View className="rounded-full bg-violet-100 px-2.5 py-1"><Text className="text-[11px] font-semibold text-violet-800">Optional</Text></View>
-                <Text className="text-sm font-semibold text-violet-800">{inr(tplAddOnTotal)}</Text>
-              </View>
-            </View>
-            <View className="mt-1 flex-row px-1">
-              <Text className="flex-1 text-[11px] font-semibold uppercase tracking-wide text-ink-500">Charge</Text>
-              <Text className="w-32 text-right text-[11px] font-semibold uppercase tracking-wide text-ink-500">Amount</Text>
-              <View className="w-16" />
-            </View>
-            {tplAddOnLines.map((line) => (
-              <View key={line.id} className="flex-row items-center gap-2">
-                <View className="min-w-0 flex-1">
-                  <Input
-                    placeholder="e.g. Project"
-                    value={line.label}
-                    onChangeText={(label) => setTplAddOnLines((rows) => rows.map((row) => (row.id === line.id ? { ...row, label } : row)))}
-                  />
+        );
+        const title = classes.find((row) => row.id === editorClassId)?.label ? `${classes.find((row) => row.id === editorClassId)?.label} fee` : "Class fee";
+        if (phoneEditor) {
+          return (
+            <RnModal visible={feeEditorOpen} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setFeeEditorOpen(false)}>
+              <SafeAreaView className="flex-1 bg-white" edges={["top", "bottom"]}>
+                <View className="h-14 flex-row items-center border-b border-ink-100 px-2">
+                  <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={() => setFeeEditorOpen(false)} className="h-11 w-11 items-center justify-center">
+                    <Ionicons name="close" size={24} color="#0f2744" />
+                  </Pressable>
+                  <Text className="flex-1 text-center text-[17px] font-semibold text-ink-900" numberOfLines={1}>{title}</Text>
+                  <View className="w-11" />
                 </View>
-                <View className="w-32">
-                  <Input
-                    keyboardType="number-pad"
-                    value={line.amount}
-                    onChangeText={(amount) => setTplAddOnLines((rows) => rows.map((row) => (row.id === line.id ? { ...row, amount } : row)))}
-                  />
+                <ScrollView className="flex-1" contentContainerStyle={{ padding: 16, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
+                  {editorBody}
+                </ScrollView>
+                <View className="gap-3 border-t border-ink-100 px-4 pb-3 pt-3">
+                  {summary}
+                  {configure ? (
+                    <Pressable onPress={() => void saveFeeTemplate()} className="h-12 items-center justify-center rounded-2xl bg-[#1F45C7] active:opacity-90">
+                      <Text className="text-[15px] font-semibold text-white">Save fee</Text>
+                    </Pressable>
+                  ) : null}
                 </View>
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => setTplAddOnLines((rows) => rows.filter((row) => row.id !== line.id))}
-                  className="w-16 items-center py-2"
-                >
-                  <Text className="text-xs font-semibold text-red-700">Remove</Text>
-                </Pressable>
+              </SafeAreaView>
+            </RnModal>
+          );
+        }
+        return (
+          <Modal
+            open={feeEditorOpen}
+            wide
+            title={title}
+            onClose={() => setFeeEditorOpen(false)}
+            footer={
+              <View className="gap-3">
+                {summary}
+                <View className="flex-row justify-end gap-2">
+                  <Button variant="ghost" onPress={() => setFeeEditorOpen(false)}>Cancel</Button>
+                  {configure ? <Button onPress={() => void saveFeeTemplate()}>Save fee</Button> : null}
+                </View>
               </View>
-            ))}
-            {configure ? (
-              <View className="gap-2 pt-1">
-                <Pressable onPress={() => setTplAddOnLines((rows) => [...rows, newFeeLine("", "", "ADD_ON")])} className="self-start py-1">
-                  <Text className="text-xs font-semibold text-blue-700">+ Add class add-on</Text>
-                </Pressable>
-                <SuggestionPills
-                  options={CLASS_ADDON_SUGGESTIONS}
-                  used={tplAddOnLines.map((line) => line.label)}
-                  onPick={(label) =>
-                    setTplAddOnLines((rows) => {
-                      if (rows.some((row) => row.label.trim().toLowerCase() === label.toLowerCase())) return rows;
-                      const empty = rows.find((row) => !row.label.trim());
-                      if (empty) return rows.map((row) => (row.id === empty.id ? { ...row, label } : row));
-                      return [...rows, newFeeLine(label, "", "ADD_ON")];
-                    })
-                  }
-                />
-              </View>
-            ) : null}
-            <View className="mt-2 flex-row items-center justify-between rounded-lg bg-violet-50 px-3 py-2.5">
-              <Text className="text-sm font-semibold text-ink-900">Optional monthly total</Text>
-              <Text className="text-sm font-semibold text-ink-900">{inr(tplAddOnTotal)}</Text>
-            </View>
-          </View>
-        </View>
-      </Modal>
+            }
+          >
+            {editorBody}
+          </Modal>
+        );
+      })()}
 
       <Modal
         open={catalogOpen}

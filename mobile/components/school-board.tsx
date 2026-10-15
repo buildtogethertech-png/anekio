@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Image, Linking, Platform, Pressable, Text, useWindowDimensions, View } from "react-native";
+import { Image, KeyboardAvoidingView, Linking, Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Dropdown } from "./form";
@@ -167,6 +168,415 @@ function SchoolDoors({ onOpen }: { onOpen: (group: Door) => void }) {
           </Pressable>
         );
       })}
+    </View>
+  );
+}
+
+const TAB_ICONS: Record<Tab, { icon: keyof typeof Ionicons.glyphMap; tone: string }> = {
+  identity: { icon: "school-outline", tone: "#1F45C7" },
+  sessions: { icon: "calendar-number-outline", tone: "#7c3aed" },
+  classes: { icon: "people-outline", tone: "#0891b2" },
+  clock: { icon: "time-outline", tone: "#d97706" },
+  calendar: { icon: "calendar-outline", tone: "#dc2626" },
+  subjects: { icon: "book-outline", tone: "#16a34a" },
+  exams: { icon: "clipboard-outline", tone: "#9333ea" },
+  leave: { icon: "airplane-outline", tone: "#0284c7" },
+  collect: { icon: "wallet-outline", tone: "#059669" },
+  documents: { icon: "document-text-outline", tone: "#4f46e5" },
+  forms: { icon: "list-outline", tone: "#db2777" },
+  website: { icon: "globe-outline", tone: "#0f766e" },
+};
+
+const PHONE_SECTIONS: { title: string; groups: Door[] }[] = [
+  { title: "School", groups: ["School Setup"] },
+  { title: "Academics", groups: ["Academics"] },
+  { title: "People & money", groups: ["Staff & Leave", "Fees"] },
+  { title: "Documents & admissions", groups: ["Documents", "Admissions"] },
+];
+
+function PhoneSettingsList({
+  status,
+  setup,
+  onOpen,
+  onSetup,
+}: {
+  status: Partial<Record<Tab, { text: string; warn?: boolean }>>;
+  setup?: { percent: number; left: number } | null;
+  onOpen: (id: Tab) => void;
+  onSetup: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
+  const matches = q
+    ? TABS.filter((item) => `${item.label} ${item.hint} ${item.group}`.toLowerCase().includes(q))
+    : [];
+  const row = (item: (typeof TABS)[number], i: number) => {
+    const meta = TAB_ICONS[item.id];
+    const st = status[item.id];
+    return (
+      <Pressable
+        key={item.id}
+        accessibilityRole="button"
+        onPress={() => onOpen(item.id)}
+        className={`flex-row items-center gap-3 px-3 py-3 active:bg-slate-50 ${i ? "border-t border-ink-100" : ""}`}
+        style={{ minHeight: 52 }}
+      >
+        <View className="h-8 w-8 items-center justify-center rounded-lg" style={{ backgroundColor: `${meta.tone}1A` }}>
+          <Ionicons name={meta.icon} size={17} color={meta.tone} />
+        </View>
+        <Text className="min-w-0 flex-1 text-[15px] text-ink-900" numberOfLines={1}>
+          {item.label}
+        </Text>
+        {st?.text ? (
+          <Text className={`max-w-[45%] text-sm ${st.warn ? "font-medium text-amber-700" : "text-ink-500"}`} numberOfLines={1}>
+            {st.text}
+          </Text>
+        ) : null}
+        <Ionicons name="chevron-forward" size={16} color="#cbd5e1" />
+      </Pressable>
+    );
+  };
+  return (
+    <View className="gap-4 pb-28">
+      <View className="flex-row items-center rounded-xl border border-ink-200 bg-white pl-3">
+        <Ionicons name="search-outline" size={16} color="#94a3b8" />
+        <TextInput
+          value={query}
+          onChangeText={setQuery}
+          placeholder="Search settings"
+          placeholderTextColor="#94a3b8"
+          className="min-w-0 flex-1 px-2 py-2.5 text-sm text-ink-900"
+          style={{ includeFontPadding: false }}
+        />
+        {query ? (
+          <Pressable hitSlop={8} onPress={() => setQuery("")} className="pr-3">
+            <Ionicons name="close-circle" size={16} color="#94a3b8" />
+          </Pressable>
+        ) : null}
+      </View>
+      {q ? (
+        matches.length ? (
+          <View className="overflow-hidden rounded-xl border border-ink-100 bg-white">{matches.map(row)}</View>
+        ) : (
+          <Text className="px-1 text-sm text-ink-500">No setting matches “{query}”.</Text>
+        )
+      ) : (
+        <>
+          {setup ? (
+            <Pressable accessibilityRole="button" onPress={onSetup} className="rounded-xl bg-[#1F45C7] px-4 py-3.5">
+              <View className="flex-row items-center gap-2">
+                <Ionicons name="rocket-outline" size={18} color="#fff" />
+                <Text className="flex-1 text-[15px] font-semibold text-white">
+                  Setup {setup.percent}% · {setup.left} {setup.left === 1 ? "step" : "steps"} left
+                </Text>
+                <Ionicons name="chevron-forward" size={16} color="#fff" />
+              </View>
+              <View className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-white/25">
+                <View className="h-full rounded-full bg-white" style={{ width: `${setup.percent}%` }} />
+              </View>
+            </Pressable>
+          ) : null}
+          {PHONE_SECTIONS.map((section) => {
+            const items = TABS.filter((item) => section.groups.includes(item.group));
+            return (
+              <View key={section.title}>
+                <Text className="mb-1.5 px-1 text-xs font-semibold uppercase tracking-wide text-ink-500">{section.title}</Text>
+                <View className="overflow-hidden rounded-xl border border-ink-100 bg-white">{items.map(row)}</View>
+              </View>
+            );
+          })}
+        </>
+      )}
+    </View>
+  );
+}
+
+const CLASS_GRADES = ["Nursery", "LKG", "UKG", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
+const CLASS_SECTIONS = ["A", "B", "C", "D", "E"];
+
+function NewClassSheet({
+  open,
+  classes,
+  onClose,
+  onCreate,
+}: {
+  open: boolean;
+  classes: { label: string; name?: string; section?: string }[];
+  onClose: () => void;
+  onCreate: (name: string, section: string) => Promise<void>;
+}) {
+  const [grade, setGrade] = useState("");
+  const [otherGrade, setOtherGrade] = useState(false);
+  const [section, setSection] = useState("A");
+  const [otherSection, setOtherSection] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const key = (name: string, sec: string) => `${name.trim()}-${sec.trim()}`.toLowerCase();
+  const taken = new Set(classes.map((c) => (c.name ? key(c.name, c.section || "") : c.label.toLowerCase())));
+  const gradeHas = (g: string) => classes.some((c) => (c.name || c.label.split("-")[0] || "").trim().toLowerCase() === g.toLowerCase());
+  const nextFree = (g: string) => CLASS_SECTIONS.find((sec) => !taken.has(key(g, sec))) || "";
+
+  useEffect(() => {
+    if (!open) return;
+    setGrade("");
+    setOtherGrade(false);
+    setSection("A");
+    setOtherSection(false);
+    setBusy(false);
+  }, [open]);
+
+  const name = grade.trim();
+  const sec = section.trim().toUpperCase();
+  const label = name && sec ? `${name}-${sec}` : "";
+  const duplicate = Boolean(label && taken.has(key(name, sec)));
+  const ready = Boolean(label) && !duplicate && !busy;
+
+  const chip = (text: string, on: boolean, onPress: () => void, dot?: boolean) => (
+    <Pressable
+      key={text}
+      accessibilityRole="button"
+      accessibilityState={{ selected: on }}
+      onPress={onPress}
+      className={`min-w-[52px] items-center rounded-xl border px-3 py-2.5 ${on ? "border-[#1F45C7] bg-[#1F45C7]" : "border-ink-200 bg-white"}`}
+    >
+      <Text className={`text-sm font-semibold ${on ? "text-white" : "text-ink-800"}`}>{text}</Text>
+      {dot ? <View className={`absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full ${on ? "bg-white" : "bg-[#1F45C7]"}`} /> : null}
+    </Pressable>
+  );
+
+  return (
+    <RnModal visible={open} transparent animationType="slide" onRequestClose={onClose}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} className="flex-1 justify-end">
+        <Pressable accessibilityRole="button" accessibilityLabel="Close" className="absolute inset-0 bg-black/40" onPress={onClose} />
+        <View className="rounded-t-3xl bg-white" style={{ maxHeight: "90%" }}>
+          <SafeAreaView edges={["bottom"]}>
+            <View className="items-center pt-2">
+              <View className="h-1 w-10 rounded-full bg-ink-200" />
+            </View>
+            <View className="flex-row items-center px-5 pb-1 pt-3">
+              <Text className="flex-1 text-lg font-semibold text-ink-900">New class</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel="Close" hitSlop={10} onPress={onClose} className="h-8 w-8 items-center justify-center rounded-full bg-ink-100">
+                <Ionicons name="close" size={18} color="#3d4f66" />
+              </Pressable>
+            </View>
+            <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 12 }} keyboardShouldPersistTaps="handled">
+              <View className="items-center py-3">
+                <View className={`min-w-[96px] items-center rounded-2xl px-5 py-3 ${duplicate ? "bg-red-50" : label ? "bg-[#EEF3FF]" : "bg-ink-50"}`}>
+                  <Text className={`text-[28px] font-bold ${duplicate ? "text-red-700" : label ? "text-[#1F45C7]" : "text-ink-300"}`}>{label || "—"}</Text>
+                </View>
+                <Text className={`mt-1.5 text-xs ${duplicate ? "font-semibold text-red-700" : "text-ink-500"}`}>
+                  {duplicate ? `${label} already exists` : label ? "New class" : "Pick a class"}
+                </Text>
+              </View>
+
+              <Text className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-500">Class</Text>
+              <View className="flex-row flex-wrap gap-2">
+                {CLASS_GRADES.map((g) =>
+                  chip(g, !otherGrade && grade === g, () => {
+                    setOtherGrade(false);
+                    setGrade(g);
+                    if (!otherSection) {
+                      const free = nextFree(g);
+                      if (free) setSection(free);
+                    }
+                  }, gradeHas(g))
+                )}
+                {chip("Other", otherGrade, () => {
+                  setOtherGrade(true);
+                  setGrade("");
+                })}
+              </View>
+              {otherGrade ? (
+                <TextInput
+                  value={grade}
+                  onChangeText={setGrade}
+                  autoFocus
+                  placeholder="Class name, e.g. Playgroup"
+                  placeholderTextColor="#94a3b8"
+                  className="mt-2 rounded-xl border border-ink-200 px-3 py-3 text-sm text-ink-900"
+                  style={{ includeFontPadding: false }}
+                />
+              ) : null}
+
+              <Text className="mb-2 mt-5 text-xs font-semibold uppercase tracking-wide text-ink-500">Section</Text>
+              <View className="flex-row flex-wrap gap-2">
+                {CLASS_SECTIONS.map((sc) =>
+                  chip(sc, !otherSection && section === sc, () => {
+                    setOtherSection(false);
+                    setSection(sc);
+                  }, Boolean(name) && taken.has(key(name, sc)))
+                )}
+                {chip("Other", otherSection, () => {
+                  setOtherSection(true);
+                  setSection("");
+                })}
+              </View>
+              {otherSection ? (
+                <TextInput
+                  value={section}
+                  onChangeText={(v) => setSection(v.slice(0, 12))}
+                  autoFocus
+                  autoCapitalize="characters"
+                  placeholder="Section, e.g. Rose"
+                  placeholderTextColor="#94a3b8"
+                  className="mt-2 rounded-xl border border-ink-200 px-3 py-3 text-sm text-ink-900"
+                  style={{ includeFontPadding: false }}
+                />
+              ) : null}
+              <Text className="mt-3 text-[11px] text-ink-400">● already has a class</Text>
+            </ScrollView>
+            <View className="border-t border-ink-100 px-5 pb-2 pt-3">
+              <Pressable
+                accessibilityRole="button"
+                disabled={!ready}
+                onPress={async () => {
+                  setBusy(true);
+                  try {
+                    await onCreate(name, sec);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+                className={`h-12 items-center justify-center rounded-xl ${ready ? "bg-[#1F45C7]" : "bg-ink-200"}`}
+              >
+                <Text className="text-[15px] font-semibold text-white">
+                  {busy ? "Creating…" : label && !duplicate ? `Create ${label}` : "Create class"}
+                </Text>
+              </Pressable>
+            </View>
+          </SafeAreaView>
+        </View>
+      </KeyboardAvoidingView>
+    </RnModal>
+  );
+}
+
+function PhoneClassList({
+  classes,
+  staff,
+  templates,
+  sessionId,
+  canAdd,
+  onAdd,
+  onGo,
+}: {
+  classes: { id: string; label: string; students?: number }[];
+  staff: { kind?: string; name: string; classId?: string | null }[];
+  templates: { classId: string; sessionId: string; startsPeriod?: string; lines: { amount: number; scope?: string }[] }[];
+  sessionId: string;
+  canAdd: boolean;
+  onAdd: () => void;
+  onGo: (href: string) => void;
+}) {
+  const [openId, setOpenId] = useState<string | null>(null);
+  const total = classes.reduce((sum, c) => sum + (c.students || 0), 0);
+  const rows = classes.map((c) => {
+    const teacher = staff.find((row) => row.kind === "teacher" && row.classId === c.id)?.name || "";
+    const tpl = templates
+      .filter((row) => row.classId === c.id && (!sessionId || !row.sessionId || row.sessionId === sessionId))
+      .sort((a, b) => (b.startsPeriod || "").localeCompare(a.startsPeriod || ""))[0];
+    const monthly = (tpl?.lines ?? []).filter((line) => line.scope !== "ADD_ON").reduce((sum, line) => sum + line.amount, 0);
+    return { ...c, teacher, monthly };
+  });
+  const open = rows.find((row) => row.id === openId) || null;
+  return (
+    <View className="gap-3 pb-28">
+      <Text className="-mt-1 text-sm text-ink-500">
+        {classes.length} {classes.length === 1 ? "class" : "classes"} · {total} {total === 1 ? "student" : "students"}
+      </Text>
+      <View className="overflow-hidden rounded-xl border border-ink-100 bg-white">
+        {rows.map((c, i) => (
+          <Pressable
+            key={c.id}
+            accessibilityRole="button"
+            onPress={() => setOpenId(c.id)}
+            className={`flex-row items-center gap-3 px-3 py-3 active:bg-slate-50 ${i ? "border-t border-ink-100" : ""}`}
+            style={{ minHeight: 60 }}
+          >
+            <View className="h-10 min-w-[44px] items-center justify-center rounded-lg bg-[#EEF3FF] px-2">
+              <Text className="text-sm font-bold text-[#1F45C7]">{c.label}</Text>
+            </View>
+            <View className="min-w-0 flex-1">
+              <Text className={`text-[15px] font-semibold ${c.students ? "text-ink-900" : "text-amber-700"}`}>
+                {c.students ? `${c.students} ${c.students === 1 ? "student" : "students"}` : "No students"}
+              </Text>
+              <Text className="text-xs text-ink-500" numberOfLines={1}>
+                {c.teacher ? `Class teacher · ${c.teacher}` : "No class teacher"}
+              </Text>
+            </View>
+            <Text className={`text-sm ${c.monthly ? "font-medium text-ink-800" : "font-medium text-amber-700"}`}>
+              {c.monthly ? `₹${c.monthly.toLocaleString("en-IN")}/mo` : "No fee"}
+            </Text>
+            <Ionicons name="chevron-forward" size={16} color="#cbd5e1" />
+          </Pressable>
+        ))}
+        {!rows.length ? <Text className="px-4 py-6 text-sm text-ink-600">No classes yet. Add 1-A, 2-B, and so on.</Text> : null}
+        {canAdd ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={onAdd}
+            className={`flex-row items-center justify-center gap-1.5 px-3 py-3.5 ${rows.length ? "border-t border-dashed border-ink-200" : ""}`}
+          >
+            <Ionicons name="add" size={18} color="#1F45C7" />
+            <Text className="text-[15px] font-semibold text-[#1F45C7]">New class</Text>
+          </Pressable>
+        ) : null}
+      </View>
+
+      <RnModal visible={Boolean(open)} transparent animationType="slide" onRequestClose={() => setOpenId(null)}>
+        <View className="flex-1 justify-end">
+          <Pressable accessibilityRole="button" accessibilityLabel="Close" className="absolute inset-0 bg-black/40" onPress={() => setOpenId(null)} />
+          <View className="rounded-t-3xl bg-white pb-6">
+            <View className="items-center pt-2">
+              <View className="h-1 w-10 rounded-full bg-ink-200" />
+            </View>
+            {open ? (
+              <>
+                <View className="flex-row items-center gap-3 px-5 pb-3 pt-3">
+                  <View className="h-12 min-w-[52px] items-center justify-center rounded-xl bg-[#EEF3FF] px-2">
+                    <Text className="text-base font-bold text-[#1F45C7]">{open.label}</Text>
+                  </View>
+                  <View className="min-w-0 flex-1">
+                    <Text className="text-lg font-semibold text-ink-900">Class {open.label}</Text>
+                    <Text className="text-xs text-ink-500" numberOfLines={1}>
+                      {open.students || 0} students{open.teacher ? ` · ${open.teacher}` : ""}
+                    </Text>
+                  </View>
+                  <Pressable accessibilityRole="button" accessibilityLabel="Close" hitSlop={10} onPress={() => setOpenId(null)} className="h-8 w-8 items-center justify-center rounded-full bg-ink-100">
+                    <Ionicons name="close" size={18} color="#3d4f66" />
+                  </Pressable>
+                </View>
+                <View className="mx-5 overflow-hidden rounded-xl border border-ink-100">
+                  {(
+                    [
+                      ["people-outline", "Students", `${open.students || 0}`, "/people"],
+                      ["wallet-outline", "Fees", open.monthly ? `₹${open.monthly.toLocaleString("en-IN")}/mo` : "Set up", "/fees?tab=setup"],
+                      ["grid-outline", "Timetable", "", "/timetable"],
+                      ["checkbox-outline", "Attendance", "", "/attendance"],
+                    ] as const
+                  ).map(([icon, label, meta, href], i) => (
+                    <Pressable
+                      key={label}
+                      accessibilityRole="button"
+                      onPress={() => {
+                        setOpenId(null);
+                        onGo(href);
+                      }}
+                      className={`flex-row items-center gap-3 px-3 py-3.5 active:bg-slate-50 ${i ? "border-t border-ink-100" : ""}`}
+                    >
+                      <Ionicons name={icon} size={19} color="#1F45C7" />
+                      <Text className="flex-1 text-[15px] text-ink-900">{label}</Text>
+                      {meta ? (
+                        <Text className={`text-sm ${label === "Fees" && !open.monthly ? "font-medium text-amber-700" : "text-ink-500"}`}>{meta}</Text>
+                      ) : null}
+                      <Ionicons name="chevron-forward" size={16} color="#cbd5e1" />
+                    </Pressable>
+                  ))}
+                </View>
+              </>
+            ) : null}
+          </View>
+        </View>
+      </RnModal>
     </View>
   );
 }
@@ -343,6 +753,250 @@ function WebSection({ title, summary, open, onToggle, children }: { title: strin
         <Ionicons name={open ? "chevron-up" : "chevron-down"} size={18} color="#64748B" />
       </Pressable>
       {open ? <View className="border-t border-ink-100 px-4 pb-4 pt-3">{children}</View> : null}
+    </View>
+  );
+}
+
+/** One titled group on the Identity page; optional status ("⚠ Missing") and collapse. */
+function IdentitySection({
+  title,
+  status,
+  warn,
+  collapsible,
+  defaultOpen,
+  children,
+}: {
+  title: string;
+  status?: string;
+  warn?: boolean;
+  collapsible?: boolean;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(!collapsible || Boolean(defaultOpen));
+  return (
+    <View className="rounded-2xl border border-ink-200 bg-white">
+      <Pressable disabled={!collapsible} onPress={() => setOpen((v) => !v)} className="flex-row items-center justify-between gap-2 px-4 pb-2 pt-3.5">
+        <Text className="text-[15px] font-semibold text-ink-900">{title}</Text>
+        <View className="flex-row items-center gap-1.5">
+          {status ? <Text className={`text-xs font-medium ${warn && status.startsWith("⚠") ? "text-amber-700" : "text-ink-600"}`}>{status}</Text> : null}
+          {collapsible ? <Ionicons name={open ? "chevron-up" : "chevron-down"} size={16} color="#64748B" /> : null}
+        </View>
+      </Pressable>
+      {open ? <View className="px-4 pb-4">{children}</View> : <View className="h-1.5" />}
+    </View>
+  );
+}
+
+function leaveTypeIcon(name: string): keyof typeof Ionicons.glyphMap {
+  const n = name.toLowerCase();
+  if (/sick|medical/.test(n)) return "medkit-outline";
+  if (/casual/.test(n)) return "cafe-outline";
+  if (/plan|earned|annual/.test(n)) return "airplane-outline";
+  if (/matern|patern/.test(n)) return "heart-outline";
+  if (/duty/.test(n)) return "briefcase-outline";
+  return "calendar-outline";
+}
+
+function Stepper({ value, onChange, min = 0, max = 365 }: { value: number; onChange: (n: number) => void; min?: number; max?: number }) {
+  return (
+    <View className="flex-row items-center rounded-xl border border-ink-200 bg-white">
+      <Pressable accessibilityLabel="Less" onPress={() => onChange(Math.max(min, value - 1))} className="h-10 w-10 items-center justify-center">
+        <Ionicons name="remove" size={18} color="#1F45C7" />
+      </Pressable>
+      <Text className="w-9 text-center text-[15px] font-semibold text-ink-900">{value}</Text>
+      <Pressable accessibilityLabel="More" onPress={() => onChange(Math.min(max, value + 1))} className="h-10 w-10 items-center justify-center">
+        <Ionicons name="add" size={18} color="#1F45C7" />
+      </Pressable>
+    </View>
+  );
+}
+
+/** Phone list of leave types: one row each, tap to edit in a bottom sheet. Saves the whole policy. */
+function PhoneLeaveTypes({
+  types,
+  setTypes,
+  canEdit,
+  onSave,
+}: {
+  types: LeaveTypeDraft[];
+  setTypes: (rows: LeaveTypeDraft[]) => void;
+  canEdit: boolean;
+  onSave: (rows: LeaveTypeDraft[]) => Promise<void>;
+}) {
+  const [editIndex, setEditIndex] = useState<number | null>(null);
+  const [draft, setDraft] = useState<LeaveTypeDraft | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  function open(index: number | null) {
+    const base: LeaveTypeDraft =
+      index === null
+        ? { id: "", name: "", forTeacher: true, forStaff: true, forStudent: false, eligibilityGender: "ANY", noticeDays: 0, yearlyCap: 0, sortOrder: types.length }
+        : { ...types[index] };
+    setEditIndex(index);
+    setDraft(base);
+    setMoreOpen(base.eligibilityGender !== "ANY");
+  }
+
+  async function commit(next: LeaveTypeDraft[]) {
+    setBusy(true);
+    try {
+      setTypes(next);
+      await onSave(next);
+      setDraft(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const who = (row: LeaveTypeDraft) =>
+    [row.forTeacher ? "Teachers" : "", row.forStaff ? "Staff" : "", row.forStudent ? "Students" : ""].filter(Boolean).join(" · ") || "Nobody yet";
+
+  return (
+    <View className="mt-3 gap-3">
+      <View className="flex-row items-center justify-between">
+        <Text className="text-sm font-semibold text-ink-900">Leave types</Text>
+        {canEdit ? (
+          <Pressable onPress={() => open(null)} className="h-9 flex-row items-center gap-1 rounded-full bg-[#1F45C7] px-3.5">
+            <Ionicons name="add" size={16} color="#FFFFFF" />
+            <Text className="text-[13px] font-semibold text-white">Add</Text>
+          </Pressable>
+        ) : null}
+      </View>
+      <View className="overflow-hidden rounded-2xl border border-ink-200 bg-white">
+        {types.map((row, index) => (
+          <Pressable
+            key={row.id || `new-${index}`}
+            disabled={!canEdit}
+            onPress={() => open(index)}
+            className={`flex-row items-center gap-3 px-4 py-3 active:bg-ink-50 ${index ? "border-t border-ink-100" : ""}`}
+          >
+            <View className="h-10 w-10 items-center justify-center rounded-xl bg-[#EEF3FF]">
+              <Ionicons name={leaveTypeIcon(row.name)} size={19} color="#1F45C7" />
+            </View>
+            <View className="min-w-0 flex-1">
+              <View className="flex-row items-baseline justify-between gap-2">
+                <Text className="text-[15px] font-semibold text-ink-900" numberOfLines={1}>{row.name || "Untitled"}</Text>
+                <Text className="text-xs text-ink-700">
+                  {row.yearlyCap ? `${row.yearlyCap} / year` : "No limit"} · {row.noticeDays ? `${row.noticeDays} day notice` : "same day"}
+                </Text>
+              </View>
+              <Text className="mt-0.5 text-xs text-ink-500" numberOfLines={1}>
+                {who(row)}
+                {row.eligibilityGender !== "ANY" ? ` · ${row.eligibilityGender === "FEMALE" ? "Female" : "Male"} only` : ""}
+              </Text>
+            </View>
+            {canEdit ? <Ionicons name="chevron-forward" size={15} color="#94A3B8" /> : null}
+          </Pressable>
+        ))}
+      </View>
+
+      <RnModal visible={Boolean(draft)} transparent animationType="slide" onRequestClose={() => setDraft(null)}>
+        <Pressable className="flex-1 justify-end bg-black/40" onPress={() => setDraft(null)}>
+          <Pressable className="rounded-t-3xl bg-white px-5 pb-8 pt-3" onPress={() => {}}>
+            <View className="mb-3 items-center">
+              <View className="h-1 w-10 rounded-full bg-ink-200" />
+            </View>
+            {draft ? (
+              <View className="gap-4">
+                <Text className="text-lg font-bold text-ink-900">{editIndex === null ? "New leave type" : "Edit leave type"}</Text>
+                <Field label="Name">
+                  <Input value={draft.name} placeholder="e.g. Casual" onChangeText={(name) => setDraft({ ...draft, name })} className="h-12 text-[15px]" />
+                </Field>
+                <View>
+                  <Text className="mb-2 text-xs font-medium text-ink-700">Who can apply</Text>
+                  <View className="flex-row gap-2">
+                    {(
+                      [
+                        ["forTeacher", "Teachers"],
+                        ["forStaff", "Staff"],
+                        ["forStudent", "Students"],
+                      ] as const
+                    ).map(([key, label]) => {
+                      const on = draft[key];
+                      return (
+                        <Pressable
+                          key={key}
+                          onPress={() => setDraft({ ...draft, [key]: !on })}
+                          className={`h-10 flex-1 flex-row items-center justify-center gap-1 rounded-xl border ${on ? "border-[#1F45C7] bg-[#1F45C7]" : "border-ink-200 bg-white"}`}
+                        >
+                          {on ? <Ionicons name="checkmark" size={14} color="#FFFFFF" /> : null}
+                          <Text className={`text-sm font-semibold ${on ? "text-white" : "text-ink-700"}`}>{label}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+                <View className="flex-row items-center justify-between">
+                  <View>
+                    <Text className="text-sm font-medium text-ink-900">Days per year</Text>
+                    <Text className="text-[11px] text-ink-500">0 = no limit</Text>
+                  </View>
+                  <Stepper value={draft.yearlyCap} onChange={(yearlyCap) => setDraft({ ...draft, yearlyCap })} />
+                </View>
+                <View className="flex-row items-center justify-between">
+                  <View>
+                    <Text className="text-sm font-medium text-ink-900">Notice (school days)</Text>
+                    <Text className="text-[11px] text-ink-500">0 = same-day allowed</Text>
+                  </View>
+                  <Stepper value={draft.noticeDays} max={30} onChange={(noticeDays) => setDraft({ ...draft, noticeDays })} />
+                </View>
+                <Pressable onPress={() => setMoreOpen((v) => !v)} className="flex-row items-center gap-1">
+                  <Text className="text-xs font-semibold text-[#1F45C7]">More options</Text>
+                  <Ionicons name={moreOpen ? "chevron-up" : "chevron-down"} size={14} color="#1F45C7" />
+                </Pressable>
+                {moreOpen ? (
+                  <View>
+                    <Text className="mb-2 text-xs font-medium text-ink-700">Only for (e.g. maternity / paternity)</Text>
+                    <View className="flex-row gap-2">
+                      {(
+                        [
+                          ["ANY", "Anyone"],
+                          ["FEMALE", "Female"],
+                          ["MALE", "Male"],
+                        ] as const
+                      ).map(([gender, label]) => {
+                        const on = draft.eligibilityGender === gender;
+                        return (
+                          <Pressable
+                            key={gender}
+                            onPress={() => setDraft({ ...draft, eligibilityGender: gender })}
+                            className={`h-9 flex-1 items-center justify-center rounded-xl border ${on ? "border-[#1F45C7] bg-[#EEF3FF]" : "border-ink-200 bg-white"}`}
+                          >
+                            <Text className={`text-sm ${on ? "font-semibold text-[#1F45C7]" : "text-ink-700"}`}>{label}</Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ) : null}
+                <Pressable
+                  disabled={busy || !draft.name.trim()}
+                  onPress={() =>
+                    void commit(
+                      editIndex === null ? [...types, { ...draft, name: draft.name.trim() }] : types.map((row, i) => (i === editIndex ? { ...draft, name: draft.name.trim() } : row))
+                    )
+                  }
+                  className={`h-12 items-center justify-center rounded-2xl bg-[#1F45C7] ${busy || !draft.name.trim() ? "opacity-50" : ""}`}
+                >
+                  <Text className="text-[15px] font-semibold text-white">{busy ? "Saving…" : "Save"}</Text>
+                </Pressable>
+                {editIndex !== null && types.length > 1 ? (
+                  <Pressable
+                    disabled={busy}
+                    onPress={() => void commit(types.filter((_, i) => i !== editIndex))}
+                    className="h-10 flex-row items-center justify-center gap-1.5"
+                  >
+                    <Ionicons name="trash-outline" size={16} color="#B91C1C" />
+                    <Text className="text-sm font-semibold text-red-700">Delete leave type</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : null}
+          </Pressable>
+        </Pressable>
+      </RnModal>
     </View>
   );
 }
@@ -607,7 +1261,7 @@ export function SchoolBoard() {
   const slugIsOwn = Boolean(form.websiteSlug && savedWebsite?.slug && form.websiteSlug.trim() === savedWebsite.slug);
   const websiteDirtyHint = Boolean(savedWebsite) && Boolean(savedWebsite?.enabled) !== form.websiteEnabled;
   const showSave = tab !== "forms" && tab !== "calendar" && tab !== "exams" && tab !== "clock" && tab !== "subjects" && tab !== "sessions" && tab !== "classes" && tab !== "leave" && tab !== "documents";
-  const showPreview = tab === "identity" || tab === "exams";
+  const showPreview = tab === "exams";
 
   function showSchool(next: { tab?: Tab; group?: Door } = {}) {
     if (next.tab) router.replace(`/school?tab=${next.tab}` as never);
@@ -637,6 +1291,11 @@ export function SchoolBoard() {
   }
 
   function goBack() {
+    if (phone && level === "page") {
+      setLevel("doors");
+      showSchool();
+      return;
+    }
     if (level === "page") {
       const items = TABS.filter((item) => item.group === door);
       if (items.length === 1) {
@@ -660,164 +1319,203 @@ export function SchoolBoard() {
         ? DOOR_LEDE[door]
         : current.hint;
   const admissionClassOptions = schoolClassOptions(data?.classes);
+  const phoneStatus: Partial<Record<Tab, { text: string; warn?: boolean }>> = (() => {
+    const out: Partial<Record<Tab, { text: string; warn?: boolean }>> = {};
+    const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+    out.identity = s?.name ? { text: s.name } : { text: "Not set", warn: true };
+    const cur = sessions.find((row) => row.current);
+    out.sessions = cur ? { text: cur.label } : { text: "Not set", warn: true };
+    const classCount = data?.classes?.length ?? 0;
+    out.classes = classCount ? { text: plural(classCount, "class", "classes") } : { text: "None yet", warn: true };
+    const bell = (data?.timetable?.periods ?? []).filter((row) => !row.isBreak).length;
+    out.clock = bell ? { text: plural(bell, "period") } : { text: "Not set", warn: true };
+    out.calendar = { text: plural(inSession.length, "holiday") };
+    const subjectNames = new Set((data?.timetable?.classes ?? []).flatMap((c) => (c.subjects ?? []).map((x) => x.name)));
+    out.subjects = subjectNames.size ? { text: String(subjectNames.size) } : { text: "None yet", warn: true };
+    out.exams = plan.length ? { text: plural(plan.length, "exam") } : { text: "Not set", warn: true };
+    out.leave = leaveTypes.length ? { text: plural(leaveTypes.length, "type") } : { text: "Not set", warn: true };
+    const pay = [s?.upiId ? "UPI" : "", s?.pay?.gateway && s.pay.gateway !== "NONE" ? s.pay.gateway.charAt(0) + s.pay.gateway.slice(1).toLowerCase() : ""].filter(Boolean);
+    out.collect = pay.length ? { text: `Cash, ${pay.join(", ")}` } : { text: "Cash only" };
+    const tpl = data?.documentStudio?.templates?.length ?? 0;
+    out.documents = { text: tpl ? plural(tpl, "template") : "None yet", warn: !tpl };
+    out.website = form.websiteEnabled ? { text: "Live" } : { text: "Off" };
+    return out;
+  })();
 
   return (
     <View>
       {level !== "doors" ? (
         <Pressable onPress={goBack} className="mb-1 min-h-[32px] flex-row items-center gap-1">
           <Ionicons name="chevron-back" size={19} color="#1d4ed8" />
-          <Text className="text-sm font-medium text-clay-600">{level === "page" ? door : "School"}</Text>
+          <Text className="text-sm font-medium text-clay-600">
+            {!phone && level === "page" && TABS.filter((item) => item.group === door).length > 1 ? door : "Settings"}
+          </Text>
         </Pressable>
       ) : null}
-      <PageHeader title={title} lede={lede} compact />
+      {phone && level === "doors" ? (
+        <Text className="mb-3 text-[22px] font-bold tracking-tight text-ink-900">Settings</Text>
+      ) : (
+        <PageHeader title={title} lede={phone && level === "page" ? undefined : lede} compact />
+      )}
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
-      {level === "doors" ? (
+      {level === "doors" && phone ? (
+        <PhoneSettingsList
+          status={phoneStatus}
+          setup={
+            data?.onboarding && data.onboarding.progress.percent < 100
+              ? {
+                  percent: data.onboarding.progress.percent,
+                  left: Math.max(0, data.onboarding.progress.total - data.onboarding.progress.completed),
+                }
+              : null
+          }
+          onOpen={openPage}
+          onSetup={() => router.push("/onboarding" as never)}
+        />
+      ) : level === "doors" ? (
         <SchoolDoors onOpen={openDoor} />
       ) : level === "group" ? (
         <SchoolGroupList group={door} onPick={openPage} />
       ) : (
-      <Card className={phone ? "p-4" : "p-5"}>
+      <Card
+        className={phone ? "p-4" : "p-5"}
+        style={phone && tab === "classes" ? { borderWidth: 0, backgroundColor: "transparent", padding: 0 } : undefined}
+      >
         <View className={wide ? "flex-row items-start gap-6" : ""}>
           <View className={wide ? "min-w-0 flex-1" : ""}>
 
             {tab === "documents" && data?.documentStudio ? <DocumentStudio studio={data.documentStudio} data={data} /> : null}
 
             {tab === "identity" ? (
-              <View className="gap-3">
-                <Text className="text-sm text-ink-700">
-                  {phone
-                    ? "This is what parents see on pay pages. They cannot edit it."
-                    : "School name and address are the billing details on parent pay pages. They cannot edit this. If this campus has a branch name, put it in School name."}
-                </Text>
-                <View className="flex-row flex-wrap gap-3">
-                  <Half>
-                    <Field label="School name">
-                      <Input value={form.name} onChangeText={(v) => patch("name", v)} />
-                    </Field>
-                  </Half>
-                  <Half>
-                    <Field label="Affiliation">
-                      <Input value={form.affiliation} placeholder="CBSE / State / ICSE" onChangeText={(v) => patch("affiliation", v)} />
-                    </Field>
-                  </Half>
-                </View>
-                <View className="flex-row flex-wrap gap-3">
-                  <Half>
-                    <Field label="Address">
-                      <Input value={form.address} onChangeText={(v) => patch("address", v)} />
-                    </Field>
-                  </Half>
-                  <Half>
-                    <Field label="City">
-                      <Input value={form.city} onChangeText={(v) => patch("city", v)} />
-                    </Field>
-                  </Half>
-                  <Half>
-                    <Field label="State">
-                      <Input value={form.state} onChangeText={(v) => patch("state", v)} />
-                    </Field>
-                  </Half>
-                  <Half>
-                    <Field label="PIN">
-                      <Input keyboardType="number-pad" value={form.pincode} onChangeText={(v) => patch("pincode", v)} />
-                    </Field>
-                  </Half>
-                  <Half>
-                    <Field label="Contact phone">
-                      <Input keyboardType="phone-pad" value={form.phone} onChangeText={(v) => patch("phone", v)} />
-                    </Field>
-                  </Half>
-                  <Half>
-                    <Field label="Contact email">
-                      <Input autoCapitalize="none" keyboardType="email-address" value={form.email} onChangeText={(v) => patch("email", v)} />
-                    </Field>
-                  </Half>
-                  <Half>
-                    <Field label="GSTIN">
-                      <Input autoCapitalize="characters" value={form.gstin} placeholder="If you charge GST" onChangeText={(v) => patch("gstin", v)} />
-                    </Field>
-                  </Half>
-                  <Half>
-                    <Field label="PAN">
-                      <Input autoCapitalize="characters" value={form.pan} onChangeText={(v) => patch("pan", v)} />
-                    </Field>
-                  </Half>
-                </View>
-                <View className="rounded-md border border-ink-200 p-4">
-                  <View className="gap-3">
-                    <Text className="text-sm font-medium text-ink-900">Document brand assets</Text>
-                    <Text className="text-xs leading-5 text-ink-700">
-                      Logo, signature, and stamp appear on report cards, certificates, invoices, and custom documents.
-                    </Text>
-                    <View className="rounded-md border border-ink-200 p-4">
-                      <View className="flex-row flex-wrap items-center justify-between gap-4">
-                        <View className="flex-row items-center gap-3">
-                          <View className="h-20 w-20 items-center justify-center rounded-md border border-ink-200 bg-white p-2">
-                            {s?.logoPath ? (
-                              <AssetImage path={s.logoPath} className="h-16 w-16" />
-                            ) : (
-                              <Ionicons name="school-outline" size={30} color="#3d4f66" />
-                            )}
-                          </View>
-                          <View>
-                            <Text className="text-sm font-medium text-ink-900">School logo</Text>
-                            <Text className="mt-0.5 text-xs text-ink-700">
-                              {s?.logoPath ? "Current logo preview." : "Used on report cards and invoices."}
-                            </Text>
-                          </View>
-                        </View>
-                        {edit ? (
-                          <Button
-                            variant="ghost"
-                            disabled={Boolean(uploadingAsset)}
-                            onPress={() => void uploadBrandAsset("logoPath", "Logo")}
-                          >
-                            {uploadingAsset === "logoPath" ? "Uploading…" : s?.logoPath ? "Replace logo" : "Upload logo"}
-                          </Button>
-                        ) : null}
-                      </View>
+              <View className="gap-4">
+                {/* Live header: how the school appears on receipts, ID cards and pay pages. */}
+                <View className="rounded-2xl border border-ink-200 bg-white p-4">
+                  <View className="flex-row items-center gap-3">
+                    <View className="h-14 w-14 items-center justify-center overflow-hidden rounded-xl border border-ink-100 bg-ink-50">
+                      {s?.logoPath ? <AssetImage path={s.logoPath} className="h-12 w-12" /> : <Ionicons name="school-outline" size={24} color="#94A3B8" />}
                     </View>
-                    <View className="flex-row flex-wrap gap-3">
-                      <Half>
-                        <Field label="Signatory name">
-                          <Input value={form.signatory} placeholder="Principal" onChangeText={(v) => patch("signatory", v)} />
-                        </Field>
-                      </Half>
-                    </View>
-                    <View className="flex-row flex-wrap gap-3">
-                      <View className="min-w-[45%] flex-1 rounded-md border border-ink-200 p-4">
-                        <Text className="text-sm font-medium text-ink-900">Principal signature</Text>
-                        <Text className="mt-1 text-xs text-ink-700">Transparent PNG works best.</Text>
-                        {s?.signPath ? <AssetImage path={s.signPath} className="my-3 h-14 w-full" /> : null}
-                        {edit ? (
-                          <Button
-                            variant="ghost"
-                            disabled={Boolean(uploadingAsset)}
-                            onPress={() => void uploadBrandAsset("signPath", "Signature")}
-                            className="mt-3"
-                          >
-                            {uploadingAsset === "signPath" ? "Uploading…" : s?.signPath ? "Replace signature" : "Upload signature"}
-                          </Button>
-                        ) : null}
-                      </View>
-                      <View className="min-w-[45%] flex-1 rounded-md border border-ink-200 p-4">
-                        <Text className="text-sm font-medium text-ink-900">School stamp</Text>
-                        <Text className="mt-1 text-xs text-ink-700">Optional, shown on formal documents.</Text>
-                        {s?.stampPath ? <AssetImage path={s.stampPath} className="my-3 h-14 w-full" /> : null}
-                        {edit ? (
-                          <Button
-                            variant="ghost"
-                            disabled={Boolean(uploadingAsset)}
-                            onPress={() => void uploadBrandAsset("stampPath", "Stamp")}
-                            className="mt-3"
-                          >
-                            {uploadingAsset === "stampPath" ? "Uploading…" : s?.stampPath ? "Replace stamp" : "Upload stamp"}
-                          </Button>
-                        ) : null}
-                      </View>
+                    <View className="min-w-0 flex-1">
+                      <Text className="text-base font-bold text-ink-900" numberOfLines={1}>{form.name || "Your school name"}</Text>
+                      <Text className="mt-0.5 text-xs text-ink-700" numberOfLines={1}>
+                        {[form.affiliation, [form.address, form.city].filter(Boolean).join(", ")].filter(Boolean).join(" · ") || "Board · address"}
+                      </Text>
+                      <Text className="text-xs text-ink-700" numberOfLines={1}>
+                        {[form.phone, form.email].filter(Boolean).join(" · ") || "Phone · email"}
+                      </Text>
                     </View>
                   </View>
                 </View>
+                <Text className="-mt-2 px-1 text-xs text-ink-600">Shown on receipts, ID cards and parent pay pages.</Text>
+
+                <IdentitySection title="School">
+                  <Field label="School name">
+                    <Input value={form.name} onChangeText={(v) => patch("name", v)} />
+                  </Field>
+                  <Text className="mb-1.5 mt-3 text-xs font-medium text-ink-700">Board</Text>
+                  <View className="flex-row flex-wrap gap-2">
+                    {["CBSE", "ICSE", "State board", "IB", "Other"].map((board) => {
+                      const on = (form.affiliation || "").toLowerCase() === board.toLowerCase();
+                      return (
+                        <Pressable
+                          key={board}
+                          onPress={() => patch("affiliation", on ? "" : board)}
+                          className={`h-9 justify-center rounded-full border px-3.5 ${on ? "border-[#1F45C7] bg-[#1F45C7]" : "border-ink-200 bg-white"}`}
+                        >
+                          <Text className={`text-sm font-semibold ${on ? "text-white" : "text-ink-800"}`}>{board}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                  {form.affiliation && !["cbse", "icse", "state board", "ib", "other"].includes(form.affiliation.toLowerCase()) ? (
+                    <Text className="mt-1.5 text-[11px] text-ink-600">Currently: {form.affiliation}</Text>
+                  ) : null}
+                </IdentitySection>
+
+                <IdentitySection
+                  title="Brand"
+                  status={`${[s?.logoPath, s?.signPath, s?.stampPath].filter(Boolean).length} of 3 added`}
+                >
+                  <View className="flex-row gap-2">
+                    {([
+                      ["logoPath", "Logo", s?.logoPath, "school-outline"],
+                      ["signPath", "Signature", s?.signPath, "create-outline"],
+                      ["stampPath", "Stamp", s?.stampPath, "ribbon-outline"],
+                    ] as const).map(([key, label, path, icon]) => (
+                      <Pressable
+                        key={key}
+                        disabled={!edit || Boolean(uploadingAsset)}
+                        onPress={() => void uploadBrandAsset(key, label)}
+                        className={`flex-1 items-center gap-1.5 rounded-xl border p-3 ${path ? "border-ink-200 bg-white" : "border-dashed border-ink-300 bg-ink-50"}`}
+                      >
+                        <View className="h-12 w-full items-center justify-center">
+                          {path ? <AssetImage path={path} className="h-12 w-full" /> : <Ionicons name={icon} size={22} color="#94A3B8" />}
+                        </View>
+                        <Text className="text-xs font-semibold text-ink-900">{label}</Text>
+                        <Text className={`text-[11px] ${path ? "text-emerald-700" : "text-[#1F45C7]"}`}>
+                          {uploadingAsset === key ? "Uploading…" : path ? "✓ Tap to replace" : "+ Upload"}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  <View className="mt-3">
+                    <Field label="Signatory name">
+                      <Input value={form.signatory} placeholder="Principal" onChangeText={(v) => patch("signatory", v)} />
+                    </Field>
+                  </View>
+                </IdentitySection>
+
+                <IdentitySection title="Address" status={form.address && form.city && form.pincode ? "" : "⚠ Missing"} warn>
+                  <Field label="Street / area">
+                    <Input value={form.address} onChangeText={(v) => patch("address", v)} />
+                  </Field>
+                  <View className="mt-3 flex-row gap-3">
+                    <View className="min-w-0 flex-1">
+                      <Field label="City">
+                        <Input value={form.city} onChangeText={(v) => patch("city", v)} />
+                      </Field>
+                    </View>
+                    <View className="min-w-0 flex-1">
+                      <Field label="State">
+                        <Input value={form.state} onChangeText={(v) => patch("state", v)} />
+                      </Field>
+                    </View>
+                  </View>
+                  <View className="mt-3 w-1/2 pr-1.5">
+                    <Field label="PIN">
+                      <Input keyboardType="number-pad" maxLength={6} value={form.pincode} onChangeText={(v) => patch("pincode", v.replace(/\D/g, ""))} />
+                    </Field>
+                  </View>
+                </IdentitySection>
+
+                <IdentitySection title="Contact" status={form.phone || form.email ? "" : "⚠ Missing"} warn>
+                  <View className={phone ? "gap-3" : "flex-row gap-3"}>
+                    <View className="min-w-0 flex-1">
+                      <Field label="Phone">
+                        <Input keyboardType="phone-pad" value={form.phone} onChangeText={(v) => patch("phone", v)} />
+                      </Field>
+                    </View>
+                    <View className="min-w-0 flex-1">
+                      <Field label="Email">
+                        <Input autoCapitalize="none" keyboardType="email-address" value={form.email} onChangeText={(v) => patch("email", v)} />
+                      </Field>
+                    </View>
+                  </View>
+                </IdentitySection>
+
+                <IdentitySection title="Tax (optional)" collapsible defaultOpen={Boolean(form.gstin || form.pan)} status={form.gstin || form.pan ? "" : "Only if you charge GST"}>
+                  <View className={phone ? "gap-3" : "flex-row gap-3"}>
+                    <View className="min-w-0 flex-1">
+                      <Field label="GSTIN">
+                        <Input autoCapitalize="characters" value={form.gstin} onChangeText={(v) => patch("gstin", v)} />
+                      </Field>
+                    </View>
+                    <View className="min-w-0 flex-1">
+                      <Field label="PAN">
+                        <Input autoCapitalize="characters" value={form.pan} onChangeText={(v) => patch("pan", v)} />
+                      </Field>
+                    </View>
+                  </View>
+                </IdentitySection>
               </View>
             ) : null}
 
@@ -897,7 +1595,26 @@ export function SchoolBoard() {
               </View>
             ) : null}
 
-            {tab === "classes" ? (
+            {tab === "classes" && phone ? (
+              <PhoneClassList
+                classes={data?.classes ?? []}
+                staff={(data?.staff ?? []).map((row) => ({ kind: row.kind, name: row.name, classId: row.classId }))}
+                templates={(data?.feeTemplates ?? []).map((row) => ({
+                  classId: row.classId,
+                  sessionId: row.sessionId,
+                  startsPeriod: row.startsPeriod,
+                  lines: (row.lines ?? []).map((line) => ({ amount: Number(line.amount) || 0, scope: line.scope })),
+                }))}
+                sessionId={sessions.find((row) => row.current)?.id || s?.sessionId || ""}
+                canAdd={edit}
+                onAdd={() => {
+                  setClassDraft({ name: "", section: "A" });
+                  setClassOpen(true);
+                }}
+                onGo={(href) => router.push(href as never)}
+              />
+            ) : null}
+            {tab === "classes" && !phone ? (
               <View className="gap-3">
                 <Text className="text-sm text-ink-700">
                   Set the school sections here. Subjects and weekly timetable stay in their own teaching setup pages.
@@ -992,15 +1709,15 @@ export function SchoolBoard() {
 
             {tab === "calendar" ? (
               <View className="mt-4 gap-3">
-                <View className="flex-row flex-wrap items-start justify-between gap-3">
-                  <View className="min-w-0 flex-1">
+                <View className={phone ? "gap-3" : "flex-row flex-wrap items-start justify-between gap-3"}>
+                  <View className={phone ? "" : "min-w-0 flex-1"}>
                     <Text className="text-sm font-medium text-ink-900">Holiday calendar</Text>
                     <Text className="mt-0.5 text-xs text-ink-700">
                       Exam papers skip these days for {calendarSession?.label || "this session"}. Weekly offs stay on Clock.
                     </Text>
                   </View>
-                  <View className="flex-row flex-wrap items-center gap-2">
-                    <View className="w-56">
+                  <View className="flex-row items-center gap-2">
+                    <View className={phone ? "min-w-0 flex-1" : "w-56"}>
                       <Dropdown
                         value={activeCalendarSessionId}
                         options={sessionOptions}
@@ -1017,20 +1734,23 @@ export function SchoolBoard() {
                   </View>
                 </View>
 
-                <View className="rounded-md border border-ink-200 p-3">
-                  <View className="flex-row flex-wrap items-end gap-3">
-                    <View className={wide ? "w-44" : "min-w-[12rem] flex-1"}>
+                <View className="rounded-2xl border border-ink-200 bg-white p-3">
+                  <Text className="mb-2 text-sm font-semibold text-ink-900">Add a holiday</Text>
+                  <View className={phone ? "gap-3" : "flex-row flex-wrap items-end gap-3"}>
+                    <View className={phone ? "" : wide ? "w-44" : "min-w-[12rem] flex-1"}>
                       <Field label="Date">
                         <DateField value={holiday.date} placeholder="Pick date" onChange={(date) => setHoliday({ ...holiday, date })} />
                       </Field>
                     </View>
-                    <View className="min-w-[14rem] flex-1">
+                    <View className={phone ? "" : "min-w-[14rem] flex-1"}>
                       <Field label="Holiday name">
                         <Input value={holiday.name} placeholder="Gandhi Jayanti" onChangeText={(v) => setHoliday({ ...holiday, name: v })} />
                       </Field>
                     </View>
                     {edit ? (
                       <Button
+                        className={phone ? "w-full" : undefined}
+                        disabled={!holiday.date || !holiday.name.trim()}
                         onPress={async () => {
                           await run("addSchoolHoliday", { ...holiday, sessionId: activeCalendarSessionId }, "Holiday added.");
                           setHoliday({ date: "", name: "" });
@@ -1043,15 +1763,21 @@ export function SchoolBoard() {
                 </View>
 
                 {inSession.length ? (
-                  <View className="overflow-hidden rounded-md border border-ink-200">
+                  <View className="overflow-hidden rounded-2xl border border-ink-200 bg-white">
                     <View className="flex-row items-center justify-between gap-2 border-b border-ink-100 bg-ink-50 px-3 py-2">
                       <Text className="text-xs font-medium text-ink-700">{calendarSession?.label || "This session"}</Text>
                       <Text className="text-xs text-ink-700">{inSession.length} day{inSession.length === 1 ? "" : "s"}</Text>
                     </View>
                     {inSession.map((h) => (
-                      <View key={h.id} className="flex-row items-center justify-between gap-3 border-b border-ink-100 px-3 py-2.5 last:border-b-0">
+                      <View key={h.id} className="flex-row items-center gap-3 border-b border-ink-100 px-3 py-2.5 last:border-b-0">
+                        <View className="h-11 w-11 items-center justify-center rounded-xl bg-amber-50">
+                          <Text className="text-[10px] font-semibold uppercase text-amber-800">
+                            {new Date(`${h.date.slice(0, 10)}T00:00:00`).toLocaleDateString("en-IN", { month: "short" })}
+                          </Text>
+                          <Text className="text-base font-bold leading-5 text-amber-900">{Number(h.date.slice(8, 10))}</Text>
+                        </View>
                         <View className="min-w-0 flex-1">
-                          <Text className="text-sm font-medium text-ink-900">{h.name}</Text>
+                          <Text className="text-sm font-medium text-ink-900" numberOfLines={1}>{h.name}</Text>
                           <Text className="text-xs text-ink-700">{prettyDay(h.date)}</Text>
                         </View>
                         {edit ? (
@@ -1086,7 +1812,18 @@ export function SchoolBoard() {
               </View>
             ) : null}
 
-            {tab === "leave" ? (
+            {tab === "leave" && phone ? (
+              <PhoneLeaveTypes
+                types={leaveTypes}
+                setTypes={setLeaveTypes}
+                canEdit={edit}
+                onSave={async (rows) => {
+                  await run("saveLeavePolicy", { types: rows }, "Leave types saved.");
+                }}
+              />
+            ) : null}
+
+            {tab === "leave" && !phone ? (
               <View className="mt-4 gap-3">
                 <View className="flex-row flex-wrap items-start justify-between gap-3">
                   <View className="min-w-0 flex-1">
@@ -2094,7 +2831,18 @@ export function SchoolBoard() {
         </View>
       </Modal>
 
-      <Modal open={classOpen} title="New class" onClose={() => setClassOpen(false)}>
+      {phone ? (
+        <NewClassSheet
+          open={classOpen}
+          classes={(data?.classes ?? []).map((c) => ({ label: c.label, name: c.name, section: c.section }))}
+          onClose={() => setClassOpen(false)}
+          onCreate={async (name, section) => {
+            await run("createClass", { name, section }, `Class ${name}-${section} added.`);
+            setClassOpen(false);
+          }}
+        />
+      ) : null}
+      <Modal open={!phone && classOpen} title="New class" onClose={() => setClassOpen(false)}>
         <View className="gap-3">
           <Text className="text-sm text-ink-700">Name the section. It gets the school subject list from Subjects.</Text>
           <View className="flex-row flex-wrap gap-3">

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { Modal as RnModal, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Button, Card, Chip, ChipScroller, Empty, Field, Input, Modal, PageHeader, Toast, useToast } from "./ui";
 import { DEFAULT_SUBJECTS } from "./school-setup";
 import { act } from "../lib/mutate";
@@ -101,7 +102,13 @@ export function WeekBoard() {
   const [error, setError] = useState("");
   const [modal, setModal] = useState<ModalKind>(null);
   const [teacherId, setTeacherId] = useState<string | null>(null);
-  const [assign, setAssign] = useState<{ periodId: string; weekday: number; periodName: string } | null>(null);
+  const [assign, setAssign] = useState<{
+    periodId: string;
+    weekday: number;
+    periodName: string;
+    current?: { subject: string; teacher: string };
+  } | null>(null);
+  const [loadOpen, setLoadOpen] = useState(false);
   const todayN = jsToWeekday(new Date().getDay());
   const [day, setDay] = useState<number>(
     weekdays.some((d) => d.n === todayN) ? todayN : weekdays[0]?.n ?? 1
@@ -244,6 +251,7 @@ export function WeekBoard() {
 
         <View className="min-h-0 min-w-0 flex-1">
           <View className="shrink-0 gap-2">
+            {phone ? <Text className="text-[22px] font-bold tracking-tight text-ink-900">{teamWeek ? "Team routine" : "Timetable"}</Text> : null}
             <ChipScroller>
               {classes.map((c) => (
                 <Chip
@@ -256,7 +264,68 @@ export function WeekBoard() {
             </ChipScroller>
           </View>
 
-          {klass?.subjects?.length && !periodsNotSet ? (
+          {phone && klass?.subjects?.length && !periodsNotSet ? (
+            (() => {
+              const load = klass.subjects!.map((sub) => {
+                const placed = klass.slots.filter((slot) => slot.subject === sub.name).length;
+                const need = sub.weightage || 0;
+                return { name: sub.name, placed, need, state: !need ? "none" : placed > need ? "over" : placed < need ? "short" : "ok" };
+              });
+              const overN = load.filter((r) => r.state === "over").length;
+              const shortN = load.filter((r) => r.state === "short").length;
+              return (
+                <View className="mt-3 shrink-0 overflow-hidden rounded-xl border border-ink-100 bg-white">
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => setLoadOpen((v) => !v)}
+                    className="flex-row items-center gap-2 px-3 py-2.5"
+                  >
+                    <Ionicons
+                      name={overN || shortN ? "warning-outline" : "checkmark-circle-outline"}
+                      size={16}
+                      color={overN ? "#b91c1c" : shortN ? "#b45309" : "#15803d"}
+                    />
+                    <Text className="flex-1 text-sm text-ink-800">
+                      {overN || shortN
+                        ? [overN ? `${overN} ${overN === 1 ? "subject" : "subjects"} over` : "", shortN ? `${shortN} short` : ""].filter(Boolean).join(" · ")
+                        : "All subjects on target"}
+                    </Text>
+                    <Text className="text-xs text-ink-500">Subject load</Text>
+                    <Ionicons name={loadOpen ? "chevron-up" : "chevron-down"} size={14} color="#64748b" />
+                  </Pressable>
+                  {loadOpen ? (
+                    <View className="gap-2.5 border-t border-ink-100 px-3 py-3">
+                      {load.map((r) => {
+                        const tone = r.state === "over" ? "bg-red-500" : r.state === "short" ? "bg-amber-400" : "bg-emerald-500";
+                        const pct = r.need ? Math.min(100, Math.round((r.placed / r.need) * 100)) : r.placed ? 100 : 0;
+                        return (
+                          <View key={r.name}>
+                            <View className="flex-row items-center justify-between gap-2">
+                              <Text className="text-sm text-ink-900">{r.name}</Text>
+                              <Text
+                                className={`text-xs ${
+                                  r.state === "over" ? "font-semibold text-red-700" : r.state === "short" ? "font-semibold text-amber-800" : "text-ink-500"
+                                }`}
+                              >
+                                {r.need ? `${r.placed} of ${r.need}` : `${r.placed} placed`}
+                                {r.state === "over" ? ` · +${r.placed - r.need} over` : r.state === "short" ? ` · ${r.need - r.placed} short` : ""}
+                              </Text>
+                            </View>
+                            <View className="mt-1 h-1.5 overflow-hidden rounded-full bg-ink-100">
+                              <View className={`h-full rounded-full ${tone}`} style={{ width: `${pct}%` }} />
+                            </View>
+                          </View>
+                        );
+                      })}
+                      <Text className="text-[11px] text-ink-500">Targets are periods per week, set under School settings → Subjects.</Text>
+                    </View>
+                  ) : null}
+                </View>
+              );
+            })()
+          ) : null}
+
+          {!phone && klass?.subjects?.length && !periodsNotSet ? (
             <View className="mt-3 shrink-0 flex-row flex-wrap gap-2">
               {klass.subjects.map((s) => {
                 const placed = klass.slots.filter((slot) => slot.subject === s.name).length;
@@ -300,7 +369,7 @@ export function WeekBoard() {
                 <Text className="text-sm font-medium text-ink-800">Cancel</Text>
               </Pressable>
             </View>
-          ) : (
+          ) : phone && !periodsNotSet && klass ? null : (
             <Text className="mt-2 shrink-0 text-sm text-ink-700">
               {periodsNotSet
                 ? "No periods found. Set bell periods before placing teachers."
@@ -317,23 +386,32 @@ export function WeekBoard() {
               <MissingPeriodsGrid onPress={() => router.push("/school?tab=clock" as never)} />
             ) : klass ? (
               phone ? (
-                <ScrollView className="min-h-0 flex-1" nestedScrollEnabled contentContainerClassName="pb-6">
-                  <DaySchedule
+                <ScrollView className="min-h-0 flex-1" nestedScrollEnabled contentContainerStyle={{ paddingBottom: 110 }}>
+                  <PhoneDaySchedule
                     weekdays={weekdays}
                     periods={periods}
                     slots={klass.slots}
+                    others={classes.filter((c) => c.id !== klass.id)}
                     activeDay={activeDay}
                     fill={dayFill}
                     teachable={teachable}
                     hold={Boolean(hold)}
-                    over={over}
                     editable={editable}
                     onDay={setDay}
-                    onOver={setOver}
-                    onLeave={() => setOver("")}
-                    onDrop={dropOn}
-                    onPlace={(periodId, weekday) => placeOrPick(periodId, weekday, klass.slots)}
-                    onClear={clearCell}
+                    onPress={(periodId, weekday, slot) => {
+                      if (!editable) return;
+                      if (hold) {
+                        void dropOn(periodId, weekday, hold);
+                        return;
+                      }
+                      const period = periods.find((x) => x.id === periodId);
+                      setAssign({
+                        periodId,
+                        weekday,
+                        periodName: period?.name || "Period",
+                        current: slotFilled(slot) ? { subject: slotSubject(slot), teacher: slot?.teacher || "" } : undefined,
+                      });
+                    }}
                   />
                   {!split ? <View className="mt-4">{teacherRail}</View> : null}
                 </ScrollView>
@@ -360,8 +438,67 @@ export function WeekBoard() {
         </View>
       </View>
 
+      {phone ? (
+        <RnModal visible={Boolean(assign)} transparent animationType="slide" onRequestClose={() => setAssign(null)}>
+          <View className="flex-1 justify-end">
+            <Pressable accessibilityRole="button" accessibilityLabel="Close" className="absolute inset-0 bg-black/40" onPress={() => setAssign(null)} />
+            <View className="rounded-t-3xl bg-white" style={{ maxHeight: "85%" }}>
+              <SafeAreaView edges={["bottom"]}>
+                <View className="items-center pt-2">
+                  <View className="h-1 w-10 rounded-full bg-ink-200" />
+                </View>
+                <View className="flex-row items-start gap-3 px-5 pb-2 pt-3">
+                  <View className="min-w-0 flex-1">
+                    <Text className="text-lg font-semibold text-ink-900">
+                      {assign ? `${weekdays.find((d) => d.n === assign.weekday)?.label || ""} · ${assign.periodName}` : ""}
+                    </Text>
+                    <Text className="text-xs text-ink-500">
+                      {assign?.current ? `Now: ${assign.current.subject}${assign.current.teacher ? ` · ${assign.current.teacher}` : ""}` : "Empty period"}
+                    </Text>
+                  </View>
+                  <Pressable accessibilityRole="button" accessibilityLabel="Close" hitSlop={10} onPress={() => setAssign(null)} className="h-8 w-8 items-center justify-center rounded-full bg-ink-100">
+                    <Ionicons name="close" size={18} color="#3d4f66" />
+                  </Pressable>
+                </View>
+                <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 12 }}>
+                  <Text className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-500">
+                    {assign?.current ? "Change to" : "Who takes this period"}
+                  </Text>
+                  <PhoneAssignList
+                    teachers={teachers}
+                    classId={klass?.id}
+                    current={assign?.current}
+                    onPick={async (payload) => {
+                      if (!assign) return;
+                      await dropOn(assign.periodId, assign.weekday, payload);
+                      setAssign(null);
+                    }}
+                  />
+                </ScrollView>
+                {assign?.current ? (
+                  <View className="border-t border-ink-100 px-5 pb-2 pt-3">
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={async () => {
+                        if (!assign) return;
+                        await clearCell(assign.periodId, assign.weekday);
+                        setAssign(null);
+                      }}
+                      className="h-12 flex-row items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50"
+                    >
+                      <Ionicons name="trash-outline" size={17} color="#b91c1c" />
+                      <Text className="text-[15px] font-semibold text-red-700">Clear period</Text>
+                    </Pressable>
+                  </View>
+                ) : null}
+              </SafeAreaView>
+            </View>
+          </View>
+        </RnModal>
+      ) : null}
+
       <Modal
-        open={Boolean(assign)}
+        open={!phone && Boolean(assign)}
         title={
           assign
             ? `${assign.periodName} · ${weekdays.find((d) => d.n === assign.weekday)?.label || ""}`
@@ -556,6 +693,196 @@ function AssignSheet({
         <Button variant="ghost" onPress={onCancel}>
           Cancel
         </Button>
+      </View>
+    </View>
+  );
+}
+
+const SUBJECT_TONES = ["#2563eb", "#16a34a", "#d97706", "#9333ea", "#db2777", "#0891b2", "#dc2626", "#4f46e5", "#65a30d", "#ea580c"];
+
+function subjectTone(name: string) {
+  let h = 0;
+  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return SUBJECT_TONES[h % SUBJECT_TONES.length];
+}
+
+function PhoneAssignList({
+  teachers,
+  classId,
+  current,
+  onPick,
+}: {
+  teachers: { id: string; name: string; skills: { subjectName: string; classId: string }[] }[];
+  classId?: string;
+  current?: { subject: string; teacher: string };
+  onPick: (payload: Hold) => Promise<void>;
+}) {
+  const [busy, setBusy] = useState("");
+  const offers = teachers.flatMap((t) =>
+    [...new Set(t.skills.filter((s) => !classId || !s.classId || s.classId === classId).map((s) => s.subjectName))].map(
+      (subjectName) => ({ teacherId: t.id, teacherName: t.name, subjectName })
+    )
+  );
+  if (!offers.length) return <Text className="py-3 text-sm text-ink-600">No teacher is set to teach this class yet.</Text>;
+  return (
+    <View className="overflow-hidden rounded-xl border border-ink-100">
+      {offers.map((o, i) => {
+        const key = `${o.teacherId}:${o.subjectName}`;
+        const isNow = current?.subject === o.subjectName && current?.teacher === o.teacherName;
+        return (
+          <Pressable
+            key={key}
+            accessibilityRole="button"
+            disabled={Boolean(busy) || isNow}
+            onPress={async () => {
+              setBusy(key);
+              try {
+                await onPick({ teacherId: o.teacherId, subjectName: o.subjectName });
+              } finally {
+                setBusy("");
+              }
+            }}
+            className={`flex-row items-center gap-3 px-3 py-3 ${i ? "border-t border-ink-100" : ""} ${isNow ? "bg-[#EEF3FF]" : "active:bg-slate-50"}`}
+          >
+            <View className="h-8 w-1 rounded-full" style={{ backgroundColor: subjectTone(o.subjectName) }} />
+            <View className="min-w-0 flex-1">
+              <Text className="text-[15px] font-semibold text-ink-900">{o.subjectName}</Text>
+              <Text className="text-xs text-ink-500">{o.teacherName}</Text>
+            </View>
+            {isNow ? (
+              <Text className="text-xs font-semibold text-[#1F45C7]">Current</Text>
+            ) : busy === key ? (
+              <Text className="text-xs text-ink-500">Saving…</Text>
+            ) : (
+              <Ionicons name="chevron-forward" size={16} color="#94a3b8" />
+            )}
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+function PhoneDaySchedule({
+  weekdays,
+  periods,
+  slots,
+  others,
+  activeDay,
+  fill,
+  teachable,
+  hold,
+  editable,
+  onDay,
+  onPress,
+}: {
+  weekdays: { n: number; label: string }[];
+  periods: { id: string; name: string; start: string; end: string; isBreak?: boolean }[];
+  slots: WeekSlot[];
+  others: { label: string; slots: (WeekSlot & { teacherId?: string })[] }[];
+  activeDay: number;
+  fill: Record<number, number>;
+  teachable: number;
+  hold: boolean;
+  editable: boolean;
+  onDay: (n: number) => void;
+  onPress: (periodId: string, weekday: number, slot?: WeekSlot) => void;
+}) {
+  return (
+    <View className="gap-3">
+      <View className="flex-row rounded-xl bg-ink-100 p-1">
+        {weekdays.map((d) => {
+          const on = d.n === activeDay;
+          const gaps = teachable > 0 && (fill[d.n] ?? 0) < teachable;
+          return (
+            <Pressable
+              key={d.n}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: on }}
+              onPress={() => onDay(d.n)}
+              className={`flex-1 items-center rounded-lg py-2 ${on ? "bg-white shadow-sm" : ""}`}
+            >
+              <Text className={`text-[13px] font-semibold ${on ? "text-[#1F45C7]" : "text-ink-600"}`}>{d.label.slice(0, 3)}</Text>
+              <View className={`mt-1 h-1.5 w-1.5 rounded-full ${gaps ? "bg-red-500" : "bg-transparent"}`} />
+            </Pressable>
+          );
+        })}
+      </View>
+      <View className="overflow-hidden rounded-xl border border-ink-100 bg-white">
+        {periods.map((p, i) => {
+          if (p.isBreak) {
+            return (
+              <View key={p.id} className={`flex-row items-center gap-2 bg-ink-50 px-3 py-1.5 ${i ? "border-t border-ink-100" : ""}`}>
+                <Ionicons name="cafe-outline" size={13} color="#94a3b8" />
+                <Text className="text-xs text-ink-500">
+                  {p.name} · {p.start}–{p.end}
+                </Text>
+              </View>
+            );
+          }
+          const slot = findSlot(slots, p, activeDay) as (WeekSlot & { teacherId?: string }) | undefined;
+          const filled = slotFilled(slot);
+          const subject = slotSubject(slot);
+          const clashes = filled
+            ? others
+                .filter((c) =>
+                  c.slots.some(
+                    (o) =>
+                      o.weekday === activeDay &&
+                      (o.periodId === p.id || o.period === p.name) &&
+                      ((slot?.teacherId && o.teacherId === slot.teacherId) || (!slot?.teacherId && slot?.teacher && o.teacher === slot.teacher))
+                  )
+                )
+                .map((c) => c.label)
+            : [];
+          return (
+            <Pressable
+              key={p.id}
+              accessibilityRole="button"
+              accessibilityLabel={`${p.name} ${subject || "empty"}`}
+              disabled={!editable}
+              onPress={() => onPress(p.id, activeDay, slot)}
+              className={`flex-row items-center gap-3 px-3 py-2.5 ${i ? "border-t border-ink-100" : ""} ${hold && !filled ? "bg-[#EEF3FF]/60" : ""}`}
+              style={{ minHeight: 56 }}
+            >
+              <View className="w-11">
+                <Text className="text-xs font-semibold text-ink-800">{p.start}</Text>
+                <Text className="text-[11px] text-ink-400">{p.end}</Text>
+              </View>
+              {filled ? (
+                <>
+                  <View className="h-9 w-1 rounded-full" style={{ backgroundColor: subjectTone(subject || slot?.teacher || "") }} />
+                  <View className="min-w-0 flex-1">
+                    <Text className="text-[15px] font-semibold text-ink-900" numberOfLines={1}>
+                      {subject || "—"}
+                    </Text>
+                    <Text className="text-xs text-ink-500" numberOfLines={1}>
+                      {slot?.teacher || "No teacher"}
+                    </Text>
+                    {clashes.length ? (
+                      <Text className="mt-0.5 text-[11px] font-semibold text-red-600" numberOfLines={1}>
+                        ⚠ Also in {clashes.join(", ")}
+                      </Text>
+                    ) : null}
+                    {slot?.covers?.length ? (
+                      <Text className="mt-0.5 text-[11px] font-medium text-emerald-700" numberOfLines={1}>
+                        Cover {slot.covers[0].substitute}
+                        {slot.covers.length > 1 ? ` +${slot.covers.length - 1}` : ""}
+                      </Text>
+                    ) : null}
+                  </View>
+                  {editable ? <Ionicons name="chevron-forward" size={15} color="#cbd5e1" /> : null}
+                </>
+              ) : (
+                <View className="flex-1 flex-row items-center justify-center rounded-lg border border-dashed border-ink-300 py-2">
+                  <Text className="text-sm font-medium text-[#1F45C7]">
+                    {hold ? "Tap to place" : editable ? "+ Assign" : "Free"}
+                  </Text>
+                </View>
+              )}
+            </Pressable>
+          );
+        })}
       </View>
     </View>
   );

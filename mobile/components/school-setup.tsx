@@ -1,6 +1,6 @@
 import { useState } from "react";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Pressable, Text, View } from "react-native";
+import { Modal as RnModal, Pressable, Text, useWindowDimensions, View } from "react-native";
 import { Button, Chip, Field, Input, Modal } from "./ui";
 import { UploadCsvPanel } from "./upload-csv-panel";
 import { pickFile } from "../lib/upload";
@@ -132,6 +132,305 @@ function IconButton({ icon, label, onPress }: { icon: keyof typeof Ionicons.glyp
   );
 }
 
+function clockMin(value: string) {
+  const match = /^(\d{1,2}):(\d{2})/.exec(String(value || ""));
+  return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+}
+
+function clockHm(minutes: number) {
+  const m = ((Math.round(minutes) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+}
+
+function clock12(value: string) {
+  const m = clockMin(value);
+  if (m === null) return value || "—";
+  const h = Math.floor(m / 60);
+  return `${h % 12 || 12}:${String(m % 60).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
+}
+
+/** Keeps the day continuous: each row starts when the previous one ends, keeping its own length. */
+function chainFrom(rows: ClockPeriodRow[], index: number) {
+  const next = rows.map((row) => ({ ...row }));
+  for (let i = Math.max(1, index + 1); i < next.length; i += 1) {
+    const prevEnd = clockMin(next[i - 1].endsAt);
+    const start = clockMin(next[i].startsAt);
+    const end = clockMin(next[i].endsAt);
+    if (prevEnd === null || start === null || end === null) continue;
+    const length = Math.max(5, end - start);
+    next[i].startsAt = clockHm(prevEnd);
+    next[i].endsAt = clockHm(prevEnd + length);
+  }
+  return next;
+}
+
+const LENGTH_CHOICES = [30, 35, 40, 45, 50];
+
+/** Phone bell-times editor: one line per period, tap to edit in a sheet, times chain automatically. */
+function PhoneClock({
+  days,
+  setDays,
+  rows,
+  setRows,
+  onSave,
+  onAdd,
+  onDelete,
+}: {
+  days: number[];
+  setDays: (days: number[]) => void;
+  rows: ClockPeriodRow[];
+  setRows: (rows: ClockPeriodRow[]) => void;
+  onSave: () => Promise<void>;
+  onAdd: (payload: { name: string; startsAt: string; endsAt: string; isBreak: boolean }) => Promise<{ period?: ClockPeriodRow } | void>;
+  onDelete: (id: string) => Promise<void>;
+}) {
+  const [editId, setEditId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const editing = rows.find((row) => row.id === editId) || null;
+  const editIndex = rows.findIndex((row) => row.id === editId);
+  const first = rows[0];
+  const last = rows[rows.length - 1];
+  const teaching = rows.filter((row) => !row.isBreak).length;
+
+  function patchEditing(part: Partial<ClockPeriodRow>) {
+    if (editIndex < 0) return;
+    const next = rows.map((row, i) => (i === editIndex ? { ...row, ...part } : row));
+    setRows(chainFrom(next, editIndex));
+  }
+
+  function setLength(minutes: number) {
+    if (!editing) return;
+    const start = clockMin(editing.startsAt);
+    if (start === null) return;
+    patchEditing({ endsAt: clockHm(start + minutes) });
+  }
+
+  async function addRow(isBreak: boolean) {
+    setError("");
+    const lastEnd = last ? clockMin(last.endsAt) : 9 * 60;
+    const start = lastEnd ?? 9 * 60;
+    const length = isBreak ? 20 : (() => {
+      const sample = [...rows].reverse().find((row) => !row.isBreak);
+      const s = sample ? clockMin(sample.startsAt) : null;
+      const e = sample ? clockMin(sample.endsAt) : null;
+      return s !== null && e !== null ? Math.max(10, e - s) : 40;
+    })();
+    try {
+      const result = await onAdd({
+        name: isBreak ? "Recess" : nextPeriodName(rows),
+        startsAt: clockHm(start),
+        endsAt: clockHm(start + length),
+        isBreak,
+      });
+      if (result?.period) {
+        setRows([...rows, result.period]);
+        setEditId(result.period.id);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not add.");
+    }
+  }
+
+  const editStart = editing ? clockMin(editing.startsAt) : null;
+  const editEnd = editing ? clockMin(editing.endsAt) : null;
+  const editLength = editStart !== null && editEnd !== null ? editEnd - editStart : 0;
+
+  return (
+    <View className="mt-3 gap-5">
+      <View>
+        <Text className="mb-2 text-sm font-semibold text-ink-900">School days</Text>
+        <View className="flex-row justify-between">
+          {ALL_WEEKDAYS.map((d) => {
+            const on = days.includes(d.n);
+            return (
+              <Pressable
+                key={d.n}
+                accessibilityRole="button"
+                accessibilityState={{ selected: on }}
+                accessibilityLabel={d.label}
+                onPress={() => setDays(on ? days.filter((n) => n !== d.n) : [...days, d.n].sort((a, b) => a - b))}
+                className={`h-10 w-10 items-center justify-center rounded-full ${on ? "bg-[#1F45C7]" : "border border-ink-200 bg-white"}`}
+              >
+                <Text className={`text-sm font-semibold ${on ? "text-white" : "text-ink-600"}`}>{d.label.slice(0, 1)}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
+      <View>
+        <Text className="text-sm font-semibold text-ink-900">Bell times</Text>
+        <Text className="mt-0.5 text-xs text-ink-600">
+          {rows.length
+            ? `${teaching} period${teaching === 1 ? "" : "s"} · ${clock12(first.startsAt)} – ${clock12(last.endsAt)}`
+            : "No periods yet"}
+        </Text>
+        <View className="mt-2 overflow-hidden rounded-2xl border border-ink-200 bg-white">
+          {rows.map((row, index) => {
+            const s = clockMin(row.startsAt);
+            const e = clockMin(row.endsAt);
+            const length = s !== null && e !== null ? e - s : 0;
+            if (row.isBreak) {
+              return (
+                <Pressable
+                  key={row.id}
+                  onPress={() => setEditId(row.id)}
+                  className={`flex-row items-center gap-2 bg-amber-50/60 px-4 py-2.5 active:bg-amber-50 ${index ? "border-t border-ink-100" : ""}`}
+                >
+                  <Ionicons name={/lunch/i.test(row.name) ? "restaurant-outline" : "cafe-outline"} size={15} color="#B45309" />
+                  <Text className="min-w-0 flex-1 text-sm font-medium text-amber-900" numberOfLines={1}>
+                    {row.name} · {clock12(row.startsAt)} – {clock12(row.endsAt)}
+                  </Text>
+                  <Text className="text-xs text-amber-800">{length} min</Text>
+                  <Ionicons name="chevron-forward" size={15} color="#B45309" />
+                </Pressable>
+              );
+            }
+            return (
+              <Pressable
+                key={row.id}
+                onPress={() => setEditId(row.id)}
+                className={`flex-row items-center gap-3 px-4 py-3 active:bg-ink-50 ${index ? "border-t border-ink-100" : ""}`}
+              >
+                <Text className="w-[76px] text-[15px] font-medium text-ink-900" numberOfLines={1}>{row.name}</Text>
+                <Text className="min-w-0 flex-1 text-sm text-ink-800" numberOfLines={1}>
+                  {clock12(row.startsAt)} – {clock12(row.endsAt)}
+                </Text>
+                <Text className="text-xs text-ink-500">{length} min</Text>
+                <Ionicons name="chevron-forward" size={15} color="#94A3B8" />
+              </Pressable>
+            );
+          })}
+          {!rows.length ? <Text className="px-4 py-5 text-sm text-ink-600">Add the first period to start the school day.</Text> : null}
+        </View>
+        <View className="mt-3 flex-row gap-2">
+          <Pressable onPress={() => void addRow(false)} className="h-10 flex-1 flex-row items-center justify-center gap-1.5 rounded-xl border border-ink-200 bg-white">
+            <Ionicons name="add" size={17} color="#1F45C7" />
+            <Text className="text-sm font-semibold text-[#1F45C7]">Add period</Text>
+          </Pressable>
+          <Pressable onPress={() => void addRow(true)} className="h-10 flex-1 flex-row items-center justify-center gap-1.5 rounded-xl border border-ink-200 bg-white">
+            <Ionicons name="cafe-outline" size={16} color="#B45309" />
+            <Text className="text-sm font-semibold text-amber-800">Add break</Text>
+          </Pressable>
+        </View>
+      </View>
+
+      {error ? <Text className="text-sm text-red-700">{error}</Text> : null}
+      <Pressable
+        disabled={busy}
+        onPress={async () => {
+          setError("");
+          setBusy(true);
+          try {
+            await onSave();
+          } catch (e) {
+            setError(e instanceof Error ? e.message : "Could not save.");
+          } finally {
+            setBusy(false);
+          }
+        }}
+        className={`h-12 items-center justify-center rounded-2xl bg-[#1F45C7] ${busy ? "opacity-60" : ""}`}
+      >
+        <Text className="text-[15px] font-semibold text-white">{busy ? "Saving…" : "Save bell times"}</Text>
+      </Pressable>
+
+      <RnModal visible={Boolean(editing)} transparent animationType="slide" onRequestClose={() => setEditId("")}>
+        <Pressable className="flex-1 justify-end bg-black/40" onPress={() => setEditId("")}>
+          <Pressable className="rounded-t-3xl bg-white px-5 pb-8 pt-3" onPress={() => {}}>
+            <View className="mb-3 items-center">
+              <View className="h-1 w-10 rounded-full bg-ink-200" />
+            </View>
+            {editing ? (
+              <View className="gap-4">
+                <View className="flex-row items-center justify-between">
+                  <Text className="text-lg font-bold text-ink-900">{editing.isBreak ? "Edit break" : "Edit period"}</Text>
+                  <Pressable onPress={() => setEditId("")} hitSlop={8}>
+                    <Text className="text-sm font-semibold text-[#1F45C7]">Done</Text>
+                  </Pressable>
+                </View>
+                <Field label="Name">
+                  <Input value={editing.name} onChangeText={(name) => patchEditing({ name })} className="h-12 text-[15px]" />
+                </Field>
+                <View className="flex-row gap-3">
+                  <View className="flex-1">
+                    <Field label="Starts (24h)">
+                      <Input
+                        value={editing.startsAt}
+                        keyboardType="numbers-and-punctuation"
+                        className="h-12 text-[15px]"
+                        onChangeText={(value) => {
+                          const s = clockMin(value);
+                          if (s === null) {
+                            patchEditing({ startsAt: value });
+                            return;
+                          }
+                          patchEditing({ startsAt: clockHm(s), endsAt: clockHm(s + Math.max(5, editLength || 40)) });
+                        }}
+                      />
+                    </Field>
+                  </View>
+                  <View className="flex-1">
+                    <Field label="Ends">
+                      <View className="h-12 justify-center rounded-md bg-ink-50 px-3">
+                        <Text className="text-[15px] text-ink-900">{clock12(editing.endsAt)}</Text>
+                      </View>
+                    </Field>
+                  </View>
+                </View>
+                <View>
+                  <Text className="mb-2 text-xs font-medium text-ink-700">Length</Text>
+                  <View className="flex-row flex-wrap gap-2">
+                    {(editing.isBreak ? [10, 15, 20, 30, 45] : LENGTH_CHOICES).map((minutes) => {
+                      const on = editLength === minutes;
+                      return (
+                        <Pressable
+                          key={minutes}
+                          onPress={() => setLength(minutes)}
+                          className={`h-9 justify-center rounded-full border px-3.5 ${on ? "border-[#1F45C7] bg-[#1F45C7]" : "border-ink-200 bg-white"}`}
+                        >
+                          <Text className={`text-sm font-semibold ${on ? "text-white" : "text-ink-800"}`}>{minutes} min</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                  <Text className="mt-2 text-[11px] text-ink-500">Later periods move automatically to follow this one.</Text>
+                </View>
+                <Pressable
+                  onPress={() => patchEditing({ isBreak: !editing.isBreak })}
+                  className="flex-row items-center justify-between rounded-xl bg-ink-50 px-4 py-3"
+                >
+                  <Text className="text-sm font-medium text-ink-900">This is a break (recess / lunch)</Text>
+                  <Ionicons name={editing.isBreak ? "checkbox" : "square-outline"} size={20} color={editing.isBreak ? "#1F45C7" : "#94A3B8"} />
+                </Pressable>
+                <Pressable
+                  onPress={async () => {
+                    const id = editing.id;
+                    setError("");
+                    try {
+                      await onDelete(id);
+                      const index = rows.findIndex((row) => row.id === id);
+                      setRows(chainFrom(rows.filter((row) => row.id !== id), Math.max(0, index - 1)));
+                      setEditId("");
+                    } catch (e) {
+                      setError(e instanceof Error ? e.message : "Could not delete.");
+                      setEditId("");
+                    }
+                  }}
+                  className="h-11 flex-row items-center justify-center gap-1.5 rounded-xl"
+                >
+                  <Ionicons name="trash-outline" size={16} color="#B91C1C" />
+                  <Text className="text-sm font-semibold text-red-700">Delete {editing.isBreak ? "break" : "period"}</Text>
+                </Pressable>
+              </View>
+            ) : null}
+          </Pressable>
+        </Pressable>
+      </RnModal>
+    </View>
+  );
+}
+
 export function ClockForm({
   weekdays,
   periods,
@@ -167,6 +466,20 @@ export function ClockForm({
   const [add, setAdd] = useState({ name: "", startsAt: "15:10", endsAt: "15:50", isBreak: false });
   const [error, setError] = useState("");
   const draftName = add.name.trim() || nextPeriodName(rows);
+  const { width } = useWindowDimensions();
+  if (width < 768) {
+    return (
+      <PhoneClock
+        days={days}
+        setDays={setDays}
+        rows={rows}
+        setRows={setRows}
+        onSave={() => onSave({ weekdays: days, periods: rows })}
+        onAdd={onAdd}
+        onDelete={onDelete}
+      />
+    );
+  }
   return (
     <View className="mt-4 gap-4">
       <View className="gap-2">

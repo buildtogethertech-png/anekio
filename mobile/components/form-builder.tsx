@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { Modal as RnModal, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Dropdown } from "./form";
 import { Badge, Button, Field, Input, Modal, Switch } from "./ui";
@@ -184,9 +185,105 @@ export function FormBuilderModal({
     }
   }
 
+  const phoneMain = (
+    <RnModal visible={open && !editing} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
+      <SafeAreaView className="flex-1 bg-white" edges={["top", "bottom"]}>
+        <View className="h-14 flex-row items-center border-b border-ink-100 px-2">
+          <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} className="h-11 w-11 items-center justify-center">
+            <Ionicons name="close" size={24} color="#0f2744" />
+          </Pressable>
+          <View className="min-w-0 flex-1 items-center">
+            <Text className="text-[16px] font-semibold text-ink-900" numberOfLines={1}>{title}</Text>
+            <Text className="text-[11px] text-ink-600">{shown} shown · {required} required</Text>
+          </View>
+          <View className="w-11" />
+        </View>
+        <ScrollView className="flex-1" contentContainerStyle={{ padding: 16, paddingBottom: 24, gap: 18 }}>
+          {([
+            ["Shown to " + audience, fields.filter((field) => field.visible)],
+            ["Hidden", fields.filter((field) => !field.visible)],
+          ] as const).map(([heading, rows]) =>
+            rows.length ? (
+              <View key={heading}>
+                <Text className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-ink-500">{heading}</Text>
+                <View className="overflow-hidden rounded-2xl border border-ink-200 bg-white">
+                  {rows.map((field, index) => {
+                    const isLocked = locked(field.id);
+                    const typeLabel = FIELD_TYPE_OPTIONS.find((option) => option.id === field.type)?.label || field.type;
+                    return (
+                      <Pressable
+                        key={field.id}
+                        disabled={!canEdit}
+                        onPress={() => setEditingId(field.id)}
+                        className={`flex-row items-center gap-3 px-4 py-3 active:bg-ink-50 ${index ? "border-t border-ink-100" : ""}`}
+                      >
+                        <View className="min-w-0 flex-1">
+                          <Text className={`text-[15px] font-medium ${field.visible ? "text-ink-900" : "text-ink-500"}`} numberOfLines={1}>
+                            {field.label || "Untitled field"}
+                          </Text>
+                          <Text className="mt-0.5 text-xs text-ink-500" numberOfLines={1}>
+                            {field.visible ? (field.required ? "Required" : "Optional") : typeLabel}
+                            {field.visible ? ` · ${typeLabel}` : ""}
+                            {fieldError(field) ? " · needs fixing" : ""}
+                          </Text>
+                        </View>
+                        {isLocked ? (
+                          <Ionicons name="lock-closed" size={15} color="#94A3B8" />
+                        ) : canEdit ? (
+                          <Switch on={field.visible} onPress={() => patchField(field.id, { visible: !field.visible, required: field.visible ? false : field.required })} />
+                        ) : null}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null
+          )}
+          {!fields.length ? <Text className="text-center text-sm text-ink-600">No fields yet. Add one below.</Text> : null}
+          {canEdit ? (
+            <View className="gap-2">
+              <Pressable onPress={() => addField()} className="h-11 flex-row items-center justify-center gap-1.5 rounded-xl border border-dashed border-[#1F45C7]/40 bg-[#EEF3FF]/50">
+                <Ionicons name="add" size={18} color="#1F45C7" />
+                <Text className="text-sm font-semibold text-[#1F45C7]">Add field</Text>
+              </Pressable>
+              {available.length ? (
+                <View className="flex-row flex-wrap gap-1.5">
+                  {available.map((field) => (
+                    <Pressable
+                      key={field.id}
+                      onPress={() => onChange([...fields, newField({ ...field })])}
+                      className="h-8 justify-center rounded-full bg-ink-50 px-3 active:bg-ink-100"
+                    >
+                      <Text className="text-xs font-medium text-ink-700">+ {field.label}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+        </ScrollView>
+        {canEdit ? (
+          <View className="gap-1.5 border-t border-ink-100 px-4 pb-3 pt-3">
+            <Pressable
+              disabled={saving || fields.some((field) => Boolean(fieldError(field)))}
+              onPress={() => void save()}
+              className={`h-12 items-center justify-center rounded-2xl bg-[#1F45C7] ${saving || fields.some((field) => Boolean(fieldError(field))) ? "opacity-50" : ""}`}
+            >
+              <Text className="text-[15px] font-semibold text-white">{saving ? "Saving…" : "Save form"}</Text>
+            </Pressable>
+            <Text className="text-center text-[11px] text-ink-500" numberOfLines={2}>{intro}</Text>
+          </View>
+        ) : null}
+      </SafeAreaView>
+    </RnModal>
+  );
+
+  const { width } = useWindowDimensions();
+  const phone = width < 768;
   return (
     <>
-      <Modal open={open && !editing} title={title} onClose={onClose} wide>
+      {phone ? phoneMain : null}
+      <Modal open={!phone && open && !editing} title={title} onClose={onClose} wide>
         <View className="gap-4">
           <View className="flex-row flex-wrap items-center justify-between gap-2 rounded-md border border-blue-100 bg-blue-50/60 px-3 py-2.5">
             <Text className="min-w-0 flex-1 text-xs leading-5 text-ink-800">{intro}</Text>
@@ -431,6 +528,22 @@ export function FormBuilderModal({
             {fieldError(editing) ? <Text className="text-xs font-medium text-red-700">{fieldError(editing)}</Text> : null}
             <View className="mt-2 flex-row flex-wrap items-center justify-between gap-2 border-t border-ink-100 pt-3">
               <View className="flex-row flex-wrap gap-2">
+                <Pressable
+                  accessibilityLabel="Move up"
+                  disabled={fields[0]?.id === editing.id}
+                  onPress={() => move(editing.id, -1)}
+                  className={`h-10 w-10 items-center justify-center rounded-md border border-ink-200 ${fields[0]?.id === editing.id ? "opacity-40" : ""}`}
+                >
+                  <Ionicons name="arrow-up" size={16} color="#3d4f66" />
+                </Pressable>
+                <Pressable
+                  accessibilityLabel="Move down"
+                  disabled={fields[fields.length - 1]?.id === editing.id}
+                  onPress={() => move(editing.id, 1)}
+                  className={`h-10 w-10 items-center justify-center rounded-md border border-ink-200 ${fields[fields.length - 1]?.id === editing.id ? "opacity-40" : ""}`}
+                >
+                  <Ionicons name="arrow-down" size={16} color="#3d4f66" />
+                </Pressable>
                 <Button variant="ghost" onPress={() => duplicate(editing)}>Duplicate</Button>
                 {!editing.builtin ? (
                   <Button

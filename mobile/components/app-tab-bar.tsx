@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { usePathname, useRouter } from "expo-router";
-import { Pressable, Text, View } from "react-native";
+import { Platform, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { pathForNav } from "../lib/paths";
 import { tabIcon, tabLabel, visibleTabs } from "../lib/nav-icons";
@@ -44,6 +44,7 @@ export function AppTabBar() {
               accessibilityLabel={label}
               onPress={() => router.push((key === "more" ? "/more" : pathForNav(key)) as never)}
               className="min-h-[52px] flex-1 items-center justify-center pt-1.5"
+              style={Platform.OS === "web" ? ({ outlineStyle: "none" } as never) : undefined}
             >
               <Ionicons name={tabIcon(key, on)} size={22} color={color} />
               <Text className={`mt-0.5 text-[10px] ${on ? "font-semibold text-clay-500" : "text-ink-700"}`} numberOfLines={1}>
