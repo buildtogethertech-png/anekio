@@ -44,7 +44,10 @@ export function DateField({
   bare,
   compact,
   placeholder = "Pick a date",
+  birthDate,
 }: {
+  /** Date of birth: opens on a year grid about six years back, no Today shortcuts. */
+  birthDate?: boolean;
   value: string;
   onChange: (next: string) => void;
   closedReason?: (ymd: string) => string;
@@ -165,7 +168,7 @@ export function DateField({
                 accessibilityRole="button"
                 onPress={() => {
                   setCursor(new Date(year, cursor.getMonth(), 1));
-                  setPicker("calendar");
+                  setPicker(birthDate ? "month" : "calendar");
                 }}
                 className={`w-[30%] rounded-md px-1 py-2 ${cursor.getFullYear() === year ? "bg-blue-600" : "bg-ink-50"}`}
               >
@@ -274,6 +277,14 @@ export function DateField({
   );
 
   function toggle() {
+    if (birthDate && !value) {
+      const year = new Date().getFullYear() - 6;
+      setCursor(new Date(year, 0, 1));
+      setYearPage(year - 5);
+      setPicker("year");
+      setOpen((v) => !v);
+      return;
+    }
     setCursor(new Date(selected.getFullYear(), selected.getMonth(), 1));
     setPicker("calendar");
     setOpen((v) => !v);
@@ -331,7 +342,7 @@ export function DateField({
                     <Text className="text-sm font-semibold text-[#2456d6]">Cancel</Text>
                   </Pressable>
                 </View>
-                {quickPicks.length ? (
+                {quickPicks.length && !birthDate ? (
                   <View className="flex-row gap-2 px-6 pb-1">
                     {quickPicks.map((pick) => (
                       <Pressable

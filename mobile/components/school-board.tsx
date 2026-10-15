@@ -291,6 +291,401 @@ function PhoneSettingsList({
   );
 }
 
+type GradeBand = { min: number; grade: string };
+
+function NumStepper({ value, onChange, suffix, max = 99, disabled }: { value: string; onChange: (v: string) => void; suffix?: string; max?: number; disabled?: boolean }) {
+  const n = Number(value) || 0;
+  const btn = (icon: "remove" | "add", next: number) => (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={icon === "add" ? "Increase" : "Decrease"}
+      disabled={disabled || next < 0 || next > max}
+      onPress={() => onChange(String(next))}
+      className={`h-9 w-9 items-center justify-center rounded-full bg-ink-100 ${disabled || next < 0 || next > max ? "opacity-40" : ""}`}
+    >
+      <Ionicons name={icon} size={18} color="#1F45C7" />
+    </Pressable>
+  );
+  return (
+    <View className="flex-row items-center gap-2">
+      {btn("remove", n - 1)}
+      <View className="min-w-[44px] flex-row items-baseline justify-center">
+        <TextInput
+          value={value}
+          editable={!disabled}
+          keyboardType="number-pad"
+          onChangeText={(v) => onChange(v.replace(/\D/g, "").slice(0, 3))}
+          className="min-w-[24px] text-center text-base font-bold text-ink-900"
+          style={{ includeFontPadding: false }}
+        />
+        {suffix ? <Text className="text-sm font-semibold text-ink-500">{suffix}</Text> : null}
+      </View>
+      {btn("add", n + 1)}
+    </View>
+  );
+}
+
+const BAND_TONES = ["#16a34a", "#22c55e", "#2563eb", "#3b82f6", "#d97706", "#f59e0b", "#ea580c", "#dc2626", "#7f1d1d"];
+
+function PhoneExamSettings(props: {
+  canEdit: boolean;
+  passPercent: string;
+  setPassPercent: (v: string) => void;
+  showRank: boolean;
+  setShowRank: (v: boolean) => void;
+  bands: GradeBand[];
+  setBands: (v: GradeBand[]) => void;
+  paidMonths: string;
+  setPaidMonths: (v: string) => void;
+  unpaidMonths: string;
+  setUnpaidMonths: (v: string) => void;
+  admitMonths: string;
+  setAdmitMonths: (v: string) => void;
+  saved: { passPercent: string; showRank: boolean; bands: string; paid: string; unpaid: string; admit: string; plan: string };
+  plan: ExamPlanDraft[];
+  setPlan: (v: ExamPlanDraft[]) => void;
+  sessionLabel: string;
+  weight: number;
+  planChecks: { ok: boolean; label: string }[];
+  planComplete: boolean;
+  onSave: (policyDirty: boolean, planDirty: boolean) => Promise<void>;
+}) {
+  const { bands, setBands, plan, setPlan, canEdit } = props;
+  const [bandAt, setBandAt] = useState<number | null>(null);
+  const [examAt, setExamAt] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  const sorted = bands.map((b, i) => ({ ...b, i })).sort((a, b) => b.min - a.min);
+  const rangeOf = (i: number) => {
+    const pos = sorted.findIndex((row) => row.i === i);
+    const top = pos > 0 ? sorted[pos - 1].min - 1 : 100;
+    return `${bands[i].min}–${Math.max(bands[i].min, top)}%`;
+  };
+  const toneOf = (i: number) => BAND_TONES[Math.min(BAND_TONES.length - 1, sorted.findIndex((row) => row.i === i))];
+  const policyDirty =
+    props.passPercent !== props.saved.passPercent ||
+    props.showRank !== props.saved.showRank ||
+    JSON.stringify(bands) !== props.saved.bands ||
+    props.paidMonths !== props.saved.paid ||
+    props.unpaidMonths !== props.saved.unpaid ||
+    props.admitMonths !== props.saved.admit;
+  const planDirty = JSON.stringify(plan) !== props.saved.plan;
+  const dirty = policyDirty || planDirty;
+  const planBlocked = planDirty && !props.planComplete;
+
+  const section = (title: string, children: ReactNode, aside?: ReactNode) => (
+    <View>
+      <View className="mb-1.5 flex-row items-center justify-between px-1">
+        <Text className="text-xs font-semibold uppercase tracking-wide text-ink-500">{title}</Text>
+        {aside}
+      </View>
+      <View className="overflow-hidden rounded-xl border border-ink-100 bg-white">{children}</View>
+    </View>
+  );
+
+  const ruleRow = (label: string, value: string, set: (v: string) => void, onText: (n: number) => string, first?: boolean) => {
+    const n = Number(value) || 0;
+    return (
+      <View className={`gap-2 px-3 py-3 ${first ? "" : "border-t border-ink-100"}`}>
+        <View className="flex-row items-center gap-3">
+          <Text className="flex-1 text-[15px] font-medium text-ink-900">{label}</Text>
+          <NumStepper value={value} onChange={set} suffix=" mo" max={12} disabled={!canEdit} />
+        </View>
+        <Text className={`text-xs ${n ? "text-amber-700" : "text-ink-500"}`}>{n ? onText(n) : "Off · every family gets it"}</Text>
+      </View>
+    );
+  };
+
+  const band = bandAt !== null ? bands[bandAt] : null;
+  const exam = examAt !== null ? plan[examAt] : null;
+
+  return (
+    <View className="gap-5 pb-28">
+      {section(
+        "Pass & rank",
+        <>
+          <View className="flex-row items-center gap-3 px-3 py-3">
+            <Text className="flex-1 text-[15px] font-medium text-ink-900">Pass mark</Text>
+            <NumStepper value={props.passPercent} onChange={props.setPassPercent} suffix="%" max={100} disabled={!canEdit} />
+          </View>
+          <View className="flex-row items-center gap-3 border-t border-ink-100 px-3 py-3">
+            <View className="flex-1">
+              <Text className="text-[15px] font-medium text-ink-900">Show class rank</Text>
+              <Text className="text-xs text-ink-500">On report cards</Text>
+            </View>
+            <Switch on={props.showRank} disabled={!canEdit} onPress={() => props.setShowRank(!props.showRank)} />
+          </View>
+        </>
+      )}
+
+      {section(
+        "Grade scale",
+        <>
+          <View className="flex-row overflow-hidden px-3 pt-3">
+            {[...sorted].reverse().map((row, k, arr) => {
+              const nextMin = k < arr.length - 1 ? arr[k + 1].min : 101;
+              const span = Math.max(1, nextMin - row.min);
+              return <View key={row.i} style={{ flex: span, backgroundColor: toneOf(row.i), height: 8 }} />;
+            })}
+          </View>
+          {sorted.map((row, k) => (
+            <Pressable
+              key={row.i}
+              accessibilityRole="button"
+              disabled={!canEdit}
+              onPress={() => setBandAt(row.i)}
+              className={`flex-row items-center gap-3 px-3 py-2.5 ${k ? "border-t border-ink-100" : "mt-2"}`}
+            >
+              <View className="h-8 min-w-[40px] items-center justify-center rounded-lg px-2" style={{ backgroundColor: `${toneOf(row.i)}22` }}>
+                <Text className="text-sm font-bold" style={{ color: toneOf(row.i) }}>
+                  {row.grade || "—"}
+                </Text>
+              </View>
+              <Text className="flex-1 text-[15px] text-ink-800">{rangeOf(row.i)}</Text>
+              {canEdit ? <Ionicons name="chevron-forward" size={16} color="#cbd5e1" /> : null}
+            </Pressable>
+          ))}
+          {canEdit ? (
+            <View className="flex-row items-center justify-between border-t border-dashed border-ink-200 px-3 py-3">
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  setBands([...bands, { min: 0, grade: "" }]);
+                  setBandAt(bands.length);
+                }}
+                className="flex-row items-center gap-1"
+              >
+                <Ionicons name="add" size={17} color="#1F45C7" />
+                <Text className="text-sm font-semibold text-[#1F45C7]">Add grade</Text>
+              </Pressable>
+              <Pressable accessibilityRole="button" onPress={() => setBands(DEFAULT_GRADE_BANDS)}>
+                <Text className="text-sm text-ink-500">Reset to CBSE scale</Text>
+              </Pressable>
+            </View>
+          ) : null}
+        </>
+      )}
+
+      {section(
+        "Results & dues",
+        <>
+          {ruleRow("Report card", props.paidMonths, props.setPaidMonths, (n) => `Only families who have paid ${n}+ month${n === 1 ? "" : "s"} get it`, true)}
+          {ruleRow("Results", props.unpaidMonths, props.setUnpaidMonths, (n) => `Held for families with ${n}+ unpaid month${n === 1 ? "" : "s"}`)}
+          {ruleRow("Admit card", props.admitMonths, props.setAdmitMonths, (n) => `Blocked for students with ${n}+ unpaid month${n === 1 ? "" : "s"}`)}
+        </>
+      )}
+
+      {section(
+        `Exams this year${props.sessionLabel ? ` · ${props.sessionLabel}` : ""}`,
+        <>
+          {plan.map((row, i) => (
+            <Pressable
+              key={row.id}
+              accessibilityRole="button"
+              disabled={!canEdit}
+              onPress={() => setExamAt(i)}
+              className={`flex-row items-center gap-3 px-3 py-3 ${i ? "border-t border-ink-100" : ""}`}
+            >
+              <View className="min-w-0 flex-1">
+                <Text className="text-[15px] font-semibold text-ink-900" numberOfLines={1}>
+                  {row.name || "Untitled exam"}
+                </Text>
+                <Text className="text-xs text-ink-500">
+                  {row.expectedPeriod || "No month"} · out of {row.maxMarks}
+                </Text>
+              </View>
+              <Text className="text-sm font-semibold text-ink-700">{row.weight}%</Text>
+              {canEdit ? <Ionicons name="chevron-forward" size={16} color="#cbd5e1" /> : null}
+            </Pressable>
+          ))}
+          {canEdit ? (
+            <View className="flex-row items-center justify-between border-t border-dashed border-ink-200 px-3 py-3">
+              <Pressable
+                accessibilityRole="button"
+                disabled={plan.length >= 20}
+                onPress={() => {
+                  setPlan([...plan, { id: `sitting-${Date.now()}`, name: `Sitting ${plan.length + 1}`, kind: "custom", weight: 0, maxMarks: 80, expectedPeriod: "" }]);
+                  setExamAt(plan.length);
+                }}
+                className="flex-row items-center gap-1"
+              >
+                <Ionicons name="add" size={17} color="#1F45C7" />
+                <Text className="text-sm font-semibold text-[#1F45C7]">Add exam</Text>
+              </Pressable>
+              <Pressable accessibilityRole="button" onPress={() => setPlan(normalizeExamPlan())}>
+                <Text className="text-sm text-ink-500">CBSE-style year</Text>
+              </Pressable>
+            </View>
+          ) : null}
+        </>,
+        <Text className={`text-xs font-semibold ${props.weight === 100 ? "text-emerald-600" : "text-amber-700"}`}>Weight {props.weight}/100%</Text>
+      )}
+      {!props.planComplete ? (
+        <View className="-mt-3 gap-1 px-1">
+          {props.planChecks
+            .filter((c) => !c.ok)
+            .map((c) => (
+              <View key={c.label} className="flex-row items-center gap-1.5">
+                <Ionicons name="ellipse-outline" size={12} color="#b45309" />
+                <Text className="text-xs text-amber-800">{c.label}</Text>
+              </View>
+            ))}
+        </View>
+      ) : null}
+
+      {dirty && canEdit ? (
+        <View
+          className="absolute bottom-0 left-0 right-0 rounded-2xl border border-ink-100 bg-white px-3 pb-3 pt-3 shadow-lg"
+          style={Platform.OS === "web" ? ({ position: "fixed", left: 12, right: 12, bottom: 76, zIndex: 40 } as never) : undefined}
+        >
+          <Pressable
+            accessibilityRole="button"
+            disabled={saving || planBlocked}
+            onPress={async () => {
+              setSaving(true);
+              try {
+                await props.onSave(policyDirty, planDirty);
+              } finally {
+                setSaving(false);
+              }
+            }}
+            className={`h-12 items-center justify-center rounded-xl ${saving || planBlocked ? "bg-ink-200" : "bg-[#1F45C7]"}`}
+          >
+            <Text className="text-[15px] font-semibold text-white">
+              {saving ? "Saving…" : planBlocked ? "Finish the exam list to save" : "Save changes"}
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      <RnModal visible={Boolean(band)} transparent animationType="slide" onRequestClose={() => setBandAt(null)}>
+        <View className="flex-1 justify-end">
+          <Pressable className="absolute inset-0 bg-black/40" onPress={() => setBandAt(null)} />
+          <View className="rounded-t-3xl bg-white px-5 pb-8 pt-3">
+            <View className="mb-3 items-center">
+              <View className="h-1 w-10 rounded-full bg-ink-200" />
+            </View>
+            {band && bandAt !== null ? (
+              <View className="gap-4">
+                <Text className="text-lg font-semibold text-ink-900">Grade {band.grade || ""}</Text>
+                <View className="flex-row gap-3">
+                  <View className="flex-1">
+                    <Text className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500">Name</Text>
+                    <TextInput
+                      value={band.grade}
+                      autoCapitalize="characters"
+                      onChangeText={(v) => setBands(bands.map((b, j) => (j === bandAt ? { ...b, grade: v.slice(0, 4) } : b)))}
+                      className="rounded-xl border border-ink-200 px-3 py-3 text-[15px] text-ink-900"
+                      style={{ includeFontPadding: false }}
+                    />
+                  </View>
+                  <View className="flex-1">
+                    <Text className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500">Starts at</Text>
+                    <NumStepper
+                      value={String(band.min)}
+                      max={100}
+                      suffix="%"
+                      onChange={(v) => setBands(bands.map((b, j) => (j === bandAt ? { ...b, min: Math.min(100, Number(v) || 0) } : b)))}
+                    />
+                  </View>
+                </View>
+                <View className="flex-row gap-2">
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => {
+                      setBands(bands.filter((_, j) => j !== bandAt));
+                      setBandAt(null);
+                    }}
+                    className="h-12 flex-1 items-center justify-center rounded-xl border border-red-200 bg-red-50"
+                  >
+                    <Text className="text-[15px] font-semibold text-red-700">Delete</Text>
+                  </Pressable>
+                  <Pressable accessibilityRole="button" onPress={() => setBandAt(null)} className="h-12 flex-[2] items-center justify-center rounded-xl bg-[#1F45C7]">
+                    <Text className="text-[15px] font-semibold text-white">Done</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : null}
+          </View>
+        </View>
+      </RnModal>
+
+      <RnModal visible={Boolean(exam)} transparent animationType="slide" onRequestClose={() => setExamAt(null)}>
+        <View className="flex-1 justify-end">
+          <Pressable className="absolute inset-0 bg-black/40" onPress={() => setExamAt(null)} />
+          <View className="rounded-t-3xl bg-white px-5 pb-8 pt-3" style={{ maxHeight: "90%" }}>
+            <View className="mb-3 items-center">
+              <View className="h-1 w-10 rounded-full bg-ink-200" />
+            </View>
+            {exam && examAt !== null ? (
+              <ScrollView contentContainerStyle={{ gap: 16 }} keyboardShouldPersistTaps="handled">
+                <View>
+                  <Text className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500">Exam name</Text>
+                  <TextInput
+                    value={exam.name}
+                    maxLength={80}
+                    onChangeText={(v) => setPlan(plan.map((r, j) => (j === examAt ? { ...r, name: v } : r)))}
+                    className="rounded-xl border border-ink-200 px-3 py-3 text-[15px] text-ink-900"
+                    style={{ includeFontPadding: false }}
+                  />
+                </View>
+                <View className="flex-row items-center justify-between">
+                  <View>
+                    <Text className="text-[15px] font-medium text-ink-900">Result weight</Text>
+                    <Text className="text-xs text-ink-500">Share of the final result</Text>
+                  </View>
+                  <NumStepper value={String(exam.weight)} max={100} suffix="%" onChange={(v) => setPlan(plan.map((r, j) => (j === examAt ? { ...r, weight: Number(v) || 0 } : r)))} />
+                </View>
+                <View className="flex-row items-center justify-between">
+                  <Text className="text-[15px] font-medium text-ink-900">Paper out of</Text>
+                  <TextInput
+                    value={String(exam.maxMarks)}
+                    keyboardType="number-pad"
+                    onChangeText={(v) => setPlan(plan.map((r, j) => (j === examAt ? { ...r, maxMarks: Number(v.replace(/\D/g, "") || 0) } : r)))}
+                    className="w-24 rounded-xl border border-ink-200 px-3 py-2.5 text-center text-[15px] font-semibold text-ink-900"
+                    style={{ includeFontPadding: false }}
+                  />
+                </View>
+                <View>
+                  <Text className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500">Month</Text>
+                  <View className="flex-row flex-wrap gap-2">
+                    {EXAM_PERIOD_OPTIONS.map((month) => {
+                      const on = exam.expectedPeriod === month;
+                      return (
+                        <Pressable
+                          key={month}
+                          onPress={() => setPlan(plan.map((r, j) => (j === examAt ? { ...r, expectedPeriod: month } : r)))}
+                          className={`rounded-full border px-3 py-1.5 ${on ? "border-[#1F45C7] bg-[#1F45C7]" : "border-ink-200 bg-white"}`}
+                        >
+                          <Text className={`text-sm font-medium ${on ? "text-white" : "text-ink-700"}`}>{month.slice(0, 3)}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+                <View className="flex-row gap-2">
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => {
+                      setPlan(plan.filter((_, j) => j !== examAt));
+                      setExamAt(null);
+                    }}
+                    className="h-12 flex-1 items-center justify-center rounded-xl border border-red-200 bg-red-50"
+                  >
+                    <Text className="text-[15px] font-semibold text-red-700">Delete</Text>
+                  </Pressable>
+                  <Pressable accessibilityRole="button" onPress={() => setExamAt(null)} className="h-12 flex-[2] items-center justify-center rounded-xl bg-[#1F45C7]">
+                    <Text className="text-[15px] font-semibold text-white">Done</Text>
+                  </Pressable>
+                </View>
+              </ScrollView>
+            ) : null}
+          </View>
+        </View>
+      </RnModal>
+    </View>
+  );
+}
+
 const CLASS_GRADES = ["Nursery", "LKG", "UKG", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
 const CLASS_SECTIONS = ["A", "B", "C", "D", "E"];
 
@@ -1261,7 +1656,7 @@ export function SchoolBoard() {
   const slugIsOwn = Boolean(form.websiteSlug && savedWebsite?.slug && form.websiteSlug.trim() === savedWebsite.slug);
   const websiteDirtyHint = Boolean(savedWebsite) && Boolean(savedWebsite?.enabled) !== form.websiteEnabled;
   const showSave = tab !== "forms" && tab !== "calendar" && tab !== "exams" && tab !== "clock" && tab !== "subjects" && tab !== "sessions" && tab !== "classes" && tab !== "leave" && tab !== "documents";
-  const showPreview = tab === "exams";
+  const showPreview = tab === "exams" && !phone;
 
   function showSchool(next: { tab?: Tab; group?: Door } = {}) {
     if (next.tab) router.replace(`/school?tab=${next.tab}` as never);
@@ -1379,7 +1774,7 @@ export function SchoolBoard() {
       ) : (
       <Card
         className={phone ? "p-4" : "p-5"}
-        style={phone && tab === "classes" ? { borderWidth: 0, backgroundColor: "transparent", padding: 0 } : undefined}
+        style={phone && (tab === "classes" || tab === "exams") ? { borderWidth: 0, backgroundColor: "transparent", padding: 0 } : undefined}
       >
         <View className={wide ? "flex-row items-start gap-6" : ""}>
           <View className={wide ? "min-w-0 flex-1" : ""}>
@@ -1992,7 +2387,56 @@ export function SchoolBoard() {
               </View>
             ) : null}
 
-            {tab === "exams" ? (
+            {tab === "exams" && phone ? (
+              <PhoneExamSettings
+                canEdit={examEdit}
+                passPercent={passPercent}
+                setPassPercent={setPassPercent}
+                showRank={showRank}
+                setShowRank={setShowRank}
+                bands={bands}
+                setBands={setBands}
+                paidMonths={reportCardPaidMonths}
+                setPaidMonths={setReportCardPaidMonths}
+                unpaidMonths={reportCardUnpaidMonths}
+                setUnpaidMonths={setReportCardUnpaidMonths}
+                admitMonths={admitCardPendingMonths}
+                setAdmitMonths={setAdmitCardPendingMonths}
+                saved={{
+                  passPercent: String(s?.policy?.passPercent ?? 33),
+                  showRank: Boolean(s?.policy?.showRank),
+                  bands: JSON.stringify(s?.policy?.bands?.length ? s.policy.bands : DEFAULT_GRADE_BANDS),
+                  paid: String(s?.policy?.reportCardPaidMonths ?? 0),
+                  unpaid: String(s?.policy?.reportCardUnpaidMonths ?? 0),
+                  admit: String(s?.policy?.admitCardPendingMonths ?? 0),
+                  plan: JSON.stringify(normalizeExamPlan(s?.plan)),
+                }}
+                plan={plan}
+                setPlan={setPlan}
+                sessionLabel={s?.sessionLabel || ""}
+                weight={weight}
+                planChecks={planChecks}
+                planComplete={planComplete}
+                onSave={async (policyDirty, planDirty) => {
+                  if (policyDirty) {
+                    await run(
+                      "saveGradePolicy",
+                      {
+                        passPercent: Number(passPercent),
+                        showRank,
+                        bands,
+                        reportCardPaidMonths: Number(reportCardPaidMonths) || 0,
+                        reportCardUnpaidMonths: Number(reportCardUnpaidMonths) || 0,
+                        admitCardPendingMonths: Number(admitCardPendingMonths) || 0,
+                      },
+                      "Exam settings saved."
+                    );
+                  }
+                  if (planDirty) await saveYearPlan();
+                }}
+              />
+            ) : null}
+            {tab === "exams" && !phone ? (
               <View className="mt-4 gap-6">
                 <View>
                   <View className="flex-row flex-wrap items-start justify-between gap-3">

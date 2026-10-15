@@ -102,7 +102,7 @@ function LaunchPanelButton() {
   const show = user?.portal === "OFFICE" && onboarding && onboarding.progress.percent < 100 && !settingsHub;
 
   const buttonSize = 64;
-  const panelWidth = Math.min(760, Math.max(360, width - 48));
+  const panelWidth = width < 768 ? width : Math.min(760, Math.max(360, width - 48));
   const bottomOffset = width >= 768 ? Math.max(insets.bottom + 24, 24) : Math.max(insets.bottom + 84, 84);
   const rightOffset = width >= 768 ? 28 : 16;
   const defaultPosition = useMemo(
@@ -277,7 +277,7 @@ function LaunchPanelButton() {
           {launcherContent}
         </View>
       )}
-      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+      <Modal visible={open} transparent animationType={width < 768 ? "slide" : "fade"} onRequestClose={() => setOpen(false)}>
         <View className="flex-1">
           <Pressable accessibilityLabel="Close school setup" className="absolute inset-0 bg-ink-900/20" onPress={() => setOpen(false)} />
           <View
@@ -288,8 +288,8 @@ function LaunchPanelButton() {
             <SafeAreaView className="min-h-0 flex-1" edges={["top", "bottom"]}>
               <View className="h-14 flex-row items-center justify-between border-b border-ink-200 bg-white px-5">
                 <View className="min-w-0 flex-1">
-                  <Text className="text-sm font-semibold text-ink-900">School setup</Text>
-                  <Text className="text-[11px] text-ink-500">{onboarding.progress.percent}% complete</Text>
+                  <Text className={width < 768 ? "text-lg font-bold text-ink-900" : "text-sm font-semibold text-ink-900"}>School setup</Text>
+                  {width < 768 ? null : <Text className="text-[11px] text-ink-500">{onboarding.progress.percent}% complete</Text>}
                 </View>
                 <Pressable
                   accessibilityRole="button"

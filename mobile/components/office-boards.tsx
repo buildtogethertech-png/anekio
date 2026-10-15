@@ -969,6 +969,21 @@ function TeacherRoster({
   );
 }
 
+function monthlyFeeByClass(data: ReturnType<typeof useRecord>["data"]) {
+  const sessions = data?.school?.sessions ?? [];
+  const current = sessions.find((row) => row.current)?.id || "";
+  const out: Record<string, number> = {};
+  const best: Record<string, string> = {};
+  for (const tpl of data?.feeTemplates ?? []) {
+    if (current && tpl.sessionId && tpl.sessionId !== current) continue;
+    const start = tpl.startsPeriod || "";
+    if (best[tpl.classId] !== undefined && best[tpl.classId] >= start) continue;
+    best[tpl.classId] = start;
+    out[tpl.classId] = (tpl.lines ?? []).filter((line) => line.scope !== "ADD_ON").reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
+  }
+  return out;
+}
+
 export function PeopleBoard({ studentOnly = false, title = "Students" }: { studentOnly?: boolean; title?: string }) {
   const { data, reload } = useRecord();
   const { token, user } = useSession();
@@ -997,6 +1012,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   const [manageDiscountValue, setManageDiscountValue] = useState("");
   const [openCard, setOpenCard] = useState<ReportCardData | null>(null);
   const [add, setAdd] = useState<PeopleKind | null>(null);
+  const phoneAdmit = width < 768;
   const [importOpen, setImportOpen] = useState(false);
   const [fileTab, setFileTab] = useState<StudentTab>(() => incomingTab);
   const [fileEdit, setFileEdit] = useState(false);
@@ -2513,8 +2529,30 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
         <OnboardingBoard compact focusKinds={["students"]} />
       </Modal>
 
+      {phoneAdmit ? (
+        <RnModal visible={add === "student"} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setAdd(null)}>
+          <SafeAreaView className="flex-1 bg-white" edges={["top", "bottom"]}>
+            <View className="flex-row items-center px-2 py-2">
+              <Pressable accessibilityRole="button" accessibilityLabel="Close" hitSlop={8} onPress={() => setAdd(null)} className="flex-row items-center px-1 py-1">
+                <Ionicons name="chevron-back" size={22} color="#1F45C7" />
+                <Text className="text-[15px] font-medium text-[#1F45C7]">Students</Text>
+              </Pressable>
+            </View>
+            <Text className="px-4 pb-2 text-[22px] font-bold text-ink-900">Add student</Text>
+            <StudentAdmitForm
+              wizard
+              classes={data?.classes ?? []}
+              parents={data?.peopleParents ?? []}
+              admissionFeeLines={data?.admissionFeeLines ?? []}
+              admissionForm={data?.school?.admissionForm ?? []}
+              monthlyFees={monthlyFeeByClass(data)}
+              onSubmit={addStudent}
+            />
+          </SafeAreaView>
+        </RnModal>
+      ) : null}
       <Modal
-        open={Boolean(add)}
+        open={Boolean(add) && !(phoneAdmit && add === "student")}
         title={add === "parent" ? "Add parent" : "Add student"}
         onClose={() => setAdd(null)}
         wide={add === "student"}
