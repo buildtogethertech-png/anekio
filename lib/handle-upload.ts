@@ -148,6 +148,17 @@ function validateAndFolder(user: AccessUser, file: UploadFile, fields: Record<st
     };
   }
 
+  if (kind === "staffDocument") {
+    if (!can(user, "staff.edit")) throw new Error("No access.");
+    const owner = fields.staffKind === "teacher" ? "teacher" : "staff";
+    if (!fields.staffId) throw new Error("Employee required");
+    if (!isStudentDocumentFile(file.name, file.mime)) throw new Error("Upload the document as a PDF, Word file, or image.");
+    return {
+      kind,
+      folder: `private/${schoolRoot()}/staff/${owner}-${safePathSegment(fields.staffId)}/documents`,
+    };
+  }
+
   if (kind === "onboarding") {
     if (!can(user, "onboarding.manage") && !can(user, "people.import")) throw new Error("No access.");
     if (!isOnboardingSheet(file.name, file.mime)) throw new Error("Upload an Anekio Excel or CSV template.");

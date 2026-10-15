@@ -48,13 +48,13 @@ export type StudentAdmitInitial = Partial<
   Pick<StudentAdmitPayload, "name" | "classId" | "billingStartPeriod" | "parentId" | "parentName" | "parentPhone" | "parentEmail" | "customValues">
 > & { enquiryFiles?: Record<string, string> };
 
-function fileAccept(field: AdmissionFormField) {
+export function fileAccept(field: AdmissionFormField) {
   if (field.fileType === "image") return "image/png,image/jpeg,image/webp";
   if (field.fileType === "pdf") return "application/pdf,.pdf";
   return "image/png,image/jpeg,image/webp,application/pdf,.pdf";
 }
 
-function AdmissionCustomField({
+export function AdmissionCustomField({
   field,
   value,
   file,
@@ -188,7 +188,7 @@ function parentOption(p: { id: string; name: string; phone?: string }) {
   return { id: p.id, label, searchText: `${p.name} ${phone || ""}`.trim() };
 }
 
-function SectionCard({
+export function SectionCard({
   step,
   title,
   subtitle,
@@ -233,7 +233,7 @@ function openPreview(url: string) {
 
 const IMAGE_PATH = /\.(png|jpe?g|webp|gif)$/i;
 
-function UploadTile({
+export function UploadTile({
   field,
   file,
   existingPath,

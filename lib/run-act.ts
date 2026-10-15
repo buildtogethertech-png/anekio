@@ -23,6 +23,7 @@ import {
   generateStaffAttendanceQrCore,
   saveStaffPayrollCore,
   createStaffMemberCore,
+  setStaffOnboardingFileCore,
   createStudentCore,
   createTeacherCore,
   updateParentCore,
@@ -188,7 +189,9 @@ export async function runAct(
       await saveStaffPayrollCore(user, body as never);
       break;
     case "createStaffMember":
-      await createStaffMemberCore(user, body as never);
+      return { ok: true, ...(await createStaffMemberCore(user, body as never)) };
+    case "setStaffOnboardingFile":
+      await setStaffOnboardingFileCore(user, body as never);
       break;
     case "updateStaffMember":
       await updateStaffMemberCore(user, body as never);

@@ -50,7 +50,7 @@ import {
 } from "./school-session";
 import { placeFields, parseMonthlySalary, requireJoinedOn, STAFF_FIRST_PASSWORD, todayJoinedOn } from "./staff-profile";
 import { assertManagerChoice, defaultManagerIdForRole, managerIdForNewUser, teamClassIds } from "./reports";
-import { admissionCustomValues, admissionFormFields, admissionFormJson, admissionLeadInput, effectiveAdmissionFormJson, staffOnboardingFormJson, studentAdmissionCustomValues, websiteFormFields, websiteFormJson } from "./admission-form";
+import { admissionCustomValues, admissionFormFields, admissionFormJson, admissionLeadInput, effectiveAdmissionFormJson, staffOnboardingFormFields, staffOnboardingFormJson, studentAdmissionCustomValues, websiteFormFields, websiteFormJson } from "./admission-form";
 import { configuredAdmissionFormJson, configuredFormJson } from "./admission-form-config";
 import { markOnboardingConfigured } from "./onboarding";
 
@@ -1487,8 +1487,9 @@ export async function createStaffMemberCore(
     managerId?: string | null;
     monthlySalary?: number | string;
     classId?: string | null;
+    customValues?: Record<string, string>;
   }
-) {
+): Promise<{ kind: "teacher" | "staff" | "parent"; id: string }> {
   need(user, "staff.edit");
   const name = String(input.name || "").trim();
   if (!name) throw new Error("Enter their name");
@@ -1513,6 +1514,7 @@ export async function createStaffMemberCore(
   const hash = await bcrypt.hash(password, 10);
   const managerId = await managerIdForNewUser(user, role, input.managerId);
   const monthlySalary = parseMonthlySalary(input.monthlySalary);
+  const onboardingDataJson = await staffOnboardingValues(input.customValues);
   if (role.portal === "TEACHER") {
     const classId = String(input.classId || "").trim();
     if (classId) {
@@ -1528,15 +1530,27 @@ export async function createStaffMemberCore(
         password: hash,
         roleId: role.id,
         managerId,
-        teacher: { create: { orgId: user.orgId ?? null, employeeId, joinedOn, monthlySalary, ...(classId ? { classId } : {}), ...place } },
+        teacher: {
+          create: {
+            orgId: user.orgId ?? null,
+            employeeId,
+            joinedOn,
+            monthlySalary,
+            onboardingDataJson,
+            ...(String(input.customValues?.qualification || "").trim() ? { qualification: String(input.customValues?.qualification).trim().slice(0, 200) } : {}),
+            ...(classId ? { classId } : {}),
+            ...place,
+          },
+        },
       },
       include: { teacher: true },
     });
     if (classId && created.teacher) {
       await prisma.teacherClass.create({ data: { teacherId: created.teacher.id, classId } });
     }
+    return { kind: "teacher", id: created.teacher?.id || "" };
   } else if (role.portal === "PARENT") {
-    await prisma.user.create({
+    const createdParent = await prisma.user.create({
       data: {
         name,
         email: loginEmail,
@@ -1546,9 +1560,10 @@ export async function createStaffMemberCore(
         parent: { create: { phone, ...place } },
       },
     });
+    return { kind: "parent", id: createdParent.id };
   } else {
     const employeeId = await nextEmployeeId("S", user.orgId ?? null);
-    await prisma.user.create({
+    const createdStaff = await prisma.user.create({
       data: {
         name,
         email: loginEmail,
@@ -1556,10 +1571,59 @@ export async function createStaffMemberCore(
         password: hash,
         roleId: role.id,
         managerId,
-        staffMember: { create: { orgId: user.orgId ?? null, name, title, phone, kind, employeeId, roleId: role.id, joinedOn, monthlySalary, ...place } },
+        staffMember: { create: { orgId: user.orgId ?? null, name, title, phone, kind, employeeId, roleId: role.id, joinedOn, monthlySalary, onboardingDataJson, ...place } },
       },
+      include: { staffMember: true },
     });
+    return { kind: "staff", id: createdStaff.staffMember?.id || "" };
   }
+}
+
+/** The staff onboarding form the school uses (its own, or the Anekio default). */
+async function staffOnboardingFields() {
+  const config = await prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { staffOnboardingFormJson: true } });
+  return staffOnboardingFormFields(await configuredFormJson("staff", config?.staffOnboardingFormJson));
+}
+
+/** Keeps only answers to the school's own (non-built-in, non-file) staff form fields. */
+async function staffOnboardingValues(values?: Record<string, string>) {
+  if (!values || typeof values !== "object") return "{}";
+  const fields = await staffOnboardingFields();
+  const out: Record<string, string> = {};
+  for (const field of fields) {
+    if (field.type === "file") continue;
+    if (field.builtin && field.id !== "department" && field.id !== "qualification") continue;
+    const value = String(values[field.id] ?? "").trim().slice(0, 2000);
+    if (value) out[field.id] = value;
+  }
+  return JSON.stringify(out);
+}
+
+export async function setStaffOnboardingFileCore(
+  user: AccessUser,
+  input: { kind?: string; id?: string; fieldId?: string; path?: string }
+) {
+  need(user, "staff.edit");
+  const kind = input.kind === "teacher" ? "teacher" : "staff";
+  const id = String(input.id || "").trim();
+  const fieldId = String(input.fieldId || "").trim();
+  const path = String(input.path || "").replace(/^\/+/, "");
+  const field = (await staffOnboardingFields()).find((row) => row.id === fieldId && row.type === "file" && !row.builtin);
+  if (!field) throw new Error("That staff form field does not take a file.");
+  if (!path.startsWith("private/") || !path.includes(`/staff/${kind}-${id}/documents/`)) throw new Error("Upload the file for this employee first.");
+  if (kind === "teacher") {
+    const row = await prisma.teacher.findFirst({ where: { id }, select: { id: true, onboardingDataJson: true } });
+    if (!row) throw new Error("Teacher not found.");
+    const data = admissionCustomValues(row.onboardingDataJson);
+    data[fieldId] = path;
+    await prisma.teacher.update({ where: { id }, data: { onboardingDataJson: JSON.stringify(data) } });
+    return;
+  }
+  const row = await prisma.staffMember.findFirst({ where: { id }, select: { id: true, onboardingDataJson: true } });
+  if (!row) throw new Error("Employee not found.");
+  const data = admissionCustomValues(row.onboardingDataJson);
+  data[fieldId] = path;
+  await prisma.staffMember.update({ where: { id }, data: { onboardingDataJson: JSON.stringify(data) } });
 }
 
 const NOTICE_PORTALS = ["PARENT", "TEACHER", "STUDENT", "OFFICE"] as const;

@@ -94,8 +94,11 @@ export function websiteFormFields(value: unknown): AdmissionFormField[] {
   return parseFormFields(value, BUILTIN_IDS, LOCKED_ADMISSION_FIELD_IDS);
 }
 
+/** Every employee needs these to log in and be paid from the right day: rename only, never hide. */
+export const LOCKED_STAFF_FIELD_IDS: readonly string[] = ["staffName", "phone", "role", "joiningDate"];
+
 export function staffOnboardingFormFields(value: unknown): AdmissionFormField[] {
-  return parseFormFields(value, STAFF_ONBOARDING_BUILTIN_IDS);
+  return parseFormFields(value, STAFF_ONBOARDING_BUILTIN_IDS, LOCKED_STAFF_FIELD_IDS);
 }
 
 export function websiteFormJson(value: unknown) {

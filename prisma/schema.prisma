@@ -271,6 +271,8 @@ model Teacher {
   pincode               String                 @default("")
   monthlySalary         Int                    @default(30000)
   qualification         String?
+  /// Answers to the school's staff onboarding form (custom fields + uploaded file paths).
+  onboardingDataJson    String                 @default("{}")
   classId               String?
   class                 Class?                 @relation(fields: [classId], references: [id])
   subjects              Subject[]
@@ -1175,6 +1177,8 @@ model StaffMember {
   state         String         @default("")
   pincode       String         @default("")
   monthlySalary Int            @default(25000)
+  /// Answers to the school's staff onboarding form (custom fields + uploaded file paths).
+  onboardingDataJson String     @default("{}")
   kind          StaffKind      @default(SUPPORT)
   roleId        String?
   role          Role?          @relation(fields: [roleId], references: [id], onDelete: SetNull)

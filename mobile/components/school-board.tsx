@@ -3214,6 +3214,7 @@ export function SchoolBoard() {
         intro="Used when adding employees, for staff upload templates and document collection."
         audience="staff"
         fields={form.staffOnboardingForm}
+        lockedIds={["staffName", "phone", "role", "joiningDate"]}
         suggestions={data?.school?.platformForms?.staff ?? []}
         canEdit={edit}
         onChange={(fields) => patch("staffOnboardingForm", fields)}

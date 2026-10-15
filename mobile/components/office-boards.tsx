@@ -9,7 +9,7 @@ import { Dropdown } from "./form";
 import { Badge, Button, Card, Chip, Empty, Field, Input, Modal, PageHeader, Segmented, Sheet, Stat, Switch, Toast, useToast } from "./ui";
 import { DateField, MonthField } from "./date-field";
 import { FilterBar, type FilterConfig, type FilterValues } from "./filter";
-import { StaffAdmitForm, type StaffAdmitPayload } from "./staff-admit-form";
+import { StaffAdmitForm, type StaffAdmitFiles, type StaffAdmitPayload } from "./staff-admit-form";
 import { StaffAttendanceDetail } from "./staff-attendance-detail";
 import { StudentAdmitForm, type StudentAdmitFiles, type StudentAdmitInitial, type StudentAdmitPayload } from "./student-admit-form";
 import { useAssetUrl } from "../lib/assets";
@@ -3565,8 +3565,20 @@ export function StaffBoard() {
     }
   }
 
-  async function addStaff(values: StaffAdmitPayload) {
-    await act(token, "createStaffMember", values);
+  async function addStaff(values: StaffAdmitPayload, files: StaffAdmitFiles = {}) {
+    const created = await act<{ ok: true; kind: "teacher" | "staff" | "parent"; id: string }>(token, "createStaffMember", values);
+    const failed: string[] = [];
+    if (created?.id && (created.kind === "teacher" || created.kind === "staff")) {
+      for (const [fieldId, file] of Object.entries(files)) {
+        try {
+          const uploaded = await uploadFile(token, file, { kind: "staffDocument", staffKind: created.kind, staffId: created.id });
+          await act(token, "setStaffOnboardingFile", { kind: created.kind, id: created.id, fieldId, path: uploaded.path });
+        } catch {
+          failed.push(fieldId);
+        }
+      }
+    }
+    if (failed.length) toast.show(`Added, but ${failed.length} document${failed.length === 1 ? "" : "s"} did not upload.`);
     setAddOpen(false);
     toast.show("Added. They log in with this mobile, then change the first password on Profile.");
     await reload();
@@ -3639,6 +3651,17 @@ export function StaffBoard() {
           <>
             <View testID="staff-toolbar-controls" className="flex-row items-center gap-2">
               <Text className="flex-1 text-[22px] font-bold tracking-tight text-ink-900">Staff</Text>
+              {canMark ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Add employee"
+                  onPress={() => setAddOpen(true)}
+                  className="h-10 flex-row items-center gap-1 rounded-full bg-[#1F45C7] px-3.5"
+                >
+                  <Ionicons name="add" size={18} color="#fff" />
+                  <Text className="text-sm font-semibold text-white">Add</Text>
+                </Pressable>
+              ) : null}
               {canMark ? (
                 <StaffAttendanceQrScanButton token={token} compact disabled={locked} onMessage={toast.show} onDone={reload} />
               ) : null}
@@ -4111,7 +4134,6 @@ export function StaffBoard() {
                 </View>
                 {(
                   [
-                    ["person-add-outline", "Add employee", () => setAddOpen(true), canMark],
                     ["cloud-upload-outline", "Import employees", () => setBulkOpen(true), canMark],
                     ["time-outline", "Timesheet", () => setTimesheetOpen(true), true],
                     ["alarm-outline", "Late timing", () => setHoursOpen(true), true],
@@ -4273,16 +4295,47 @@ export function StaffBoard() {
           />
         </View>
       </Modal>
-      <Modal open={addOpen} title="Add employee" onClose={() => setAddOpen(false)}>
+      {phone ? (
+        <RnModal visible={addOpen} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setAddOpen(false)}>
+          <SafeAreaView className="flex-1 bg-white" edges={["top", "bottom"]}>
+            <View className="flex-row items-center px-2 py-2">
+              <Pressable accessibilityRole="button" accessibilityLabel="Close" hitSlop={8} onPress={() => setAddOpen(false)} className="flex-row items-center px-1 py-1">
+                <Ionicons name="chevron-back" size={22} color="#1F45C7" />
+                <Text className="text-[15px] font-medium text-[#1F45C7]">Staff</Text>
+              </Pressable>
+            </View>
+            <Text className="px-4 pb-2 text-[22px] font-bold text-ink-900">Add employee</Text>
+            <StaffAdmitForm
+              wizard
+              staffForm={data?.school?.staffOnboardingForm ?? []}
+              roles={data?.staffRoles ?? []}
+              managers={data?.managers ?? []}
+              classes={data?.classes ?? []}
+              user={user}
+              submitLabel="Add employee"
+              onSubmit={async (values, files) => {
+                try {
+                  await addStaff(values, files);
+                } catch (e) {
+                  toast.show(e instanceof Error ? e.message : "Could not save.");
+                  throw e;
+                }
+              }}
+            />
+          </SafeAreaView>
+        </RnModal>
+      ) : null}
+      <Modal open={!phone && addOpen} title="Add employee" onClose={() => setAddOpen(false)} wide>
         <StaffAdmitForm
+          staffForm={data?.school?.staffOnboardingForm ?? []}
           roles={data?.staffRoles ?? []}
           managers={data?.managers ?? []}
           classes={data?.classes ?? []}
           user={user}
           submitLabel="Add employee"
-          onSubmit={async (values) => {
+          onSubmit={async (values, files) => {
             try {
-              await addStaff(values);
+              await addStaff(values, files);
             } catch (e) {
               toast.show(e instanceof Error ? e.message : "Could not save.");
               throw e;
