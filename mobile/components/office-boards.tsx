@@ -18,6 +18,7 @@ import { studentSeriesScore, studentYearScore } from "../lib/exams";
 import { act, saveLateTiming } from "../lib/mutate";
 import { openMarksheetPdf } from "../lib/print-html";
 import { pickFile, uploadFile } from "../lib/upload";
+import { ParentUpdatesReview } from "./parent-details";
 import { webOrigin } from "../lib/api";
 import { useRecord, type AdmissionFormField } from "../lib/record";
 import { useSession } from "../lib/session";
@@ -532,6 +533,7 @@ export function DeskBoard() {
           Routine
         </Button>
       </View>
+      <ParentUpdatesReview />
 
       <View className="flex-row flex-wrap gap-3">
         {[

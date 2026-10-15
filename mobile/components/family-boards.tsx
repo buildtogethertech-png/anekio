@@ -6,6 +6,7 @@ import { DateField } from "./date-field";
 import { NewConversationSheet } from "./inbox-board";
 import { ChildPill } from "./child-pill";
 import { DocViewer } from "./doc-viewer";
+import { ParentDetailsCard, ParentDetailsSheet, useParentDetails } from "./parent-details";
 import { Badge, Button, Card, Chip, ChipScroller, CloseButton, Empty, Field, Input, Modal, PageHeader, Stat, Toast, useToast } from "./ui";
 import { act } from "../lib/mutate";
 import { api, webOrigin } from "../lib/api";
@@ -2832,6 +2833,8 @@ export function FamilyAttendance() {
   const { width: attWidth } = useWindowDimensions();
   const phone = attWidth < 768;
   const manyKids = (data?.children ?? []).length > 1;
+  const attParams = useLocalSearchParams<{ leave?: string | string[] }>();
+  const openLeave = (Array.isArray(attParams.leave) ? attParams.leave[0] : attParams.leave) === "1";
   const progressTone = att.pct >= 75 ? "bg-emerald-400" : att.pct >= 60 ? "bg-amber-400" : "bg-red-400";
   const attendanceMessage = att.pct >= 90
     ? "Excellent consistency"
@@ -2899,10 +2902,12 @@ export function FamilyAttendance() {
             </View>
             {user?.portal === "PARENT" ? (
               <LeaveApplyCard
+                key={openLeave ? "leave-open" : "leave"}
                 audience="student"
                 token={token}
                 onDone={async (ok) => { toast.show(ok); await reload(); }}
                 onError={(msg) => toast.show(msg)}
+                openByDefault={openLeave}
                 triggerOnly
               />
             ) : null}
@@ -4209,9 +4214,10 @@ type QuickTile = {
 
 function ParentPhoneHome({ onMessage, wide = false }: { onMessage: () => void; wide?: boolean }) {
   const { data, childId, setChildId } = useRecord();
-  const { token } = useSession();
+  const { token, user } = useSession();
   const router = useRouter();
   const [switchOpen, setSwitchOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [inbox, setInbox] = useState<{ unread: number; reply: { id: string; subject: string } | null }>({ unread: 0, reply: null });
 
   useEffect(() => {
@@ -4231,11 +4237,15 @@ function ParentPhoneHome({ onMessage, wide = false }: { onMessage: () => void; w
 
   const child = data?.child;
   const kids = data?.children ?? [];
+  const details = useParentDetails(child?.id);
+  const detailsDue = Boolean(details.data && (details.data.counts.toSend || details.data.counts.waiting));
   const attRows = child?.attendance ?? [];
   const att = attendanceSummary(attRows);
   const unpaid = (child?.fees ?? []).filter((f) => f.display !== "paid" && f.dueNow > 0);
   const totalDue = unpaid.reduce((sum, f) => sum + f.dueNow, 0);
   const marked = (child?.subjects ?? []).filter((s) => s.n > 0);
+  const lastTest = (child?.tests ?? []).find((t) => !t.absent && t.max > 0) || null;
+  const lastPct = lastTest ? Math.round((lastTest.marks / lastTest.max) * 100) : null;
   const avg = marked.length ? Math.round(marked.reduce((n, s) => n + s.pct, 0) / marked.length) : null;
   const notices = (data?.notices ?? []).slice(0, 2);
   const coming = (data?.upcoming ?? []).slice(0, 3);
@@ -4257,6 +4267,7 @@ function ParentPhoneHome({ onMessage, wide = false }: { onMessage: () => void; w
 
   const tiles: QuickTile[] = [
     { key: "message", label: "Message school", icon: "paper-plane-outline", tint: "bg-[#EEF3FF]", color: "#1F45C7", onPress: onMessage },
+    { key: "leave", label: "Apply leave", icon: "airplane-outline", tint: "bg-[#EEF4FF]", color: "#1D4ED8", onPress: () => router.push("/attendance?leave=1" as never) },
     { key: "attendance", label: "Attendance", icon: "checkmark-done-circle-outline", tint: "bg-[#ECF8F0]", color: "#18794E", onPress: () => router.push("/attendance" as never) },
     { key: "exams", label: "Exams", icon: "document-text-outline", tint: "bg-[#F3EEFF]", color: "#6D28D9", onPress: () => router.push("/tests" as never) },
   ];
@@ -4297,7 +4308,7 @@ function ParentPhoneHome({ onMessage, wide = false }: { onMessage: () => void; w
         <View className="mt-4 flex-row rounded-2xl bg-white/10">
           {[
             { label: "Attendance", value: attRows.length ? `${att.pct}%` : "—", go: "/attendance" },
-            { label: "Avg marks", value: avg == null ? "—" : `${avg}%`, go: "/tests" },
+            { label: "Last result", value: lastPct == null ? "—" : `${lastPct}%`, go: "/tests" },
             { label: totalDue ? "Fees due" : "Fees", value: totalDue ? money(totalDue) : "Paid", go: "/fees" },
           ].map((s, i) => (
             <Pressable key={s.label} onPress={() => router.push(s.go as never)} className={`flex-1 px-3 py-2.5 ${i ? "border-l border-white/15" : ""}`}>
@@ -4314,8 +4325,9 @@ function ParentPhoneHome({ onMessage, wide = false }: { onMessage: () => void; w
   );
   const attentionEl = (
     <>
-      {totalDue || inbox.reply ? (
+      {totalDue || inbox.reply || detailsDue ? (
         <View className="mt-4 gap-2.5">
+          <ParentDetailsCard data={details.data} onOpen={() => setDetailsOpen(true)} />
           {totalDue ? (
             <View className="flex-row items-center gap-3 rounded-2xl border border-[#F5C2C2] bg-[#FFF5F5] p-3.5">
               <View className="h-10 w-10 items-center justify-center rounded-xl bg-[#FDE2E2]">
@@ -4359,7 +4371,7 @@ function ParentPhoneHome({ onMessage, wide = false }: { onMessage: () => void; w
       {sectionTitle("Quick access")}
       <View className="flex-row flex-wrap rounded-2xl border border-ink-100 bg-white py-2">
         {tiles.map((t) => (
-          <Pressable key={t.key} onPress={t.onPress} className="w-1/3 items-center px-1 py-2.5">
+          <Pressable key={t.key} onPress={t.onPress} className="w-1/4 items-center px-1 py-2.5">
             <View className={`h-12 w-12 items-center justify-center rounded-2xl ${t.tint}`}>
               <Ionicons name={t.icon} size={22} color={t.color} />
               {t.badge ? (
@@ -4379,7 +4391,7 @@ function ParentPhoneHome({ onMessage, wide = false }: { onMessage: () => void; w
   );
   const todayEl = (
     <>
-      {sectionTitle(day.label ? `Today · ${day.label}` : "Today", { label: "Timetable", onPress: () => router.push("/timetable" as never) })}
+      {sectionTitle(day.label ? `Today · ${day.label}` : "Today")}
       <View className="rounded-2xl border border-ink-100 bg-white p-3.5">
         {focus ? (
           <>
@@ -4404,20 +4416,36 @@ function ParentPhoneHome({ onMessage, wide = false }: { onMessage: () => void; w
                 </Text>
               </View>
             </View>
-            {left.filter((p) => p !== focus).length ? (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mt-3" contentContainerStyle={{ gap: 6 }}>
-                {left
-                  .filter((p) => p !== focus)
-                  .map((p) => (
-                    <View key={`${p.period}-${p.start}-${p.subject}`} className="rounded-xl border border-ink-100 px-2.5 py-1.5">
-                      <Text className="text-[11px] tabular-nums text-ink-500">{p.start || p.period}</Text>
-                      <Text className="text-[13px] font-medium text-ink-900" numberOfLines={1}>
+            {(() => {
+              const rest = left.filter((p) => p !== focus);
+              if (!rest.length) return null;
+              const shown = rest.slice(0, 4);
+              return (
+                <View className="mt-2">
+                  {shown.map((p) => (
+                    <View key={`${p.period}-${p.start}-${p.subject}`} className="flex-row items-center gap-3 border-t border-ink-50 px-1 py-2.5">
+                      <Text className="w-12 text-[12px] tabular-nums text-ink-500">{p.start || p.period}</Text>
+                      <View className="h-5 w-1 rounded-full" style={{ backgroundColor: subjectColor(p.subject) }} />
+                      <Text className="min-w-0 flex-1 text-[14px] font-medium text-ink-900" numberOfLines={1}>
                         {p.subject}
                       </Text>
+                      {p.teacher ? (
+                        <Text className="max-w-[40%] text-[12px] text-ink-500" numberOfLines={1}>
+                          {p.teacher}
+                        </Text>
+                      ) : null}
                     </View>
                   ))}
-              </ScrollView>
-            ) : null}
+                  {rest.length > shown.length ? (
+                    <Pressable onPress={() => router.push("/timetable" as never)} className="border-t border-ink-50 px-1 pt-2.5">
+                      <Text className="text-[13px] font-semibold text-[#1F45C7]">
+                        +{rest.length - shown.length} more class{rest.length - shown.length === 1 ? "" : "es"} today
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              );
+            })()}
           </>
         ) : (
           <View className="flex-row items-center gap-3">
@@ -4438,31 +4466,125 @@ function ParentPhoneHome({ onMessage, wide = false }: { onMessage: () => void; w
 
     </>
   );
+  const upcomingExams = (data?.upcoming ?? [])
+    .map((e) => {
+      const at = Date.parse(String(e.date || "").replace(/Sept/g, "Sep"));
+      const days = Number.isFinite(at) ? Math.ceil((new Date(at).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 86_400_000) : null;
+      return { ...e, at, days };
+    })
+    .filter((e) => e.days == null || e.days >= 0)
+    .sort((x, y) => (Number.isFinite(x.at) ? x.at : Infinity) - (Number.isFinite(y.at) ? y.at : Infinity));
+  const whenLabel = (days: number | null) => (days == null ? "" : days === 0 ? "Today" : days === 1 ? "Tomorrow" : `In ${days} days`);
   const testsEl = (
     <>
-      {coming.length ? (
-        <>
-          {sectionTitle("Upcoming tests", { label: "Exams", onPress: () => router.push("/tests" as never) })}
-          <View className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
-            {coming.map((e, i) => (
+      {sectionTitle("Upcoming exams", wide && upcomingExams.length ? { label: "Exams", onPress: () => router.push("/tests" as never) } : undefined)}
+      <View className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
+        {upcomingExams.length ? (
+          upcomingExams.slice(0, 4).map((e, i) => {
+            const soon = e.days != null && e.days <= 3;
+            const d = Number.isFinite(e.at) ? new Date(e.at) : null;
+            return (
               <View key={e.id} className={`flex-row items-center gap-3 px-3.5 py-3 ${i ? "border-t border-ink-100" : ""}`}>
-                <View className="h-9 w-9 items-center justify-center rounded-xl bg-[#F3EEFF]">
-                  <Ionicons name="create-outline" size={17} color="#6D28D9" />
+                <View className={`h-11 w-11 items-center justify-center rounded-xl ${soon ? "bg-[#FDECEC]" : "bg-[#F3EEFF]"}`}>
+                  {d ? (
+                    <>
+                      <Text className={`text-[15px] font-bold leading-4 ${soon ? "text-[#B42318]" : "text-[#6D28D9]"}`}>{d.getDate()}</Text>
+                      <Text className={`text-[10px] font-semibold uppercase ${soon ? "text-[#B42318]" : "text-[#6D28D9]"}`}>
+                        {d.toLocaleDateString("en-IN", { month: "short" })}
+                      </Text>
+                    </>
+                  ) : (
+                    <Ionicons name="create-outline" size={17} color="#6D28D9" />
+                  )}
                 </View>
                 <View className="min-w-0 flex-1">
-                  <Text className="text-[14px] font-medium text-ink-900" numberOfLines={1}>
+                  <Text className="text-[14px] font-semibold text-ink-900" numberOfLines={1}>
                     {e.subject || e.title}
                   </Text>
                   <Text className="text-[12px] text-ink-500" numberOfLines={1}>
-                    {e.title} · {e.date}
+                    {[e.seriesName || e.title, (e as { time?: string }).time].filter(Boolean).join(" · ")}
                   </Text>
                 </View>
+                {e.days != null ? (
+                  <View className={`rounded-full px-2 py-0.5 ${soon ? "bg-[#FDECEC]" : "bg-ink-100"}`}>
+                    <Text className={`text-[11px] font-semibold ${soon ? "text-[#B42318]" : "text-ink-600"}`}>{whenLabel(e.days)}</Text>
+                  </View>
+                ) : null}
               </View>
-            ))}
+            );
+          })
+        ) : (
+          <View className="flex-row items-center gap-3 p-3.5">
+            <View className="h-10 w-10 items-center justify-center rounded-xl bg-[#F3EEFF]">
+              <Ionicons name="calendar-clear-outline" size={19} color="#6D28D9" />
+            </View>
+            <View className="min-w-0 flex-1">
+              <Text className="text-[14px] font-semibold text-ink-900">No exams scheduled yet</Text>
+              <Text className="mt-0.5 text-[12px] text-ink-500">Dates show here as soon as the school publishes them.</Text>
+            </View>
           </View>
-        </>
-      ) : null}
-
+        )}
+        {upcomingExams.length > 4 ? (
+          <Pressable onPress={() => router.push("/tests" as never)} className="border-t border-ink-100 px-3.5 py-2.5">
+            <Text className="text-[13px] font-semibold text-[#1F45C7]">+{upcomingExams.length - 4} more papers</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    </>
+  );
+  const recentExams = (() => {
+    const groups = new Map<string, { name: string; at: number; marks: number; max: number; papers: number }>();
+    for (const t of child?.tests ?? []) {
+      const key = t.seriesId || t.seriesName || (t.title || "").split(/\s*[·•|]\s*/)[0] || "Exam";
+      const name = t.seriesName || (t.title || "").split(/\s*[·•|]\s*/)[0] || "Exam";
+      const at = Date.parse(String(t.date || "").replace(/Sept/g, "Sep"));
+      const g = groups.get(key) || { name, at: 0, marks: 0, max: 0, papers: 0 };
+      g.papers += 1;
+      if (!t.absent && t.max > 0) {
+        g.marks += t.marks;
+        g.max += t.max;
+      }
+      if (Number.isFinite(at) && at > g.at) g.at = at;
+      groups.set(key, g);
+    }
+    return [...groups.values()].sort((x, y) => y.at - x.at).slice(0, 3);
+  })();
+  const recentEl = (
+    <>
+      {sectionTitle("Recent exams")}
+      <View className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
+        {recentExams.length ? (
+          recentExams.map((g, i) => {
+            const pct = g.max ? Math.round((g.marks / g.max) * 100) : null;
+            const tone = pct == null ? "#64748B" : pct >= 75 ? "#18794E" : pct >= 50 ? "#B45309" : "#B42318";
+            return (
+              <Pressable key={`${g.name}-${i}`} onPress={() => router.push("/tests" as never)} className={`flex-row items-center gap-3 px-3.5 py-3 ${i ? "border-t border-ink-100" : ""}`}>
+                <View className="h-11 w-11 items-center justify-center rounded-xl bg-[#ECF8F0]">
+                  <Ionicons name="ribbon-outline" size={19} color="#18794E" />
+                </View>
+                <View className="min-w-0 flex-1">
+                  <Text className="text-[14px] font-semibold text-ink-900" numberOfLines={1}>{g.name}</Text>
+                  <Text className="text-[12px] text-ink-500" numberOfLines={1}>
+                    {[g.at ? new Date(g.at).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "", `${g.papers} subject${g.papers === 1 ? "" : "s"}`].filter(Boolean).join(" · ")}
+                  </Text>
+                </View>
+                <Text className="text-[16px] font-bold" style={{ color: tone }}>{pct == null ? "—" : `${pct}%`}</Text>
+                <Ionicons name="chevron-forward" size={16} color="#CBD5E1" />
+              </Pressable>
+            );
+          })
+        ) : (
+          <View className="flex-row items-center gap-3 p-3.5">
+            <View className="h-10 w-10 items-center justify-center rounded-xl bg-[#ECF8F0]">
+              <Ionicons name="ribbon-outline" size={19} color="#18794E" />
+            </View>
+            <View className="min-w-0 flex-1">
+              <Text className="text-[14px] font-semibold text-ink-900">No results yet</Text>
+              <Text className="mt-0.5 text-[12px] text-ink-500">Results appear once the school publishes them.</Text>
+            </View>
+          </View>
+        )}
+      </View>
     </>
   );
   const noticesEl = (
@@ -4499,6 +4621,7 @@ function ParentPhoneHome({ onMessage, wide = false }: { onMessage: () => void; w
   );
   const switcherEl = (
     <>
+      <ParentDetailsSheet open={detailsOpen} onClose={() => setDetailsOpen(false)} data={details.data} onChanged={details.reload} />
       <RnModal visible={switchOpen} transparent animationType={wide ? "fade" : "slide"} onRequestClose={() => setSwitchOpen(false)}>
         <View className={`flex-1 ${wide ? "items-center justify-center px-4" : "justify-end"}`}>
           <Pressable className="absolute inset-0 bg-black/40" onPress={() => setSwitchOpen(false)} />
@@ -4533,10 +4656,134 @@ function ParentPhoneHome({ onMessage, wide = false }: { onMessage: () => void; w
     </>
   );
 
+
+  // ---- extra phone sections: greeting, this week, subjects ----
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  const parentFirst = (user?.name || "").split(" ")[0] || "there";
+  const childFirst = (child?.name || "").split(" ")[0] || "your child";
+  const weekCal = calendarFrom(data?.calendar?.holidays, data?.calendar?.weekdays ?? data?.timetable?.weekdays);
+  const todayKey = ymd(new Date());
+  const markByDate = new Map<string, string>();
+  for (const r of attRows) {
+    const key = r.rawDate || (() => {
+      const d = new Date(r.date);
+      return Number.isNaN(+d) ? "" : ymd(d);
+    })();
+    if (key) markByDate.set(key, (r.status || "").toUpperCase());
+  }
+  const mondayOffset = (new Date().getDay() + 6) % 7;
+  const monday = addDays(todayKey, -mondayOffset);
+  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(monday, i)).filter((d, i) => i < 6 || !closedReason(d, weekCal));
+  const weekCells = weekDays.map((d) => {
+    const closed = closedReason(d, weekCal);
+    const mark = markByDate.get(d) || "";
+    const future = d > todayKey;
+    const kind = closed ? (/off$/i.test(closed) ? "off" : "holiday") : future ? "future" : mark === "PRESENT" || mark === "IN" ? "present" : mark === "ABSENT" || mark === "OUT" ? "absent" : mark === "LATE" ? "late" : mark === "LEAVE" ? "leave" : "none";
+    return { d, kind, label: new Date(`${d}T00:00:00`).toLocaleDateString("en-IN", { weekday: "short" }).slice(0, 1), n: Number(d.slice(8)), today: d === todayKey };
+  });
+  const schoolSoFar = weekCells.filter((c) => ["present", "absent", "late", "leave", "none"].includes(c.kind));
+  const presentSoFar = weekCells.filter((c) => c.kind === "present" || c.kind === "late").length;
+  const WEEK_STYLE: Record<string, { bg: string; icon?: React.ComponentProps<typeof Ionicons>["name"]; color: string }> = {
+    present: { bg: "bg-[#2BB673]", icon: "checkmark", color: "#fff" },
+    late: { bg: "bg-[#F59E0B]", icon: "time", color: "#fff" },
+    absent: { bg: "bg-[#E5484D]", icon: "close", color: "#fff" },
+    leave: { bg: "bg-[#3B82F6]", icon: "airplane", color: "#fff" },
+    holiday: { bg: "bg-[#EDE9FE]", icon: "sunny", color: "#7C3AED" },
+    off: { bg: "bg-ink-100", color: "#94A3B8" },
+    future: { bg: "bg-white border border-dashed border-ink-200", color: "#CBD5E1" },
+    none: { bg: "bg-white border border-ink-200", color: "#CBD5E1" },
+  };
+  const subjectRows = (child?.subjects ?? [])
+    .filter((x) => x.n > 0)
+    .slice()
+    .sort((a, b) => b.pct - a.pct)
+    .slice(0, 5);
+  const latestTest = (child?.tests ?? []).find((t) => !t.absent) || null;
+
+  const greetingEl = (
+    <View className="mb-3 px-1">
+      <Text className="text-[22px] font-bold text-ink-900">{greeting}, {parentFirst}</Text>
+      <Text className="mt-0.5 text-[13px] text-ink-500">
+        {new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })}
+      </Text>
+    </View>
+  );
+
+  const todayClosed = closedReason(todayKey, weekCal);
+  const todayMark = markByDate.get(todayKey) || "";
+  const todayKind = todayClosed
+    ? /off$/i.test(todayClosed) ? "off" : "holiday"
+    : todayMark === "PRESENT" || todayMark === "IN" ? "present" : todayMark === "ABSENT" || todayMark === "OUT" ? "absent" : todayMark === "LATE" ? "late" : todayMark === "LEAVE" ? "leave" : "none";
+  const TODAY_TEXT: Record<string, { title: string; sub: string; tone: string }> = {
+    present: { title: "Present", sub: `${childFirst} is in school today`, tone: "text-[#18794E]" },
+    late: { title: "Late", sub: `${childFirst} reached school late today`, tone: "text-[#B45309]" },
+    absent: { title: "Absent", sub: `${childFirst} was marked absent today`, tone: "text-[#B42318]" },
+    leave: { title: "On leave", sub: "Leave approved for today", tone: "text-[#1D4ED8]" },
+    holiday: { title: "Holiday", sub: todayClosed || "School is closed today", tone: "text-[#6D28D9]" },
+    off: { title: "No school", sub: todayClosed || "Weekly off", tone: "text-ink-500" },
+    none: { title: "Not marked yet", sub: "The class teacher hasn't taken attendance yet", tone: "text-ink-500" },
+  };
+  const todayStyle = WEEK_STYLE[todayKind] || WEEK_STYLE.none;
+  const weekEl = (
+    <>
+      {sectionTitle("Attendance today", wide ? { label: "Attendance", onPress: () => router.push("/attendance" as never) } : undefined)}
+      <Pressable onPress={() => router.push("/attendance" as never)} className="flex-row items-center gap-3 rounded-2xl border border-ink-100 bg-white p-3.5">
+        <View className={`h-10 w-10 items-center justify-center rounded-full ${todayStyle.bg}`}>
+          {todayStyle.icon ? <Ionicons name={todayStyle.icon} size={18} color={todayStyle.color} /> : <Ionicons name="time-outline" size={18} color="#94A3B8" />}
+        </View>
+        <View className="min-w-0 flex-1">
+          <Text className={`text-[15px] font-semibold ${TODAY_TEXT[todayKind].tone}`}>{TODAY_TEXT[todayKind].title}</Text>
+          <Text className="mt-0.5 text-[12px] text-ink-500" numberOfLines={1}>{TODAY_TEXT[todayKind].sub}</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={16} color="#CBD5E1" />
+      </Pressable>
+    </>
+  );
+
+  const subjectsEl = subjectRows.length ? (
+    <>
+      {sectionTitle(`How ${childFirst} is doing`, wide ? { label: "Results", onPress: () => router.push("/tests" as never) } : undefined)}
+      <View className="rounded-2xl border border-ink-100 bg-white p-3.5">
+        {latestTest ? (
+          <View className="mb-3 flex-row items-center gap-3 rounded-xl bg-[#F5F8FF] p-3">
+            <View className="h-10 w-10 items-center justify-center rounded-xl bg-white">
+              <Ionicons name="ribbon-outline" size={19} color="#1F45C7" />
+            </View>
+            <View className="min-w-0 flex-1">
+              <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">Latest result</Text>
+              <Text className="text-[14px] font-semibold text-ink-900" numberOfLines={1}>
+                {latestTest.subject}
+                {latestTest.title ? <Text className="font-normal text-ink-500"> · {latestTest.title}</Text> : null}
+              </Text>
+            </View>
+            <Text className="text-[16px] font-bold text-[#1F45C7]">
+              {latestTest.marks}/{latestTest.max}
+            </Text>
+          </View>
+        ) : null}
+        {subjectRows.map((x, i) => {
+          const tone = x.pct >= 75 ? "#2BB673" : x.pct >= 50 ? "#F59E0B" : "#E5484D";
+          return (
+            <View key={x.name} className={i ? "mt-3" : ""}>
+              <View className="flex-row items-center justify-between">
+                <Text className="text-[13px] font-medium text-ink-800" numberOfLines={1}>{x.name}</Text>
+                <Text className="text-[13px] font-semibold" style={{ color: tone }}>{x.pct}%</Text>
+              </View>
+              <View className="mt-1.5 h-2 overflow-hidden rounded-full bg-ink-100">
+                <View className="h-full rounded-full" style={{ width: `${Math.max(4, Math.min(100, x.pct))}%`, backgroundColor: tone }} />
+              </View>
+            </View>
+          );
+        })}
+      </View>
+    </>
+  ) : null;
+
   if (wide) {
     const stats = [
       { label: "Attendance", value: attRows.length ? `${att.pct}%` : "—", go: "/attendance" },
-      { label: "Avg marks", value: avg == null ? "—" : `${avg}%`, go: "/tests" },
+      { label: "Last result", value: lastPct == null ? "—" : `${lastPct}%`, go: "/tests" },
       { label: totalDue ? "Fees due" : "Fees", value: totalDue ? money(totalDue) : "Paid", go: "/fees" },
     ];
     return (
@@ -4630,14 +4877,16 @@ function ParentPhoneHome({ onMessage, wide = false }: { onMessage: () => void; w
               )}
             </View>
             {testsEl}
+            {recentEl}
           </View>
           <View style={{ flex: 2, minWidth: 0 }}>
-            {totalDue || inbox.reply ? (
+            {totalDue || inbox.reply || detailsDue ? (
               <>
                 {sectionTitle("Needs attention")}
                 <View className="-mt-4">{attentionEl}</View>
               </>
             ) : null}
+            {weekEl}
             {noticesEl}
           </View>
         </View>
@@ -4648,11 +4897,14 @@ function ParentPhoneHome({ onMessage, wide = false }: { onMessage: () => void; w
 
   return (
     <View className="pb-6">
+      {greetingEl}
       {heroEl}
       {attentionEl}
       {quickEl}
       {todayEl}
       {testsEl}
+      {recentEl}
+      {weekEl}
       {noticesEl}
       {switcherEl}
     </View>

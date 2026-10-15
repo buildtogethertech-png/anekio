@@ -1622,3 +1622,26 @@ model InboxMember {
   @@unique([threadId, userId])
   @@index([userId])
 }
+
+/// A detail a parent sent for their child's admission form. Applied only after the office approves.
+model ProfileRequest {
+  id           String    @id @default(cuid())
+  orgId        String?
+  studentId    String
+  parentUserId String
+  fieldId      String
+  fieldLabel   String    @default("")
+  fieldType    String    @default("text")
+  /// Text answer, or the private file path for file fields.
+  value        String
+  /// PENDING | APPROVED | REJECTED
+  status       String    @default("PENDING")
+  /// Reason shown to the parent when rejected.
+  note         String    @default("")
+  reviewedById String    @default("")
+  reviewedAt   DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@index([studentId, status])
+  @@index([status])
+}

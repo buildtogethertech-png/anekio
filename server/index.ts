@@ -26,6 +26,7 @@ import { queryFeeRegister } from "../lib/fee-register";
 import { homePayload, serializeNotice } from "../lib/api-v1-home";
 import { noticesForUser } from "../lib/data";
 import { inboxRecipients, inboxThreadDetail, listInboxThreads } from "../lib/inbox";
+import { parentDetailsFor, pendingProfileRequests } from "../lib/profile-requests";
 import { actOp, runAct } from "../lib/run-act";
 import {
   SUPPORT_BLOCKED_OPS,
@@ -592,6 +593,28 @@ app.get("/api/v1/inbox", async (req, res) => {
     res.json({ threads: await listInboxThreads(user) });
   } catch (error) {
     sendError(res, 400, error instanceof Error ? error.message : "Could not load inbox.");
+  }
+});
+
+app.get("/api/v1/parent-details", async (req, res) => {
+  const user = await requireUser(req, res);
+  if (!user) return;
+  if (!(await requireActiveSubscription(user.id, res))) return;
+  try {
+    res.json(await parentDetailsFor(user, String(req.query.studentId || "")));
+  } catch (error) {
+    sendError(res, 400, error instanceof Error ? error.message : "Could not load details.");
+  }
+});
+
+app.get("/api/v1/profile-requests", async (req, res) => {
+  const user = await requireUser(req, res);
+  if (!user) return;
+  if (!(await requireActiveSubscription(user.id, res))) return;
+  try {
+    res.json({ requests: await pendingProfileRequests(user) });
+  } catch (error) {
+    sendError(res, 400, error instanceof Error ? error.message : "Could not load parent updates.");
   }
 });
 

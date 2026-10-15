@@ -1,5 +1,5 @@
 import { createElement, useMemo, useState, type ReactNode } from "react";
-import { Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Toast, useToast } from "./ui";
 import { act } from "../lib/mutate";
@@ -242,6 +242,8 @@ export function TeacherMonthlyRegister({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Record<string, Mark>>({});
   const [busy, setBusy] = useState(false);
+  const [openStudent, setOpenStudent] = useState<string>("");
+  const [phoneFilter, setPhoneFilter] = useState<"all" | "low" | "absent">("all");
   const admission = useMemo(
     () => Object.fromEntries((people ?? []).map((p) => [p.id, p.admissionNo || ""])),
     [people]
@@ -548,6 +550,261 @@ export function TeacherMonthlyRegister({
 
   const prev = shiftMonth(month, -1);
   const next = shiftMonth(month, 1);
+
+  if (phone) {
+    const MARK_DOT: Record<string, string> = { PRESENT: "#2BB673", LATE: "#F59E0B", ABSENT: "#E5484D", LEAVE: "#3B82F6" };
+    const schoolDays = meta.filter((d) => d.kind === "working" && !d.future);
+    const lastDays = schoolDays.slice(-7).map((d) => d.date);
+    const focusLabel = focusDate === today ? "today" : focusDate ? new Date(`${focusDate}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "";
+    const pctOf = (row: (typeof built)[number]) => (row.present + row.absent ? row.pct : null);
+    const lowCount = built.filter((r) => {
+      const v = pctOf(r);
+      return v != null && v < 75;
+    }).length;
+    const needle = query.trim().toLowerCase();
+    const list = built
+      .filter((row) => {
+        if (needle && !row.student.name.toLowerCase().includes(needle) && !row.metaLine.toLowerCase().includes(needle)) return false;
+        if (phoneFilter === "low") {
+          const v = pctOf(row);
+          return v != null && v < 75;
+        }
+        if (phoneFilter === "absent") return row.marks.find((m) => m.day.date === focusDate)?.mark === "ABSENT";
+        return true;
+      })
+      .sort((a, b) => (a.rollNumber ?? 9999) - (b.rollNumber ?? 9999) || a.student.name.localeCompare(b.student.name));
+    const absentToday = built.filter((row) => row.marks.find((m) => m.day.date === focusDate)?.mark === "ABSENT").length;
+    const selected = built.find((r) => r.student.id === openStudent) || null;
+    const dirty = Object.keys(draft).length > 0;
+    const initials = (name: string) =>
+      name
+        .split(" ")
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((x) => x[0]?.toUpperCase())
+        .join("") || "?";
+    const pctTone = (v: number | null) => (v == null ? "text-ink-400" : v < 75 ? "text-[#B42318]" : v < 90 ? "text-[#B45309]" : "text-[#18794E]");
+    const firstWeekday = selected ? (weekdayOfYmd(dates[0]) || 7) - 1 : 0;
+
+    function cycleDay(studentId: string, date: string) {
+      const key = `${studentId}:${date}`;
+      const existing = parseMark(roster.find((x) => x.id === studentId)?.days?.find((d) => d.date === date)?.status);
+      setDraft((cur) => ({ ...cur, [key]: cycleMark(cur[key] ?? existing) }));
+    }
+
+    return (
+      <View className="min-h-0 flex-1">
+        {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
+        {/* Header */}
+        <View className="mb-3 flex-row items-center gap-2">
+          <Pressable onPress={onBack} hitSlop={10} accessibilityLabel="Back to today" className="h-9 w-9 items-center justify-center rounded-full bg-white">
+            <Ionicons name="chevron-back" size={20} color="#0F172A" />
+          </Pressable>
+          <View className="min-w-0 flex-1">
+            <Text className="text-[18px] font-bold text-ink-900" numberOfLines={1}>Month register</Text>
+            <Text className="text-[12px] text-ink-500" numberOfLines={1}>
+              {classLabel ? `Class ${classLabel} · ` : ""}{roster.length} students
+            </Text>
+          </View>
+          <View className="flex-row items-center rounded-full border border-ink-200 bg-white">
+            <Pressable onPress={() => setMonth(prev)} hitSlop={6} className="h-9 w-8 items-center justify-center">
+              <Ionicons name="chevron-back" size={16} color="#1F45C7" />
+            </Pressable>
+            <Text className="text-[13px] font-semibold text-ink-900">{monthTitleShort(month)}</Text>
+            <Pressable onPress={() => next <= today.slice(0, 7) && setMonth(next)} hitSlop={6} className="h-9 w-8 items-center justify-center">
+              <Ionicons name="chevron-forward" size={16} color={next <= today.slice(0, 7) ? "#1F45C7" : "#CBD5E1"} />
+            </Pressable>
+          </View>
+        </View>
+
+        <ScrollView className="min-h-0 flex-1" contentContainerStyle={{ paddingBottom: dirty ? 96 : 24 }} keyboardShouldPersistTaps="handled">
+          {/* Summary */}
+          <View className="rounded-3xl border border-ink-100 bg-white p-4">
+            <View className="flex-row items-end justify-between">
+              <View>
+                <Text className="text-[12px] font-medium text-ink-500">Class attendance · {monthTitle(month)}</Text>
+                <Text className="mt-0.5 text-[30px] font-bold leading-9 text-ink-900">{summary.pct}%</Text>
+              </View>
+              <Text className="mb-1 text-[12px] text-ink-500">{summary.working} school day{summary.working === 1 ? "" : "s"}</Text>
+            </View>
+            <View className="mt-3 flex-row gap-2">
+              {[
+                { label: "Present", value: summary.present, bg: "bg-[#ECF8F0]", tone: "text-[#18794E]" },
+                { label: "Absent", value: summary.absent, bg: "bg-[#FDECEC]", tone: "text-[#B42318]" },
+                { label: "Leave", value: summary.leave, bg: "bg-[#EEF4FF]", tone: "text-[#1D4ED8]" },
+              ].map((x) => (
+                <View key={x.label} className={`flex-1 rounded-2xl px-3 py-2 ${x.bg}`}>
+                  <Text className={`text-[18px] font-bold ${x.tone}`}>{x.value}</Text>
+                  <Text className="text-[11px] text-ink-600">{x.label}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+
+          {/* Search + filters */}
+          <View className="mt-4 h-10 flex-row items-center gap-2 rounded-xl border border-ink-100 bg-white px-3">
+            <Ionicons name="search" size={16} color="#64748B" />
+            <TextInput value={query} onChangeText={setQuery} placeholder="Search student" placeholderTextColor="#94A3B8" className="flex-1 text-[14px] text-ink-900" />
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mt-2.5" contentContainerStyle={{ gap: 6 }}>
+            {[
+              { key: "all" as const, label: `All · ${built.length}` },
+              { key: "low" as const, label: `Below 75% · ${lowCount}` },
+              { key: "absent" as const, label: `Absent ${focusLabel} · ${absentToday}` },
+            ].map((f) => {
+              const on = phoneFilter === f.key;
+              return (
+                <Pressable key={f.key} onPress={() => setPhoneFilter(f.key)} className={`h-8 justify-center rounded-full border px-3 ${on ? "border-[#1F45C7] bg-[#1F45C7]" : "border-ink-200 bg-white"}`}>
+                  <Text className={`text-[12px] font-semibold ${on ? "text-white" : "text-ink-700"}`}>{f.label}</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+
+          {/* Students */}
+          <View className="mt-3 overflow-hidden rounded-2xl border border-ink-100 bg-white">
+            {list.length ? (
+              list.map((row, i) => {
+                const v = pctOf(row);
+                const byDate = new Map(row.marks.map((m) => [m.day.date, m.mark]));
+                return (
+                  <Pressable
+                    key={row.student.id}
+                    onPress={() => setOpenStudent(row.student.id)}
+                    className={`flex-row items-center gap-3 px-3.5 py-3 ${i ? "border-t border-ink-100" : ""}`}
+                  >
+                    <View className="h-9 w-9 items-center justify-center rounded-full bg-[#EEF3FF]">
+                      <Text className="text-[12px] font-bold text-[#1F45C7]">{initials(row.student.name)}</Text>
+                    </View>
+                    <View className="min-w-0 flex-1">
+                      <Text className="text-[14px] font-semibold text-ink-900" numberOfLines={1}>{row.student.name}</Text>
+                      <View className="mt-1 flex-row items-center gap-1">
+                        {lastDays.map((d) => {
+                          const mk = byDate.get(d) || "";
+                          return (
+                            <View
+                              key={d}
+                              className="h-2 w-2 rounded-full"
+                              style={{ backgroundColor: MARK_DOT[mk] || "#E2E8F0" }}
+                            />
+                          );
+                        })}
+                        <Text className="ml-1 text-[11px] text-ink-400" numberOfLines={1}>
+                          {row.rollNumber != null ? `Roll ${row.rollNumber}` : ""}
+                        </Text>
+                      </View>
+                    </View>
+                    <View className="items-end">
+                      <Text className={`text-[15px] font-bold ${pctTone(v)}`}>{v == null ? "—" : `${v}%`}</Text>
+                      <Text className="text-[11px] text-ink-400">{row.absent ? `${row.absent} absent` : "no absences"}</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color="#CBD5E1" />
+                  </Pressable>
+                );
+              })
+            ) : (
+              <Text className="px-4 py-8 text-center text-[13px] text-ink-500">No students match.</Text>
+            )}
+          </View>
+          <View className="mt-3 flex-row flex-wrap items-center justify-center gap-x-3 gap-y-1">
+            {[
+              ["Present", "#2BB673"],
+              ["Late", "#F59E0B"],
+              ["Absent", "#E5484D"],
+              ["Leave", "#3B82F6"],
+              ["Not marked", "#E2E8F0"],
+            ].map(([label, color]) => (
+              <View key={label} className="flex-row items-center gap-1">
+                <View className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
+                <Text className="text-[11px] text-ink-500">{label}</Text>
+              </View>
+            ))}
+          </View>
+          <Text className="mt-1 text-center text-[11px] text-ink-400">Dots show the last 7 school days</Text>
+        </ScrollView>
+
+        {dirty ? (
+          <View className="absolute inset-x-0 bottom-0 flex-row items-center gap-2 border-t border-ink-100 bg-white px-4 py-3">
+            <Text className="min-w-0 flex-1 text-[13px] text-ink-700">{Object.keys(draft).length} change{Object.keys(draft).length === 1 ? "" : "s"} not saved</Text>
+            <Pressable onPress={() => setDraft({})} className="h-10 justify-center rounded-xl px-3">
+              <Text className="text-[13px] font-semibold text-ink-600">Discard</Text>
+            </Pressable>
+            <Pressable onPress={() => void saveEdits()} disabled={busy} className="h-10 justify-center rounded-xl bg-[#1F45C7] px-4">
+              <Text className="text-[13px] font-semibold text-white">{busy ? "Saving…" : "Save"}</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {/* Student month sheet */}
+        <RnModal visible={Boolean(selected)} transparent animationType="slide" onRequestClose={() => setOpenStudent("")}>
+          <View className="flex-1 justify-end">
+            <Pressable className="absolute inset-0 bg-black/40" onPress={() => setOpenStudent("")} />
+            {selected ? (
+              <View className="rounded-t-3xl bg-white px-5 pb-8 pt-3">
+                <View className="mx-auto mb-3 h-1 w-10 rounded-full bg-ink-200" />
+                <View className="flex-row items-center gap-3">
+                  <View className="h-11 w-11 items-center justify-center rounded-full bg-[#EEF3FF]">
+                    <Text className="text-[14px] font-bold text-[#1F45C7]">{initials(selected.student.name)}</Text>
+                  </View>
+                  <View className="min-w-0 flex-1">
+                    <Text className="text-[17px] font-semibold text-ink-900" numberOfLines={1}>{selected.student.name}</Text>
+                    <Text className="text-[12px] text-ink-500" numberOfLines={1}>{selected.metaLine} · {monthTitle(month)}</Text>
+                  </View>
+                  <Text className={`text-[20px] font-bold ${pctTone(pctOf(selected))}`}>{pctOf(selected) == null ? "—" : `${pctOf(selected)}%`}</Text>
+                </View>
+                <View className="mt-4 flex-row">
+                  {["M", "T", "W", "T", "F", "S", "S"].map((d, i) => (
+                    <Text key={`${d}${i}`} className="flex-1 text-center text-[11px] font-medium text-ink-400">{d}</Text>
+                  ))}
+                </View>
+                <View className="mt-1 flex-row flex-wrap">
+                  {Array.from({ length: firstWeekday }, (_, i) => (
+                    <View key={`b${i}`} className="w-[14.285%]" style={{ height: 44 }} />
+                  ))}
+                  {selected.marks.map((m) => {
+                    const editable = m.day.kind === "working" && !m.day.future;
+                    const color =
+                      m.day.kind === "holiday" ? "#8B5CF6" : m.day.kind === "weekend" ? "transparent" : MARK_DOT[m.mark] || (m.day.future ? "transparent" : "#E2E8F0");
+                    const changed = draft[`${selected.student.id}:${m.day.date}`] != null;
+                    return (
+                      <Pressable
+                        key={m.day.date}
+                        disabled={!editable}
+                        onPress={() => cycleDay(selected.student.id, m.day.date)}
+                        className="w-[14.285%] items-center justify-center"
+                        style={{ height: 44 }}
+                      >
+                        <View className={`h-8 w-8 items-center justify-center rounded-full ${m.day.today ? "border-2 border-[#1F45C7]" : ""} ${changed ? "bg-[#FFF7E8]" : ""}`}>
+                          <Text className={`text-[13px] ${editable ? "font-semibold text-ink-900" : "text-ink-400"}`}>{m.day.n}</Text>
+                        </View>
+                        <View className="mt-0.5 h-[5px] w-[5px] rounded-full" style={{ backgroundColor: color }} />
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                <View className="mt-3 flex-row gap-2">
+                  {[
+                    { label: "Present", value: selected.present, tone: "text-[#18794E]" },
+                    { label: "Absent", value: selected.absent, tone: "text-[#B42318]" },
+                    { label: "Leave", value: selected.leave, tone: "text-[#1D4ED8]" },
+                  ].map((x) => (
+                    <View key={x.label} className="flex-1 rounded-xl bg-ink-50 px-3 py-2">
+                      <Text className={`text-[16px] font-bold ${x.tone}`}>{x.value}</Text>
+                      <Text className="text-[11px] text-ink-500">{x.label}</Text>
+                    </View>
+                  ))}
+                </View>
+                <Text className="mt-3 text-center text-[12px] text-ink-500">Tap a day to change it: Present → Absent → Leave → Late</Text>
+                <Pressable onPress={() => setOpenStudent("")} className="mt-3 h-11 items-center justify-center rounded-xl bg-[#1F45C7]">
+                  <Text className="text-[14px] font-semibold text-white">{dirty ? "Done · save below" : "Done"}</Text>
+                </Pressable>
+              </View>
+            ) : null}
+          </View>
+        </RnModal>
+      </View>
+    );
+  }
 
   return (
     <View className="min-h-0 flex-1" style={{ flex: 1, minHeight: 0, flexDirection: "column" }}>

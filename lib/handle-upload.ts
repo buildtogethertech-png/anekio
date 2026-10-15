@@ -148,6 +148,16 @@ function validateAndFolder(user: AccessUser, file: UploadFile, fields: Record<st
     };
   }
 
+  if (kind === "parentDocument") {
+    if (user.portal !== "PARENT") throw new Error("No access.");
+    if (!fields.studentId) throw new Error("Student required");
+    if (!isStudentDocumentFile(file.name, file.mime)) throw new Error("Upload the document as a PDF or image.");
+    return {
+      kind,
+      folder: `private/${schoolRoot()}/students/${safePathSegment(fields.studentId)}/documents`,
+    };
+  }
+
   if (kind === "staffDocument") {
     if (!can(user, "staff.edit")) throw new Error("No access.");
     const owner = fields.staffKind === "teacher" ? "teacher" : "staff";

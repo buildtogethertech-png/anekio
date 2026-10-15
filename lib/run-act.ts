@@ -135,6 +135,7 @@ import {
   uploadStudentDocumentCore,
 } from "./document-studio";
 import { startInboxThreadCore, sendInboxMessageCore, updateInboxThreadCore } from "./inbox";
+import { reviewProfileRequestCore, submitProfileRequestCore } from "./profile-requests";
 
 export function actOp(body: Record<string, unknown>) {
   const op = String(body.op || body.action || "").trim();
@@ -203,6 +204,10 @@ export async function runAct(
     case "submitParentQuery":
       await submitParentQueryCore(user, body as never);
       break;
+    case "submitProfileRequest":
+      return { ok: true, ...(await submitProfileRequestCore(user, body as never)) };
+    case "reviewProfileRequest":
+      return { ok: true, ...(await reviewProfileRequestCore(user, body as never)) };
     case "startInboxThread":
       return { ok: true, ...(await startInboxThreadCore(user, body as never)) };
     case "sendInboxMessage":
