@@ -1597,10 +1597,34 @@ function sendAppShell(_req: express.Request, res: express.Response, next: expres
   res.setHeader("Cache-Control", "no-store");
   res.sendFile(path.join(dir, "index.html"));
 }
+// Web app caching. Hashed bundles never change, so cache them for a year. The HTML shell and every
+// un-hashed file must be re-checked on each load, or browsers keep an old index.html that points at
+// bundles a new deploy removed (the "needs a hard refresh after deploy" bug). ETags are off because on
+// serverless hosts files share a build mtime, so an unchanged size could wrongly answer 304.
+const HASHED_ASSET = /[.-][0-9a-f]{16,}\.(?:js|css|map|wasm|png|jpe?g|webp|svg|ttf|otf|woff2?)$/i;
+const webStatic = new Map<string, express.RequestHandler>();
+function staticFor(dir: string) {
+  let handler = webStatic.get(dir);
+  if (!handler) {
+    handler = express.static(dir, {
+      index: false,
+      etag: false,
+      lastModified: false,
+      setHeaders(res, filePath) {
+        if (filePath.endsWith(".html")) res.setHeader("Cache-Control", "no-store");
+        else if (HASHED_ASSET.test(filePath) || filePath.includes(`${path.sep}_expo${path.sep}static${path.sep}`)) {
+          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        } else res.setHeader("Cache-Control", "no-cache");
+      },
+    });
+    webStatic.set(dir, handler);
+  }
+  return handler;
+}
 app.use((req, res, next) => {
   const dir = webRoot();
   if (!dir) return next();
-  express.static(dir)(req, res, next);
+  staticFor(dir)(req, res, next);
 });
 app.get(["/", ...appShellRoutes], sendAppShell);
 app.use((req, res, next) => {
