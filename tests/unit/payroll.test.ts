@@ -248,7 +248,7 @@ describe("summarizePayroll salary basis", () => {
   const twoAbsent = new Map(
     march.map((date) => [date, date === "2026-03-10" || date === "2026-03-11" ? "ABSENT" : "PRESENT"] as const)
   );
-  const run = (rules: Partial<PayrollRules>, marks = twoAbsent) =>
+  const run = (rules: Partial<PayrollRules>, marks: Parameters<typeof summarizePayroll>[0]["marks"] = twoAbsent) =>
     summarizePayroll({
       dates: march,
       today: "2026-03-31",
