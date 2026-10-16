@@ -352,12 +352,11 @@
   "staffOnboardingFormJson": [
     {
       "id": "staffName",
-      "label": "Staff name",
+      "label": "Full name",
       "type": "text",
       "required": true,
       "visible": true,
-      "options": [],
-      "builtin": true
+      "options": []
     },
     {
       "id": "phone",
@@ -366,7 +365,7 @@
       "required": true,
       "visible": true,
       "options": [],
-      "builtin": true
+      "helpText": "They sign in with this number."
     },
     {
       "id": "email",
@@ -374,30 +373,15 @@
       "type": "email",
       "required": false,
       "visible": true,
-      "options": [],
-      "builtin": true
+      "options": []
     },
     {
       "id": "role",
       "label": "Role",
-      "type": "select",
+      "type": "role",
       "required": true,
       "visible": true,
-      "options": [
-        "Teacher",
-        "Office staff",
-        "Support staff"
-      ],
-      "builtin": true
-    },
-    {
-      "id": "department",
-      "label": "Department",
-      "type": "text",
-      "required": false,
-      "visible": true,
-      "options": [],
-      "builtin": true
+      "options": []
     },
     {
       "id": "joiningDate",
@@ -405,26 +389,95 @@
       "type": "date",
       "required": true,
       "visible": true,
+      "options": []
+    },
+    {
+      "id": "monthlySalary",
+      "label": "Monthly salary",
+      "type": "number",
+      "required": true,
+      "visible": true,
       "options": [],
-      "builtin": true
+      "helpText": "Gross salary per month in ₹."
+    },
+    {
+      "id": "reportingManager",
+      "label": "Reporting manager",
+      "type": "manager",
+      "required": false,
+      "visible": true,
+      "options": [],
+      "helpText": "Approves their leave and requests. None means the Admin."
+    },
+    {
+      "id": "department",
+      "label": "Department",
+      "type": "text",
+      "required": false,
+      "visible": true,
+      "options": []
     },
     {
       "id": "qualification",
-      "label": "Qualification",
+      "label": "Highest qualification",
       "type": "text",
       "required": false,
       "visible": true,
       "options": [],
-      "builtin": true
+      "helpText": "e.g. M.Sc, B.Ed"
     },
     {
       "id": "address",
-      "label": "Address",
+      "label": "Current address",
       "type": "textarea",
       "required": false,
       "visible": true,
+      "options": []
+    },
+    {
+      "id": "custom_date_of_birth",
+      "label": "Date of birth",
+      "type": "date",
+      "required": false,
+      "visible": true,
+      "options": []
+    },
+    {
+      "id": "custom_gender",
+      "label": "Gender",
+      "type": "select",
+      "required": false,
+      "visible": true,
+      "options": [
+        "Female",
+        "Male",
+        "Other"
+      ]
+    },
+    {
+      "id": "custom_emergency_contact",
+      "label": "Emergency contact number",
+      "type": "phone",
+      "required": false,
+      "visible": true,
+      "options": []
+    },
+    {
+      "id": "custom_bank_account",
+      "label": "Bank account number",
+      "type": "text",
+      "required": false,
+      "visible": true,
       "options": [],
-      "builtin": true
+      "helpText": "For salary by bank transfer."
+    },
+    {
+      "id": "custom_bank_ifsc",
+      "label": "IFSC code",
+      "type": "text",
+      "required": false,
+      "visible": true,
+      "options": []
     },
     {
       "id": "custom_staff_photo",
@@ -433,20 +486,26 @@
       "required": false,
       "visible": true,
       "options": [],
-      "builtin": false,
-      "helpText": "Passport-size photo.",
       "fileType": "image",
       "maxFileSizeMb": 5
     },
     {
-      "id": "custom_id_proof",
-      "label": "ID proof",
+      "id": "custom_aadhaar",
+      "label": "Aadhaar card",
       "type": "file",
       "required": false,
       "visible": true,
       "options": [],
-      "builtin": false,
-      "helpText": "Aadhaar, PAN, voter ID or passport.",
+      "fileType": "image_pdf",
+      "maxFileSizeMb": 5
+    },
+    {
+      "id": "custom_pan",
+      "label": "PAN card",
+      "type": "file",
+      "required": false,
+      "visible": true,
+      "options": [],
       "fileType": "image_pdf",
       "maxFileSizeMb": 5
     },
@@ -455,33 +514,61 @@
       "label": "Address proof",
       "type": "file",
       "required": false,
-      "visible": false,
+      "visible": true,
       "options": [],
-      "builtin": false,
       "fileType": "image_pdf",
       "maxFileSizeMb": 5
     },
     {
       "id": "custom_qualification_certificate",
-      "label": "Qualification certificate",
+      "label": "Qualification certificates",
       "type": "file",
       "required": false,
-      "visible": false,
+      "visible": true,
       "options": [],
-      "builtin": false,
+      "fileType": "image_pdf",
+      "maxFileSizeMb": 10,
+      "helpText": "Degree, B.Ed / TET for teachers."
+    },
+    {
+      "id": "custom_experience_letter",
+      "label": "Experience / relieving letter",
+      "type": "file",
+      "required": false,
+      "visible": true,
+      "options": [],
       "fileType": "image_pdf",
       "maxFileSizeMb": 5
     },
     {
-      "id": "custom_experience_letter",
-      "label": "Experience letter",
+      "id": "custom_bank_proof",
+      "label": "Cancelled cheque or passbook",
+      "type": "file",
+      "required": false,
+      "visible": true,
+      "options": [],
+      "fileType": "image_pdf",
+      "maxFileSizeMb": 5
+    },
+    {
+      "id": "custom_police_verification",
+      "label": "Police verification",
       "type": "file",
       "required": false,
       "visible": false,
       "options": [],
-      "builtin": false,
       "fileType": "image_pdf",
       "maxFileSizeMb": 5
+    },
+    {
+      "id": "custom_signature",
+      "label": "Signature",
+      "type": "file",
+      "required": false,
+      "visible": false,
+      "options": [],
+      "fileType": "image",
+      "maxFileSizeMb": 2
     }
   ]
 }

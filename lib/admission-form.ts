@@ -1,4 +1,4 @@
-export const ADMISSION_FIELD_TYPES = ["text", "email", "phone", "number", "date", "month", "textarea", "select", "radio", "multi", "checkbox", "file"] as const;
+export const ADMISSION_FIELD_TYPES = ["text", "email", "phone", "number", "date", "month", "textarea", "select", "radio", "multi", "checkbox", "file", "role", "manager"] as const;
 export const ADMISSION_FILE_TYPES = ["image", "pdf", "image_pdf"] as const;
 
 export type AdmissionFieldType = (typeof ADMISSION_FIELD_TYPES)[number];
@@ -23,7 +23,17 @@ export const LOCKED_ADMISSION_FIELD_IDS: readonly string[] = ["studentName", "cl
 /** Admission also needs the billing month: invoices start from it. Not asked on the website. */
 export const LOCKED_STUDENT_ADMISSION_FIELD_IDS: readonly string[] = [...LOCKED_ADMISSION_FIELD_IDS, "billingStartPeriod"];
 export type AdmissionBuiltinId = (typeof BUILTIN_IDS)[number];
-const STAFF_ONBOARDING_BUILTIN_IDS = ["staffName", "phone", "email", "role", "department", "joiningDate", "qualification", "address"] as const;
+const STAFF_ONBOARDING_BUILTIN_IDS = ["staffName", "phone", "email", "role", "department", "joiningDate", "qualification", "address", "monthlySalary", "reportingManager"] as const;
+/** Staff fields with a fixed input type: the code reads them, so a school can't turn them into something else. */
+const STAFF_FIXED_TYPES: Record<string, AdmissionFieldType> = {
+  staffName: "text",
+  phone: "phone",
+  email: "email",
+  role: "role",
+  joiningDate: "date",
+  monthlySalary: "number",
+  reportingManager: "manager",
+};
 
 function cleanOptions(value: unknown) {
   const source = Array.isArray(value) ? value : String(value || "").split(/\n|,/);
@@ -42,7 +52,14 @@ function customId(value: unknown, index: number) {
 }
 
 /** Parses a saved form. Built-in ids are the code's field contract; everything else is the school's own field. */
-function parseFormFields(value: unknown, builtinIds: readonly string[], lockedIds: readonly string[] = []): AdmissionFormField[] {
+function parseFormFields(
+  value: unknown,
+  builtinIds: readonly string[],
+  lockedIds: readonly string[] = [],
+  allowRole = false,
+  lockedOptionalIds: readonly string[] = [],
+  fixedTypes: Record<string, AdmissionFieldType> = {}
+): AdmissionFormField[] {
   let parsed = value;
   if (typeof value === "string") {
     try { parsed = JSON.parse(value); } catch { return []; }
@@ -57,17 +74,21 @@ function parseFormFields(value: unknown, builtinIds: readonly string[], lockedId
       const id = builtin ? rawId : customId(rawId, index);
       if (used.has(id)) return null;
       used.add(id);
-      const type = ADMISSION_FIELD_TYPES.includes(String(row.type || "") as AdmissionFieldType)
+      let type = ADMISSION_FIELD_TYPES.includes(String(row.type || "") as AdmissionFieldType)
         ? String(row.type) as AdmissionFieldType : "text";
+      // "School role" lists the school's live roles; only the staff form has it, and its built-in Role field always uses it.
+      if ((type === "role" || type === "manager") && !allowRole) type = "text";
+      if (builtin && fixedTypes[rawId]) type = fixedTypes[rawId];
       const fileType = ADMISSION_FILE_TYPES.includes(String(row.fileType || "") as AdmissionFileType)
         ? String(row.fileType) as AdmissionFileType : "image_pdf";
-      const locked = builtin && lockedIds.includes(id);
+      const lockedOptional = builtin && lockedOptionalIds.includes(id);
+      const locked = builtin && (lockedIds.includes(id) || lockedOptional);
       const visible = locked || row.visible === undefined ? true : Boolean(row.visible);
       return {
         id,
         label: String(row.label || id).trim().slice(0, 80) || id,
         type,
-        required: locked || (visible && Boolean(row.required)),
+        required: lockedOptional ? false : locked || (visible && Boolean(row.required)),
         visible,
         options: ["select", "radio", "multi"].includes(type) ? cleanOptions(row.options) : [],
         builtin,
@@ -95,10 +116,12 @@ export function websiteFormFields(value: unknown): AdmissionFormField[] {
 }
 
 /** Every employee needs these to log in and be paid from the right day: rename only, never hide. */
-export const LOCKED_STAFF_FIELD_IDS: readonly string[] = ["staffName", "phone", "role", "joiningDate"];
+export const LOCKED_STAFF_FIELD_IDS: readonly string[] = ["staffName", "phone", "role", "joiningDate", "monthlySalary"];
+/** Always on the staff form, but never required. */
+export const LOCKED_OPTIONAL_STAFF_FIELD_IDS: readonly string[] = ["email", "reportingManager"];
 
 export function staffOnboardingFormFields(value: unknown): AdmissionFormField[] {
-  return parseFormFields(value, STAFF_ONBOARDING_BUILTIN_IDS, LOCKED_STAFF_FIELD_IDS);
+  return parseFormFields(value, STAFF_ONBOARDING_BUILTIN_IDS, LOCKED_STAFF_FIELD_IDS, true, LOCKED_OPTIONAL_STAFF_FIELD_IDS, STAFF_FIXED_TYPES);
 }
 
 export function websiteFormJson(value: unknown) {

@@ -6,7 +6,7 @@ import { pickFile, type PickedFile } from "../lib/upload";
 import { AdmissionCustomField, fileAccept, SectionCard, UploadTile } from "./student-admit-form";
 import { DateField } from "./date-field";
 import { Dropdown } from "./form";
-import { defaultManagerId, ManagerSelect, type ManagerOption } from "./manager-picker";
+import { defaultManagerId, managerChoices, ManagerSelect, type ManagerOption } from "./manager-picker";
 import { Button, Field, Input } from "./ui";
 
 export type StaffAdmitRole = { id: string; name: string; portal?: string; slug?: string; isSystem?: boolean };
@@ -79,7 +79,13 @@ export function StaffAdmitForm({
   busyLabel = "Adding…",
   wizard,
   staffForm = [],
+  editing,
+  salaryEditable = true,
 }: {
+  /** Only people who approve salaries can change the monthly salary. */
+  salaryEditable?: boolean;
+  /** Editing an existing employee: prefill form answers, count saved documents, show pay & reporting. */
+  editing?: boolean;
   /** Phone: full-screen steps (Details · Documents) driven by the staff onboarding form. */
   wizard?: boolean;
   /** The school's staff onboarding form (School setup → Forms & Templates). */
@@ -94,11 +100,11 @@ export function StaffAdmitForm({
   busyLabel?: string;
 }) {
   const sectioned = !wizard && staffForm.length > 0;
-  const blank = () => ({ ...emptyForm(roles, managers), ...(wizard || sectioned ? { roleId: "", monthlySalary: "" } : {}), ...initialValues });
+  const blank = () => ({ ...emptyForm(roles, managers), ...(wizard || sectioned ? { roleId: "", monthlySalary: "", joinedOn: "", managerId: "" } : {}), ...initialValues });
   const [form, setForm] = useState<StaffAdmitPayload>(blank);
   const [busy, setBusy] = useState(false);
   const [files, setFiles] = useState<StaffAdmitFiles>({});
-  const [custom, setCustom] = useState<Record<string, string>>({});
+  const [custom, setCustom] = useState<Record<string, string>>(() => ({ ...(initialValues?.customValues ?? {}) }));
   const [step, setStep] = useState(0);
   const [error, setError] = useState("");
   const picked = roles.find((r) => r.id === form.roleId);
@@ -110,13 +116,21 @@ export function StaffAdmitForm({
   }
 
   useEffect(() => {
+    // Form-driven screens use the "Reporting manager" field, where None is a real choice.
+    if (wizard || sectioned) return;
     const adminId = defaultManagerId(managers);
     if (!form.managerId && adminId) patch({ managerId: adminId });
   }, [managers]);
 
+  // Reset only when the inputs really change; parents rebuild these arrays on every render.
+  const resetKey = `${JSON.stringify(initialValues ?? {})}|${roles.map((r) => r.id).join(",")}|${managers.length}`;
   useEffect(() => {
     setForm(blank());
-  }, [initialValues, roles, managers]);
+    setCustom({ ...(initialValues?.customValues ?? {}) });
+  }, [resetKey]);
+
+  /** A document already on file for this employee (edit only). */
+  const onFile = (id: string) => Boolean(editing && String(custom[id] || "").startsWith("private/"));
 
   async function save() {
     if (busy) return;
@@ -125,7 +139,8 @@ export function StaffAdmitForm({
       await onSubmit(
         {
           ...form,
-          managerId: showManager ? form.managerId || defaultManagerId(managers) : "",
+          // None ("") lets the server use the default manager for that role.
+          managerId: showManager ? (wizard || sectioned ? form.managerId : form.managerId || defaultManagerId(managers)) : "",
           classId: showClassTeacher ? form.classId : "",
           customValues: custom,
         },
@@ -143,20 +158,31 @@ export function StaffAdmitForm({
   }
 
   if (wizard || sectioned) {
-    const LOCKED = ["staffName", "phone", "role", "joiningDate"];
-    const ordered = [...staffForm];
-    for (const id of LOCKED) {
+    // Locked fields every staff form has. Monthly salary only for people who approve salaries; email is locked but optional.
+    const LOCKED = ["staffName", "phone", "role", "joiningDate", ...(salaryEditable ? ["monthlySalary"] : [])];
+    const ALWAYS = [...LOCKED, "email", "reportingManager"];
+    const DEFAULT_LABEL: Record<string, string> = { staffName: "Name", phone: "Mobile", email: "Email", role: "Role", joiningDate: "Joining date", monthlySalary: "Monthly salary", reportingManager: "Reporting manager" };
+    const ordered = [...staffForm].filter((f) => salaryEditable || f.id !== "monthlySalary");
+    for (const id of [...ALWAYS].reverse()) {
       if (!ordered.some((f) => f.id === id)) {
-        ordered.unshift({ id, label: id === "staffName" ? "Name" : id === "phone" ? "Mobile" : id === "role" ? "Role" : "Joining date", type: "text", required: true, visible: true, options: [], builtin: true });
+        const at = id === "monthlySalary" || id === "reportingManager" ? ordered.length : 0;
+        ordered.splice(at, 0, {
+          id,
+          label: DEFAULT_LABEL[id],
+          type: id === "monthlySalary" ? "number" : id === "reportingManager" ? "manager" : "text",
+          required: id !== "email" && id !== "reportingManager",
+          visible: true,
+          options: [],
+          builtin: true,
+        });
       }
     }
-    const shown = ordered.filter((f) => f.visible || LOCKED.includes(f.id));
-    const detailFields = shown.filter((f) => f.type !== "file" || f.builtin);
+    const shown = ordered.filter((f) => f.visible || ALWAYS.includes(f.id));
+    const detailFields = shown.filter((f) => (f.type !== "file" || f.builtin) && (f.id !== "reportingManager" || !picked || showManager));
     const fileFields = shown.filter((f) => f.type === "file" && !f.builtin);
     const steps = ["Details", ...(fileFields.length ? ["Documents"] : [])];
     const last = !wizard || step >= steps.length - 1;
-    const digits = form.phone.replace(/\D/g, "");
-    const uploaded = fileFields.filter((f) => files[f.id]).length;
+    const uploaded = fileFields.filter((f) => files[f.id] || onFile(f.id)).length;
     const isReq = (f: AdmissionFormField) => LOCKED.includes(f.id) || f.required;
     const box = wizard
       ? "h-12 rounded-xl border border-ink-200 bg-white px-3 text-[15px] text-ink-900"
@@ -169,15 +195,18 @@ export function StaffAdmitForm({
         <Text className="mb-1.5 text-xs font-medium text-ink-700">{text}</Text>
       );
     const title = (f: AdmissionFormField) => `${f.label}${isReq(f) ? " *" : ""}`;
+    // Help text comes from the staff onboarding form; nothing is written here.
+    const hint = (f: AdmissionFormField) => (f.helpText ? <Text className="mt-1 text-xs text-ink-500">{f.helpText}</Text> : null);
 
     function valueMissing(f: AdmissionFormField) {
       if (f.id === "staffName") return !form.name.trim();
-      if (f.id === "phone") return digits.length !== 10;
+      if (f.id === "phone") return !form.phone.trim();
       if (f.id === "role") return !form.roleId;
       if (f.id === "joiningDate") return !form.joinedOn;
       if (f.id === "email") return !form.email.trim();
+      if (f.id === "monthlySalary") return !String(form.monthlySalary || "").trim();
       if (f.id === "address") return !form.address.trim();
-      if (f.type === "file") return !files[f.id];
+      if (f.type === "file") return !files[f.id] && !onFile(f.id);
       return !String(custom[f.id] || "").trim();
     }
 
@@ -185,7 +214,7 @@ export function StaffAdmitForm({
       const list = name === "Documents" ? fileFields : name === "Details" ? detailFields : shown;
       const hit = list.find((f) => isReq(f) && valueMissing(f));
       if (!hit) return "";
-      return hit.id === "phone" ? "A 10-digit mobile number" : hit.label;
+      return hit.label;
     }
 
     function next() {
@@ -204,7 +233,8 @@ export function StaffAdmitForm({
         return (
           <View>
             {label(title(f))}
-            <TextInput value={form.name} onChangeText={(name) => patch({ name })} autoComplete="name" placeholder="Full name" placeholderTextColor="#94a3b8" className={box} style={{ includeFontPadding: false }} />
+            <TextInput value={form.name} onChangeText={(name) => patch({ name })} autoComplete="name" className={box} style={{ includeFontPadding: false }} />
+            {hint(f)}
           </View>
         );
       }
@@ -212,22 +242,15 @@ export function StaffAdmitForm({
         return (
           <View>
             {label(title(f))}
-            <View className={`flex-row items-center border border-ink-200 bg-white ${wizard ? "h-12 rounded-xl" : "h-11 rounded-md"}`}>
-              <View className="h-full justify-center border-r border-ink-200 bg-ink-50 px-3">
-                <Text className={`${wizard ? "text-[15px]" : "text-sm"} font-medium text-ink-600`}>+91</Text>
-              </View>
-              <TextInput
-                value={form.phone}
-                onChangeText={(phone) => patch({ phone: phone.replace(/[^\d]/g, "").slice(0, 10) })}
-                keyboardType="phone-pad"
-                placeholder="10-digit mobile"
-                placeholderTextColor="#94a3b8"
-                className={`h-full flex-1 px-3 ${wizard ? "text-[15px]" : "text-sm"} text-ink-900`}
-                style={{ includeFontPadding: false }}
-              />
-              {digits.length === 10 ? <Ionicons name="checkmark-circle" size={18} color="#16a34a" style={{ marginRight: 12 }} /> : null}
-            </View>
-            <Text className="mt-1 text-xs text-ink-500">They sign in with this number.</Text>
+            <TextInput
+              value={form.phone}
+              onChangeText={(phone) => patch({ phone })}
+              keyboardType="phone-pad"
+              autoComplete="tel"
+              className={box}
+              style={{ includeFontPadding: false }}
+            />
+            {hint(f)}
           </View>
         );
       }
@@ -250,6 +273,7 @@ export function StaffAdmitForm({
                   );
                 })}
               </View>
+              {hint(f)}
             </View>
             {showClassTeacher && classes.length ? (
               <View>
@@ -274,6 +298,7 @@ export function StaffAdmitForm({
           <View>
             {label(title(f))}
             <DateField value={form.joinedOn} onChange={(joinedOn) => patch({ joinedOn })} />
+            {hint(f)}
           </View>
         );
       }
@@ -281,7 +306,8 @@ export function StaffAdmitForm({
         return (
           <View>
             {label(title(f))}
-            <TextInput value={form.email} onChangeText={(email) => patch({ email })} autoCapitalize="none" keyboardType="email-address" placeholder="name@email.com" placeholderTextColor="#94a3b8" className={box} style={{ includeFontPadding: false }} />
+            <TextInput value={form.email} onChangeText={(email) => patch({ email })} autoCapitalize="none" keyboardType="email-address" className={box} style={{ includeFontPadding: false }} />
+            {hint(f)}
           </View>
         );
       }
@@ -289,7 +315,67 @@ export function StaffAdmitForm({
         return (
           <View>
             {label(title(f))}
-            <TextInput value={form.address} onChangeText={(address) => patch({ address })} placeholder="House, street, area, city" placeholderTextColor="#94a3b8" className={box} style={{ includeFontPadding: false }} />
+            <TextInput
+              value={form.address}
+              onChangeText={(address) => patch({ address })}
+              multiline={f.type === "textarea"}
+              className={f.type === "textarea" ? box.replace(/\bh-1[12]\b/, "min-h-[88px] py-2.5") : box}
+              style={{ includeFontPadding: false, ...(f.type === "textarea" ? { textAlignVertical: "top" as const } : {}) }}
+            />
+            {hint(f)}
+          </View>
+        );
+      }
+      if (f.id === "reportingManager") {
+        // Live list: None plus everyone this user may pick as a manager.
+        return (
+          <View>
+            {label(title(f))}
+            <Dropdown
+              value={form.managerId}
+              options={[{ id: "", label: "None" }, ...managerChoices(user, managers).map((m) => ({ id: m.id, label: m.name, searchText: m.role, group: m.role }))]}
+              onChange={(managerId) => patch({ managerId })}
+              placeholder="None"
+            />
+            {hint(f)}
+          </View>
+        );
+      }
+      if (f.id === "monthlySalary") {
+        return (
+          <View>
+            {label(title(f))}
+            <TextInput
+              value={form.monthlySalary}
+              onChangeText={(monthlySalary) => patch({ monthlySalary })}
+              keyboardType="number-pad"
+              className={box}
+              style={{ includeFontPadding: false }}
+            />
+            {f.helpText ? <Text className="mt-1 text-xs text-ink-500">{f.helpText}</Text> : null}
+          </View>
+        );
+      }
+      if (f.type === "role") {
+        // A school's own "School role" field (e.g. "Second role"): the live list of roles, saved as the role name.
+        return (
+          <View>
+            {label(title(f))}
+            <View className="flex-row flex-wrap gap-2">
+              {staffRoles.map((r) => {
+                const on = custom[f.id] === r.name;
+                return (
+                  <Pressable
+                    key={r.id}
+                    onPress={() => setCustom((c) => ({ ...c, [f.id]: on ? "" : r.name }))}
+                    className={`h-9 justify-center rounded-full border px-4 ${on ? "border-[#1F45C7] bg-[#1F45C7]" : "border-ink-200 bg-white"}`}
+                  >
+                    <Text className={`text-sm font-semibold ${on ? "text-white" : "text-ink-800"}`}>{r.name}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            {f.helpText ? <Text className="mt-1 text-xs text-ink-500">{f.helpText}</Text> : null}
           </View>
         );
       }
@@ -302,11 +388,10 @@ export function StaffAdmitForm({
               onChangeText={(v) => setCustom((c) => ({ ...c, [f.id]: v }))}
               keyboardType={f.type === "number" || f.type === "phone" ? "number-pad" : f.type === "email" ? "email-address" : "default"}
               autoCapitalize={f.type === "email" ? "none" : "sentences"}
-              placeholder={f.helpText || ""}
-              placeholderTextColor="#94a3b8"
               className={box}
               style={{ includeFontPadding: false }}
             />
+            {hint(f)}
           </View>
         );
       }
@@ -320,11 +405,37 @@ export function StaffAdmitForm({
       );
     };
 
+    const salaryInForm = shown.some((f) => f.id === "monthlySalary");
+    const managerInForm = shown.some((f) => f.id === "reportingManager");
+    const payFields = editing && ((salaryEditable && !salaryInForm) || (showManager && !managerInForm)) ? (
+      <View className="gap-4">
+        {salaryEditable && !salaryInForm ? (
+        <View>
+          {label("Monthly salary")}
+          <TextInput
+            value={form.monthlySalary}
+            onChangeText={(monthlySalary) => patch({ monthlySalary: monthlySalary.replace(/[^\d]/g, "") })}
+            keyboardType="number-pad"
+            placeholder="30000"
+            placeholderTextColor="#94a3b8"
+            className={box}
+            style={{ includeFontPadding: false }}
+          />
+        </View>
+        ) : null}
+        {showManager && !managerInForm ? (
+          <ManagerSelect user={user} managers={managers} value={form.managerId || defaultManagerId(managers)} onPick={(managerId) => patch({ managerId })} />
+        ) : null}
+      </View>
+    ) : null;
+
     const docsGrid = (
       <View className="flex-row flex-wrap justify-between gap-y-3">
         {fileFields.map((f) => {
-          const file = files[f.id];
-          const image = Boolean(file && file.type.startsWith("image/"));
+          const picked = files[f.id];
+          const saved = !picked && onFile(f.id);
+          const file = picked || (saved ? ({ name: "On file", type: "", uri: "" } as unknown as PickedFile) : undefined);
+          const image = Boolean(picked && picked.type.startsWith("image/"));
           return (
             <Pressable
               key={f.id}
@@ -338,8 +449,8 @@ export function StaffAdmitForm({
               style={{ width: "48.5%", height: 156 }}
               className={`overflow-hidden rounded-2xl ${file ? "border border-emerald-300 bg-white" : "border-2 border-dashed border-ink-200 bg-white"}`}
             >
-              {image && file ? (
-                <Image source={{ uri: file.uri }} style={{ width: "100%", height: 104 }} resizeMode="cover" />
+              {image && picked ? (
+                <Image source={{ uri: picked.uri }} style={{ width: "100%", height: 104 }} resizeMode="cover" />
               ) : (
                 <View className={`h-[104px] items-center justify-center ${file ? "bg-emerald-50" : "bg-ink-50/60"}`}>
                   <View className={`h-12 w-12 items-center justify-center rounded-full ${file ? "bg-white" : "bg-[#EEF3FF]"}`}>
@@ -359,7 +470,7 @@ export function StaffAdmitForm({
                   {f.required ? <Text className="text-red-600"> *</Text> : null}
                 </Text>
                 <Text className={`text-[11px] ${file ? "text-emerald-700" : "text-ink-500"}`} numberOfLines={1}>
-                  {file ? `${file.name} · Change` : f.required ? "Required" : "Optional"}
+                  {saved ? "On file · Replace" : file ? `${file.name} · Change` : f.required ? "Required" : "Optional"}
                 </Text>
               </View>
             </Pressable>
@@ -391,6 +502,11 @@ export function StaffAdmitForm({
               })}
             </View>
           </SectionCard>
+          {payFields ? (
+            <SectionCard step={++n} title={salaryEditable ? "Pay & reporting" : "Reporting"} subtitle={salaryEditable ? "Used for salary and approvals." : "Who approves their leave and requests."}>
+              {payFields}
+            </SectionCard>
+          ) : null}
           {fileFields.length ? (
             <SectionCard
               step={++n}
@@ -401,6 +517,9 @@ export function StaffAdmitForm({
               <View className="flex-row flex-wrap justify-between gap-y-3">
                 {fileFields.map((f) => (
                   <View key={f.id} style={{ width: "48.5%" }}>
+                    {!files[f.id] && onFile(f.id) ? (
+                      <Text className="mb-1 text-[11px] font-semibold text-emerald-700">On file · upload to replace</Text>
+                    ) : null}
                     <UploadTile
                       field={f}
                       file={files[f.id]}
@@ -424,7 +543,13 @@ export function StaffAdmitForm({
           <View className="gap-2 border-t border-ink-100 pt-3">
             {errorBox}
             <View className="flex-row flex-wrap items-center justify-between gap-3">
-              <Text className="text-xs text-ink-600">Employee ID is assigned automatically. Salary and manager are set later in Edit employee.</Text>
+              <Text className="text-xs text-ink-600">
+                {editing
+                  ? "Changes apply from today. Past salary months stay as approved."
+                  : salaryEditable
+                    ? "Employee ID is assigned automatically. The reporting manager is set later in Edit employee."
+                    : "Employee ID is assigned automatically. Salary and manager are set later in Edit employee."}
+              </Text>
               <Button className="min-w-[160px]" onPress={next}>
                 {busy ? busyLabel : submitLabel}
               </Button>
@@ -454,6 +579,12 @@ export function StaffAdmitForm({
         ) : null}
         <ScrollView className="flex-1" contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24, gap: 16 }} keyboardShouldPersistTaps="handled">
           {steps[step] === "Details" ? detailFields.map((f) => <View key={f.id}>{renderField(f)}</View>) : null}
+          {steps[step] === "Details" && payFields ? (
+            <View className="gap-4 border-t border-ink-100 pt-4">
+              <Text className="text-[13px] font-semibold text-ink-700">{salaryEditable ? "Pay & reporting" : "Reporting"}</Text>
+              {payFields}
+            </View>
+          ) : null}
           {steps[step] === "Documents" ? (
             <>
               <View className="flex-row items-center gap-3 rounded-xl bg-ink-50 px-3 py-2.5">
@@ -540,16 +671,18 @@ export function StaffAdmitForm({
               <DateField value={form.joinedOn} onChange={(joinedOn) => patch({ joinedOn })} />
             </Field>
           </View>
-          <View className="flex-1">
-            <Field label="Monthly salary">
-              <Input
-                keyboardType="number-pad"
-                value={form.monthlySalary}
-                onChangeText={(monthlySalary) => patch({ monthlySalary })}
-                placeholder="30000"
-              />
-            </Field>
-          </View>
+          {salaryEditable ? (
+            <View className="flex-1">
+              <Field label="Monthly salary">
+                <Input
+                  keyboardType="number-pad"
+                  value={form.monthlySalary}
+                  onChangeText={(monthlySalary) => patch({ monthlySalary })}
+                  placeholder="30000"
+                />
+              </Field>
+            </View>
+          ) : null}
         </View>
       </View>
       <Text className="text-xs text-ink-700">

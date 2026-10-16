@@ -61,7 +61,7 @@ export type DocumentTemplateSummary = {
 export type AdmissionFormField = {
   id: string;
   label: string;
-  type: "text" | "email" | "phone" | "number" | "date" | "month" | "textarea" | "select" | "radio" | "multi" | "checkbox" | "file";
+  type: "text" | "email" | "phone" | "number" | "date" | "month" | "textarea" | "select" | "radio" | "multi" | "checkbox" | "file" | "role" | "manager";
   required: boolean;
   visible: boolean;
   options: string[];
@@ -552,6 +552,8 @@ export type RecordPayload = {
     department?: string;
     managerId?: string;
     managerName?: string;
+    /** Answers to the school's staff onboarding form; file fields hold the stored path. */
+    onboardingValues?: Record<string, string>;
   }[];
   staffAttendanceSelf?: {
     kind: "teacher" | "staff";
@@ -574,7 +576,27 @@ export type RecordPayload = {
     lateDeductionAmount: number;
     lateDayFraction: number;
     latesPerLeaveDay: number;
+    latePenaltyDays?: number;
+    salaryBasis?: string;
+    fixedMonthDays?: number;
+    paidWeeklyOffs?: boolean;
+    paidHolidays?: boolean;
+    sandwichRule?: boolean;
+    unmarkedAs?: string;
   };
+  staffSalaryPayments?: {
+    id: string;
+    personKey: string;
+    month: string;
+    amount: number;
+    paidOn: string;
+    mode: string;
+    reference: string;
+    note: string;
+    voided: boolean;
+    voidReason: string;
+    proofPath?: string;
+  }[];
   staffPayroll?: {
     personKey: string;
     month: string;
@@ -876,6 +898,9 @@ export type LeaveRow = {
   subjectName: string;
   classLabel: string;
   waitingOn: "guardian" | "teacher" | "";
+  autoApproved?: boolean;
+  decidedBy?: string;
+  approverName?: string;
   /** "FIRST" / "SECOND" half of a single day; "" = full day(s). */
   halfDay?: "FIRST" | "SECOND" | "";
   days: number;

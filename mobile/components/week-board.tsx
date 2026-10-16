@@ -528,6 +528,7 @@ export function WeekBoard() {
                     hold={Boolean(hold)}
                     editable={editable}
                     onDay={setDay}
+                    onClear={clearCell}
                     onPress={(periodId, weekday, slot) => {
                       if (!editable) return;
                       if (hold) {
@@ -1148,7 +1149,10 @@ function PhoneDaySchedule({
   editable,
   onDay,
   onPress,
+  onClear,
 }: {
+  /** Clear a filled period straight from the list (two taps: × then Clear). */
+  onClear?: (periodId: string, weekday: number) => Promise<void> | void;
   weekdays: { n: number; label: string }[];
   periods: { id: string; name: string; start: string; end: string; isBreak?: boolean }[];
   slots: WeekSlot[];
@@ -1161,6 +1165,8 @@ function PhoneDaySchedule({
   onDay: (n: number) => void;
   onPress: (periodId: string, weekday: number, slot?: WeekSlot) => void;
 }) {
+  const [confirmId, setConfirmId] = useState("");
+  const [clearing, setClearing] = useState("");
   return (
     <View className="gap-3">
       <View className="flex-row rounded-xl bg-ink-100 p-1">
@@ -1244,7 +1250,58 @@ function PhoneDaySchedule({
                       </Text>
                     ) : null}
                   </View>
-                  {editable ? <Ionicons name="chevron-forward" size={15} color="#cbd5e1" /> : null}
+                  {editable && onClear && !hold ? (
+                    confirmId === p.id ? (
+                      <View className="flex-row items-center gap-1.5">
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="Keep period"
+                          hitSlop={6}
+                          onPress={(e) => {
+                            e.stopPropagation?.();
+                            setConfirmId("");
+                          }}
+                          className="h-8 items-center justify-center rounded-full border border-ink-200 bg-white px-2.5"
+                        >
+                          <Text className="text-[12px] font-semibold text-ink-600">Keep</Text>
+                        </Pressable>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={`Clear ${p.name}`}
+                          hitSlop={6}
+                          disabled={clearing === p.id}
+                          onPress={async (e) => {
+                            e.stopPropagation?.();
+                            setClearing(p.id);
+                            try {
+                              await onClear(p.id, activeDay);
+                            } finally {
+                              setClearing("");
+                              setConfirmId("");
+                            }
+                          }}
+                          className="h-8 items-center justify-center rounded-full bg-red-600 px-3"
+                        >
+                          <Text className="text-[12px] font-semibold text-white">{clearing === p.id ? "Clearing…" : "Clear"}</Text>
+                        </Pressable>
+                      </View>
+                    ) : (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Clear ${subject || p.name}`}
+                        hitSlop={8}
+                        onPress={(e) => {
+                          e.stopPropagation?.();
+                          setConfirmId(p.id);
+                        }}
+                        className="h-8 w-8 items-center justify-center rounded-full bg-ink-50"
+                      >
+                        <Ionicons name="close" size={16} color="#64748b" />
+                      </Pressable>
+                    )
+                  ) : editable ? (
+                    <Ionicons name="chevron-forward" size={15} color="#cbd5e1" />
+                  ) : null}
                 </>
               ) : (
                 <View className="flex-1 flex-row items-center justify-center rounded-lg border border-dashed border-ink-300 py-2">

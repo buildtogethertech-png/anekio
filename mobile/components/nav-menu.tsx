@@ -1,7 +1,8 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { usePathname, useRouter } from "expo-router";
 import { Pressable, ScrollView, Text, View } from "react-native";
-import { iconForNav, visibleTabs } from "../lib/nav-icons";
+import { iconForNav, qrDockSlots, visibleTabs } from "../lib/nav-icons";
+import { useRecord } from "../lib/record";
 import { pathForNav } from "../lib/paths";
 import { useSession } from "../lib/session";
 import { PageHeader } from "./ui";
@@ -160,7 +161,8 @@ export function MoreBoard() {
   const { user, nav, signOut } = useSession();
   const router = useRouter();
   const pathname = usePathname();
-  const skip = new Set(visibleTabs(user?.portal, nav).filter((key) => key !== "more"));
+  const { data } = useRecord();
+  const skip = new Set(visibleTabs(user?.portal, nav, qrDockSlots(user?.portal, Boolean(data?.staffAttendanceSelf))).filter((key) => key !== "more"));
   const rest = nav.filter(
     (item) => !skip.has(item.key) && item.key !== "uploads" && item.key !== "profile" && item.key !== "onboarding"
   );

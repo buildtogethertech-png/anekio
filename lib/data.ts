@@ -897,7 +897,7 @@ export async function getStaffRoster(date = startOfDay()) {
   from.setHours(0, 0, 0, 0);
   from.setDate(from.getDate() - 400);
   const fromStamp = ymd(from);
-  const [teachers, staff, days, leave, payrollRuns, audits] = await Promise.all([
+  const [teachers, staff, days, leave, payrollRuns, audits, salaryPayments] = await Promise.all([
     prisma.teacher.findMany({
       include: { user: { include: { manager: { select: { id: true, name: true } } } }, class: true },
       orderBy: { employeeId: "asc" },
@@ -928,8 +928,9 @@ export async function getStaffRoster(date = startOfDay()) {
     }),
     prisma.staffPayrollRun.findMany(),
     prisma.staffAttendanceAudit.findMany({ orderBy: { createdAt: "desc" }, take: 400 }),
+    prisma.staffSalaryPayment.findMany({ orderBy: [{ paidOn: "desc" }, { createdAt: "desc" }], take: 3000 }),
   ]);
-  return { teachers, staff, days, leave, payrollRuns, audits, date };
+  return { teachers, staff, days, leave, payrollRuns, audits, salaryPayments, date };
 }
 
 export async function getDeskPulse() {

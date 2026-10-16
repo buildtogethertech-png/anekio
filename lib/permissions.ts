@@ -26,8 +26,12 @@ export const PERMISSIONS = [
   { key: "admissions.view", group: "Admissions", label: "See admission leads", hint: "Website enquiries, follow-ups, and lead details", portals: ["OFFICE"], see: true },
   { key: "admissions.manage", group: "Admissions", label: "Manage admission leads", hint: "Call, WhatsApp, add remarks, schedule tests, dispose, and admit", portals: ["OFFICE"] },
   { key: "staff.view", group: "Employees", label: "See employees", hint: "Teachers and office staff", portals: ["OFFICE"], see: true },
-  { key: "staff.edit", group: "Employees", label: "Add employees and mark attendance", hint: "Teachers, staff, attendance", portals: ["OFFICE"] },
+  { key: "staff.attendance", group: "Employees", label: "Mark staff attendance", hint: "Daily P / L / A, QR check-in and timesheet. No salaries or profiles.", portals: ["OFFICE"], see: true },
+  { key: "staff.edit", group: "Employees", label: "Manage employees", hint: "Add, edit profiles and reporting manager. Includes attendance. Salary is separate.", portals: ["OFFICE"] },
   { key: "leave.decide", group: "Employees", label: "Decide employee leave", hint: "Review leave within the selected access scope", portals: ["OFFICE", "TEACHER"] },
+  { key: "salary.view", group: "Salary", label: "See salaries", hint: "Salary tab, monthly salary, pay breakup and payment history", portals: ["OFFICE"], see: true },
+  { key: "salary.approve", group: "Salary", label: "Approve salaries", hint: "Set monthly salary and approve each month's pay. Includes seeing salaries.", portals: ["OFFICE"] },
+  { key: "salary.pay", group: "Salary", label: "Pay salaries", hint: "Record payments, attach proof, undo a payment. Includes seeing salaries.", portals: ["OFFICE"] },
   { key: "school.edit", group: "School settings", label: "Edit school settings", hint: "Letterhead, classes, calendar, sessions, pay, messages", portals: ["OFFICE"], see: true },
   { key: "subscription.manage", group: "School settings", label: "Manage subscription", hint: "Plan, renewal, and Anekio invoices", portals: ["OFFICE"], see: true },
   { key: "documents.view", group: "Documents", label: "See document templates", hint: "Templates and issued-document register", portals: ["OFFICE"], see: true },
@@ -151,6 +155,9 @@ export function defaultGrants(slug: string): string[] {
   if (slug === "FEES") {
     return ["desk.view", "people.view", "fees.view", "fees.collect", "fees.remind", "fees.configure", "documents.view", "documents.issue", "documents.batch"];
   }
+  if (slug === "ACCOUNTS") {
+    return ["desk.view", "staff.view", "salary.view", "salary.pay", "fees.view"];
+  }
   if (slug === "ADMISSIONS") {
     return ["desk.view", "people.view", "admissions.view", "admissions.manage", "inbox.view", "inbox.manage", "notices.view"];
   }
@@ -197,6 +204,7 @@ export const SYSTEM_ROLES: {
   { slug: "ADMIN", name: "Admin", portal: "OFFICE", description: "Principal / owner. Everything." },
   { slug: "ADMISSIONS", name: "Admissions", portal: "OFFICE", description: "Admission team. Leads, follow-ups, calls and enquiries." },
   { slug: "FEES", name: "Fees", portal: "OFFICE", description: "Fee collector. Dues, receipts, reminders." },
+  { slug: "ACCOUNTS", name: "Accounts", portal: "OFFICE", description: "Accountant. Sees salaries and records salary payments." },
   { slug: "EXAMS", name: "Exams", portal: "OFFICE", description: "Exam controller. Papers, marks, report cards." },
   { slug: "TEACHER", name: "Teacher", portal: "TEACHER", description: "Own classes only." },
   { slug: "PARENT", name: "Parent", portal: "PARENT", description: "Own children only." },

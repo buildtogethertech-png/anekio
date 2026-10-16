@@ -65,9 +65,35 @@ export function tabsForPortal(portal?: string | null) {
   return ["home", "timetable", "fees", "profile", "more"];
 }
 
-export function visibleTabs(portal: string | undefined, nav: { key: string }[]) {
-  const allowed = new Set(nav.map((item) => item.key));
-  return tabsForPortal(portal).filter((key) => key === "more" || allowed.has(key));
+/** If a role can't open a preferred tab, the next most useful page it CAN open takes the slot. */
+const TAB_FALLBACKS: Record<string, string[]> = {
+  OFFICE: ["home", "people", "staff", "fees", "admissions", "exams", "timetable", "notices", "inbox", "school"],
+  TEACHER: ["home", "attendance", "class", "exams", "timetable", "leave", "notices", "inbox"],
+};
+
+/** Office staff with their own attendance QR get a centre "My QR" button, which takes one tab slot. */
+export function qrDockSlots(_portal: string | undefined, _hasSelfQr: boolean) {
+  // My QR now lives in the top bar; the bottom bar keeps its normal tabs.
+  return 0;
+}
+
+/** Which tab moves into More when the centre QR button takes a slot. People lives in More for office staff. */
+const DOCK_GIVES_UP: Record<string, string> = { OFFICE: "people" };
+
+export function visibleTabs(portal: string | undefined, nav: { key: string }[], reserved = 0) {
+  const allowed = nav.map((item) => item.key);
+  const has = new Set(allowed);
+  const giveUp = reserved ? DOCK_GIVES_UP[portal || ""] : undefined;
+  const all = tabsForPortal(portal).filter((key) => key !== giveUp);
+  // Keep the bar at 5 so the centre button sits dead centre.
+  const preferred = reserved && !giveUp ? [...all.filter((key) => key !== "more").slice(0, -reserved), ...all.filter((key) => key === "more")] : all;
+  const fallback = TAB_FALLBACKS[portal || ""];
+  if (!fallback) return preferred.filter((key) => key === "more" || has.has(key));
+  const ordered = [...fallback, ...allowed].filter((key, i, all) => has.has(key) && key !== "more" && key !== "profile" && key !== giveUp && all.indexOf(key) === i);
+  const slots = preferred.filter((key) => key !== "more").length;
+  // Fits in the bar (a 5th page can take More's place): no More tab at all.
+  if (!preferred.includes("more") || ordered.length <= slots + 1) return ordered.slice(0, slots + (preferred.includes("more") ? 1 : 0));
+  return [...ordered.slice(0, slots), "more"];
 }
 
 export function tabLabel(key: string, portal: string | undefined, nav: { key: string; label: string }[]) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CALENDAR } from "../../lib/calendar";
-import { classifyFromIn, liveMarkFromIn, summarizePayroll, type PayrollRules } from "../../lib/payroll";
+import { classifyFromIn, liveMarkFromIn, salaryPayState, summarizePayroll, type PayrollRules } from "../../lib/payroll";
 
 const RULES: PayrollRules = {
   presentCredit: 1,
@@ -17,6 +17,14 @@ const RULES: PayrollRules = {
   lateDeductionAmount: 0,
   lateDayFraction: 0.25,
   latesPerLeaveDay: 0,
+  latePenaltyDays: 1,
+  // These older cases pin the working-days basis; the new defaults are covered below.
+  salaryBasis: "WORKING",
+  fixedMonthDays: 30,
+  paidWeeklyOffs: true,
+  paidHolidays: true,
+  sandwichRule: false,
+  unmarkedAs: "ABSENT",
 };
 
 const calendar = {
@@ -230,5 +238,103 @@ describe("summarizePayroll", () => {
     expect(summary.halfDay).toBe(1);
     expect(summary.payableDays).toBe(24.5);
     expect(summary.finalAmount).toBe(28269.32);
+  });
+});
+
+describe("summarizePayroll salary basis", () => {
+  // March 2026: 31 days, Sundays off (1, 8, 15, 22, 29) → 26 working days.
+  const march = Array.from({ length: 31 }, (_, i) => `2026-03-${String(i + 1).padStart(2, "0")}`);
+  const sundaysOff = { ...DEFAULT_CALENDAR, weekdays: [1, 2, 3, 4, 5, 6], holidays: [] };
+  const twoAbsent = new Map(
+    march.map((date) => [date, date === "2026-03-10" || date === "2026-03-11" ? "ABSENT" : "PRESENT"] as const)
+  );
+  const run = (rules: Partial<PayrollRules>, marks = twoAbsent) =>
+    summarizePayroll({
+      dates: march,
+      today: "2026-03-31",
+      calendar: sundaysOff,
+      marks,
+      paidLeave: new Map(),
+      rules: { ...RULES, ...rules },
+      salary: 31000,
+    });
+
+  it("divides by days in the month on calendar basis", () => {
+    const s = run({ salaryBasis: "CALENDAR" });
+    expect(s.divisor).toBe(31);
+    expect(s.dailySalary).toBe(1000);
+    expect(s.payableDays).toBe(29);
+    expect(s.finalAmount).toBe(29000);
+  });
+
+  it("divides by a fixed number on fixed basis", () => {
+    const s = run({ salaryBasis: "FIXED", fixedMonthDays: 30 });
+    expect(s.divisor).toBe(30);
+    expect(s.payableDays).toBe(28);
+    expect(s.finalAmount).toBeCloseTo((31000 / 30) * 28, 0);
+  });
+
+  it("divides by working days on working basis", () => {
+    const s = run({ salaryBasis: "WORKING" });
+    expect(s.divisor).toBe(26);
+    expect(s.payableDays).toBe(24);
+  });
+
+  it("cuts the Sunday between two absences with the sandwich rule", () => {
+    const marks = new Map(
+      march.map((date) => [date, date === "2026-03-07" || date === "2026-03-09" ? "ABSENT" : "PRESENT"] as const)
+    );
+    expect(run({ salaryBasis: "CALENDAR" }, marks).payableDays).toBe(29);
+    const s = run({ salaryBasis: "CALENDAR", sandwichRule: true }, marks);
+    expect(s.sandwichDays).toBe(1);
+    expect(s.payableDays).toBe(28);
+  });
+
+  it("treats unmarked past days as present by default", () => {
+    const s = run({ salaryBasis: "CALENDAR", unmarkedAs: "PRESENT" }, new Map());
+    expect(s.payableDays).toBe(31);
+    expect(s.finalAmount).toBe(31000);
+  });
+
+  it("can cut half a day per batch of lates", () => {
+    const marks = new Map(
+      march.map((date) => [date, ["2026-03-02", "2026-03-03", "2026-03-04"].includes(date) ? "LATE" : "PRESENT"] as const)
+    );
+    const s = run({ salaryBasis: "CALENDAR", latesPerLeaveDay: 3, latePenaltyDays: 0.5 }, marks);
+    expect(s.lateCutDays).toBe(0.5);
+    expect(s.payableDays).toBe(30.5);
+  });
+});
+
+describe("salaryPayState", () => {
+  const approved = { status: "APPROVED", finalAmount: 28000 };
+
+  it("is not approved while the month is pending", () => {
+    expect(salaryPayState({ status: "PENDING", finalAmount: 28000 }, []).state).toBe("NOT_APPROVED");
+    expect(salaryPayState(null, []).state).toBe("NOT_APPROVED");
+  });
+
+  it("shows the full amount owed before any payment", () => {
+    expect(salaryPayState(approved, [])).toEqual({ due: 28000, paid: 0, balance: 28000, state: "UNPAID" });
+  });
+
+  it("adds up part payments and keeps the rest owed", () => {
+    const s = salaryPayState(approved, [{ amount: 20000 }, { amount: 3000 }]);
+    expect(s).toEqual({ due: 28000, paid: 23000, balance: 5000, state: "PART_PAID" });
+  });
+
+  it("ignores cancelled payments", () => {
+    const s = salaryPayState(approved, [{ amount: 20000 }, { amount: 8000, voided: true }]);
+    expect(s.paid).toBe(20000);
+    expect(s.balance).toBe(8000);
+    expect(s.state).toBe("PART_PAID");
+  });
+
+  it("is paid when payments cover the amount", () => {
+    expect(salaryPayState(approved, [{ amount: 28000 }]).state).toBe("PAID");
+  });
+
+  it("treats an older month marked paid without payments as fully paid", () => {
+    expect(salaryPayState({ status: "PAID", finalAmount: 28000 }, [])).toEqual({ due: 28000, paid: 28000, balance: 0, state: "PAID" });
   });
 });

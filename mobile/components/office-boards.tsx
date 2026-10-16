@@ -15,7 +15,7 @@ import { StudentAdmitForm, type StudentAdmitFiles, type StudentAdmitInitial, typ
 import { useAssetUrl } from "../lib/assets";
 import { ReportCardSheet, type ReportCardData } from "./report-card-sheet";
 import { studentSeriesScore, studentYearScore } from "../lib/exams";
-import { act, saveLateTiming } from "../lib/mutate";
+import { act } from "../lib/mutate";
 import { openMarksheetPdf } from "../lib/print-html";
 import { pickFile, uploadFile } from "../lib/upload";
 import { ParentUpdatesReview } from "./parent-details";
@@ -24,15 +24,15 @@ import { useRecord, type AdmissionFormField } from "../lib/record";
 import { useSession } from "../lib/session";
 import { canChangeManager, ManagerPicker } from "./manager-picker";
 import { AttendanceDots, DayMark, OnLeaveSign } from "./attendance-mark";
-import { inr, parsePayrollRules, type PayrollRules } from "../lib/payroll";
+import { inr, parsePayrollRules, salaryPayState } from "../lib/payroll";
 import { lastAttendanceDots } from "../lib/attendance-summary";
 import { calendarFrom, closedCaption, closedReason, ymd } from "../lib/calendar";
 import { QuickDocumentButton } from "./document-studio";
 import { cloneFields, FormBuilderModal } from "./form-builder";
-import { StaffHoursForm, type StaffHoursFormHandle } from "./staff-hours-form";
 import { StaffTimesheet } from "./staff-timesheet";
+import { StaffSalaryBoard } from "./staff-salary-board";
 import { OnboardingBoard } from "./onboarding-board";
-import { StaffAttendanceQrButton, StaffAttendanceQrScanButton } from "./staff-attendance-qr";
+import { StaffAttendanceQrButton } from "./staff-attendance-qr";
 import { studentMetaLine } from "../lib/student-label";
 import { FeesBoard as RefactoredFeesBoard } from "./fees-board";
 import { ManageFeeBody, MonthlyFeeBillSummary, feeAssignmentFromStudent } from "./manage-fee";
@@ -457,7 +457,24 @@ export function DeskBoard() {
   const [coverBusy, setCoverBusy] = useState("");
   const [coverMore, setCoverMore] = useState<Record<string, boolean>>({});
   const [autoBusy, setAutoBusy] = useState(false);
+  const [decideBusy, setDecideBusy] = useState("");
+  const [reviewId, setReviewId] = useState("");
   const desk = data?.desk;
+  const salaryOwed = useMemo(() => {
+    if (!can(user, "salary.view")) return { total: 0, people: 0 };
+    const pays = data?.staffSalaryPayments ?? [];
+    const owing = new Set<string>();
+    let total = 0;
+    for (const run of data?.staffPayroll ?? []) {
+      if (run.status === "PENDING") continue;
+      const { balance } = salaryPayState(run, pays.filter((p) => p.personKey === run.personKey && p.month === run.month));
+      if (balance > 0) {
+        total += balance;
+        owing.add(run.personKey);
+      }
+    }
+    return { total, people: owing.size };
+  }, [data?.staffPayroll, data?.staffSalaryPayments, user]);
   if (!desk) return <Empty title="The desk" body="Loading the school pulse." />;
   const desktop = width >= 900;
   const canSeeFees = can(user, "fees.view");
@@ -472,6 +489,23 @@ export function DeskBoard() {
   const feeOpen = Math.max(0, fees.length - feePaid - feeOverdue);
   const feeTotal = Math.max(1, fees.length);
   const upcomingLeave = data?.upcomingLeave ?? [];
+  const waitingOnMe = (data?.pendingLeave ?? []).filter(
+    (row) => row.status === "WAITING" && row.who !== "student" && row.subjectName !== user?.name
+  );
+  const reviewRow = waitingOnMe.find((row) => row.id === reviewId) || null;
+  async function decide(requestId: string, yes: boolean) {
+    setDecideBusy(requestId);
+    try {
+      await act(token, "decideLeave", { requestId, yes });
+      setReviewId("");
+      toast.show(yes ? "Leave approved." : "Leave rejected.");
+      await reload();
+    } catch (e) {
+      toast.show(e instanceof Error ? e.message : "Could not save.");
+    } finally {
+      setDecideBusy("");
+    }
+  }
   const selectedLeave = upcomingLeave.find((leave) => leave.requestId === coverageFor) || null;
   const classAttendance = desk.classAttendance ?? [];
   const attendanceTotals = classAttendance.reduce(
@@ -574,6 +608,128 @@ export function DeskBoard() {
       </View>
 
       {toast.message ? <View className="mt-4"><Toast message={toast.message} onDone={toast.clear} /></View> : null}
+
+      {salaryOwed.total > 0 ? (
+        <Pressable accessibilityRole="button" onPress={() => router.push("/staff?view=salary" as never)} className="mt-4">
+          <Card className="flex-row items-center gap-3 border-red-100 px-5 py-3.5">
+            <View className="h-9 w-9 items-center justify-center rounded-full bg-red-50">
+              <Ionicons name="wallet-outline" size={18} color="#b91c1c" />
+            </View>
+            <View className="min-w-0 flex-1">
+              <Text className="text-[15px] font-semibold text-ink-900">{`Salary unpaid ${inr(salaryOwed.total)}`}</Text>
+              <Text className="text-xs text-ink-700">{`${salaryOwed.people} ${salaryOwed.people === 1 ? "person" : "people"} still owed for approved months`}</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#94a3b8" />
+          </Card>
+        </Pressable>
+      ) : null}
+
+      {waitingOnMe.length ? (
+        <Card className="mt-4 overflow-hidden border-amber-200">
+          <View className="flex-row items-center gap-3 border-b border-amber-100 bg-amber-50 px-5 py-3">
+            <View className="h-8 w-8 items-center justify-center rounded-full bg-amber-100">
+              <Ionicons name="hourglass-outline" size={16} color="#b45309" />
+            </View>
+            <Text className="min-w-0 flex-1 text-[15px] font-semibold text-amber-900">
+              {waitingOnMe.length} leave {waitingOnMe.length === 1 ? "request" : "requests"} waiting on you
+            </Text>
+          </View>
+          {waitingOnMe.slice(0, 5).map((row, i) => {
+            const initialsTxt = row.subjectName.split(" ").slice(0, 2).map((w) => w[0]?.toUpperCase() || "").join("");
+            const days = row.halfDay ? "½ day" : row.days ? `${row.days} day${row.days === 1 ? "" : "s"}` : "";
+            return (
+              <Pressable
+                key={row.id}
+                onPress={() => setReviewId(row.id)}
+                className={`flex-row items-center gap-3 px-4 py-3 active:bg-ink-50 hover:bg-ink-50 ${i ? "border-t border-ink-100" : ""}`}
+              >
+                <View className="h-9 w-9 items-center justify-center rounded-full bg-[#EEF3FF]">
+                  <Text className="text-[12px] font-bold text-[#1F45C7]">{initialsTxt}</Text>
+                </View>
+                <View className="min-w-0 flex-1">
+                  <Text className="text-[14px] font-semibold text-ink-900" numberOfLines={1}>
+                    {row.subjectName} <Text className="font-normal text-ink-500">· {row.typeName}</Text>
+                  </Text>
+                  <Text className="text-xs text-ink-500" numberOfLines={1}>
+                    {leaveRange(row.from, row.to)}{days ? ` · ${days}` : ""}
+                  </Text>
+                </View>
+                <Text className="text-[13px] font-semibold text-[#1F45C7]">Review</Text>
+                <Ionicons name="chevron-forward" size={15} color="#1F45C7" />
+              </Pressable>
+            );
+          })}
+          {waitingOnMe.length > 5 ? (
+            <Pressable onPress={() => router.push("/staff" as never)} className="border-t border-ink-100 px-5 py-3">
+              <Text className="text-xs font-semibold text-[#1F45C7]">See all {waitingOnMe.length} ›</Text>
+            </Pressable>
+          ) : null}
+        </Card>
+      ) : null}
+
+      <Sheet open={Boolean(reviewRow)} onClose={() => setReviewId("")}>
+        {reviewRow ? (
+          <View className="gap-4 px-5 pb-4">
+            <View className="flex-row items-center gap-3">
+              <View className="h-12 w-12 items-center justify-center rounded-full bg-[#EEF3FF]">
+                <Text className="text-[15px] font-bold text-[#1F45C7]">
+                  {reviewRow.subjectName.split(" ").slice(0, 2).map((w) => w[0]?.toUpperCase() || "").join("")}
+                </Text>
+              </View>
+              <View className="min-w-0 flex-1">
+                <Text className="text-[18px] font-bold text-ink-900" numberOfLines={1}>{reviewRow.subjectName}</Text>
+                <Text className="text-[13px] text-ink-500">{reviewRow.who === "teacher" ? "Teacher" : "Staff"} · asks for leave</Text>
+              </View>
+            </View>
+            <View className="overflow-hidden rounded-2xl border border-ink-100">
+              {[
+                ["Type", reviewRow.typeName],
+                ["Dates", leaveRange(reviewRow.from, reviewRow.to)],
+                [
+                  "Length",
+                  reviewRow.halfDay
+                    ? `½ day · ${reviewRow.halfDay === "FIRST" ? "first half" : "second half"}`
+                    : reviewRow.days
+                      ? `${reviewRow.days} school day${reviewRow.days === 1 ? "" : "s"}`
+                      : "—",
+                ],
+              ].map(([k, v], n) => (
+                <View key={k} className={`flex-row items-center justify-between px-4 py-3 ${n ? "border-t border-ink-100" : ""}`}>
+                  <Text className="text-[13px] text-ink-500">{k}</Text>
+                  <Text className="text-[14px] font-medium text-ink-900">{v}</Text>
+                </View>
+              ))}
+            </View>
+            {reviewRow.reason ? (
+              <View>
+                <Text className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500">Reason</Text>
+                <Text className="text-[15px] leading-6 text-ink-800">{reviewRow.reason}</Text>
+              </View>
+            ) : null}
+            {reviewRow.who === "teacher" ? (
+              <Text className="text-xs text-ink-500">After approval, assign cover for their periods from the dashboard.</Text>
+            ) : null}
+            <View className="flex-row gap-2 pt-1">
+              <Pressable
+                disabled={Boolean(decideBusy)}
+                onPress={() => void decide(reviewRow.id, false)}
+                className="h-12 flex-1 flex-row items-center justify-center gap-1.5 rounded-xl border border-ink-200"
+              >
+                <Ionicons name="close" size={17} color="#475569" />
+                <Text className="text-[15px] font-semibold text-ink-700">Reject</Text>
+              </Pressable>
+              <Pressable
+                disabled={Boolean(decideBusy)}
+                onPress={() => void decide(reviewRow.id, true)}
+                className={`h-12 flex-[2] flex-row items-center justify-center gap-1.5 rounded-xl bg-[#1F45C7] ${decideBusy ? "opacity-60" : ""}`}
+              >
+                <Ionicons name="checkmark" size={17} color="#fff" />
+                <Text className="text-[15px] font-semibold text-white">{decideBusy ? "Saving…" : "Approve"}</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+      </Sheet>
 
       {upcomingLeave.length ? (
         <Card className="mt-4 overflow-hidden">
@@ -1527,8 +1683,8 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       <>
         <View className="flex-row flex-wrap items-start justify-between gap-4">
           <View className="min-w-0 flex-1 flex-row items-start gap-3">
-            <View className="h-12 w-12 items-center justify-center rounded-full bg-ink-100">
-              <Text className="text-base font-semibold text-ink-900">{initials(selected.name)}</Text>
+            <View className="h-14 w-14 items-center justify-center rounded-2xl bg-[#1F45C7]">
+              <Text className="text-lg font-bold text-white">{initials(selected.name)}</Text>
             </View>
             <View className="min-w-0 flex-1">
               <View className="flex-row flex-wrap items-center gap-2">
@@ -1536,7 +1692,14 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                 {showFees ? <FeeText label={selected.feeLabel} tone={selected.feeTone} /> : null}
               </View>
               <Text className="mt-1 text-sm text-ink-800">{studentMetaLine(selected)}</Text>
-              {selected.born ? <Text className="mt-0.5 text-xs text-ink-700">Born {selected.born}</Text> : null}
+              {selected.born ? <Text className="mt-0.5 text-xs text-ink-500">Born {selected.born}</Text> : null}
+              {bare && (selected.path ?? []).length ? (
+                <View className="mt-1.5 flex-row flex-wrap gap-1">
+                  {selected.path!.map((p) => (
+                    <Badge key={p} tone="clay">{p}</Badge>
+                  ))}
+                </View>
+              ) : null}
             </View>
           </View>
           <View className="flex-row flex-wrap justify-end gap-2">
@@ -1583,7 +1746,8 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                 Manage fee
               </Button>
             ) : null}
-            <Button variant="ghost" onPress={() => selectStudentTab("documents")}>Documents</Button>
+            {bare ? null : <Button variant="ghost" onPress={() => selectStudentTab("documents")}>Documents</Button>}
+            {bare ? null : (
             <Pressable
               disabled={!parentTel}
               onPress={() => parentTel ? void Linking.openURL(parentTel) : undefined}
@@ -1591,6 +1755,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
             >
               <Ionicons name="call-outline" size={18} color="#3d4f66" />
             </Pressable>
+            )}
           </View>
         </View>
         <View className="mt-5">
@@ -1740,86 +1905,217 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
           <Button onPress={saveFile}>Save</Button>
         </View>
       </View>
-    ) : (
-      <View className="mt-5 gap-5">
-        <DetailSection title="Profile">
-          <View className="flex-row flex-wrap gap-x-6">
-            <DetailField label="Parent" value={selected.parent} />
-            <DetailField label="Phone" value={selected.parentPhone} />
-            <DetailField label="Email" value={selected.parentEmail} />
-            <DetailField label="Address" value={selected.parentAddress} />
+    ) : (() => {
+      const att = (selected.attendance ?? []).reduce(
+        (acc, row) => {
+          if (row.status === "PRESENT") acc.p += 1;
+          else if (row.status === "ABSENT") acc.a += 1;
+          else if (row.status === "LATE") acc.l += 1;
+          return acc;
+        },
+        { p: 0, a: 0, l: 0 }
+      );
+      const attTotal = att.p + att.a + att.l;
+      const attPct = attTotal ? Math.round((att.p / attTotal) * 100) : null;
+      const owed = (selected.dueAmount || 0) > 0;
+      const wa = whatsappHref(selected.parentPhone);
+      const dob = selected.dateOfBirth ? new Date(selected.dateOfBirth) : null;
+      const age = dob && !Number.isNaN(dob.getTime()) ? Math.floor((Date.now() - dob.getTime()) / (365.25 * 86400000)) : null;
+      const teacherName = classTeacher?.name || (studentOnly && user?.portal === "TEACHER" ? user.name : "");
+      const initials = (selected.parent || "P").split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() || "").join("");
+      const row = (label: string, value?: string | null) =>
+        value ? (
+          <View className="flex-row items-center justify-between gap-3 py-2.5">
+            <Text className="text-[13px] text-ink-500">{label}</Text>
+            <Text className="min-w-0 flex-shrink text-right text-[13px] font-medium text-ink-900" numberOfLines={1}>{value}</Text>
           </View>
-        </DetailSection>
+        ) : null;
+      const selfTeacher = studentOnly && user?.portal === "TEACHER" && (!classTeacher || classTeacher.name === user.name);
+      const low = attPct !== null && attPct < 75;
+      const actions: { icon: keyof typeof Ionicons.glyphMap; label: string; bg: string; fg: string; onPress?: () => void }[] = [
+        { icon: "call", label: "Call", bg: "#EEF3FF", fg: "#1F45C7", onPress: parentTel ? () => void Linking.openURL(parentTel) : undefined },
+        { icon: "logo-whatsapp", label: "WhatsApp", bg: "#ECFDF5", fg: "#16a34a", onPress: wa ? () => void Linking.openURL(wa) : undefined },
+        { icon: "document-text", label: "Results", bg: "#F3E8FF", fg: "#7e22ce", onPress: () => selectStudentTab("reports") },
+        { icon: "folder-open", label: "Documents", bg: "#FFF7ED", fg: "#c2410c", onPress: () => selectStudentTab("documents") },
+      ];
+      return (
+      <View className="mt-4 gap-5">
+        <Pressable
+          onPress={() => selectStudentTab("attendance")}
+          accessibilityRole="button"
+          accessibilityLabel="Open attendance"
+          className="overflow-hidden rounded-2xl border border-ink-200 bg-white p-4"
+        >
+          <View className="flex-row gap-2">
+            <View className="min-w-0 flex-1 rounded-xl bg-ink-50 px-3 py-2.5">
+              <Text className="text-[11px] font-medium uppercase tracking-wide text-ink-500">Attendance</Text>
+              <Text className={`mt-0.5 text-[20px] font-bold ${attPct === null ? "text-ink-400" : low ? "text-amber-700" : "text-emerald-700"}`}>
+                {attPct === null ? "—" : `${attPct}%`}
+              </Text>
+            </View>
+            <View className="min-w-0 flex-1 rounded-xl bg-ink-50 px-3 py-2.5">
+              <Text className="text-[11px] font-medium uppercase tracking-wide text-ink-500">Absent</Text>
+              <Text className={`mt-0.5 text-[20px] font-bold ${att.a ? "text-red-700" : "text-ink-900"}`}>
+                {att.a}
+                <Text className="text-[12px] font-medium text-ink-500"> {att.a === 1 ? "day" : "days"}</Text>
+              </Text>
+            </View>
+            <View className="min-w-0 flex-1 rounded-xl bg-ink-50 px-3 py-2.5">
+              <Text className="text-[11px] font-medium uppercase tracking-wide text-ink-500">{showFees ? "Fees due" : "Present"}</Text>
+              <Text
+                className={`mt-0.5 text-[20px] font-bold ${showFees ? (owed ? "text-red-700" : "text-emerald-700") : "text-ink-900"}`}
+                numberOfLines={1}
+              >
+                {showFees ? (owed ? selected.dueNow : "Clear") : `${att.p}`}
+                {!showFees ? <Text className="text-[12px] font-medium text-ink-500"> {att.p === 1 ? "day" : "days"}</Text> : null}
+              </Text>
+            </View>
+          </View>
+          {attPct !== null ? (
+            <View className="mt-3.5">
+              <View className="h-1.5 overflow-hidden rounded-full bg-ink-100">
+                <View className={`h-full rounded-full ${low ? "bg-amber-400" : "bg-emerald-500"}`} style={{ width: `${attPct}%` }} />
+              </View>
+              <View className="mt-1.5 flex-row items-center justify-between">
+                <Text className={`text-[12px] font-medium ${low ? "text-amber-700" : "text-ink-600"}`}>
+                  {low ? `Below 75% · ${attTotal} days marked` : `On track · ${attTotal} days marked this session`}
+                </Text>
+                <Ionicons name="chevron-forward" size={14} color="#94a3b8" />
+              </View>
+            </View>
+          ) : (
+            <Text className="mt-2 text-[12px] text-ink-500">No attendance marked yet this session</Text>
+          )}
+        </Pressable>
+
+        <View className="flex-row justify-between">
+          {actions.map((a) => (
+            <Pressable
+              key={a.label}
+              disabled={!a.onPress}
+              onPress={a.onPress}
+              className={`w-1/4 items-center gap-1.5 ${a.onPress ? "" : "opacity-40"}`}
+            >
+              <View className="h-12 w-12 items-center justify-center rounded-2xl" style={{ backgroundColor: a.bg }}>
+                <Ionicons name={a.icon} size={20} color={a.fg} />
+              </View>
+              <Text className="text-[11px] font-medium text-ink-700">{a.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+
+        <View className="gap-2">
+          <Text className="text-[13px] font-semibold text-ink-900">Family</Text>
+          <View className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
+            <View className="flex-row items-center gap-3 p-3.5">
+              <View className="h-10 w-10 items-center justify-center rounded-full bg-[#EEF3FF]">
+                <Text className="text-[13px] font-bold text-[#1F45C7]">{initials}</Text>
+              </View>
+              <View className="min-w-0 flex-1">
+                <Text className="text-[15px] font-semibold text-ink-900" numberOfLines={1}>{selected.parent || "Parent"}</Text>
+                <Text className="text-xs text-ink-500" numberOfLines={1}>Parent · {selected.parentPhone || "no phone"}</Text>
+              </View>
+            </View>
+            {selected.parentEmail ? (
+              <View className="flex-row items-center gap-2.5 border-t border-ink-100 px-3.5 py-2.5">
+                <Ionicons name="mail-outline" size={14} color="#94a3b8" />
+                <Text className="min-w-0 flex-1 text-[13px] text-ink-700" numberOfLines={1}>{selected.parentEmail}</Text>
+              </View>
+            ) : null}
+            {selected.parentAddress ? (
+              <View className="flex-row items-center gap-2.5 border-t border-ink-100 px-3.5 py-2.5">
+                <Ionicons name="location-outline" size={14} color="#94a3b8" />
+                <Text className="min-w-0 flex-1 text-[13px] text-ink-700" numberOfLines={2}>{selected.parentAddress}</Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+
+        {!bare || !selfTeacher ? (
+          <View className="gap-2">
+            <Text className="text-[13px] font-semibold text-ink-900">School record</Text>
+            <View className="rounded-2xl border border-ink-100 bg-white px-3.5">
+              {!bare ? (
+                <>
+                  {row("Class · Roll", `${selected.classLabel}${selected.rollNumber ? ` · ${selected.rollNumber}` : ""}`)}
+                  <View className="h-px bg-ink-100" />
+                  {row("Admission no.", selected.admissionNo)}
+                  <View className="h-px bg-ink-100" />
+                </>
+              ) : null}
+              {!selfTeacher ? (
+                <>
+                  {row("Class teacher", teacherName || "Not assigned")}
+                  <View className="h-px bg-ink-100" />
+                </>
+              ) : null}
+              {row("Date of birth", dob ? `${dob.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}${age !== null ? ` · ${age} yrs` : ""}` : "Not added")}
+              {!bare && (selected.path ?? []).length ? (
+                <>
+                  <View className="h-px bg-ink-100" />
+                  <View className="flex-row items-center justify-between gap-3 py-2.5">
+                    <Text className="text-[13px] text-ink-500">Stream</Text>
+                    <View className="flex-row flex-wrap justify-end gap-1">
+                      {selected.path!.map((p) => (
+                        <Badge key={p} tone="clay">{p}</Badge>
+                      ))}
+                    </View>
+                  </View>
+                </>
+              ) : null}
+            </View>
+          </View>
+        ) : null}
+
         {(data?.school?.admissionForm ?? []).some((field) => !field.builtin && (field.visible || selected.admissionData?.[field.id])) ? (
           <DetailSection title="Admission details">
             <AdmissionDetails fields={data?.school?.admissionForm ?? []} values={selected.admissionData} />
           </DetailSection>
         ) : null}
-        <DetailSection
-          title="Academic"
-          action={
-            classTeacher ? (
-              <Pressable onPress={() => router.push("/staff" as never)} hitSlop={8}>
-                <Text className="text-xs font-medium text-clay-600">View teacher</Text>
+
+        {latestIdCard || activeIdTemplate || can(user, "documents.manage") || can(user, "people.edit") ? (
+        <View className="gap-2">
+          <View className="flex-row items-center justify-between">
+            <Text className="text-[13px] font-semibold text-ink-900">ID card</Text>
+            <Pressable onPress={() => selectStudentTab("documents")} hitSlop={8}>
+              <Text className="text-xs font-medium text-clay-600">All documents</Text>
+            </Pressable>
+          </View>
+          <View className="flex-row items-center gap-3 rounded-xl border border-ink-100 bg-white p-3.5">
+            <View className="h-10 w-10 items-center justify-center rounded-lg bg-[#EEF3FF]">
+              <Ionicons name="id-card-outline" size={19} color="#1F45C7" />
+            </View>
+            <View className="min-w-0 flex-1">
+              <Text className="text-sm font-semibold text-ink-900">
+                {latestIdCard ? "Issued" : activeIdTemplate ? "Not issued yet" : "Template not set up"}
+              </Text>
+              <Text className="text-xs text-ink-500" numberOfLines={1}>
+                {latestIdCard
+                  ? `${latestIdCard.documentNumber} · ${new Date(latestIdCard.issuedAt).toLocaleDateString("en-IN")}`
+                  : activeIdTemplate
+                    ? "Ready to issue"
+                    : "Approve the ID card template once"}
+              </Text>
+            </View>
+            {latestIdCard ? (
+              <Pressable onPress={() => void Linking.openURL(latestIdCard.documentUrl)} className="h-9 justify-center rounded-lg border border-ink-200 px-3">
+                <Text className="text-[13px] font-semibold text-ink-800">Open</Text>
               </Pressable>
-            ) : null
-          }
-        >
-          <View className="flex-row flex-wrap gap-x-6">
-            <DetailField label="Class" value={selected.classLabel} />
-            <DetailField label="Roll no." value={selected.rollNumber ? String(selected.rollNumber) : "—"} />
-            <DetailField label="Admission no." value={selected.admissionNo} />
-            <DetailField label="Class teacher" value={classTeacher?.name || "Not assigned"} />
-            <View className="min-w-[44%] flex-1 py-2">
-              <Text className="text-xs text-ink-700">Stream / Path</Text>
-              <View className="mt-1 flex-row flex-wrap gap-1">
-                {(selected.path ?? []).length ? (
-                  selected.path!.map((p) => (
-                    <Badge key={p} tone="clay">
-                      {p}
-                    </Badge>
-                  ))
-                ) : (
-                  <Text className="text-sm font-medium text-ink-900">Not provided</Text>
-                )}
-              </View>
-            </View>
+            ) : activeIdTemplate ? (
+              <Pressable disabled={idCardPending} onPress={() => void issueStudentIdCard()} className={`h-9 justify-center rounded-lg bg-[#1F45C7] px-3 ${idCardPending ? "opacity-50" : ""}`}>
+                <Text className="text-[13px] font-semibold text-white">{idCardPending ? "Issuing…" : "Issue"}</Text>
+              </Pressable>
+            ) : can(user, "documents.manage") || can(user, "people.edit") ? (
+              <Pressable onPress={() => router.push("/letter" as never)} className="h-9 justify-center rounded-lg border border-ink-200 px-3">
+                <Text className="text-[13px] font-semibold text-ink-800">Set up</Text>
+              </Pressable>
+            ) : null}
           </View>
-        </DetailSection>
-        <DetailSection
-          title="Documents"
-          action={<Pressable onPress={() => selectStudentTab("documents")} hitSlop={8}><Text className="text-xs font-medium text-clay-600">View all</Text></Pressable>}
-        >
-          <View className="rounded-md bg-sky-50 p-4">
-            <View className="flex-row flex-wrap items-start justify-between gap-3">
-              <View className="min-w-0 flex-1">
-                <View className="flex-row items-center gap-2">
-                  <Ionicons name="id-card-outline" size={18} color="#1d4ed8" />
-                  <Text className="text-sm font-semibold text-ink-900">Student ID card</Text>
-                </View>
-                <Text className="mt-1 text-xs leading-5 text-ink-700">
-                  {latestIdCard
-                    ? `${latestIdCard.documentNumber} · issued ${new Date(latestIdCard.issuedAt).toLocaleDateString("en-IN")}`
-                    : activeIdTemplate
-                      ? "Ready to issue from the approved ID card template."
-                      : "Approve and publish the Student ID card template first."}
-                </Text>
-              </View>
-              <View className="flex-row flex-wrap justify-end gap-2">
-                {latestIdCard ? (
-                  <Button variant="ghost" onPress={() => void Linking.openURL(latestIdCard.documentUrl)}>
-                    Open ID card
-                  </Button>
-                ) : null}
-                <Button disabled={idCardPending || !activeIdTemplate} onPress={() => void issueStudentIdCard()}>
-                  {idCardPending ? "Issuing..." : latestIdCard ? "Reissue" : "Issue ID card"}
-                </Button>
-              </View>
-            </View>
-          </View>
-        </DetailSection>
+        </View>
+        ) : null}
       </View>
-    );
+      );
+    })();
     const nextDue = selected.invoices?.find((inv) => inv.status !== "paid")?.due || "";
     const feesBody = (
       <View className="mt-5 min-h-0 flex-1 gap-4">
@@ -1990,12 +2286,34 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
           <MetricTile label="Present" value={String(attendanceCounts.present)} tone="leaf" />
           <MetricTile label="Absent" value={String(attendanceCounts.absent)} tone={attendanceCounts.absent ? "warn" : "ink"} />
         </View>
-        <DetailSection title="Recent attendance">
-          <View className="rounded-md bg-ink-50 p-4">
-            <Text className="text-sm font-medium text-ink-900">{attendanceMarked || "No"} marked record{attendanceMarked === 1 ? "" : "s"}</Text>
-            <Text className="mt-1 text-xs leading-5 text-ink-700">Dated attendance is managed from the Attendance workspace for this class.</Text>
+        {attendanceMarked ? (
+          <View className="gap-2 rounded-xl border border-ink-100 bg-white p-4">
+            <View className="flex-row items-center justify-between">
+              <Text className="text-sm font-semibold text-ink-900">This session</Text>
+              <Text className="text-xs text-ink-500">{attendanceMarked} days marked</Text>
+            </View>
+            <View className="h-2 flex-row overflow-hidden rounded-full bg-ink-100">
+              <View className="bg-emerald-500" style={{ flex: attendanceCounts.present }} />
+              <View className="bg-amber-400" style={{ flex: attendanceCounts.late }} />
+              <View className="bg-red-400" style={{ flex: attendanceCounts.absent }} />
+            </View>
+            <View className="flex-row flex-wrap gap-x-4 gap-y-1">
+              <Text className="text-xs text-ink-600">● Present {attendanceCounts.present}</Text>
+              {attendanceCounts.late ? <Text className="text-xs text-ink-600">● Late {attendanceCounts.late}</Text> : null}
+              <Text className="text-xs text-ink-600">● Absent {attendanceCounts.absent}</Text>
+            </View>
+            {attendanceCounts.present / attendanceMarked < 0.75 ? (
+              <View className="mt-1 flex-row items-start gap-2 rounded-lg bg-red-50 px-3 py-2">
+                <Ionicons name="alert-circle-outline" size={15} color="#b91c1c" style={{ marginTop: 1 }} />
+                <Text className="min-w-0 flex-1 text-xs leading-5 text-red-800">Below the 75% needed. Consider calling the parent.</Text>
+              </View>
+            ) : null}
           </View>
-        </DetailSection>
+        ) : (
+          <View className="rounded-xl bg-ink-50 p-4">
+            <Text className="text-sm text-ink-700">No attendance marked yet this session.</Text>
+          </View>
+        )}
       </View>
     );
     const reportsBody = (
@@ -2076,44 +2394,27 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       (field) => field.type === "file" && !field.builtin && (field.visible || admissionValues[field.id])
     );
     const uploadedCount = admissionDocFields.filter((field) => admissionValues[field.id]).length;
+    const issueButton =
+      data && canUploadDocuments ? (
+        <QuickDocumentButton
+          data={data}
+          subjectType="STUDENT"
+          subjectId={selected.id}
+          subjectLabel={selected.name}
+          allowedTypes={["STUDENT_ID", "BONAFIDE", "STUDY_CERTIFICATE", "DOB_CERTIFICATE", "CHARACTER_CERTIFICATE", "ATTENDANCE_CERTIFICATE", "PROMOTION_CERTIFICATE", "TRANSFER_CERTIFICATE", "NO_DUES", "GATE_PASS", "LIBRARY_CARD", "TRANSPORT_CARD", "BUS_PASS", "CUSTOM_LETTER"]}
+        />
+      ) : null;
     const documentsBody = (
-      <View className="mt-5 gap-4">
-        <View className="flex-row flex-wrap gap-2">
-          {([
-            { id: "uploaded", label: "Uploaded documents", count: admissionDocFields.length ? `${uploadedCount}/${admissionDocFields.length}` : "0" },
-            { id: "issued", label: "Issued by school", count: String(studentDocs.length) },
-          ] as const).map((tab) => {
-            const on = docView === tab.id;
-            return (
-              <Pressable
-                key={tab.id}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: on }}
-                onPress={() => setDocView(tab.id)}
-                className={`h-9 flex-row items-center gap-2 rounded-full px-4 ${on ? "bg-ink-900" : "bg-ink-50"}`}
-              >
-                <Text className={`text-sm font-semibold ${on ? "text-white" : "text-ink-700"}`}>{tab.label}</Text>
-                <View className={`rounded-full px-1.5 py-0.5 ${on ? "bg-white/20" : "bg-white"}`}>
-                  <Text className={`text-[11px] font-semibold ${on ? "text-white" : "text-ink-700"}`}>{tab.count}</Text>
-                </View>
-              </Pressable>
-            );
-          })}
-        </View>
-        {docView === "uploaded" ? (
-        <View className="gap-3">
-          <View className="flex-row flex-wrap items-center justify-between gap-3">
-            <View>
-              <Text className="text-sm font-semibold text-ink-900">Admission documents</Text>
-              <Text className="mt-1 text-xs text-ink-700">
-                {admissionDocFields.length
-                  ? `${uploadedCount}/${admissionDocFields.length} uploaded · as asked in your admission form`
-                  : "Your admission form doesn't ask for any documents."}
+      <View className="mt-5 gap-6">
+        {admissionDocFields.length ? (
+          <View className="gap-2">
+            <View className="flex-row items-end justify-between gap-3">
+              <Text className="text-[13px] font-semibold text-ink-900">From admission</Text>
+              <Text className={`text-xs ${uploadedCount < admissionDocFields.length ? "font-semibold text-amber-700" : "text-ink-500"}`}>
+                {uploadedCount}/{admissionDocFields.length} uploaded
               </Text>
             </View>
-          </View>
-          {admissionDocFields.length ? (
-            <View className="overflow-hidden rounded-md bg-white">
+            <View className="overflow-hidden rounded-xl border border-ink-100 bg-white">
               {admissionDocFields.map((field, index) => (
                 <AdmissionDocumentRow
                   key={field.id}
@@ -2126,47 +2427,54 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                 />
               ))}
             </View>
-          ) : null}
-        </View>
-        ) : (
-        <View className="gap-3">
-          <View className="flex-row flex-wrap items-center justify-between gap-3">
-            <View>
-              <Text className="text-sm font-semibold text-ink-900">Issued by school</Text>
-              <Text className="mt-1 text-xs text-ink-700">{studentDocs.length ? `${studentDocs.length} for this student` : "Certificates, ID cards and letters you issue show here."}</Text>
-            </View>
-            {data && canUploadDocuments ? (
-              <QuickDocumentButton
-                data={data}
-                subjectType="STUDENT"
-                subjectId={selected.id}
-                subjectLabel={selected.name}
-                allowedTypes={["STUDENT_ID", "BONAFIDE", "STUDY_CERTIFICATE", "DOB_CERTIFICATE", "CHARACTER_CERTIFICATE", "ATTENDANCE_CERTIFICATE", "PROMOTION_CERTIFICATE", "TRANSFER_CERTIFICATE", "NO_DUES", "GATE_PASS", "LIBRARY_CARD", "TRANSPORT_CARD", "BUS_PASS", "CUSTOM_LETTER"]}
-              />
-            ) : null}
+          </View>
+        ) : null}
+
+        <View className="gap-2">
+          <View className="flex-row items-center justify-between gap-3">
+            <Text className="text-[13px] font-semibold text-ink-900">Issued by school</Text>
+            {studentDocs.length ? issueButton : null}
           </View>
           {studentDocs.length ? (
-            <View className="overflow-hidden rounded-md bg-white">
+            <View className="overflow-hidden rounded-xl border border-ink-100 bg-white">
               {studentDocs.map((doc, index) => (
-                <View key={doc.id} className={`flex-row items-center justify-between gap-3 px-3 py-3 ${index ? "border-t border-ink-100" : ""}`}>
+                <Pressable
+                  key={doc.id}
+                  onPress={() => openInNewTab(doc.documentUrl)}
+                  className={`flex-row items-center gap-3 px-3.5 py-3 active:bg-ink-50 ${index ? "border-t border-ink-100" : ""}`}
+                >
+                  <View className="h-9 w-9 items-center justify-center rounded-lg bg-[#EEF3FF]">
+                    <Ionicons name="document-text-outline" size={17} color="#1F45C7" />
+                  </View>
                   <View className="min-w-0 flex-1">
-                    <Text className="text-sm font-medium text-ink-900">{doc.uploadLabel || docTypeLabel(doc.type)}</Text>
-                    <Text className="mt-1 text-xs text-ink-700">
-                      {`${doc.uploadLabel ? "Uploaded" : "Issued"} ${new Date(doc.issuedAt).toLocaleDateString("en-IN")} · ${doc.documentNumber}`}
+                    <Text className="text-sm font-medium text-ink-900" numberOfLines={1}>{doc.uploadLabel || docTypeLabel(doc.type)}</Text>
+                    <Text className="mt-0.5 text-xs text-ink-500" numberOfLines={1}>
+                      {`${new Date(doc.issuedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })} · ${doc.documentNumber}`}
                     </Text>
                   </View>
-                  <View className="flex-row items-center gap-3">
-                    <Badge tone="leaf">{doc.status.toLowerCase()}</Badge>
-                    <Pressable onPress={() => openInNewTab(doc.documentUrl)} hitSlop={8}>
-                      <Text className="text-xs font-medium text-clay-600">Open</Text>
-                    </Pressable>
-                  </View>
-                </View>
+                  <Ionicons name="open-outline" size={15} color="#94a3b8" />
+                </Pressable>
               ))}
             </View>
-          ) : null}
+          ) : (
+            <View className="items-center gap-2 rounded-2xl border border-dashed border-ink-200 px-5 py-8">
+              <View className="h-12 w-12 items-center justify-center rounded-full bg-[#EEF3FF]">
+                <Ionicons name="ribbon-outline" size={22} color="#1F45C7" />
+              </View>
+              <Text className="text-[15px] font-semibold text-ink-900">Nothing issued yet</Text>
+              <Text className="text-center text-xs leading-5 text-ink-500">
+                ID card, bonafide, transfer certificate and more. Made from {selected.name.split(" ")[0]}'s record in one tap.
+              </Text>
+              {issueButton ? <View className="mt-2">{issueButton}</View> : null}
+            </View>
+          )}
         </View>
-        )}
+
+        {!admissionDocFields.length ? (
+          <Text className="text-[11px] leading-4 text-ink-400">
+            Want parents to upload birth certificates or photos? Add file fields to the admission form in Settings.
+          </Text>
+        ) : null}
       </View>
     );
     const tabBody =
@@ -2507,7 +2815,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
     return (
       <View className="flex-1">
         <TeacherRoster title={title} onPick={(id) => selectStudent(id)} />
-        <Sheet open={Boolean(picked)} onClose={() => setPicked(null)}>
+        <Sheet fixed={0.74} open={Boolean(picked)} onClose={() => setPicked(null)}>
           <FilePane bare />
         </Sheet>
         {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
@@ -2549,7 +2857,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
         <View className="min-h-0 flex-1">{peopleList}</View>
       )}
 
-      <Sheet open={!wide && Boolean(picked)} onClose={() => setPicked(null)}>
+      <Sheet fixed={0.74} open={!wide && Boolean(picked)} onClose={() => setPicked(null)}>
         <FilePane bare />
       </Sheet>
 
@@ -4011,12 +4319,22 @@ export function StaffBoard() {
   const { data, reload } = useRecord();
   const { token, user } = useSession();
   const toast = useToast();
+  const router = useRouter();
   const { width } = useWindowDimensions();
   const phone = width < 768;
   const staff = data?.staff ?? [];
   const [q, setQ] = useState("");
   const [marks, setMarks] = useState<Record<string, string>>({});
   const [times, setTimes] = useState<Record<string, string>>({});
+  const staffParams = useLocalSearchParams<{ view?: string | string[] }>();
+  const viewParam = Array.isArray(staffParams.view) ? staffParams.view[0] : staffParams.view;
+  const [staffView, setStaffView] = useState<"today" | "directory" | "salary">(viewParam === "salary" ? "salary" : "today");
+  useEffect(() => {
+    if (viewParam === "salary") setStaffView("salary");
+  }, [viewParam]);
+  const [detailMonth, setDetailMonth] = useState<string | undefined>(undefined);
+  const [dirKind, setDirKind] = useState<"" | "teacher" | "staff">("");
+  const [staffFilter, setStaffFilter] = useState<"" | "PRESENT" | "LATE" | "ABSENT" | "LEAVE" | "UNMARKED">("");
   const [savedTimes, setSavedTimes] = useState<Record<string, string>>({});
   const [savedDate, setSavedDate] = useState("");
   const timesRef = useRef(times);
@@ -4024,16 +4342,12 @@ export function StaffBoard() {
   timesRef.current = times;
   marksRef.current = marks;
   const [timesheetOpen, setTimesheetOpen] = useState(false);
-  const [hoursOpen, setHoursOpen] = useState(false);
-  const hoursRef = useRef<StaffHoursFormHandle>(null);
-  const [rulesOverride, setRulesOverride] = useState<PayrollRules | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [infoFor, setInfoFor] = useState<(typeof staff)[number] | null>(null);
   const [detailFor, setDetailFor] = useState<(typeof staff)[number] | null>(null);
   const [editFor, setEditFor] = useState<(typeof staff)[number] | null>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [decidedOpen, setDecidedOpen] = useState(false);
   const [leaveBusy, setLeaveBusy] = useState("");
   const pendingLeave = data?.pendingLeave ?? [];
@@ -4047,7 +4361,15 @@ export function StaffBoard() {
   const dayFuture = date > today;
   const locked = Boolean(dayClosed || dayFuture);
   const lockedNote = dayFuture ? "That day has not come yet." : closedCaption(dayClosed);
-  const canMark = can(user, "staff.edit");
+  const canManage = can(user, "staff.edit");
+  // Salary is separate from managing employees: see / approve / pay.
+  const salaryAccess = {
+    view: can(user, "salary.view") || can(user, "salary.approve") || can(user, "salary.pay"),
+    approve: can(user, "salary.approve"),
+    pay: can(user, "salary.pay"),
+  };
+  const canMark = canManage || can(user, "staff.attendance");
+  const canDirectory = canManage || can(user, "staff.view");
   const canHours = can(user, "school.edit") || canMark;
 
   useEffect(() => {
@@ -4079,7 +4401,7 @@ export function StaffBoard() {
   }
 
   const payrollRules =
-    rulesOverride || parsePayrollRules(data?.payrollRules ? JSON.stringify(data.payrollRules) : null);
+    parsePayrollRules(data?.payrollRules ? JSON.stringify(data.payrollRules) : null);
 
   async function saveDay() {
     if (locked) {
@@ -4158,8 +4480,11 @@ export function StaffBoard() {
     await reload();
   }
 
-  async function editStaff(values: StaffAdmitPayload) {
+  async function editStaff(values: StaffAdmitPayload, files: StaffAdmitFiles = {}) {
     if (!editFor) return;
+    const kind = editFor.kind === "teacher" ? "teacher" : "staff";
+    // File fields keep their stored path; only text answers go back as form values.
+    const customValues = Object.fromEntries(Object.entries(values.customValues ?? {}).filter(([, v]) => !String(v).startsWith("private/")));
     if (editFor.kind === "teacher") {
       await act(token, "updateTeacher", {
         teacherId: editFor.id,
@@ -4173,18 +4498,30 @@ export function StaffBoard() {
         city: values.city,
         state: values.state,
         pincode: values.pincode,
-        qualification: editFor.qualification || "",
+        qualification: customValues.qualification ?? editFor.qualification ?? "",
         managerId: values.managerId || null,
         monthlySalary: values.monthlySalary,
         classId: values.classId || null,
+        customValues,
       });
     } else {
       await act(token, "updateStaffMember", {
         staffId: editFor.id,
         ...values,
+        customValues,
         managerId: values.managerId || null,
       });
     }
+    const failed: string[] = [];
+    for (const [fieldId, file] of Object.entries(files)) {
+      try {
+        const uploaded = await uploadFile(token, file, { kind: "staffDocument", staffKind: kind, staffId: editFor.id });
+        await act(token, "setStaffOnboardingFile", { kind, id: editFor.id, fieldId, path: uploaded.path });
+      } catch {
+        failed.push(fieldId);
+      }
+    }
+    if (failed.length) toast.show(`Saved, but ${failed.length} document${failed.length === 1 ? "" : "s"} did not upload.`);
     setEditFor(null);
     setInfoFor(null);
     toast.show("Employee saved.");
@@ -4197,7 +4534,18 @@ export function StaffBoard() {
   const no = staff.filter((p) => arrivalOf(p) === "ABSENT").length;
   const onLeave = staff.filter((p) => arrivalOf(p) === "LEAVE").length;
   const needle = q.trim().toLowerCase();
-  const shown = needle ? staff.filter((p) => p.name.toLowerCase().includes(needle)) : staff;
+  const isMarked = (p: (typeof staff)[number]) => {
+    const key = `${p.kind}:${p.id}`;
+    return Boolean(dayOn(p.days, date)?.status || marksRef.current[key] || marks[key]);
+  };
+  const unmarked = locked ? 0 : staff.filter((p) => arrivalOf(p) !== "LEAVE" && !isMarked(p)).length;
+  const leaveAsked = new Set(pendingWaiting.map((r) => r.subjectId));
+  const matchesFilter = (p: (typeof staff)[number]) => {
+    if (!staffFilter) return true;
+    if (staffFilter === "UNMARKED") return arrivalOf(p) !== "LEAVE" && !isMarked(p);
+    return arrivalOf(p) === staffFilter && (staffFilter === "LEAVE" || isMarked(p));
+  };
+  const shown = staff.filter((p) => (!needle || p.name.toLowerCase().includes(needle)) && matchesFilter(p));
   const editRoleOptions = editFor?.kind === "teacher"
     ? (data?.staffRoles ?? []).filter((r) => r.portal === "TEACHER")
     : (data?.staffRoles ?? []).filter((r) => r.portal !== "TEACHER" && r.portal !== "PARENT" && r.portal !== "STUDENT");
@@ -4215,41 +4563,160 @@ export function StaffBoard() {
         pincode: editFor.pincode || "",
         managerId: editFor.managerId || "",
         monthlySalary: String(editFor.salary ?? 30000),
+        customValues: {
+          ...(editFor.onboardingValues ?? {}),
+          ...(editFor.qualification && !editFor.onboardingValues?.qualification ? { qualification: editFor.qualification } : {}),
+        },
       }
     : undefined;
 
+  const staffTabs = (
+    [
+      ["today", "Today", canMark],
+      ["timesheet", "Timesheet", canMark],
+      ["salary", "Salary", salaryAccess.view],
+      ["directory", phone ? "Directory" : `Directory · ${staff.length}`, canDirectory],
+    ] as const
+  ).filter(([, , on]) => on);
+  const tabsBar =
+    staffTabs.length > 1 ? (
+      <View className={`flex-row rounded-xl bg-ink-100 p-1 ${phone ? "mx-3 mt-3" : "mx-4 mt-4 self-start"}`}>
+        {staffTabs.map(([id, label]) => {
+          const on = (timesheetOpen ? "timesheet" : canMark ? staffView : "directory") === id;
+          return (
+            <Pressable
+              key={id}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: on }}
+              onPress={() => {
+                if (id === "timesheet") {
+                  setTimesheetOpen(true);
+                  return;
+                }
+                setTimesheetOpen(false);
+                setStaffView(id);
+              }}
+              className={`h-9 items-center justify-center rounded-lg px-4 ${phone ? "flex-1" : ""} ${on ? "bg-white" : ""}`}
+              style={on ? { shadowColor: "#0f172a", shadowOpacity: 0.08, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } } : undefined}
+            >
+              <Text className={`text-[13px] font-semibold ${on ? "text-ink-900" : "text-ink-500"}`}>{label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    ) : null;
+  const dirNeedle = q.trim().toLowerCase();
+  const dirRows = staff
+    .filter((p) => !dirKind || (dirKind === "teacher" ? p.kind === "teacher" : p.kind !== "teacher"))
+    .filter((p) => !dirNeedle || [p.name, p.role, p.phone, p.employeeId || ""].join(" ").toLowerCase().includes(dirNeedle))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const directory = (
+    <Card className="min-h-0 flex-1">
+      {tabsBar}
+      <View className={phone ? "gap-2 border-b border-ink-100 px-3 py-3" : "gap-3 border-b border-ink-100 px-4 py-4"}>
+        <View className="flex-row items-center gap-2">
+          <Text className="flex-1 text-[20px] font-bold tracking-tight text-ink-900">Employees</Text>
+          {canManage ? (
+            <Pressable onPress={() => setBulkOpen(true)} className="h-10 justify-center rounded-full border border-ink-200 px-3.5">
+              <Text className="text-sm font-semibold text-ink-800">Import</Text>
+            </Pressable>
+          ) : null}
+          {canManage ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Add employee"
+              onPress={() => setAddOpen(true)}
+              className="h-10 flex-row items-center gap-1 rounded-full bg-[#1F45C7] px-3.5"
+            >
+              <Ionicons name="add" size={18} color="#fff" />
+              <Text className="text-sm font-semibold text-white">Add</Text>
+            </Pressable>
+          ) : null}
+        </View>
+        <View className="flex-row gap-1.5">
+          {(
+            [
+              ["", `All ${staff.length}`],
+              ["teacher", `Teachers ${staff.filter((p) => p.kind === "teacher").length}`],
+              ["staff", `Office & support ${staff.filter((p) => p.kind !== "teacher").length}`],
+            ] as const
+          ).map(([id, label]) => (
+            <Pressable
+              key={id || "all"}
+              onPress={() => setDirKind(id)}
+              className={`h-8 justify-center rounded-full px-3 ${dirKind === id ? "bg-ink-900" : "border border-ink-200 bg-white"}`}
+            >
+              <Text className={`text-[13px] font-medium ${dirKind === id ? "text-white" : "text-ink-700"}`}>{label}</Text>
+            </Pressable>
+          ))}
+        </View>
+        <View className="flex-row items-center rounded-xl border border-ink-200 bg-white pl-3">
+          <Ionicons name="search-outline" size={16} color="#94a3b8" />
+          <TextInput
+            value={q}
+            onChangeText={setQ}
+            placeholder="Search name, role or phone"
+            placeholderTextColor="#94a3b8"
+            autoCapitalize="none"
+            autoCorrect={false}
+            className="min-w-0 flex-1 px-2 py-2.5 text-sm text-ink-900"
+          />
+        </View>
+      </View>
+      <ScrollView className="min-h-0 flex-1" keyboardShouldPersistTaps="handled">
+        {dirRows.map((p, i) => {
+          const tel = phoneHref(p.phone);
+          return (
+            <Pressable
+              key={`${p.kind}:${p.id}`}
+              onPress={() => setInfoFor(p)}
+              className={`flex-row items-center gap-3 px-4 py-3 active:bg-ink-50 hover:bg-ink-50 ${i ? "border-t border-ink-100" : ""}`}
+            >
+              <View className="h-10 w-10 items-center justify-center rounded-full bg-[#EEF3FF]">
+                <Text className="text-xs font-bold text-[#1F45C7]">
+                  {p.name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase()}
+                </Text>
+              </View>
+              <View className="min-w-0 flex-1">
+                <Text className="text-[15px] font-semibold text-ink-900" numberOfLines={1}>{p.name}</Text>
+                <Text className="text-xs text-ink-500" numberOfLines={1}>
+                  {p.kind === "teacher" ? "Teacher" : p.role}
+                  {p.classLabel ? ` · Class ${p.classLabel}` : ""}
+                  {p.employeeId ? ` · ${p.employeeId}` : ""}
+                </Text>
+              </View>
+              {tel ? (
+                <Pressable
+                  accessibilityLabel={`Call ${p.name}`}
+                  onPress={(e) => {
+                    e.stopPropagation?.();
+                    void Linking.openURL(tel);
+                  }}
+                  className="h-9 w-9 items-center justify-center rounded-full bg-[#EEF3FF]"
+                >
+                  <Ionicons name="call" size={15} color="#1F45C7" />
+                </Pressable>
+              ) : null}
+              <Ionicons name="chevron-forward" size={15} color="#cbd5e1" />
+            </Pressable>
+          );
+        })}
+        {!dirRows.length ? (
+          <View className="px-4 py-8">
+            <Empty title="No match" body="Try another name or clear the filter." />
+          </View>
+        ) : null}
+      </ScrollView>
+    </Card>
+  );
+
   const register = (
     <Card className="min-h-0 flex-1">
+      {tabsBar}
       <View className={phone ? "gap-2 border-b border-ink-100 px-3 py-2" : "gap-3 border-b border-ink-100 px-4 py-4"}>
         {phone ? (
           <>
             <View testID="staff-toolbar-controls" className="flex-row items-center gap-2">
-              <Text className="flex-1 text-[22px] font-bold tracking-tight text-ink-900">Staff</Text>
-              {canMark ? (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Add employee"
-                  onPress={() => setAddOpen(true)}
-                  className="h-10 flex-row items-center gap-1 rounded-full bg-[#1F45C7] px-3.5"
-                >
-                  <Ionicons name="add" size={18} color="#fff" />
-                  <Text className="text-sm font-semibold text-white">Add</Text>
-                </Pressable>
-              ) : null}
-              {canMark ? (
-                <StaffAttendanceQrScanButton token={token} compact disabled={locked} onMessage={toast.show} onDone={reload} />
-              ) : null}
-              {data?.staffAttendanceSelf ? <StaffAttendanceQrButton token={token} compact disabled={locked} onMessage={toast.show} /> : null}
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="More staff actions"
-                onPress={() => setMenuOpen(true)}
-                className="h-10 w-10 items-center justify-center rounded-full border border-ink-200 bg-white"
-              >
-                <Ionicons name="ellipsis-horizontal" size={18} color="#334155" />
-              </Pressable>
-            </View>
-            <View className="flex-row items-center gap-2">
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Previous day"
@@ -4308,6 +4775,14 @@ export function StaffBoard() {
                 <Text className="text-xs font-medium text-[#1F45C7]">Leave requests ({pendingLeave.length})</Text>
               </Pressable>
             ) : null}
+            {!canMark ? (
+              <View className="flex-row items-center gap-2 rounded-xl bg-ink-50 px-3 py-2.5">
+                <Ionicons name="eye-outline" size={15} color="#64748b" />
+                <Text className="min-w-0 flex-1 text-[12px] leading-4 text-ink-600">
+                  View only. Turn on "Mark staff attendance" for {user?.roleName || "your role"} in Roles & permissions.
+                </Text>
+              </View>
+            ) : null}
             <View testID="staff-toolbar-summary">
               {locked ? (
                 <Text className="text-sm text-amber-800">{lockedNote.replace(/\.$/, "")}.</Text>
@@ -4315,19 +4790,28 @@ export function StaffBoard() {
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
                   {(
                     [
-                      [`${yes} present`, "bg-green-50 text-green-700", true],
-                      [`${late} late`, "bg-amber-50 text-amber-800", late > 0],
-                      [`${no} absent`, "bg-red-50 text-red-700", true],
-                      [`${onLeave} on leave`, "bg-sky-50 text-sky-700", onLeave > 0],
-                      [`${shown.length} shown`, "bg-ink-50 text-ink-700", Boolean(needle)],
+                      ["PRESENT", `${Math.max(0, yes - unmarked)} in`, "#047857", "#ECFDF5", true],
+                      ["LATE", `${late} late`, "#b45309", "#FFFBEB", late > 0],
+                      ["ABSENT", `${no} absent`, "#b91c1c", "#FEF2F2", no > 0],
+                      ["LEAVE", `${onLeave} on leave`, "#0369a1", "#F0F9FF", onLeave > 0],
+                      ["UNMARKED", `${unmarked} not marked`, "#475569", "#F1F5F9", unmarked > 0],
                     ] as const
                   )
-                    .filter(([, , on]) => on)
-                    .map(([label, tone]) => (
-                      <Text key={label} className={`rounded-full px-2.5 py-1 text-xs font-semibold ${tone}`}>
-                        {label}
-                      </Text>
-                    ))}
+                    .filter(([, , , , on]) => on)
+                    .map(([id, label, fg, bg]) => {
+                      const active = staffFilter === id;
+                      return (
+                        <Pressable
+                          key={id}
+                          onPress={() => setStaffFilter(active ? "" : id)}
+                          className="h-8 flex-row items-center gap-1 rounded-full border px-3"
+                          style={{ backgroundColor: active ? fg : bg, borderColor: active ? fg : "transparent" }}
+                        >
+                          <Text className="text-[13px] font-semibold" style={{ color: active ? "#fff" : fg }}>{label}</Text>
+                          {active ? <Ionicons name="close" size={12} color="#fff" /> : null}
+                        </Pressable>
+                      );
+                    })}
                 </ScrollView>
               )}
             </View>
@@ -4382,25 +4866,13 @@ export function StaffBoard() {
               />
             </Field>
           </View>
-          {canMark ? (
-            <Button variant="ghost" onPress={() => setAddOpen(true)}>
-              + Add employee
+
+          {canHours ? (
+            <Button variant="ghost" accessibilityLabel="Payroll rules" onPress={() => router.push("/school?tab=payroll" as never)}>
+              Payroll rules
             </Button>
           ) : null}
-          {canMark ? (
-            <Button variant="ghost" accessibilityLabel="Import employees" onPress={() => setBulkOpen(true)}>
-              Import
-            </Button>
-          ) : null}
-          <Button variant="ghost" accessibilityLabel="Timesheet" onPress={() => setTimesheetOpen(true)}>
-            Timesheet
-          </Button>
-          <Button variant="ghost" accessibilityLabel="Late timing" onPress={() => setHoursOpen(true)}>
-            Late timing
-          </Button>
-          {canMark ? (
-            <StaffAttendanceQrScanButton token={token} disabled={locked} onMessage={toast.show} onDone={reload} />
-          ) : null}
+
           {data?.staffAttendanceSelf ? <StaffAttendanceQrButton token={token} disabled={locked} onMessage={toast.show} /> : null}
         </View>
         <View testID="staff-toolbar-summary" className="flex-row flex-wrap items-center justify-between gap-2">
@@ -4422,7 +4894,7 @@ export function StaffBoard() {
       <ScrollView className="min-h-0 flex-1" keyboardShouldPersistTaps="handled">
         {!shown.length ? (
           <View className="px-4 py-8">
-            <Empty title="No match" body="Clear search to see the full register." />
+            <Empty title="No match" body={staffFilter ? "Nobody in this group. Tap the chip again to show everyone." : "Clear search to see the full register."} />
           </View>
         ) : (
           shown.map((p) => {
@@ -4466,7 +4938,10 @@ export function StaffBoard() {
                   </Text>
                 </Pressable>
                 <Pressable
-                  onPress={() => setDetailFor(p)}
+                  onPress={() => {
+                    setDetailMonth(undefined);
+                    setDetailFor(p);
+                  }}
                   accessibilityRole="button"
                   accessibilityLabel={`${p.name} monthly attendance`}
                   className="min-w-0 flex-1"
@@ -4476,7 +4951,20 @@ export function StaffBoard() {
                   </Text>
                   <Text className="text-xs text-ink-500" numberOfLines={1}>
                     {p.kind === "teacher" ? "Teacher" : p.role}
+                    {(() => {
+                      const inAt = timesOf(p);
+                      if (st === "LEAVE") return null;
+                      if (inAt) return <Text className={st === "LATE" ? "text-amber-700" : "text-emerald-700"}>{` · ${st === "LATE" ? "Late, in" : "In"} ${inAt}`}</Text>;
+                      if (!locked && !isMarked(p)) return <Text className="text-ink-400"> · Not marked</Text>;
+                      return null;
+                    })()}
                   </Text>
+                  {leaveAsked.has(p.id) ? (
+                    <View className="mt-1 flex-row items-center gap-1 self-start rounded-full bg-amber-50 px-2 py-0.5">
+                      <Ionicons name="airplane" size={10} color="#b45309" />
+                      <Text className="text-[10px] font-semibold text-amber-800">Leave requested</Text>
+                    </View>
+                  ) : null}
                 </Pressable>
               </View>
             ) : (
@@ -4484,7 +4972,10 @@ export function StaffBoard() {
                 <View className="min-w-0">
                   <View className="flex-row items-center gap-1.5">
                     <Pressable
-                      onPress={() => setDetailFor(p)}
+                      onPress={() => {
+                        setDetailMonth(undefined);
+                        setDetailFor(p);
+                      }}
                       accessibilityRole="button"
                       accessibilityLabel={`${p.name} monthly attendance`}
                       hitSlop={4}
@@ -4512,12 +5003,9 @@ export function StaffBoard() {
             return (
               <View key={`${p.kind}:${p.id}`} className="border-t border-ink-100 px-4 py-3">
                 {phone ? (
-                  <View className="gap-2">
-                    <View className="flex-row items-center justify-between gap-3">
-                      {who}
-                      {mark}
-                    </View>
-                    <AttendanceDots dots={dots} compact activeDate={locked ? undefined : date} />
+                  <View className="flex-row items-center justify-between gap-3">
+                    {who}
+                    {mark}
                   </View>
                 ) : (
                   <View className="flex-row items-center gap-4">
@@ -4544,23 +5032,51 @@ export function StaffBoard() {
   return (
     <View className="min-h-0 flex-1">
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
-      {detailFor ? (
+      {phone && detailFor ? (
+        <Sheet fixed={0.92} open onClose={() => setDetailFor(null)}>
+          <StaffAttendanceDetail
+            inSheet
+            person={staff.find((row) => row.id === detailFor.id && row.kind === detailFor.kind) || detailFor}
+            calendar={calendar}
+            rules={payrollRules}
+            payroll={data?.staffPayroll}
+            payments={data?.staffSalaryPayments}
+            initialMonth={detailMonth}
+            audits={data?.staffAudits}
+            token={token}
+            onBack={() => setDetailFor(null)}
+            onSaved={reload}
+            salaryAccess={salaryAccess}
+            onEditSalary={
+              canManage
+                ? () => setEditFor(staff.find((row) => row.id === detailFor.id && row.kind === detailFor.kind) || detailFor)
+                : undefined
+            }
+          />
+        </Sheet>
+      ) : null}
+      {detailFor && !phone ? (
         <StaffAttendanceDetail
           person={staff.find((row) => row.id === detailFor.id && row.kind === detailFor.kind) || detailFor}
           calendar={calendar}
           rules={payrollRules}
           payroll={data?.staffPayroll}
+          payments={data?.staffSalaryPayments}
+          initialMonth={detailMonth}
           audits={data?.staffAudits}
           token={token}
           onBack={() => setDetailFor(null)}
           onSaved={reload}
+          salaryAccess={salaryAccess}
           onEditSalary={
-            canMark
+            canManage
               ? () => setEditFor(staff.find((row) => row.id === detailFor.id && row.kind === detailFor.kind) || detailFor)
               : undefined
           }
         />
       ) : timesheetOpen ? (
+        <View className="min-h-0 flex-1">
+        {tabsBar ? <View className="mb-2">{tabsBar}</View> : null}
         <StaffTimesheet
           staff={staff}
           calendar={calendar}
@@ -4570,6 +5086,7 @@ export function StaffBoard() {
           overlayDate={savedDate}
           overlayTimes={savedTimes}
           onBack={() => setTimesheetOpen(false)}
+          showBack={!tabsBar}
           onSaved={reload}
           onStamp={(kind, id, inAt) => {
             const key = `${kind}:${id}`;
@@ -4578,12 +5095,19 @@ export function StaffBoard() {
             setTimes((cur) => ({ ...cur, [key]: inAt }));
           }}
         />
+        </View>
       ) : (
         <>
       {phone ? null : (
       <PageHeader
         title="Employees"
-        lede="Mark Present, Late, or Absent, then Save the day. Optional In time lives on Timesheet."
+        lede={
+          staffView === "salary"
+            ? "Approve each month's salary, pay it, and keep proof of every payment."
+            : staffView === "directory" && !timesheetOpen
+              ? "Profiles, roles, documents and who reports to whom."
+              : "Mark Present, Late, or Absent, then Save the day. Optional In time lives on Timesheet."
+        }
         action={
           pendingLeave.length ? (
             <Button variant="ghost" onPress={() => setLeaveOpen(true)}>
@@ -4593,7 +5117,25 @@ export function StaffBoard() {
         }
       />
       )}
-      {register}
+      {staffView === "salary" && salaryAccess.view ? (
+        <Card className="min-h-0 flex-1">
+          {tabsBar}
+          <StaffSalaryBoard
+            staff={staff}
+            runs={data?.staffPayroll}
+            payments={data?.staffSalaryPayments}
+            token={token}
+            canPay={salaryAccess.pay}
+            phone={phone}
+            onOpenPerson={(p, m) => {
+              setDetailMonth(m);
+              setDetailFor(p);
+            }}
+            onSaved={reload}
+            onMessage={toast.show}
+          />
+        </Card>
+      ) : !canMark || (staffView === "directory" && canDirectory) ? directory : register}
       {phone ? (
         <RnModal
           visible={leaveOpen && Boolean(pendingLeave.length)}
@@ -4697,42 +5239,6 @@ export function StaffBoard() {
           </View>
         </RnModal>
       ) : null}
-      {phone ? (
-        <RnModal visible={menuOpen} transparent animationType="slide" onRequestClose={() => setMenuOpen(false)}>
-          <View className="flex-1 justify-end">
-            <Pressable accessibilityRole="button" accessibilityLabel="Close" className="absolute inset-0 bg-black/40" onPress={() => setMenuOpen(false)} />
-            <View className="rounded-t-3xl bg-white pb-2">
-              <SafeAreaView edges={["bottom"]}>
-                <View className="items-center pb-1 pt-2">
-                  <View className="h-1 w-10 rounded-full bg-ink-200" />
-                </View>
-                {(
-                  [
-                    ["cloud-upload-outline", "Import employees", () => setBulkOpen(true), canMark],
-                    ["time-outline", "Timesheet", () => setTimesheetOpen(true), true],
-                    ["alarm-outline", "Late timing", () => setHoursOpen(true), true],
-                  ] as const
-                )
-                  .filter(([, , , on]) => on)
-                  .map(([icon, label, run]) => (
-                    <Pressable
-                      key={label}
-                      accessibilityRole="button"
-                      onPress={() => {
-                        setMenuOpen(false);
-                        run();
-                      }}
-                      className="flex-row items-center gap-3 px-5 py-3.5 active:bg-slate-50"
-                    >
-                      <Ionicons name={icon} size={20} color="#1F45C7" />
-                      <Text className="text-[15px] text-ink-900">{label}</Text>
-                    </Pressable>
-                  ))}
-              </SafeAreaView>
-            </View>
-          </View>
-        </RnModal>
-      ) : null}
       <Modal open={!phone && leaveOpen && Boolean(pendingLeave.length)} title="Leave requests" onClose={() => setLeaveOpen(false)}>
         <View>
           {pendingLeave.map((row, index) => (
@@ -4798,7 +5304,7 @@ export function StaffBoard() {
                 </Text>
                 <Text className="text-xs text-ink-700">{infoFor.kind === "teacher" ? "Teacher" : infoFor.role || "Employee"}</Text>
               </View>
-              {canMark ? (
+              {canManage ? (
                 <Pressable
                   onPress={() => {
                     setEditFor(infoFor);
@@ -4820,55 +5326,12 @@ export function StaffBoard() {
             {infoFor.qualification ? <FactRow label="Qualification" value={infoFor.qualification} /> : null}
             <FactRow label="Joined" value={infoFor.joinedOn ? joinedHint(infoFor.joinedOn).replace(/^Joined /, "") : "—"} />
             <FactRow label="Reports to" value={infoFor.managerName || "—"} />
-            <FactRow label="Monthly salary" value={inr(infoFor.salary ?? 30000)} />
+            {salaryAccess.view ? <FactRow label="Monthly salary" value={inr(infoFor.salary ?? 30000)} /> : null}
           </View>
         ) : null}
       </Modal>
         </>
       )}
-      <Modal
-        open={hoursOpen}
-        title="Late timing"
-        onClose={() => setHoursOpen(false)}
-        footer={
-          canHours ? (
-            <Button
-              accessibilityLabel="Save late timing"
-              onPress={() => {
-                void hoursRef.current?.save().catch((e) => {
-                  toast.show(e instanceof Error ? e.message : "Could not save.");
-                });
-              }}
-            >
-              Save late timing
-            </Button>
-          ) : undefined
-        }
-      >
-        <Text className="text-sm text-ink-700">
-          Start and grace decide Present vs Late from the saved In time. Change them, save, and every day with an In time is rechecked.
-        </Text>
-        {!canHours ? (
-          <Text className="mt-2 text-xs text-amber-800">You need school.edit or staff.edit to save these times.</Text>
-        ) : null}
-        <View className="mt-1">
-          <StaffHoursForm
-            ref={hoursRef}
-            compact
-            hideButton
-            rules={payrollRules}
-            canEdit={canHours}
-            onSave={async (payload) => {
-              const saved = await saveLateTiming<{ ok: true; rules?: PayrollRules }>(token, payload);
-              const next = saved.rules || parsePayrollRules(JSON.stringify({ ...payrollRules, ...payload }));
-              setRulesOverride(next);
-              toast.show("Late timing saved. In times were rechecked for Present vs Late.");
-              setHoursOpen(false);
-              await reload();
-            }}
-          />
-        </View>
-      </Modal>
       {phone ? (
         <RnModal visible={addOpen} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setAddOpen(false)}>
           <SafeAreaView className="flex-1 bg-white" edges={["top", "bottom"]}>
@@ -4886,6 +5349,7 @@ export function StaffBoard() {
               managers={data?.managers ?? []}
               classes={data?.classes ?? []}
               user={user}
+              salaryEditable={salaryAccess.approve}
               submitLabel="Add employee"
               onSubmit={async (values, files) => {
                 try {
@@ -4906,6 +5370,7 @@ export function StaffBoard() {
           managers={data?.managers ?? []}
           classes={data?.classes ?? []}
           user={user}
+          salaryEditable={salaryAccess.approve}
           submitLabel="Add employee"
           onSubmit={async (values, files) => {
             try {
@@ -4920,9 +5385,48 @@ export function StaffBoard() {
       <Modal open={bulkOpen} title="Import teachers" onClose={() => setBulkOpen(false)} wide>
         <OnboardingBoard compact focusKinds={["teachers"]} />
       </Modal>
-      <Modal open={Boolean(editFor)} title="Edit employee" onClose={() => setEditFor(null)}>
+      {phone ? (
+        <RnModal visible={Boolean(editFor)} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setEditFor(null)}>
+          <SafeAreaView className="flex-1 bg-white" edges={["top", "bottom"]}>
+            <View className="flex-row items-center px-2 py-2">
+              <Pressable accessibilityRole="button" accessibilityLabel="Close" hitSlop={8} onPress={() => setEditFor(null)} className="flex-row items-center px-1 py-1">
+                <Ionicons name="chevron-back" size={22} color="#1F45C7" />
+                <Text className="text-[15px] font-medium text-[#1F45C7]">Staff</Text>
+              </Pressable>
+            </View>
+            <Text className="px-4 pb-2 text-[22px] font-bold text-ink-900" numberOfLines={1}>{editFor ? `Edit ${editFor.name}` : "Edit employee"}</Text>
+            {editFor ? (
+              <StaffAdmitForm
+                wizard
+                editing
+                salaryEditable={salaryAccess.approve}
+                staffForm={data?.school?.staffOnboardingForm ?? []}
+                roles={editRoleOptions}
+                managers={data?.managers ?? []}
+                classes={data?.classes ?? []}
+                user={user}
+                initialValues={editInitial}
+                submitLabel="Save employee"
+                busyLabel="Saving…"
+                onSubmit={async (values, files) => {
+                  try {
+                    await editStaff(values, files);
+                  } catch (e) {
+                    toast.show(e instanceof Error ? e.message : "Could not save.");
+                    throw e;
+                  }
+                }}
+              />
+            ) : null}
+          </SafeAreaView>
+        </RnModal>
+      ) : null}
+      <Modal open={!phone && Boolean(editFor)} title="Edit employee" onClose={() => setEditFor(null)} wide>
         {editFor ? (
           <StaffAdmitForm
+            editing
+            salaryEditable={salaryAccess.approve}
+            staffForm={data?.school?.staffOnboardingForm ?? []}
             roles={editRoleOptions}
             managers={data?.managers ?? []}
             classes={data?.classes ?? []}
@@ -4930,9 +5434,9 @@ export function StaffBoard() {
             initialValues={editInitial}
             submitLabel="Save employee"
             busyLabel="Saving…"
-            onSubmit={async (values) => {
+            onSubmit={async (values, files) => {
               try {
-                await editStaff(values);
+                await editStaff(values, files);
               } catch (e) {
                 toast.show(e instanceof Error ? e.message : "Could not save.");
                 throw e;
@@ -6109,6 +6613,7 @@ const MODULE_COPY: Record<string, string> = {
   Dashboard: "First screen after login — dues, empty classes, what needs a look.",
   Students: "Student register, family details, and imports.",
   Employees: "Teachers and office staff. Attendance and leave.",
+  Salary: "Monthly salary, approvals and payments. Separate from attendance.",
   "School settings": "Letterhead, clock, subjects, calendar, pay.",
   Documents: "Design templates, issue official documents, and manage verification.",
   Routine: "Periods, subjects, and teacher assignments.",

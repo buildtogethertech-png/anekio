@@ -12,7 +12,7 @@ const OFFICE_NAV: NavItem[] = [
   { key: "inbox", href: "/admin/reports/inbox", label: "Inbox", group: "Reports", permission: "inbox.view" },
   { key: "people", href: "/admin/reports/people", label: "Students", group: "Reports", permission: "people.view" },
   { key: "admissions", href: "/admin/reports/admissions", label: "Admissions", group: "Reports", permission: "admissions.view" },
-  { key: "staff", href: "/admin/reports/staff", label: "Employees", group: "Reports", permission: "staff.view" },
+  { key: "staff", href: "/admin/reports/staff", label: "Staff", group: "Reports", permission: "staff.view|staff.attendance" },
   { key: "timetable", href: "/admin/reports/timetable", label: "Routine", group: "Reports", permission: "timetable.view" },
   { key: "fees", href: "/admin/reports/fees", label: "Fees", group: "Reports", permission: "fees.view" },
   { key: "exams", href: "/admin/reports/exams", label: "Exams", group: "Reports", permission: "exams.view" },
@@ -66,7 +66,7 @@ export function navForPortal(portal: string, permissions: string[]): NavItem[] {
         : portal === "PARENT"
           ? PARENT_NAV
           : STUDENT_NAV;
-  return all.filter((item) => !item.permission || permissions.includes(item.permission));
+  return all.filter((item) => !item.permission || item.permission.split("|").some((key) => permissions.includes(key)));
 }
 
 /** @deprecated use navForPortal */

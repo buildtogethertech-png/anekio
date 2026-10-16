@@ -1189,7 +1189,8 @@ export function TeacherLeaveBoard() {
   const yearEnd = session?.endsOn?.slice(0, 10) || `${today.slice(0, 4)}-12-31`;
   const yearLabel = session?.label || today.slice(0, 4);
 
-  const types = (data?.leaveTypes ?? []).filter((type) => type.forTeacher).sort((a, b) => a.sortOrder - b.sortOrder);
+  const asStaff = data?.kind === "OFFICE";
+  const types = (data?.leaveTypes ?? []).filter((type) => (asStaff ? type.forStaff : type.forTeacher)).sort((a, b) => a.sortOrder - b.sortOrder);
   const mine = (data?.myLeave ?? []).slice().sort((a, b) => b.from.localeCompare(a.from));
   const inYear = mine.filter((row) => row.from.slice(0, 10) >= yearStart && row.from.slice(0, 10) <= yearEnd);
   const balances = types.map((type, index) => {
@@ -1252,6 +1253,15 @@ export function TeacherLeaveBoard() {
             {row.typeName} · {row.halfDay ? "½ day" : `${row.days} day${row.days === 1 ? "" : "s"}`}
             {row.reason ? ` · ${row.reason}` : ""}
           </Text>
+          <Text className="mt-0.5 text-[11px] text-ink-500" numberOfLines={1}>
+            {row.autoApproved
+              ? "Auto-approved · no reporting manager"
+              : row.status === "WAITING"
+                ? `Waiting on ${row.approverName || "your manager"}`
+                : row.decidedBy
+                  ? `${row.status === "REJECTED" ? "Declined" : "Approved"} by ${row.decidedBy}`
+                  : ""}
+          </Text>
         </View>
         <View className={`rounded-full px-2.5 py-1 ${status.box}`}>
           <Text className={`text-[11px] font-semibold ${status.text}`}>{status.label}</Text>
@@ -1268,7 +1278,7 @@ export function TeacherLeaveBoard() {
           <Text className="text-[22px] font-bold leading-7 text-ink-900">Leave</Text>
           <Text className="mt-0.5 text-sm text-ink-700">Session {yearLabel}</Text>
         </View>
-        <LeaveApplyCard audience="teacher" token={token} triggerOnly onDone={done} onError={(msg) => toast.show(msg)} />
+        <LeaveApplyCard audience={asStaff ? "staff" : "teacher"} token={token} triggerOnly onDone={done} onError={(msg) => toast.show(msg)} />
       </View>
 
       {types.length ? (
@@ -3433,6 +3443,7 @@ export function FamilyPath() {
 export function FamilyProfile() {
   const { data, reload } = useRecord();
   const { token, user } = useSession();
+  const router = useRouter();
   const toast = useToast();
   const child = data?.child;
   const student = data?.kind === "STUDENT";
@@ -3479,18 +3490,23 @@ export function FamilyProfile() {
         { label: "Parent email", value: child?.parentEmail || "—" },
       ]
     : [];
-  const otherRows =
-    !parent && !student
-      ? [
-          { label: "Name", value: user?.name || "—" },
-          { label: "Role", value: user?.roleName || "—" },
-          { label: "Login", value: user?.email || "—" },
-        ]
-      : [];
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
+  const [pwOpen, setPwOpen] = useState(false);
+  const staffLike = !parent && !student;
+  const isAdmin = user?.role === "ADMIN";
+  const displayName = (parent ? data?.parent?.name : student ? child?.name : "") || user?.name || "—";
+  const initials = displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase() || "")
+    .join("");
+  const subline = student
+    ? [child?.classLabel, child?.email || user?.email].filter(Boolean).join(" · ")
+    : [parent ? "Parent" : user?.roleName, parent ? data?.parent?.email || user?.email : user?.email].filter(Boolean).join(" · ");
 
   async function savePassword() {
     if (next !== confirm) {
@@ -3503,6 +3519,7 @@ export function FamilyProfile() {
       setCurrent("");
       setNext("");
       setConfirm("");
+      setPwOpen(false);
       toast.show("Password updated.");
     } catch (e) {
       toast.show(e instanceof Error ? e.message : "Could not change password.");
@@ -3536,29 +3553,33 @@ export function FamilyProfile() {
             ? "How the school has you on record. Name, class, and admission number are set by the office."
             : parent
               ? "Your details as given to the school, and each child linked to this login."
-              : "Your login. Change the password the office first gave you."
+              : "Your account and login."
         }
       />
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
-      {user?.portal === "OFFICE" ? (
-        <LeaveApplyCard
-          audience="staff"
-          token={token}
-          onDone={async (ok) => {
-            toast.show(ok);
-            await reload();
-          }}
-          onError={(msg) => toast.show(msg)}
-        />
-      ) : null}
-      {parent ? (
+      <Card className="mb-4 flex-row items-center gap-4 p-5">
+        <View className="h-14 w-14 items-center justify-center rounded-full bg-[#EEF3FF]">
+          <Text className="text-[18px] font-bold text-[#1F45C7]">{initials || "?"}</Text>
+        </View>
+        <View className="min-w-0 flex-1">
+          <Text className="text-[18px] font-semibold text-ink-900" numberOfLines={1}>
+            {displayName}
+          </Text>
+          {subline ? (
+            <Text className="mt-0.5 text-[13px] text-ink-600" numberOfLines={2}>
+              {subline}
+            </Text>
+          ) : null}
+        </View>
+      </Card>
+      {staffLike ? null : parent ? (
         <Card className="mb-4 p-5">
           <Text className="mb-3 text-[13px] font-semibold text-ink-900">Parent</Text>
           <DetailRows rows={parentRows} />
         </Card>
       ) : (
         <Card className="mb-4 p-5">
-          <DetailRows rows={student ? studentRows : otherRows} />
+          <DetailRows rows={studentRows} />
           {student && child?.interests?.length ? (
             <View className="mt-3 flex-row flex-wrap gap-2">
               {child.interests.map((i) => (
@@ -3603,26 +3624,77 @@ export function FamilyProfile() {
             </Card>
           ))
         : null}
-      <Card className="p-5">
-        <Text className="text-sm font-medium text-ink-900">Password</Text>
-        <Text className="mt-1 mb-3 text-xs text-ink-700">
-          {student ? "This is the one thing you can change yourself." : "Change the first password the office gave you."}
-        </Text>
-        <View className="gap-3">
-          <Field label="Current password">
-            <Input secureTextEntry value={current} onChangeText={setCurrent} />
-          </Field>
-          <Field label="New password">
-            <Input secureTextEntry value={next} onChangeText={setNext} />
-          </Field>
-          <Field label="Confirm new password">
-            <Input secureTextEntry value={confirm} onChangeText={setConfirm} />
-          </Field>
-          <Button disabled={busy || !current || !next} onPress={savePassword}>
-            {busy ? "Saving…" : "Change password"}
-          </Button>
-        </View>
+      <Card className="mb-4 overflow-hidden">
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded: pwOpen }}
+          onPress={() => setPwOpen((v) => !v)}
+          className="flex-row items-center gap-3 px-5 py-4"
+        >
+          <View className="h-9 w-9 items-center justify-center rounded-full bg-ink-50">
+            <Ionicons name="key-outline" size={17} color="#334155" />
+          </View>
+          <View className="min-w-0 flex-1">
+            <Text className="text-[15px] font-semibold text-ink-900">Change password</Text>
+            <Text className="text-xs text-ink-600">
+              {student ? "The one thing you can change yourself." : "Pick a new password only you know."}
+            </Text>
+          </View>
+          <Ionicons name={pwOpen ? "chevron-up" : "chevron-down"} size={18} color="#94a3b8" />
+        </Pressable>
+        {pwOpen ? (
+          <View className="gap-3 border-t border-ink-100 px-5 pb-5 pt-4">
+            <Field label="Current password">
+              <Input secureTextEntry value={current} onChangeText={setCurrent} />
+            </Field>
+            <Field label="New password">
+              <Input secureTextEntry value={next} onChangeText={setNext} />
+            </Field>
+            <Field label="Confirm new password">
+              <Input secureTextEntry value={confirm} onChangeText={setConfirm} />
+            </Field>
+            <Button disabled={busy || !current || !next} onPress={savePassword}>
+              {busy ? "Saving…" : "Save new password"}
+            </Button>
+          </View>
+        ) : null}
       </Card>
+      {user?.portal === "OFFICE" ? (
+        isAdmin ? (
+          <Card className="mb-4 flex-row items-center gap-3 px-5 py-4">
+            <View className="h-9 w-9 items-center justify-center rounded-full bg-ink-50">
+              <Ionicons name="airplane-outline" size={17} color="#334155" />
+            </View>
+            <Pressable onPress={() => router.push("/leave" as never)} className="min-w-0 flex-1">
+              <Text className="text-[15px] font-semibold text-ink-900">My leave</Text>
+              <Text className="text-xs font-semibold text-[#1F45C7]">Balance & history ›</Text>
+            </Pressable>
+            <LeaveApplyCard
+              audience="staff"
+              token={token}
+              triggerOnly
+              onDone={async (ok) => {
+                toast.show(ok);
+                await reload();
+              }}
+              onError={(msg) => toast.show(msg)}
+            />
+          </Card>
+        ) : (
+          <View className="mb-4">
+            <LeaveApplyCard
+              audience="staff"
+              token={token}
+              compact
+              onDone={async (ok) => {
+                toast.show(ok);
+                await reload();
+              }}
+              onError={(msg) => toast.show(msg)}
+            />
+          </View>
+        )
+      ) : null}
     </View>
   );
 }

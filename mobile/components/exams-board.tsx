@@ -505,9 +505,9 @@ export function ExamsBoard() {
     <View className="min-h-0 flex-1 flex-row">
       <ScrollView className="min-h-0 flex-1" contentContainerClassName="pb-8" nestedScrollEnabled>
       <ExamEnter>
-      <View className="mb-5 flex-row flex-wrap items-start justify-between gap-3">
-        <View className="min-w-0 flex-1">
-        <Text className="text-[28px] font-bold tracking-tight text-ink-900">
+      <View className={compact ? "mb-4 gap-3" : "mb-5 flex-row flex-wrap items-start justify-between gap-3"}>
+        <View className={compact ? "w-full" : "min-w-0 flex-1"}>
+        <Text className={`${compact ? "text-[24px]" : "text-[28px]"} font-bold tracking-tight text-ink-900`}>
           Exams
         </Text>
         <Text className="mt-1 text-[13px] text-ink-700">
@@ -516,7 +516,7 @@ export function ExamsBoard() {
             : "Manage exam schedules, track progress, review marks, and publish results."}
         </Text>
         </View>
-      <View className="flex-row flex-wrap gap-2">
+      <View className={compact ? "flex-row gap-2 self-stretch" : "flex-row flex-wrap gap-2"}>
         <Chip
           className="anekio-chip anekio-desk-tab"
           label="Exam Setup"
@@ -618,13 +618,16 @@ export function ExamsBoard() {
       ) : (
         <View className="gap-4">
           <ExamEnter delay={1}>
-            <View className="mb-3 flex-row flex-wrap items-center justify-between gap-3">
-              <View className="flex-row flex-wrap items-center gap-2">
-                <Text className="text-[16px] font-semibold text-ink-900">
-                  Exam Sessions
-                </Text>
-                <Text className="text-[13px] text-ink-700">({session?.label || ""})</Text>
-                <View className="w-[148px]">
+            <View className={compact ? "mb-1 gap-3" : "mb-3 flex-row flex-wrap items-center justify-between gap-3"}>
+              <View className={compact ? "gap-2" : "flex-row flex-wrap items-center gap-2"}>
+                <View className="flex-row items-baseline gap-2">
+                  <Text className="text-[16px] font-semibold text-ink-900">
+                    Exam Sessions
+                  </Text>
+                  <Text className="text-[13px] text-ink-700">({session?.label || ""})</Text>
+                </View>
+                <View className={compact ? "flex-row gap-2" : "flex-row flex-wrap items-center gap-2"}>
+                <View className={compact ? "min-w-0 flex-1" : "w-[148px]"}>
                   <Select
                     value={session?.id || ""}
                     options={sessions.map((s) => ({
@@ -638,7 +641,7 @@ export function ExamsBoard() {
                     }}
                   />
                 </View>
-                <View className="w-[148px]">
+                <View className={compact ? "min-w-0 flex-1" : "w-[148px]"}>
                   <Select
                     value={klass?.id || ""}
                     options={classes.map((c) => ({
@@ -654,10 +657,12 @@ export function ExamsBoard() {
                     placeholder="Class"
                   />
                 </View>
+                </View>
               </View>
               {canRun ? (
                 <ExamAction
                   busy={pending === "createExamSeries"}
+                  className={compact ? "self-stretch" : undefined}
                   onPress={() => openSchedule("create")}
                 >
                   + Schedule New Exam
@@ -733,8 +738,8 @@ export function ExamsBoard() {
             <>
               <ExamEnter delay={3}>
                 <View className="rounded-xl border border-ink-200 bg-white px-4 py-3.5">
-                  <View className="flex-row flex-wrap items-start justify-between gap-3">
-                    <View className="min-w-0 flex-1">
+                  <View className={compact ? "gap-3" : "flex-row flex-wrap items-start justify-between gap-3"}>
+                    <View className={compact ? "w-full" : "min-w-0 flex-1"}>
                       <View className="flex-row flex-wrap items-center gap-2">
                         <Ionicons name={sittingIcon(plan.find((p) => p.id === series.planItemId)?.kind || "", series.name)} size={16} color="#2563EB" />
                         <Text className="text-[16px] font-semibold text-ink-900">{series.name}</Text>
@@ -754,7 +759,7 @@ export function ExamsBoard() {
                         Result date: {prettyFull(resultOn)} (Manual publish)
                       </Text>
                     </View>
-                    <View className="flex-row flex-wrap items-center gap-2">
+                    <View className={compact ? "flex-row flex-wrap items-center gap-2 border-t border-ink-100 pt-3" : "flex-row flex-wrap items-center gap-2"}>
                       {docsButton}
                       {canRun ? (
                         <Button variant="ghost" disabled={Boolean(pending)} onPress={() => openSchedule("edit")} className="anekio-btn h-9 px-3 py-1.5">

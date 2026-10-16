@@ -136,6 +136,7 @@ import {
 } from "./document-studio";
 import { startInboxThreadCore, sendInboxMessageCore, updateInboxThreadCore } from "./inbox";
 import { reviewProfileRequestCore, submitProfileRequestCore } from "./profile-requests";
+import { recordStaffSalaryPaymentCore, recordStaffSalaryPaymentsBulkCore, voidStaffSalaryPaymentCore } from "./salary-payments";
 
 export function actOp(body: Record<string, unknown>) {
   const op = String(body.op || body.action || "").trim();
@@ -190,6 +191,12 @@ export async function runAct(
     case "saveStaffPayroll":
       await saveStaffPayrollCore(user, body as never);
       break;
+    case "recordStaffSalaryPayment":
+      return { ok: true, ...(await recordStaffSalaryPaymentCore(user, body as never)) };
+    case "recordStaffSalaryPaymentsBulk":
+      return { ok: true, ...(await recordStaffSalaryPaymentsBulkCore(user, body as never)) };
+    case "voidStaffSalaryPayment":
+      return { ok: true, ...(await voidStaffSalaryPaymentCore(user, body as never)) };
     case "createStaffMember":
       return { ok: true, ...(await createStaffMemberCore(user, body as never)) };
     case "setStaffOnboardingFile":

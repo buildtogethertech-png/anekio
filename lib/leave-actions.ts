@@ -3,10 +3,12 @@ import { can, scopeFor, type AccessUser } from "./permissions";
 import { prisma } from "./prisma";
 import {
   earliestLeaveStart,
+  ensureStaffRecord,
   loadSchoolCalendar,
   postLeaveNotice,
   schoolDaysInRange,
 } from "./leave";
+import { notifyNoticeRecipients } from "./push";
 
 function dayDate(value: string) {
   const d = new Date(`${value}T00:00:00`);
@@ -104,33 +106,53 @@ export async function applyLeave(
 
   if (user.portal === "TEACHER" || (user.portal === "OFFICE" && !input.studentId)) {
     const teacherId = teacher?.id || null;
-    const staffId = teacherId ? null : staff?.id || null;
+    const staffId = teacherId ? null : staff?.id || (await ensureStaffRecord(user)) || null;
     if (teacherId && !type.forTeacher) throw new Error("This type is not for teachers");
     if (staffId && !type.forStaff) throw new Error("This type is not for staff");
     if (!teacherId && !staffId) throw new Error("Only teachers and staff on the register can apply");
     await assertNoOverlap({ teacherId, staffId, from, to });
     const { assertLeaveBalance } = await import("./leave-balance");
     await assertLeaveBalance(typeId, { teacherId, staffId }, from, to, halfDay);
+    // Reporting manager approves. Nobody above you: approved straight away.
+    const me = await prisma.user.findUnique({ where: { id: user.id }, select: { managerId: true } });
+    const managerId = me?.managerId && me.managerId !== user.id ? me.managerId : null;
     const created = await prisma.leaveRequest.create({
       data: {
         typeId,
         from,
         to,
         reason,
-        status: "WAITING",
+        status: managerId ? "WAITING" : "ACTIVE",
+        autoApproved: !managerId,
+        decidedAt: managerId ? null : new Date(),
+        decidedByName: managerId ? "" : "Auto-approved",
         requesterId: user.id,
         teacherId,
         staffId,
         halfDay,
       },
     });
-    await postLeaveNotice({
-      authorId: user.id,
-      title: `Leave request · ${user.name || "Staff"}`,
-      body: `${user.name} requested ${type.name.toLowerCase()} leave ${prettyRange(from, to, halfDay)}${reason ? `. ${reason}` : "."}`,
-      portals: ["OFFICE"],
-    });
-    return created;
+    const range = prettyRange(from, to, halfDay);
+    if (managerId) {
+      void notifyNoticeRecipients({
+        noticeId: created.id,
+        title: `Leave request · ${user.name || "Staff"}`,
+        body: `${user.name} asked for ${type.name.toLowerCase()} leave ${range}${reason ? `. ${reason}` : "."} Waiting on you.`,
+        userIds: [managerId],
+      }).catch(() => undefined);
+    } else {
+      await writeStaffLeave({ days, teacherId, staffId, markedById: user.id, halfDay: Boolean(halfDay) });
+      if (teacherId) {
+        // Office still needs to know so they can arrange cover.
+        await postLeaveNotice({
+          authorId: user.id,
+          title: `On leave · ${user.name || "Teacher"}`,
+          body: `${user.name} is on ${type.name.toLowerCase()} leave ${range}. Assign cover for their periods.`,
+          portals: ["OFFICE"],
+        });
+      }
+    }
+    return { ...created, autoApproved: !managerId };
   }
 
   if (!type.forStudent) throw new Error("This type is not for students");
@@ -201,13 +223,23 @@ export async function decideLeave(user: AccessUser, input: { requestId?: string;
       : false;
     const canDecide = can(user, "leave.decide");
     const schoolWide = canDecide && scopeFor(user, "leave.decide") === "SCHOOL";
-    if (!canDecide || (!schoolWide && !isManager)) throw new Error("No access.");
+    if (row.requesterId === user.id) throw new Error("You can't approve your own leave.");
+    if (!isManager && !schoolWide) throw new Error("Only their reporting manager can decide this.");
     if (row.status === "REJECTED") throw new Error("Already rejected");
     const name = row.teacher?.user.name || row.staff?.name || "Staff";
     if (yes) {
       if (row.status === "ACTIVE") throw new Error("Leave is already approved");
-      await prisma.leaveRequest.update({ where: { id: row.id }, data: { status: "ACTIVE" } });
+      await prisma.leaveRequest.update({
+        where: { id: row.id },
+        data: { status: "ACTIVE", decidedById: user.id, decidedByName: user.name || "", decidedAt: new Date() },
+      });
       await writeStaffLeave({ days, teacherId: row.teacherId, staffId: row.staffId, markedById: user.id, halfDay: Boolean(row.halfDay) });
+      void notifyNoticeRecipients({
+        noticeId: row.id,
+        title: "Leave approved",
+        body: `${user.name} approved your ${row.type.name.toLowerCase()} leave ${prettyRange(row.from, row.to, row.halfDay)}.`,
+        userIds: [row.requesterId],
+      }).catch(() => undefined);
       await postLeaveNotice({
         authorId: user.id,
         title: `Leave approved · ${name}`,
@@ -216,8 +248,17 @@ export async function decideLeave(user: AccessUser, input: { requestId?: string;
       });
       return;
     }
-    await prisma.leaveRequest.update({ where: { id: row.id }, data: { status: "REJECTED" } });
+    await prisma.leaveRequest.update({
+      where: { id: row.id },
+      data: { status: "REJECTED", decidedById: user.id, decidedByName: user.name || "", decidedAt: new Date() },
+    });
     await clearStaffLeave({ days, teacherId: row.teacherId, staffId: row.staffId });
+    void notifyNoticeRecipients({
+      noticeId: row.id,
+      title: "Leave not approved",
+      body: `${user.name} did not approve your ${row.type.name.toLowerCase()} leave ${prettyRange(row.from, row.to, row.halfDay)}.`,
+      userIds: [row.requesterId],
+    }).catch(() => undefined);
     await postLeaveNotice({
       authorId: user.id,
       title: `Leave rejected · ${name}`,

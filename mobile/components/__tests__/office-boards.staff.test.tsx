@@ -1,12 +1,14 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
 import { RolesBoard, StaffBoard } from "../office-boards";
+import { StaffHoursForm } from "../staff-hours-form";
 import { act as mutate } from "../../lib/mutate";
 import { useRecord } from "../../lib/record";
 import { useSession } from "../../lib/session";
 
+const mockPush = jest.fn();
 jest.mock("expo-router", () => ({
   useLocalSearchParams: () => ({}),
-  useRouter: () => ({ push: jest.fn() }),
+  useRouter: () => ({ push: mockPush }),
 }));
 jest.mock("@expo/vector-icons/Ionicons", () => {
   return function MockIonicon() {
@@ -372,7 +374,7 @@ describe("StaffBoard leave requests", () => {
       };
     });
     const view = render(<StaffBoard />);
-    fireEvent.press(screen.getByRole("button", { name: "Timesheet" }));
+    fireEvent.press(screen.getByRole("tab", { name: "Timesheet" }));
     fireEvent.press(screen.getByLabelText("Edit Sandeep Gill in times"));
     fireEvent.changeText(screen.getByLabelText("In time"), "08:05");
     fireEvent.press(screen.getByRole("button", { name: "Save In time" }));
@@ -422,19 +424,28 @@ describe("StaffBoard leave requests", () => {
       ],
     };
     render(<StaffBoard />);
-    fireEvent.press(screen.getByRole("button", { name: "Timesheet" }));
-    expect(screen.getByText("Timesheet")).toBeTruthy();
+    fireEvent.press(screen.getByRole("tab", { name: "Timesheet" }));
+    expect(screen.getAllByText("Timesheet").length).toBeGreaterThan(0);
     expect(screen.getByText("Teacher")).toBeTruthy();
     expect(screen.getByText("Asha Rao")).toBeTruthy();
     expect(screen.getByText("08:15")).toBeTruthy();
     expect(screen.queryByText("Save the day")).toBeNull();
-    fireEvent.press(screen.getByLabelText("Back to register"));
+    expect(screen.queryByLabelText("Back to register")).toBeNull();
+    fireEvent.press(screen.getByRole("tab", { name: "Today" }));
     expect(screen.getByRole("button", { name: "Save the day" })).toBeTruthy();
   });
 
-  it("opens late timing from Employees", async () => {
+  it("links payroll rules to Settings from Employees", () => {
     render(<StaffBoard />);
-    fireEvent.press(screen.getByRole("button", { name: "Late timing" }));
+    fireEvent.press(screen.getByRole("button", { name: "Payroll rules" }));
+    expect(mockPush).toHaveBeenCalledWith("/school?tab=payroll");
+  });
+
+  it("saves late timing from the settings form", async () => {
+    const onSave = jest.fn(async (payload: Record<string, unknown>) => {
+      await mutate("office-token", "saveSchoolPayrollRules", payload);
+    });
+    render(<StaffHoursForm canEdit rules={currentData.payrollRules} onSave={onSave} />);
     expect(screen.getByText("Day starts")).toBeTruthy();
     expect(screen.getByText("Grace minutes")).toBeTruthy();
     fireEvent.press(screen.getByRole("button", { name: "Save late timing" }));
@@ -448,8 +459,7 @@ describe("StaffBoard leave requests", () => {
   });
 
   it("saves 3 lates as one leave day from Late timing", async () => {
-    render(<StaffBoard />);
-    fireEvent.press(screen.getByRole("button", { name: "Late timing" }));
+    render(<StaffHoursForm canEdit rules={currentData.payrollRules} onSave={(payload) => mutate("office-token", "saveSchoolPayrollRules", payload).then(() => undefined)} />);
     fireEvent.press(screen.getByRole("button", { name: "3 = 1 day late leave rule" }));
     fireEvent.press(screen.getByRole("button", { name: "Save late timing" }));
     await waitFor(() =>
@@ -500,8 +510,10 @@ describe("StaffBoard leave requests", () => {
         ],
       };
     });
-    const view = render(<StaffBoard />);
-    fireEvent.press(screen.getByRole("button", { name: "Late timing" }));
+    const view = render(<StaffHoursForm canEdit rules={currentData.payrollRules} onSave={async (payload) => {
+      await mutate("office-token", "saveSchoolPayrollRules", payload);
+      await reload();
+    }} />);
     fireEvent.changeText(screen.getByLabelText("Grace minutes"), "0");
     fireEvent.press(screen.getByRole("button", { name: "Save late timing" }));
     await waitFor(() =>
@@ -511,10 +523,11 @@ describe("StaffBoard leave requests", () => {
         expect.objectContaining({ startTime: "08:00", graceMinutes: 0 })
       )
     );
-    view.rerender(<StaffBoard />);
-    fireEvent.press(view.getByRole("button", { name: "Timesheet" }));
-    expect(view.getByText("08:15")).toBeTruthy();
-    expect(view.getByText("L")).toBeTruthy();
+    view.unmount();
+    const board = render(<StaffBoard />);
+    fireEvent.press(board.getByRole("tab", { name: "Timesheet" }));
+    expect(board.getByText("08:15")).toBeTruthy();
+    expect(board.getByText("L")).toBeTruthy();
   });
 
   it("clears Present when Absent is tapped", () => {

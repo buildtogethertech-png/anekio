@@ -169,6 +169,12 @@ function validateAndFolder(user: AccessUser, file: UploadFile, fields: Record<st
     };
   }
 
+  if (kind === "salaryProof") {
+    if (!can(user, "salary.pay")) throw new Error("No access.");
+    if (!isReceiptFile(file.name, file.mime)) throw new Error("Attach the proof as a photo or PDF.");
+    return { kind, folder: `private/${schoolRoot()}/payroll/proofs` };
+  }
+
   if (kind === "onboarding") {
     if (!can(user, "onboarding.manage") && !can(user, "people.import")) throw new Error("No access.");
     if (!isOnboardingSheet(file.name, file.mime)) throw new Error("Upload an Anekio Excel or CSV template.");

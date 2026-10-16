@@ -3,8 +3,10 @@ import { usePathname, useRouter } from "expo-router";
 import { Platform, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { pathForNav } from "../lib/paths";
-import { tabIcon, tabLabel, visibleTabs } from "../lib/nav-icons";
+import { qrDockSlots, tabIcon, tabLabel, visibleTabs } from "../lib/nav-icons";
 import { useSession } from "../lib/session";
+import { useRecord } from "../lib/record";
+import { QrDockButton } from "./staff-attendance-qr";
 
 function pathMatches(key: string, pathname: string) {
   if (key === "home") return pathname === "/" || pathname === "" || pathname === "/index";
@@ -13,17 +15,21 @@ function pathMatches(key: string, pathname: string) {
 }
 
 export function AppTabBar() {
-  const { user, nav } = useSession();
+  const { user, nav, token } = useSession();
+  const { data } = useRecord();
   const pathname = usePathname();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const tabs = visibleTabs(user?.portal, nav);
+  const hasSelfQr = Boolean(data?.staffAttendanceSelf);
+  const showQr = qrDockSlots(user?.portal, hasSelfQr) > 0;
+  const tabs = visibleTabs(user?.portal, nav, showQr ? 1 : 0);
 
   if (pathname === "/pay" || pathname.startsWith("/pay/")) return null;
   if (pathname === "/notifications") return null;
   if (!tabs.length) return null;
 
   const primary = tabs.filter((key) => key !== "more");
+  const qrAt = Math.floor(tabs.length / 2);
   const onMore = !primary.some((key) => pathMatches(key, pathname));
 
   return (
@@ -32,11 +38,16 @@ export function AppTabBar() {
       style={{ paddingBottom: Math.max(insets.bottom, 8) }}
     >
       <View className="flex-row">
-        {tabs.map((key) => {
+        {tabs.map((key, index) => {
+          const dock =
+            showQr && index === qrAt ? (
+              <QrDockButton key="qr-dock" token={token} />
+            ) : null;
           const on = key === "more" ? onMore : pathMatches(key, pathname);
           const color = on ? "#2563eb" : "#64748B";
           const label = tabLabel(key, user?.portal, nav);
-          return (
+          return [
+            dock,
             <Pressable
               key={key}
               accessibilityRole="tab"
@@ -50,8 +61,8 @@ export function AppTabBar() {
               <Text className={`mt-0.5 text-[10px] ${on ? "font-semibold text-clay-500" : "text-ink-700"}`} numberOfLines={1}>
                 {label}
               </Text>
-            </Pressable>
-          );
+            </Pressable>,
+          ];
         })}
       </View>
     </View>

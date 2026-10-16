@@ -7,6 +7,7 @@ import { hrefForNotice } from "../lib/notice-kind";
 import { classifyNotice, CLASSIFIED_NOTICE_LABEL, noticeBellVisible, type ClassifiedNoticeKind } from "../lib/notice-kind";
 import { useNoticeInbox } from "../lib/notice-inbox";
 import { useSession } from "../lib/session";
+import { QrDockButton } from "./staff-attendance-qr";
 import { useRecord } from "../lib/record";
 import { visibleTabs } from "../lib/nav-icons";
 
@@ -180,8 +181,8 @@ export function NoticeBell() {
 export function PhoneTopBar() {
   const { width } = useWindowDimensions();
   const router = useRouter();
-  const { user, nav } = useSession();
-  const { data } = useRecord();
+  const { user, nav, token } = useSession();
+  const { data, reload } = useRecord();
   if (width >= 768) return null;
   const schoolName = data?.school?.name || "Anekio";
   // Portals without a "More" tab reach Inbox from here.
@@ -209,6 +210,12 @@ export function PhoneTopBar() {
             <Ionicons name="chatbubble-ellipses-outline" size={21} color="#0f2744" />
           </Pressable>
         ) : null}
+        <QrDockButton
+          token={token}
+          hasSelfQr={Boolean(data?.staffAttendanceSelf)}
+          canScan={user?.portal === "OFFICE" && (user?.permissions ?? []).some((p) => p === "staff.attendance" || p === "staff.edit")}
+          onScanned={() => void reload()}
+        />
         <NoticeBell />
         <Pressable
           accessibilityRole="button"

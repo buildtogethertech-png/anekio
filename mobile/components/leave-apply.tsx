@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Modal as RnModal, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { DateField } from "./date-field";
 import { Badge, Button, Card, Modal } from "./ui";
@@ -311,7 +312,7 @@ export function LeaveApplyCard({
       setTo("");
       setReason("");
       setDuration("FULL");
-      await onDone(audience === "student" && targetStudentIds.length > 1 ? `Leave sent for ${targetStudentIds.length} children.` : "Leave sent.");
+      await onDone(audience === "student" && targetStudentIds.length > 1 ? `Leave sent for ${targetStudentIds.length} children.` : audience === "student" ? "Leave sent." : "Leave applied. See its status below.");
     } catch (e) {
       const message = e instanceof Error ? e.message : "Could not apply.";
       setFormError(message);
@@ -546,6 +547,11 @@ export function LeaveApplyCard({
           <View className="min-w-[150px] flex-1">
             <Text className="text-base font-semibold text-ink-900">Planned leave</Text>
             <Text className="mt-0.5 text-xs text-ink-700">Requests and approvals</Text>
+            {audience !== "student" ? (
+              <Pressable onPress={() => router.push("/leave" as never)} hitSlop={6} className="mt-1 self-start">
+                <Text className="text-xs font-semibold text-[#1F45C7]">Balance & history ›</Text>
+              </Pressable>
+            ) : null}
           </View>
           {trigger}
         </View>

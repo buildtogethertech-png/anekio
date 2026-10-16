@@ -1129,6 +1129,11 @@ model LeaveRequest {
   classTeacherAt   DateTime?
   /// Half-day leave: "FIRST" or "SECOND" half of a single day; "" = full day(s).
   halfDay          String                 @default("")
+  /// No reporting manager: approved the moment it was applied.
+  autoApproved     Boolean                @default(false)
+  decidedById      String?
+  decidedByName    String                 @default("")
+  decidedAt        DateTime?
   createdAt        DateTime               @default(now())
   coverAssignments SubstituteAssignment[]
 }
@@ -1257,6 +1262,29 @@ model StaffPayrollRun {
   approvedById  String?
 
   @@unique([personKey, month])
+}
+
+/// One actual salary payment for one person and month. Part payments add up; wrong entries are voided, never deleted.
+model StaffSalaryPayment {
+  id          String    @id @default(cuid())
+  orgId       String?
+  personKey   String
+  month       String
+  amount      Int
+  paidOn      String
+  mode        String    @default("BANK")
+  reference   String    @default("")
+  note        String    @default("")
+  /// Optional proof: signed slip photo (cash), UPI/bank screenshot, cheque photo.
+  proofPath   String    @default("")
+  createdById String?
+  createdAt   DateTime  @default(now())
+  voidedAt    DateTime?
+  voidedById  String?
+  voidReason  String    @default("")
+
+  @@index([personKey, month])
+  @@index([orgId, month])
 }
 
 model Period {

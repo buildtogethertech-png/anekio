@@ -109,11 +109,11 @@ export function DayMark({
             accessibilityState={{ selected }}
             disabled={disabled}
             onPress={() => onChange(c.value)}
-            className={`h-8 w-9 items-center justify-center ${selected ? c.on : "bg-white"} ${
+            className={`h-9 w-10 items-center justify-center ${selected ? c.on : "bg-white"} ${
               disabled ? "opacity-50" : ""
             }`}
           >
-            <Text className={`text-center text-xs font-semibold ${selected ? "text-white" : "text-ink-700"}`}>
+            <Text className={`text-center text-[13px] font-bold ${selected ? "text-white" : "text-ink-400"}`}>
               {c.letter}
             </Text>
           </Pressable>

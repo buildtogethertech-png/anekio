@@ -12,11 +12,14 @@ import { UploadCsvPanel } from "./upload-csv-panel";
 import { DocumentStudio } from "./document-studio";
 import { ClockForm, SchoolSubjectsForm } from "./school-setup";
 import { useAssetUrl } from "../lib/assets";
-import { act } from "../lib/mutate";
+import { act, saveLateTiming } from "../lib/mutate";
+import { PayrollRulesForm } from "./payroll-rules-form";
+import { calendarFrom } from "../lib/calendar";
+import { parsePayrollRules } from "../lib/payroll";
 import { webOrigin } from "../lib/api";
 import { useRecord, type AdmissionFormField, type RecordPayload } from "../lib/record";
 import { useSession } from "../lib/session";
-import { pickFile, uploadFile } from "../lib/upload";
+import { pickFile, uploadFile, type PickedFile } from "../lib/upload";
 import { cloneFields, FormBuilderModal } from "./form-builder";
 
 /** Mirrors LOCKED_ADMISSION_FIELD_IDS on the server: every admission needs these. */
@@ -32,7 +35,8 @@ const TABS = [
   { id: "calendar", label: "Calendar", hint: "Holidays exam papers skip. Weekly offs are on Clock.", group: "School Setup" },
   { id: "subjects", label: "Subjects", hint: "What the school teaches. Add at the start.", group: "Academics" },
   { id: "exams", label: "Exams", hint: "Grade scale and this year's sittings. Every class follows this.", group: "Academics" },
-  { id: "leave", label: "Leave", hint: "Leave types, who can apply, notice, and how leave builds up.", group: "Staff & Leave" },
+  { id: "leave", label: "Leave", hint: "Leave types, who can apply, notice, and how leave builds up.", group: "HR & Payroll" },
+  { id: "payroll", label: "Payroll rules", hint: "Salary day basis, paid offs, sandwich rule, half days, timing and lates.", group: "HR & Payroll" },
   { id: "feeClasses", label: "Class fees", hint: "Monthly and admission fee for each class", group: "Fees" },
   { id: "feeAddons", label: "Add-ons", hint: "Optional charges like transport or meals", group: "Fees" },
   { id: "feeLate", label: "Late fee & due date", hint: "When fees are due and the late charge", group: "Fees" },
@@ -48,12 +52,12 @@ const FEE_SETUP_PANE: Partial<Record<Tab, string>> = { feeClasses: "class", feeA
 type Door = (typeof TABS)[number]["group"];
 type Level = "doors" | "group" | "page";
 
-const TAB_GROUPS = ["School Setup", "Academics", "Staff & Leave", "Fees", "Documents", "Admissions"] as const;
+const TAB_GROUPS = ["School Setup", "Academics", "HR & Payroll", "Fees", "Documents", "Admissions"] as const;
 
 const DOOR_LEDE: Record<Door, string> = {
   "School Setup": "Identity, sessions, classes, calendar, and days.",
   Academics: "Subjects and this year's exams.",
-  "Staff & Leave": "Leave rules for teachers, staff, and students.",
+  "HR & Payroll": "Leave rules and how attendance turns into salary.",
   Fees: "Fee structure, add-ons, late fee, and how parents pay.",
   Documents: "Design report cards, IDs, receipts, certificates, and letters.",
   Admissions: "Admissions website and incoming enquiries.",
@@ -188,6 +192,7 @@ const TAB_ICONS: Record<Tab, { icon: keyof typeof Ionicons.glyphMap; tone: strin
   subjects: { icon: "book-outline", tone: "#16a34a" },
   exams: { icon: "clipboard-outline", tone: "#9333ea" },
   leave: { icon: "airplane-outline", tone: "#0284c7" },
+  payroll: { icon: "calculator-outline", tone: "#b45309" },
   collect: { icon: "wallet-outline", tone: "#059669" },
   feeClasses: { icon: "cash-outline", tone: "#059669" },
   feeAddons: { icon: "add-circle-outline", tone: "#0d9488" },
@@ -200,7 +205,7 @@ const TAB_ICONS: Record<Tab, { icon: keyof typeof Ionicons.glyphMap; tone: strin
 const PHONE_SECTIONS: { title: string; groups: Door[] }[] = [
   { title: "School", groups: ["School Setup"] },
   { title: "Academics", groups: ["Academics"] },
-  { title: "People", groups: ["Staff & Leave"] },
+  { title: "People", groups: ["HR & Payroll"] },
   { title: "Money", groups: ["Fees"] },
   { title: "Documents & admissions", groups: ["Documents", "Admissions"] },
 ];
@@ -1958,9 +1963,9 @@ export function SchoolBoard() {
     setCalendarImportOpen(false);
   }
 
-  async function uploadHolidayCsv() {
+  async function uploadHolidayCsv(dropped?: PickedFile) {
     try {
-      const file = await pickFile(".csv,text/csv,text/plain");
+      const file = dropped ?? (await pickFile(".csv,text/csv,text/plain"));
       if (!file) return;
       const text = await fetch(file.uri).then((response) => response.text());
       if (file.name.toLowerCase().endsWith(".xlsx") || file.name.toLowerCase().endsWith(".xls") || text.startsWith("PK")) {
@@ -1977,12 +1982,12 @@ export function SchoolBoard() {
   const savedWebsite = (s as unknown as { website?: { slug?: string; enabled?: boolean } } | undefined)?.website;
   const slugIsOwn = Boolean(form.websiteSlug && savedWebsite?.slug && form.websiteSlug.trim() === savedWebsite.slug);
   const websiteDirtyHint = Boolean(savedWebsite) && Boolean(savedWebsite?.enabled) !== form.websiteEnabled;
-  const showSave = tab !== "forms" && tab !== "calendar" && tab !== "exams" && tab !== "clock" && tab !== "subjects" && tab !== "sessions" && tab !== "classes" && tab !== "leave" && tab !== "documents";
+  const showSave = tab !== "forms" && tab !== "calendar" && tab !== "exams" && tab !== "clock" && tab !== "subjects" && tab !== "sessions" && tab !== "classes" && tab !== "leave" && tab !== "documents" && tab !== "payroll";
   const showPreview = tab === "exams" && !phone;
 
   function showSchool(next: { tab?: Tab; group?: Door } = {}) {
     if (next.tab) router.replace(`/school?tab=${next.tab}` as never);
-    else if (next.group) router.replace(`/school?group=${next.group}` as never);
+    else if (next.group) router.replace(`/school?group=${encodeURIComponent(next.group)}` as never);
     else router.replace("/school" as never);
   }
 
@@ -2055,6 +2060,10 @@ export function SchoolBoard() {
     out.subjects = subjectNames.size ? { text: String(subjectNames.size) } : { text: "None yet", warn: true };
     out.exams = plan.length ? { text: plural(plan.length, "exam") } : { text: "Not set", warn: true };
     out.leave = leaveTypes.length ? { text: plural(leaveTypes.length, "type") } : { text: "Not set", warn: true };
+    {
+      const pr = parsePayrollRules(data?.payrollRules ? JSON.stringify(data.payrollRules) : null);
+      out.payroll = { text: pr.salaryBasis === "FIXED" ? `Fixed ${pr.fixedMonthDays} days` : pr.salaryBasis === "WORKING" ? "Working days" : "Calendar days" };
+    }
     const pay = [s?.upiId ? "UPI" : "", s?.pay?.gateway && s.pay.gateway !== "NONE" ? s.pay.gateway.charAt(0) + s.pay.gateway.slice(1).toLowerCase() : ""].filter(Boolean);
     out.collect = pay.length ? { text: `Cash, ${pay.join(", ")}` } : { text: "Cash only" };
     const curSession = sessions.find((row) => row.current)?.id || s?.sessionId || "";
@@ -2115,7 +2124,7 @@ export function SchoolBoard() {
       ) : (
       <Card
         className={phone ? "p-4" : "p-5"}
-        style={phone && (tab === "classes" || tab === "exams") ? { borderWidth: 0, backgroundColor: "transparent", padding: 0 } : undefined}
+        style={phone && (tab === "classes" || tab === "exams" || tab === "payroll") ? { borderWidth: 0, backgroundColor: "transparent", padding: 0 } : undefined}
       >
         <View className={wide ? "flex-row items-start gap-6" : ""}>
           <View className={wide ? "min-w-0 flex-1" : ""}>
@@ -2443,6 +2452,22 @@ export function SchoolBoard() {
               />
             ) : null}
 
+            {tab === "payroll" ? (
+              <View className={phone ? "" : "mt-4"}>
+                <PayrollRulesForm
+                  key={JSON.stringify(data?.payrollRules ?? null)}
+                  rules={data?.payrollRules}
+                  calendar={calendarFrom(data?.school?.holidays, data?.timetable?.weekdays)}
+                  canEdit={edit || can(user, "staff.edit")}
+                  onSave={async (payload) => {
+                    await saveLateTiming(token, payload);
+                    toast.show("Payroll rules saved.");
+                    await reload();
+                  }}
+                />
+              </View>
+            ) : null}
+
             {tab === "calendar" ? (
               <View className="mt-4 gap-3">
                 <View className={phone ? "gap-3" : "flex-row flex-wrap items-start justify-between gap-3"}>
@@ -2542,6 +2567,7 @@ export function SchoolBoard() {
                     requiredColumns="date, name"
                     note="No fixed column order needed. Existing holiday dates are skipped during import."
                     onBrowse={() => void uploadHolidayCsv()}
+                    onDropFile={(file) => void uploadHolidayCsv(file)}
                     onDownloadSample={downloadCalendarSampleCsv}
                   />
                 </Modal>
@@ -3459,7 +3485,8 @@ export function SchoolBoard() {
         intro="Used when adding employees, for staff upload templates and document collection."
         audience="staff"
         fields={form.staffOnboardingForm}
-        lockedIds={["staffName", "phone", "role", "joiningDate"]}
+        lockedIds={["staffName", "phone", "email", "role", "joiningDate", "monthlySalary", "reportingManager"]}
+        roleOptions={(data?.staffRoles ?? []).filter((r) => r.portal !== "PARENT" && r.portal !== "STUDENT").map((r) => r.name)}
         suggestions={data?.school?.platformForms?.staff ?? []}
         canEdit={edit}
         onChange={(fields) => patch("staffOnboardingForm", fields)}

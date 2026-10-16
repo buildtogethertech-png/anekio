@@ -142,7 +142,17 @@ function toAccess(user: {
     roleName: user.role.name,
     roleId: user.roleId,
     portal: user.role.portal,
-    permissions: user.role.grants.map((g) => g.permission),
+    // "Manage employees" always includes marking their attendance; approving or paying salary includes seeing it.
+    permissions: [
+      ...user.role.grants.map((g) => g.permission),
+      ...(user.role.grants.some((g) => g.permission === "staff.edit") && !user.role.grants.some((g) => g.permission === "staff.attendance")
+        ? ["staff.attendance"]
+        : []),
+      ...(user.role.grants.some((g) => g.permission === "salary.approve" || g.permission === "salary.pay") &&
+      !user.role.grants.some((g) => g.permission === "salary.view")
+        ? ["salary.view"]
+        : []),
+    ],
     scopes: Object.fromEntries(
       user.role.grants.map((g) => [g.permission, g.scope ?? scopePolicyFor(g.permission, user.role.portal).defaultScope])
     ),

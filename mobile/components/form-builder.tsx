@@ -27,6 +27,8 @@ const FIELD_TYPE_OPTIONS = [
 ] as const;
 
 const SCHOOL_CLASSES_FIELD_TYPE = "schoolClasses";
+const ROLE_FIELD_OPTION = { id: "role", label: "School role" } as const;
+const MANAGER_FIELD_OPTION = { id: "manager", label: "Reporting manager" } as const;
 
 const FILE_TYPE_OPTIONS = [
   { id: "image_pdf", label: "Image or PDF" },
@@ -79,7 +81,30 @@ function typeValue(field: AdmissionFormField, classOptions: string[]) {
   return field.type;
 }
 
-function typeOptions(field: AdmissionFormField, classOptions: string[]) {
+/** Staff form built-ins whose type the code depends on. */
+const STAFF_FIXED_TYPES: Record<string, string> = {
+  staffName: "text",
+  phone: "phone",
+  email: "email",
+  role: "role",
+  joiningDate: "date",
+  monthlySalary: "number",
+  reportingManager: "manager",
+};
+
+function typeLabelOf(type: string) {
+  if (type === "role") return ROLE_FIELD_OPTION.label;
+  if (type === "manager") return MANAGER_FIELD_OPTION.label;
+  return FIELD_TYPE_OPTIONS.find((option) => option.id === type)?.label || type;
+}
+
+function typeOptions(field: AdmissionFormField, classOptions: string[], roleOptions?: string[]) {
+  // Staff form: locked built-ins keep their type; custom fields may also pick "School role".
+  if (roleOptions && field.builtin && STAFF_FIXED_TYPES[field.id]) {
+    const fixed = STAFF_FIXED_TYPES[field.id];
+    return [fixed === "role" ? ROLE_FIELD_OPTION : fixed === "manager" ? MANAGER_FIELD_OPTION : FIELD_TYPE_OPTIONS.find((o) => o.id === fixed) || { id: fixed, label: fixed }];
+  }
+  if (roleOptions) return [...FIELD_TYPE_OPTIONS.slice(0, 7), ROLE_FIELD_OPTION, ...FIELD_TYPE_OPTIONS.slice(7)];
   if (field.id !== "classWanted" || !classOptions.length) return [...FIELD_TYPE_OPTIONS];
   return [...FIELD_TYPE_OPTIONS.slice(0, 7), { id: SCHOOL_CLASSES_FIELD_TYPE, label: "School classes" }, ...FIELD_TYPE_OPTIONS.slice(7)];
 }
@@ -106,7 +131,42 @@ const TYPE_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   checkbox: "checkmark-done-outline",
   file: "attach-outline",
   [SCHOOL_CLASSES_FIELD_TYPE]: "school-outline",
+  role: "briefcase-outline",
+  manager: "person-circle-outline",
 };
+
+/** Reporting manager options are live: "None" plus everyone who can be a manager. */
+function ManagerOptionsNote() {
+  return (
+    <View className="rounded-xl border border-ink-200 bg-ink-50 p-3">
+      <Text className="text-xs leading-4 text-ink-500">
+        A dropdown with "None" and every office or teacher login, filled in live when the form opens. Nothing to set here.
+      </Text>
+    </View>
+  );
+}
+
+/** Read-only list of the school's roles, shown instead of an options editor for "School role" fields. */
+function RoleOptionsNote({ roles }: { roles: string[] }) {
+  return (
+    <View className="gap-2 rounded-xl border border-ink-200 bg-ink-50 p-3">
+      <View className="flex-row flex-wrap gap-1.5">
+        {roles.length ? (
+          roles.map((r) => (
+            <Text key={r} className="rounded-full border border-ink-200 bg-white px-2.5 py-1 text-xs font-medium text-ink-700">
+              {r}
+            </Text>
+          ))
+        ) : (
+          <Text className="text-xs text-ink-500">No roles yet.</Text>
+        )}
+      </View>
+      <Text className="text-xs leading-4 text-ink-500">
+        Comes from Roles & permissions. Add or rename a role there and this list updates by itself.
+      </Text>
+    </View>
+  );
+}
 
 function FieldPreview({ field }: { field: AdmissionFormField }) {
   const box = (text: string, icon?: keyof typeof Ionicons.glyphMap) => (
@@ -138,6 +198,10 @@ function FieldPreview({ field }: { field: AdmissionFormField }) {
         <View className="mt-1.5 h-16 rounded-lg border border-ink-200 bg-white" />
       ) : field.type === "select" ? (
         box(opts[0], "chevron-down")
+      ) : field.type === "role" ? (
+        box("Pick a role", "briefcase-outline")
+      ) : field.type === "manager" ? (
+        box("None", "chevron-down")
       ) : field.type === "radio" || field.type === "multi" ? (
         <View className="mt-1.5 flex-row flex-wrap gap-1.5">
           {opts.slice(0, 4).map((o) => (
@@ -163,6 +227,7 @@ function PhoneFieldSheet({
   field,
   audience,
   classOptions,
+  roleOptions,
   isLocked,
   isFirst,
   isLast,
@@ -175,6 +240,7 @@ function PhoneFieldSheet({
   field: AdmissionFormField;
   audience: string;
   classOptions: string[];
+  roleOptions?: string[];
   isLocked: boolean;
   isFirst: boolean;
   isLast: boolean;
@@ -254,7 +320,7 @@ function PhoneFieldSheet({
               <View>
                 {label("Type")}
                 <View className="flex-row flex-wrap gap-2">
-                  {typeOptions(field, classOptions).map((opt) => {
+                  {typeOptions(field, classOptions, roleOptions).map((opt) => {
                     const on = current === opt.id;
                     return (
                       <Pressable
@@ -272,6 +338,18 @@ function PhoneFieldSheet({
                   })}
                 </View>
               </View>
+              {field.type === "role" ? (
+                <View>
+                  {label("Options · from your roles")}
+                  <RoleOptionsNote roles={roleOptions ?? []} />
+                </View>
+              ) : null}
+              {field.type === "manager" ? (
+                <View>
+                  {label("Options")}
+                  <ManagerOptionsNote />
+                </View>
+              ) : null}
               {choice ? (
                 <View>
                   {label(current === SCHOOL_CLASSES_FIELD_TYPE ? "Options · from your classes" : "Options")}
@@ -422,6 +500,7 @@ export function FormBuilderModal({
   suggestions = [],
   lockedIds = [],
   classOptions = [],
+  roleOptions,
   canEdit = true,
   onChange,
   onSave,
@@ -437,6 +516,8 @@ export function FormBuilderModal({
   suggestions?: AdmissionFormField[];
   lockedIds?: readonly string[];
   classOptions?: string[];
+  /** Staff form only: the school's role names, for the "School role" field type. */
+  roleOptions?: string[];
   canEdit?: boolean;
   onChange: (fields: AdmissionFormField[]) => void;
   onSave: () => Promise<void>;
@@ -511,6 +592,7 @@ export function FormBuilderModal({
       field={editing}
       audience={audience}
       classOptions={classOptions}
+      roleOptions={roleOptions}
       isLocked={locked(editing.id)}
       isFirst={fields[0]?.id === editing.id}
       isLast={fields[fields.length - 1]?.id === editing.id}
@@ -553,7 +635,7 @@ export function FormBuilderModal({
                 <View className="overflow-hidden rounded-2xl border border-ink-200 bg-white">
                   {rows.map((field, index) => {
                     const isLocked = locked(field.id);
-                    const typeLabel = FIELD_TYPE_OPTIONS.find((option) => option.id === field.type)?.label || field.type;
+                    const typeLabel = typeLabelOf(field.type);
                     return (
                       <Pressable
                         key={field.id}
@@ -713,7 +795,7 @@ export function FormBuilderModal({
                       {fieldError(field) ? <Badge tone="danger">Fix</Badge> : null}
                     </View>
                     <Text className="mt-1 text-[11px] text-ink-700" numberOfLines={1}>
-                      {FIELD_TYPE_OPTIONS.find((option) => option.id === field.type)?.label || field.type}
+                      {typeLabelOf(field.type)}
                       {field.type === "file" ? ` · ${fileTypeSummary(field)} · ${field.maxFileSizeMb || 5} MB` : ""}
                       {field.helpText ? ` · ${field.helpText}` : ""}
                     </Text>
@@ -721,7 +803,7 @@ export function FormBuilderModal({
                   {canEdit ? (
                     <View className="flex-row items-center gap-2">
                       {isLocked ? (
-                        <View accessibilityLabel={`${field.label} is always shown and required`} className="h-8 w-8 items-center justify-center rounded-md border border-ink-200 bg-ink-50">
+                        <View accessibilityLabel={`${field.label} is always shown${field.required ? " and required" : ""}`} className="h-8 w-8 items-center justify-center rounded-md border border-ink-200 bg-ink-50">
                           <Ionicons name="lock-closed-outline" size={15} color="#64748b" />
                         </View>
                       ) : (
@@ -798,7 +880,7 @@ export function FormBuilderModal({
             <Dropdown
               label="Input type"
               value={typeValue(editing, classOptions)}
-              options={typeOptions(editing, classOptions)}
+              options={typeOptions(editing, classOptions, roleOptions)}
               onChange={(type) => {
                 const useClasses = type === SCHOOL_CLASSES_FIELD_TYPE;
                 const nextType = (useClasses ? "select" : type) as AdmissionFormField["type"];
@@ -811,6 +893,16 @@ export function FormBuilderModal({
                 });
               }}
             />
+            {editing.type === "role" ? (
+              <Field label="Options · from your roles">
+                <RoleOptionsNote roles={roleOptions ?? []} />
+              </Field>
+            ) : null}
+            {editing.type === "manager" ? (
+              <Field label="Options">
+                <ManagerOptionsNote />
+              </Field>
+            ) : null}
             {["select", "radio", "multi"].includes(editing.type) ? (
               <Field
                 label="Options"

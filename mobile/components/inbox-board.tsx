@@ -730,6 +730,11 @@ function ThreadView({
   const parentThreads = allThreads.filter((t) => t.parent.userId === thread.parent.userId);
   const parentOpen = parentThreads.filter((t) => t.status !== "CLOSED").length;
 
+  // The parent's last message is unanswered: show how long they have waited.
+  const visible = detail.messages.filter((m) => m.kind !== "EVENT" && !m.internal);
+  const lastVisible = visible[visible.length - 1];
+  const waitingSince = lastVisible?.fromParent ? waitedFor(lastVisible.at) : "";
+
   // Group messages by day for separators.
   let lastDay = "";
 
@@ -750,7 +755,7 @@ function ThreadView({
             <Text className="mt-0.5 text-[12px] text-ink-500" numberOfLines={1}>
               {parentMode
                 ? `To ${thread.withLabel} · about ${thread.student.name}${thread.student.classLabel ? ` (${thread.student.classLabel})` : ""}`
-                : `${thread.student.name}${thread.student.classLabel ? ` · ${thread.student.classLabel}` : ""} · to ${thread.withLabel}`}
+                : `About ${thread.student.name}${thread.student.classLabel ? ` (${thread.student.classLabel})` : ""} · to ${thread.withLabel}`}
             </Text>
           </View>
           {thread.topic ? <TopicTag topic={thread.topic} /> : null}
@@ -763,17 +768,33 @@ function ThreadView({
         </View>
         {!parentMode ? (
           <View className="mt-2 flex-row items-center gap-2">
-            <Pressable onPress={() => setParentCard(true)} className="min-w-0 flex-1 flex-row items-center gap-2 rounded-xl bg-ink-50 px-2.5 py-1.5">
-              <Avatar name={thread.parent.name} size={24} />
-              <Text className="min-w-0 flex-1 text-[13px] font-medium text-ink-800" numberOfLines={1}>
-                {thread.parent.name}
-                <Text className="font-normal text-ink-500"> · {parentOpen} open · {parentThreads.length} total</Text>
-              </Text>
-              <Ionicons name="chevron-forward" size={14} color="#94A3B8" />
+            <Pressable
+              onPress={() => setParentCard(true)}
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${thread.parent.name}`}
+              className="min-w-0 flex-1 flex-row items-center gap-2.5 rounded-xl border border-ink-100 bg-white px-2.5 py-2"
+            >
+              <Avatar name={thread.parent.name} size={30} />
+              <View className="min-w-0 flex-1">
+                <Text className="text-[14px] font-semibold text-ink-900" numberOfLines={1}>
+                  {thread.parent.name}
+                </Text>
+                <Text className="text-[12px] text-ink-500" numberOfLines={1}>
+                  {parentThreads.length > 1
+                    ? `Parent · ${parentOpen} open of ${parentThreads.length} conversations`
+                    : "Parent · first conversation"}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
             </Pressable>
-            <Pressable onPress={() => setPicker("assign")} className="flex-row items-center gap-1.5 rounded-xl bg-ink-50 px-2.5 py-1.5">
-              <Ionicons name="person-circle-outline" size={16} color={thread.assignee ? BRAND : "#64748B"} />
-              <Text className="text-[13px] font-medium text-ink-800" numberOfLines={1}>
+            <Pressable
+              onPress={() => setPicker("assign")}
+              accessibilityRole="button"
+              accessibilityLabel={thread.assignee ? `Assigned to ${thread.assignee.name}` : "Assign"}
+              className={`h-[50px] flex-row items-center gap-1.5 rounded-xl px-3 ${thread.assignee ? "border border-ink-100 bg-white" : "border border-dashed border-[#1F45C7]/50 bg-[#EEF3FF]"}`}
+            >
+              {thread.assignee ? <Avatar name={thread.assignee.name} size={24} /> : <Ionicons name="person-add-outline" size={16} color={BRAND} />}
+              <Text className={`text-[13px] font-semibold ${thread.assignee ? "text-ink-800" : "text-[#1F45C7]"}`} numberOfLines={1}>
                 {thread.assignee ? thread.assignee.name.split(" ")[0] : "Assign"}
               </Text>
             </Pressable>
@@ -826,14 +847,17 @@ function ThreadView({
               {separator}
               <View className={`max-w-[82%] ${right ? "self-end" : "self-start"}`}>
                 {!m.mine ? (
-                  <Text className={`mb-0.5 text-[11px] font-medium text-ink-500 ${right ? "text-right" : ""}`}>
+                  <Text className={`mb-1 text-[12px] font-medium text-ink-600 ${right ? "text-right" : ""}`}>
                     {m.authorName}
                     {m.authorRole ? <Text className="font-normal text-ink-400"> · {m.authorRole}</Text> : null}
                   </Text>
                 ) : null}
-                <View className={`rounded-2xl px-3 py-2 ${right ? "rounded-br-md bg-[#1F45C7]" : "rounded-bl-md border border-ink-100 bg-white"}`}>
-                  <Text className={`text-[15px] leading-5 ${right ? "text-white" : "text-ink-900"}`}>{m.body}</Text>
-                  <Text className={`mt-1 text-right text-[10px] ${right ? "text-white/70" : "text-ink-400"}`}>{clockTime(m.at)}</Text>
+                <View
+                  className={`rounded-2xl px-3.5 py-2.5 ${right ? "rounded-br-md bg-[#1F45C7]" : "rounded-bl-md border border-ink-100 bg-white"}`}
+                  style={right ? undefined : { shadowColor: "#0f172a", shadowOpacity: 0.04, shadowRadius: 3, shadowOffset: { width: 0, height: 1 } }}
+                >
+                  <Text className={`text-[15px] leading-[21px] ${right ? "text-white" : "text-ink-900"}`}>{m.body}</Text>
+                  <Text className={`mt-1 text-right text-[11px] ${right ? "text-white/75" : "text-ink-400"}`}>{clockTime(m.at)}</Text>
                 </View>
               </View>
             </View>
@@ -842,22 +866,41 @@ function ThreadView({
       </ScrollView>
 
       {/* Composer */}
-      <View className="border-t border-ink-100 bg-white px-3 pb-3 pt-2">
+      <View className="border-t border-ink-100 bg-white px-3 pb-3 pt-2.5">
+        {!parentMode && !closed && waitingSince ? (
+          <View className="mb-2 flex-row items-center gap-2 rounded-xl bg-amber-50 px-3 py-2">
+            <Ionicons name="time-outline" size={15} color="#B45309" />
+            <Text className="min-w-0 flex-1 text-[12px] font-medium text-amber-900" numberOfLines={1}>
+              {`${thread.parent.name.split(" ")[0]} is waiting for a reply · ${waitingSince}`}
+            </Text>
+          </View>
+        ) : null}
         {closed ? (
           <Text className="mb-1.5 text-center text-[12px] text-ink-500">
             {parentMode ? "This conversation is closed. Replying will reopen it." : "Closed. Replying will reopen it as waiting on the parent."}
           </Text>
         ) : null}
         {!parentMode ? (
-          <View className="mb-2 flex-row self-start rounded-lg bg-ink-100 p-0.5">
+          <View className="mb-2 flex-row rounded-xl bg-ink-100 p-1">
             {[
-              { key: false, label: "Reply to parent" },
-              { key: true, label: "Internal note" },
-            ].map((o) => (
-              <Pressable key={String(o.key)} onPress={() => setNote(o.key)} className={`rounded-md px-3 py-1 ${note === o.key ? "bg-white" : ""}`}>
-                <Text className={`text-[12px] font-semibold ${note === o.key ? (o.key ? "text-[#B45309]" : "text-[#1F45C7]") : "text-ink-500"}`}>{o.label}</Text>
-              </Pressable>
-            ))}
+              { key: false, label: "Reply to parent", icon: "chatbubble-outline" as const },
+              { key: true, label: "Internal note", icon: "lock-closed-outline" as const },
+            ].map((o) => {
+              const on = note === o.key;
+              return (
+                <Pressable
+                  key={String(o.key)}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: on }}
+                  onPress={() => setNote(o.key)}
+                  className={`h-8 flex-1 flex-row items-center justify-center gap-1.5 rounded-lg ${on ? "bg-white" : ""}`}
+                  style={on ? { shadowColor: "#0f172a", shadowOpacity: 0.08, shadowRadius: 3, shadowOffset: { width: 0, height: 1 } } : undefined}
+                >
+                  <Ionicons name={o.icon} size={13} color={on ? (o.key ? "#B45309" : BRAND) : "#64748B"} />
+                  <Text className={`text-[13px] font-semibold ${on ? (o.key ? "text-[#B45309]" : "text-[#1F45C7]") : "text-ink-500"}`}>{o.label}</Text>
+                </Pressable>
+              );
+            })}
           </View>
         ) : null}
         <View className="flex-row items-end gap-2">
@@ -868,12 +911,14 @@ function ThreadView({
             placeholderTextColor="#94A3B8"
             multiline
             maxLength={4000}
-            className={`max-h-[120px] min-h-[42px] flex-1 rounded-2xl border px-3 py-2.5 text-[15px] text-ink-900 ${note ? "border-[#F5D98B] bg-[#FFF9E6]" : "border-ink-200 bg-ink-50"}`}
+            className={`max-h-[120px] min-h-[44px] flex-1 rounded-2xl border px-3.5 py-2.5 text-[15px] text-ink-900 ${note ? "border-[#F5D98B] bg-[#FFF9E6]" : "border-ink-200 bg-white"}`}
           />
           <Pressable
             onPress={() => void send()}
             disabled={!text.trim() || sending}
-            className={`h-[42px] w-[42px] items-center justify-center rounded-full ${text.trim() ? (note ? "bg-[#B45309]" : "bg-[#1F45C7]") : "bg-ink-200"}`}
+            accessibilityRole="button"
+            accessibilityLabel={note ? "Save note" : "Send"}
+            className={`h-[44px] w-[44px] items-center justify-center rounded-full ${text.trim() ? (note ? "bg-[#B45309]" : "bg-[#1F45C7]") : "bg-ink-200"}`}
           >
             {sending ? <ActivityIndicator color="#fff" size="small" /> : <Ionicons name="arrow-up" size={20} color="#fff" />}
           </Pressable>
@@ -929,6 +974,15 @@ function ThreadView({
 /* ------------------------------------------------------------ list board */
 
 type Filter = "open" | "unread" | "mine" | "closed";
+
+function waitedFor(at: string) {
+  const mins = Math.max(0, Math.round((Date.now() - new Date(at).getTime()) / 60000));
+  if (mins < 60) return mins <= 1 ? "just now" : `${mins} min`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours} hr`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"}`;
+}
 
 export function InboxBoard() {
   const { token, user } = useSession();

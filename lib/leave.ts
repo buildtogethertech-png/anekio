@@ -42,6 +42,10 @@ export type LeaveRequestRow = {
   /** "FIRST" / "SECOND" half of a single day; "" = full day(s). */
   halfDay: "FIRST" | "SECOND" | "";
   days: number;
+  /** Staff leave: who approved/rejected, or who it waits on. */
+  autoApproved?: boolean;
+  decidedBy?: string;
+  approverName?: string;
 };
 
 export type UpcomingTeacherLeaveRow = {
@@ -151,6 +155,9 @@ export function serializeLeaveRequest(row: {
   guardianAt: Date | null;
   classTeacherAt: Date | null;
   halfDay?: string | null;
+  autoApproved?: boolean | null;
+  decidedByName?: string | null;
+  requester?: { manager: { name: string } | null } | null;
   type: { name: string };
   teacher: { id: string; user: { name: string } } | null;
   staff: { id: string; name: string } | null;
@@ -179,6 +186,9 @@ export function serializeLeaveRequest(row: {
     waitingOn,
     halfDay: row.halfDay === "FIRST" || row.halfDay === "SECOND" ? row.halfDay : "",
     days: 0,
+    autoApproved: Boolean(row.autoApproved),
+    decidedBy: row.decidedByName || "",
+    approverName: who === "student" ? "" : row.requester?.manager?.name || "",
   };
 }
 
@@ -187,7 +197,32 @@ const leaveInclude = {
   teacher: { select: { id: true, user: { select: { name: true } } } },
   staff: { select: { id: true, name: true } },
   student: { select: { id: true, name: true, class: { select: { name: true, section: true } } } },
+  requester: { select: { manager: { select: { name: true } } } },
 } as const;
+
+/** Office users (admin, accountant…) get an employee record the first time they use leave. */
+export async function ensureStaffRecord(user: { id: string; name?: string | null; portal?: string; roleName?: string | null }) {
+  if (user.portal !== "OFFICE") return null;
+  const existing = await prisma.staffMember.findUnique({ where: { userId: user.id }, select: { id: true } });
+  if (existing) return existing.id;
+  const teacher = await prisma.teacher.findUnique({ where: { userId: user.id }, select: { id: true } });
+  if (teacher) return null;
+  const row = await prisma.user.findUnique({ where: { id: user.id }, select: { name: true, phone: true, roleId: true, role: { select: { name: true } } } });
+  const count = await prisma.staffMember.count();
+  const created = await prisma.staffMember.create({
+    data: {
+      name: row?.name || user.name || "Office",
+      title: row?.role?.name || user.roleName || "Office",
+      phone: row?.phone || "",
+      employeeId: `EMP-${String(count + 1).padStart(3, "0")}-${user.id.slice(-4).toUpperCase()}`,
+      kind: "OFFICE",
+      roleId: row?.roleId || null,
+      userId: user.id,
+    },
+    select: { id: true },
+  });
+  return created.id;
+}
 
 export async function listLeaveTypes() {
   await ensureLeaveTypes();
@@ -417,8 +452,9 @@ export async function leaveBundleFor(input: {
   const myLeave = mineWhere ? await loadLeaveRequests(mineWhere) : [];
   let pendingLeave: LeaveRequestRow[] = [];
   const teamLeave =
-    input.userId && input.staffLeaveScope && (input.portal === "OFFICE" || input.portal === "TEACHER")
-      ? await staffLeaveForManager(input.userId, input.staffLeaveScope)
+    input.userId && (input.portal === "OFFICE" || input.portal === "TEACHER")
+      ? // Anyone with reports approves their team, even without the leave permission.
+        await staffLeaveForManager(input.userId, input.staffLeaveScope || "REPORTS")
       : [];
   if (input.portal === "OFFICE") {
     pendingLeave = teamLeave;

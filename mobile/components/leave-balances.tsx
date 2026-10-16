@@ -85,66 +85,86 @@ export function EmployeeLeaveCard({ kind, id, canEdit }: { kind: "teacher" | "st
   }
 
   if (balances === null) return null;
-  const rows = showAll ? ledger : ledger.slice(0, 5);
+  const rows = showAll ? ledger : ledger.slice(0, 4);
 
+  const TINTS = ["#1F45C7", "#0891b2", "#7c3aed", "#d97706", "#16a34a"];
   return (
-    <View className="mb-3 rounded-2xl border border-ink-100 bg-white p-4">
+    <View className="mb-3 gap-3">
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
-      <View className="flex-row items-center justify-between gap-2">
-        <View>
-          <Text className="text-[15px] font-semibold text-ink-900">Leave balance</Text>
-          <Text className="text-[12px] text-ink-500">{balances[0] ? `Leave year ${balances[0].leaveYear}` : "No limited leave types"}</Text>
+      <View className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
+        <View className="flex-row items-center justify-between gap-2 border-b border-ink-100 px-4 py-3">
+          <View>
+            <Text className="text-[15px] font-semibold text-ink-900">Leave balance</Text>
+            <Text className="text-[12px] text-ink-500">{balances[0] ? `Leave year ${balances[0].leaveYear}` : "No limited leave types"}</Text>
+          </View>
+          {canEdit && balances.length ? (
+            <Pressable
+              accessibilityLabel="Add or remove leave"
+              onPress={() => {
+                setTypeId(balances[0]?.typeId || "");
+                setSign(1);
+                setAdjustOpen(true);
+              }}
+              className="h-9 flex-row items-center gap-1 rounded-full bg-[#EEF3FF] px-3"
+            >
+              <Ionicons name="swap-vertical" size={14} color="#1F45C7" />
+              <Text className="text-[13px] font-semibold text-[#1F45C7]">Adjust</Text>
+            </Pressable>
+          ) : null}
         </View>
-        {canEdit && balances.length ? (
-          <Pressable
-            onPress={() => {
-              setTypeId(balances[0]?.typeId || "");
-              setSign(1);
-              setAdjustOpen(true);
-            }}
-            className="h-9 flex-row items-center gap-1.5 rounded-xl border border-ink-200 px-3"
-          >
-            <Ionicons name="add-circle-outline" size={16} color="#1F45C7" />
-            <Text className="text-[13px] font-semibold text-[#1F45C7]">Add / remove leave</Text>
-          </Pressable>
-        ) : null}
-      </View>
-
-      {balances.length ? (
-        <View className="mt-3 flex-row flex-wrap gap-2">
-          {balances.map((b) => (
-            <View key={b.typeId} className="min-w-[150px] flex-1 rounded-xl bg-ink-50 p-3">
-              <Text className="text-[12px] font-medium text-ink-600">{b.typeName}</Text>
-              <Text className={`mt-0.5 text-[22px] font-bold ${b.available <= 0 ? "text-[#B42318]" : "text-ink-900"}`}>{fmt(b.available)}</Text>
-              <Text className="text-[11px] text-ink-500">
-                {fmt(b.earned)} earned · {fmt(b.used)} used{b.pending ? ` · ${fmt(b.pending)} pending` : ""}
+        {balances.map((b, n) => {
+          const tint = TINTS[n % TINTS.length];
+          const total = Math.max(b.earned, b.used + Math.max(0, b.available), 0.0001);
+          const usedPct = Math.min(100, (b.used / total) * 100);
+          const pendPct = Math.min(100 - usedPct, (b.pending / total) * 100);
+          return (
+            <View key={b.typeId} className={`px-4 py-3 ${n ? "border-t border-ink-100" : ""}`}>
+              <View className="flex-row items-baseline justify-between">
+                <View className="flex-row items-center gap-2">
+                  <View className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: tint }} />
+                  <Text className="text-[14px] font-semibold text-ink-900">{b.typeName}</Text>
+                </View>
+                <Text className={`text-[18px] font-bold ${b.available <= 0 ? "text-[#B42318]" : "text-ink-900"}`}>
+                  {fmt(b.available)}
+                  <Text className="text-[12px] font-medium text-ink-500"> left</Text>
+                </Text>
+              </View>
+              <View className="mt-2 h-1.5 flex-row overflow-hidden rounded-full bg-ink-100">
+                <View style={{ width: `${usedPct}%`, backgroundColor: tint }} />
+                <View style={{ width: `${pendPct}%`, backgroundColor: tint, opacity: 0.35 }} />
+              </View>
+              <Text className="mt-1.5 text-[11px] text-ink-500">
+                {fmt(b.used)} used of {fmt(b.earned)} earned{b.pending ? ` · ${fmt(b.pending)} waiting` : ""}
               </Text>
             </View>
-          ))}
-        </View>
-      ) : null}
+          );
+        })}
+      </View>
 
       {ledger.length ? (
-        <View className="mt-3">
-          <Text className="mb-1 text-[12px] font-semibold uppercase tracking-wide text-ink-500">History</Text>
-          {rows.map((r) => (
-            <View key={r.id} className="flex-row items-center gap-3 border-t border-ink-50 py-2">
-              <Text className={`w-12 text-right text-[14px] font-semibold ${r.days < 0 ? "text-[#B42318]" : "text-[#18794E]"}`}>
-                {r.days > 0 ? "+" : ""}
-                {fmt(r.days)}
-              </Text>
+        <View className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
+          <Text className="px-4 pb-1 pt-3 text-[13px] font-semibold text-ink-900">History</Text>
+          {rows.map((r, n) => (
+            <View key={r.id} className={`flex-row items-center gap-3 px-4 py-2.5 ${n ? "border-t border-ink-50" : ""}`}>
+              <View className={`h-8 min-w-[44px] items-center justify-center rounded-lg px-2 ${r.days < 0 ? "bg-red-50" : "bg-emerald-50"}`}>
+                <Text className={`text-[13px] font-bold ${r.days < 0 ? "text-[#B42318]" : "text-[#18794E]"}`}>
+                  {r.days > 0 ? "+" : ""}
+                  {fmt(r.days)}
+                </Text>
+              </View>
               <View className="min-w-0 flex-1">
-                <Text className="text-[13px] text-ink-900" numberOfLines={1}>
+                <Text className="text-[13px] font-medium text-ink-900" numberOfLines={1}>
                   {r.typeName} · {KIND_LABEL[r.kind] || r.kind}
                 </Text>
                 <Text className="text-[11px] text-ink-500" numberOfLines={1}>
-                  {r.note} · {new Date(r.at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                  {r.note ? `${r.note.charAt(0).toUpperCase()}${r.note.slice(1).toLowerCase()} · ` : ""}
+                  {new Date(r.at).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
                 </Text>
               </View>
             </View>
           ))}
-          {ledger.length > 5 ? (
-            <Pressable onPress={() => setShowAll((v) => !v)} className="pt-1">
+          {ledger.length > 4 ? (
+            <Pressable onPress={() => setShowAll((v) => !v)} className="border-t border-ink-100 px-4 py-2.5">
               <Text className="text-[12px] font-semibold text-[#1F45C7]">{showAll ? "Show less" : `Show all ${ledger.length}`}</Text>
             </Pressable>
           ) : null}

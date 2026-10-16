@@ -8,7 +8,7 @@ import { act } from "../lib/mutate";
 import { downloadAuthedFile } from "../lib/print-html";
 import { useRecord, type RecordPayload } from "../lib/record";
 import { useSession } from "../lib/session";
-import { pickFile, uploadFile } from "../lib/upload";
+import { pickFile, uploadFile, type PickedFile } from "../lib/upload";
 import { Badge, Button, Card, Empty, Modal, PageHeader } from "./ui";
 import { UploadCsvPanel } from "./upload-csv-panel";
 
@@ -272,12 +272,12 @@ export function OnboardingBoard({
     }
   }
 
-  async function review(template: Template) {
+  async function review(template: Template, dropped?: PickedFile) {
     setBusy(`upload:${template.kind}`);
     setMessage("");
     setPreview(null);
     try {
-      const file = await pickFile(".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      const file = dropped ?? (await pickFile(".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
       if (!file) return;
       const uploaded = await uploadFile(token, file, { kind: "onboarding", onboardingKind: template.kind });
       const result = await act<Preview & { ok: true }>(token, "previewOnboardingImport", {
@@ -785,6 +785,7 @@ export function OnboardingBoard({
             browseDisabled={focusedBrowseDisabled || Boolean(busy)}
             downloadDisabled={Boolean(busy)}
             onBrowse={() => void review(focusedTemplate)}
+            onDropFile={(file) => void review(focusedTemplate, file)}
             onDownloadTemplate={() => void download(focusedTemplate)}
             onDownloadSample={() => void download(focusedTemplate, true)}
           />

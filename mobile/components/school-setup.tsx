@@ -3,7 +3,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { Modal as RnModal, Pressable, Text, useWindowDimensions, View } from "react-native";
 import { Button, Chip, Field, Input, Modal } from "./ui";
 import { UploadCsvPanel } from "./upload-csv-panel";
-import { pickFile } from "../lib/upload";
+import { pickFile, type PickedFile } from "../lib/upload";
 
 export const DEFAULT_SUBJECTS = [
   "English",
@@ -769,8 +769,8 @@ export function SchoolSubjectsForm({
     URL.revokeObjectURL(url);
   }
 
-  async function uploadSheet() {
-    const file = await pickFile(".csv,text/csv");
+  async function uploadSheet(dropped?: PickedFile) {
+    const file = dropped ?? (await pickFile(".csv,text/csv"));
     if (!file) return;
     const text = await fetch(file.uri).then((response) => response.text());
     const [header, ...rows] = parseCsv(text);
@@ -950,6 +950,7 @@ export function SchoolSubjectsForm({
           requiredColumns="Subject"
           note="Use one subject per row. Existing subjects are replaced after you review and save."
           onBrowse={() => void uploadSheet()}
+          onDropFile={(file) => void uploadSheet(file)}
           onDownloadSample={() => downloadSheet(true)}
         />
       </Modal>

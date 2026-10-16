@@ -168,7 +168,7 @@ export function PortalBody({ screen }: { screen: string }) {
     return <Empty title="No access" body="This page is for the class teacher." />;
   }
   if (screen === "leave") {
-    if (data.kind === "TEACHER") return <TeacherLeaveBoard />;
+    if (data.kind === "TEACHER" || data.kind === "OFFICE") return <TeacherLeaveBoard />;
     return <FamilyAttendance />;
   }
   if (screen === "subjects") return <FamilySubjects />;

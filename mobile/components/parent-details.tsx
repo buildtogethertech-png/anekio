@@ -1,8 +1,8 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Modal as RnModal, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { api } from "../lib/api";
+import { api, webOrigin } from "../lib/api";
 import { act } from "../lib/mutate";
 import type { AdmissionFormField } from "../lib/record";
 import { useSession } from "../lib/session";
@@ -284,8 +284,19 @@ export function ParentUpdatesReview() {
 
   async function viewFile(row: PendingUpdate) {
     try {
-      const res = await api<{ url: string }>("/files/view-url", token, { method: "POST", body: JSON.stringify({ path: row.value }) });
-      setDoc({ url: res.url, title: `${row.fieldLabel} · ${row.student.name}` });
+      const response = await fetch(`${webOrigin()}/api/files/view-url`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ path: String(row.value || "").replace(/^\/+/, "") }),
+      });
+      const res = (await response.json().catch(() => ({}))) as { url?: string; error?: string };
+      if (!response.ok || !res.url) throw new Error(res.error || "This file could not be found. Ask the parent to upload it again.");
+      let url = res.url;
+      if (Platform.OS === "web" && url.startsWith("data:")) {
+        const blob = await (await fetch(url)).blob();
+        url = URL.createObjectURL(blob);
+      }
+      setDoc({ url, title: `${row.fieldLabel} · ${row.student.name}` });
     } catch (e) {
       toast.show(e instanceof Error ? e.message : "Could not open the file.");
     }

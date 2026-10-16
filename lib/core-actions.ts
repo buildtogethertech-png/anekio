@@ -26,6 +26,7 @@ import { prisma } from "./prisma";
 import { roleIdBySlug, slugFromName } from "./roles";
 import { closedReason, paperDates, parseHolidayText, snapToSchoolDay, type PaperCadence } from "./calendar";
 import { classifyFromIn, normalizeHHmm, parsePayrollRules, personKey, type PayrollRules } from "./payroll";
+import { hasLiveSalaryPayments } from "./salary-payments";
 import { loadSchoolCalendar } from "./leave";
 import { earliestStaffInAt, staffDayInstant, staffDayWindow, staffDayYmd } from "./staff-day";
 import { addDays, examPlanWeight, parseExamPlan, ymd } from "./exams";
@@ -779,6 +780,7 @@ export async function updateTeacherCore(
     managerId?: string | null;
     monthlySalary?: number | string;
     classId?: string | null;
+    customValues?: Record<string, string>;
   }
 ) {
   need(user, "staff.edit", "people.edit");
@@ -789,11 +791,12 @@ export async function updateTeacherCore(
   const employeeId = String(input.employeeId || "").trim();
   const joinedOn = input.joinedOn ? requireJoinedOn(input.joinedOn) : undefined;
   const place = placeFields(input);
-  const qualification = String(input.qualification || "").trim();
+  const qualification = String(input.customValues?.qualification ?? input.qualification ?? "").trim();
   const password = String(input.password || "");
   if (!id || !name || !email || !employeeId) throw new Error("Name, email, and employee id are required");
   const teacher = await prisma.teacher.findUnique({ where: { id }, include: { user: true } });
   if (!teacher) throw new Error("Teacher missing");
+  const onboardingDataJson = await mergeStaffOnboardingValues(teacher.onboardingDataJson, input.customValues);
   let roleId: string | undefined;
   if (input.roleId) {
     const role = await prisma.role.findUnique({ where: { id: input.roleId } });
@@ -843,7 +846,8 @@ export async function updateTeacherCore(
       ...place,
       qualification: qualification || null,
       ...(classId !== undefined ? { class: classId ? { connect: { id: classId } } : { disconnect: true } } : {}),
-      ...(input.monthlySalary !== undefined ? { monthlySalary: parseMonthlySalary(input.monthlySalary) } : {}),
+      ...(input.monthlySalary !== undefined && can(user, "salary.approve") ? { monthlySalary: parseMonthlySalary(input.monthlySalary) } : {}),
+      ...(onboardingDataJson !== undefined ? { onboardingDataJson } : {}),
       user: { update: userPatch },
     },
   });
@@ -871,6 +875,7 @@ export async function updateStaffMemberCore(
     pincode?: string;
     managerId?: string | null;
     monthlySalary?: number | string;
+    customValues?: Record<string, string>;
   }
 ) {
   need(user, "staff.edit");
@@ -884,6 +889,7 @@ export async function updateStaffMemberCore(
   if (!input.roleId) throw new Error("Pick a role");
   const staff = await prisma.staffMember.findUnique({ where: { id }, include: { user: true } });
   if (!staff) throw new Error("Employee missing");
+  const onboardingDataJson = await mergeStaffOnboardingValues(staff.onboardingDataJson, input.customValues);
   const role = await prisma.role.findUnique({ where: { id: input.roleId } });
   if (!role || role.portal === "STUDENT" || role.portal === "PARENT" || role.portal === "TEACHER") {
     throw new Error("Pick an employee role");
@@ -922,7 +928,8 @@ export async function updateStaffMemberCore(
       joinedOn,
       kind,
       ...place,
-      ...(input.monthlySalary !== undefined ? { monthlySalary: parseMonthlySalary(input.monthlySalary) } : {}),
+      ...(input.monthlySalary !== undefined && can(user, "salary.approve") ? { monthlySalary: parseMonthlySalary(input.monthlySalary) } : {}),
+      ...(onboardingDataJson !== undefined ? { onboardingDataJson } : {}),
     },
   });
 }
@@ -1008,7 +1015,7 @@ export async function createTeacherCore(
           orgId: user.orgId ?? null,
           employeeId,
           joinedOn: todayJoinedOn(),
-          monthlySalary: parseMonthlySalary(input.monthlySalary),
+          monthlySalary: parseMonthlySalary(can(user, "salary.approve") ? input.monthlySalary : undefined),
           ...(qualification ? { qualification } : {}),
           ...(classIds[0] ? { classId: classIds[0] } : {}),
           skills: {
@@ -1187,7 +1194,7 @@ export async function markStaffAttendanceCore(
     }[];
   }
 ) {
-  need(user, "staff.edit");
+  need(user, "staff.edit", "staff.attendance");
   const stamp = String(input.date || "").slice(0, 10);
   if (stamp > staffDayYmd(new Date())) {
     throw new Error("Cannot mark a future date.");
@@ -1254,7 +1261,7 @@ export async function generateStaffAttendanceQrCore(user: AccessUser) {
 }
 
 export async function scanStaffAttendanceQrCore(user: AccessUser, input: { code: string }) {
-  need(user, "staff.edit");
+  need(user, "staff.edit", "staff.attendance");
   const token = staffAttendanceTokenFromCode(String(input.code || ""));
   if (!token) throw new Error("Scan a staff attendance QR.");
   const ticket = staffAttendanceQrTokens.get(token);
@@ -1350,7 +1357,7 @@ export async function correctStaffAttendanceCore(
     unlockApproved?: boolean;
   }
 ) {
-  need(user, "staff.edit");
+  need(user, "staff.edit", "staff.attendance");
   const stamp = String(input.date || "").slice(0, 10);
   if (stamp > staffDayYmd(new Date())) throw new Error("Cannot mark a future date.");
   const status = STAFF_MARKS.has(input.status) ? input.status : null;
@@ -1366,8 +1373,14 @@ export async function correctStaffAttendanceCore(
   const key = personKey(input.kind, input.id);
   const month = stamp.slice(0, 7);
   const run = await prisma.staffPayrollRun.findUnique({ where: { personKey_month: { personKey: key, month } } });
+  if (run && run.status !== "PENDING" && !can(user, "salary.approve")) {
+    throw new Error("This month's salary is already approved. Ask someone who approves salaries to change it.");
+  }
   if (run && run.status !== "PENDING" && !input.unlockApproved) {
     throw new Error("This month is already approved. Confirm to change attendance.");
+  }
+  if (run && run.status !== "PENDING" && (await hasLiveSalaryPayments(key, month))) {
+    throw new Error("Salary payments are recorded for this month. Cancel them before changing attendance.");
   }
   const existing = await findStaffDayOnStamp(input.kind, input.id, stamp);
   const fromStatus = existing?.status || "";
@@ -1430,7 +1443,7 @@ export async function saveStaffPayrollCore(
     snapshot?: Record<string, unknown>;
   }
 ) {
-  need(user, "staff.edit");
+  need(user, "salary.approve");
   const month = String(input.month || "").slice(0, 7);
   if (!/^\d{4}-\d{2}$/.test(month)) throw new Error("Pick a month.");
   const key = personKey(input.kind, input.id);
@@ -1438,7 +1451,10 @@ export async function saveStaffPayrollCore(
     input.status === "PAID" ? PayrollStatus.PAID : input.status === "APPROVED" ? PayrollStatus.APPROVED : PayrollStatus.PENDING;
   const existing = await prisma.staffPayrollRun.findUnique({ where: { personKey_month: { personKey: key, month } } });
   if (existing && existing.status !== "PENDING" && nextStatus === "PENDING") {
-    // allow saving pending after unlock via attendance correction
+    // allow saving pending after unlock via attendance correction, but never under recorded payments
+    if (await hasLiveSalaryPayments(key, month)) {
+      throw new Error("Salary payments are recorded for this month. Cancel them before reopening it.");
+    }
   } else if (existing && existing.status === "APPROVED" && nextStatus === "APPROVED") {
     throw new Error("This payment is already approved.");
   } else if (existing && existing.status === "PAID") {
@@ -1518,7 +1534,8 @@ export async function createStaffMemberCore(
   if (taken) throw new Error("That email is already in the school");
   const hash = await bcrypt.hash(password, 10);
   const managerId = await managerIdForNewUser(user, role, input.managerId);
-  const monthlySalary = parseMonthlySalary(input.monthlySalary);
+  // Only people who approve salaries set the amount; others get the default and it is set later.
+  const monthlySalary = parseMonthlySalary(can(user, "salary.approve") ? input.monthlySalary : undefined);
   const onboardingDataJson = await staffOnboardingValues(input.customValues);
   if (role.portal === "TEACHER") {
     const classId = String(input.classId || "").trim();
@@ -1588,6 +1605,20 @@ export async function createStaffMemberCore(
 async function staffOnboardingFields() {
   const config = await prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { staffOnboardingFormJson: true } });
   return staffOnboardingFormFields(await configuredFormJson("staff", config?.staffOnboardingFormJson));
+}
+
+/**
+ * Edit: replace the text answers from the staff onboarding form, keep uploaded document paths.
+ * Returns undefined when the caller sent no answers, so old clients don't wipe anything.
+ */
+async function mergeStaffOnboardingValues(existingJson: string | null | undefined, values?: Record<string, string>) {
+  if (!values || typeof values !== "object") return undefined;
+  const kept = admissionCustomValues(existingJson);
+  const fields = await staffOnboardingFields();
+  const fileIds = new Set(fields.filter((f) => f.type === "file").map((f) => f.id));
+  const out: Record<string, string> = {};
+  for (const [id, value] of Object.entries(kept)) if (fileIds.has(id)) out[id] = value;
+  return JSON.stringify({ ...out, ...JSON.parse(await staffOnboardingValues(values)) });
 }
 
 /** Keeps only answers to the school's own (non-built-in, non-file) staff form fields. */
@@ -3524,6 +3555,14 @@ export async function saveSchoolPayrollRulesCore(
     lateDeductionAmount?: number;
     lateDayFraction?: number;
     latesPerLeaveDay?: number;
+    latePenaltyDays?: number;
+    salaryBasis?: string;
+    fixedMonthDays?: number;
+    paidWeeklyOffs?: boolean;
+    paidHolidays?: boolean;
+    sandwichRule?: boolean;
+    unmarkedAs?: string;
+    halfDayCredit?: number;
   }
 ) {
   need(user, "school.edit", "staff.edit");
@@ -3539,6 +3578,14 @@ export async function saveSchoolPayrollRulesCore(
       lateDeductionAmount: 0,
       lateDayFraction: 0,
       latesPerLeaveDay: input.latesPerLeaveDay,
+      latePenaltyDays: input.latePenaltyDays,
+      salaryBasis: input.salaryBasis,
+      fixedMonthDays: input.fixedMonthDays,
+      paidWeeklyOffs: input.paidWeeklyOffs,
+      paidHolidays: input.paidHolidays,
+      sandwichRule: input.sandwichRule,
+      unmarkedAs: input.unmarkedAs,
+      halfDayCredit: input.halfDayCredit === 0 || input.halfDayCredit === 0.5 || input.halfDayCredit === 1 ? input.halfDayCredit : undefined,
     })
   );
   await prisma.schoolConfig.upsert({

@@ -19,7 +19,7 @@ import {
   noticesForUser,
 } from "./data";
 import { isCircularNotice } from "./notices";
-import { leaveBundleFor } from "./leave";
+import { ensureStaffRecord, leaveBundleFor } from "./leave";
 import { gradePolicyFrom, marksVisible, parseExamPlan, timetableVisible, ymd, addDays } from "./exams";
 import { parentMaySeeExamResult } from "./exam-marks";
 import { teacherClassTestChoices } from "./exam-evaluators";
@@ -873,6 +873,8 @@ async function teacherTeamExtras(
 }
 
 async function officePayload(user: AccessUser) {
+  // Salary amounts, payroll runs and payments only reach people allowed to see salaries.
+  const seeSalary = can(user, "salary.view");
   const sessionPack = await ensureSchoolSessions();
   const { sessions, current } = sessionPack;
   const [{ pulse, invoices, collection }, people, staff, config, platformConfig, roles, { config: sched, periods, rooms, teachers: weekTeachers }, classes, recentExams, holidays, examPack, activeFeeDocuments] =
@@ -1218,10 +1220,11 @@ async function officePayload(user: AccessUser) {
           today: today ? today.status : "",
           days: mapPersonStaffDays(staff.days, "teacher", t.id),
           leaveDays: staffLeaveDays(staff.leave, "teacher", t.id),
-          salary: t.monthlySalary,
+          salary: seeSalary ? t.monthlySalary : undefined,
           department: staffDepartment("teacher"),
           managerId: t.user.managerId || "",
           managerName: t.user.manager?.name || "",
+          onboardingValues: admissionCustomValues(t.onboardingDataJson),
         };
       }),
       ...staff.staff.map((s) => {
@@ -1244,15 +1247,16 @@ async function officePayload(user: AccessUser) {
           today: today ? today.status : "",
           days: mapPersonStaffDays(staff.days, "staff", s.id),
           leaveDays: staffLeaveDays(staff.leave, "staff", s.id),
-          salary: s.monthlySalary,
+          salary: seeSalary ? s.monthlySalary : undefined,
           department: staffDepartment("staff", s.role?.portal),
           managerId: s.user?.managerId || "",
           managerName: s.user?.manager?.name || "",
+          onboardingValues: admissionCustomValues(s.onboardingDataJson),
         };
       }),
     ],
     payrollRules: parsePayrollRules(config?.payrollJson),
-    staffPayroll: staff.payrollRuns.map((row) => ({
+    staffPayroll: (seeSalary ? staff.payrollRuns : []).map((row) => ({
       personKey: row.personKey,
       month: row.month,
       status: row.status,
@@ -1262,6 +1266,19 @@ async function officePayload(user: AccessUser) {
       attendanceAdj: row.attendanceAdj,
       otherAdj: row.otherAdj,
       finalAmount: row.finalAmount,
+    })),
+    staffSalaryPayments: (seeSalary ? staff.salaryPayments : []).map((row) => ({
+      id: row.id,
+      personKey: row.personKey,
+      month: row.month,
+      amount: row.amount,
+      paidOn: row.paidOn,
+      mode: row.mode,
+      reference: row.reference,
+      note: row.note,
+      voided: Boolean(row.voidedAt),
+      voidReason: row.voidReason,
+      proofPath: row.proofPath || "",
     })),
     staffAudits: staff.audits.map((row) => ({
       personKey: row.personKey,
@@ -1513,7 +1530,10 @@ async function officePayload(user: AccessUser) {
       portal: "OFFICE",
       userId: user.id,
       staffLeaveScope: can(user, "leave.decide") ? scopeFor(user, "leave.decide") : undefined,
-      staffId: (await prisma.staffMember.findUnique({ where: { userId: user.id }, select: { id: true } }))?.id || null,
+      staffId:
+        (await prisma.staffMember.findUnique({ where: { userId: user.id }, select: { id: true } }))?.id ||
+        (await ensureStaffRecord(user).catch(() => null)) ||
+        null,
     })),
   };
 }

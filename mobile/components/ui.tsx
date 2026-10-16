@@ -323,14 +323,17 @@ export function Sheet({
   open,
   children,
   onClose,
+  fixed,
 }: {
   open: boolean;
   children: ReactNode;
   onClose: () => void;
+  /** Keep one height (no jumping) when the content changes, e.g. tabs. A number is the share of the screen. */
+  fixed?: boolean | number;
 }) {
   const insets = useSafeAreaInsets();
   const screenH = Dimensions.get("window").height;
-  const maxH = Math.round(screenH * 0.9);
+  const maxH = Math.round(screenH * (typeof fixed === "number" ? fixed : fixed ? 0.88 : 0.9));
   const padBottom = Math.max(insets.bottom, 12);
   const translateY = useSharedValue(0);
   const scrollY = useSharedValue(0);
@@ -406,12 +409,12 @@ export function Sheet({
         <GestureDetector gesture={pan}>
           <Animated.View
             className="overflow-hidden rounded-t-2xl"
-            style={[sheetStyle, { maxHeight: maxH, paddingBottom: padBottom, backgroundColor: "#ffffff" }]}
+            style={[sheetStyle, fixed ? { height: maxH } : { maxHeight: maxH }, { paddingBottom: padBottom, backgroundColor: "#ffffff" }]}
           >
             <View className="h-12 justify-center">
               <GestureDetector gesture={handlePan}>
-                <Animated.View className="h-12 items-center justify-center" collapsable={false}>
-                  <View className="h-1.5 w-12 rounded-full bg-ink-200" />
+                <Animated.View className="h-12 items-center justify-center" style={{ width: "100%" }} collapsable={false}>
+                  <View className="h-1.5 w-12 self-center rounded-full bg-ink-200" />
                 </Animated.View>
               </GestureDetector>
               <View className="absolute right-3">
@@ -424,7 +427,7 @@ export function Sheet({
               bounces
               scrollEventThrottle={16}
               onScroll={onScroll}
-              style={{ maxHeight: maxH - 48 - padBottom }}
+              style={fixed ? { flex: 1 } : { maxHeight: maxH - 48 - padBottom }}
             >
               {children}
             </Animated.ScrollView>
