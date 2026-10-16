@@ -3,11 +3,22 @@
   "framework": null,
   "installCommand": "npm install && npm --prefix mobile install",
   "buildCommand": "npm run vercel-build",
-  "rewrites": [{ "source": "/(.*)", "destination": "/api" }],
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/api"
+    }
+  ],
   "functions": {
     "api/index.js": {
       "includeFiles": "{prisma/demo.db,mobile/dist/**,api/handler.cjs}",
       "maxDuration": 60
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/leave",
+      "schedule": "30 19 * * *"
+    }
+  ]
 }

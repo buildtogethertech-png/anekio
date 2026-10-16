@@ -197,8 +197,12 @@ export function LeaveApplyCard({
   const session = (data?.school?.sessions ?? []).find((row) => row.current);
   const yearStart = session?.startsOn?.slice(0, 10) || `${ymd(new Date()).slice(0, 4)}-01-01`;
   const yearEnd = session?.endsOn?.slice(0, 10) || `${ymd(new Date()).slice(0, 4)}-12-31`;
+  const balanceOf = (typeId: string) => (data?.leaveBalances ?? []).find((b) => b.typeId === typeId);
   const leftFor = (type: { id: string; yearlyCap: number }) => {
-    if (audience === "student" || !type.yearlyCap) return null;
+    if (audience === "student") return null;
+    const bal = balanceOf(type.id);
+    if (bal) return bal.limited ? bal.available : null;
+    if (!type.yearlyCap) return null;
     const used = (data?.myLeave ?? [])
       .filter((row) => row.typeId === type.id && row.status === "ACTIVE" && row.from.slice(0, 10) >= yearStart && row.from.slice(0, 10) <= yearEnd)
       .reduce((sum, row) => sum + (row.days || 0), 0);
@@ -444,10 +448,18 @@ export function LeaveApplyCard({
                   </Text>
                 </View>
                 {left !== null ? (
-                  <Text className={`text-xs font-semibold ${left <= 0 ? "text-red-700" : "text-ink-700"}`}>
-                    {left % 1 ? left.toFixed(1) : left} of {t.yearlyCap} left
-                  </Text>
-                ) : t.yearlyCap ? (
+                  <View className="items-end">
+                    <Text className={`text-xs font-semibold ${left <= 0 ? "text-red-700" : "text-ink-700"}`}>
+                      {left % 1 ? left.toFixed(1) : left} left
+                    </Text>
+                    {balanceOf(t.id)?.nextCreditOn && balanceOf(t.id)?.mode !== "YEARLY" ? (
+                      <Text className="text-[10px] text-ink-500">
+                        +{balanceOf(t.id)!.nextCreditDays} on{" "}
+                        {new Date(`${balanceOf(t.id)!.nextCreditOn}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : audience !== "student" && t.yearlyCap && !balanceOf(t.id) ? (
                   <Text className="text-xs text-ink-500">{t.yearlyCap}/yr</Text>
                 ) : null}
               </Pressable>

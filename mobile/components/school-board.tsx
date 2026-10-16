@@ -5,6 +5,8 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Dropdown } from "./form";
 import { Badge, Button, Card, Field, Input, Modal, PageHeader, Switch, Toast, useToast } from "./ui";
+import { LeaveCreditFields, LeaveYearStart, leaveCreditSummary } from "./leave-credit";
+import { LeaveBalancesSheet } from "./leave-balances";
 import { DateField } from "./date-field";
 import { UploadCsvPanel } from "./upload-csv-panel";
 import { DocumentStudio } from "./document-studio";
@@ -1222,7 +1224,9 @@ function PhoneLeaveTypes({
   setTypes,
   canEdit,
   onSave,
+  startMonth,
 }: {
+  startMonth: number;
   types: LeaveTypeDraft[];
   setTypes: (rows: LeaveTypeDraft[]) => void;
   canEdit: boolean;
@@ -1283,12 +1287,15 @@ function PhoneLeaveTypes({
               <View className="flex-row items-baseline justify-between gap-2">
                 <Text className="text-[15px] font-semibold text-ink-900" numberOfLines={1}>{row.name || "Untitled"}</Text>
                 <Text className="text-xs text-ink-700">
-                  {row.yearlyCap ? `${row.yearlyCap} / year` : "No limit"} · {row.noticeDays ? `${row.noticeDays} day notice` : "same day"}
+                  {row.noticeDays ? `${row.noticeDays} day notice` : "same day"}
                 </Text>
               </View>
               <Text className="mt-0.5 text-xs text-ink-500" numberOfLines={1}>
                 {who(row)}
                 {row.eligibilityGender !== "ANY" ? ` · ${row.eligibilityGender === "FEMALE" ? "Female" : "Male"} only` : ""}
+              </Text>
+              <Text className="mt-0.5 text-xs font-medium text-[#1F45C7]" numberOfLines={1}>
+                {leaveCreditSummary(row)}
               </Text>
             </View>
             {canEdit ? <Ionicons name="chevron-forward" size={15} color="#94A3B8" /> : null}
@@ -1298,10 +1305,11 @@ function PhoneLeaveTypes({
 
       <RnModal visible={Boolean(draft)} transparent animationType="slide" onRequestClose={() => setDraft(null)}>
         <Pressable className="flex-1 justify-end bg-black/40" onPress={() => setDraft(null)}>
-          <Pressable className="rounded-t-3xl bg-white px-5 pb-8 pt-3" onPress={() => {}}>
+          <Pressable className="max-h-[92%] rounded-t-3xl bg-white px-5 pb-8 pt-3" onPress={() => {}}>
             <View className="mb-3 items-center">
               <View className="h-1 w-10 rounded-full bg-ink-200" />
             </View>
+            <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             {draft ? (
               <View className="gap-4">
                 <Text className="text-lg font-bold text-ink-900">{editIndex === null ? "New leave type" : "Edit leave type"}</Text>
@@ -1332,13 +1340,7 @@ function PhoneLeaveTypes({
                     })}
                   </View>
                 </View>
-                <View className="flex-row items-center justify-between">
-                  <View>
-                    <Text className="text-sm font-medium text-ink-900">Days per year</Text>
-                    <Text className="text-[11px] text-ink-500">0 = no limit</Text>
-                  </View>
-                  <Stepper value={draft.yearlyCap} onChange={(yearlyCap) => setDraft({ ...draft, yearlyCap })} />
-                </View>
+                <LeaveCreditFields row={draft} onChange={setDraft} startMonth={startMonth} existing={editIndex !== null && Boolean(draft.id)} />
                 <View className="flex-row items-center justify-between">
                   <View>
                     <Text className="text-sm font-medium text-ink-900">Notice (school days)</Text>
@@ -1398,6 +1400,7 @@ function PhoneLeaveTypes({
                 ) : null}
               </View>
             ) : null}
+            </ScrollView>
           </Pressable>
         </Pressable>
       </RnModal>
@@ -1445,6 +1448,9 @@ export function SchoolBoard() {
   const [savingYearPlan, setSavingYearPlan] = useState(false);
   const [plan, setPlan] = useState<ExamPlanDraft[]>(normalizeExamPlan(s?.plan));
   const [leaveTypes, setLeaveTypes] = useState<LeaveTypeDraft[]>(normalizeLeaveTypes(data?.leaveTypes));
+  const [leaveYearStart, setLeaveYearStart] = useState<number>(data?.leaveYearStartMonth || 4);
+  const [creditEdit, setCreditEdit] = useState<number | null>(null);
+  const [balancesOpen, setBalancesOpen] = useState(false);
 
   useEffect(() => {
     const nextTab = tabFromParam(tabParam);
@@ -1479,7 +1485,8 @@ export function SchoolBoard() {
     setPlan(normalizeExamPlan(s.plan));
     setCalendarSessionId((current) => current || s.sessionId || "");
     if (data?.leaveTypes?.length) setLeaveTypes(normalizeLeaveTypes(data.leaveTypes));
-  }, [s, data?.leaveTypes]);
+    if (data?.leaveYearStartMonth) setLeaveYearStart(data.leaveYearStartMonth);
+  }, [s, data?.leaveTypes, data?.leaveYearStartMonth]);
 
   useEffect(() => {
     if (tab !== "website" || !token) return;
@@ -2240,14 +2247,41 @@ export function SchoolBoard() {
             ) : null}
 
             {tab === "leave" && phone ? (
-              <PhoneLeaveTypes
-                types={leaveTypes}
-                setTypes={setLeaveTypes}
-                canEdit={edit}
-                onSave={async (rows) => {
-                  await run("saveLeavePolicy", { types: rows }, "Leave types saved.");
-                }}
-              />
+              <View className="mt-3 gap-3">
+                <LeaveYearStart
+                  value={leaveYearStart}
+                  disabled={!edit}
+                  onChange={(m) => {
+                    setLeaveYearStart(m);
+                    void run("saveLeavePolicy", { types: leaveTypes, leaveYearStartMonth: m }, "Leave year updated.");
+                  }}
+                />
+                {edit ? (
+                  <Pressable
+                    onPress={() => setBalancesOpen(true)}
+                    className="flex-row items-center gap-3 rounded-2xl border border-ink-200 bg-white p-3.5"
+                  >
+                    <View className="h-10 w-10 items-center justify-center rounded-xl bg-[#EEF3FF]">
+                      <Ionicons name="people-outline" size={19} color="#1F45C7" />
+                    </View>
+                    <View className="min-w-0 flex-1">
+                      <Text className="text-[14px] font-semibold text-ink-900">Current balances</Text>
+                      <Text className="text-[12px] text-ink-500">Enter what each employee has left today (one-time import from your old register)</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
+                  </Pressable>
+                ) : null}
+                <LeaveBalancesSheet open={balancesOpen} onClose={() => setBalancesOpen(false)} />
+                <PhoneLeaveTypes
+                  types={leaveTypes}
+                  setTypes={setLeaveTypes}
+                  canEdit={edit}
+                  startMonth={leaveYearStart}
+                  onSave={async (rows) => {
+                    await run("saveLeavePolicy", { types: rows, leaveYearStartMonth: leaveYearStart }, "Leave types saved.");
+                  }}
+                />
+              </View>
             ) : null}
 
             {tab === "leave" && !phone ? (
@@ -2256,7 +2290,7 @@ export function SchoolBoard() {
                   <View className="min-w-0 flex-1">
                     <Text className="text-sm font-medium text-ink-900">Leave types</Text>
                     <Text className="mt-0.5 text-xs text-ink-700">
-                      Decide who can apply, notice days, and yearly limits.
+                      Decide who can apply, notice days, and how leave builds up for teachers and staff.
                     </Text>
                   </View>
                   {edit ? (
@@ -2299,8 +2333,8 @@ export function SchoolBoard() {
                       <View className="w-32">
                         <Text className="text-xs font-medium text-ink-700">Notice days</Text>
                       </View>
-                      <View className="w-32">
-                        <Text className="text-xs font-medium text-ink-700">Yearly cap</Text>
+                      <View className="w-64">
+                        <Text className="text-xs font-medium text-ink-700">Leave credit</Text>
                       </View>
                       <View className="w-8" />
                     </View>
@@ -2373,17 +2407,18 @@ export function SchoolBoard() {
                           }
                         />
                       </View>
-                      <View className={wide ? "w-32" : ""}>
-                        {!wide ? <Text className="mb-1 text-xs font-medium text-ink-700">Yearly cap</Text> : null}
-                        <Input
-                          keyboardType="number-pad"
-                          value={String(row.yearlyCap)}
-                          onChangeText={(v) =>
-                            setLeaveTypes((cur) =>
-                              cur.map((t, n) => (n === i ? { ...t, yearlyCap: Number(v.replace(/\D/g, "") || 0) } : t))
-                            )
-                          }
-                        />
+                      <View className={wide ? "w-64" : ""}>
+                        {!wide ? <Text className="mb-1 text-xs font-medium text-ink-700">Leave credit</Text> : null}
+                        <Pressable
+                          disabled={!edit}
+                          onPress={() => setCreditEdit(i)}
+                          className="min-h-[40px] flex-row items-center gap-2 rounded-md border border-ink-200 bg-white px-3 py-2"
+                        >
+                          <Text className="min-w-0 flex-1 text-[13px] text-ink-900" numberOfLines={2}>
+                            {leaveCreditSummary(row)}
+                          </Text>
+                          {edit ? <Ionicons name="create-outline" size={15} color="#1F45C7" /> : null}
+                        </Pressable>
                       </View>
                       {edit && leaveTypes.length > 1 ? (
                         <Pressable
@@ -2401,13 +2436,36 @@ export function SchoolBoard() {
                     </View>
                   ))}
                 </View>
+                <View className="flex-row flex-wrap gap-3">
+                  <View className="min-w-[320px] flex-1">
+                    <LeaveYearStart value={leaveYearStart} disabled={!edit} onChange={setLeaveYearStart} />
+                  </View>
+                  {edit ? (
+                    <View className="min-w-[320px] flex-1">
+                      <Pressable
+                    onPress={() => setBalancesOpen(true)}
+                    className="flex-row items-center gap-3 rounded-2xl border border-ink-200 bg-white p-3.5"
+                  >
+                    <View className="h-10 w-10 items-center justify-center rounded-xl bg-[#EEF3FF]">
+                      <Ionicons name="people-outline" size={19} color="#1F45C7" />
+                    </View>
+                    <View className="min-w-0 flex-1">
+                      <Text className="text-[14px] font-semibold text-ink-900">Current balances</Text>
+                      <Text className="text-[12px] text-ink-500">Enter what each employee has left today (one-time import from your old register)</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
+                  </Pressable>
+                    </View>
+                  ) : null}
+                </View>
+                <LeaveBalancesSheet open={balancesOpen} onClose={() => setBalancesOpen(false)} />
                 {edit ? (
                   <View className="flex-row justify-end">
                     <Button
                       onPress={() =>
                         run(
                           "saveLeavePolicy",
-                          { types: leaveTypes },
+                          { types: leaveTypes, leaveYearStartMonth: leaveYearStart },
                           "Leave policy saved."
                         )
                       }
@@ -2416,6 +2474,25 @@ export function SchoolBoard() {
                     </Button>
                   </View>
                 ) : null}
+                <Modal
+                  open={creditEdit !== null && Boolean(leaveTypes[creditEdit ?? -1])}
+                  title={`${leaveTypes[creditEdit ?? -1]?.name || "Leave"} · how it builds up`}
+                  onClose={() => setCreditEdit(null)}
+                  footer={
+                    <View className="flex-row justify-end">
+                      <Button onPress={() => setCreditEdit(null)}>Done</Button>
+                    </View>
+                  }
+                >
+                  {creditEdit !== null && leaveTypes[creditEdit] ? (
+                    <LeaveCreditFields
+                      row={leaveTypes[creditEdit]}
+                      startMonth={leaveYearStart}
+                      existing={Boolean(leaveTypes[creditEdit].id)}
+                      onChange={(next) => setLeaveTypes((cur) => cur.map((t, n) => (n === creditEdit ? next : t)))}
+                    />
+                  ) : null}
+                </Modal>
               </View>
             ) : null}
 

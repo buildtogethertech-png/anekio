@@ -1430,6 +1430,49 @@ app.all("/api/cron/fees", async (req, res) => {
   res.json(await issueDueFeesCore(new Date()));
 });
 
+app.all("/api/cron/leave", async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  if (!secret || req.headers.authorization !== `Bearer ${secret}`) {
+    return res.status(401).send("Unauthorized");
+  }
+  const { runLeaveCredits } = await import("../lib/leave-balance");
+  res.json(await runLeaveCredits(new Date()));
+});
+
+app.get("/api/v1/leave-balances", async (req, res) => {
+  const user = await requireUser(req, res);
+  if (!user) return;
+  if (!(await requireActiveSubscription(user.id, res))) return;
+  const { can } = await import("../lib/permissions");
+  if (!can(user, "staff.edit")) return sendError(res, 403, "No access.");
+  try {
+    const { allLeaveBalances } = await import("../lib/leave-balance");
+    res.json(await allLeaveBalances());
+  } catch (error) {
+    sendError(res, 400, error instanceof Error ? error.message : "Could not load balances.");
+  }
+});
+
+app.get("/api/v1/leave-ledger", async (req, res) => {
+  const user = await requireUser(req, res);
+  if (!user) return;
+  if (!(await requireActiveSubscription(user.id, res))) return;
+  try {
+    const teacherId = String(req.query.teacherId || "");
+    const staffId = String(req.query.staffId || "");
+    const { can } = await import("../lib/permissions");
+    const self =
+      (teacherId && (await prisma.teacher.findFirst({ where: { id: teacherId, userId: user.id }, select: { id: true } }))) ||
+      (staffId && (await prisma.staffMember.findFirst({ where: { id: staffId, userId: user.id }, select: { id: true } })));
+    if (!self && !can(user, "staff.view") && !can(user, "staff.edit")) return sendError(res, 403, "No access.");
+    const { leaveBalancesFor, leaveLedgerFor } = await import("../lib/leave-balance");
+    const person = teacherId ? { teacherId } : { staffId };
+    res.json({ balances: await leaveBalancesFor(person), ledger: await leaveLedgerFor(person) });
+  } catch (error) {
+    sendError(res, 400, error instanceof Error ? error.message : "Could not load leave.");
+  }
+});
+
 app.post("/api/cron/exams", async (req, res) => {
   const secret = process.env.CRON_SECRET;
   if (!secret || req.headers.authorization !== `Bearer ${secret}`) {

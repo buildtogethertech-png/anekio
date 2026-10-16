@@ -3581,10 +3581,19 @@ export async function saveLeavePolicyCore(
       eligibilityGender?: string;
       noticeDays?: number;
       yearlyCap?: number;
+      creditMode?: string;
+      creditAmount?: number;
+      carryForward?: string;
+      carryForwardCap?: number;
+      prorateJoiners?: boolean;
+      advanceDays?: number;
     }[];
+    leaveYearStartMonth?: number;
   }
 ) {
   need(user, "school.edit");
+  const creditModes = new Set(["YEARLY", "MONTHLY", "QUARTERLY", "HALF_YEARLY"]);
+  const carryModes = new Set(["NONE", "CAPPED", "ALL"]);
   const genderOptions = new Set(["ANY", "FEMALE", "MALE"]);
   const rows = (input.types || []).map((row, i) => ({
     id: String(row.id || "").trim(),
@@ -3598,7 +3607,14 @@ export async function saveLeavePolicyCore(
     noticeDays: Math.max(0, Math.min(30, Math.round(Number(row.noticeDays) || 0))),
     yearlyCap: Math.max(0, Math.min(365, Math.round(Number(row.yearlyCap) || 0))),
     sortOrder: i,
+    creditMode: creditModes.has(String(row.creditMode || "").toUpperCase()) ? String(row.creditMode).toUpperCase() : "YEARLY",
+    creditAmount: Math.max(0, Math.min(31, Math.round((Number(row.creditAmount) || 0) * 2) / 2)),
+    carryForward: carryModes.has(String(row.carryForward || "").toUpperCase()) ? String(row.carryForward).toUpperCase() : "NONE",
+    carryForwardCap: Math.max(0, Math.min(365, Math.round(Number(row.carryForwardCap) || 0))),
+    prorateJoiners: row.prorateJoiners !== false,
+    advanceDays: Math.max(0, Math.min(30, Math.round(Number(row.advanceDays) || 0))),
   }));
+  const before = new Map((await prisma.leaveType.findMany()).map((t) => [t.id, t]));
   if (!rows.length) throw new Error("Add at least one leave type");
   if (rows.some((r) => !r.forTeacher && !r.forStaff && !r.forStudent)) {
     throw new Error("Each type must apply to someone");
@@ -3620,13 +3636,54 @@ export async function saveLeavePolicyCore(
         noticeDays: row.noticeDays,
         yearlyCap: row.yearlyCap,
         sortOrder: row.sortOrder,
-      };
+        creditMode: row.creditMode,
+        creditAmount: row.creditAmount,
+        carryForward: row.carryForward,
+        carryForwardCap: row.carryForwardCap,
+        prorateJoiners: row.prorateJoiners,
+        advanceDays: row.advanceDays,
+      } as Record<string, unknown>;
+      const prev = row.id ? before.get(row.id) : undefined;
+      // A changed credit rule applies from the next credit; what was already credited stays.
+      if (prev && (prev.creditMode !== row.creditMode || prev.creditAmount !== row.creditAmount || prev.yearlyCap !== row.yearlyCap || prev.prorateJoiners !== row.prorateJoiners)) {
+        data.creditRuleSince = new Date();
+      }
       if (row.id) {
-        await tx.leaveType.upsert({ where: { id: row.id }, update: data, create: { id: row.id, ...data } });
+        await tx.leaveType.upsert({ where: { id: row.id }, update: data as never, create: { id: row.id, ...data } as never });
       } else {
-        await tx.leaveType.create({ data });
+        await tx.leaveType.create({ data: data as never });
       }
     }
+  });
+  const startMonth = Math.round(Number(input.leaveYearStartMonth));
+  if (startMonth >= 1 && startMonth <= 12) {
+    await prisma.schoolConfig.update({ where: { id: "school" }, data: { leaveYearStartMonth: startMonth } }).catch(() => undefined);
+  }
+}
+
+export async function setLeaveBalancesCore(
+  user: AccessUser,
+  input: { rows?: { teacherId?: string; staffId?: string; typeId: string; available: number }[]; note?: string }
+) {
+  need(user, "staff.edit");
+  const { setLeaveBalances } = await import("./leave-balance");
+  return setLeaveBalances({ rows: input.rows || [], note: input.note, byUserId: user.id });
+}
+
+export async function adjustLeaveBalanceCore(
+  user: AccessUser,
+  input: { typeId?: string; teacherId?: string; staffId?: string; days?: number; note?: string; opening?: boolean }
+) {
+  need(user, "staff.edit");
+  const { adjustLeaveBalance } = await import("./leave-balance");
+  await adjustLeaveBalance({
+    typeId: String(input.typeId || ""),
+    teacherId: input.teacherId || null,
+    staffId: input.staffId || null,
+    days: Number(input.days),
+    note: String(input.note || ""),
+    opening: Boolean(input.opening),
+    byUserId: user.id,
   });
 }
 

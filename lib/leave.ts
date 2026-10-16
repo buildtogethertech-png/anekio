@@ -18,6 +18,12 @@ export type LeaveTypeRow = {
   noticeDays: number;
   yearlyCap: number;
   sortOrder: number;
+  creditMode: string;
+  creditAmount: number;
+  carryForward: string;
+  carryForwardCap: number;
+  prorateJoiners: boolean;
+  advanceDays: number;
 };
 
 export type LeaveRequestRow = {
@@ -109,6 +115,12 @@ export function serializeLeaveType(row: {
   noticeDays: number;
   yearlyCap: number;
   sortOrder: number;
+  creditMode?: string | null;
+  creditAmount?: number | null;
+  carryForward?: string | null;
+  carryForwardCap?: number | null;
+  prorateJoiners?: boolean | null;
+  advanceDays?: number | null;
 }): LeaveTypeRow {
   return {
     id: row.id,
@@ -120,6 +132,12 @@ export function serializeLeaveType(row: {
     noticeDays: row.noticeDays,
     yearlyCap: row.yearlyCap,
     sortOrder: row.sortOrder,
+    creditMode: row.creditMode || "YEARLY",
+    creditAmount: Number(row.creditAmount || 0),
+    carryForward: row.carryForward || "NONE",
+    carryForwardCap: Number(row.carryForwardCap || 0),
+    prorateJoiners: row.prorateJoiners !== false,
+    advanceDays: Number(row.advanceDays || 0),
   };
 }
 
@@ -429,7 +447,16 @@ export async function leaveBundleFor(input: {
         cal
       )
     : [];
-  return { leaveTypes: types, myLeave, pendingLeave, upcomingLeave, calendar: { weekdays: cal.weekdays, holidays: cal.holidays } };
+  const leaveBalances =
+    (input.portal === "TEACHER" && input.teacherId) || (input.portal === "OFFICE" && input.staffId)
+      ? await (await import("./leave-balance"))
+          .leaveBalancesFor(input.portal === "TEACHER" ? { teacherId: input.teacherId } : { staffId: input.staffId })
+          .catch(() => [])
+      : [];
+  const leaveYearStartMonth = Number(
+    (await prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { leaveYearStartMonth: true } }).catch(() => null))?.leaveYearStartMonth || 4
+  );
+  return { leaveTypes: types, myLeave, pendingLeave, upcomingLeave, leaveBalances, leaveYearStartMonth, calendar: { weekdays: cal.weekdays, holidays: cal.holidays } };
 }
 
 export async function postLeaveNotice(input: {

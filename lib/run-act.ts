@@ -301,6 +301,15 @@ export async function runAct(
     case "saveSchoolClock":
       await saveSchoolClockCore(user, body as never);
       break;
+    case "setLeaveBalances": {
+      const { setLeaveBalancesCore } = await import("./core-actions");
+      return { ok: true, ...(await setLeaveBalancesCore(user, body as never)) };
+    }
+    case "adjustLeaveBalance": {
+      const { adjustLeaveBalanceCore } = await import("./core-actions");
+      await adjustLeaveBalanceCore(user, body as never);
+      break;
+    }
     case "saveLeavePolicy":
       await saveLeavePolicyCore(user, body as never);
       break;

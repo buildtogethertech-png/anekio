@@ -835,7 +835,28 @@ export type RecordPayload = {
     noticeDays: number;
     yearlyCap: number;
     sortOrder: number;
+    creditMode?: string;
+    creditAmount?: number;
+    carryForward?: string;
+    carryForwardCap?: number;
+    prorateJoiners?: boolean;
+    advanceDays?: number;
   }[];
+  leaveBalances?: {
+    typeId: string;
+    typeName: string;
+    limited: boolean;
+    mode: string;
+    leaveYear: string;
+    earned: number;
+    used: number;
+    pending: number;
+    available: number;
+    advanceDays: number;
+    nextCreditOn: string;
+    nextCreditDays: number;
+  }[];
+  leaveYearStartMonth?: number;
   myLeave?: LeaveRow[];
   pendingLeave?: LeaveRow[];
   upcomingLeave?: UpcomingTeacherLeaveRow[];

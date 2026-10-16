@@ -19,6 +19,7 @@ import {
 } from "../lib/payroll";
 import type { RecordPayload } from "../lib/record";
 import type { IoniconName } from "../lib/nav-icons";
+import { EmployeeLeaveCard } from "./leave-balances";
 
 type StaffPerson = NonNullable<RecordPayload["staff"]>[number];
 type DayKind = "working" | "weekend" | "holiday";
@@ -467,6 +468,8 @@ export function StaffAttendanceDetail({
         <StatChip icon="stats-chart-outline" label="Attendance" value={`${summary.attendancePct.toFixed(0)}%`} />
         <StatChip icon="wallet-outline" label="Payable days" value={String(summary.payableDays)} emphasis />
       </View>
+
+      <EmployeeLeaveCard kind={person.kind} id={person.id} canEdit={Boolean(onEditSalary)} />
 
       <View className={`mb-3 ${split ? "flex-row items-stretch gap-3" : "gap-3"}`}>
         <View className={split ? "w-[48%]" : "w-full"}>

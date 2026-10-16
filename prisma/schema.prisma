@@ -835,6 +835,8 @@ model SchoolConfig {
   orgId                   String?                   @unique
   org                     SaasOrg?                  @relation(fields: [orgId], references: [id], onDelete: SetNull)
   weekdays                String                    @default("[1,2,3,4,5,6]")
+  /// Month (1-12) the leave year starts. Credits, carry forward and lapses follow it.
+  leaveYearStartMonth     Int                       @default(4)
   name                    String                    @default("Anekio School")
   address                 String                    @default("")
   city                    String                    @default("")
@@ -1088,6 +1090,19 @@ model LeaveType {
   eligibilityGender String         @default("ANY")
   noticeDays        Int            @default(0)
   yearlyCap         Int            @default(0)
+  /// How the balance is credited: YEARLY (yearlyCap at year start) | MONTHLY | QUARTERLY | HALF_YEARLY.
+  creditMode        String         @default("YEARLY")
+  /// Days credited each month / quarter / half-year. Ignored for YEARLY.
+  creditAmount      Float          @default(0)
+  /// NONE (lapses at year end) | CAPPED (up to carryForwardCap) | ALL
+  carryForward      String         @default("NONE")
+  carryForwardCap   Int            @default(0)
+  /// YEARLY only: joiners get a share for the months left in the leave year.
+  prorateJoiners    Boolean        @default(true)
+  /// Days a person may take before they are earned.
+  advanceDays       Int            @default(0)
+  /// Set when the credit rule changes: earlier periods are never re-credited under the new rule.
+  creditRuleSince   DateTime?
   paid              Boolean        @default(true)
   sortOrder         Int            @default(0)
   requests          LeaveRequest[]
@@ -1644,4 +1659,28 @@ model ProfileRequest {
 
   @@index([studentId, status])
   @@index([status])
+}
+
+/// Every change to a teacher's or staff member's leave balance. Rows are never rewritten.
+model LeaveLedger {
+  id          String   @id @default(cuid())
+  orgId       String?
+  typeId      String
+  /// "t:<teacherId>" or "s:<staffId>"
+  personKey   String
+  teacherId   String?
+  staffId     String?
+  /// CREDIT | CARRY_FORWARD | LAPSE | ADJUST | OPENING
+  kind        String
+  days        Float
+  /// Leave year the row counts toward, e.g. LY2026
+  leaveYear   String
+  /// Credit period key (LY2026-M3) or a unique id for manual rows
+  period      String
+  note        String   @default("")
+  createdById String   @default("")
+  createdAt   DateTime @default(now())
+
+  @@unique([typeId, personKey, kind, period])
+  @@index([personKey, leaveYear])
 }

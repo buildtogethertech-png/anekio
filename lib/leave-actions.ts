@@ -109,6 +109,8 @@ export async function applyLeave(
     if (staffId && !type.forStaff) throw new Error("This type is not for staff");
     if (!teacherId && !staffId) throw new Error("Only teachers and staff on the register can apply");
     await assertNoOverlap({ teacherId, staffId, from, to });
+    const { assertLeaveBalance } = await import("./leave-balance");
+    await assertLeaveBalance(typeId, { teacherId, staffId }, from, to, halfDay);
     const created = await prisma.leaveRequest.create({
       data: {
         typeId,
