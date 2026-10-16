@@ -117,7 +117,7 @@ export function NavMenu({ onNavigate }: { onNavigate?: () => void }) {
             <Pressable
               key={item.key}
               onPress={() => go(item.key)}
-              className={`anekio-nav-item mb-1 min-h-[48px] flex-row items-center gap-3 rounded-lg border px-3 ${
+              className={`anekio-nav-item mb-0.5 min-h-[42px] flex-row items-center gap-3 rounded-lg border px-3 ${
                 on ? "border-clay-200 bg-clay-50" : "border-transparent"
               }`}
             >

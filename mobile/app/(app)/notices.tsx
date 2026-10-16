@@ -32,7 +32,37 @@ const KIND_TONE: Record<string, { bg: string; fg: string }> = {
   ATTENDANCE: { bg: "#FEF2F2", fg: "#b91c1c" },
   LEAVE: { bg: "#F0F9FF", fg: "#0369a1" },
 };
+const KIND_ICON: Record<string, keyof typeof Ionicons.glyphMap> = {
+  CIRCULAR: "megaphone-outline",
+  EXAM: "document-text-outline",
+  FEES: "wallet-outline",
+  ADMISSION: "school-outline",
+  FEEDBACK: "chatbubble-ellipses-outline",
+  ATTENDANCE: "checkmark-done-outline",
+  LEAVE: "airplane-outline",
+};
 const BODY_MAX = 1000;
+
+function dayBucket(value: string) {
+  const d = new Date(value);
+  const today = new Date();
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const t = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((start - t) / 86400000);
+  if (days <= 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days < 7) return "This week";
+  if (d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth()) return "Earlier this month";
+  return d.toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+}
+
+function postedTime(value: string) {
+  const d = new Date(value);
+  const days = Math.round((Date.now() - d.getTime()) / 86400000);
+  return days < 1
+    ? d.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })
+    : d.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+}
 
 function postedWhen(value: string) {
   return new Date(value).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
@@ -65,6 +95,8 @@ export default function Notices() {
   const [moreKinds, setMoreKinds] = useState(false);
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState("");
+  const [q, setQ] = useState("");
+  const [openId, setOpenId] = useState("");
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -108,7 +140,32 @@ export default function Notices() {
     return { text: parts.join(" · "), total };
   }, [audience, allClasses, classIds, data?.people, data?.staff]);
 
-  const shown = (notices ?? []).filter((n) => !filter || (n.audiences ?? []).includes(filter));
+  const needle = q.trim().toLowerCase();
+  const shown = (notices ?? [])
+    .filter((n) => !filter || (n.audiences ?? []).includes(filter))
+    .filter((n) => !needle || n.title.toLowerCase().includes(needle) || n.body.toLowerCase().includes(needle));
+  const grouped = shown.reduce<{ label: string; rows: Notice[] }[]>((acc, n) => {
+    const label = dayBucket(n.createdAt);
+    const last = acc[acc.length - 1];
+    if (last && last.label === label) last.rows.push(n);
+    else acc.push({ label, rows: [n] });
+    return acc;
+  }, []);
+  const opened = (notices ?? []).find((n) => n.id === openId) || null;
+
+  function sendAgain(n: Notice) {
+    setTitle(n.title);
+    setBody(n.body);
+    setAudience(n.audiences?.length ? n.audiences : ["PARENT"]);
+    setAllClasses(!n.classes.length);
+    setClassIds(n.classes.map((c) => c.id));
+    const k = (n.kind && KIND_TONE[n.kind] ? n.kind : "CIRCULAR") as NoticeKind;
+    setKind(k);
+    setMoreKinds(MORE_KINDS.includes(k));
+    setFormError("");
+    setOpenId("");
+    setComposeOpen(true);
+  }
 
   function resetForm() {
     setTitle("");
@@ -308,6 +365,70 @@ export default function Notices() {
     </View>
   );
 
+  const detail = opened ? (
+    <View className="min-h-0 flex-1 bg-white">
+      <View className="flex-row items-center border-b border-ink-100 px-4 py-3">
+        <Text className="flex-1 text-[15px] font-semibold text-ink-900">Notice</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel="Close" hitSlop={10} onPress={() => setOpenId("")} className="h-8 w-8 items-center justify-center rounded-full bg-ink-100">
+          <Ionicons name="close" size={18} color="#3d4f66" />
+        </Pressable>
+      </View>
+      <ScrollView className="flex-1" contentContainerStyle={{ padding: 20, gap: 16 }}>
+        {(() => {
+          const k = (opened.kind && KIND_TONE[opened.kind] ? opened.kind : "CIRCULAR") as NoticeKind;
+          const tone = KIND_TONE[k];
+          return (
+            <View className="flex-row items-center gap-2">
+              <View className="h-8 w-8 items-center justify-center rounded-lg" style={{ backgroundColor: tone.bg }}>
+                <Ionicons name={KIND_ICON[k] || "megaphone-outline"} size={16} color={tone.fg} />
+              </View>
+              <Text className="text-xs font-semibold" style={{ color: tone.fg }}>
+                {KIND_LABEL[k]}
+              </Text>
+            </View>
+          );
+        })()}
+        <View className="gap-1">
+          <Text className="text-[20px] font-bold leading-7 text-ink-900">{opened.title}</Text>
+          <Text className="text-xs text-ink-500">
+            {new Date(opened.createdAt).toLocaleString("en-IN", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })} · {opened.author}
+          </Text>
+        </View>
+        <Text className="text-[15px] leading-6 text-ink-800">{opened.body}</Text>
+        {canPost ? (
+          <View className="gap-2 rounded-xl border border-ink-100 bg-ink-50 p-3.5">
+            <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">Sent to</Text>
+            <View className="flex-row flex-wrap gap-1.5">
+              {(opened.audiences?.length ? opened.audiences : ["ALL"]).map((id) => {
+                const a = AUDIENCES.find((x) => x.id === id);
+                return (
+                  <View key={id} className="h-7 flex-row items-center gap-1 rounded-full border border-ink-200 bg-white px-2.5">
+                    <Ionicons name={a?.icon || "people-outline"} size={13} color="#475569" />
+                    <Text className="text-xs text-ink-700">{a?.label || "Everyone"}</Text>
+                  </View>
+                );
+              })}
+            </View>
+            <Text className="text-xs text-ink-600">
+              {opened.classes.length ? `Classes: ${opened.classes.map((c) => c.label).join(", ")}` : "All classes"}
+            </Text>
+          </View>
+        ) : null}
+      </ScrollView>
+      {canPost ? (
+        <View className="flex-row gap-2 border-t border-ink-100 px-4 pb-3 pt-3">
+          <Pressable onPress={() => setOpenId("")} className="h-11 flex-1 items-center justify-center rounded-xl border border-ink-200">
+            <Text className="text-[14px] font-semibold text-ink-800">Close</Text>
+          </Pressable>
+          <Pressable onPress={() => sendAgain(opened)} className="h-11 flex-[2] flex-row items-center justify-center gap-1.5 rounded-xl bg-[#1F45C7]">
+            <Ionicons name="copy-outline" size={15} color="#fff" />
+            <Text className="text-[14px] font-semibold text-white">Send again / edit copy</Text>
+          </Pressable>
+        </View>
+      ) : null}
+    </View>
+  ) : null;
+
   return (
     <SafeAreaView className="min-h-0 flex-1 overflow-hidden bg-ink-50" edges={wide ? ["top", "bottom"] : ["top"]} testID="portal-screen-notices">
       <PhoneTopBar />
@@ -332,11 +453,11 @@ export default function Notices() {
           <View className="flex-row items-center justify-between gap-3">
             <View className="min-w-0 flex-1">
               <Text className="text-[24px] font-bold tracking-tight text-ink-900">Notices</Text>
-              {notices?.length ? (
-                <Text className="text-sm text-ink-500">
-                  {notices.length} {notices.length === 1 ? "notice" : "notices"}
-                </Text>
-              ) : null}
+              <Text className="text-sm text-ink-500">
+                {canPost
+                  ? `Circulars to parents, teachers and staff${notices?.length ? ` · ${notices.length} sent` : ""}`
+                  : "Circulars from the school"}
+              </Text>
             </View>
             {canPost ? (
               <Pressable
@@ -355,21 +476,42 @@ export default function Notices() {
           {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
           {error ? <Text className="text-sm text-red-700">{error}</Text> : null}
 
-          {canPost && notices?.length ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-              {[{ id: "", label: "All" }, ...AUDIENCES].map((a) => {
-                const on = filter === a.id;
-                return (
-                  <Pressable
-                    key={a.id || "all"}
-                    onPress={() => setFilter(a.id)}
-                    className={`h-8 justify-center rounded-full border px-3 ${on ? "border-[#1F45C7] bg-[#EEF3FF]" : "border-ink-200 bg-white"}`}
-                  >
-                    <Text className={`text-[13px] font-medium ${on ? "text-[#1F45C7]" : "text-ink-700"}`}>{a.label}</Text>
+          {notices?.length ? (
+            <View className={wide ? "flex-row items-center gap-3" : "gap-2.5"}>
+              {canPost ? (
+                <View className={wide ? "min-w-0 flex-1" : ""}>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+                    {[{ id: "", label: "All" }, ...AUDIENCES].map((a) => {
+                      const on = filter === a.id;
+                      return (
+                        <Pressable
+                          key={a.id || "all"}
+                          onPress={() => setFilter(a.id)}
+                          className={`h-8 justify-center rounded-full px-3 ${on ? "bg-ink-900" : "bg-white border border-ink-200"}`}
+                        >
+                          <Text className={`text-[13px] font-medium ${on ? "text-white" : "text-ink-700"}`}>{a.label}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              ) : null}
+              <View className={`h-9 flex-row items-center gap-2 rounded-lg border border-ink-200 bg-white px-3 ${wide ? "w-64" : ""}`}>
+                <Ionicons name="search" size={14} color="#94a3b8" />
+                <TextInput
+                  value={q}
+                  onChangeText={setQ}
+                  placeholder="Search notices"
+                  placeholderTextColor="#94a3b8"
+                  className="min-w-0 flex-1 text-sm text-ink-900"
+                />
+                {q ? (
+                  <Pressable accessibilityLabel="Clear search" onPress={() => setQ("")}>
+                    <Ionicons name="close-circle" size={15} color="#94a3b8" />
                   </Pressable>
-                );
-              })}
-            </ScrollView>
+                ) : null}
+              </View>
+            </View>
           ) : null}
 
           {notices && !notices.length ? (
@@ -397,40 +539,81 @@ export default function Notices() {
           ) : null}
 
           {shown.length ? (
-            <View className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
-              {shown.map((n, i) => {
-                const k = (n.kind && KIND_TONE[n.kind] ? n.kind : "CIRCULAR") as NoticeKind;
-                const tone = KIND_TONE[k];
-                return (
-                  <View key={n.id} className={`gap-1.5 px-4 py-3.5 ${i ? "border-t border-ink-100" : ""}`}>
-                    <View className="flex-row items-center gap-2">
-                      <Text className="rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: tone.bg, color: tone.fg }}>
-                        {KIND_LABEL[k]}
-                      </Text>
-                      <Text className="min-w-0 flex-1 text-[15px] font-semibold text-ink-900" numberOfLines={1}>
-                        {n.title}
-                      </Text>
-                      <Text className="text-xs text-ink-400">{postedWhen(n.createdAt)}</Text>
-                    </View>
-                    <Text className="text-sm leading-5 text-ink-600" numberOfLines={3}>
-                      {n.body}
-                    </Text>
-                    {canPost ? (
-                      <Text className="text-xs text-ink-400" numberOfLines={1}>
-                        {audienceLabel(n.audiences)} · {n.classes.length ? n.classes.map((c) => c.label).join(", ") : "All classes"} · {n.author}
-                      </Text>
-                    ) : (
-                      <Text className="text-xs text-ink-400">{n.author}</Text>
-                    )}
+            <View className="gap-5">
+              {grouped.map((g) => (
+                <View key={g.label} className="gap-2">
+                  <Text className="px-1 text-[11px] font-semibold uppercase tracking-wider text-ink-400">{g.label}</Text>
+                  <View className="overflow-hidden rounded-2xl border border-ink-200 bg-white">
+                    {g.rows.map((n, i) => {
+                      const k = (n.kind && KIND_TONE[n.kind] ? n.kind : "CIRCULAR") as NoticeKind;
+                      const tone = KIND_TONE[k];
+                      return (
+                        <Pressable
+                          key={n.id}
+                          accessibilityRole="button"
+                          onPress={() => setOpenId(n.id)}
+                          className={`flex-row gap-3 px-4 py-3.5 hover:bg-ink-50 active:bg-ink-50 ${i ? "border-t border-ink-100" : ""}`}
+                        >
+                          <View className="h-10 w-10 items-center justify-center rounded-xl" style={{ backgroundColor: tone.bg }}>
+                            <Ionicons name={KIND_ICON[k] || "megaphone-outline"} size={18} color={tone.fg} />
+                          </View>
+                          <View className="min-w-0 flex-1 gap-0.5">
+                            <View className="flex-row items-center gap-2">
+                              <Text className="min-w-0 flex-1 text-[15px] font-semibold text-ink-900" numberOfLines={1}>
+                                {n.title}
+                              </Text>
+                              <Text className="text-xs text-ink-400">{postedTime(n.createdAt)}</Text>
+                            </View>
+                            <Text className="text-[13px] leading-5 text-ink-500" numberOfLines={2}>
+                              {n.body}
+                            </Text>
+                            <View className="mt-1 flex-row flex-wrap items-center gap-x-2 gap-y-1">
+                              <Text className="rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: tone.bg, color: tone.fg }}>
+                                {KIND_LABEL[k]}
+                              </Text>
+                              {canPost ? (
+                                <Text className="min-w-0 flex-shrink text-[11px] text-ink-400" numberOfLines={1}>
+                                  To {audienceLabel(n.audiences).toLowerCase()}
+                                  {n.classes.length ? ` · ${n.classes.map((c) => c.label).join(", ")}` : ""}
+                                  {" · by "}
+                                  {n.author}
+                                </Text>
+                              ) : (
+                                <Text className="text-[11px] text-ink-400">{n.author}</Text>
+                              )}
+                            </View>
+                          </View>
+                        </Pressable>
+                      );
+                    })}
                   </View>
-                );
-              })}
+                </View>
+              ))}
             </View>
           ) : notices?.length ? (
-            <Text className="px-1 text-sm text-ink-500">No notices for this group yet.</Text>
+            <Text className="px-1 text-sm text-ink-500">{needle ? `No notice matches "${q.trim()}".` : "No notices for this group yet."}</Text>
           ) : null}
         </View>
       </ScrollView>
+
+      {wide ? (
+        <RnModal visible={Boolean(opened)} transparent animationType="fade" onRequestClose={() => setOpenId("")}>
+          <View className="flex-1 flex-row justify-end">
+            <Pressable accessibilityLabel="Close" className="absolute inset-0 bg-black/30" onPress={() => setOpenId("")} />
+            <View className="h-full w-full max-w-[480px] border-l border-ink-200 bg-white shadow-xl">
+              <SafeAreaView className="flex-1" edges={["top", "bottom"]}>
+                {detail}
+              </SafeAreaView>
+            </View>
+          </View>
+        </RnModal>
+      ) : (
+        <RnModal visible={Boolean(opened)} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setOpenId("")}>
+          <SafeAreaView className="flex-1 bg-white" edges={["top", "bottom"]}>
+            {detail}
+          </SafeAreaView>
+        </RnModal>
+      )}
 
       {canPost ? (
         wide ? (

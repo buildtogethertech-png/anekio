@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Modal as RnModal, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button, Card, Chip, ChipScroller, Empty, Field, Input, Modal, PageHeader, Toast, useToast } from "./ui";
 import { DEFAULT_SUBJECTS } from "./school-setup";
@@ -109,6 +109,9 @@ export function WeekBoard() {
     current?: { subject: string; teacher: string };
   } | null>(null);
   const [loadOpen, setLoadOpen] = useState(false);
+  const [focus, setFocus] = useState("");
+  const [fillOpen, setFillOpen] = useState(false);
+  const [filling, setFilling] = useState("");
   const todayN = jsToWeekday(new Date().getDay());
   const [day, setDay] = useState<number>(
     weekdays.some((d) => d.n === todayN) ? todayN : weekdays[0]?.n ?? 1
@@ -147,6 +150,103 @@ export function WeekBoard() {
       setDay(weekdays.some((d) => d.n === todayN) ? todayN : weekdays[0].n);
     }
   }, [weekdays, day, todayN]);
+
+  const loadRows = useMemo(() => {
+    if (!klass?.subjects?.length) return [] as { name: string; placed: number; need: number; state: "over" | "short" | "ok" | "none" }[];
+    const rank = { over: 0, short: 1, ok: 2, none: 3 } as const;
+    return klass.subjects
+      .map((sub) => {
+        const placed = klass.slots.filter((slot) => slot.subject === sub.name).length;
+        const need = sub.weightage || 0;
+        const state = (!need ? "none" : placed > need ? "over" : placed < need ? "short" : "ok") as "over" | "short" | "ok" | "none";
+        return { name: sub.name, placed, need, state };
+      })
+      .sort((a, b) => rank[a.state] - rank[b.state] || a.name.localeCompare(b.name));
+  }, [klass?.subjects, klass?.slots]);
+
+  const summary = useMemo(() => {
+    let placed = 0;
+    if (klass) {
+      for (const d of weekdays) for (const p of periods) if (!p.isBreak && slotFilled(findSlot(klass.slots, p, d.n))) placed += 1;
+    }
+    return {
+      placed: Math.min(placed, weekCapacity),
+      empty: Math.max(0, weekCapacity - placed),
+      over: loadRows.filter((r) => r.state === "over").length,
+      short: loadRows.filter((r) => r.state === "short").length,
+    };
+  }, [klass?.slots, periods, weekdays, weekCapacity, loadRows]);
+
+  /** Fill empty cells with the subjects furthest below target, using teachers who are free at that time. */
+  const fillPlan = useMemo(() => {
+    if (!klass?.id) return { moves: [] as { periodId: string; weekday: number; teacherId: string; teacherName: string; subjectName: string }[], left: 0 };
+    const remaining = new Map(loadRows.filter((r) => r.state === "short").map((r) => [r.name, r.need - r.placed]));
+    const busy = new Set<string>();
+    for (const c of classes) {
+      if (c.id === klass.id) continue;
+      for (const o of c.slots as (WeekSlot & { teacherId?: string })[]) {
+        const pid = o.periodId || periods.find((p) => p.name === o.period)?.id || "";
+        if (o.teacherId) busy.add(`${o.teacherId}:${o.weekday}:${pid}`);
+        if (o.teacher) busy.add(`n:${o.teacher}:${o.weekday}:${pid}`);
+      }
+    }
+    const dayHas = new Set(klass.slots.filter((x) => slotSubject(x)).map((x) => `${x.weekday}:${slotSubject(x)}`));
+    const moves: { periodId: string; weekday: number; teacherId: string; teacherName: string; subjectName: string }[] = [];
+    let left = 0;
+    for (const d of weekdays) {
+      for (const p of periods) {
+        if (p.isBreak) continue;
+        if (slotFilled(findSlot(klass.slots, p, d.n))) continue;
+        const options = [...remaining.entries()]
+          .filter(([, n]) => n > 0)
+          .sort((a, b) => Number(dayHas.has(`${d.n}:${a[0]}`)) - Number(dayHas.has(`${d.n}:${b[0]}`)) || b[1] - a[1]);
+        let placed = false;
+        for (const [subjectName] of options) {
+          const t = teachers.find(
+            (t) =>
+              t.skills.some((sk) => sk.subjectName === subjectName && (!sk.classId || sk.classId === klass.id)) &&
+              !busy.has(`${t.id}:${d.n}:${p.id}`) &&
+              !busy.has(`n:${t.name}:${d.n}:${p.id}`)
+          );
+          if (!t) continue;
+          moves.push({ periodId: p.id, weekday: d.n, teacherId: t.id, teacherName: t.name, subjectName });
+          remaining.set(subjectName, (remaining.get(subjectName) || 0) - 1);
+          busy.add(`${t.id}:${d.n}:${p.id}`);
+          dayHas.add(`${d.n}:${subjectName}`);
+          placed = true;
+          break;
+        }
+        if (!placed) left += 1;
+      }
+    }
+    return { moves, left };
+  }, [klass?.id, klass?.slots, classes, loadRows, periods, weekdays, teachers]);
+
+  async function runFill() {
+    if (!klass?.id || !fillPlan.moves.length) return;
+    setError("");
+    let done = 0;
+    try {
+      for (const m of fillPlan.moves) {
+        setFilling(`Placing ${done + 1} of ${fillPlan.moves.length}…`);
+        await act(token, "saveTimetableSlot", {
+          classId: klass.id,
+          periodId: m.periodId,
+          weekday: m.weekday,
+          teacherId: m.teacherId,
+          subjectName: m.subjectName,
+        });
+        done += 1;
+      }
+      toast.show(`${done} ${done === 1 ? "period" : "periods"} placed.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Auto-fill stopped.");
+    } finally {
+      setFilling("");
+      setFillOpen(false);
+      await reload();
+    }
+  }
 
   async function dropOn(periodId: string, weekday: number, payload: Hold) {
     if (!klass?.id) return;
@@ -236,12 +336,20 @@ export function WeekBoard() {
     <View className="min-h-0 flex-1">
       {phone ? null : (
         <PageHeader
+          compact
           kicker={teamWeek ? "Team" : "Admin · One screen"}
           title={teamWeek ? "Team routine" : "Routine"}
           lede={
             teamWeek
               ? "Empty periods in your team’s classes. Free teachers are marked — drop one on the hole."
-              : "Pick a class and place teachers. Clock and subjects are set once under School settings."
+              : "Drag a subject onto a cell, or click a cell to choose."
+          }
+          action={
+            editable && klass && !periodsNotSet && summary.empty > 0 ? (
+              <Button onPress={() => setFillOpen(true)}>
+                {`Auto-fill ${summary.empty} empty`}
+              </Button>
+            ) : undefined
           }
         />
       )}
@@ -252,16 +360,36 @@ export function WeekBoard() {
         <View className="min-h-0 min-w-0 flex-1">
           <View className="shrink-0 gap-2">
             {phone ? <Text className="text-[22px] font-bold tracking-tight text-ink-900">{teamWeek ? "Team routine" : "Timetable"}</Text> : null}
-            <ChipScroller>
-              {classes.map((c) => (
-                <Chip
-                  key={c.id || c.label}
-                  label={c.label}
-                  active={klass?.id === c.id}
-                  onPress={() => setClassId(c.id || "")}
-                />
-              ))}
-            </ChipScroller>
+            <View className={phone ? "" : "flex-row items-center gap-4"}>
+              <View className={phone ? "" : "min-w-0 flex-1"}>
+                <ChipScroller>
+                  {classes.map((c) => (
+                    <Chip
+                      key={c.id || c.label}
+                      label={c.label}
+                      active={klass?.id === c.id}
+                      onPress={() => setClassId(c.id || "")}
+                    />
+                  ))}
+                </ChipScroller>
+              </View>
+              {!phone && klass && !periodsNotSet ? (
+                <View className="shrink-0 flex-row items-center gap-2">
+                  <Ionicons
+                    name={summary.empty || summary.over || summary.short ? "pie-chart-outline" : "checkmark-circle"}
+                    size={15}
+                    color={summary.empty || summary.over || summary.short ? "#64748b" : "#16a34a"}
+                  />
+                  <Text className="text-[13px] text-ink-700">
+                    <Text className="font-semibold text-ink-900">{summary.placed}</Text> of {weekCapacity} placed
+                    {summary.empty ? ` · ${summary.empty} empty` : ""}
+                    {summary.over ? <Text className="text-red-700">{` · ${summary.over} over`}</Text> : null}
+                    {summary.short ? <Text className="text-amber-700">{` · ${summary.short} short`}</Text> : null}
+                    {!summary.empty && !summary.over && !summary.short ? " · all on target" : ""}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
           </View>
 
           {phone && klass?.subjects?.length && !periodsNotSet ? (
@@ -325,35 +453,37 @@ export function WeekBoard() {
             })()
           ) : null}
 
-          {!phone && klass?.subjects?.length && !periodsNotSet ? (
-            <View className="mt-3 shrink-0 flex-row flex-wrap gap-2">
-              {klass.subjects.map((s) => {
-                const placed = klass.slots.filter((slot) => slot.subject === s.name).length;
-                const need = s.weightage || 0;
-                const impossible = need > weekCapacity;
-                const done = need > 0 && placed >= need;
+          {!phone && loadRows.length && !periodsNotSet ? (
+            <View className="mt-2.5 shrink-0 flex-row flex-wrap items-center gap-1.5">
+              {loadRows.map((r) => {
+                const on = focus === r.name;
                 return (
-                  <View
-                    key={s.name}
-                    className={`rounded-md border px-3 py-1.5 ${
-                      impossible
-                        ? "border-red-300 bg-red-50"
-                        : done
-                          ? "border-emerald-200 bg-emerald-50"
-                          : "border-ink-200 bg-white"
-                    }`}
+                  <Pressable
+                    key={r.name}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Show only ${r.name}`}
+                    onPress={() => setFocus(on ? "" : r.name)}
+                    className={`flex-row items-center gap-1.5 rounded-full border px-2.5 py-1 ${on ? "border-ink-900 bg-ink-50" : "border-ink-200 bg-white"}`}
                   >
+                    <View className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: subjectTone(r.name) }} />
+                    <Text className="text-xs text-ink-700">{r.name}</Text>
                     <Text
-                      className={`text-xs ${
-                        impossible ? "text-red-800" : done ? "text-green-800" : "text-ink-800"
+                      className={`text-xs font-semibold ${
+                        r.state === "over" ? "text-red-700" : r.state === "short" ? "text-amber-700" : "text-ink-500"
                       }`}
                     >
-                      {s.name} · {placed}/{need || "—"}
-                      {impossible ? " — over the week" : ""}
+                      {r.placed}/{r.need || "—"}
+                      {r.state === "over" ? ` +${r.placed - r.need}` : ""}
                     </Text>
-                  </View>
+                    {r.state === "ok" ? <Ionicons name="checkmark" size={12} color="#16a34a" /> : null}
+                  </Pressable>
                 );
               })}
+              {focus ? (
+                <Pressable onPress={() => setFocus("")} className="px-1 py-1">
+                  <Text className="text-xs font-medium text-clay-600">Show all</Text>
+                </Pressable>
+              ) : null}
             </View>
           ) : null}
 
@@ -369,7 +499,7 @@ export function WeekBoard() {
                 <Text className="text-sm font-medium text-ink-800">Cancel</Text>
               </Pressable>
             </View>
-          ) : phone && !periodsNotSet && klass ? null : (
+          ) : (phone || !periodsNotSet) && klass ? null : (
             <Text className="mt-2 shrink-0 text-sm text-ink-700">
               {periodsNotSet
                 ? "No periods found. Set bell periods before placing teachers."
@@ -428,6 +558,8 @@ export function WeekBoard() {
                   onDrop={dropOn}
                   onPlace={(periodId, weekday) => placeOrPick(periodId, weekday, klass.slots)}
                   onClear={clearCell}
+                  others={classes.filter((c) => c.id !== klass.id)}
+                  focus={focus}
                   footer={!split ? teacherRail : null}
                 />
               )
@@ -498,24 +630,114 @@ export function WeekBoard() {
       ) : null}
 
       <Modal
+        open={fillOpen}
+        title={`Auto-fill ${klass?.label || ""}`}
+        onClose={() => (filling ? undefined : setFillOpen(false))}
+        footer={
+          <View className="flex-row items-center justify-end gap-2">
+            <Button variant="ghost" disabled={Boolean(filling)} onPress={() => setFillOpen(false)}>
+              Cancel
+            </Button>
+            <Button disabled={!fillPlan.moves.length || Boolean(filling)} onPress={() => void runFill()}>
+              {filling || (fillPlan.moves.length ? `Place ${fillPlan.moves.length} ${fillPlan.moves.length === 1 ? "period" : "periods"}` : "Nothing to place")}
+            </Button>
+          </View>
+        }
+      >
+        <View className="gap-3">
+          <Text className="text-sm leading-5 text-ink-700">
+            Fills empty periods with the subjects that are furthest below target, using teachers who are free at that time. Filled periods are not touched.
+          </Text>
+          {fillPlan.moves.length ? (
+            <View className="overflow-hidden rounded-xl border border-ink-200">
+              {Object.entries(
+                fillPlan.moves.reduce<Record<string, { n: number; who: Set<string> }>>((acc, m) => {
+                  const row = acc[m.subjectName] || { n: 0, who: new Set<string>() };
+                  row.n += 1;
+                  row.who.add(m.teacherName);
+                  acc[m.subjectName] = row;
+                  return acc;
+                }, {})
+              ).map(([name, row], i) => (
+                <View key={name} className={`flex-row items-center gap-3 px-4 py-2.5 ${i ? "border-t border-ink-100" : ""}`}>
+                  <View className="h-2 w-2 rounded-full" style={{ backgroundColor: subjectTone(name) }} />
+                  <View className="min-w-0 flex-1">
+                    <Text className="text-[14px] font-semibold text-ink-900">{name}</Text>
+                    <Text className="text-[12px] text-ink-500" numberOfLines={1}>
+                      {[...row.who].join(", ")}
+                    </Text>
+                  </View>
+                  <Text className="text-[13px] font-semibold text-ink-800">+{row.n}</Text>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text className="text-sm text-ink-500">No free teacher matches the subjects that are short. Add teachers or adjust targets.</Text>
+          )}
+          {fillPlan.left ? (
+            <Text className="text-[12px] text-amber-700">
+              {fillPlan.left} {fillPlan.left === 1 ? "period stays" : "periods stay"} empty — no subject is short or no teacher is free then.
+            </Text>
+          ) : null}
+        </View>
+      </Modal>
+
+      <Modal
         open={!phone && Boolean(assign)}
+        wide
         title={
           assign
-            ? `${assign.periodName} · ${weekdays.find((d) => d.n === assign.weekday)?.label || ""}`
+            ? `${weekdays.find((d) => d.n === assign.weekday)?.label || ""} · ${assign.periodName}${
+                periods.find((x) => x.id === assign.periodId)
+                  ? ` (${periods.find((x) => x.id === assign.periodId)!.start}–${periods.find((x) => x.id === assign.periodId)!.end})`
+                  : ""
+              }`
             : "Place"
         }
         onClose={() => setAssign(null)}
+        footer={
+          assign ? (
+            <View className="flex-row items-center justify-between gap-3">
+              <Text className="min-w-0 flex-1 text-sm text-ink-500" numberOfLines={1}>
+                {assign.current
+                  ? `Now: ${assign.current.subject}${assign.current.teacher ? ` · ${assign.current.teacher}` : ""}`
+                  : `${klass?.label || ""} · empty period`}
+              </Text>
+              {assign.current ? (
+                <Button
+                  variant="ghost"
+                  onPress={async () => {
+                    await clearCell(assign.periodId, assign.weekday);
+                    setAssign(null);
+                  }}
+                >
+                  Clear period
+                </Button>
+              ) : null}
+              <Button variant="ghost" onPress={() => setAssign(null)}>
+                Cancel
+              </Button>
+            </View>
+          ) : null
+        }
       >
-        <AssignSheet
-          teachers={teachers}
-          classId={klass?.id}
-          onCancel={() => setAssign(null)}
-          onPick={async (payload) => {
-            if (!assign) return;
-            await dropOn(assign.periodId, assign.weekday, payload);
-            setAssign(null);
-          }}
-        />
+        {assign && klass ? (
+          <DeskAssignPanel
+            teachers={teachers}
+            classId={klass.id}
+            subjects={klass.subjects || []}
+            slots={klass.slots}
+            others={classes.filter((c) => c.id !== klass.id)}
+            periodId={assign.periodId}
+            periodName={assign.periodName}
+            weekday={assign.weekday}
+            current={assign.current}
+            onPick={async (payload) => {
+              await dropOn(assign.periodId, assign.weekday, payload);
+              setAssign(null);
+            }}
+          />
+        ) : null}
       </Modal>
 
       <Modal open={modal === "addTeacher"} title="Add teacher" wide onClose={() => setModal(null)}>
@@ -597,9 +819,14 @@ function TeacherRail({
   onPick: (teacherId: string, subjectName: string, toggle?: boolean) => void;
   scroll?: boolean;
 }) {
+  const [q, setQ] = useState("");
+  const needle = q.trim().toLowerCase();
+  const shown = needle
+    ? teachers.filter((t) => t.name.toLowerCase().includes(needle) || t.skills.some((s) => s.subjectName.toLowerCase().includes(needle)))
+    : teachers;
   const cards = (
     <>
-      {teachers.map((t) => {
+      {shown.map((t) => {
         const skills = [
           ...new Set(
             t.skills
@@ -627,6 +854,8 @@ function TeacherRail({
       })}
       {!teachers.length ? (
         <Text className="text-sm text-ink-700">Add teachers under Employees first.</Text>
+      ) : !shown.length ? (
+        <Text className="text-sm text-ink-500">No teacher matches "{q.trim()}".</Text>
       ) : null}
     </>
   );
@@ -643,6 +872,23 @@ function TeacherRail({
           </Pressable>
         ) : null}
       </View>
+      {!compact && teachers.length > 4 ? (
+        <View className="mt-2 shrink-0 flex-row items-center gap-2 rounded-lg border border-ink-200 bg-white px-3">
+          <Ionicons name="search" size={14} color="#94a3b8" />
+          <TextInput
+            value={q}
+            onChangeText={setQ}
+            placeholder="Find teacher or subject"
+            placeholderTextColor="#94a3b8"
+            className="min-h-[36px] flex-1 text-sm text-ink-900"
+          />
+          {q ? (
+            <Pressable accessibilityLabel="Clear search" onPress={() => setQ("")}>
+              <Ionicons name="close-circle" size={16} color="#94a3b8" />
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
       {scroll ? (
         <ScrollView className="min-h-0 flex-1" nestedScrollEnabled contentContainerClassName="gap-3 pb-4 pt-3">
           {cards}
@@ -654,46 +900,173 @@ function TeacherRail({
   );
 }
 
-function AssignSheet({
+function DeskAssignPanel({
   teachers,
   classId,
-  onCancel,
+  subjects,
+  slots,
+  others,
+  periodId,
+  periodName,
+  weekday,
+  current,
   onPick,
 }: {
   teachers: { id: string; name: string; skills: { subjectName: string; classId: string }[] }[];
   classId?: string;
-  onCancel: () => void;
+  subjects: { name: string; weightage?: number }[];
+  slots: WeekSlot[];
+  others: { label: string; slots: (WeekSlot & { teacherId?: string })[] }[];
+  periodId: string;
+  periodName: string;
+  weekday: number;
+  current?: { subject: string; teacher: string };
   onPick: (payload: Hold) => Promise<void>;
 }) {
-  const offers = teachers.flatMap((t) =>
-    [...new Set(t.skills.filter((s) => !classId || !s.classId || s.classId === classId).map((s) => s.subjectName))].map(
-      (subjectName) => ({ teacherId: t.id, teacherName: t.name, subjectName })
-    )
-  );
+  const [q, setQ] = useState("");
+  const [busyKey, setBusyKey] = useState("");
+  const needle = q.trim().toLowerCase();
+
+  const busyIn = (t: { id: string; name: string }) =>
+    others
+      .filter((c) =>
+        c.slots.some(
+          (o) =>
+            o.weekday === weekday &&
+            (o.periodId === periodId || o.period === periodName) &&
+            ((o.teacherId && o.teacherId === t.id) || (!o.teacherId && o.teacher === t.name))
+        )
+      )
+      .map((c) => c.label);
+
+  const names = [
+    ...new Set([
+      ...subjects.map((x) => x.name),
+      ...teachers.flatMap((t) => t.skills.filter((sk) => !classId || !sk.classId || sk.classId === classId).map((sk) => sk.subjectName)),
+    ]),
+  ];
+  const groups = names
+    .map((name) => {
+      const need = subjects.find((x) => x.name === name)?.weightage || 0;
+      const placed = slots.filter((x) => x.subject === name).length;
+      const state = !need ? "none" : placed > need ? "over" : placed < need ? "short" : "ok";
+      const who = teachers
+        .filter((t) => t.skills.some((sk) => sk.subjectName === name && (!classId || !sk.classId || sk.classId === classId)))
+        .map((t) => ({ id: t.id, name: t.name, busy: busyIn(t) }))
+        .sort((a, b) => a.busy.length - b.busy.length || a.name.localeCompare(b.name));
+      return { name, need, placed, state, who };
+    })
+    .filter((g) => g.who.length)
+    .filter((g) => !needle || g.name.toLowerCase().includes(needle) || g.who.some((w) => w.name.toLowerCase().includes(needle)))
+    .sort((a, b) => {
+      const rank = (x: string) => (x === "short" ? 0 : x === "none" ? 1 : x === "ok" ? 2 : 3);
+      return rank(a.state) - rank(b.state) || (b.need - b.placed) - (a.need - a.placed) || a.name.localeCompare(b.name);
+    });
+
+  const rows = groups.flatMap((g) => g.who.map((w) => ({ ...g, teacher: w })));
+  const many = rows.length > 6;
+
   return (
-    <View className="gap-2">
-      <Text className="text-sm text-ink-700">Tap who takes this period.</Text>
-      {offers.map((o) => (
-        <Pressable
-          key={`${o.teacherId}:${o.subjectName}`}
-          onPress={() => onPick({ teacherId: o.teacherId, subjectName: o.subjectName })}
-          className="min-h-[48px] flex-row items-center justify-between rounded-md border border-ink-200 px-3 py-3"
-        >
-          <View>
-            <Text className="font-medium text-ink-900">{o.subjectName}</Text>
-            <Text className="text-xs text-ink-700">{o.teacherName}</Text>
-          </View>
-          <Text className="text-sm text-clay-600">Place</Text>
-        </Pressable>
-      ))}
-      {!offers.length ? (
-        <Text className="text-sm text-ink-700">No teacher is set to teach this class yet.</Text>
+    <View className="gap-3">
+      {many ? (
+        <View className="flex-row items-center gap-2 rounded-lg border border-ink-200 bg-white px-3">
+          <Ionicons name="search" size={14} color="#94a3b8" />
+          <TextInput
+            value={q}
+            onChangeText={setQ}
+            placeholder="Find subject or teacher"
+            placeholderTextColor="#94a3b8"
+            className="min-h-[38px] flex-1 text-sm text-ink-900"
+          />
+        </View>
       ) : null}
-      <View className="mt-2 flex-row justify-end">
-        <Button variant="ghost" onPress={onCancel}>
-          Cancel
-        </Button>
+      <View className="overflow-hidden rounded-xl border border-ink-200">
+        {rows.map((r, ri) => {
+          const key = `${r.teacher.id}:${r.name}`;
+          const isCurrent = current?.subject === r.name && current?.teacher === r.teacher.name;
+          const busy = r.teacher.busy.length > 0;
+          const suggested = ri === 0 && !needle && !busy && r.state === "short" && !isCurrent;
+          return (
+            <Pressable
+              key={key}
+              accessibilityRole="button"
+              accessibilityLabel={`${r.name} with ${r.teacher.name}${busy ? `, busy in ${r.teacher.busy.join(", ")}` : ""}`}
+              disabled={Boolean(busyKey) || isCurrent}
+              onPress={async () => {
+                setBusyKey(key);
+                try {
+                  await onPick({ teacherId: r.teacher.id, subjectName: r.name });
+                } finally {
+                  setBusyKey("");
+                }
+              }}
+              className={`flex-row items-center gap-3 px-4 py-3 ${ri ? "border-t border-ink-100" : ""} ${
+                isCurrent ? "bg-clay-50" : suggested ? "bg-[#F7F9FF]" : "bg-white"
+              } hover:bg-ink-50`}
+            >
+              <View className="h-2 w-2 rounded-full" style={{ backgroundColor: subjectTone(r.name) }} />
+              <View className="min-w-0 flex-1">
+                <View className="flex-row items-center gap-2">
+                  <Text className="text-[14px] font-semibold text-ink-900" numberOfLines={1}>
+                    {r.name}
+                  </Text>
+                  {suggested ? (
+                    <View className="rounded-full bg-clay-50 px-2 py-0.5">
+                      <Text className="text-[10px] font-semibold uppercase tracking-wide text-clay-700">Suggested</Text>
+                    </View>
+                  ) : null}
+                </View>
+                <Text className="text-[12px] text-ink-500" numberOfLines={1}>
+                  {r.teacher.name}
+                </Text>
+              </View>
+              <Text
+                className={`w-24 text-right text-[12px] ${
+                  r.state === "short" ? "font-semibold text-amber-700" : r.state === "over" ? "font-semibold text-red-700" : "text-ink-500"
+                }`}
+              >
+                {r.state === "short"
+                  ? `needs ${r.need - r.placed}`
+                  : r.state === "over"
+                    ? `${r.placed - r.need} extra`
+                    : r.state === "ok"
+                      ? "on target"
+                      : `${r.placed} placed`}
+              </Text>
+              <Text className="w-14 text-right text-[11px] text-ink-400">
+                {r.placed}/{r.need || "—"}
+              </Text>
+              <View className="w-32 items-end">
+                {isCurrent ? (
+                  <Text className="text-[12px] font-semibold text-clay-700">Current</Text>
+                ) : busyKey === key ? (
+                  <Text className="text-[12px] text-ink-500">Placing…</Text>
+                ) : busy ? (
+                  <View className="rounded-full bg-red-50 px-2 py-0.5">
+                    <Text className="text-[11px] font-medium text-red-700" numberOfLines={1}>
+                      Busy · {r.teacher.busy.join(", ")}
+                    </Text>
+                  </View>
+                ) : (
+                  <View className="flex-row items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5">
+                    <View className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    <Text className="text-[11px] font-medium text-emerald-700">Free</Text>
+                  </View>
+                )}
+              </View>
+              <Ionicons name="chevron-forward" size={14} color="#cbd5e1" />
+            </Pressable>
+          );
+        })}
+        {!rows.length ? (
+          <View className="items-center px-4 py-8">
+            <Text className="text-sm text-ink-500">
+              {needle ? `Nothing matches "${q.trim()}".` : "No teacher is set to teach this class yet."}
+            </Text>
+          </View>
+        ) : null}
       </View>
+      <Text className="text-[11px] text-ink-400">Subjects that still need periods are listed first. Click a row to place it.</Text>
     </View>
   );
 }
@@ -1000,6 +1373,8 @@ function WeekGrid({
   onDrop,
   onPlace,
   onClear,
+  others,
+  focus,
   footer,
 }: {
   weekdays: { n: number; label: string }[];
@@ -1013,68 +1388,111 @@ function WeekGrid({
   onDrop: (periodId: string, weekday: number, payload: Hold) => void;
   onPlace: (periodId: string, weekday: number) => void;
   onClear: (periodId: string, weekday: number) => void;
+  others: { label: string; slots: (WeekSlot & { teacherId?: string })[] }[];
+  focus?: string;
   footer?: ReactNode;
 }) {
+  const todayN = jsToWeekday(new Date().getDay());
+  const PERIOD_W = 96;
+  const DAY_MIN = 118;
+  const minWidth = PERIOD_W + weekdays.length * DAY_MIN;
+  const [boxW, setBoxW] = useState(0);
+  const gridW = Math.max(minWidth, boxW);
   return (
     <Card className="min-h-0 flex-1 overflow-hidden">
       <ScrollView className="min-h-0 flex-1" nestedScrollEnabled contentContainerClassName="pb-4">
-      <ScrollView horizontal nestedScrollEnabled>
-        <View className="min-w-full">
-          <View className="flex-row bg-ink-100">
-            <View className="w-1/6 shrink-0 px-3 py-3">
-              <Text className="text-xs uppercase tracking-wide text-ink-700">Period</Text>
+        <ScrollView
+          horizontal
+          nestedScrollEnabled
+          onLayout={(e) => setBoxW(Math.floor(e.nativeEvent.layout.width))}
+          showsHorizontalScrollIndicator={gridW > boxW}
+        >
+          <View style={{ width: gridW }}>
+            <View className="flex-row bg-ink-50">
+              <View className="shrink-0 px-3 py-2.5" style={{ width: PERIOD_W }}>
+                <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">Period</Text>
+              </View>
+              {weekdays.map((d) => (
+                <View key={d.n} className="min-w-0 flex-1 px-2 py-2.5">
+                  <Text
+                    className={`text-[11px] font-semibold uppercase tracking-wide ${d.n === todayN ? "text-clay-600" : "text-ink-500"}`}
+                  >
+                    {d.label}
+                    {d.n === todayN ? " · Today" : ""}
+                  </Text>
+                </View>
+              ))}
             </View>
-            {weekdays.map((d) => (
-              <View key={d.n} className="min-w-0 flex-1 px-3 py-3">
-                <Text className="text-xs uppercase tracking-wide text-ink-700">{d.label}</Text>
-              </View>
-            ))}
-          </View>
-          {periods.map((p) => (
-            <View key={p.id} className="flex-row border-t border-ink-100">
-              <View className="w-1/6 shrink-0 justify-center px-3 py-3">
-                <Text className="font-medium text-ink-900">{p.name}</Text>
-                <Text className="text-xs text-ink-700">
-                  {p.start}–{p.end}
-                </Text>
-              </View>
-              {weekdays.map((d) => {
-                const slot = findSlot(slots, p, d.n);
-                const key = `${p.id}:${d.n}`;
-                return (
-                  <View key={key} className="min-w-0 flex-1 px-2 py-2">
-                    {p.isBreak ? (
-                      <View className="min-h-[72px] items-center justify-center rounded-xl bg-ink-100 px-2 py-4">
-                        <Text className="text-xs text-ink-700">Break</Text>
-                      </View>
-                    ) : (
-                      <DropCell
-                        armed={hold}
-                        hot={over === key}
-                        filled={slotFilled(slot)}
-                        subject={slotSubject(slot)}
-                        teacher={slot?.teacher || ""}
-                        covers={slot?.covers}
-                        editable={editable}
-                        hint={hold ? "Tap or drop" : editable ? "Drop here" : ""}
-                        onOver={() => onOver(key)}
-                        onLeave={onLeave}
-                        onDrop={(payload) => onDrop(p.id, d.n, payload)}
-                        onPress={() => {
-                          if (!editable) return;
-                          onPlace(p.id, d.n);
-                        }}
-                        onClear={() => onClear(p.id, d.n)}
-                      />
-                    )}
+            {periods.map((p) =>
+              p.isBreak ? (
+                <View key={p.id} className="flex-row items-center gap-2 border-t border-ink-100 bg-ink-50 px-3 py-1.5">
+                  <Ionicons name="cafe-outline" size={13} color="#94a3b8" />
+                  <Text className="text-xs text-ink-500">
+                    {p.name} · {p.start}–{p.end}
+                  </Text>
+                </View>
+              ) : (
+                <View key={p.id} className="flex-row border-t border-ink-100">
+                  <View className="shrink-0 justify-center px-3 py-2" style={{ width: PERIOD_W }}>
+                    <Text className="text-[13px] font-semibold text-ink-900" numberOfLines={1}>
+                      {p.name}
+                    </Text>
+                    <Text className="text-[11px] text-ink-500">
+                      {p.start}–{p.end}
+                    </Text>
                   </View>
-                );
-              })}
-            </View>
-          ))}
-        </View>
-      </ScrollView>
-      {footer ? <View className="mt-4 px-1">{footer}</View> : null}
+                  {weekdays.map((d) => {
+                    const slot = findSlot(slots, p, d.n) as (WeekSlot & { teacherId?: string }) | undefined;
+                    const key = `${p.id}:${d.n}`;
+                    const filled = slotFilled(slot);
+                    const clashes = filled
+                      ? others
+                          .filter((c) =>
+                            c.slots.some(
+                              (o) =>
+                                o.weekday === d.n &&
+                                (o.periodId === p.id || o.period === p.name) &&
+                                ((slot?.teacherId && o.teacherId === slot.teacherId) ||
+                                  (!slot?.teacherId && slot?.teacher && o.teacher === slot.teacher))
+                            )
+                          )
+                          .map((c) => c.label)
+                      : [];
+                    return (
+                      <View
+                        key={key}
+                        className="min-w-0 flex-1 p-1"
+                        style={{ opacity: focus && slotSubject(slot) !== focus ? 0.3 : 1 }}
+                      >
+                        <DropCell
+                          compact
+                          armed={hold}
+                          hot={over === key}
+                          filled={filled}
+                          subject={slotSubject(slot)}
+                          teacher={slot?.teacher || ""}
+                          covers={slot?.covers}
+                          clashes={clashes}
+                          editable={editable}
+                          hint={hold ? "Tap or drop" : ""}
+                          onOver={() => onOver(key)}
+                          onLeave={onLeave}
+                          onDrop={(payload) => onDrop(p.id, d.n, payload)}
+                          onPress={() => {
+                            if (!editable) return;
+                            onPlace(p.id, d.n);
+                          }}
+                          onClear={() => onClear(p.id, d.n)}
+                        />
+                      </View>
+                    );
+                  })}
+                </View>
+              )
+            )}
+          </View>
+        </ScrollView>
+        {footer ? <View className="mt-4 px-1">{footer}</View> : null}
       </ScrollView>
     </Card>
   );
@@ -1117,9 +1535,11 @@ function SubjectChip({
   const ref = useRef<View>(null);
   const pickRef = useRef(onPick);
   pickRef.current = onPick;
-  const className = `rounded-md ${compact ? "min-h-[40px] justify-center px-3 py-2" : "px-2.5 py-1"} ${
-    picked ? "bg-clay-600" : "bg-clay-500"
+  const className = `flex-row items-center gap-1.5 rounded-md border ${compact ? "min-h-[40px] px-3 py-2" : "px-2 py-1"} ${
+    picked ? "border-clay-500 bg-clay-50" : "border-ink-200 bg-white"
   }`;
+  const dot = <View className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: subjectTone(subjectName) }} />;
+  const label = <Text className={`text-xs ${picked ? "font-semibold text-clay-700" : "text-ink-800"}`}>{subjectName}</Text>;
 
   useEffect(() => {
     const el = webNode(ref);
@@ -1161,13 +1581,15 @@ function SubjectChip({
   if (Platform.OS === "web") {
     return (
       <View ref={ref} className={className}>
-        <Text className="text-xs text-white">{subjectName}</Text>
+        {dot}
+        {label}
       </View>
     );
   }
   return (
     <Pressable disabled={!editable} onPress={() => onPick(subjectName, true)} className={className}>
-      <Text className="text-xs text-white">{subjectName}</Text>
+      {dot}
+      {label}
     </Pressable>
   );
 }
@@ -1250,7 +1672,9 @@ function DropCell({
   editable,
   hint,
   tall,
+  compact,
   armed,
+  clashes,
   onOver,
   onLeave,
   onDrop,
@@ -1262,9 +1686,11 @@ function DropCell({
   subject: string;
   teacher: string;
   covers?: { date: string; substituteId: string; substitute: string; absentTeacher: string }[];
+  clashes?: string[];
   editable: boolean;
   hint: string;
   tall?: boolean;
+  compact?: boolean;
   armed?: boolean;
   onOver: () => void;
   onLeave: () => void;
@@ -1280,6 +1706,9 @@ function DropCell({
   leaveRef.current = onLeave;
   dropRef.current = onDrop;
   const waiting = Boolean(armed && !filled);
+  const [hover, setHover] = useState(false);
+  const tone = subjectTone(subject || teacher || "");
+  const clash = Boolean(clashes?.length);
 
   useEffect(() => {
     if (!editable) return;
@@ -1322,27 +1751,59 @@ function DropCell({
     };
   }, [editable]);
 
+  const tinted = filled && !hot && !waiting;
   return (
     <View
       ref={ref}
-      className={`${tall ? "min-h-[64px]" : "min-h-[72px]"} rounded-xl border px-3 py-2.5 ${
+      className={`${compact ? "min-h-[56px] rounded-lg px-2 py-1.5" : tall ? "min-h-[64px] rounded-xl px-3 py-2.5" : "min-h-[72px] rounded-xl px-3 py-2.5"} border ${
         hot
           ? "border-clay-500 bg-blue-50"
           : waiting
             ? "border-clay-500/50 bg-blue-50/70"
-            : "border-dashed border-ink-200 bg-white"
+            : filled
+              ? ""
+              : "border-dashed border-ink-200 bg-white"
       }`}
+      style={
+        tinted
+          ? {
+              backgroundColor: clash ? "#fef2f2" : hover ? "#f8fafc" : "#ffffff",
+              borderColor: clash ? "#fca5a5" : "#e2e8f0",
+            }
+          : undefined
+      }
     >
-      <Pressable onPress={onPress} className={tall ? "min-h-[48px] justify-center" : "min-h-[56px]"}>
+      <Pressable
+        onPress={onPress}
+        onHoverIn={() => setHover(true)}
+        onHoverOut={() => setHover(false)}
+        className={compact ? "min-h-[42px] justify-center" : tall ? "min-h-[48px] justify-center" : "min-h-[56px]"}
+      >
         {filled ? (
-          <View className="flex-row items-start justify-between gap-2">
+          <View className="flex-row items-start gap-1">
             <View className="min-w-0 flex-1">
-              <Text className="font-medium text-ink-900">{subject}</Text>
-              {teacher ? <Text className="text-xs text-ink-700">Regular · {teacher}</Text> : null}
+              <View className="flex-row items-center gap-1.5">
+                <View className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: tone }} />
+                <Text className={`min-w-0 flex-1 ${compact ? "text-[13px]" : "text-[15px]"} font-semibold text-ink-900`} numberOfLines={1}>
+                  {subject || "—"}
+                </Text>
+              </View>
+              {teacher ? (
+                <View className="mt-0.5 flex-row items-center gap-1 pl-3">
+                  <Text className="min-w-0 flex-1 text-[11px] text-ink-500" numberOfLines={1}>
+                    {teacher}
+                  </Text>
+                </View>
+              ) : null}
+              {clash ? (
+                <Text className="mt-0.5 text-[10px] font-semibold text-red-700" numberOfLines={1}>
+                  Also in {clashes!.join(", ")}
+                </Text>
+              ) : null}
               {covers?.length ? (
-                <View className="mt-1 rounded-md bg-emerald-50 px-2 py-1">
+                <View className="mt-1 rounded-md bg-emerald-50 px-1.5 py-0.5">
                   {covers.slice(0, 2).map((cover) => (
-                    <Text key={`${cover.date}:${cover.substituteId}`} className="text-[10px] font-medium text-emerald-700">
+                    <Text key={`${cover.date}:${cover.substituteId}`} className="text-[10px] font-medium text-emerald-700" numberOfLines={1}>
                       Cover {new Date(`${cover.date}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" })} · {cover.substitute}
                     </Text>
                   ))}
@@ -1350,15 +1811,17 @@ function DropCell({
                 </View>
               ) : null}
             </View>
-            {editable ? (
+            {editable && (hover || Platform.OS !== "web") ? (
               <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Clear ${subject || "period"}`}
                 onPress={(e) => {
                   e.stopPropagation?.();
                   onClear();
                 }}
-                className="min-h-[36px] justify-center px-1"
+                className="h-6 w-6 items-center justify-center rounded-full bg-white"
               >
-                <Text className="text-[11px] text-clay-600">Clear</Text>
+                <Ionicons name="close" size={13} color="#64748b" />
               </Pressable>
             ) : null}
           </View>
@@ -1366,6 +1829,8 @@ function DropCell({
           <View className="items-center justify-center">
             {editable && hint ? (
               <Text className="text-center text-xs text-ink-700">{hint}</Text>
+            ) : editable && compact ? (
+              <Ionicons name="add" size={16} color={hover ? "#2563eb" : "#cbd5e1"} />
             ) : null}
           </View>
         )}

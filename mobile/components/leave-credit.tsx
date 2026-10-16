@@ -59,7 +59,7 @@ function Chip({ label, on, onPress }: { label: string; on: boolean; onPress: () 
   );
 }
 
-function Step({ value, onChange, step = 1, max = 365 }: { value: number; onChange: (n: number) => void; step?: number; max?: number }) {
+export function Step({ value, onChange, step = 1, max = 365 }: { value: number; onChange: (n: number) => void; step?: number; max?: number }) {
   return (
     <View className="flex-row items-center gap-1">
       <Pressable onPress={() => onChange(Math.max(0, Math.round((value - step) * 2) / 2))} className="h-9 w-9 items-center justify-center rounded-xl border border-ink-200 bg-white">

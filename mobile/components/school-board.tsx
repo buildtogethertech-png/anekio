@@ -5,7 +5,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Dropdown } from "./form";
 import { Badge, Button, Card, Field, Input, Modal, PageHeader, Switch, Toast, useToast } from "./ui";
-import { LeaveCreditFields, LeaveYearStart, leaveCreditSummary } from "./leave-credit";
+import { LeaveCreditFields, MONTHS, Step as LeaveStep, leaveCreditSummary } from "./leave-credit";
 import { LeaveBalancesSheet } from "./leave-balances";
 import { DateField } from "./date-field";
 import { UploadCsvPanel } from "./upload-csv-panel";
@@ -32,7 +32,7 @@ const TABS = [
   { id: "calendar", label: "Calendar", hint: "Holidays exam papers skip. Weekly offs are on Clock.", group: "School Setup" },
   { id: "subjects", label: "Subjects", hint: "What the school teaches. Add at the start.", group: "Academics" },
   { id: "exams", label: "Exams", hint: "Grade scale and this year's sittings. Every class follows this.", group: "Academics" },
-  { id: "leave", label: "Leave", hint: "Planned and sick. Who can use them, and how much notice.", group: "Staff & Leave" },
+  { id: "leave", label: "Leave", hint: "Leave types, who can apply, notice, and how leave builds up.", group: "Staff & Leave" },
   { id: "feeClasses", label: "Class fees", hint: "Monthly and admission fee for each class", group: "Fees" },
   { id: "feeAddons", label: "Add-ons", hint: "Optional charges like transport or meals", group: "Fees" },
   { id: "feeLate", label: "Late fee & due date", hint: "When fees are due and the late charge", group: "Fees" },
@@ -1286,13 +1286,11 @@ function PhoneLeaveTypes({
             <View className="min-w-0 flex-1">
               <View className="flex-row items-baseline justify-between gap-2">
                 <Text className="text-[15px] font-semibold text-ink-900" numberOfLines={1}>{row.name || "Untitled"}</Text>
-                <Text className="text-xs text-ink-700">
-                  {row.noticeDays ? `${row.noticeDays} day notice` : "same day"}
-                </Text>
+                <Text className="text-[11px] text-ink-500">{noticeText(row.noticeDays)}</Text>
               </View>
               <Text className="mt-0.5 text-xs text-ink-500" numberOfLines={1}>
                 {who(row)}
-                {row.eligibilityGender !== "ANY" ? ` · ${row.eligibilityGender === "FEMALE" ? "Female" : "Male"} only` : ""}
+                {genderText(row.eligibilityGender) ? ` · ${genderText(row.eligibilityGender)}` : ""}
               </Text>
               <Text className="mt-0.5 text-xs font-medium text-[#1F45C7]" numberOfLines={1}>
                 {leaveCreditSummary(row)}
@@ -1404,6 +1402,310 @@ function PhoneLeaveTypes({
           </Pressable>
         </Pressable>
       </RnModal>
+    </View>
+  );
+}
+
+function genderText(g?: string) {
+  return g === "FEMALE" ? "Women only" : g === "MALE" ? "Men only" : "";
+}
+
+function noticeText(n: number) {
+  return n ? `${n} ${n === 1 ? "day" : "days"} notice` : "Same day";
+}
+
+/** Desktop leave types: read-only list, edit in a dialog that saves on its own. */
+function DeskLeaveTypes({
+  types,
+  setTypes,
+  canEdit,
+  onSave,
+  startMonth,
+}: {
+  startMonth: number;
+  types: LeaveTypeDraft[];
+  setTypes: (rows: LeaveTypeDraft[]) => void;
+  canEdit: boolean;
+  onSave: (rows: LeaveTypeDraft[]) => Promise<void>;
+}) {
+  const [editIndex, setEditIndex] = useState<number | null>(null);
+  const [draft, setDraft] = useState<LeaveTypeDraft | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+
+  function open(index: number | null) {
+    setEditIndex(index);
+    setConfirmDelete(false);
+    setMoreOpen(index !== null && (types[index]?.eligibilityGender || "ANY") !== "ANY");
+    setDraft(
+      index === null
+        ? { id: "", name: "", forTeacher: true, forStaff: true, forStudent: false, eligibilityGender: "ANY", noticeDays: 0, yearlyCap: 0, sortOrder: types.length }
+        : { ...types[index] }
+    );
+  }
+
+  async function commit(next: LeaveTypeDraft[]) {
+    setBusy(true);
+    try {
+      setTypes(next);
+      await onSave(next);
+      setDraft(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const who = (row: LeaveTypeDraft) =>
+    [row.forTeacher ? "Teachers" : "", row.forStaff ? "Staff" : "", row.forStudent ? "Students" : ""].filter(Boolean).join(", ") || "Nobody yet";
+
+  const nameOk = Boolean(draft?.name.trim());
+  const dupe = Boolean(
+    draft && types.some((t, i) => i !== editIndex && t.name.trim().toLowerCase() === draft.name.trim().toLowerCase())
+  );
+
+  return (
+    <View className="gap-3">
+      <View className="flex-row items-end justify-between gap-3">
+        <View className="min-w-0 flex-1">
+          <Text className="text-[15px] font-semibold text-ink-900">Leave types</Text>
+          <Text className="mt-0.5 text-xs text-ink-500">Click a type to change who can apply, notice, and how it builds up.</Text>
+        </View>
+        {canEdit ? (
+          <Button onPress={() => open(null)}>+ Add leave type</Button>
+        ) : null}
+      </View>
+
+      <View className="overflow-hidden rounded-xl border border-ink-200 bg-white">
+        <View className="flex-row items-center gap-4 border-b border-ink-100 bg-ink-50 px-4 py-2">
+          <Text className="min-w-0 flex-1 text-[11px] font-semibold uppercase tracking-wide text-ink-500">Type</Text>
+          <Text className="w-36 text-[11px] font-semibold uppercase tracking-wide text-ink-500">Notice</Text>
+          <Text className="w-72 text-[11px] font-semibold uppercase tracking-wide text-ink-500">Builds up</Text>
+          <View className="w-4" />
+        </View>
+        {types.map((row, index) => (
+          <Pressable
+            key={row.id || `new-${index}`}
+            disabled={!canEdit}
+            onPress={() => open(index)}
+            className={`flex-row items-center gap-4 px-4 py-3.5 hover:bg-ink-50 ${index ? "border-t border-ink-100" : ""}`}
+          >
+            <View className="min-w-0 flex-1 flex-row items-center gap-3">
+              <View className="h-10 w-10 items-center justify-center rounded-xl bg-[#EEF3FF]">
+                <Ionicons name={leaveTypeIcon(row.name)} size={18} color="#1F45C7" />
+              </View>
+              <View className="min-w-0 flex-1">
+                <Text className="text-[15px] font-semibold text-ink-900" numberOfLines={1}>
+                  {row.name || "Untitled"}
+                </Text>
+                <Text className="text-[12px] text-ink-500" numberOfLines={1}>
+                  {who(row)}
+                  {genderText(row.eligibilityGender) ? ` · ${genderText(row.eligibilityGender)}` : ""}
+                </Text>
+              </View>
+            </View>
+            <Text className="w-36 text-[13px] text-ink-700">{noticeText(row.noticeDays)}</Text>
+            <Text className="w-72 text-[13px] font-medium text-ink-900" numberOfLines={1}>
+              {leaveCreditSummary(row)}
+            </Text>
+            {canEdit ? <Ionicons name="chevron-forward" size={15} color="#94A3B8" /> : <View className="w-4" />}
+          </Pressable>
+        ))}
+        {!types.length ? (
+          <View className="items-center px-4 py-8">
+            <Text className="text-sm text-ink-500">No leave types yet. Add Sick, Casual or Planned to start.</Text>
+          </View>
+        ) : null}
+      </View>
+
+      <Modal
+        open={Boolean(draft)}
+        title={editIndex === null ? "New leave type" : `Edit ${types[editIndex ?? -1]?.name || "leave type"}`}
+        onClose={() => (busy ? undefined : setDraft(null))}
+        footer={
+          draft ? (
+            confirmDelete && editIndex !== null ? (
+              <View className="flex-row items-center gap-3">
+                <Text className="min-w-0 flex-1 text-sm text-red-800">
+                  Delete {types[editIndex]?.name}? People won't be able to apply for it any more.
+                </Text>
+                <Button variant="ghost" disabled={busy} onPress={() => setConfirmDelete(false)}>
+                  Keep it
+                </Button>
+                <Button variant="danger" disabled={busy} onPress={() => void commit(types.filter((_, i) => i !== editIndex))}>
+                  {busy ? "Deleting…" : "Yes, delete"}
+                </Button>
+              </View>
+            ) : (
+              <View className="flex-row items-center gap-3">
+                {editIndex !== null && types.length > 1 ? (
+                  <Pressable onPress={() => setConfirmDelete(true)} className="flex-row items-center gap-1.5 py-2">
+                    <Ionicons name="trash-outline" size={15} color="#B91C1C" />
+                    <Text className="text-sm font-medium text-red-700">Delete</Text>
+                  </Pressable>
+                ) : null}
+                <View className="flex-1" />
+                <Button variant="ghost" disabled={busy} onPress={() => setDraft(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  disabled={busy || !nameOk || dupe}
+                  onPress={() => {
+                    const clean = { ...draft, name: draft.name.trim() };
+                    void commit(editIndex === null ? [...types, clean] : types.map((row, i) => (i === editIndex ? clean : row)));
+                  }}
+                >
+                  {busy ? "Saving…" : "Save"}
+                </Button>
+              </View>
+            )
+          ) : null
+        }
+      >
+        {draft ? (
+          <View className="gap-5">
+            <View>
+              <Text className="mb-1.5 text-xs font-medium text-ink-700">Name</Text>
+              <Input value={draft.name} placeholder="e.g. Casual" onChangeText={(name) => setDraft({ ...draft, name })} />
+              {dupe ? <Text className="mt-1 text-xs text-red-700">A leave type with this name already exists.</Text> : null}
+            </View>
+
+            <View>
+              <Text className="mb-2 text-xs font-medium text-ink-700">Who can apply</Text>
+              <View className="flex-row gap-2">
+                {(
+                  [
+                    ["forTeacher", "Teachers"],
+                    ["forStaff", "Staff"],
+                    ["forStudent", "Students"],
+                  ] as const
+                ).map(([key, label]) => {
+                  const on = draft[key];
+                  return (
+                    <Pressable
+                      key={key}
+                      onPress={() => setDraft({ ...draft, [key]: !on })}
+                      className={`h-10 flex-1 flex-row items-center justify-center gap-1.5 rounded-lg border ${
+                        on ? "border-[#1F45C7] bg-[#EEF3FF]" : "border-ink-200 bg-white"
+                      }`}
+                    >
+                      <Ionicons name={on ? "checkmark-circle" : "ellipse-outline"} size={16} color={on ? "#1F45C7" : "#CBD5E1"} />
+                      <Text className={`text-[13px] ${on ? "font-semibold text-[#1F45C7]" : "text-ink-700"}`}>{label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              {draft.forStudent ? (
+                <Text className="mt-1.5 text-[11px] text-ink-500">Parents apply for students; the class teacher approves.</Text>
+              ) : null}
+            </View>
+
+            <View className="flex-row items-center justify-between gap-3">
+              <View>
+                <Text className="text-sm font-medium text-ink-900">Notice</Text>
+                <Text className="text-[11px] text-ink-500">{draft.noticeDays ? `Apply ${noticeText(draft.noticeDays).replace(" notice", "")} before` : "Same-day leave allowed"}</Text>
+              </View>
+              <LeaveStep value={draft.noticeDays} max={30} onChange={(noticeDays) => setDraft({ ...draft, noticeDays: Math.round(noticeDays) })} />
+            </View>
+
+            {draft.forTeacher || draft.forStaff ? (
+              <View className="gap-4 border-t border-ink-100 pt-4">
+                <LeaveCreditFields row={draft} onChange={setDraft} startMonth={startMonth} existing={editIndex !== null && Boolean(draft.id)} />
+              </View>
+            ) : null}
+
+            <View>
+              <Pressable onPress={() => setMoreOpen((v) => !v)} className="flex-row items-center gap-1 self-start py-1">
+                <Text className="text-xs font-semibold text-[#1F45C7]">{moreOpen ? "Fewer options" : "More options"}</Text>
+                <Ionicons name={moreOpen ? "chevron-up" : "chevron-down"} size={13} color="#1F45C7" />
+              </Pressable>
+              {moreOpen ? (
+                <View className="mt-2">
+                  <Text className="mb-2 text-xs font-medium text-ink-700">Only for (maternity / paternity)</Text>
+                  <View className="flex-row overflow-hidden rounded-lg border border-ink-200">
+                    {(
+                      [
+                        ["ANY", "Anyone"],
+                        ["FEMALE", "Women"],
+                        ["MALE", "Men"],
+                      ] as const
+                    ).map(([g, label], gi) => {
+                      const on = (draft.eligibilityGender || "ANY") === g;
+                      return (
+                        <Pressable
+                          key={g}
+                          onPress={() => setDraft({ ...draft, eligibilityGender: g })}
+                          className={`h-9 flex-1 items-center justify-center ${gi ? "border-l border-ink-200" : ""} ${on ? "bg-[#EEF3FF]" : "bg-white"}`}
+                        >
+                          <Text className={`text-[13px] ${on ? "font-semibold text-[#1F45C7]" : "text-ink-700"}`}>{label}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+              ) : null}
+            </View>
+
+            <View className="flex-row items-start gap-2 rounded-lg bg-ink-50 px-3 py-2.5">
+              <Ionicons name="eye-outline" size={14} color="#64748B" style={{ marginTop: 2 }} />
+              <Text className="min-w-0 flex-1 text-[12px] leading-5 text-ink-700">
+                <Text className="font-semibold text-ink-900">{draft.name.trim() || "This leave"}</Text>
+                {" · "}
+                {who(draft)}
+                {genderText(draft.eligibilityGender) ? ` · ${genderText(draft.eligibilityGender)}` : ""}
+                {" · "}
+                {noticeText(draft.noticeDays)}
+                {" · "}
+                {leaveCreditSummary(draft)}
+              </Text>
+            </View>
+          </View>
+        ) : null}
+      </Modal>
+    </View>
+  );
+}
+
+function LeaveYearPick({ value, disabled, onChange }: { value: number; disabled?: boolean; onChange: (m: number) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <View className="rounded-2xl border border-ink-200 bg-white p-3.5">
+      <View className="flex-row items-center gap-3">
+        <View className="h-10 w-10 items-center justify-center rounded-xl bg-[#EEF3FF]">
+          <Ionicons name="calendar-outline" size={19} color="#1F45C7" />
+        </View>
+        <View className="min-w-0 flex-1">
+          <Text className="text-[14px] font-semibold text-ink-900">Leave year</Text>
+          <Text className="text-[12px] text-ink-500">Credits restart and unused leave carries over or lapses on 1 {MONTHS[value - 1]}.</Text>
+        </View>
+        <Pressable
+          disabled={disabled}
+          onPress={() => setOpen((v) => !v)}
+          className="h-9 flex-row items-center gap-1.5 rounded-lg border border-ink-200 px-3"
+        >
+          <Text className="text-[13px] font-semibold text-ink-900">{MONTHS[value - 1]}</Text>
+          {disabled ? null : <Ionicons name={open ? "chevron-up" : "chevron-down"} size={14} color="#64748B" />}
+        </Pressable>
+      </View>
+      {open ? (
+        <View className="mt-3 flex-row flex-wrap gap-1.5">
+          {MONTHS.map((m, i) => {
+            const on = value === i + 1;
+            return (
+              <Pressable
+                key={m}
+                onPress={() => {
+                  setOpen(false);
+                  if (!on) onChange(i + 1);
+                }}
+                className={`h-8 w-[15%] min-w-[56px] items-center justify-center rounded-lg border ${on ? "border-[#1F45C7] bg-[#1F45C7]" : "border-ink-200 bg-white"}`}
+              >
+                <Text className={`text-[12px] font-semibold ${on ? "text-white" : "text-ink-700"}`}>{m.slice(0, 3)}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -2247,31 +2549,7 @@ export function SchoolBoard() {
             ) : null}
 
             {tab === "leave" && phone ? (
-              <View className="mt-3 gap-3">
-                <LeaveYearStart
-                  value={leaveYearStart}
-                  disabled={!edit}
-                  onChange={(m) => {
-                    setLeaveYearStart(m);
-                    void run("saveLeavePolicy", { types: leaveTypes, leaveYearStartMonth: m }, "Leave year updated.");
-                  }}
-                />
-                {edit ? (
-                  <Pressable
-                    onPress={() => setBalancesOpen(true)}
-                    className="flex-row items-center gap-3 rounded-2xl border border-ink-200 bg-white p-3.5"
-                  >
-                    <View className="h-10 w-10 items-center justify-center rounded-xl bg-[#EEF3FF]">
-                      <Ionicons name="people-outline" size={19} color="#1F45C7" />
-                    </View>
-                    <View className="min-w-0 flex-1">
-                      <Text className="text-[14px] font-semibold text-ink-900">Current balances</Text>
-                      <Text className="text-[12px] text-ink-500">Enter what each employee has left today (one-time import from your old register)</Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-                  </Pressable>
-                ) : null}
-                <LeaveBalancesSheet open={balancesOpen} onClose={() => setBalancesOpen(false)} />
+              <View className="mt-1 gap-4">
                 <PhoneLeaveTypes
                   types={leaveTypes}
                   setTypes={setLeaveTypes}
@@ -2281,218 +2559,76 @@ export function SchoolBoard() {
                     await run("saveLeavePolicy", { types: rows, leaveYearStartMonth: leaveYearStart }, "Leave types saved.");
                   }}
                 />
+                <View className="gap-2.5">
+                  <LeaveYearPick
+                    value={leaveYearStart}
+                    disabled={!edit}
+                    onChange={(m) => {
+                      setLeaveYearStart(m);
+                      void run("saveLeavePolicy", { types: leaveTypes, leaveYearStartMonth: m }, "Leave year updated.");
+                    }}
+                  />
+                  {edit ? (
+                    <Pressable
+                      onPress={() => setBalancesOpen(true)}
+                      className="flex-row items-center gap-3 rounded-2xl border border-ink-200 bg-white p-3.5 active:bg-ink-50"
+                    >
+                      <View className="h-10 w-10 items-center justify-center rounded-xl bg-[#EEF3FF]">
+                        <Ionicons name="people-outline" size={19} color="#1F45C7" />
+                      </View>
+                      <View className="min-w-0 flex-1">
+                        <Text className="text-[14px] font-semibold text-ink-900">Current balances</Text>
+                        <Text className="text-[12px] text-ink-500">See and set what each employee has left</Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
+                    </Pressable>
+                  ) : null}
+                </View>
+                <LeaveBalancesSheet open={balancesOpen} onClose={() => setBalancesOpen(false)} />
               </View>
             ) : null}
 
             {tab === "leave" && !phone ? (
-              <View className="mt-4 gap-3">
-                <View className="flex-row flex-wrap items-start justify-between gap-3">
-                  <View className="min-w-0 flex-1">
-                    <Text className="text-sm font-medium text-ink-900">Leave types</Text>
-                    <Text className="mt-0.5 text-xs text-ink-700">
-                      Decide who can apply, notice days, and how leave builds up for teachers and staff.
-                    </Text>
-                  </View>
-                  {edit ? (
-                    <Button
-                      variant="ghost"
-                      onPress={() =>
-                        setLeaveTypes((cur) => [
-                          ...cur,
-                          {
-                            id: "",
-                            name: "Duty",
-                            forTeacher: true,
-                            forStaff: true,
-                            forStudent: false,
-                            eligibilityGender: "ANY",
-                            noticeDays: 0,
-                            yearlyCap: 0,
-                            sortOrder: cur.length,
-                          },
-                        ])
-                      }
-                    >
-                      Add type
-                    </Button>
-                  ) : null}
-                </View>
-
-                <View className="overflow-hidden rounded-md border border-ink-200">
-                  {wide ? (
-                    <View className="flex-row items-center gap-3 border-b border-ink-100 bg-ink-50 px-3 py-2">
-                      <View className="min-w-0 flex-1">
-                        <Text className="text-xs font-medium text-ink-700">Type</Text>
-                      </View>
-                      <View className="w-56">
-                        <Text className="text-xs font-medium text-ink-700">Allowed for</Text>
-                      </View>
-                      <View className="w-48">
-                        <Text className="text-xs font-medium text-ink-700">Gender</Text>
-                      </View>
-                      <View className="w-32">
-                        <Text className="text-xs font-medium text-ink-700">Notice days</Text>
-                      </View>
-                      <View className="w-64">
-                        <Text className="text-xs font-medium text-ink-700">Leave credit</Text>
-                      </View>
-                      <View className="w-8" />
-                    </View>
-                  ) : null}
-                  {leaveTypes.map((row, i) => (
-                    <View
-                      key={row.id || `new-${i}`}
-                      className={`gap-3 border-b border-ink-100 px-3 py-3 last:border-b-0 ${wide ? "flex-row items-center" : ""}`}
-                    >
-                      <View className={wide ? "min-w-0 flex-1" : ""}>
-                        {!wide ? <Text className="mb-1 text-xs font-medium text-ink-700">Type</Text> : null}
-                        <Input
-                          value={row.name}
-                          onChangeText={(name) =>
-                            setLeaveTypes((cur) => cur.map((t, n) => (n === i ? { ...t, name } : t)))
-                          }
-                        />
-                      </View>
-                      <View className={wide ? "w-56" : ""}>
-                        {!wide ? <Text className="mb-1 text-xs font-medium text-ink-700">Allowed for</Text> : null}
-                        <View className="flex-row flex-wrap gap-2">
-                          {(
-                            [
-                              ["forTeacher", "Teachers"],
-                              ["forStaff", "Staff"],
-                              ["forStudent", "Students"],
-                            ] as const
-                          ).map(([key, label]) => (
-                            <SmallToggle
-                              key={key}
-                              label={label}
-                              on={row[key]}
-                              onPress={() =>
-                                setLeaveTypes((cur) => cur.map((t, n) => (n === i ? { ...t, [key]: !t[key] } : t)))
-                              }
-                            />
-                          ))}
-                        </View>
-                      </View>
-                      <View className={wide ? "w-48" : ""}>
-                        {!wide ? <Text className="mb-1 text-xs font-medium text-ink-700">Gender</Text> : null}
-                        <View className="flex-row flex-wrap gap-2">
-                          {(
-                            [
-                              ["ANY", "Any"],
-                              ["FEMALE", "Female"],
-                              ["MALE", "Male"],
-                            ] as const
-                          ).map(([gender, label]) => (
-                            <SmallToggle
-                              key={gender}
-                              label={label}
-                              on={(row.eligibilityGender || "ANY") === gender}
-                              onPress={() =>
-                                setLeaveTypes((cur) => cur.map((t, n) => (n === i ? { ...t, eligibilityGender: gender } : t)))
-                              }
-                            />
-                          ))}
-                        </View>
-                      </View>
-                      <View className={wide ? "w-32" : ""}>
-                        {!wide ? <Text className="mb-1 text-xs font-medium text-ink-700">Notice days</Text> : null}
-                        <Input
-                          keyboardType="number-pad"
-                          value={String(row.noticeDays)}
-                          onChangeText={(v) =>
-                            setLeaveTypes((cur) =>
-                              cur.map((t, n) => (n === i ? { ...t, noticeDays: Number(v.replace(/\D/g, "") || 0) } : t))
-                            )
-                          }
-                        />
-                      </View>
-                      <View className={wide ? "w-64" : ""}>
-                        {!wide ? <Text className="mb-1 text-xs font-medium text-ink-700">Leave credit</Text> : null}
-                        <Pressable
-                          disabled={!edit}
-                          onPress={() => setCreditEdit(i)}
-                          className="min-h-[40px] flex-row items-center gap-2 rounded-md border border-ink-200 bg-white px-3 py-2"
-                        >
-                          <Text className="min-w-0 flex-1 text-[13px] text-ink-900" numberOfLines={2}>
-                            {leaveCreditSummary(row)}
-                          </Text>
-                          {edit ? <Ionicons name="create-outline" size={15} color="#1F45C7" /> : null}
-                        </Pressable>
-                      </View>
-                      {edit && leaveTypes.length > 1 ? (
-                        <Pressable
-                          accessibilityRole="button"
-                          accessibilityLabel={`Remove ${row.name || "leave type"}`}
-                          hitSlop={8}
-                          className="h-8 w-8 items-center justify-center self-start"
-                          onPress={() => setLeaveTypes((cur) => cur.filter((_, n) => n !== i))}
-                        >
-                          <Ionicons name="close-circle-outline" size={20} color="#b91c1c" />
-                        </Pressable>
-                      ) : wide ? (
-                        <View className="w-8" />
-                      ) : null}
-                    </View>
-                  ))}
-                </View>
+              <View className="mt-4 gap-4">
+                <DeskLeaveTypes
+                  types={leaveTypes}
+                  setTypes={setLeaveTypes}
+                  canEdit={edit}
+                  startMonth={leaveYearStart}
+                  onSave={async (rows) => {
+                    await run("saveLeavePolicy", { types: rows, leaveYearStartMonth: leaveYearStart }, "Leave types saved.");
+                  }}
+                />
                 <View className="flex-row flex-wrap gap-3">
                   <View className="min-w-[320px] flex-1">
-                    <LeaveYearStart value={leaveYearStart} disabled={!edit} onChange={setLeaveYearStart} />
+                    <LeaveYearPick
+                      value={leaveYearStart}
+                      disabled={!edit}
+                      onChange={(m) => {
+                        setLeaveYearStart(m);
+                        void run("saveLeavePolicy", { types: leaveTypes, leaveYearStartMonth: m }, "Leave year updated.");
+                      }}
+                    />
                   </View>
                   {edit ? (
                     <View className="min-w-[320px] flex-1">
                       <Pressable
-                    onPress={() => setBalancesOpen(true)}
-                    className="flex-row items-center gap-3 rounded-2xl border border-ink-200 bg-white p-3.5"
-                  >
-                    <View className="h-10 w-10 items-center justify-center rounded-xl bg-[#EEF3FF]">
-                      <Ionicons name="people-outline" size={19} color="#1F45C7" />
-                    </View>
-                    <View className="min-w-0 flex-1">
-                      <Text className="text-[14px] font-semibold text-ink-900">Current balances</Text>
-                      <Text className="text-[12px] text-ink-500">Enter what each employee has left today (one-time import from your old register)</Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-                  </Pressable>
+                        onPress={() => setBalancesOpen(true)}
+                        className="flex-row items-center gap-3 rounded-2xl border border-ink-200 bg-white p-3.5 hover:bg-ink-50"
+                      >
+                        <View className="h-10 w-10 items-center justify-center rounded-xl bg-[#EEF3FF]">
+                          <Ionicons name="people-outline" size={19} color="#1F45C7" />
+                        </View>
+                        <View className="min-w-0 flex-1">
+                          <Text className="text-[14px] font-semibold text-ink-900">Current balances</Text>
+                          <Text className="text-[12px] text-ink-500">See and set what each employee has left</Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
+                      </Pressable>
                     </View>
                   ) : null}
                 </View>
                 <LeaveBalancesSheet open={balancesOpen} onClose={() => setBalancesOpen(false)} />
-                {edit ? (
-                  <View className="flex-row justify-end">
-                    <Button
-                      onPress={() =>
-                        run(
-                          "saveLeavePolicy",
-                          { types: leaveTypes, leaveYearStartMonth: leaveYearStart },
-                          "Leave policy saved."
-                        )
-                      }
-                    >
-                      Save leave
-                    </Button>
-                  </View>
-                ) : null}
-                <Modal
-                  open={creditEdit !== null && Boolean(leaveTypes[creditEdit ?? -1])}
-                  title={`${leaveTypes[creditEdit ?? -1]?.name || "Leave"} · how it builds up`}
-                  onClose={() => setCreditEdit(null)}
-                  footer={
-                    <View className="flex-row justify-end">
-                      <Button onPress={() => setCreditEdit(null)}>Done</Button>
-                    </View>
-                  }
-                >
-                  {creditEdit !== null && leaveTypes[creditEdit] ? (
-                    <LeaveCreditFields
-                      row={leaveTypes[creditEdit]}
-                      startMonth={leaveYearStart}
-                      existing={Boolean(leaveTypes[creditEdit].id)}
-                      onChange={(next) => setLeaveTypes((cur) => cur.map((t, n) => (n === creditEdit ? next : t)))}
-                    />
-                  ) : null}
-                </Modal>
               </View>
             ) : null}
 
