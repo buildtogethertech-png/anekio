@@ -1458,8 +1458,13 @@ app.get("/api/v1/leave-ledger", async (req, res) => {
   if (!user) return;
   if (!(await requireActiveSubscription(user.id, res))) return;
   try {
-    const teacherId = String(req.query.teacherId || "");
-    const staffId = String(req.query.staffId || "");
+    let teacherId = String(req.query.teacherId || "");
+    let staffId = String(req.query.staffId || "");
+    if (req.query.me === "1") {
+      teacherId = (await prisma.teacher.findUnique({ where: { userId: user.id }, select: { id: true } }))?.id || "";
+      staffId = teacherId ? "" : (await prisma.staffMember.findUnique({ where: { userId: user.id }, select: { id: true } }))?.id || "";
+      if (!teacherId && !staffId) return res.json({ balances: [], ledger: [] });
+    }
     const { can } = await import("../lib/permissions");
     const self =
       (teacherId && (await prisma.teacher.findFirst({ where: { id: teacherId, userId: user.id }, select: { id: true } }))) ||

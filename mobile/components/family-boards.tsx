@@ -1194,11 +1194,33 @@ export function TeacherLeaveBoard() {
   const inYear = mine.filter((row) => row.from.slice(0, 10) >= yearStart && row.from.slice(0, 10) <= yearEnd);
   const balances = types.map((type, index) => {
     const rows = inYear.filter((row) => row.typeId === type.id);
+    const server = (data?.leaveBalances ?? []).find((b) => b.typeId === type.id);
+    const tint = LEAVE_TINTS[index % LEAVE_TINTS.length];
+    if (server) {
+      // Ledger-based balance: "cap" is what has been credited so far this leave year.
+      return {
+        type,
+        used: server.used,
+        waiting: server.pending,
+        cap: server.limited ? server.earned : 0,
+        left: server.limited ? Math.max(0, server.available) : null,
+        tint,
+      };
+    }
     const used = rows.filter((row) => row.status === "ACTIVE").reduce((sum, row) => sum + (row.days || 0), 0);
     const waiting = rows.filter((row) => row.status === "WAITING").reduce((sum, row) => sum + (row.days || 0), 0);
     const cap = type.yearlyCap || 0;
-    return { type, used, waiting, cap, left: cap ? Math.max(0, cap - used) : null, tint: LEAVE_TINTS[index % LEAVE_TINTS.length] };
+    return { type, used, waiting, cap, left: cap ? Math.max(0, cap - used) : null, tint };
   });
+  const [historyTab, setHistoryTab] = useState<"taken" | "credits">("taken");
+  const [credits, setCredits] = useState<{ id: string; typeId: string; typeName: string; kind: string; days: number; note: string; at: string }[]>([]);
+  const [showAllCredits, setShowAllCredits] = useState(false);
+  useEffect(() => {
+    if (!token) return;
+    api<{ ledger: typeof credits }>("/leave-ledger?me=1", token)
+      .then((res) => setCredits(res.ledger))
+      .catch(() => setCredits([]));
+  }, [token, data?.leaveBalances]);
   const capped = balances.filter((row) => row.cap > 0);
   const totalCap = capped.reduce((sum, row) => sum + row.cap, 0);
   const totalUsed = capped.reduce((sum, row) => sum + row.used, 0);
@@ -1340,10 +1362,59 @@ export function TeacherLeaveBoard() {
         <View className="h-3" />
       </View>
 
-      {past.length ? (
+      {past.length || credits.length ? (
         <View className="mb-4 overflow-hidden rounded-3xl bg-white" style={CARD_SHADOW}>
-          <Text className="px-5 pb-1 pt-4 text-base font-semibold text-ink-900">History</Text>
-          {past.map(requestRow)}
+          <View className="flex-row items-center justify-between gap-3 px-5 pb-1 pt-4">
+            <Text className="text-base font-semibold text-ink-900">History</Text>
+            {credits.length ? (
+              <View className="flex-row rounded-xl bg-ink-100 p-0.5">
+                {([
+                  ["taken", "Leave taken"],
+                  ["credits", "Credits"],
+                ] as const).map(([key, label]) => (
+                  <Pressable key={key} onPress={() => setHistoryTab(key)} className={`h-8 justify-center rounded-lg px-3 ${historyTab === key ? "bg-white" : ""}`}>
+                    <Text className={`text-[12px] font-semibold ${historyTab === key ? "text-ink-900" : "text-ink-500"}`}>{label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+          </View>
+          {historyTab === "credits" && credits.length ? (
+            <>
+              {(showAllCredits ? credits : credits.slice(0, 8)).map((c) => {
+                const tint = tintFor(c.typeId);
+                const neg = c.days < 0;
+                const label =
+                  c.kind === "CREDIT" ? c.note : c.kind === "CARRY_FORWARD" ? c.note || "Carried forward" : c.kind === "LAPSE" ? c.note || "Lapsed" : c.kind === "OPENING" ? "Opening balance" : c.note || "Adjustment";
+                return (
+                  <View key={c.id} className="flex-row items-center gap-3 px-5 py-3">
+                    <View className="h-10 w-10 items-center justify-center rounded-xl" style={{ backgroundColor: tint.soft }}>
+                      <Ionicons name={neg ? "remove" : c.kind === "CARRY_FORWARD" ? "arrow-redo-outline" : "add"} size={19} color={tint.bar} />
+                    </View>
+                    <View className="min-w-0 flex-1">
+                      <Text className="text-[15px] font-medium text-ink-900" numberOfLines={1}>{c.typeName}</Text>
+                      <Text className="mt-0.5 text-xs text-ink-700" numberOfLines={1}>
+                        {label} · {new Date(c.at).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                      </Text>
+                    </View>
+                    <Text className={`text-[15px] font-bold ${neg ? "text-[#B42318]" : "text-[#18794E]"}`}>
+                      {neg ? "" : "+"}
+                      {c.days % 1 ? c.days.toFixed(1) : c.days}
+                    </Text>
+                  </View>
+                );
+              })}
+              {credits.length > 8 ? (
+                <Pressable onPress={() => setShowAllCredits((v) => !v)} className="px-5 py-2">
+                  <Text className="text-[13px] font-semibold text-[#1F45C7]">{showAllCredits ? "Show less" : `Show all ${credits.length}`}</Text>
+                </Pressable>
+              ) : null}
+            </>
+          ) : past.length ? (
+            past.map(requestRow)
+          ) : (
+            <Text className="px-5 py-4 text-[13px] text-ink-500">No leave taken yet.</Text>
+          )}
           <View className="h-3" />
         </View>
       ) : null}
