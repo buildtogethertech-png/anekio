@@ -28,7 +28,7 @@ import { closedReason, paperDates, parseHolidayText, snapToSchoolDay, type Paper
 import { classifyFromIn, normalizeHHmm, parsePayrollRules, personKey, type PayrollRules } from "./payroll";
 import { hasLiveSalaryPayments } from "./salary-payments";
 import { loadSchoolCalendar } from "./leave";
-import { earliestStaffInAt, staffDayInstant, staffDayWindow, staffDayYmd } from "./staff-day";
+import { earliestStaffInAt, staffAttendanceInMark, staffDayInstant, staffDayWindow, staffDayYmd } from "./staff-day";
 import { addDays, examPlanWeight, parseExamPlan, ymd } from "./exams";
 import { teacherCanEditMarks, teacherMayEnterMarks } from "./exam-workflow";
 import { teacherIdsBySubjectName, teacherMayHostClassTest } from "./exam-evaluators";
@@ -37,10 +37,26 @@ import { notifySchedulePublished, notifySeriesAssigned } from "./exam-events";
 import { storedNoticeKind, normalizeWhatsAppGroupUrl } from "./notices";
 import { notifyNoticePublished, notifyNoticeRecipients } from "./push";
 import { PAY_GATEWAYS, type PayGateway } from "./pay-config";
-import { formatQualification, parseSubjectCatalog, parseWeekdays, weekCapacity } from "./schedule";
+import { formatQualification, parseWeekdays, weekCapacity } from "./schedule";
+import {
+  assertCodeFitsGrade,
+  catalogCodeMatchesGrade,
+  catalogEntryFromName,
+  catalogHasSubject,
+  formatClassList,
+  formatSubjectLabel,
+  gradeNameOf,
+  matchCatalogEntry,
+  matchClassSubject,
+  parseSubjectCatalog,
+  requireSubjectCode,
+  serializeSubjectCatalog,
+  skillMatchesSubject,
+  validateSubjectCode,
+} from "./subject-code";
 import { validateSchoolWebsiteSlug } from "./host-routing";
 import { ensureVercelSchoolWebsiteDomain } from "./vercel-domains";
-import { runWithoutTenant } from "./tenant-context";
+import { currentTenantOrg, runWithoutTenant } from "./tenant-context";
 import { assignStudentRollNumber } from "./student-rolls";
 import {
   createSchoolSession,
@@ -981,7 +997,7 @@ export async function createTeacherCore(
     employeeId?: string;
     qualification?: string[] | string;
     qualificationNotes?: string;
-    offers?: { subjectName: string; classId: string }[];
+    offers?: { subjectName?: string; subjectCode?: string; classId: string }[];
     monthlySalary?: number | string;
   }
 ) {
@@ -993,7 +1009,7 @@ export async function createTeacherCore(
   await assertPhoneFree(mobile);
   let employeeId = (input.employeeId || "").trim();
   if (!employeeId) employeeId = await nextEmployeeId("T", user.orgId ?? null);
-  const offers = (input.offers || []).filter((o) => o.subjectName && o.classId);
+  const offers = await catalogTeacherOffers(input.offers);
   const classIds = [...new Set(offers.map((o) => o.classId))];
   const tags = Array.isArray(input.qualification)
     ? input.qualification
@@ -1002,7 +1018,7 @@ export async function createTeacherCore(
       : [];
   const qualification = formatQualification(tags, input.qualificationNotes || "");
   const roleId = await roleIdBySlug("TEACHER");
-  await prisma.user.create({
+  const created = await prisma.user.create({
     data: {
       name,
       email,
@@ -1025,7 +1041,9 @@ export async function createTeacherCore(
         },
       },
     },
+    include: { teacher: true },
   });
+  if (created.teacher) await assignSubjectTeachers(created.teacher.id, offers);
 }
 
 async function assertWeightsFitWeek(weights: { name: string; weightage: number }[]) {
@@ -1049,29 +1067,92 @@ async function assertWeightsFitWeek(weights: { name: string; weightage: number }
   return cap;
 }
 
+async function catalogTeacherOffers(
+  raw?: { subjectName?: string; subjectCode?: string; classId: string }[]
+) {
+  const config = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
+  const catalog = parseSubjectCatalog(config?.subjectCatalog);
+  const offers = (raw || []).filter((row) => row.classId && (row.subjectName || row.subjectCode));
+  const classIds = [...new Set(offers.map((row) => row.classId))];
+  const classes = classIds.length
+    ? await prisma.class.findMany({
+        where: { id: { in: classIds } },
+        include: { subjects: true },
+      })
+    : [];
+  const resolved: { subjectName: string; classId: string; subjectId: string }[] = [];
+  for (const row of offers) {
+    const matched = matchCatalogEntry(catalog, {
+      code: row.subjectCode || row.subjectName,
+      name: row.subjectName,
+    });
+    if (!matched) {
+      throw new Error(`${row.subjectCode || row.subjectName} is not in the school subject catalog.`);
+    }
+    const klass = classes.find((item) => item.id === row.classId);
+    if (!klass) throw new Error("Class required");
+    let planned = matchClassSubject(klass.subjects, { code: matched.code, subjectName: matched.name });
+    if (!planned && catalogCodeMatchesGrade(matched.code, klass.name)) {
+      await assertCodeFitsGrade({ gradeName: klass.name, code: matched.code, name: matched.name });
+      planned = await prisma.subject.create({
+        data: { classId: klass.id, code: matched.code, name: matched.name, weightage: 4 },
+      });
+      klass.subjects.push(planned);
+    }
+    if (!planned) {
+      const label = `${klass.name}-${klass.section}`;
+      throw new Error(
+        `${matched.code} is not part of ${label}'s class curriculum. Add ${matched.code} to the class plan first.`
+      );
+    }
+    resolved.push({ subjectName: planned.code, classId: row.classId, subjectId: planned.id });
+  }
+  return resolved;
+}
+
+async function assignSubjectTeachers(
+  teacherId: string,
+  offers: { subjectId: string }[]
+) {
+  for (const offer of offers) {
+    await prisma.subject.update({ where: { id: offer.subjectId }, data: { teacherId } });
+  }
+}
+
 export async function createClassCore(
   user: AccessUser,
   input: {
     name: string;
     section?: string;
     teacherId?: string;
-    subjects?: { name: string; weightage: number }[];
+    subjects?: { code?: string; name: string; weightage: number }[];
   }
 ) {
   need(user, "people.edit", "school.edit");
   const name = input.name.trim();
   const section = (input.section || "A").trim().toUpperCase();
   if (!name) throw new Error("Class and section required");
-  let weights = (input.subjects || [])
-    .map((s) => ({ name: s.name.trim(), weightage: Math.max(0, Number(s.weightage) || 0) }))
-    .filter((s) => s.name);
-  if (!weights.length) {
-    const config = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
-    const catalog = parseSubjectCatalog(config?.subjectCatalog);
-    const each = 4;
-    weights = catalog.map((name) => ({ name, weightage: each }));
+  const config = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
+  const catalog = parseSubjectCatalog(config?.subjectCatalog);
+  const weights = (input.subjects || [])
+    .map((s) => {
+      const subjectName = s.name.trim();
+      if (!subjectName && !s.code) return null;
+      const matched = matchCatalogEntry(catalog, { code: s.code, name: subjectName });
+      if (!matched) {
+        throw new Error(`${s.code || subjectName} is not in the school subject catalog.`);
+      }
+      return {
+        code: matched.code,
+        name: matched.name,
+        weightage: Math.max(0, Number(s.weightage) || 0),
+      };
+    })
+    .filter((s): s is { code: string; name: string; weightage: number } => Boolean(s));
+  if (weights.length) await assertWeightsFitWeek(weights);
+  for (const row of weights) {
+    await assertCodeFitsGrade({ gradeName: name, code: row.code, name: row.name });
   }
-  if (weights.length) await assertWeightsFitWeek(weights).catch(() => undefined);
   const existingClass = await prisma.class.findFirst({ where: { name, section } });
   const klass = existingClass
     ? await prisma.class.update({ where: { id: existingClass.id }, data: { archivedAt: null } })
@@ -1088,13 +1169,22 @@ export async function createClassCore(
       });
     }
   }
-  for (const row of weights) {
-    const existing = await prisma.subject.findFirst({ where: { classId: klass.id, name: row.name } });
-    if (existing) {
-      await prisma.subject.update({ where: { id: existing.id }, data: { weightage: row.weightage } });
-    } else {
-      await prisma.subject.create({ data: { classId: klass.id, name: row.name, weightage: row.weightage } });
-    }
+  if (weights.length) {
+    await saveClassCurriculumCore(user, { classId: klass.id, subjects: weights });
+    return;
+  }
+  const sibling = await prisma.class.findFirst({
+    where: { name, id: { not: klass.id }, archivedAt: null },
+    include: { subjects: true },
+  });
+  for (const row of sibling?.subjects || []) {
+    const existing = await prisma.subject.findFirst({
+      where: { classId: klass.id, OR: [{ code: row.code }, { name: row.name }] },
+    });
+    if (existing) continue;
+    await prisma.subject.create({
+      data: { classId: klass.id, code: row.code, name: row.name, weightage: row.weightage },
+    });
   }
 }
 
@@ -1129,10 +1219,11 @@ export async function markAttendanceCore(
 
 async function staffDaysOnStamp(kind: "teacher" | "staff", id: string, stamp: string) {
   const { from, to } = staffDayWindow(stamp);
-  const rows =
+  const rows = await runWithoutTenant(() =>
     kind === "teacher"
-      ? await prisma.staffDay.findMany({ where: { teacherId: id, date: { gte: from, lte: to } } })
-      : await prisma.staffDay.findMany({ where: { staffId: id, date: { gte: from, lte: to } } });
+      ? prisma.staffDay.findMany({ where: { teacherId: id, date: { gte: from, lte: to } } })
+      : prisma.staffDay.findMany({ where: { staffId: id, date: { gte: from, lte: to } } })
+  );
   return rows.filter((row) => staffDayYmd(row.date) === stamp);
 }
 
@@ -1162,21 +1253,26 @@ async function writeStaffDayOnStamp(
   }
 ) {
   const instant = staffDayInstant(stamp);
+  const orgId = currentTenantOrg() ?? null;
   const rows = await staffDaysOnStamp(kind, id, stamp);
   const keep = rows.find((row) => row.inAt) || rows[0];
   const extras = rows.filter((row) => row.id !== keep?.id).map((row) => row.id);
-  if (extras.length) await prisma.staffDay.deleteMany({ where: { id: { in: extras } } });
+  if (extras.length) {
+    await runWithoutTenant(() => prisma.staffDay.deleteMany({ where: { id: { in: extras } } }));
+  }
   if (keep) {
-    await prisma.staffDay.update({
-      where: { id: keep.id },
-      data,
-    });
+    await runWithoutTenant(() =>
+      prisma.staffDay.update({
+        where: { id: keep.id },
+        data: { ...data, orgId: orgId ?? keep.orgId },
+      })
+    );
     return;
   }
   if (kind === "teacher") {
-    await prisma.staffDay.create({ data: { teacherId: id, date: instant, ...data } });
+    await prisma.staffDay.create({ data: { teacherId: id, date: instant, orgId, ...data } });
   } else {
-    await prisma.staffDay.create({ data: { staffId: id, date: instant, ...data } });
+    await prisma.staffDay.create({ data: { staffId: id, date: instant, orgId, ...data } });
   }
 }
 
@@ -1232,6 +1328,11 @@ export async function markStaffAttendanceCore(
 export async function generateStaffAttendanceQrCore(user: AccessUser) {
   const self = await resolveStaffAttendanceSelf(user);
   if (!self) throw new Error("No staff profile is linked to this account.");
+  const stamp = staffDayYmd(new Date());
+  const existing = await findStaffDayOnStamp(self.kind, self.id, stamp);
+  if (staffAttendanceInMark(existing)) {
+    throw new Error("Attendance already marked for today");
+  }
   const token = randomUUID().replace(/-/g, "");
   const expiresAt = Date.now() + STAFF_ATTENDANCE_QR_TTL_MS;
   staffAttendanceQrTokens.set(token, { ...self, expiresAt });
@@ -1286,6 +1387,11 @@ export async function scanStaffAttendanceQrCore(user: AccessUser, input: { code:
   const rules = parsePayrollRules(config?.payrollJson);
   const inAt = currentSchoolTime();
   const existing = await findStaffDayOnStamp(ticket.kind, ticket.id, stamp);
+  if (staffAttendanceInMark(existing)) {
+    ticket.usedAt = Date.now();
+    staffAttendanceQrTokens.set(token, ticket);
+    throw new Error("Attendance already marked for today");
+  }
   const preservedInAt = earliestStaffInAt(existing?.inAt, inAt) || inAt;
   const next = classifyStaffDay("PRESENT", preservedInAt, "", rules);
   await writeStaffDayOnStamp(ticket.kind, ticket.id, stamp, {
@@ -2399,7 +2505,8 @@ export async function saveTimetableSlotCore(
     clear?: boolean;
   }
 ) {
-  const { classId, periodId, weekday } = input;
+  const { classId, periodId } = input;
+  const weekday = Number(input.weekday);
   need(user, "timetable.edit");
   if (scopeFor(user, "timetable.edit") === "REPORTS") {
     const team = await teamClassIds(user.id);
@@ -2417,35 +2524,74 @@ export async function saveTimetableSlotCore(
     return { ok: true as const };
   }
   if (period.isBreak) throw new Error("A break cannot take a lesson.");
-  if (teacherId && (input.subjectName || subjectId)) {
-    let name = input.subjectName || "";
-    if (!name && subjectId) {
-      const existing = await prisma.subject.findUnique({ where: { id: subjectId } });
-      name = existing?.name ?? "";
-    }
-    if (name) {
-      const skill = await prisma.teacherSkill.findUnique({
-        where: { teacherId_subjectName_classId: { teacherId, subjectName: name, classId } },
-      });
-      if (!skill) throw new Error("This teacher is not assigned that subject for this class.");
-      const found = await prisma.subject.findFirst({ where: { classId, name } });
-      const subject = found
-        ? await prisma.subject.update({ where: { id: found.id }, data: { teacherId } })
-        : await prisma.subject.create({ data: { name, classId, teacherId } });
-      subjectId = subject.id;
-    }
-  }
-  if (teacherId) {
-    const busy = await prisma.timetableSlot.findFirst({
-      where: { teacherId, periodId, weekday, NOT: { classId } },
-    });
-    if (busy) throw new Error("This teacher is already in another class this period.");
-  }
-  await prisma.timetableSlot.upsert({
-    where: { classId_periodId_weekday: { classId, periodId, weekday } },
-    update: { subjectId, teacherId },
-    create: { classId, periodId, weekday, subjectId, teacherId },
+  if (!teacherId) throw new Error("Pick a teacher assigned to this subject.");
+  const klass = await prisma.class.findUnique({ where: { id: classId } });
+  if (!klass) throw new Error("Class required");
+  const classLabel = `${klass.name}-${klass.section}`;
+  const catalog = parseSubjectCatalog(config?.subjectCatalog);
+  const classSubjects = await prisma.subject.findMany({ where: { classId } });
+  const planned = matchClassSubject(classSubjects, {
+    subjectId,
+    code: input.subjectName,
+    subjectName: input.subjectName,
   });
+  if (!planned) {
+    const wanted = String(input.subjectName || "").trim();
+    const fromCatalog = matchCatalogEntry(catalog, { code: wanted, name: wanted });
+    const code = fromCatalog?.code || (validateSubjectCode(wanted).ok ? validateSubjectCode(wanted).code : wanted || "That subject");
+    throw new Error(
+      `${code} is not configured for this class. Add ${code} to the class curriculum first.`
+    );
+  }
+  if (!catalogHasSubject(catalog, { code: planned.code, name: planned.name })) {
+    throw new Error(
+      `${formatSubjectLabel(planned.code, planned.name)} is not in the school subject catalog.`
+    );
+  }
+  subjectId = planned.id;
+  const teacher = await prisma.teacher.findUnique({
+    where: { id: teacherId },
+    include: { user: { select: { name: true } } },
+  });
+  if (!teacher) throw new Error("Teacher required");
+  const skills = await prisma.teacherSkill.findMany({
+    where: { teacherId, classId },
+    select: { subjectName: true },
+  });
+  const skill = skills.find((row) => skillMatchesSubject(row.subjectName, planned));
+  if (!skill) {
+    throw new Error(`${teacher.user.name} is not assigned ${planned.code} for class ${classLabel}.`);
+  }
+  const already = await prisma.timetableSlot.count({
+    where: {
+      classId,
+      subjectId: planned.id,
+      NOT: { periodId, weekday },
+    },
+  });
+  if (planned.weightage > 0 && already >= planned.weightage) {
+    throw new Error(
+      `${formatSubjectLabel(planned.code, planned.name)} is already ${planned.weightage}/${planned.weightage} for ${classLabel}.`
+    );
+  }
+  await prisma.subject.update({ where: { id: planned.id }, data: { teacherId } });
+  const busy = await prisma.timetableSlot.findFirst({
+    where: { teacherId, periodId, weekday, NOT: { classId } },
+  });
+  if (busy) throw new Error("This teacher is already in another class this period.");
+  const existing = await prisma.timetableSlot.findFirst({
+    where: { classId, periodId, weekday },
+  });
+  if (existing) {
+    await prisma.timetableSlot.update({
+      where: { id: existing.id },
+      data: { subjectId, teacherId },
+    });
+  } else {
+    await prisma.timetableSlot.create({
+      data: { classId, periodId, weekday, subjectId, teacherId },
+    });
+  }
   return { ok: true as const };
 }
 
@@ -2922,61 +3068,298 @@ export async function createOfficeUserCore(
   });
 }
 
+type CurriculumWeight = {
+  id?: string;
+  previousCode: { ok: true; code: string } | { ok: false } | null;
+  code: string;
+  name: string;
+  weightage: number;
+};
+
+function matchSectionSubject(
+  current: { id: string; code: string; name: string }[],
+  row: CurriculumWeight,
+  useIds: boolean
+) {
+  if (useIds && row.id) {
+    const byId = current.find((subject) => subject.id === row.id);
+    if (byId) return byId;
+  }
+  const previousCode = row.previousCode && "ok" in row.previousCode && row.previousCode.ok ? row.previousCode.code : "";
+  return (
+    (previousCode && current.find((subject) => subject.code === previousCode)) ||
+    current.find((subject) => subject.code === row.code) ||
+    current.find((subject) => subject.name.trim().toLowerCase() === row.name.toLowerCase()) ||
+    null
+  );
+}
+
+async function unloadClassSubject(row: {
+  id: string;
+  code: string;
+  name: string;
+  classId: string;
+  classLabel: string;
+}) {
+  const label = formatSubjectLabel(row.code, row.name);
+  const examCount = await prisma.exam.count({ where: { subjectId: row.id } });
+  if (examCount) {
+    throw new Error(`${label} is used in ${row.classLabel} exams. Remove those papers first.`);
+  }
+  await prisma.timetableSlot.deleteMany({ where: { subjectId: row.id } });
+  await prisma.teacherSkill.deleteMany({
+    where: {
+      classId: row.classId,
+      OR: [{ subjectName: row.code }, { subjectName: row.name }],
+    },
+  });
+  await prisma.subject.delete({ where: { id: row.id } });
+}
+
 export async function saveSchoolSubjectsCore(
   user: AccessUser,
-  input: { names?: string[]; applyToAllClasses?: boolean }
+  input: {
+    names?: string[];
+    entries?: { code?: string; name?: string; previousCode?: string }[];
+    applyToAllClasses?: boolean;
+  }
 ) {
   need(user, "school.edit");
-  const names = [...new Set((input.names || []).map((s) => String(s || "").trim()).filter(Boolean))];
-  if (!names.length) throw new Error("Add at least one subject.");
+  const existingConfig = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
+  const previous = parseSubjectCatalog(existingConfig?.subjectCatalog);
+  const incoming = (input.entries || []).length
+    ? (input.entries || []).map((row) => {
+        const name = String(row.name || "").trim();
+        const code = String(row.code || "");
+        const previousCode = row.previousCode ? validateSubjectCode(row.previousCode) : null;
+        return { code, name, previousCode };
+      })
+    : (input.names || []).map((name) => ({
+        ...catalogEntryFromName(String(name || "")),
+        previousCode: null as ReturnType<typeof validateSubjectCode> | null,
+      }));
+  const entries = incoming.map((row) => ({ code: row.code, name: row.name }));
+  const subjectCatalog = serializeSubjectCatalog(entries);
+  const catalog = parseSubjectCatalog(subjectCatalog);
+  const recodedAway = new Set(
+    incoming
+      .map((row) => (row.previousCode?.ok && row.previousCode.code !== requireSubjectCode(row.code) ? row.previousCode.code : ""))
+      .filter(Boolean)
+  );
+  const allowedCodes = new Set([...catalog.map((row) => row.code), ...recodedAway]);
+  const stillUsed = await prisma.subject.findMany({
+    where: { code: { notIn: [...allowedCodes] } },
+    include: { class: true },
+  });
+  const blocked = new Map<string, string[]>();
+  for (const row of stillUsed) {
+    const labels = blocked.get(row.code) || [];
+    labels.push(`${row.class.name}-${row.class.section}`);
+    blocked.set(row.code, labels);
+  }
+  if (blocked.size) {
+    const [code, labels] = [...blocked.entries()][0];
+    throw new Error(
+      `${code} is still used by ${formatClassList(labels)}. Remove it from those class curricula first.`
+    );
+  }
   await prisma.schoolConfig.upsert({
     where: { id: "school" },
-    update: { subjectCatalog: JSON.stringify(names) },
-    create: { id: "school", subjectCatalog: JSON.stringify(names) },
+    update: { subjectCatalog },
+    create: { id: "school", subjectCatalog },
   });
-  if (!input.applyToAllClasses) return;
+  for (const row of incoming) {
+    const nextCode = requireSubjectCode(row.code);
+    const oldCode = row.previousCode?.ok ? row.previousCode.code : nextCode;
+    const prev = previous.find((entry) => entry.code === oldCode) || previous.find((entry) => entry.code === nextCode);
+    if (oldCode !== nextCode) {
+      await prisma.subject.updateMany({
+        where: { code: oldCode },
+        data: { code: nextCode, name: row.name },
+      });
+      await prisma.teacherSkill.updateMany({
+        where: { subjectName: { in: [oldCode, prev?.name || row.name] } },
+        data: { subjectName: nextCode },
+      });
+    } else {
+      await prisma.subject.updateMany({ where: { code: nextCode }, data: { name: row.name } });
+      if (prev && prev.name !== row.name) {
+        await prisma.teacherSkill.updateMany({
+          where: { subjectName: prev.name },
+          data: { subjectName: nextCode },
+        });
+      }
+    }
+  }
   const classes = await prisma.class.findMany({
     where: { archivedAt: null },
     include: { subjects: true },
   });
+  const owners = await prisma.subject.findMany({
+    where: { code: { in: catalog.map((row) => row.code) } },
+    include: { class: { select: { name: true } } },
+  });
+  const gradesByCode = new Map<string, Set<string>>();
+  for (const row of owners) {
+    const grades = gradesByCode.get(row.code) || new Set<string>();
+    grades.add(row.class.name.trim());
+    gradesByCode.set(row.code, grades);
+  }
   for (const klass of classes) {
-    const have = new Set(klass.subjects.map((s) => s.name));
-    for (const name of names) {
-      if (have.has(name)) continue;
-      await prisma.subject.create({ data: { classId: klass.id, name, weightage: 4 } });
+    for (const entry of catalog) {
+      const ownedOnGrade = gradesByCode.get(entry.code)?.has(klass.name.trim());
+      const gradeMatch = catalogCodeMatchesGrade(entry.code, klass.name);
+      if (!gradeMatch && !(input.applyToAllClasses && ownedOnGrade)) continue;
+      const have = klass.subjects.find(
+        (s) => s.code === entry.code || s.name.trim().toLowerCase() === entry.name.trim().toLowerCase()
+      );
+      if (have) continue;
+      try {
+        await assertCodeFitsGrade({ gradeName: klass.name, code: entry.code, name: entry.name });
+      } catch {
+        continue;
+      }
+      const created = await prisma.subject.create({
+        data: { classId: klass.id, code: entry.code, name: entry.name, weightage: 4 },
+      });
+      klass.subjects.push(created);
+      const grades = gradesByCode.get(entry.code) || new Set<string>();
+      grades.add(klass.name.trim());
+      gradesByCode.set(entry.code, grades);
     }
   }
 }
 
 export async function saveClassCurriculumCore(
   user: AccessUser,
-  input: { classId: string; subjects: { name: string; weightage: number }[] }
+  input: {
+    classId: string;
+    subjects: { id?: string; code?: string; previousCode?: string; name: string; weightage: number }[];
+  }
 ) {
   need(user, "people.edit");
   const classId = input.classId;
   if (!classId) throw new Error("Class required");
-  const weights = (input.subjects || [])
-    .map((s) => ({ name: s.name.trim(), weightage: Math.max(0, Number(s.weightage) || 0) }))
-    .filter((s) => s.name);
-  if (!weights.length) throw new Error("Add at least one subject.");
-  await assertWeightsFitWeek(weights);
-  const keep = new Set(weights.map((w) => w.name));
-  const current = await prisma.subject.findMany({
-    where: { classId },
-    include: { _count: { select: { slots: true, exams: true } } },
+  const klass = await prisma.class.findUnique({ where: { id: classId } });
+  if (!klass) throw new Error("Class required");
+  const gradeName = gradeNameOf(klass.name);
+  const config = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
+  const catalog = parseSubjectCatalog(config?.subjectCatalog);
+  const sections = await prisma.class.findMany({
+    where: { name: klass.name, archivedAt: null },
+    include: { subjects: true },
   });
+  const source = sections.find((row) => row.id === classId);
+  if (!source) throw new Error("Class required");
+  const seenCodes = new Set<string>();
+  const seenNames = new Set<string>();
+  const weights: CurriculumWeight[] = (input.subjects || []).map((s) => {
+    const name = s.name.trim();
+    if (!name) throw new Error("Give every subject a name.");
+    const previous = s.previousCode ? validateSubjectCode(s.previousCode) : null;
+    const existing = matchSectionSubject(
+      source.subjects,
+      { id: s.id, previousCode: previous, code: String(s.code || ""), name, weightage: 0 },
+      true
+    );
+    const matched = matchCatalogEntry(catalog, { code: s.code, name });
+    if (!existing && !catalogHasSubject(catalog, { code: s.code || matched?.code, name: matched?.name || name })) {
+      throw new Error(`${name} is not in the school subject catalog.`);
+    }
+    const code = requireSubjectCode(s.code || matched?.code || existing?.code);
+    const displayName = name || matched?.name || existing?.name || "";
+    if (seenCodes.has(code)) throw new Error(`Subject code ${code} is already used in Class ${gradeName}.`);
+    if (seenNames.has(displayName.toLowerCase())) throw new Error(`${displayName} is already used in Class ${gradeName}.`);
+    seenCodes.add(code);
+    seenNames.add(displayName.toLowerCase());
+    return {
+      id: s.id || existing?.id,
+      previousCode: previous,
+      code,
+      name: displayName,
+      weightage: Math.max(0, Number(s.weightage) || 0),
+    };
+  });
+  if (weights.length) await assertWeightsFitWeek(weights);
   for (const row of weights) {
-    const existing = current.find((s) => s.name === row.name);
-    if (existing) {
-      await prisma.subject.update({ where: { id: existing.id }, data: { weightage: row.weightage } });
-    } else {
-      await prisma.subject.create({ data: { classId, name: row.name, weightage: row.weightage } });
+    await assertCodeFitsGrade({
+      gradeName,
+      code: row.code,
+      name: row.name,
+      excludeSubjectId: row.id,
+    });
+    const previousCode = row.previousCode && row.previousCode.ok ? row.previousCode.code : row.code;
+    const idx = catalog.findIndex((entry) => entry.code === previousCode || entry.code === row.code);
+    if (catalog.some((entry, i) => entry.code === row.code && i !== idx)) {
+      throw new Error(`Subject code ${row.code} is already in the catalog.`);
     }
   }
-  for (const s of current) {
-    if (!keep.has(s.name) && s._count.slots === 0 && s._count.exams === 0) {
-      await prisma.subject.delete({ where: { id: s.id } }).catch(() => undefined);
+  for (const section of sections) {
+    const classLabel = `${section.name}-${section.section}`;
+    const keepIds = new Set(
+      weights
+        .map((row) => matchSectionSubject(section.subjects, row, section.id === classId)?.id)
+        .filter((id): id is string => Boolean(id))
+    );
+    for (const subject of section.subjects) {
+      if (keepIds.has(subject.id)) continue;
+      const examCount = await prisma.exam.count({ where: { subjectId: subject.id } });
+      if (examCount) {
+        throw new Error(`${formatSubjectLabel(subject.code, subject.name)} is used in ${classLabel} exams. Remove those papers first.`);
+      }
     }
+  }
+  for (const section of sections) {
+    const classLabel = `${section.name}-${section.section}`;
+    const keepIds = new Set(
+      weights
+        .map((row) => matchSectionSubject(section.subjects, row, section.id === classId)?.id)
+        .filter((id): id is string => Boolean(id))
+    );
+    for (const subject of section.subjects) {
+      if (keepIds.has(subject.id)) continue;
+      await unloadClassSubject({
+        id: subject.id,
+        code: subject.code,
+        name: subject.name,
+        classId: subject.classId,
+        classLabel,
+      });
+    }
+    const current = await prisma.subject.findMany({ where: { classId: section.id } });
+    for (const row of weights) {
+      const existing = matchSectionSubject(current, row, section.id === classId);
+      if (existing) {
+        const previousCode = existing.code;
+        const previousName = existing.name;
+        await prisma.subject.update({
+          where: { id: existing.id },
+          data: { code: row.code, name: row.name, weightage: row.weightage },
+        });
+        if (previousCode !== row.code || previousName !== row.name) {
+          await prisma.teacherSkill.updateMany({
+            where: { classId: section.id, subjectName: { in: [previousCode, previousName] } },
+            data: { subjectName: row.code },
+          });
+        }
+      } else {
+        await prisma.subject.create({
+          data: { classId: section.id, code: row.code, name: row.name, weightage: row.weightage },
+        });
+      }
+    }
+  }
+  const nextCatalog = [...catalog];
+  for (const row of weights) {
+    const previousCode = row.previousCode && row.previousCode.ok ? row.previousCode.code : row.code;
+    const idx = nextCatalog.findIndex((entry) => entry.code === previousCode || entry.code === row.code);
+    if (idx >= 0) nextCatalog[idx] = { code: row.code, name: row.name };
+  }
+  if (JSON.stringify(nextCatalog) !== JSON.stringify(catalog)) {
+    await prisma.schoolConfig.update({
+      where: { id: "school" },
+      data: { subjectCatalog: JSON.stringify(nextCatalog) },
+    });
   }
 }
 
@@ -2987,7 +3370,7 @@ export async function setTeacherResourcesCore(
     name?: string;
     qualification?: string[] | string;
     qualificationNotes?: string;
-    offers?: { subjectName: string; classId: string }[];
+    offers?: { subjectName?: string; subjectCode?: string; classId: string }[];
   }
 ) {
   need(user, "staff.edit");
@@ -3004,7 +3387,7 @@ export async function setTeacherResourcesCore(
       : [];
   const qualification = formatQualification(tags, input.qualificationNotes || "");
   await prisma.teacher.update({ where: { id: teacherId }, data: { qualification } });
-  const offers = (input.offers || []).filter((o) => o.subjectName && o.classId);
+  const offers = await catalogTeacherOffers(input.offers);
   const classIds = [...new Set(offers.map((o) => o.classId))];
   await prisma.teacherSkill.deleteMany({ where: { teacherId } });
   await prisma.teacherClass.deleteMany({ where: { teacherId } });
@@ -3018,6 +3401,7 @@ export async function setTeacherResourcesCore(
       data: classIds.map((classId) => ({ teacherId, classId })),
     });
   }
+  await assignSubjectTeachers(teacherId, offers);
 }
 
 export async function saveSchoolClockCore(

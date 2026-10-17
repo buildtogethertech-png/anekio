@@ -7,4 +7,8 @@ describe("class test subject assignment matching", () => {
     expect(skillNameMatches("  science ", "Science")).toBe(true);
     expect(skillNameMatches("English", "Hindi")).toBe(false);
   });
+
+  it("matches a TeacherSkill name against a subject code", () => {
+    expect(skillNameMatches("ENG", "ENG")).toBe(true);
+  });
 });

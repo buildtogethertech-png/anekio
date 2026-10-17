@@ -6,9 +6,11 @@ import { packedEvaluators, examEvaluatorIds, grantedEvaluatorIds } from "./exam-
 import { teacherAssignedToPaper } from "./exam-marks";
 import { compareExamNearness, eligibleMarksTeacherIds, examWorkStepOrder, teacherMayEnterMarks, teacherMayTakeExam } from "./exam-workflow";
 import { parseWeekdays, weekCapacity } from "./schedule";
+import { formatSubjectLabel, skillMatchesSubject, subjectDto } from "./subject-code";
 import { schoolFromConfig } from "./school";
 import { ensureSchoolSessions } from "./school-session";
 import { ensureCurrentSessionStudentRollNumbers } from "./student-rolls";
+import { runWithoutTenant } from "./tenant-context";
 
 export async function getParentWithChildren(userId: string) {
   await ensureCurrentSessionStudentRollNumbers();
@@ -391,7 +393,7 @@ export async function getTeacherDesk(userId: string) {
         id: `paper-${exam.id}`,
         examId: exam.id,
         kind: "paper",
-        title: `Set ${exam.subject.name} paper`,
+        title: `Set ${formatSubjectLabel(exam.subject.code, exam.subject.name)} paper`,
         hint: `${where} · ${dueLine(due)}`,
         href,
         dueOn: ymd(exam.date),
@@ -403,7 +405,7 @@ export async function getTeacherDesk(userId: string) {
         id: `take-${exam.id}`,
         examId: exam.id,
         kind: "take",
-        title: `Take exam · ${exam.subject.name}`,
+        title: `Take exam · ${formatSubjectLabel(exam.subject.code, exam.subject.name)}`,
         hint: `${where} · paper set · exam ${ymd(exam.date)}`,
         href,
         dueOn: ymd(exam.date),
@@ -415,7 +417,7 @@ export async function getTeacherDesk(userId: string) {
         id: `marks-${exam.id}`,
         examId: exam.id,
         kind: "marks",
-        title: exam.workflowStatus === "CORRECTION_REQUIRED" ? `Correct marks · ${exam.subject.name}` : `Enter marks · ${exam.subject.name}`,
+        title: exam.workflowStatus === "CORRECTION_REQUIRED" ? `Correct marks · ${formatSubjectLabel(exam.subject.code, exam.subject.name)}` : `Enter marks · ${formatSubjectLabel(exam.subject.code, exam.subject.name)}`,
         hint: `${exam._count.results}/${students} entered · ${where}`,
         href: `${href}&view=register`,
         dueOn: ymd(exam.date),
@@ -445,7 +447,7 @@ export async function getTeacherDesk(userId: string) {
         id: `done-paper-${exam.id}`,
         examId: exam.id,
         kind: "paper",
-        title: `${exam.subject.name} paper set`,
+        title: `${formatSubjectLabel(exam.subject.code, exam.subject.name)} paper set`,
         hint: where,
         doneAt: ymd(exam.paperAt),
         examDate,
@@ -456,7 +458,7 @@ export async function getTeacherDesk(userId: string) {
         id: `done-take-${exam.id}`,
         examId: exam.id,
         kind: "take",
-        title: `Exam taken · ${exam.subject.name}`,
+        title: `Exam taken · ${formatSubjectLabel(exam.subject.code, exam.subject.name)}`,
         hint: where,
         doneAt: ymd(exam.conductedAt),
         examDate,
@@ -467,7 +469,7 @@ export async function getTeacherDesk(userId: string) {
         id: `done-marks-${exam.id}`,
         examId: exam.id,
         kind: "marks",
-        title: `Marks sent · ${exam.subject.name}`,
+        title: `Marks sent · ${formatSubjectLabel(exam.subject.code, exam.subject.name)}`,
         hint: `${exam._count.results}/${students} entered · ${where}`,
         doneAt: ymd(exam.submittedAt || exam.resultOn || exam.date),
         examDate,
@@ -485,7 +487,7 @@ export async function getTeacherDesk(userId: string) {
       return {
         examId: exam.id,
         title: exam.title,
-        subject: exam.subject.name,
+        subject: formatSubjectLabel(exam.subject.code, exam.subject.name),
         maxMarks: exam.maxMarks,
         classLabel: label,
         date: ymd(exam.date),
@@ -519,7 +521,7 @@ export async function getTeacherDesk(userId: string) {
     .map((e) => ({
       id: e.id,
       title: e.title,
-      subject: e.subject.name,
+      subject: formatSubjectLabel(e.subject.code, e.subject.name),
       date: ymd(e.date),
       classLabel: e.class ? `${e.class.name}-${e.class.section}` : "",
       setter: paperSetterId(e) === teacher.id,
@@ -773,10 +775,10 @@ export async function getPeopleExamPack() {
           examTeacherId: e.teacherId,
           subjectTeacherId: e.subject.teacherId,
           skillTeacherIds: skills
-            .filter((skill) => skill.classId === e.classId && skill.subjectName === e.subject.name)
+            .filter((skill) => skill.classId === e.classId && skillMatchesSubject(skill.subjectName, e.subject))
             .map((skill) => skill.teacherId),
         }),
-        subject: { id: e.subject.id, name: e.subject.name },
+        subject: subjectDto(e.subject),
         workflowStatus: e.workflowStatus,
         correctionNote: e.correctionNote || "",
         entered: e.results.length,
@@ -910,7 +912,7 @@ export async function getStaffRoster(date = startOfDay()) {
       },
       orderBy: { employeeId: "asc" },
     }),
-    prisma.staffDay.findMany({ where: { date: { gte: from } }, orderBy: { date: "desc" } }),
+    runWithoutTenant(() => prisma.staffDay.findMany({ where: { date: { gte: from } }, orderBy: { date: "desc" } })),
     prisma.leaveRequest.findMany({
       where: {
         status: "ACTIVE",
@@ -1043,6 +1045,15 @@ async function ensureDueAdmissionFollowUpNotices(user: { portal: "OFFICE" | "TEA
     where: { status: { notIn: ["ADMITTED", "DISPOSED", "REJECTED"] }, followUpAt: { not: "" } },
     orderBy: { updatedAt: "desc" },
     take: 100,
+    select: {
+      id: true,
+      studentName: true,
+      guardianName: true,
+      phone: true,
+      classWanted: true,
+      message: true,
+      followUpAt: true,
+    },
   });
   for (const lead of leads) {
     const due = parseLeadFollowUpAt(lead.followUpAt);

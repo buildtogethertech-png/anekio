@@ -819,7 +819,7 @@ describe("Express portal API", () => {
     expect(record.body.child.tests).toEqual([
       expect.objectContaining({
         examId: "exam-math-published",
-        subject: "Mathematics",
+        subject: "MAT · Mathematics",
         marks: 32,
       }),
     ]);

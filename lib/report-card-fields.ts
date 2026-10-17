@@ -159,11 +159,11 @@ export function buildReportCardResults(input: {
 export function sampleReportCardPreviewData() {
   const results = buildReportCardResults({
     rows: [
-      { subject: "Mathematics", marks: 87, maxMarks: 100 },
-      { subject: "English", marks: 82, maxMarks: 100 },
-      { subject: "Science", marks: 91, maxMarks: 100 },
-      { subject: "Social Science", marks: 78, maxMarks: 100 },
-      { subject: "Hindi", marks: 85, maxMarks: 100 },
+      { subject: "MAT · Mathematics", marks: 87, maxMarks: 100 },
+      { subject: "ENG · English", marks: 82, maxMarks: 100 },
+      { subject: "SCI · Science", marks: 91, maxMarks: 100 },
+      { subject: "SST · Social Science", marks: 78, maxMarks: 100 },
+      { subject: "HIN · Hindi", marks: 85, maxMarks: 100 },
     ],
     className: "VIII",
     classRank: 6,

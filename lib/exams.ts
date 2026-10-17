@@ -1,5 +1,6 @@
 import { parseFeeCatalogState } from "./fees";
 import { percent } from "./utils";
+import { formatSubjectLabel } from "./subject-code";
 
 export type GradeBand = { min: number; grade: string };
 
@@ -74,7 +75,7 @@ export type SeriesExam = {
   title: string;
   maxMarks: number;
   date: Date | string;
-  subject: { name: string };
+  subject: { name: string; code?: string | null };
 };
 
 export type SeriesMark = {
@@ -173,7 +174,7 @@ export function studentSeriesScore(
     }
     return {
       examId: exam.id,
-      subject: exam.subject.name,
+      subject: formatSubjectLabel(exam.subject.code, exam.subject.name),
       maxMarks: exam.maxMarks,
       marks: value,
       absent,
@@ -280,7 +281,7 @@ export function mapSitting(
     paperFilePath?: string | null;
     teacherId?: string | null;
     setterId?: string | null;
-    subject: { id: string; name: string };
+    subject: { id: string; name: string; code?: string | null };
     teacher?: { user: { name: string } } | null;
     setter?: { user: { name: string } } | null;
     class?: { name: string; section: string } | null;
@@ -294,7 +295,9 @@ export function mapSitting(
     id: exam.id,
     title: exam.title,
     subjectId: exam.subject.id,
-    subject: exam.subject.name,
+    subject: formatSubjectLabel(exam.subject.code, exam.subject.name),
+    subjectCode: exam.subject.code || "",
+    subjectLabel: formatSubjectLabel(exam.subject.code, exam.subject.name),
     teacherId: exam.teacherId ?? "",
     teacherName: exam.teacher?.user.name || "",
     setterId,

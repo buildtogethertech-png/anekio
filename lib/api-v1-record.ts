@@ -24,7 +24,7 @@ import { gradePolicyFrom, marksVisible, parseExamPlan, timetableVisible, ymd, ad
 import { parentMaySeeExamResult } from "./exam-marks";
 import { teacherClassTestChoices } from "./exam-evaluators";
 import { parsePayrollRules } from "./payroll";
-import { collapseStaffDaysByDate, staffDayYmd } from "./staff-day";
+import { collapseStaffDaysByDate, staffAttendanceInMark, staffDayWindow, staffDayYmd } from "./staff-day";
 import { feeLineTotal, invoiceBalance, parseFeeCatalogState, parseFeeLines, reportCardFeeHoldFromConfig } from "./fees";
 import { studentLetter } from "./letter";
 import { payFormFromSecrets, paySecretsFromRow } from "./pay-config";
@@ -36,6 +36,7 @@ import { listManagerOptions, reportUserIds, teamClassIds } from "./reports";
 import { placeLines, schoolFromConfig } from "./school";
 import { listRoles } from "./roles";
 import { parseSubjectCatalog, parseWeekdays, weekCapacity, WEEKDAY_SHORT } from "./schedule";
+import { formatSubjectLabel, subjectDto } from "./subject-code";
 import { ensureSchoolSessions } from "./school-session";
 import { documentStudioBundle } from "./document-studio";
 import { CONTEST_TYPE_LABEL, daysLate, formatInr, LEVEL_LABEL, PATH_LABEL, percent, publicOrigin } from "./utils";
@@ -199,12 +200,33 @@ async function staffAttendanceSelf(user: AccessUser) {
     where: { userId: user.id },
     select: { id: true, employeeId: true, user: { select: { name: true } } },
   });
-  if (teacher) return { kind: "teacher" as const, id: teacher.id, name: teacher.user.name, employeeId: teacher.employeeId };
-  const staff = await prisma.staffMember.findUnique({
-    where: { userId: user.id },
-    select: { id: true, name: true, employeeId: true },
-  });
-  return staff ? { kind: "staff" as const, id: staff.id, name: staff.name, employeeId: staff.employeeId } : null;
+  const staff = teacher
+    ? null
+    : await prisma.staffMember.findUnique({
+        where: { userId: user.id },
+        select: { id: true, name: true, employeeId: true },
+      });
+  if (!teacher && !staff) return null;
+  const kind = teacher ? ("teacher" as const) : ("staff" as const);
+  const id = teacher?.id || staff!.id;
+  const stamp = staffDayYmd(new Date());
+  const { from, to } = staffDayWindow(stamp);
+  const rows = teacher
+    ? await prisma.staffDay.findMany({ where: { teacherId: id, date: { gte: from, lte: to } } })
+    : await prisma.staffDay.findMany({ where: { staffId: id, date: { gte: from, lte: to } } });
+  const todayRow = rows.filter((row) => staffDayYmd(row.date) === stamp).find((row) => row.inAt) || rows.find((row) => staffDayYmd(row.date) === stamp) || null;
+  return {
+    kind,
+    id,
+    name: teacher ? teacher.user.name : staff!.name,
+    employeeId: teacher ? teacher.employeeId : staff!.employeeId,
+    today: {
+      date: stamp,
+      marked: staffAttendanceInMark(todayRow),
+      status: todayRow?.status || "",
+      inAt: todayRow?.inAt || "",
+    },
+  };
 }
 
 export function isBellNotice(n: { kind?: string | null; body?: string | null; recipients?: unknown[] }) {
@@ -242,7 +264,7 @@ async function timetableForClass(classId: string) {
       weekday: s.weekday,
       periodId: s.periodId,
       period: s.period.name,
-      subject: s.subject?.name || "—",
+      subject: s.subject ? formatSubjectLabel(s.subject.code, s.subject.name) : "—",
       teacher: s.teacher?.user.name || "",
       room: s.room?.name || "",
       classLabel: s.class ? `${s.class.name}-${s.class.section}` : "",
@@ -261,7 +283,7 @@ function serializeChild(
   const visible = extras?.hideResults ? [] : child.examResults.filter((r) => parentMaySeeExamResult(r.exam));
   const by = new Map<string, { marks: number; max: number; n: number }>();
   for (const r of visible) {
-    const name = r.exam.subject.name;
+    const name = formatSubjectLabel(r.exam.subject.code, r.exam.subject.name);
     const cur = by.get(name) ?? { marks: 0, max: 0, n: 0 };
     cur.marks += r.marks;
     cur.max += r.exam.maxMarks;
@@ -332,7 +354,7 @@ function serializeChild(
       seriesId: r.exam.seriesId || r.exam.series?.id || "",
       seriesName: r.exam.series?.name || r.exam.title,
       title: r.exam.title,
-      subject: r.exam.subject.name,
+      subject: formatSubjectLabel(r.exam.subject.code, r.exam.subject.name),
       date: inDate(r.exam.date),
       marks: r.marks,
       max: r.exam.maxMarks,
@@ -348,7 +370,7 @@ function serializeChild(
         seriesId: p.exam.seriesId || "",
         title: p.exam.title,
         type: p.type.replace("_", " ").toLowerCase(),
-        subject: p.exam.subject.name,
+        subject: formatSubjectLabel(p.exam.subject.code, p.exam.subject.name),
         notes: p.notes || "",
         teacher: p.teacher.name,
         date: inDate(p.createdAt),
@@ -396,7 +418,7 @@ function serializeReports(
       title: e.title,
       maxMarks: e.maxMarks,
       date: inDate(e.date),
-      subject: { id: e.subject.id, name: e.subject.name },
+      subject: { ...subjectDto(e.subject), id: e.subject.id, name: e.subject.name },
     }));
     const marks = open.flatMap((e) =>
       e.results.map((r) => ({
@@ -488,7 +510,7 @@ function serializeUpcoming(rows: Awaited<ReturnType<typeof getUpcomingExams>>) {
     return {
       id: exam.id,
       title: exam.title,
-      subject: exam.subject.name,
+      subject: formatSubjectLabel(exam.subject.code, exam.subject.name),
       date: inDate(exam.date),
       time: inTime(exam.date),
       resultDate: resultAt ? inDate(resultAt) : "—",
@@ -749,7 +771,7 @@ async function teacherRecordExtras(
     weekday: s.weekday,
     periodId: s.periodId,
     period: s.period.name,
-    subject: s.subject?.name || "—",
+    subject: s.subject ? formatSubjectLabel(s.subject.code, s.subject.name) : "—",
     teacher: s.teacher?.user.name || "",
     room: s.room?.name || "",
     classLabel: s.class ? `${s.class.name}-${s.class.section}` : "",
@@ -854,13 +876,13 @@ async function teacherTeamExtras(
               label: `${c.name}-${c.section}`,
               name: c.name,
               section: c.section,
-              subjects: (c.subjects || []).map((s) => ({ id: s.id, name: s.name, weightage: s.weightage })),
+              subjects: (c.subjects || []).map((s) => subjectDto(s)),
               slots: c.slots.map((s) => ({
                 weekday: s.weekday,
                 periodId: s.periodId,
                 period: s.period.name,
                 subjectId: s.subject?.id || "",
-                subject: s.subject?.name || "—",
+                subject: s.subject ? formatSubjectLabel(s.subject.code, s.subject.name) : "—",
                 teacherId: s.teacherId || "",
                 teacher: s.teacher?.user.name || "",
                 room: s.room?.name || "",
@@ -920,12 +942,12 @@ async function officePayload(user: AccessUser) {
   for (const klass of classes) {
     const placedBySubject = new Map<string, number>();
     for (const slot of klass.slots) {
-      if (!slot.subject?.name) continue;
-      placedBySubject.set(slot.subject.name, (placedBySubject.get(slot.subject.name) ?? 0) + 1);
+      if (!slot.subject?.id) continue;
+      placedBySubject.set(slot.subject.id, (placedBySubject.get(slot.subject.id) ?? 0) + 1);
     }
     const count = klass.subjects.reduce((sum, subject) => {
       const need = Math.max(0, subject.weightage || 0);
-      return sum + Math.max(0, need - (placedBySubject.get(subject.name) ?? 0));
+      return sum + Math.max(0, need - (placedBySubject.get(subject.id) ?? 0));
     }, 0);
     if (count > 0) {
       subjectShortfallByClass.set(klass.id, {
@@ -1068,7 +1090,7 @@ async function officePayload(user: AccessUser) {
       name: c.name,
       section: c.section,
       students: c._count.students,
-      subjects: (c.subjects || []).map((s) => ({ id: s.id, name: s.name, teacherId: s.teacherId || "" })),
+      subjects: (c.subjects || []).map((s) => ({ ...subjectDto(s), teacherId: s.teacherId || "" })),
     })),
     feeTemplates: (
       await prisma.feeTemplate.findMany({
@@ -1420,11 +1442,17 @@ async function officePayload(user: AccessUser) {
       id: e.id,
       title: e.title,
       classId: e.classId,
-      label: `${e.subject.name} · ${e.class.name}-${e.class.section}`,
+      label: `${formatSubjectLabel(e.subject.code, e.subject.name)} · ${e.class.name}-${e.class.section}`,
     })),
     examStudents: people.students.map((s) => ({ id: s.id, name: s.name, admissionNo: s.admissionNo, rollNumber: currentRoll(s), classId: s.classId })),
     examPapers: people.classes.flatMap((c) =>
-      (c.subjects || []).map((sub) => ({ id: sub.id, name: sub.name, classId: c.id }))
+      (c.subjects || []).map((sub) => ({
+        id: sub.id,
+        name: sub.name,
+        code: sub.code,
+        label: formatSubjectLabel(sub.code, sub.name),
+        classId: c.id,
+      }))
     ),
     roles: can(user, "roles.manage") ? roles.map((r) => ({
       id: r.id,
@@ -1501,18 +1529,14 @@ async function officePayload(user: AccessUser) {
         label: `${c.name}-${c.section}`,
         name: c.name,
         section: c.section,
-        subjects: (c.subjects || []).map((s) => ({
-          id: s.id,
-          name: s.name,
-          weightage: s.weightage,
-        })),
+        subjects: (c.subjects || []).map((s) => subjectDto(s)),
         slots: c.slots.map((s) => ({
           id: s.id,
           weekday: s.weekday,
           periodId: s.periodId,
           period: s.period.name,
           subjectId: s.subject?.id || "",
-          subject: s.subject?.name || "—",
+          subject: s.subject ? formatSubjectLabel(s.subject.code, s.subject.name) : "—",
           teacherId: s.teacherId || "",
           teacher: s.teacher?.user.name || "",
           room: s.room?.name || "",

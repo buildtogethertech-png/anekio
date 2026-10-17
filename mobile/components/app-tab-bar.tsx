@@ -2,6 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { usePathname, useRouter } from "expo-router";
 import { Platform, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { isStaffScanPath } from "../lib/staff-attendance-scan";
 import { pathForNav } from "../lib/paths";
 import { qrDockSlots, tabIcon, tabLabel, visibleTabs } from "../lib/nav-icons";
 import { useSession } from "../lib/session";
@@ -24,7 +25,7 @@ export function AppTabBar() {
   const showQr = qrDockSlots(user?.portal, hasSelfQr) > 0;
   const tabs = visibleTabs(user?.portal, nav, showQr ? 1 : 0);
 
-  if (pathname === "/pay" || pathname.startsWith("/pay/")) return null;
+  if (pathname === "/pay" || pathname.startsWith("/pay/") || isStaffScanPath(pathname)) return null;
   if (pathname === "/notifications") return null;
   if (!tabs.length) return null;
 

@@ -1,3 +1,5 @@
+import { formatSubjectLabel } from "./subject-label";
+
 export type GradeBand = { min: number; grade: string };
 
 export type GradePolicy = {
@@ -33,7 +35,7 @@ export type SeriesExam = {
   title: string;
   maxMarks: number;
   date: string;
-  subject: { id?: string; name: string };
+  subject: { id?: string; name: string; code?: string | null };
 };
 
 export type SeriesMark = {
@@ -65,7 +67,7 @@ export function studentSeriesScore(
     }
     return {
       examId: exam.id,
-      subject: exam.subject.name,
+      subject: formatSubjectLabel(exam.subject.code, exam.subject.name),
       maxMarks: exam.maxMarks,
       marks: value,
       absent,

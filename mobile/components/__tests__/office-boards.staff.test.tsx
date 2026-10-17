@@ -106,6 +106,7 @@ describe("StaffBoard leave requests", () => {
       user: { permissions: ["staff.edit"] },
     } as ReturnType<typeof useSession>);
     mockAct.mockResolvedValue({} as never);
+    mockPush.mockClear();
   });
 
   afterEach(() => {
@@ -119,6 +120,14 @@ describe("StaffBoard leave requests", () => {
     expect(screen.queryByRole("button", { name: /Leave requests/ })).toBeNull();
     expect(screen.getByText("Search")).toBeTruthy();
     expect(screen.getByText("Asha Rao")).toBeTruthy();
+  });
+
+  it("opens the dedicated scanner instead of a camera modal", () => {
+    render(<StaffBoard />);
+    fireEvent.press(screen.getByRole("button", { name: "Scan attendance" }));
+    expect(mockPush).toHaveBeenCalledWith("/staff/scan");
+    expect(screen.queryByText("Ready to scan")).toBeNull();
+    expect(screen.queryByText("Point camera at staff attendance QR")).toBeNull();
   });
 
   it.each([390, 1200])("opens every request detail from the compact counted action at %ipx", (width) => {
@@ -405,6 +414,29 @@ describe("StaffBoard leave requests", () => {
     expect(screen.getByText("Monthly Payment")).toBeTruthy();
     expect(screen.getByText("Asha Rao")).toBeTruthy();
     expect(screen.queryByText("Save the day")).toBeNull();
+  });
+
+  it("shows a QR scan In time on the timesheet after record reload", () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(2026, 9, 12, 10, 0, 0));
+    currentData = {
+      ...record(),
+      staff: [
+        {
+          id: "teacher-tara",
+          kind: "teacher",
+          name: "Tara Teacher",
+          role: "Teacher",
+          today: "PRESENT",
+          days: [{ date: "2026-10-12", status: "PRESENT", inAt: "10:07" }],
+        },
+      ],
+    };
+    render(<StaffBoard />);
+    fireEvent.press(screen.getByRole("button", { name: "Timesheet" }));
+    expect(screen.getByText("Tara Teacher")).toBeTruthy();
+    expect(screen.getByText("10:07")).toBeTruthy();
+    jest.useRealTimers();
   });
 
   it("opens the staff timesheet with employee names and in times", () => {

@@ -4,6 +4,7 @@ import type { AccessScope } from "./permissions";
 import { addDays, ymd } from "./exams";
 import { isSchoolDay, nextSchoolDay, snapToSchoolDay, type SchoolCalendar } from "./calendar";
 import { parseWeekdays } from "./schedule";
+import { skillMatchesSubject } from "./subject-code";
 import { notifyNoticePublished } from "./push";
 import type { Portal } from "./permissions";
 import { ensureSchoolSessions } from "./school-session";
@@ -357,8 +358,8 @@ async function upcomingTeacherLeave(requestIds: string[], cal: SchoolCalendar): 
               const isClassTeacher = teacher.classId === slot.classId || teacher.classes.some((c) => c.classId === slot.classId);
               const teachesClass = ownSubjects.length > 0 || isClassTeacher;
               const teachesSubject =
-                Boolean(subjectName) &&
-                (teacher.skills.some((s) => s.subjectName.toLowerCase() === subjectName) ||
+                Boolean(slot.subject) &&
+                (teacher.skills.some((s) => skillMatchesSubject(s.subjectName, slot.subject!)) ||
                   teacher.subjects.some((s) => s.name.toLowerCase() === subjectName) ||
                   teacher.slots.some((s) => (s.subject?.name || "").toLowerCase() === subjectName));
               const tier: 1 | 2 | 3 = teachesClass ? 1 : teachesSubject ? 2 : 3;

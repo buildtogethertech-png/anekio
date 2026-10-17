@@ -276,6 +276,7 @@ export function Modal({
   children,
   onClose,
   wide,
+  large,
   studio,
   footer,
   centerTitle,
@@ -285,6 +286,7 @@ export function Modal({
   children: ReactNode;
   onClose: () => void;
   wide?: boolean;
+  large?: boolean;
   studio?: boolean;
   footer?: ReactNode;
   centerTitle?: boolean;
@@ -299,7 +301,7 @@ export function Modal({
           onPress={onClose}
         />
         <View
-          className={`z-10 w-full ${studio ? "max-w-[96rem]" : wide ? "max-w-3xl" : "max-w-lg"} max-h-[94%] rounded-md border border-ink-200 bg-white p-5`}
+          className={`z-10 w-full ${studio ? "max-w-[96rem]" : large ? "max-w-5xl" : wide ? "max-w-3xl" : "max-w-lg"} max-h-[94%] rounded-md border border-ink-200 bg-white p-5`}
         >
           <View className="relative mb-4 min-h-8 flex-row items-center justify-end gap-3">
             <Text
@@ -309,7 +311,7 @@ export function Modal({
             </Text>
             <CloseButton onPress={onClose} />
           </View>
-          <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: studio ? 760 : footer ? 520 : 640 }}>
+          <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: studio ? 760 : large ? 720 : footer ? 520 : 640 }}>
             {children}
           </ScrollView>
           {footer ? <View className="mt-4 border-t border-ink-100 pt-4">{footer}</View> : null}

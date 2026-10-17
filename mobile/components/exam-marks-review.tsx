@@ -5,13 +5,14 @@ import { marksReviewCsv, sheetCellState, sheetRowScore, subjectCompletion } from
 import { workflowLabel } from "../lib/exam-workflow";
 import { Badge, Button, Chip, ChipScroller, Input, Modal } from "./ui";
 import { studentMetaLine } from "../lib/student-label";
+import { subjectLabel } from "../lib/subject-label";
 
 type Exam = {
   id: string;
   maxMarks: number;
   teacherId?: string | null;
   teacherName?: string;
-  subject: { id: string; name: string };
+  subject: { id: string; name: string; code?: string; label?: string };
   workflowStatus?: string;
 };
 
@@ -241,7 +242,7 @@ export function ExamMarksReview({
                 className={`rounded-md border px-2.5 py-1.5 ${on ? "border-ink-900 bg-ink-900" : "border-ink-200 bg-white"}`}
               >
                 <Text className={`text-xs ${on ? "text-white" : "text-ink-900"}`}>
-                  {row.exam.subject.name}
+                  {subjectLabel(row.exam.subject)}
                   <Text className={on ? "text-white/70" : row.pending || row.correction ? "text-amber-800" : "text-ink-700"}>
                     {`  ${row.entered}/${row.studentCount}`}
                   </Text>
@@ -264,7 +265,7 @@ export function ExamMarksReview({
               {papers.map((exam) => (
                 <Pressable key={exam.id} onPress={() => setSubjectId(exam.subject.id)} className="w-[92px] items-center border-r border-ink-100 px-1.5 py-2">
                   <Text className="text-center text-xs font-semibold text-ink-900" numberOfLines={1}>
-                    {exam.subject.name}
+                    {subjectLabel(exam.subject)}
                   </Text>
                   <Text className="text-[10px] text-ink-700">/{exam.maxMarks}</Text>
                 </Pressable>
@@ -326,7 +327,7 @@ export function ExamMarksReview({
       <Modal
         open={Boolean(picked)}
         onClose={() => setPicked(null)}
-        title={pickedExam?.subject.name || "Mark"}
+        title={pickedExam ? subjectLabel(pickedExam.subject) : "Mark"}
         footer={
           <View className="flex-row flex-wrap justify-end gap-2">
             <Button variant="ghost" onPress={() => setPicked(null)}>

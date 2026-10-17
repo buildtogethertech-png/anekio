@@ -9,6 +9,7 @@ import { ensureAccessRoles, roleIdBySlug } from "./roles";
 import { parseClassLabel, parseCsv } from "./sheet";
 import { readUpload } from "./uploads";
 import { parseWeekdays } from "./schedule";
+import { formatSubjectLabel } from "./subject-code";
 import { examPlanWeight, parseExamPlan } from "./exams";
 import { currentTenantOrg, runWithoutTenant } from "./tenant-context";
 import { admissionFormFields, staffOnboardingFormFields, type AdmissionFormField } from "./admission-form";
@@ -902,8 +903,8 @@ async function staffAttendanceTemplateWorkbook(options: { sampleData?: boolean }
   return workbook;
 }
 
-function examColumnLabel(exam: { series?: { name: string } | null; subject: { name: string }; maxMarks: number }) {
-  return `${exam.series?.name || "Exam"} - ${exam.subject.name} (/${exam.maxMarks})`;
+function examColumnLabel(exam: { series?: { name: string } | null; subject: { name: string; code?: string | null }; maxMarks: number }) {
+  return `${exam.series?.name || "Exam"} - ${formatSubjectLabel(exam.subject.code, exam.subject.name)} (/${exam.maxMarks})`;
 }
 
 function sampleExamMark(studentIndex: number, examIndex: number, maxMarks: number): CsvCell {

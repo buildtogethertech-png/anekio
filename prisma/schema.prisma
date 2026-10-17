@@ -428,6 +428,7 @@ model StudentFeeAddOn {
 model Subject {
   id        String          @id @default(cuid())
   orgId     String?
+  code      String          @default("")
   name      String
   classId   String
   class     Class           @relation(fields: [classId], references: [id])
@@ -436,6 +437,12 @@ model Subject {
   weightage Int             @default(0)
   exams     Exam[]
   slots     TimetableSlot[]
+
+  // classId is a section (1-A). Code/name/weightage are synced across the grade
+  // (6-A and 6-B). Teacher and timetable stay per section.
+  // Different grades cannot share a code — enforced in saveClassCurriculumCore.
+  @@unique([classId, code])
+  @@unique([classId, name])
 }
 
 model StudentInterest {
@@ -895,7 +902,7 @@ model SchoolConfig {
   reportCardUnpaidMonths  Int                       @default(0)
   admitCardPendingMonths  Int                       @default(0)
   whatsappCommunityUrl    String                    @default("")
-  subjectCatalog          String                    @default("[\"English\",\"Mathematics\",\"Hindi\",\"Science\",\"Social Science\",\"Computer\"]")
+  subjectCatalog          String                    @default("[{\"code\":\"ENG\",\"name\":\"English\"},{\"code\":\"MAT\",\"name\":\"Mathematics\"},{\"code\":\"SCI\",\"name\":\"Science\"},{\"code\":\"HIN\",\"name\":\"Hindi\"},{\"code\":\"SST\",\"name\":\"Social Studies\"},{\"code\":\"CSC\",\"name\":\"Computer\"},{\"code\":\"ART\",\"name\":\"Art\"},{\"code\":\"PED\",\"name\":\"Physical Education\"}]")
   payrollJson             String                    @default("{\"presentCredit\":1,\"absentCredit\":0,\"paidLeaveCredit\":1,\"unpaidLeaveCredit\":0,\"halfDayCredit\":0.5,\"lateCredit\":1}")
   feeCatalogJson           String                    @default("{\"items\":[],\"late\":{\"enabled\":false,\"amount\":0,\"graceDays\":0}}")
   documentTemplates       DocumentTemplate[]

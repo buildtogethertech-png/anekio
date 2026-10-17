@@ -49,6 +49,7 @@ import { verifyCashfreeWebhook, captureCashfreePayment } from "../lib/cashfree";
 import { captureRazorpayPayment, captureRazorpayMonths, verifyWebhookSignature } from "../lib/razorpay";
 import { issueDueFeesCore } from "../lib/fee-run";
 import { marksheetHtmlForUser } from "../lib/marksheet-html";
+import { routineHtmlForUser } from "../lib/timetable-html";
 import { runExamCronNotifications } from "../lib/exam-notification-run";
 import { ensureAccessRoles, loadAccess } from "../lib/roles";
 import { scopePolicyFor } from "../lib/permissions";
@@ -473,6 +474,21 @@ app.get("/api/v1/marksheet", async (req, res) => {
     res.type("html").send(html);
   } catch (e) {
     sendError(res, 400, e instanceof Error ? e.message : "Marksheet unavailable");
+  }
+});
+
+app.get("/api/v1/timetable/print", async (req, res) => {
+  const user = await requireUser(req, res);
+  if (!user) return;
+  if (!(await requireActiveSubscription(user.id, res))) return;
+  try {
+    const html = await routineHtmlForUser(user, {
+      classId: String(req.query.classId || ""),
+      studentId: String(req.query.studentId || ""),
+    });
+    res.type("html").send(html);
+  } catch (e) {
+    sendError(res, 400, e instanceof Error ? e.message : "Routine unavailable");
   }
 });
 
@@ -1661,3 +1677,4 @@ if (!process.env.VERCEL && (process.env.NODE_ENV !== "test" || process.env.TEST_
     console.log(`Anekio API on http://localhost:${PORT}`);
   });
 }
+

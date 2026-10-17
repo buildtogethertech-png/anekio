@@ -4,26 +4,14 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button, Card, Chip, ChipScroller, Empty, Field, Input, Modal, PageHeader, Toast, useToast } from "./ui";
-import { DEFAULT_SUBJECTS } from "./school-setup";
+import { TeacherForm } from "./teacher-form";
+import { formatSubjectLabel, skillMatchesSubject } from "../lib/subject-label";
 import { act } from "../lib/mutate";
+import { openRoutinePdf } from "../lib/print-html";
 import { useRecord } from "../lib/record";
 import { useSession } from "../lib/session";
 
-const QUALIFICATION_OPTIONS = [
-  "B.Ed",
-  "M.Ed",
-  "B.El.Ed",
-  "B.Sc",
-  "M.Sc",
-  "B.A",
-  "M.A",
-  "B.Tech",
-  "CTET",
-  "TET",
-  "NET",
-];
-
-type Hold = { teacherId: string; subjectName: string };
+type Hold = { teacherId: string; subjectId?: string; code?: string; subjectName: string };
 type ModalKind = "teacher" | "addTeacher" | null;
 type WeekSlot = {
   weekday: number;
@@ -58,21 +46,20 @@ function webNode(ref: RefObject<View | null>): HTMLElement | null {
 function parseHold(raw: string): Hold | null {
   try {
     const p = JSON.parse(raw) as Hold;
-    if (p?.teacherId && p?.subjectName) return p;
+    if (p?.teacherId && (p.subjectId || p.subjectName)) return p;
   } catch {
     /* ignore */
   }
   return null;
 }
 
-function parseQualification(raw?: string | null) {
-  if (!raw) return { tags: [] as string[], notes: "" };
-  const [head, ...rest] = raw.split(" — ");
-  const notes = rest.join(" — ").trim();
-  const parts = head.split(" · ").map((s) => s.trim()).filter(Boolean);
-  const tags = parts.filter((t) => QUALIFICATION_OPTIONS.includes(t));
-  const leftover = parts.filter((t) => !QUALIFICATION_OPTIONS.includes(t));
-  return { tags, notes: [notes, ...leftover].filter(Boolean).join(" · ") };
+/** "MAT · Mathematics" (or a bare code) → the class subject's plain name. */
+function plainSubjectName(label: string | undefined, subjects: { id: string; code?: string; name: string; label?: string }[]) {
+  if (!label || label === "—") return label || "";
+  const hit = subjects.find((row) => (row.label || formatSubjectLabel(row.code, row.name)) === label || row.name === label || (row.code && row.code === label));
+  if (hit) return hit.name;
+  const parts = label.split(" · ");
+  return parts.length > 1 ? parts.slice(1).join(" · ").trim() : label;
 }
 
 function jsToWeekday(jsDay: number) {
@@ -88,8 +75,30 @@ export function WeekBoard() {
   const phone = width < 700;
   const toast = useToast();
   const table = data?.timetable;
-  const classes = table?.classes ?? [];
-  const teachers = table?.teachers ?? [];
+  const rawClasses = table?.classes ?? [];
+  const rawTeachers = table?.teachers ?? [];
+  // Subjects now carry codes: slots arrive as "MAT · Mathematics" and skills may be saved as a code.
+  // The board works on plain subject names; dropOn sends the subject id so the server stores the right one.
+  const classes = useMemo(
+    () =>
+      rawClasses.map((c) => ({
+        ...c,
+        slots: c.slots.map((slot) => ({ ...slot, subject: plainSubjectName(slot.subject, c.subjects ?? []) })),
+      })),
+    [rawClasses]
+  );
+  const teachers = useMemo(() => {
+    const subjectsByClass = new Map(rawClasses.map((c) => [c.id || "", c.subjects ?? []]));
+    const everySubject = rawClasses.flatMap((c) => c.subjects ?? []);
+    return rawTeachers.map((t) => ({
+      ...t,
+      skills: t.skills.map((skill) => {
+        const pool = (skill.classId && subjectsByClass.get(skill.classId)) || everySubject;
+        const hit = pool.find((row) => skillMatchesSubject(skill.subjectName, row));
+        return hit ? { ...skill, subjectName: hit.name } : skill;
+      }),
+    }));
+  }, [rawClasses, rawTeachers]);
   const periods = table?.periods ?? [];
   const weekdays = table?.weekdays ?? [];
   const [classId, setClassId] = useState(classes[0]?.id || "");
@@ -257,11 +266,24 @@ export function WeekBoard() {
         periodId,
         weekday,
         teacherId: payload.teacherId,
+        subjectId: payload.subjectId || klass.subjects?.find((row) => row.name === payload.subjectName)?.id,
         subjectName: payload.subjectName,
       });
       await reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save.");
+    }
+  }
+
+  async function exportRoutine() {
+    if (!klass?.id) {
+      toast.show("Pick a class first.");
+      return;
+    }
+    try {
+      await openRoutinePdf(token, { classId: klass.id });
+    } catch (e) {
+      toast.show(e instanceof Error ? e.message : "Could not export the routine.");
     }
   }
 
@@ -345,11 +367,17 @@ export function WeekBoard() {
               : "Drag a subject onto a cell, or click a cell to choose."
           }
           action={
-            editable && klass && !periodsNotSet && summary.empty > 0 ? (
-              <Button onPress={() => setFillOpen(true)}>
-                {`Auto-fill ${summary.empty} empty`}
+            <View className="flex-row flex-wrap items-center gap-2">
+              <Button variant="ghost" onPress={() => router.push("/school?tab=subjects" as never)}>
+                Subjects
               </Button>
-            ) : undefined
+              <Button variant="ghost" onPress={() => void exportRoutine()}>
+                Export PDF
+              </Button>
+              {editable && klass && !periodsNotSet && summary.empty > 0 ? (
+                <Button onPress={() => setFillOpen(true)}>{`Auto-fill ${summary.empty} empty`}</Button>
+              ) : null}
+            </View>
           }
         />
       )}
@@ -741,9 +769,11 @@ export function WeekBoard() {
         ) : null}
       </Modal>
 
-      <Modal open={modal === "addTeacher"} title="Add teacher" wide onClose={() => setModal(null)}>
+      <Modal open={modal === "addTeacher"} title="Add teacher" large onClose={() => setModal(null)}>
         <TeacherForm
-          classes={classes.map((c) => ({ id: c.id || "", label: c.label }))}
+          key="new-teacher"
+          catalog={data?.school?.subjectCatalog ?? []}
+          classes={rawClasses.map((c) => ({ id: c.id || "", label: c.label, name: c.name, subjects: c.subjects ?? [] }))}
           onCancel={() => setModal(null)}
           onSave={async (payload) => {
             await act(token, "createTeacher", payload);
@@ -754,11 +784,13 @@ export function WeekBoard() {
         />
       </Modal>
 
-      <Modal open={modal === "teacher" && Boolean(teacherId)} title="Edit teacher" wide onClose={() => setModal(null)}>
+      <Modal open={modal === "teacher" && Boolean(teacherId)} title="Edit teacher" large onClose={() => setModal(null)}>
         {teacherId ? (
           <TeacherForm
-            teacher={teachers.find((t) => t.id === teacherId)}
-            classes={classes.map((c) => ({ id: c.id || "", label: c.label }))}
+            key={teacherId}
+            teacher={rawTeachers.find((t) => t.id === teacherId)}
+            catalog={data?.school?.subjectCatalog ?? []}
+            classes={rawClasses.map((c) => ({ id: c.id || "", label: c.label, name: c.name, subjects: c.subjects ?? [] }))}
             onCancel={() => setModal(null)}
             onSave={async (payload) => {
               await act(token, "setTeacherResources", { ...payload, teacherId });
@@ -1892,161 +1924,6 @@ function DropCell({
           </View>
         )}
       </Pressable>
-    </View>
-  );
-}
-
-function TeacherForm({
-  teacher,
-  classes,
-  onCancel,
-  onSave,
-}: {
-  teacher?: { id: string; name: string; qualification?: string; skills: { subjectName: string; classId: string }[] };
-  classes: { id: string; label: string }[];
-  onCancel: () => void;
-  onSave: (payload: {
-    name: string;
-    email?: string;
-    phone?: string;
-    employeeId?: string;
-    password?: string;
-    qualification: string[];
-    qualificationNotes: string;
-    offers: { subjectName: string; classId: string }[];
-  }) => Promise<void>;
-}) {
-  const parsed = parseQualification(teacher?.qualification);
-  const startSubjects = [...new Set((teacher?.skills ?? []).map((s) => s.subjectName))];
-  const startBy: Record<string, string[]> = {};
-  for (const s of teacher?.skills ?? []) {
-    startBy[s.subjectName] = [...(startBy[s.subjectName] ?? []), s.classId];
-  }
-  const [name, setName] = useState(teacher?.name || "");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
-  const [employeeId, setEmployeeId] = useState("");
-  const [password, setPassword] = useState("12345");
-  const [tags, setTags] = useState<string[]>(parsed.tags);
-  const [notes, setNotes] = useState(parsed.notes);
-  const [subjects, setSubjects] = useState<string[]>(startSubjects);
-  const [bySubject, setBySubject] = useState<Record<string, string[]>>(startBy);
-  const [error, setError] = useState("");
-  const editing = Boolean(teacher);
-
-  function toggleSubject(s: string) {
-    if (subjects.includes(s)) {
-      setSubjects(subjects.filter((n) => n !== s));
-      const next = { ...bySubject };
-      delete next[s];
-      setBySubject(next);
-    } else {
-      setSubjects([...subjects, s]);
-    }
-  }
-
-  return (
-    <View className="gap-3">
-      <Field label="Name">
-        <Input value={name} onChangeText={setName} />
-      </Field>
-      {!editing ? (
-        <>
-          <Field label="Email">
-            <Input autoCapitalize="none" value={email} onChangeText={setEmail} />
-          </Field>
-          <Field label="Mobile">
-            <Input keyboardType="phone-pad" value={phone} onChangeText={setPhone} placeholder="10-digit number" />
-          </Field>
-          <Field label="Employee id">
-            <Input value={employeeId} onChangeText={setEmployeeId} placeholder="Auto if blank" />
-          </Field>
-          <Field label="Login password">
-            <Input value={password} onChangeText={setPassword} />
-          </Field>
-        </>
-      ) : null}
-      <Text className="text-xs font-medium text-ink-700">Qualification</Text>
-      <View className="flex-row flex-wrap gap-2">
-        {QUALIFICATION_OPTIONS.map((q) => (
-          <Chip
-            key={q}
-            label={q}
-            active={tags.includes(q)}
-            onPress={() => setTags(tags.includes(q) ? tags.filter((t) => t !== q) : [...tags, q])}
-          />
-        ))}
-      </View>
-      <Input value={notes} onChangeText={setNotes} placeholder="Specialisation — e.g. Physics, Mathematics" />
-      <Text className="text-xs font-medium text-ink-700">Can teach — then pick classes for that subject</Text>
-      <View className="flex-row flex-wrap gap-2">
-        {DEFAULT_SUBJECTS.map((s) => (
-          <Chip key={s} label={s} active={subjects.includes(s)} onPress={() => toggleSubject(s)} />
-        ))}
-      </View>
-      {subjects.map((s) => (
-        <View key={s} className="rounded-md border border-ink-100 bg-ink-50 px-3 py-2">
-          <Text className="mb-1.5 text-xs font-medium text-ink-800">{s} — which classes</Text>
-          <View className="flex-row flex-wrap gap-2">
-            {classes.filter((c) => c.id).map((c) => {
-              const on = (bySubject[s] ?? []).includes(c.id);
-              return (
-                <Chip
-                  key={c.id}
-                  label={c.label}
-                  active={on}
-                  onPress={() =>
-                    setBySubject({
-                      ...bySubject,
-                      [s]: on
-                        ? (bySubject[s] ?? []).filter((id) => id !== c.id)
-                        : [...(bySubject[s] ?? []), c.id],
-                    })
-                  }
-                />
-              );
-            })}
-          </View>
-        </View>
-      ))}
-      {error ? <Text className="text-sm text-red-700">{error}</Text> : null}
-      <View className="flex-row justify-end gap-2">
-        <Button variant="ghost" onPress={onCancel}>
-          Cancel
-        </Button>
-        <Button
-          onPress={async () => {
-            setError("");
-            if (!name.trim() || (!editing && !email.trim())) {
-              setError("Name and email are required");
-              return;
-            }
-            if (!editing && phone.replace(/\D/g, "").length < 10) {
-              setError("Enter a 10-digit mobile number");
-              return;
-            }
-            const offers = subjects.flatMap((subjectName) =>
-              (bySubject[subjectName] ?? []).map((classId) => ({ subjectName, classId }))
-            );
-            try {
-              await onSave({
-                name: name.trim(),
-                email: email.trim() || undefined,
-                phone: phone.trim() || undefined,
-                employeeId: employeeId.trim() || undefined,
-                password: password || undefined,
-                qualification: tags,
-                qualificationNotes: notes,
-                offers,
-              });
-            } catch (e) {
-              setError(e instanceof Error ? e.message : "Could not save.");
-            }
-          }}
-        >
-          {editing ? "Save" : "Add teacher"}
-        </Button>
-      </View>
     </View>
   );
 }

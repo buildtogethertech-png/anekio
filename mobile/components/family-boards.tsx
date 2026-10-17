@@ -24,13 +24,13 @@ import { addDays, calendarFrom, closedCaption, closedReason, ymd, type SchoolCal
 import { AttendanceDots, DayMark, OnLeaveSign } from "./attendance-mark";
 import { useRecord, type RecordPayload } from "../lib/record";
 import { useSession } from "../lib/session";
-import { openAuthedFile, openMarksheetPdf } from "../lib/print-html";
+import { openAuthedFile, openMarksheetPdf, openRoutinePdf } from "../lib/print-html";
 import { examTodoKind, examTodoTone } from "./exam-teacher-work";
 import { LeaveApplyCard, LeaveDecideList } from "./leave-apply";
 import { ManagerPicker } from "./manager-picker";
 import { TeacherMonthlyRegister } from "./teacher-monthly-register";
 import { StaffAttendanceQrButton } from "./staff-attendance-qr";
-import { studentMetaLine } from "../lib/student-label";
+import { compareByRollThenName, matchesStudentQuery, rollLabel, studentMetaLine } from "../lib/student-label";
 
 function can(user: { permissions: string[] } | null, key: string) {
   return Boolean(user?.permissions.includes(key));
@@ -432,7 +432,13 @@ export function TeacherDeskBoard() {
           </View>
           {data?.staffAttendanceSelf ? (
             <View className={phoneDashboard ? "w-full" : "shrink-0"}>
-              <StaffAttendanceQrButton token={token} disabled={Boolean(todayClosed)} onMessage={toast.show} />
+              <StaffAttendanceQrButton
+                token={token}
+                disabled={Boolean(todayClosed)}
+                alreadyMarked={Boolean(data.staffAttendanceSelf.today?.marked)}
+                onRefresh={reload}
+                onMessage={toast.show}
+              />
             </View>
           ) : null}
         </View>
@@ -550,7 +556,15 @@ export function TeacherDeskBoard() {
     return (
       <View className="mb-4 flex-row justify-between rounded-3xl bg-white px-3 py-4" style={CARD_SHADOW}>
         {data?.staffAttendanceSelf ? (
-          <StaffAttendanceQrButton token={token} disabled={Boolean(todayClosed)} tile round onMessage={toast.show} />
+          <StaffAttendanceQrButton
+            token={token}
+            disabled={Boolean(todayClosed)}
+            alreadyMarked={Boolean(data.staffAttendanceSelf.today?.marked)}
+            onRefresh={reload}
+            tile
+            round
+            onMessage={toast.show}
+          />
         ) : null}
         {actions.map((action) => (
           <Pressable
@@ -1589,7 +1603,10 @@ export function TeacherAttendanceBoard() {
   const toast = useToast();
   const { width } = useWindowDimensions();
   const phone = width < 768;
-  const roster = data?.roster ?? [];
+  const roster = useMemo(
+    () => [...(data?.roster ?? [])].sort(compareByRollThenName),
+    [data?.roster]
+  );
   const [q, setQ] = useState("");
   const [monthly, setMonthly] = useState(false);
   const calendar = useMemo(
@@ -1651,11 +1668,14 @@ export function TeacherAttendanceBoard() {
       return;
     }
     const looksLikeIssuedQr = /\/(attendance\/scan|staff\/scan|verify|documents)\//i.test(raw) || /^https?:\/\//i.test(raw.trim());
-    const student = looksLikeIssuedQr ? undefined : roster.find((s) => {
-      const admission = String((s as { admissionNo?: string }).admissionNo || "").toLowerCase();
-      const id = s.id.toLowerCase();
-      return admission && (clean === admission || s.name.toLowerCase() === clean || id === clean);
-    });
+    const student = looksLikeIssuedQr
+      ? undefined
+      : roster.find((s) => {
+          const admission = String((s as { admissionNo?: string }).admissionNo || "").toLowerCase();
+          const id = s.id.toLowerCase();
+          const roll = s.rollNumber != null ? String(s.rollNumber) : "";
+          return admission === clean || s.name.toLowerCase() === clean || id === clean || (roll && roll === clean);
+        });
     let resolved = student;
     if (!resolved && looksLikeIssuedQr) {
       try {
@@ -1682,16 +1702,17 @@ export function TeacherAttendanceBoard() {
       return;
     }
     const before = statusOf(resolved).toUpperCase();
+    const who = [rollLabel(resolved.rollNumber), resolved.name].filter(Boolean).join(" ");
     setMarks((m) => ({ ...m, [resolved.id]: "PRESENT" }));
     setQ(resolved.name);
-    setScanHit(resolved.name);
+    setScanHit(who);
     setScanResult({
       tone: before === "PRESENT" ? "warn" : "success",
       title: before === "PRESENT" ? "Already present" : "Completed",
-      body: `${resolved.name} is marked present for ${new Date(date).toLocaleDateString("en-IN")}.`,
+      body: `${who} is marked present for ${new Date(date).toLocaleDateString("en-IN")}.`,
     });
     setScanCode("");
-    toast.show(`${resolved.name} marked present.`);
+    toast.show(`${who} marked present.`);
   }
 
   useEffect(() => {
@@ -1765,9 +1786,7 @@ export function TeacherAttendanceBoard() {
   const needle = q.trim().toLowerCase();
   // Roll order, the way a class teacher calls the register.
   const ordered = [...roster].sort((a, b) => (a.rollNumber ?? 9999) - (b.rollNumber ?? 9999) || a.name.localeCompare(b.name));
-  const shown = needle
-    ? ordered.filter((s) => s.name.toLowerCase().includes(needle) || String(s.rollNumber ?? "") === needle)
-    : ordered;
+  const shown = needle ? ordered.filter((s) => matchesStudentQuery(s, needle)) : ordered;
   const marked = roster.length - onLeave;
   const pctToday = marked > 0 ? Math.round(((yes + late) / marked) * 100) : null;
   const dirty = Object.keys(marks).length > 0;
@@ -1988,7 +2007,7 @@ export function TeacherAttendanceBoard() {
                     <Input
                       value={q}
                       onChangeText={setQ}
-                      placeholder="Name"
+                      placeholder="Name or roll"
                       autoCapitalize="none"
                       autoCorrect={false}
                       className="min-w-0 flex-1 border-0"
@@ -2045,12 +2064,22 @@ export function TeacherAttendanceBoard() {
                     <OnLeaveSign />
                   ) : (
                     <DayMark
-                      name={s.name}
+                      name={[rollLabel(s.rollNumber), s.name].filter(Boolean).join(" ")}
                       status={st}
                       disabled={locked}
                       onChange={(next) => setMarks((m) => ({ ...m, [s.id]: next }))}
                     />
                   );
+                const who = (
+                  <View className={phone ? "min-w-0 flex-1" : "w-52 shrink-0"}>
+                    <Text className="text-sm font-medium text-ink-900" numberOfLines={1}>
+                      {s.name}
+                    </Text>
+                    {s.rollNumber ? (
+                      <Text className="mt-0.5 text-xs text-ink-700">Roll {s.rollNumber}</Text>
+                    ) : null}
+                  </View>
+                );
                 return phone ? (
                   <View key={s.id} className="flex-row items-center gap-3 border-t border-ink-100 px-4 py-2.5">
                     <View className="h-9 w-9 items-center justify-center rounded-full bg-[#EEF3FF]">
@@ -2073,9 +2102,7 @@ export function TeacherAttendanceBoard() {
                   </View>
                 ) : (
                   <View key={s.id} className="flex-row items-center gap-4 border-t border-ink-100 px-4 py-3">
-                    <Text className="w-44 shrink-0 text-sm font-medium text-ink-900" numberOfLines={1}>
-                      {s.name}
-                    </Text>
+                    {who}
                     <AttendanceDots dots={dots} activeDate={locked ? undefined : date} />
                     <View className="ml-auto">{mark}</View>
                   </View>
@@ -3729,6 +3756,8 @@ export function FamilyLetter() {
 
 export function FamilyTimetable() {
   const { data } = useRecord();
+  const { token } = useSession();
+  const toast = useToast();
   const { width } = useWindowDimensions();
   const child = data?.child;
   const table = data?.timetable;
@@ -3762,8 +3791,17 @@ export function FamilyTimetable() {
     return [showTeacher ? slot.teacher : "", showClass ? classLabel : "", ownRoom ? "" : slot.room].filter(Boolean).join(" · ");
   }
 
+  async function exportRoutine() {
+    try {
+      await openRoutinePdf(token, data?.kind === "TEACHER" ? {} : { studentId: child?.id });
+    } catch (error) {
+      toast.show(error instanceof Error ? error.message : "Could not export the routine.");
+    }
+  }
+
   return (
     <View>
+      {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
       {showWeekGrid || !slots.length ? <PageHeader
         kicker="Reports"
         title={title}
@@ -3771,6 +3809,11 @@ export function FamilyTimetable() {
           child
             ? `${child.name.split(" ")[0]} · Class ${child.classLabel}`
             : "Periods for every school day."
+        }
+        action={
+          <Button variant="ghost" onPress={() => void exportRoutine()}>
+            Export PDF
+          </Button>
         }
       /> : null}
       {showWeekGrid || !slots.length ? <ChildSwitch /> : null}

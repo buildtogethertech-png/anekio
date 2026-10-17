@@ -24,25 +24,12 @@ export function weekCapacity(weekdayCount: number, teachingPeriodCount: number) 
   return Math.max(0, weekdayCount) * Math.max(0, teachingPeriodCount);
 }
 
-export const DEFAULT_SUBJECT_CATALOG = [
-  "English",
-  "Mathematics",
-  "Hindi",
-  "Science",
-  "Social Science",
-  "Computer",
-];
-
-export function parseSubjectCatalog(raw: string | null | undefined): string[] {
-  try {
-    const parsed = JSON.parse(raw || "[]") as unknown;
-    if (!Array.isArray(parsed)) return [...DEFAULT_SUBJECT_CATALOG];
-    const names = [...new Set(parsed.map((s) => String(s || "").trim()).filter(Boolean))];
-    return names.length ? names : [...DEFAULT_SUBJECT_CATALOG];
-  } catch {
-    return [...DEFAULT_SUBJECT_CATALOG];
-  }
-}
+export {
+  DEFAULT_SUBJECT_CATALOG,
+  parseSubjectCatalog,
+  serializeSubjectCatalog,
+  type SubjectCatalogEntry,
+} from "./subject-code";
 
 export function parseWeekdays(raw: string | null | undefined): number[] {
   try {

@@ -11,6 +11,7 @@ import {
 import { ExamMarksReview } from "./exam-marks-review";
 import { TeacherMarksModal } from "./exam-teacher-work";
 import { act } from "../lib/mutate";
+import { subjectLabel } from "../lib/subject-label";
 import { calendarFrom } from "../lib/calendar";
 import {
   adminBucket,
@@ -226,7 +227,7 @@ export function ExamsBoard() {
     ? {
         examId: reviewExam.id,
         title: reviewExam.title,
-        subject: reviewExam.subject.name,
+        subject: subjectLabel(reviewExam.subject),
         maxMarks: reviewExam.maxMarks,
         classLabel,
         date: day(reviewExam.date),
@@ -332,7 +333,7 @@ export function ExamsBoard() {
         sendToParents
           ? `Results sent to parents.${holdNote}`
           : ready.length === 1
-            ? `${ready[0].subject.name} paper published.`
+            ? `${subjectLabel(ready[0].subject)} paper published.`
             : `${ready.length} papers published.`,
       );
       await reload();
@@ -478,7 +479,7 @@ export function ExamsBoard() {
                 marks: papers.map((exam) => {
                   const mark = (series.marks || []).find((row) => row.examId === exam.id && row.studentId === student.id);
                   return {
-                    Subject: exam.subject.name,
+                    Subject: subjectLabel(exam.subject),
                     Marks: mark?.absent ? "Absent" : mark?.marks ?? "—",
                     Max: exam.maxMarks,
                   };
@@ -493,7 +494,7 @@ export function ExamsBoard() {
             seriesId: series.id,
             classLabel,
             schedule: series.exams.map((exam) => ({
-              subject: exam.subject.name,
+              subject: subjectLabel(exam.subject),
               date: prettyDay(exam.date),
               maxMarks: exam.maxMarks,
             })),
@@ -967,14 +968,14 @@ export function ExamsBoard() {
                             <View className="h-7 w-7 items-center justify-center rounded-lg bg-[#EEF4FF]">
                               <Ionicons name={subjectIcon(exam.subject.name)} size={14} color="#2563EB" />
                             </View>
-                            <Text className="text-[13px] font-semibold text-ink-900" numberOfLines={1}>{exam.subject.name}</Text>
+                            <Text className="text-[13px] font-semibold text-ink-900" numberOfLines={1}>{subjectLabel(exam.subject)}</Text>
                           </View>
                           {compact ? null : (
                             <>
                               <Text className="w-[92px] text-[12px] text-ink-700">{prettyDay(exam.date)}</Text>
                               <Pressable
                                 accessibilityRole="button"
-                                accessibilityLabel={`Teachers for ${exam.subject.name}`}
+                                accessibilityLabel={`Teachers for ${subjectLabel(exam.subject)}`}
                                 onPress={(e) => {
                                   e.stopPropagation?.();
                                   setDrawerTab("overview");
@@ -1107,7 +1108,7 @@ export function ExamsBoard() {
       />
       <ExamConfirm
         open={Boolean(approveExam)}
-        title={`Approve ${approveExam?.subject.name || ""} marks?`}
+        title={`Approve ${approveExam ? subjectLabel(approveExam.subject) : ""} marks?`}
         body={`${approveExam?.entered ?? 0}/${studentCount} students have marks entered.\n${Math.max(0, studentCount - (approveExam?.entered ?? 0))} missing marks.`}
         action="Approve marks"
         busy={pending === "approveExamMarks"}
@@ -1169,7 +1170,7 @@ export function ExamsBoard() {
                 <Ionicons name={subjectIcon(detailExam.subject.name)} size={20} color="#2563EB" />
               </View>
               <View className="min-w-0 flex-1">
-              <Text className="text-[17px] font-bold text-ink-900">{detailExam.subject.name}</Text>
+              <Text className="text-[17px] font-bold text-ink-900">{subjectLabel(detailExam.subject)}</Text>
               <Text className="mt-0.5 text-[12px] text-ink-700">
                 {series?.name} · Class {classLabel}
               </Text>
@@ -1213,7 +1214,7 @@ export function ExamsBoard() {
                   }
                   return (
                     <ExamTeacherMention
-                      subject={detailExam.subject.name}
+                      subject={subjectLabel(detailExam.subject)}
                       people={people}
                       granted={granted}
                       primaryId={detailExam.teacherId}

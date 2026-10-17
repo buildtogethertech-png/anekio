@@ -12,6 +12,7 @@ import { KioskTopButton } from "../../components/staff-attendance-qr";
 import { OnboardingBoard } from "../../components/onboarding-board";
 import { RecordProvider, useRecord } from "../../lib/record";
 import { useSession } from "../../lib/session";
+import { isStaffScanPath } from "../../lib/staff-attendance-scan";
 import { SupportBanner } from "../../components/support-banner";
 import { getLastWorkspaceRoute, getLauncherPosition, setLastWorkspaceRoute, setLauncherPosition, type LauncherPosition } from "../../lib/storage";
 
@@ -23,6 +24,7 @@ const RESUMABLE_PATHS = new Set([
   "/onboarding",
   "/admissions",
   "/staff",
+  "/staff/scan",
   "/school",
   "/timetable",
   "/fees",
@@ -397,6 +399,7 @@ export default function AppLayout() {
   const params = useGlobalSearchParams();
   const { width } = useWindowDimensions();
   const wide = width >= 768;
+  const scanOnly = isStaffScanPath(pathname);
   const restoredUserId = useRef<string | null>(null);
 
   useEffect(() => {
@@ -419,9 +422,13 @@ export default function AppLayout() {
   }
   if (!user) return <Redirect href="/login" />;
 
-  if (wide) {
-    return (
-      <RecordProvider>
+  return (
+    <RecordProvider>
+      {scanOnly ? (
+        <View className="min-h-0 flex-1 overflow-hidden bg-ink-900">
+          <Slot />
+        </View>
+      ) : wide ? (
         <View className="min-h-0 flex-1 flex-row overflow-hidden bg-[#F7F9FC]">
           <Sidebar />
           <View className="min-h-0 flex-1 overflow-hidden">
@@ -438,49 +445,45 @@ export default function AppLayout() {
           <LaunchPanelButton />
           <SupportBanner />
         </View>
-      </RecordProvider>
-    );
-  }
-
-  return (
-    <RecordProvider>
-      <View className="min-h-0 flex-1 overflow-hidden">
-        <Tabs
-          tabBar={() => <AppTabBar />}
-          screenOptions={{
-            headerShown: false,
-            tabBarHideOnKeyboard: true,
-            sceneStyle: { flex: 1, overflow: "hidden" },
-          }}
-        >
-          <Tabs.Screen name="index" />
-          <Tabs.Screen name="notices" options={{ href: null }} />
-          <Tabs.Screen name="notifications" options={{ href: null }} />
-          <Tabs.Screen name="inbox" options={{ href: null }} />
-          <Tabs.Screen name="more" options={{ href: null }} />
-          <Tabs.Screen name="people" options={{ href: null }} />
-          <Tabs.Screen name="onboarding" options={{ href: null }} />
-          <Tabs.Screen name="staff" options={{ href: null }} />
-          <Tabs.Screen name="school" options={{ href: null }} />
-          <Tabs.Screen name="timetable" options={{ href: null }} />
-          <Tabs.Screen name="fees" options={{ href: null }} />
-          <Tabs.Screen name="pay" options={{ href: null }} />
-          <Tabs.Screen name="exams" options={{ href: null }} />
-          <Tabs.Screen name="roles" options={{ href: null }} />
-          <Tabs.Screen name="attendance" options={{ href: null }} />
-          <Tabs.Screen name="class" options={{ href: null }} />
-          <Tabs.Screen name="leave" options={{ href: null }} />
-          <Tabs.Screen name="subjects" options={{ href: null }} />
-          <Tabs.Screen name="tests" options={{ href: null }} />
-          <Tabs.Screen name="papers" options={{ href: null }} />
-          <Tabs.Screen name="path" options={{ href: null }} />
-          <Tabs.Screen name="letter" options={{ href: null }} />
-          <Tabs.Screen name="uploads" options={{ href: null }} />
-          <Tabs.Screen name="profile" options={{ href: null }} />
-        </Tabs>
-        <LaunchPanelButton />
-        <SupportBanner />
-      </View>
+      ) : (
+        <View className="min-h-0 flex-1 overflow-hidden">
+          <Tabs
+            tabBar={() => <AppTabBar />}
+            screenOptions={{
+              headerShown: false,
+              tabBarHideOnKeyboard: true,
+              sceneStyle: { flex: 1, overflow: "hidden" },
+            }}
+          >
+            <Tabs.Screen name="index" />
+            <Tabs.Screen name="notices" options={{ href: null }} />
+            <Tabs.Screen name="notifications" options={{ href: null }} />
+            <Tabs.Screen name="inbox" options={{ href: null }} />
+            <Tabs.Screen name="more" options={{ href: null }} />
+            <Tabs.Screen name="people" options={{ href: null }} />
+            <Tabs.Screen name="onboarding" options={{ href: null }} />
+            <Tabs.Screen name="staff" options={{ href: null }} />
+            <Tabs.Screen name="school" options={{ href: null }} />
+            <Tabs.Screen name="timetable" options={{ href: null }} />
+            <Tabs.Screen name="fees" options={{ href: null }} />
+            <Tabs.Screen name="pay" options={{ href: null }} />
+            <Tabs.Screen name="exams" options={{ href: null }} />
+            <Tabs.Screen name="roles" options={{ href: null }} />
+            <Tabs.Screen name="attendance" options={{ href: null }} />
+            <Tabs.Screen name="class" options={{ href: null }} />
+            <Tabs.Screen name="leave" options={{ href: null }} />
+            <Tabs.Screen name="subjects" options={{ href: null }} />
+            <Tabs.Screen name="tests" options={{ href: null }} />
+            <Tabs.Screen name="papers" options={{ href: null }} />
+            <Tabs.Screen name="path" options={{ href: null }} />
+            <Tabs.Screen name="letter" options={{ href: null }} />
+            <Tabs.Screen name="uploads" options={{ href: null }} />
+            <Tabs.Screen name="profile" options={{ href: null }} />
+          </Tabs>
+          <LaunchPanelButton />
+          <SupportBanner />
+        </View>
+      )}
     </RecordProvider>
   );
 }

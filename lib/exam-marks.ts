@@ -1,3 +1,5 @@
+import { formatSubjectLabel } from "./subject-code";
+
 export function validateExamMark(marks: number, maxMarks: number, studentLabel = "Marks") {
   if (Number.isNaN(marks)) throw new Error(`${studentLabel} must be a number.`);
   if (marks < 0) throw new Error(`${studentLabel} cannot be negative.`);
@@ -136,14 +138,17 @@ export function csvEscape(value: string | number) {
 export function marksReviewCsv(input: {
   seriesName: string;
   classLabel: string;
-  exams: { id: string; subject: { name: string }; maxMarks: number }[];
+  exams: { id: string; subject: { name: string; code?: string | null }; maxMarks: number }[];
   students: { rollNumber?: number | null; admissionNo?: string; name: string; id: string }[];
   marks: { examId: string; studentId: string; marks: number; absent?: boolean }[];
 }) {
   const headers = [
     "Roll / Admission",
     "Student Name",
-    ...input.exams.flatMap((exam) => [`${exam.subject.name} (/${exam.maxMarks})`, `${exam.subject.name} max`]),
+    ...input.exams.flatMap((exam) => {
+      const label = formatSubjectLabel(exam.subject.code, exam.subject.name);
+      return [`${label} (/${exam.maxMarks})`, `${label} max`];
+    }),
     "Total",
     "Maximum",
     "Percentage",

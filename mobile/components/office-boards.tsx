@@ -32,7 +32,7 @@ import { cloneFields, FormBuilderModal } from "./form-builder";
 import { StaffTimesheet } from "./staff-timesheet";
 import { StaffSalaryBoard } from "./staff-salary-board";
 import { OnboardingBoard } from "./onboarding-board";
-import { StaffAttendanceQrButton } from "./staff-attendance-qr";
+import { StaffAttendanceQrButton, StaffAttendanceQrScanButton } from "./staff-attendance-qr";
 import { studentMetaLine } from "../lib/student-label";
 import { FeesBoard as RefactoredFeesBoard } from "./fees-board";
 import { ManageFeeBody, MonthlyFeeBillSummary, feeAssignmentFromStudent } from "./manage-fee";
@@ -4873,7 +4873,16 @@ export function StaffBoard() {
             </Button>
           ) : null}
 
-          {data?.staffAttendanceSelf ? <StaffAttendanceQrButton token={token} disabled={locked} onMessage={toast.show} /> : null}
+          {canMark ? <StaffAttendanceQrScanButton token={token} disabled={locked} onMessage={toast.show} onDone={reload} /> : null}
+          {data?.staffAttendanceSelf ? (
+            <StaffAttendanceQrButton
+              token={token}
+              disabled={locked || Boolean(data.staffAttendanceSelf.today?.marked)}
+              alreadyMarked={Boolean(data.staffAttendanceSelf.today?.marked)}
+              onRefresh={reload}
+              onMessage={toast.show}
+            />
+          ) : null}
         </View>
         <View testID="staff-toolbar-summary" className="flex-row flex-wrap items-center justify-between gap-2">
           {locked ? (
