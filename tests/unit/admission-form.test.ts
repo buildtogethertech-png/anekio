@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { admissionFormFields, admissionFormJson, admissionLeadInput, effectiveAdmissionFormJson } from "../../lib/admission-form";
+import { admissionFormFields, admissionFormJson, admissionLeadInput, effectiveAdmissionFormJson, websiteFormFields } from "../../lib/admission-form";
 
 describe("admission form configuration", () => {
   it("uses the platform form only when the school has no override", () => {
@@ -22,6 +22,28 @@ describe("admission form configuration", () => {
       options: ["Yes", "No"],
       builtin: false,
     });
+  });
+
+  it("locks only student name, class and billing month on admission; parent fields are the school's choice", () => {
+    const saved = [
+      { id: "studentName", type: "text", required: false, visible: false },
+      { id: "classWanted", type: "text", required: false, visible: false },
+      { id: "billingStartPeriod", type: "month", required: false, visible: false },
+      { id: "guardianName", type: "text", required: false, visible: false },
+      { id: "phone", type: "phone", required: false, visible: false },
+    ];
+    const admission = Object.fromEntries(admissionFormFields(saved).map((field) => [field.id, [field.visible, field.required]]));
+    expect(admission).toEqual({
+      studentName: [true, true],
+      classWanted: [true, true],
+      billingStartPeriod: [true, true],
+      guardianName: [false, false],
+      phone: [false, false],
+    });
+    // The website enquiry still needs a number to call back.
+    const website = Object.fromEntries(websiteFormFields(saved).map((field) => [field.id, [field.visible, field.required]]));
+    expect(website.phone).toEqual([true, true]);
+    expect(website.guardianName).toEqual([false, false]);
   });
 
   it("allows the built-in phone field to be optional", () => {

@@ -1,6 +1,7 @@
 import { createElement, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Animated, Easing, Image, Modal as RnModal, Platform, Pressable, Text, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Animated, Easing, Image, Linking, Modal as RnModal, Platform, Pressable, Text, useWindowDimensions, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { CameraView, useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
 import { act } from "../lib/mutate";
 import { openStaffScanRoute } from "../lib/staff-attendance-scan";
@@ -221,10 +222,16 @@ export function StaffAttendanceQrButton({
   const blocked = Boolean(disabled || alreadyMarked);
   const status = alreadyMarked ? markedLabel || "Attendance already marked for today" : "";
 
+  // Read the latest callback from a ref so the timer is set up once, not again on every render
+  // (re-running this effect called refresh() immediately each time, which looped).
+  const onRefreshRef = useRef(onRefresh);
+  onRefreshRef.current = onRefresh;
+  const autoRefresh = Boolean(onRefresh);
+
   useEffect(() => {
-    if (!onRefresh) return;
+    if (!autoRefresh) return;
     const refresh = () => {
-      void onRefresh();
+      void onRefreshRef.current?.();
     };
     const onVis = () => {
       if (typeof document !== "undefined" && document.visibilityState === "visible") refresh();
@@ -246,7 +253,7 @@ export function StaffAttendanceQrButton({
       }
       clearInterval(id);
     };
-  }, [onRefresh]);
+  }, [autoRefresh]);
 
   async function generate() {
     if (blocked) {
@@ -454,6 +461,28 @@ export function AttendanceKiosk({ token, open, onClose, onScanned }: { token: st
   const [log, setLog] = useState<KioskEntry[]>([]);
   const [count, setCount] = useState(0);
   const [now, setNow] = useState(new Date());
+  // Android / iOS: the native camera (expo-camera) scans QR codes; the web uses getUserMedia + BarcodeDetector.
+  const native = Platform.OS !== "web";
+  const [permission, requestPermission] = useCameraPermissions();
+  const nativeCam = native && Boolean(permission?.granted) && !camError;
+
+  useEffect(() => {
+    if (!open || !native) return;
+    setCamError("");
+    setCamReady(false);
+    if (permission && !permission.granted && permission.canAskAgain) void requestPermission();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, native, facing, permission?.granted, permission?.canAskAgain]);
+
+  async function onNativeScan(data: string) {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    try {
+      await handle(data);
+    } finally {
+      busyRef.current = false;
+    }
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -569,7 +598,35 @@ export function AttendanceKiosk({ token, open, onClose, onScanned }: { token: st
 
   const camera = (
     <View className="overflow-hidden rounded-[28px]" style={{ width: camW, height: camH, borderWidth: 3, borderColor: ring, backgroundColor: "#060D22" }}>
-      {Platform.OS === "web" && !camError ? (
+      {nativeCam ? (
+        <CameraView
+          style={{ flex: 1 }}
+          facing={facing === "user" ? "front" : "back"}
+          barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+          onBarcodeScanned={flash ? undefined : ({ data }) => void onNativeScan(data)}
+          onCameraReady={() => setCamReady(true)}
+          onMountError={(e) => setCamError(e.message || "Could not start the camera.")}
+        />
+      ) : native && !camError && !permission?.granted ? (
+        <View className="flex-1 items-center justify-center p-8">
+          <View className="h-16 w-16 items-center justify-center rounded-full bg-white/10">
+            <Ionicons name="camera-outline" size={30} color="rgba(255,255,255,0.8)" />
+          </View>
+          <Text className="mt-4 text-center text-[17px] font-semibold text-white">Allow camera to scan</Text>
+          <Text className="mt-1 max-w-[300px] text-center text-[14px] leading-5 text-white/70">
+            {permission && !permission.canAskAgain
+              ? "Camera access is off for Anekio. Turn it on in Settings, then come back."
+              : "Anekio needs the camera to read staff attendance QR codes."}
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => void (permission && !permission.canAskAgain ? Linking.openSettings() : requestPermission())}
+            className="mt-5 rounded-full bg-white px-5 py-2.5"
+          >
+            <Text className="text-[14px] font-semibold text-[#0B1530]">{permission && !permission.canAskAgain ? "Open Settings" : "Allow camera"}</Text>
+          </Pressable>
+        </View>
+      ) : Platform.OS === "web" && !camError ? (
         createElement("video", {
           ref: videoRef,
           muted: true,
@@ -583,12 +640,12 @@ export function AttendanceKiosk({ token, open, onClose, onScanned }: { token: st
           </View>
           <Text className="mt-4 text-center text-[17px] font-semibold text-white">Camera unavailable</Text>
           <Text className="mt-1 max-w-[300px] text-center text-[14px] leading-5 text-white/70">
-            {camError || "Open Anekio in Chrome on this device to use the camera."}
+            {camError || "This device can't open the camera."}
           </Text>
         </View>
       )}
 
-      {!camError && Platform.OS === "web" ? (
+      {!camError && (Platform.OS === "web" || nativeCam) ? (
         <>
           {/* soft vignette so the frame reads against any background */}
           <View pointerEvents="none" className="absolute inset-0" style={{ backgroundColor: "rgba(6,13,34,0.18)" }} />

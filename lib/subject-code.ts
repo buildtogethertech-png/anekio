@@ -270,13 +270,21 @@ export function subjectDto(subject: { id: string; code?: string | null; name: st
 }
 
 async function tableColumns(table: string) {
+  // Works on local SQLite and production Postgres.
+  if (/^postgres(?:ql)?:\/\//i.test(String(process.env.DATABASE_URL || ""))) {
+    return prisma.$queryRawUnsafe<{ name: string }[]>(
+      "SELECT column_name AS name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = $1",
+      table
+    );
+  }
   return prisma.$queryRawUnsafe<{ name: string }[]>(`PRAGMA table_info(${table})`);
 }
 
 export async function ensureSubjectCodeColumn() {
   const cols = await tableColumns("Subject");
   if (!cols.some((col) => col.name === "code")) {
-    await prisma.$executeRawUnsafe('ALTER TABLE "Subject" ADD COLUMN "code" TEXT NOT NULL DEFAULT ""');
+    // '' is an empty string; "" would be an (invalid) empty identifier in Postgres.
+    await prisma.$executeRawUnsafe(`ALTER TABLE "Subject" ADD COLUMN "code" TEXT NOT NULL DEFAULT ''`);
   }
 }
 

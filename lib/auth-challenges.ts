@@ -4,9 +4,9 @@ import { prisma } from "./prisma";
 import { userForLogin } from "./login";
 import { looksLikeEmail, normalizeMobile } from "./phone";
 import { publicOrigin } from "./utils";
-import { platformEmailConfigured, sendPlatformSystemEmail } from "./saas-email";
+import { platformEmailConfigured, sendPlatformSecurityNotice, sendPlatformSystemEmail } from "./saas-email";
 
-export type AuthChallengePurpose = "LOGIN" | "PASSWORD_RESET";
+export type AuthChallengePurpose = "LOGIN" | "PASSWORD_RESET" | "CHANGE_EMAIL" | "CHANGE_PHONE";
 
 const CODE_TTL_MS = 10 * 60 * 1000;
 const RESET_LINK_TTL_MS = 15 * 60 * 1000;
@@ -344,4 +344,161 @@ export async function resetPasswordWithLink(rawToken: string, nextPassword: stri
   if (consumed.count !== 1) throw new AuthFlowError(401, "That reset link is invalid or has expired.");
   await prisma.user.update({ where: { id: challenge.userId }, data: { password: await bcrypt.hash(nextPassword, 10) } });
   return { ok: true as const };
+}
+
+
+/* ------------------------------------------------------------------------------------------------
+ * Changing your own login email or phone (Profile).
+ *
+ * Pattern: current password → six-digit code sent to the NEW email / WhatsApp number → switch →
+ * heads-up email to the OLD address. The pending value waits in AuthChallenge.destination, so nothing
+ * on the account changes until the code is confirmed.
+ * ---------------------------------------------------------------------------------------------- */
+
+export type ContactKind = "email" | "phone";
+
+function contactPurpose(kind: ContactKind): AuthChallengePurpose {
+  return kind === "email" ? "CHANGE_EMAIL" : "CHANGE_PHONE";
+}
+
+function normalizeContact(kind: ContactKind, raw: string) {
+  const value = String(raw || "").trim();
+  if (kind === "email") {
+    const email = value.toLowerCase();
+    if (!looksLikeEmail(email)) throw new AuthFlowError(400, "Enter a valid email address.");
+    return email;
+  }
+  const phone = normalizeMobile(value);
+  if (!phone) throw new AuthFlowError(400, "Enter a 10-digit mobile number.");
+  return phone;
+}
+
+async function assertContactFree(kind: ContactKind, value: string, userId: string, orgId: string | null) {
+  const taken = await prisma.user.findFirst({
+    where: { orgId, NOT: { id: userId }, ...(kind === "email" ? { email: value } : { phone: value }) },
+    select: { id: true },
+  });
+  if (taken) {
+    throw new AuthFlowError(409, kind === "email" ? "That email already belongs to another login at this school." : "That number already belongs to another login at this school.");
+  }
+}
+
+export async function requestContactChange(userId: string, input: { kind?: string; value?: string; password?: string }) {
+  const kind: ContactKind = input.kind === "phone" ? "phone" : "email";
+  const purpose = contactPurpose(kind);
+  const row = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, orgId: true, email: true, phone: true, password: true } });
+  if (!row) throw new AuthFlowError(404, "Account missing.");
+  if (!input.password || !(await bcrypt.compare(String(input.password), row.password))) {
+    throw new AuthFlowError(401, "Current password is wrong.");
+  }
+  const value = normalizeContact(kind, String(input.value || ""));
+  const current = kind === "email" ? (row.email || "").toLowerCase() : normalizeMobile(row.phone || "") || "";
+  if (value === current) throw new AuthFlowError(400, kind === "email" ? "That is already your email." : "That is already your number.");
+  await assertContactFree(kind, value, row.id, row.orgId);
+
+  const now = new Date();
+  const [recent, latest] = await Promise.all([
+    prisma.authChallenge.count({ where: { userId: row.id, purpose, createdAt: { gte: new Date(now.getTime() - RATE_WINDOW_MS) } } }),
+    prisma.authChallenge.findFirst({ where: { userId: row.id, purpose }, orderBy: { createdAt: "desc" } }),
+  ]);
+  if (latest && latest.createdAt > new Date(now.getTime() - RESEND_AFTER_MS)) {
+    throw new AuthFlowError(429, "Please wait a moment before requesting another code.");
+  }
+  if (recent >= RATE_LIMIT) throw new AuthFlowError(429, "Too many code requests. Try again in 15 minutes.");
+
+  // Only one pending change per kind: older unused codes stop working.
+  await prisma.authChallenge.updateMany({ where: { userId: row.id, purpose, consumedAt: null }, data: { consumedAt: now } });
+
+  const id = randomUUID();
+  const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
+  const challenge = await prisma.authChallenge.create({
+    data: {
+      id,
+      orgId: row.orgId,
+      userId: row.id,
+      identifierHash: identifierHash(value),
+      destination: value,
+      purpose,
+      codeHash: authCodeHash(id, purpose, code),
+      expiresAt: new Date(now.getTime() + CODE_TTL_MS),
+    },
+  });
+
+  let channel: "EMAIL" | "WHATSAPP" | "SMS" | null = null;
+  try {
+    if (kind === "email") channel = (await sendAuthEmail(value, code, purpose)) ? "EMAIL" : null;
+    else channel = await sendMobileOtp(value, code);
+  } catch (error) {
+    await prisma.authChallenge.delete({ where: { id: challenge.id } }).catch(() => undefined);
+    throw error;
+  }
+
+  return {
+    ok: true as const,
+    destination: kind === "email" ? maskEmail(value) : maskMobile(value),
+    channel: channel || (kind === "email" ? "EMAIL" : "WHATSAPP"),
+    expiresInSeconds: CODE_TTL_MS / 1000,
+    resendInSeconds: RESEND_AFTER_MS / 1000,
+    ...(process.env.NODE_ENV !== "production" ? { developmentCode: code } : {}),
+  };
+}
+
+export async function confirmContactChange(userId: string, input: { kind?: string; code?: string }) {
+  const kind: ContactKind = input.kind === "phone" ? "phone" : "email";
+  const purpose = contactPurpose(kind);
+  const code = String(input.code || "").replace(/\D/g, "");
+  if (code.length !== 6) throw new AuthFlowError(400, "Enter the six-digit code.");
+
+  const challenge = await prisma.authChallenge.findFirst({
+    where: { userId, purpose, consumedAt: null, expiresAt: { gt: new Date() } },
+    orderBy: { createdAt: "desc" },
+  });
+  if (!challenge || challenge.attempts >= MAX_ATTEMPTS || !challenge.destination) {
+    throw new AuthFlowError(401, "That code is invalid or has expired. Request a new one.");
+  }
+  if (!authCodeMatches(challenge.codeHash, challenge.id, purpose, code)) {
+    const attempts = challenge.attempts + 1;
+    await prisma.authChallenge.update({
+      where: { id: challenge.id },
+      data: { attempts, ...(attempts >= MAX_ATTEMPTS ? { consumedAt: new Date() } : {}) },
+    });
+    throw new AuthFlowError(401, attempts >= MAX_ATTEMPTS ? "Too many wrong codes. Request a new one." : "That code is not right. Check it and try again.");
+  }
+  const consumed = await prisma.authChallenge.updateMany({
+    where: { id: challenge.id, consumedAt: null },
+    data: { consumedAt: new Date(), attempts: { increment: 1 } },
+  });
+  if (consumed.count !== 1) throw new AuthFlowError(401, "That code is invalid or has expired. Request a new one.");
+
+  const row = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, orgId: true, name: true, email: true, phone: true } });
+  if (!row) throw new AuthFlowError(404, "Account missing.");
+  const value = challenge.destination;
+  await assertContactFree(kind, value, row.id, row.orgId);
+
+  if (kind === "email") {
+    await prisma.user.update({ where: { id: row.id }, data: { email: value } });
+  } else {
+    // Keep the staff and parent records that hold the same number in step with the login.
+    await prisma.$transaction([
+      prisma.user.update({ where: { id: row.id }, data: { phone: value } }),
+      prisma.staffMember.updateMany({ where: { userId: row.id }, data: { phone: value } }),
+      prisma.parent.updateMany({ where: { userId: row.id }, data: { phone: value } }),
+    ]);
+  }
+
+  // Heads-up to the old email (best effort): this is how a hijacked account gets noticed.
+  const oldEmail = deliverableEmail(row.email);
+  if (oldEmail && oldEmail !== value) {
+    const field = kind === "email" ? "email" : "phone number";
+    const shown = kind === "email" ? maskEmail(value) : maskMobile(value);
+    const who = row.name || "there";
+    await sendPlatformSecurityNotice({
+      to: oldEmail,
+      subject: `Your Anekio ${field} was changed`,
+      text: `Hi ${who},\n\nThe ${field} on your Anekio login was changed to ${shown}.\n\nIf you made this change, no action is needed. If you did not, contact your school office right away.`,
+      html: `<div style="font-family:Arial,sans-serif;color:#102a56;line-height:1.6;max-width:520px;margin:auto;padding:24px"><h1 style="font-size:20px">Your ${field} was changed</h1><p>The ${field} on your Anekio login was changed to <strong>${shown}</strong>.</p><p>If you made this change, no action is needed. If you did not, contact your school office right away.</p></div>`,
+    }).catch(() => undefined);
+  }
+
+  return { ok: true as const, kind, value };
 }

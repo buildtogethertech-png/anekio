@@ -547,14 +547,14 @@ export async function getTeacherDesk(userId: string) {
   const callHome = students
     .map((s) => {
       const run = absentRun(s.attendance, today);
-      const phone = (s.parent.phone || "").replace(/\D/g, "").slice(-10);
+      const phone = (s.parent?.phone || "").replace(/\D/g, "").slice(-10);
       const classLabel = teacher.class ? `${teacher.class.name}-${teacher.class.section}` : "class";
       return {
         id: s.id,
         name: s.name,
         days: run,
-        parentName: s.parent.user.name,
-        phone: s.parent.phone || "",
+        parentName: s.parent?.user.name || "",
+        phone: s.parent?.phone || "",
         wa:
           phone.length === 10
             ? `https://wa.me/91${phone}?text=${encodeURIComponent(

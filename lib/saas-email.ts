@@ -867,6 +867,25 @@ export async function sendPlatformSystemEmail(input: {
   });
 }
 
+/** A one-off security notice from the platform sender (no editable rule), e.g. "your login email was changed". */
+export async function sendPlatformSecurityNotice(input: { to: string; subject: string; text: string; html: string }) {
+  const config = resolveSaasEmailRuntime((await ensureSaasEmailDefaultsRaw()) as StoredConfig);
+  if (!config.enabled || !config.resendApiKey) throw new Error("Platform email delivery is not configured.");
+  const recipient = email(input.to);
+  if (!recipient) throw new Error("Recipient email is missing or invalid.");
+  const selectedSender = sender(config.productionFromName, config.productionFromEmail);
+  if (!selectedSender.fromEmail) throw new Error("Platform email sender is invalid.");
+  return sendResendPlatformEmail({
+    apiKey: config.resendApiKey,
+    from: selectedSender.from,
+    to: [recipient],
+    replyTo: [],
+    subject: input.subject,
+    text: input.text,
+    html: input.html,
+  });
+}
+
 export async function platformEmailConfigured() {
   const config = resolveSaasEmailRuntime((await ensureSaasEmailDefaultsRaw()) as StoredConfig);
   return Boolean(config.enabled && config.resendApiKey && config.productionFromEmail);

@@ -152,6 +152,10 @@ npm run build:aab:production
 npx eas-cli build --platform android --profile production --local
 ```
 
+```bash
+npm --prefix mobile run build:aab:production -- --local
+```
+
 To prevent this manual step for future production builds, add
 `"autoIncrement": true` to the `production` profile in `mobile/eas.json`. With
 the existing remote version source, EAS increments the Android version code for

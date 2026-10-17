@@ -5,7 +5,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { GeneratePayment } from "./generate-payment";
 import { FilterBar, type FilterConfig, type FilterValues } from "./filter";
-import { Button, Card, Field, Input, Modal, Switch, Toast, useToast } from "./ui";
+import { BackLink, Button, Card, Field, Input, Modal, Switch, Toast, useToast } from "./ui";
 import { DateField, MonthField } from "./date-field";
 import { Select } from "./form/select";
 import { FeeReport } from "./fee-report";
@@ -1037,11 +1037,8 @@ export function FeesBoard() {
       </Pressable>
     ) : null;
   const setupHeader = (
-    <View className="mb-3 gap-1">
-      <Pressable accessibilityRole="button" onPress={() => router.push("/school" as never)} className="min-h-[32px] flex-row items-center gap-1 self-start">
-        <Ionicons name="chevron-back" size={19} color="#1F45C7" />
-        <Text className="text-sm font-medium text-[#1F45C7]">Settings</Text>
-      </Pressable>
+    <View className="mb-3">
+      <BackLink label="Settings" onPress={() => router.push("/school" as never)} />
       <Text className="text-[22px] font-bold tracking-tight text-ink-900">Fee setup</Text>
     </View>
   );

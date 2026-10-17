@@ -4,7 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Dropdown } from "./form";
-import { Badge, Button, Card, Field, Input, Modal, PageHeader, Switch, Toast, useToast } from "./ui";
+import { BackLink, Badge, Button, Card, Field, Input, Modal, PageHeader, Switch, Toast, useToast } from "./ui";
 import { LeaveCreditFields, MONTHS, Step as LeaveStep, leaveCreditSummary } from "./leave-credit";
 import { LeaveBalancesSheet } from "./leave-balances";
 import { DateField } from "./date-field";
@@ -22,10 +22,10 @@ import { useSession } from "../lib/session";
 import { pickFile, uploadFile, type PickedFile } from "../lib/upload";
 import { cloneFields, FormBuilderModal } from "./form-builder";
 
-/** Mirrors LOCKED_ADMISSION_FIELD_IDS on the server: every admission needs these. */
-const LOCKED_ADMISSION_FIELDS = ["studentName", "classWanted", "guardianName", "phone"];
-/** Student admission also locks the billing month (mirrors LOCKED_STUDENT_ADMISSION_FIELD_IDS). */
-const LOCKED_STUDENT_ADMISSION_FIELDS = [...LOCKED_ADMISSION_FIELDS, "billingStartPeriod"];
+/** Mirrors LOCKED_ADMISSION_FIELD_IDS on the server: every enquiry needs these. */
+const LOCKED_ADMISSION_FIELDS = ["studentName", "classWanted", "phone"];
+/** Mirrors LOCKED_STUDENT_ADMISSION_FIELD_IDS: parent fields are the school's choice on admission. */
+const LOCKED_STUDENT_ADMISSION_FIELDS = ["studentName", "classWanted", "billingStartPeriod"];
 
 const TABS = [
   { id: "identity", label: "Identity & brand assets", hint: "Name, address, logo, signatures, and stamps", group: "School Setup" },
@@ -2090,12 +2090,10 @@ export function SchoolBoard() {
   return (
     <View>
       {level !== "doors" ? (
-        <Pressable onPress={goBack} className="mb-1 min-h-[32px] flex-row items-center gap-1">
-          <Ionicons name="chevron-back" size={19} color="#1d4ed8" />
-          <Text className="text-sm font-medium text-clay-600">
-            {!phone && level === "page" && TABS.filter((item) => item.group === door).length > 1 ? door : "Settings"}
-          </Text>
-        </Pressable>
+        <BackLink
+          onPress={goBack}
+          label={!phone && level === "page" && TABS.filter((item) => item.group === door).length > 1 ? door : "Settings"}
+        />
       ) : null}
       {phone && level === "doors" ? (
         <Text className="mb-3 text-[22px] font-bold tracking-tight text-ink-900">Settings</Text>
@@ -2432,6 +2430,10 @@ export function SchoolBoard() {
             {tab === "subjects" ? (
               <SchoolSubjectsForm
                 catalog={s?.subjectCatalog ?? []}
+                weeklyPeriods={
+                  (data?.timetable?.weekdays?.length ?? 0) *
+                  (data?.timetable?.periods ?? []).filter((row) => !row.isBreak).length
+                }
                 classes={(data?.timetable?.classes ?? [])
                   .filter((c) => c.id)
                   .map((c) => ({

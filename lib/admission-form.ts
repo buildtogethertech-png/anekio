@@ -18,10 +18,13 @@ export type AdmissionFormField = {
 };
 
 const BUILTIN_IDS = ["studentName", "classWanted", "billingStartPeriod", "guardianName", "phone", "email", "message"] as const;
-/** Every admission needs these, so schools can rename them but never hide them or make them optional. */
-export const LOCKED_ADMISSION_FIELD_IDS: readonly string[] = ["studentName", "classWanted", "guardianName", "phone"];
-/** Admission also needs the billing month: invoices start from it. Not asked on the website. */
-export const LOCKED_STUDENT_ADMISSION_FIELD_IDS: readonly string[] = [...LOCKED_ADMISSION_FIELD_IDS, "billingStartPeriod"];
+/** Every enquiry needs these: who, which class, and a number to call back. Rename only, never hide. */
+export const LOCKED_ADMISSION_FIELD_IDS: readonly string[] = ["studentName", "classWanted", "phone"];
+/**
+ * Admitting a student only needs the child, the class and the billing month. Parent name and mobile are the
+ * school's choice: a student admitted without a parent mobile has no parent login until one is added.
+ */
+export const LOCKED_STUDENT_ADMISSION_FIELD_IDS: readonly string[] = ["studentName", "classWanted", "billingStartPeriod"];
 export type AdmissionBuiltinId = (typeof BUILTIN_IDS)[number];
 const STAFF_ONBOARDING_BUILTIN_IDS = ["staffName", "phone", "email", "role", "department", "joiningDate", "qualification", "address", "monthlySalary", "reportingManager"] as const;
 /** Staff fields with a fixed input type: the code reads them, so a school can't turn them into something else. */

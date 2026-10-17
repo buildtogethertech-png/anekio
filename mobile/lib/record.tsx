@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api } from "./api";
 import { useSession } from "./session";
 import { getChildId, setChildId as persistChildId } from "./storage";
@@ -938,7 +938,10 @@ type Ctx = {
   refreshing: boolean;
   childId?: string;
   setChildId: (id: string) => void;
+  /** Pull-to-refresh style: shows the refresh spinner while loading. */
   reload: () => Promise<void>;
+  /** Background refresh (timers, focus): updates the data without the spinner. */
+  reloadSilently: () => Promise<void>;
 };
 
 const RecordContext = createContext<Ctx | null>(null);
@@ -972,30 +975,39 @@ export function RecordProvider({ children }: { children: ReactNode }) {
     reload().catch((e) => setError(e instanceof Error ? e.message : "Could not load."));
   }, [reload, childReady, token]);
 
-  async function onSetChild(id: string) {
+  const onSetChild = useCallback(async (id: string) => {
     setChildId(id);
     await persistChildId(id);
-  }
+  }, []);
+
+  // Stable functions: a new `reload` on every render made effects that depend on it (e.g. the
+  // staff attendance QR auto-refresh) run again after each load — an endless refresh loop.
+  const reloadWithSpinner = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await reload();
+      setError("");
+    } finally {
+      setRefreshing(false);
+    }
+  }, [reload]);
+
+  const reloadSilently = useCallback(async () => {
+    try {
+      await reload();
+      setError("");
+    } catch {
+      /* keep the data on screen; the next refresh tries again */
+    }
+  }, [reload]);
+
+  const value = useMemo<Ctx>(
+    () => ({ data, error, refreshing, childId, setChildId: onSetChild, reload: reloadWithSpinner, reloadSilently }),
+    [data, error, refreshing, childId, onSetChild, reloadWithSpinner, reloadSilently]
+  );
 
   return (
-    <RecordContext.Provider
-      value={{
-        data,
-        error,
-        refreshing,
-        childId,
-        setChildId: onSetChild,
-        reload: async () => {
-          setRefreshing(true);
-          try {
-            await reload();
-            setError("");
-          } finally {
-            setRefreshing(false);
-          }
-        },
-      }}
-    >
+    <RecordContext.Provider value={value}>
       {children}
     </RecordContext.Provider>
   );

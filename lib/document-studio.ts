@@ -2157,13 +2157,13 @@ export async function renderActiveFeeInvoiceTemplateHtml(token: string) {
       admissionNo: invoice.student.admissionNo,
       rollNo: activeRollNumber(invoice.student) || "",
       classLabel: `${invoice.student.class.name}-${invoice.student.class.section}`,
-      parent: invoice.student.parent.user.name,
-      parentPhone: invoice.student.parent.phone || invoice.student.parent.user.phone || "",
+      parent: invoice.student.parent?.user.name || "",
+      parentPhone: invoice.student.parent?.phone || invoice.student.parent?.user.phone || "",
     },
     guardian: {
-      name: invoice.student.parent.user.name,
-      phone: invoice.student.parent.phone || invoice.student.parent.user.phone || "",
-      email: invoice.student.parent.user.email,
+      name: invoice.student.parent?.user.name || "",
+      phone: invoice.student.parent?.phone || invoice.student.parent?.user.phone || "",
+      email: invoice.student.parent?.user.email || "",
     },
     fees: {
       lines,
@@ -2300,13 +2300,13 @@ export async function renderActivePaymentReceiptTemplateHtml(token: string) {
       admissionNo: invoice.student.admissionNo,
       rollNo: activeRollNumber(invoice.student) || "",
       classLabel: `${invoice.student.class.name}-${invoice.student.class.section}`,
-      parent: invoice.student.parent.user.name,
-      parentPhone: invoice.student.parent.phone || invoice.student.parent.user.phone || "",
+      parent: invoice.student.parent?.user.name || "",
+      parentPhone: invoice.student.parent?.phone || invoice.student.parent?.user.phone || "",
     },
     guardian: {
-      name: invoice.student.parent.user.name,
-      phone: invoice.student.parent.phone || invoice.student.parent.user.phone || "",
-      email: invoice.student.parent.user.email,
+      name: invoice.student.parent?.user.name || "",
+      phone: invoice.student.parent?.phone || invoice.student.parent?.user.phone || "",
+      email: invoice.student.parent?.user.email || "",
     },
     fees: {
       lines,
@@ -2392,9 +2392,9 @@ async function pendingFeeStatusForStudent(studentId: string) {
     paidMonths,
     invoiceIds,
     payUrl,
-    parentName: student.parent.user.name,
-    parentPhone: student.parent.phone || student.parent.user.phone || "",
-    parentEmail: student.parent.user.email,
+    parentName: student.parent?.user.name || "",
+    parentPhone: student.parent?.phone || student.parent?.user.phone || "",
+    parentEmail: student.parent?.user.email || "",
   };
 }
 

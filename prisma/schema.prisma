@@ -355,8 +355,9 @@ model Student {
   orgId               String?
   userId              String?                  @unique
   user                User?                    @relation(fields: [userId], references: [id])
-  parentId            String
-  parent              Parent                   @relation(fields: [parentId], references: [id])
+  /// Optional: a school may admit a student before it has a parent mobile. No parent means no parent login yet.
+  parentId            String?
+  parent              Parent?                  @relation(fields: [parentId], references: [id])
   classId             String
   class               Class                    @relation(fields: [classId], references: [id])
   admissionNo         String

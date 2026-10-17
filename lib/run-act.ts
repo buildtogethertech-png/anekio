@@ -111,6 +111,7 @@ import {
 } from "./core-office";
 import { issueFeeReceiptCore } from "./fee-register";
 import { savePushTokenCore } from "./push";
+import { confirmMyContactChangeCore, getMyAccountCore, requestMyContactChangeCore, updateMyNameCore } from "./my-account";
 import {
   applyOnboardingImport,
   previewOnboardingImport,
@@ -480,6 +481,14 @@ export async function runAct(
     case "archiveClass":
       await archiveClassCore(user, body as never);
       break;
+    case "getMyAccount":
+      return { ok: true, account: await getMyAccountCore(user) };
+    case "updateMyName":
+      return { ok: true, ...(await updateMyNameCore(user, body as never)) };
+    case "requestContactChange":
+      return { ...(await requestMyContactChangeCore(user, body as never)) };
+    case "confirmContactChange":
+      return { ...(await confirmMyContactChangeCore(user, body as never)) };
     case "changePassword":
       await changeOwnPasswordCore(user, {
         current: String(body.current || ""),

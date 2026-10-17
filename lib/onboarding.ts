@@ -677,9 +677,9 @@ async function csvRowsFor(kind: ImportKind): Promise<CsvCell[][]> {
           name: student.name,
           dob: dateText(student.dateOfBirth),
           classLabel: `${student.class.name}-${student.class.section}`,
-          parentName: student.parent.user.name,
-          parentMobile: student.parent.phone || student.parent.user.phone || "",
-          parentEmail: student.parent.user.email.endsWith("@local.anekio.invalid") ? "" : student.parent.user.email,
+          parentName: student.parent?.user.name || "",
+          parentMobile: student.parent?.phone || student.parent?.user.phone || "",
+          parentEmail: !student.parent || student.parent.user.email.endsWith("@local.anekio.invalid") ? "" : student.parent.user.email,
         }),
       ]),
     ];
@@ -1436,15 +1436,21 @@ async function validateRows(kind: ImportKind, rows: ImportRow[], coveragePeriod?
       const name = configuredImportValue(row, forms!.admission, "studentName", "Student name", "Name");
       const dob = sheetCell(row, "Date of birth", "DOB");
       const klass = classFromImportRow(row, forms!.admission);
-      const phone = normalizeMobile(configuredImportValue(row, forms!.admission, "phone", "Parent mobile", "Parent phone"));
+      const rawPhone = configuredImportValue(row, forms!.admission, "phone", "Parent mobile", "Parent phone");
+      const phone = normalizeMobile(rawPhone);
+      const parentName = configuredImportValue(row, forms!.admission, "guardianName", "Parent name");
+      // Parent columns follow the admission form: a row with no parent mobile imports a student without a parent.
+      const formRequires = (id: string) => !forms!.admission.length || forms!.admission.some((field) => field.id === id && field.visible && field.required);
       const studentId = sheetCell(row, "Anekio student ID");
       const admissionNo = sheetCell(row, "Admission number", "Admission no").toLowerCase();
       const roll = parseRollNumber(sheetCell(row, "Roll number", "Roll no", "Roll no.", "Roll"));
       if (!name) errors.push(rowError(row, "student name is required."));
       if (!validDate(dob)) errors.push(rowError(row, "date of birth must be YYYY-MM-DD."));
       if (!klass) errors.push(rowError(row, "class must be a value like 1-A."));
-      if (!configuredImportValue(row, forms!.admission, "guardianName", "Parent name")) errors.push(rowError(row, "parent name is required."));
-      if (!phone) errors.push(rowError(row, "parent mobile must be a 10-digit number."));
+      if (!parentName && formRequires("guardianName")) errors.push(rowError(row, "parent name is required."));
+      if (rawPhone.trim() && !phone) errors.push(rowError(row, "parent mobile must be a 10-digit number."));
+      else if (!phone && formRequires("phone")) errors.push(rowError(row, "parent mobile must be a 10-digit number."));
+      else if (!phone && parentName) errors.push(rowError(row, "add the parent mobile, or leave the parent name empty."));
       for (const field of visibleFields(forms!.admission)) {
         if (!field.required || ["studentName", "classWanted", "guardianName", "phone", "billingStartPeriod"].includes(field.id)) continue;
         if (!configuredImportValue(row, forms!.admission, field.id, field.id === "email" ? "Parent email" : "")) {
@@ -1722,7 +1728,10 @@ async function applyStudents(
     const phone = normalizeMobile(configuredImportValue(row, forms.admission, "phone", "Parent mobile", "Parent phone"));
     const suppliedEmail = configuredImportValue(row, forms.admission, "email", "Parent email").toLowerCase();
     const email = suppliedEmail || placeholderEmail("parent", phone);
-    const user = await db.user.findFirst({ where: { orgId: setup.orgId, OR: [{ email }, { phone }] }, include: { parent: true, role: { select: { portal: true } } } });
+    // No parent mobile: no parent login. Never look up a user by an empty phone.
+    const user = phone
+      ? await db.user.findFirst({ where: { orgId: setup.orgId, OR: [{ email }, { phone }] }, include: { parent: true, role: { select: { portal: true } } } })
+      : null;
     let parentId = user?.parent?.id || "";
     const staffParent = Boolean(user && !parentId);
     if (user && !parentId) {
@@ -1734,13 +1743,13 @@ async function applyStudents(
         throw onboardingImportWriteError(row, error);
       }
     }
-    if (!parentId) {
+    if (!parentId && phone) {
       let parentUser: { parent: { id: string } | null };
       try {
         parentUser = await db.user.create({
           data: {
             orgId: setup.orgId,
-            name: configuredImportValue(row, forms.admission, "guardianName", "Parent name"),
+            name: configuredImportValue(row, forms.admission, "guardianName", "Parent name") || `Parent of ${configuredImportValue(row, forms.admission, "studentName", "Student name", "Name")}`,
             email,
             phone,
             password: setup.password,
@@ -1776,7 +1785,8 @@ async function applyStudents(
       admissionNo,
       dateOfBirth: new Date(`${sheetCell(row, "Date of birth", "DOB")}T00:00:00`),
       classId: classRow.id,
-      parentId,
+      // A row without a parent mobile keeps the student's current parent (or none for a new student).
+      ...(parentId ? { parentId } : {}),
     };
     if (existing) {
       await db.student.update({ where: { id: existing.id }, data });

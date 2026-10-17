@@ -9,6 +9,7 @@ import { DocViewer } from "./doc-viewer";
 import { ParentDetailsCard, ParentDetailsSheet, useParentDetails } from "./parent-details";
 import { Badge, Button, Card, Chip, ChipScroller, CloseButton, Empty, Field, Input, Modal, PageHeader, Stat, Toast, useToast } from "./ui";
 import { act } from "../lib/mutate";
+import { AccountDetailsCard, PasswordSheet } from "./account-details";
 import { api, webOrigin } from "../lib/api";
 import {
   attendanceCbseNote,
@@ -213,7 +214,7 @@ function friendlyHint(text?: string) {
 }
 
 export function TeacherDeskBoard() {
-  const { data, reload } = useRecord();
+  const { data, reload, reloadSilently } = useRecord();
   const { token, user } = useSession();
   const router = useRouter();
   const toast = useToast();
@@ -436,7 +437,7 @@ export function TeacherDeskBoard() {
                 token={token}
                 disabled={Boolean(todayClosed)}
                 alreadyMarked={Boolean(data.staffAttendanceSelf.today?.marked)}
-                onRefresh={reload}
+                onRefresh={reloadSilently}
                 onMessage={toast.show}
               />
             </View>
@@ -560,7 +561,7 @@ export function TeacherDeskBoard() {
             token={token}
             disabled={Boolean(todayClosed)}
             alreadyMarked={Boolean(data.staffAttendanceSelf.today?.marked)}
-            onRefresh={reload}
+            onRefresh={reloadSilently}
             tile
             round
             onMessage={toast.show}
@@ -3495,9 +3496,6 @@ export function FamilyProfile() {
       : [];
   const parentRows = parent
     ? [
-        { label: "Name", value: data.parent?.name || user?.name || "—" },
-        { label: "Email", value: data.parent?.email || user?.email || "—" },
-        { label: "Phone", value: data.parent?.phone || child?.parentPhone || "—" },
         { label: "Address", value: data.parent?.address || "—" },
         { label: "City", value: data.parent?.city || "—" },
         { label: "State", value: data.parent?.state || "—" },
@@ -3517,10 +3515,6 @@ export function FamilyProfile() {
         { label: "Parent email", value: child?.parentEmail || "—" },
       ]
     : [];
-  const [current, setCurrent] = useState("");
-  const [next, setNext] = useState("");
-  const [confirm, setConfirm] = useState("");
-  const [busy, setBusy] = useState(false);
   const [pwOpen, setPwOpen] = useState(false);
   const staffLike = !parent && !student;
   const isAdmin = user?.role === "ADMIN";
@@ -3534,26 +3528,6 @@ export function FamilyProfile() {
   const subline = student
     ? [child?.classLabel, child?.email || user?.email].filter(Boolean).join(" · ")
     : [parent ? "Parent" : user?.roleName, parent ? data?.parent?.email || user?.email : user?.email].filter(Boolean).join(" · ");
-
-  async function savePassword() {
-    if (next !== confirm) {
-      toast.show("New passwords do not match.");
-      return;
-    }
-    setBusy(true);
-    try {
-      await act(token, "changePassword", { current, next });
-      setCurrent("");
-      setNext("");
-      setConfirm("");
-      setPwOpen(false);
-      toast.show("Password updated.");
-    } catch (e) {
-      toast.show(e instanceof Error ? e.message : "Could not change password.");
-    } finally {
-      setBusy(false);
-    }
-  }
 
   function DetailRows({ rows }: { rows: { label: string; value: string }[] }) {
     return (
@@ -3599,9 +3573,10 @@ export function FamilyProfile() {
           ) : null}
         </View>
       </Card>
+      {!student ? <AccountDetailsCard onMessage={(message) => toast.show(message)} /> : null}
       {staffLike ? null : parent ? (
         <Card className="mb-4 p-5">
-          <Text className="mb-3 text-[13px] font-semibold text-ink-900">Parent</Text>
+          <Text className="mb-3 text-[13px] font-semibold text-ink-900">Address</Text>
           <DetailRows rows={parentRows} />
         </Card>
       ) : (
@@ -3654,74 +3629,29 @@ export function FamilyProfile() {
       <Card className="mb-4 overflow-hidden">
         <Pressable
           accessibilityRole="button"
-          accessibilityState={{ expanded: pwOpen }}
-          onPress={() => setPwOpen((v) => !v)}
+          accessibilityLabel="Change password"
+          onPress={() => setPwOpen(true)}
           className="flex-row items-center gap-3 px-5 py-4"
         >
           <View className="h-9 w-9 items-center justify-center rounded-full bg-ink-50">
             <Ionicons name="key-outline" size={17} color="#334155" />
           </View>
           <View className="min-w-0 flex-1">
-            <Text className="text-[15px] font-semibold text-ink-900">Change password</Text>
-            <Text className="text-xs text-ink-600">
-              {student ? "The one thing you can change yourself." : "Pick a new password only you know."}
-            </Text>
+            <Text className="text-xs text-ink-700">Password</Text>
+            <Text className="text-[15px] font-medium text-ink-900">••••••••</Text>
+            {student ? <Text className="mt-0.5 text-[11px] text-ink-500">The one thing you can change yourself.</Text> : null}
           </View>
-          <Ionicons name={pwOpen ? "chevron-up" : "chevron-down"} size={18} color="#94a3b8" />
+          <Text className="text-sm font-semibold text-clay-600">Change</Text>
         </Pressable>
-        {pwOpen ? (
-          <View className="gap-3 border-t border-ink-100 px-5 pb-5 pt-4">
-            <Field label="Current password">
-              <Input secureTextEntry value={current} onChangeText={setCurrent} />
-            </Field>
-            <Field label="New password">
-              <Input secureTextEntry value={next} onChangeText={setNext} />
-            </Field>
-            <Field label="Confirm new password">
-              <Input secureTextEntry value={confirm} onChangeText={setConfirm} />
-            </Field>
-            <Button disabled={busy || !current || !next} onPress={savePassword}>
-              {busy ? "Saving…" : "Save new password"}
-            </Button>
-          </View>
-        ) : null}
       </Card>
-      {user?.portal === "OFFICE" ? (
-        isAdmin ? (
-          <Card className="mb-4 flex-row items-center gap-3 px-5 py-4">
-            <View className="h-9 w-9 items-center justify-center rounded-full bg-ink-50">
-              <Ionicons name="airplane-outline" size={17} color="#334155" />
-            </View>
-            <Pressable onPress={() => router.push("/leave" as never)} className="min-w-0 flex-1">
-              <Text className="text-[15px] font-semibold text-ink-900">My leave</Text>
-              <Text className="text-xs font-semibold text-[#1F45C7]">Balance & history ›</Text>
-            </Pressable>
-            <LeaveApplyCard
-              audience="staff"
-              token={token}
-              triggerOnly
-              onDone={async (ok) => {
-                toast.show(ok);
-                await reload();
-              }}
-              onError={(msg) => toast.show(msg)}
-            />
-          </Card>
-        ) : (
-          <View className="mb-4">
-            <LeaveApplyCard
-              audience="staff"
-              token={token}
-              compact
-              onDone={async (ok) => {
-                toast.show(ok);
-                await reload();
-              }}
-              onError={(msg) => toast.show(msg)}
-            />
-          </View>
-        )
-      ) : null}
+      <PasswordSheet
+        open={pwOpen}
+        onClose={() => setPwOpen(false)}
+        onSaved={() => {
+          setPwOpen(false);
+          toast.show("Password updated.");
+        }}
+      />
     </View>
   );
 }

@@ -47,7 +47,7 @@ export async function createCashfreeOrder(token: string, origin: string) {
   if (!due || due.dueNow <= 0) throw new Error("This invoice is already paid");
   const pay = await getSchoolPaySecrets();
   const orderId = `cf_${row.id.slice(0, 18)}_${Date.now().toString().slice(-6)}`;
-  const phone = row.student.parent.phone?.replace(/\D/g, "").slice(-10) || "9999999999";
+  const phone = row.student.parent?.phone?.replace(/\D/g, "").slice(-10) || "9999999999";
   const created = await cashfreeFetch("/orders", {
     method: "POST",
     body: JSON.stringify({
@@ -58,7 +58,7 @@ export async function createCashfreeOrder(token: string, origin: string) {
       customer_details: {
         customer_id: row.student.id.slice(0, 40),
         customer_name: row.student.name,
-        customer_email: row.student.parent.user.email || "parent@school.test",
+        customer_email: row.student.parent?.user.email || "parent@school.test",
         customer_phone: phone.length === 10 ? phone : "9999999999",
       },
       order_meta: {
@@ -75,7 +75,7 @@ export async function createCashfreeOrder(token: string, origin: string) {
     paymentSessionId: String(created.payment_session_id || ""),
     amount: due.dueNow,
     name: row.student.name,
-    email: row.student.parent.user.email ?? "",
+    email: row.student.parent?.user.email ?? "",
     description: row.title,
   };
 }

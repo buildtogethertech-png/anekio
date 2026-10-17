@@ -1802,7 +1802,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
         <Field label="Parent">
           <Input value={edit.parentName ?? selected.parent} onChangeText={(v) => setEdit((p) => ({ ...p, parentName: v }))} />
         </Field>
-        <Field label="Phone">
+        <Field label={selected.parentId ? "Phone" : "Phone · adds a parent login"}>
           <Input keyboardType="phone-pad" value={edit.parentPhone ?? selected.parentPhone ?? ""} onChangeText={(v) => setEdit((p) => ({ ...p, parentPhone: v }))} />
         </Field>
         <Field label="Email">
@@ -2012,8 +2012,10 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                 <Text className="text-[13px] font-bold text-[#1F45C7]">{initials}</Text>
               </View>
               <View className="min-w-0 flex-1">
-                <Text className="text-[15px] font-semibold text-ink-900" numberOfLines={1}>{selected.parent || "Parent"}</Text>
-                <Text className="text-xs text-ink-500" numberOfLines={1}>Parent · {selected.parentPhone || "no phone"}</Text>
+                <Text className="text-[15px] font-semibold text-ink-900" numberOfLines={1}>{selected.parentId ? selected.parent || "Parent" : "No parent added"}</Text>
+                <Text className="text-xs text-ink-500" numberOfLines={1}>
+                  {selected.parentId ? `Parent · ${selected.parentPhone || "no phone"}` : "Edit the student and add a parent mobile to create a parent login."}
+                </Text>
               </View>
             </View>
             {selected.parentEmail ? (
@@ -3825,7 +3827,7 @@ export function AdmissionsBoard() {
         audience="parents"
         fields={websiteFormDraft || []}
         suggestions={data?.school?.platformForms?.website ?? []}
-        lockedIds={["studentName", "classWanted", "guardianName", "phone"]}
+        lockedIds={["studentName", "classWanted", "phone"]}
         classOptions={[...new Set(classOptions.map((option) => option.label))]}
         canEdit={can(user, "school.edit")}
         onChange={(fields) => setWebsiteFormDraft(fields)}
@@ -4316,7 +4318,7 @@ function leaveRange(from: string, to: string) {
 }
 
 export function StaffBoard() {
-  const { data, reload } = useRecord();
+  const { data, reload, reloadSilently } = useRecord();
   const { token, user } = useSession();
   const toast = useToast();
   const router = useRouter();
@@ -4879,7 +4881,7 @@ export function StaffBoard() {
               token={token}
               disabled={locked || Boolean(data.staffAttendanceSelf.today?.marked)}
               alreadyMarked={Boolean(data.staffAttendanceSelf.today?.marked)}
-              onRefresh={reload}
+              onRefresh={reloadSilently}
               onMessage={toast.show}
             />
           ) : null}

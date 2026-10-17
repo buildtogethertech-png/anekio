@@ -1,6 +1,7 @@
 import { createElement, useEffect, useRef, useState } from "react";
-import { Platform, Pressable, Text, View } from "react-native";
+import { Linking, Platform, Pressable, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { CameraView, useCameraPermissions } from "expo-camera";
 import jsQR from "jsqr";
 import { useRouter } from "expo-router";
 import { act } from "../lib/mutate";
@@ -78,6 +79,24 @@ export function StaffAttendanceScanBoard() {
   const lastAtRef = useRef(0);
   const mountedRef = useRef(true);
   const [retry, setRetry] = useState(0);
+  // Android / iOS scan with the native camera (expo-camera); the web keeps getUserMedia + BarcodeDetector/jsQR.
+  const native = Platform.OS !== "web";
+  const [permission, requestPermission] = useCameraPermissions();
+  const nativeCam = native && Boolean(permission?.granted);
+
+  useEffect(() => {
+    if (!native || !allowed || !permission) return;
+    if (permission.granted) {
+      setStatus("Point camera at the attendance QR.");
+      setResult({ kind: "idle", title: "Ready to scan", body: "Keep this screen open. Each teacher can be scanned in turn." });
+    } else if (permission.canAskAgain) {
+      void requestPermission();
+    } else {
+      setStatus("Camera permission was blocked.");
+      setResult({ kind: "denied", title: "Camera blocked", body: "Turn on camera access for Anekio in Settings, or paste the QR below." });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [native, allowed, permission?.granted, permission?.canAskAgain, retry]);
 
   async function markCode(raw: string) {
     const clean = raw.trim();
@@ -116,7 +135,7 @@ export function StaffAttendanceScanBoard() {
       setResult({ kind: classified.kind, title: classified.title, body: `${message} Scanner still running. Show the next QR.` });
       setStatus("Scanner still running. Show the next QR.");
     } finally {
-      window.setTimeout(() => {
+      setTimeout(() => {
         inFlightRef.current = false;
       }, STAFF_SCAN_COOLDOWN_MS);
     }
@@ -125,10 +144,6 @@ export function StaffAttendanceScanBoard() {
   useEffect(() => {
     mountedRef.current = true;
     if (!allowed || Platform.OS !== "web") {
-      if (Platform.OS !== "web") {
-        setStatus("Paste the QR code below.");
-        setResult({ kind: "unavailable", title: "Camera unavailable", body: "Paste or type the attendance QR on this device." });
-      }
       return () => {
         mountedRef.current = false;
       };
@@ -280,11 +295,37 @@ export function StaffAttendanceScanBoard() {
               <Text className="mt-1 text-center text-xs text-white/80">{status}</Text>
             </View>
           </>
+        ) : nativeCam ? (
+          <>
+            <CameraView
+              style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
+              facing="back"
+              barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+              onBarcodeScanned={({ data }) => void markCode(data)}
+              onMountError={(e) => setResult({ kind: "unavailable", title: "Camera unavailable", body: e.message || "Paste the QR code below." })}
+            />
+            <View className="absolute inset-0 items-center justify-center" pointerEvents="none">
+              <View className="h-52 w-52 rounded-lg border-4 border-white/90 bg-transparent" />
+            </View>
+            <View className="absolute inset-x-0 bottom-0 bg-ink-900/70 px-4 py-3" pointerEvents="none">
+              <Text className="text-center text-sm font-semibold text-white">Point camera at staff attendance QR</Text>
+              <Text className="mt-1 text-center text-xs text-white/80">{status}</Text>
+            </View>
+          </>
         ) : (
           <View className="flex-1 items-center justify-center bg-blue-50 p-6">
             <Ionicons name="camera-outline" size={46} color="#1d4ed8" />
-            <Text className="mt-3 text-center text-sm font-semibold text-ink-900">Camera scanner needs the web camera</Text>
-            <Text className="mt-1 text-center text-xs leading-5 text-ink-700">Paste or scan the QR code below for now.</Text>
+            <Text className="mt-3 text-center text-sm font-semibold text-ink-900">Allow camera to scan</Text>
+            <Text className="mt-1 text-center text-xs leading-5 text-ink-700">
+              {permission && !permission.canAskAgain ? "Camera access is off for Anekio. Turn it on in Settings." : "Anekio needs the camera to read attendance QR codes."}
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => void (permission && !permission.canAskAgain ? Linking.openSettings() : requestPermission())}
+              className="mt-4 rounded-md bg-clay-500 px-4 py-2"
+            >
+              <Text className="text-sm font-semibold text-white">{permission && !permission.canAskAgain ? "Open Settings" : "Allow camera"}</Text>
+            </Pressable>
           </View>
         )}
       </View>

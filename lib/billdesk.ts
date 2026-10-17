@@ -102,7 +102,7 @@ export async function createBilldeskOrder(token: string, origin: string) {
     returnUrl: `${origin}/pay/${token}/return?provider=billdesk`,
     amount: due.dueNow,
     name: row.student.name,
-    email: row.student.parent.user.email ?? "",
+    email: row.student.parent?.user.email ?? "",
     description: row.title,
   };
 }

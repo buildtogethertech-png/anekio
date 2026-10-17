@@ -100,6 +100,7 @@ describe("StaffBoard leave requests", () => {
       refreshing: false,
       setChildId: jest.fn(),
       reload,
+      reloadSilently: reload,
     }));
     mockUseSession.mockReturnValue({
       token: "office-token",
@@ -433,7 +434,7 @@ describe("StaffBoard leave requests", () => {
       ],
     };
     render(<StaffBoard />);
-    fireEvent.press(screen.getByRole("button", { name: "Timesheet" }));
+    fireEvent.press(screen.getByRole("tab", { name: "Timesheet" }));
     expect(screen.getByText("Tara Teacher")).toBeTruthy();
     expect(screen.getByText("10:07")).toBeTruthy();
     jest.useRealTimers();
@@ -619,6 +620,7 @@ describe("RolesBoard permission scopes", () => {
       refreshing: false,
       setChildId: jest.fn(),
       reload: jest.fn().mockResolvedValue(undefined),
+      reloadSilently: jest.fn().mockResolvedValue(undefined),
     });
     mockUseSession.mockReturnValue({
       token: "office-token",

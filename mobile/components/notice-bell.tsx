@@ -8,6 +8,7 @@ import { classifyNotice, CLASSIFIED_NOTICE_LABEL, noticeBellVisible, type Classi
 import { useNoticeInbox } from "../lib/notice-inbox";
 import { useSession } from "../lib/session";
 import { QrDockButton } from "./staff-attendance-qr";
+import { ProfileMenuButton } from "./profile-menu";
 import { useRecord } from "../lib/record";
 import { visibleTabs } from "../lib/nav-icons";
 
@@ -217,14 +218,7 @@ export function PhoneTopBar() {
           onScanned={() => void reload()}
         />
         <NoticeBell />
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Profile"
-          onPress={() => router.push("/profile")}
-          className="ml-0.5 h-9 w-9 items-center justify-center rounded-full bg-[#EEF3FF]"
-        >
-          <Text className="text-xs font-bold text-[#1F45C7]">{userInitials || "Me"}</Text>
-        </Pressable>
+        <ProfileMenuButton compact />
       </View>
     </View>
   );

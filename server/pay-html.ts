@@ -451,7 +451,7 @@ export async function renderStudentPayPage(token: string, monthsRaw: string, inv
   const wanted = new Set(monthsRaw.split(",").map((p) => p.trim()).filter(Boolean));
   const wantedIds = new Set(invoiceIdsRaw.split(",").map((p) => p.trim()).filter(Boolean));
   const invoiceSource = wantedIds.size
-    ? data.student.parent.students.flatMap((student) => student.feeInvoices.map((inv) => ({ inv, studentName: student.name })))
+    ? (data.student.parent?.students ?? [data.student]).flatMap((student) => student.feeInvoices.map((inv) => ({ inv, studentName: student.name })))
     : data.student.feeInvoices.map((inv) => ({ inv, studentName: data.student.name }));
   const seen = new Set<string>();
   const selected = invoiceSource

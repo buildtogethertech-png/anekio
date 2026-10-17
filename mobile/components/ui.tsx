@@ -246,6 +246,22 @@ export function Stat({ label, value, hint }: { label: string; value: string; hin
   );
 }
 
+/** Back link that sits directly above a page title ("< Settings" / "< Academics"). */
+export function BackLink({ label, onPress }: { label: string; onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Back to ${label}`}
+      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      className="mb-0.5 flex-row items-center gap-0.5 self-start"
+    >
+      <Ionicons name="chevron-back" size={16} color="#1F45C7" />
+      <Text className="text-[13px] font-medium text-[#1F45C7]">{label}</Text>
+    </Pressable>
+  );
+}
+
 export function PageHeader({
   kicker: _kicker,
   title,

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Modal as RnModal, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { Modal as RnModal, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { Button, Chip, ChipScroller, Field, Input, Modal } from "./ui";
 import { UploadCsvPanel } from "./upload-csv-panel";
 import { pickFile, type PickedFile } from "../lib/upload";
@@ -25,6 +25,123 @@ export const DEFAULT_SUBJECTS = DEFAULT_SUBJECT_ENTRIES.map((row) => row.name);
 export type SubjectCatalogEntry = { code: string; name: string; previousCode?: string };
 
 type ClassSubjectDraft = { id?: string; code: string; previousCode: string; name: string; periods: string };
+
+/** What counts as "changed" for the unsaved-changes guard: which subjects are on the class and their periods. */
+function draftSignature(rows: ClassSubjectDraft[] | undefined) {
+  return (rows || []).map((row) => `${row.id || row.previousCode || row.code}:${row.periods}`).join("|");
+}
+
+/** Grade part of a catalog code: "ENG-2" → "2", "MATH6" → "6", "ENG" → "" (fits any grade). */
+function codeGradeSuffix(code: string) {
+  const normalized = normalizeSubjectCode(code);
+  const dashed = normalized.match(/-([A-Z0-9]+)$/);
+  if (dashed) return dashed[1];
+  const digits = normalized.match(/^[A-Z]+(\d+)$/);
+  return digits ? digits[1] : "";
+}
+
+function sameGrade(a: string, b: string) {
+  const x = a.trim().toUpperCase();
+  const y = b.trim().toUpperCase();
+  if (/^\d+$/.test(x) && /^\d+$/.test(y)) return Number(x) === Number(y);
+  return x === y;
+}
+
+/**
+ * Catalog codes that belong to a grade: its own grade code (ENG-2 for Class 2), or a plain code (ENG)
+ * when the catalog has no grade-specific code for that subject.
+ */
+function catalogFitsGrade(entry: SubjectCatalogEntry, grade: string, all: SubjectCatalogEntry[]) {
+  if (!grade) return true;
+  const suffix = codeGradeSuffix(entry.code);
+  if (suffix) return sameGrade(suffix, grade);
+  const name = entry.name.trim().toLowerCase();
+  return !all.some((other) => other.name.trim().toLowerCase() === name && sameGrade(codeGradeSuffix(other.code) || "-", grade));
+}
+
+function PeriodStepper({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  const n = parsePeriods(value) || 0;
+  return (
+    <View className="flex-row items-center justify-center gap-1">
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Fewer ${label} periods`}
+        disabled={n <= 1}
+        onPress={() => onChange(String(Math.max(1, n - 1)))}
+        className={`h-8 w-8 items-center justify-center rounded-md border border-ink-200 bg-white ${n <= 1 ? "opacity-40" : ""}`}
+      >
+        <Text className="text-base text-ink-700">−</Text>
+      </Pressable>
+      <TextInput
+        accessibilityLabel={`${label} periods per week`}
+        keyboardType="number-pad"
+        value={value}
+        onChangeText={(next) => onChange(next.replace(/\D/g, "").slice(0, 2))}
+        className="h-8 w-10 rounded-md border border-ink-200 bg-white text-center text-sm font-semibold text-ink-900"
+      />
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`More ${label} periods`}
+        disabled={n >= 99}
+        onPress={() => onChange(String(Math.min(99, n + 1)))}
+        className="h-8 w-8 items-center justify-center rounded-md border border-ink-200 bg-white"
+      >
+        <Text className="text-base text-ink-700">+</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function CatalogCodeRow({
+  code,
+  name,
+  usage,
+  unused,
+  label,
+  first,
+  onPress,
+}: {
+  code: string;
+  name: string;
+  usage: string;
+  unused: boolean;
+  label: string;
+  first: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      className={`flex-row items-center gap-3 px-3 py-2.5 ${first ? "" : "border-t border-ink-100"}`}
+    >
+      <View className="min-w-0 flex-1">
+        <View className="flex-row flex-wrap items-center gap-2">
+          <Text className="text-sm font-semibold tracking-wide text-ink-900">{code}</Text>
+          {name ? <Text className="text-sm text-ink-700">{name}</Text> : null}
+        </View>
+        <Text className={`mt-0.5 text-xs ${unused ? "text-amber-700" : "text-ink-700"}`} numberOfLines={1}>
+          {usage}
+        </Text>
+      </View>
+      <Text className="text-xs font-medium text-clay-600">Edit</Text>
+    </Pressable>
+  );
+}
+
+function SubjectNameWithCode({ code, name }: { code: string; name: string }) {
+  return (
+    <View className="flex-row flex-wrap items-center gap-2">
+      <Text className="text-sm font-semibold text-ink-900">{name}</Text>
+      {code ? (
+        <View className="rounded bg-ink-100 px-1.5 py-0.5">
+          <Text className="text-[11px] font-medium tracking-wide text-ink-700">{code}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
 
 function classGrade(klass: { name?: string; label: string }) {
   return (klass.name || klass.label.split("-")[0] || "").trim();
@@ -761,8 +878,11 @@ export function SchoolSubjectsForm({
   classes,
   onSaveCatalog,
   onSaveClass,
+  weeklyPeriods,
 }: {
   catalog: (string | SubjectCatalogEntry)[];
+  /** Teaching periods a class can hold in a week (school days × non-break periods). Optional. */
+  weeklyPeriods?: number;
   classes: {
     id: string;
     label: string;
@@ -786,6 +906,10 @@ export function SchoolSubjectsForm({
   const [classAddOpen, setClassAddOpen] = useState(false);
   const [classAddCode, setClassAddCode] = useState("");
   const [classAddQuery, setClassAddQuery] = useState("");
+  const [classAddAllGrades, setClassAddAllGrades] = useState(false);
+  const [savedEntries, setSavedEntries] = useState(() => asCatalog(catalog));
+  const [confirmRemoveCode, setConfirmRemoveCode] = useState("");
+  const [catalogSubjectKey, setCatalogSubjectKey] = useState("");
   const [classAddPeriods, setClassAddPeriods] = useState("4");
   const [editIndex, setEditIndex] = useState<number | null>(null);
   const [editCode, setEditCode] = useState("");
@@ -808,12 +932,19 @@ export function SchoolSubjectsForm({
       ])
     )
   );
+  const [savedSubjects, setSavedSubjects] = useState<Record<string, ClassSubjectDraft[]>>(() => classSubjects);
+  const [pendingClassId, setPendingClassId] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState("");
   const [flash, setFlash] = useState<{ at: "catalog" | "class"; kind: "ok" | "err"; text: string } | null>(null);
   const [notice, setNotice] = useState("");
+  const [blockedRemoveKey, setBlockedRemoveKey] = useState("");
   const selected = classes.find((klass) => klass.id === classId) || classes[0];
   const selectedRows = selected ? classSubjects[selected.id] || [] : [];
   const selectedGrade = selected ? classGrade(selected) : "";
   const gradeSections = classes.filter((klass) => classGrade(klass) === selectedGrade);
+  const unsaved = !!selected && draftSignature(selectedRows) !== draftSignature(savedSubjects[selected.id]);
+  const plannedPeriods = selectedRows.reduce((sum, row) => sum + (parsePeriods(row.periods) || 0), 0);
+  const capacity = weeklyPeriods && weeklyPeriods > 0 ? weeklyPeriods : 0;
   const codesOnOtherGrades = new Set(
     classes
       .filter((klass) => (klass.name || klass.label.split("-")[0] || "").trim() !== selectedGrade)
@@ -825,11 +956,143 @@ export function SchoolSubjectsForm({
     if (codesOnOtherGrades.has(entry.code)) return false;
     return true;
   });
+  const gradeCatalog = remainingCatalog.filter((entry) => catalogFitsGrade(entry, selectedGrade, entries));
+  const otherGradeCount = remainingCatalog.length - gradeCatalog.length;
+  const addPool = classAddAllGrades ? remainingCatalog : gradeCatalog;
   const addQuery = classAddQuery.trim().toLowerCase();
-  const remainingVisible = remainingCatalog.filter((row) => {
+  const remainingVisible = addPool.filter((row) => {
     if (!addQuery) return true;
     return `${row.code} ${row.name}`.toLowerCase().includes(addQuery);
   });
+  const catalogUnsaved =
+    JSON.stringify(entries.map((row) => [row.code, row.name])) !== JSON.stringify(savedEntries.map((row) => [row.code, row.name]));
+  const catalogQueryText = catalogQuery.trim().toLowerCase();
+  const catalogGroups = (() => {
+    const groups: { key: string; name: string; items: { row: SubjectCatalogEntry; index: number }[] }[] = [];
+    entries.forEach((row, index) => {
+      if (catalogQueryText && !`${row.code} ${row.name}`.toLowerCase().includes(catalogQueryText)) return;
+      const key = row.name.trim().toLowerCase();
+      const group = groups.find((item) => item.key === key);
+      if (group) group.items.push({ row, index });
+      else groups.push({ key, name: row.name.trim(), items: [{ row, index }] });
+    });
+    return groups;
+  })();
+
+  // Which classes use each catalog code, so unused codes are easy to spot and clean up.
+  const codeUsage = (() => {
+    const map = new Map<string, string[]>();
+    for (const klass of classes) {
+      for (const row of classSubjects[klass.id] || []) {
+        const code = normalizeSubjectCode(row.code);
+        if (!code) continue;
+        map.set(code, [...(map.get(code) || []), klass.label]);
+      }
+    }
+    return map;
+  })();
+  const usageText = (code: string) => {
+    const used = codeUsage.get(normalizeSubjectCode(code)) || [];
+    return used.length ? `Used by ${used.join(", ")}` : "Not used by any class";
+  };
+  const openGroup = catalogGroups.find((group) => group.key === catalogSubjectKey);
+  const totalSubjects = new Set(entries.map((row) => row.name.trim().toLowerCase())).size;
+
+  function closeClassAdd() {
+    setClassAddOpen(false);
+    setClassAddCode("");
+    setClassAddQuery("");
+    setClassAddAllGrades(false);
+    setClassAddPeriods("4");
+  }
+
+  async function saveCatalog() {
+    setFlash(null);
+    try {
+      await onSaveCatalog(entries, false);
+      setSavedEntries(entries);
+      setFlash({ at: "catalog", kind: "ok", text: "Catalog saved." });
+      setCatalogOpen(false);
+    } catch (e) {
+      setFlash({ at: "catalog", kind: "err", text: e instanceof Error ? e.message : "Could not save." });
+    }
+  }
+
+  function markGradeSaved(drafts: Record<string, ClassSubjectDraft[]>) {
+    setSavedSubjects((prev) => {
+      const next = { ...prev };
+      for (const section of gradeSections) next[section.id] = drafts[section.id] || [];
+      return next;
+    });
+  }
+
+  function setRowPeriods(index: number, value: string) {
+    if (!selected) return;
+    setClassSubjects(
+      syncGradeSubjectDrafts(
+        classSubjects,
+        classes,
+        selected.id,
+        selectedRows.map((item, i) => (i === index ? { ...item, periods: value.replace(/\D/g, "").slice(0, 2) } : item))
+      )
+    );
+  }
+
+  function pickClass(id: string) {
+    const target = classes.find((klass) => klass.id === id);
+    // Sections of the same class share one draft, so moving between them loses nothing.
+    if (unsaved && target && classGrade(target) !== selectedGrade) {
+      setPendingClassId(id);
+      return;
+    }
+    setFlash(null);
+    setClassId(id);
+  }
+
+  function discardAndSwitch() {
+    const next = { ...classSubjects };
+    for (const section of gradeSections) next[section.id] = savedSubjects[section.id] || [];
+    setClassSubjects(next);
+    setFlash(null);
+    if (pendingClassId) setClassId(pendingClassId);
+    setPendingClassId(null);
+  }
+
+  function undoClassChanges() {
+    const next = { ...classSubjects };
+    for (const section of gradeSections) next[section.id] = savedSubjects[section.id] || [];
+    setClassSubjects(next);
+    setSaveError("");
+  }
+
+  async function saveSelectedClass() {
+    if (!selected) return false;
+    setFlash(null);
+    const subjects = selectedRows.flatMap((row) => {
+      const weightage = parsePeriods(row.periods);
+      const code = normalizeSubjectCode(row.code);
+      const name = row.name.trim();
+      if (!name || !code || weightage == null || weightage <= 0) return [];
+      return [{ id: row.id, code, previousCode: row.previousCode, name, weightage }];
+    });
+    try {
+      await onSaveClass(selected.id, subjects);
+      markGradeSaved(classSubjects);
+      const sectionNote =
+        gradeSections.length > 1
+          ? `Class ${selectedGrade} subjects saved for ${gradeSections.map((row) => row.label).join(", ")}.`
+          : subjects.length
+            ? `${selected.label} subjects saved.`
+            : `${selected.label} has no subjects.`;
+      setFlash({ at: "class", kind: "ok", text: sectionNote });
+      return true;
+    } catch (e) {
+      // Shown as a popup: an inline line under a long table is easy to miss, especially on phone.
+      setPendingClassId(null);
+      setSaveError(e instanceof Error && e.message ? e.message : "Could not save. Try again.");
+      return false;
+    }
+  }
 
   function placedCount(subjectId?: string) {
     if (!subjectId) return 0;
@@ -839,6 +1102,13 @@ export function SchoolSubjectsForm({
   function removeClassSubject(index: number) {
     const row = selectedRows[index];
     if (!selected || !row) return;
+    if (placedCount(row.id)) {
+      const key = row.id || row.code;
+      setBlockedRemoveKey(key);
+      setTimeout(() => setBlockedRemoveKey((current) => (current === key ? "" : current)), 3000);
+      return;
+    }
+    setBlockedRemoveKey("");
     setFlash(null);
     setClassSubjects(
       syncGradeSubjectDrafts(
@@ -892,7 +1162,9 @@ export function SchoolSubjectsForm({
     void (async () => {
       try {
         await onSaveClass(selected.id, subjects);
-        setClassSubjects(syncGradeSubjectDrafts(classSubjects, classes, selected.id, nextRows));
+        const savedDrafts = syncGradeSubjectDrafts(classSubjects, classes, selected.id, nextRows);
+        setClassSubjects(savedDrafts);
+        markGradeSaved(savedDrafts);
     setEntries(
       entries.some((entry) => entry.code === row.previousCode || entry.code === row.code)
         ? entries.map((entry) =>
@@ -976,7 +1248,16 @@ export function SchoolSubjectsForm({
       try {
         await onSaveCatalog(nextEntries, false);
         setEntries(nextEntries);
+        setSavedEntries(nextEntries);
         setClassSubjects(nextDrafts);
+        setSavedSubjects((prev) =>
+          Object.fromEntries(
+            Object.entries(prev).map(([id, rows]) => [
+              id,
+              rows.map((item) => (item.code === row.code || item.previousCode === row.code ? { ...item, code, name } : item)),
+            ])
+          )
+        );
         setCatalogEditIndex(null);
         setFlash({ at: "catalog", kind: "ok", text: "Catalog subject updated." });
       } catch (error) {
@@ -1038,26 +1319,24 @@ export function SchoolSubjectsForm({
   }
 
   return (
-    <View className="mt-3 gap-3">
-      <View className="flex-row flex-wrap items-center justify-between gap-2 border-b border-ink-100 pb-3">
-        <Text className="text-sm text-ink-700">
-          School catalog · {entries.length} subject{entries.length === 1 ? "" : "s"}
-        </Text>
-        <Button
-          variant="ghost"
-          onPress={() => {
-            setCatalogQuery("");
-            setCatalogOpen(true);
-          }}
-        >
-          Manage catalog
-        </Button>
-      </View>
-      <SaveFlash at="catalog" flash={flash} />
-
+    <View className="w-full gap-3" style={{ maxWidth: 820 }}>
       {classes.length && selected ? (
         <View className="gap-2">
-          <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">Class curriculum</Text>
+          <View className="flex-row items-center justify-between gap-2">
+            <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">Class curriculum</Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                setCatalogQuery("");
+                setCatalogOpen(true);
+              }}
+              className="flex-row items-center gap-1 rounded-md px-2 py-1"
+            >
+              <Ionicons name="library-outline" size={15} color="#2563eb" />
+              <Text className="text-sm font-medium text-clay-600">Manage catalog</Text>
+            </Pressable>
+          </View>
+          <SaveFlash at="catalog" flash={flash} />
           {gradeSections.length > 1 ? (
             <Text className="text-sm text-ink-700">
               Class {selectedGrade} sections share these subjects. Each section keeps its own routine and teachers.
@@ -1069,56 +1348,45 @@ export function SchoolSubjectsForm({
                 key={klass.id}
                 label={klass.label}
                 active={klass.id === selected.id}
-                onPress={() => {
-                  setFlash(null);
-                  setClassId(klass.id);
-                }}
+                onPress={() => pickClass(klass.id)}
               />
             ))}
           </ChipScroller>
           <View className="flex-row flex-wrap items-center justify-between gap-2">
-            <Text className="text-sm font-semibold text-ink-900">{selected.label} — Subjects</Text>
-            <View className="flex-row flex-wrap gap-2">
+            <View className="min-w-0 flex-1">
+              <Text className="text-sm font-semibold text-ink-900">{selected.label} — Subjects</Text>
+              {selectedRows.length ? (
+                <Text className="mt-0.5 text-xs text-ink-700">
+                  {capacity ? `${plannedPeriods} of ${capacity} periods a week` : `${plannedPeriods} periods a week`}
+                  {capacity && plannedPeriods > capacity ? (
+                    <Text className="font-semibold text-red-700">{` · ${plannedPeriods - capacity} over`}</Text>
+                  ) : capacity && plannedPeriods < capacity ? (
+                    <Text>{` · ${capacity - plannedPeriods} free`}</Text>
+                  ) : capacity ? (
+                    <Text className="font-semibold text-emerald-700"> · Full week</Text>
+                  ) : null}
+                </Text>
+              ) : null}
+            </View>
+            <View className="flex-row flex-wrap items-center gap-2">
+              {unsaved ? (
+                <View className="rounded-full bg-amber-50 px-2.5 py-1">
+                  <Text className="text-xs font-medium text-amber-700">Unsaved changes</Text>
+                </View>
+              ) : null}
               <Button variant="ghost" onPress={() => setClassAddOpen(true)}>
                 + Add Subject
               </Button>
-              <Button
-                className="px-5"
-                onPress={async () => {
-                  setFlash(null);
-                  const subjects = selectedRows.flatMap((row) => {
-                    const weightage = parsePeriods(row.periods);
-                    const code = normalizeSubjectCode(row.code);
-                    const name = row.name.trim();
-                    if (!name || !code || weightage == null || weightage <= 0) return [];
-                    return [{ id: row.id, code, previousCode: row.previousCode, name, weightage }];
-                  });
-                  try {
-                    await onSaveClass(selected.id, subjects);
-                    const sectionNote =
-                      gradeSections.length > 1
-                        ? `Class ${selectedGrade} subjects saved for ${gradeSections.map((row) => row.label).join(", ")}.`
-                        : subjects.length
-                          ? `${selected.label} subjects saved.`
-                          : `${selected.label} has no subjects.`;
-                    setFlash({
-                      at: "class",
-                      kind: "ok",
-                      text: sectionNote,
-                    });
-                  } catch (e) {
-                    setFlash({ at: "class", kind: "err", text: e instanceof Error ? e.message : "Could not save." });
-                  }
-                }}
-              >
+              <Button className="px-5" onPress={() => void saveSelectedClass()}>
                 Save {selected.label}
               </Button>
             </View>
           </View>
+          <SaveFlash at="class" flash={flash} />
           <View className="overflow-hidden rounded-md border border-ink-200">
             <View className="flex-row items-center gap-3 border-b border-ink-100 bg-ink-50 px-3 py-2">
               <Text className="min-w-0 flex-1 text-xs font-medium uppercase tracking-wide text-ink-700">Subject</Text>
-              <Text className="w-24 text-center text-xs font-medium uppercase tracking-wide text-ink-700">Periods/week</Text>
+              <Text className="w-28 text-center text-xs font-medium uppercase tracking-wide text-ink-700">Periods/week</Text>
               <View className="w-20" />
             </View>
             {selectedRows.map((row, index) => {
@@ -1126,31 +1394,13 @@ export function SchoolSubjectsForm({
               return (
                 <View key={`${row.previousCode || row.code}-${index}`} className={`flex-row items-center gap-3 px-3 py-2 ${index ? "border-t border-ink-100" : ""}`}>
                   <View className="min-w-0 flex-1">
-                    <Text className="text-sm font-semibold text-ink-900">{formatSubjectLabel(row.code, row.name)}</Text>
-                    {placed ? (
-                      <Text className="mt-0.5 text-xs text-ink-700">
-                        {placed} period{placed === 1 ? "" : "s"} on the routine — remove those first
-                      </Text>
+                    <SubjectNameWithCode code={row.code} name={row.name} />
+                    {placed && blockedRemoveKey === (row.id || row.code) ? (
+                      <Text className="mt-0.5 text-xs font-medium text-red-700">Can't remove</Text>
                     ) : null}
                   </View>
-                  <View className="w-24">
-                    <Input
-                      keyboardType="number-pad"
-                      className="py-1 text-center"
-                      value={row.periods}
-                      onChangeText={(value) =>
-                        setClassSubjects(
-                          syncGradeSubjectDrafts(
-                            classSubjects,
-                            classes,
-                            selected.id,
-                            selectedRows.map((item, i) =>
-                              i === index ? { ...item, periods: value.replace(/\D/g, "").slice(0, 2) } : item
-                            )
-                          )
-                        )
-                      }
-                    />
+                  <View className="w-28 items-center">
+                    <PeriodStepper label={row.name} value={row.periods} onChange={(value) => setRowPeriods(index, value)} />
                   </View>
                   <View className="w-20 flex-row items-center justify-end gap-1">
                     <Pressable
@@ -1179,72 +1429,183 @@ export function SchoolSubjectsForm({
               </View>
             ) : null}
           </View>
-          <SaveFlash at="class" flash={flash} />
         </View>
       ) : (
-        <Text className="text-sm text-ink-700">Add classes first.</Text>
+        <View className="gap-2">
+          <Text className="text-sm text-ink-700">Add classes first.</Text>
+          <Button
+            variant="ghost"
+            className="self-start"
+            onPress={() => {
+              setCatalogQuery("");
+              setCatalogOpen(true);
+            }}
+          >
+            Manage catalog
+          </Button>
+          <SaveFlash at="catalog" flash={flash} />
+        </View>
       )}
-      <Modal open={catalogOpen} title="School catalog" onClose={() => setCatalogOpen(false)} wide>
-        <View className="gap-3">
-          <Text className="text-sm text-ink-700">These are the subjects the school offers. Load them onto a class below — the catalog is not the class list.</Text>
-          <View className="flex-row flex-wrap gap-2">
-            <IconButton icon="add" label="Add subject" onPress={() => setAddOpen(true)} />
-            <IconButton icon="cloud-upload-outline" label="Upload subjects" onPress={() => setImportOpen(true)} />
+      <Modal open={pendingClassId != null} title="Unsaved changes" onClose={() => setPendingClassId(null)}>
+        <View className="gap-4">
+          <Text className="text-sm leading-5 text-ink-700">
+            {`You changed ${selected?.label || "this class"}'s subjects. Save them before switching, or discard the changes.`}
+          </Text>
+          <View className="flex-row flex-wrap justify-end gap-2">
+            <Button variant="ghost" onPress={() => setPendingClassId(null)}>
+              Keep editing
+            </Button>
+            <Button variant="ghost" onPress={discardAndSwitch}>
+              Discard
+            </Button>
             <Button
               onPress={async () => {
-                setFlash(null);
-                try {
-                  await onSaveCatalog(entries, false);
-                  setFlash({ at: "catalog", kind: "ok", text: "Catalog saved." });
-                  setCatalogOpen(false);
-                } catch (e) {
-                  setFlash({ at: "catalog", kind: "err", text: e instanceof Error ? e.message : "Could not save." });
+                const target = pendingClassId;
+                if (await saveSelectedClass()) {
+                  setPendingClassId(null);
+                  if (target) setClassId(target);
                 }
               }}
             >
-              Save catalog
+              Save and switch
             </Button>
           </View>
-          <Field label="Search subject">
-            <Input value={catalogQuery} onChangeText={setCatalogQuery} placeholder="ENG or English" />
-          </Field>
-          <ScrollView className="max-h-80" nestedScrollEnabled>
-            <View className="overflow-hidden rounded-md border border-ink-200">
-              {entries
-                .map((row, index) => ({ row, index }))
-                .filter(({ row }) => {
-                  const query = catalogQuery.trim().toLowerCase();
-                  if (!query) return true;
-                  return `${row.code} ${row.name}`.toLowerCase().includes(query);
-                })
-                .map(({ row, index }, visibleIndex) => (
-                <View key={`${row.previousCode || row.code}-${index}`} className={`flex-row items-center gap-3 px-3 py-2 ${visibleIndex ? "border-t border-ink-100" : ""}`}>
-                  <Text className="min-w-0 flex-1 text-sm font-semibold text-ink-900">{formatSubjectLabel(row.code, row.name)}</Text>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`Edit ${formatSubjectLabel(row.code, row.name)} in catalog`}
+        </View>
+      </Modal>
+
+      <Modal
+        open={catalogOpen}
+        title="School catalog"
+        onClose={() => {
+          setCatalogOpen(false);
+          setCatalogSubjectKey("");
+        }}
+        wide
+        footer={
+          <View className="flex-row flex-wrap items-center justify-end gap-2">
+            {catalogUnsaved ? (
+              <View className="mr-auto rounded-full bg-amber-50 px-2.5 py-1">
+                <Text className="text-xs font-medium text-amber-700">Unsaved changes</Text>
+              </View>
+            ) : null}
+            <Button
+              variant="ghost"
+              onPress={() => {
+                setCatalogOpen(false);
+                setCatalogSubjectKey("");
+              }}
+            >
+              Close
+            </Button>
+            <Button onPress={() => void saveCatalog()}>Save catalog</Button>
+          </View>
+        }
+      >
+        <View className="gap-3">
+          {openGroup && !catalogQueryText ? (
+            <>
+              <Pressable accessibilityRole="button" onPress={() => setCatalogSubjectKey("")} className="flex-row items-center gap-1 self-start py-1">
+                <Ionicons name="chevron-back" size={16} color="#2563eb" />
+                <Text className="text-sm font-medium text-clay-600">All subjects</Text>
+              </Pressable>
+              <View>
+                <Text className="text-base font-semibold text-ink-900">{openGroup.name}</Text>
+                <Text className="mt-0.5 text-xs text-ink-700">
+                  {`${openGroup.items.length} ${openGroup.items.length === 1 ? "code" : "codes"} · tap one to rename or remove it`}
+                </Text>
+              </View>
+              <View className="overflow-hidden rounded-md border border-ink-200">
+                {openGroup.items.map(({ row, index }, i) => (
+                  <CatalogCodeRow
+                    key={`${row.previousCode || row.code}-${index}`}
+                    code={row.code}
+                    name={row.name.trim() !== openGroup.name ? row.name.trim() : ""}
+                    usage={usageText(row.code)}
+                    unused={!codeUsage.has(normalizeSubjectCode(row.code))}
+                    label={`Edit ${formatSubjectLabel(row.code, row.name)} in catalog`}
+                    first={i === 0}
                     onPress={() => openCatalogEdit(index)}
-                    className="h-8 px-1 items-center justify-center"
-                  >
-                    <Text className="text-xs font-medium text-clay-600">Edit</Text>
-                  </Pressable>
-                  <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${row.code} from catalog`} onPress={() => removeCatalog(row.code)}>
-                    <Text className="text-ink-700">×</Text>
-                  </Pressable>
+                  />
+                ))}
+              </View>
+            </>
+          ) : (
+            <>
+              <View className="flex-row items-center justify-between gap-2">
+                <Text className="text-xs text-ink-700">{`${totalSubjects} ${totalSubjects === 1 ? "subject" : "subjects"} · ${entries.length} codes`}</Text>
+                <Pressable accessibilityRole="button" accessibilityLabel="Upload subjects" onPress={() => setImportOpen(true)} className="flex-row items-center gap-1 py-1">
+                  <Ionicons name="cloud-upload-outline" size={15} color="#2563eb" />
+                  <Text className="text-sm font-medium text-clay-600">Upload CSV</Text>
+                </Pressable>
+              </View>
+              <View className="flex-row items-center gap-2">
+                <View className="min-w-0 flex-1">
+                  <Input accessibilityLabel="Search subject" value={catalogQuery} onChangeText={setCatalogQuery} placeholder="ENG or English" />
                 </View>
-              ))}
-              {!entries.length ? (
-                <View className="px-3 py-4">
-                  <Text className="text-sm text-ink-700">No catalog subjects yet.</Text>
-                </View>
-              ) : catalogQuery.trim() &&
-                !entries.some((row) => `${row.code} ${row.name}`.toLowerCase().includes(catalogQuery.trim().toLowerCase())) ? (
-                <View className="px-3 py-4">
-                  <Text className="text-sm text-ink-700">No subjects match that search.</Text>
-                </View>
-              ) : null}
-            </View>
-          </ScrollView>
+                <Button variant="ghost" accessibilityLabel="Add subject" onPress={() => setAddOpen(true)}>
+                  + Add
+                </Button>
+              </View>
+              <View className="overflow-hidden rounded-md border border-ink-200">
+                {catalogQueryText
+                  ? catalogGroups
+                      .flatMap((group) => group.items)
+                      .map(({ row, index }, i) => (
+                        <CatalogCodeRow
+                          key={`${row.previousCode || row.code}-${index}`}
+                          code={row.code}
+                          name={row.name.trim()}
+                          usage={usageText(row.code)}
+                          unused={!codeUsage.has(normalizeSubjectCode(row.code))}
+                          label={`Edit ${formatSubjectLabel(row.code, row.name)} in catalog`}
+                          first={i === 0}
+                          onPress={() => openCatalogEdit(index)}
+                        />
+                      ))
+                  : catalogGroups.map((group, i) => {
+                      const unused = group.items.filter(({ row }) => !codeUsage.has(normalizeSubjectCode(row.code))).length;
+                      return (
+                        <Pressable
+                          key={group.key}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Open ${group.name}`}
+                          onPress={() => setCatalogSubjectKey(group.key)}
+                          className={`flex-row items-center gap-3 px-3 py-3 ${i ? "border-t border-ink-100" : ""}`}
+                        >
+                          <View className="min-w-0 flex-1">
+                            <Text className="text-sm font-semibold text-ink-900" numberOfLines={1}>
+                              {group.name}
+                            </Text>
+                            <Text className="mt-0.5 text-xs text-ink-700" numberOfLines={1}>
+                              {group.items.length === 1
+                                ? group.items[0].row.code
+                                : `${group.items.length} codes · ${group.items
+                                    .slice(0, 3)
+                                    .map(({ row }) => row.code)
+                                    .join(", ")}${group.items.length > 3 ? "…" : ""}`}
+                            </Text>
+                          </View>
+                          {unused ? (
+                            <View className="rounded-full bg-amber-50 px-2 py-0.5">
+                              <Text className="text-[11px] font-medium text-amber-700">{`${unused} unused`}</Text>
+                            </View>
+                          ) : null}
+                          <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
+                        </Pressable>
+                      );
+                    })}
+                {!entries.length ? (
+                  <View className="px-3 py-4">
+                    <Text className="text-sm text-ink-700">No catalog subjects yet. Add one or upload a CSV.</Text>
+                  </View>
+                ) : catalogQueryText && !catalogGroups.length ? (
+                  <View className="px-3 py-4">
+                    <Text className="text-sm text-ink-700">No subjects match that search.</Text>
+                  </View>
+                ) : null}
+              </View>
+            </>
+          )}
         </View>
       </Modal>
       <Modal open={addOpen} title="Add subject" onClose={() => setAddOpen(false)}>
@@ -1278,37 +1639,15 @@ export function SchoolSubjectsForm({
           </View>
         </View>
       </Modal>
-      <Modal open={classAddOpen} title={`Add subject to ${selected?.label || "class"}`} onClose={() => setClassAddOpen(false)}>
-        <View className="gap-3">
-          {!remainingCatalog.length ? (
-            <Text className="text-sm text-ink-700">Every catalog subject is already on this class.</Text>
-          ) : (
-            <>
-              {remainingCatalog.length > 8 ? (
-                <Field label="Search catalog">
-                  <Input value={classAddQuery} onChangeText={setClassAddQuery} placeholder="ENG or English" />
-                </Field>
-              ) : null}
-              <ScrollView className="max-h-56" nestedScrollEnabled>
-                <View className="flex-row flex-wrap gap-2">
-                  {remainingVisible.map((row) => (
-                    <Chip
-                      key={row.code}
-                      label={formatSubjectLabel(row.code, row.name)}
-                      active={classAddCode === row.code}
-                      onPress={() => setClassAddCode(row.code)}
-                    />
-                  ))}
-                </View>
-              </ScrollView>
-            </>
-          )}
-          <Field label="Periods / week">
-            <Input keyboardType="number-pad" value={classAddPeriods} onChangeText={(value) => setClassAddPeriods(value.replace(/\D/g, "").slice(0, 2))} />
-          </Field>
+      <Modal
+        open={classAddOpen}
+        title={`Add subject to ${selected?.label || "class"}`}
+        onClose={closeClassAdd}
+        footer={
           <Button
+            disabled={!addPool.some((row) => row.code === classAddCode) || !(parsePeriods(classAddPeriods) || 0)}
             onPress={() => {
-              const picked = remainingCatalog.find((row) => row.code === classAddCode) || remainingCatalog[0];
+              const picked = addPool.find((row) => row.code === classAddCode);
               const periods = parsePeriods(classAddPeriods);
               if (!picked || periods == null || periods <= 0 || !selected) return;
               setClassSubjects(
@@ -1317,13 +1656,67 @@ export function SchoolSubjectsForm({
                   { code: picked.code, previousCode: picked.code, name: picked.name, periods: String(periods) },
                 ])
               );
-              setClassAddCode("");
-              setClassAddPeriods("4");
-              setClassAddOpen(false);
+              closeClassAdd();
             }}
           >
-            Add to class
+            {addPool.some((row) => row.code === classAddCode) ? "Add to class" : "Pick a subject"}
           </Button>
+        }
+      >
+        <View className="gap-3">
+          {!addPool.length ? (
+            <Text className="text-sm text-ink-700">
+              {remainingCatalog.length
+                ? `Every Class ${selectedGrade} subject in the catalog is already on this class.`
+                : "Every catalog subject is already on this class."}
+            </Text>
+          ) : (
+            <>
+              {addPool.length > 6 ? (
+                <Field label="Search catalog">
+                  <Input value={classAddQuery} onChangeText={setClassAddQuery} placeholder="ENG or English" />
+                </Field>
+              ) : null}
+              <View className="flex-row flex-wrap gap-2">
+                {remainingVisible.map((row) => {
+                  const active = classAddCode === row.code;
+                  return (
+                    <Pressable
+                      key={row.code}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: active }}
+                      accessibilityLabel={formatSubjectLabel(row.code, row.name)}
+                      onPress={() => setClassAddCode(row.code)}
+                      className={`flex-row items-center gap-2 rounded-md border px-3 py-2 ${active ? "border-clay-500 bg-clay-500" : "border-ink-200 bg-white"}`}
+                    >
+                      {active ? <Ionicons name="checkmark" size={14} color="#fff" /> : null}
+                      <Text className={`text-sm font-medium ${active ? "text-white" : "text-ink-900"}`}>{row.name}</Text>
+                      <Text className={`text-[11px] font-medium tracking-wide ${active ? "text-white" : "text-ink-700"}`}>{row.code}</Text>
+                    </Pressable>
+                  );
+                })}
+                {addQuery && !remainingVisible.length ? <Text className="text-sm text-ink-700">No subjects match that search.</Text> : null}
+              </View>
+            </>
+          )}
+          {otherGradeCount > 0 ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                setClassAddAllGrades((value) => !value);
+                setClassAddCode("");
+              }}
+              className="self-start py-1"
+            >
+              <Text className="text-xs font-medium text-clay-600">
+                {classAddAllGrades ? `Show only Class ${selectedGrade} codes` : `Show codes from other classes (${otherGradeCount})`}
+              </Text>
+            </Pressable>
+          ) : null}
+          <View className="flex-row items-center justify-between gap-3 border-t border-ink-100 pt-3">
+            <Text className="text-sm font-medium text-ink-800">Periods / week</Text>
+            <PeriodStepper label="new subject" value={classAddPeriods} onChange={setClassAddPeriods} />
+          </View>
         </View>
       </Modal>
       <Modal
@@ -1331,6 +1724,7 @@ export function SchoolSubjectsForm({
         title="Edit catalog subject"
         onClose={() => {
           setCatalogEditIndex(null);
+          setConfirmRemoveCode("");
           setNotice("");
         }}
       >
@@ -1349,7 +1743,39 @@ export function SchoolSubjectsForm({
           <Field label="Name">
             <Input value={catalogEditName} onChangeText={setCatalogEditName} placeholder="English" />
           </Field>
-          <View className="flex-row justify-end">
+          {catalogEditIndex != null && entries[catalogEditIndex] ? (
+            confirmRemoveCode === entries[catalogEditIndex].code ? (
+              <View className="gap-2 rounded-md border border-red-200 bg-red-50 p-3">
+                <Text className="text-sm text-red-800">
+                  {`Remove ${formatSubjectLabel(entries[catalogEditIndex].code, entries[catalogEditIndex].name)} from the catalog? Tap Save catalog afterwards to keep the change.`}
+                </Text>
+                <View className="flex-row flex-wrap justify-end gap-2">
+                  <Button variant="ghost" onPress={() => setConfirmRemoveCode("")}>
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="danger"
+                    onPress={() => {
+                      removeCatalog(confirmRemoveCode);
+                      setConfirmRemoveCode("");
+                      setCatalogEditIndex(null);
+                    }}
+                  >
+                    Remove
+                  </Button>
+                </View>
+              </View>
+            ) : null
+          ) : null}
+          <View className="flex-row flex-wrap items-center justify-between gap-2">
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Remove ${catalogEditIndex != null ? entries[catalogEditIndex]?.code || "" : ""} from catalog`}
+              onPress={() => catalogEditIndex != null && setConfirmRemoveCode(entries[catalogEditIndex]?.code || "")}
+              className="py-2"
+            >
+              <Text className="text-sm font-medium text-red-700">Remove from catalog</Text>
+            </Pressable>
             <Button onPress={() => applyCatalogEdit()}>Save</Button>
           </View>
         </View>
@@ -1386,6 +1812,22 @@ export function SchoolSubjectsForm({
           onDropFile={(file) => void uploadSheet(file)}
           onDownloadSample={() => downloadSheet(true)}
         />
+      </Modal>
+      <Modal open={Boolean(saveError)} title={`Couldn't save ${selected?.label || "class"}`} onClose={() => setSaveError("")}>
+        <View className="gap-3">
+          <Text className="text-sm leading-5 text-ink-900">{saveError}</Text>
+          <Text className="text-sm leading-5 text-ink-700">
+            Nothing was saved. Undo your changes to this class, or fix the problem and save again.
+          </Text>
+          <View className="flex-row flex-wrap justify-end gap-2">
+            {unsaved ? (
+              <Button variant="ghost" onPress={undoClassChanges}>
+                Undo changes
+              </Button>
+            ) : null}
+            <Button onPress={() => setSaveError("")}>OK</Button>
+          </View>
+        </View>
       </Modal>
       <Modal
         open={Boolean(notice)}

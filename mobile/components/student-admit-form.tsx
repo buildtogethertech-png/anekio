@@ -363,6 +363,17 @@ export function StudentAdmitForm({
   const builtinLabel = (id: string, fallback: string) => builtinField(id)?.label || fallback;
   const emailField = builtinField("email");
   const showParentEmail = Boolean(emailField?.visible);
+  // Parent name and mobile are the school's choice. With no saved form, keep the old behaviour (both asked, both required).
+  const phoneField = builtinField("phone");
+  const nameField = builtinField("guardianName");
+  const showParentPhone = phoneField ? phoneField.visible : true;
+  const showParentName = nameField ? nameField.visible : true;
+  const parentPhoneRequired = showParentPhone && (phoneField ? phoneField.required : true);
+  const parentNameRequired = showParentName && (nameField ? nameField.required : true);
+  /** No visible parent field: the school admits students without a parent and adds one later. */
+  const askParent = showParentPhone || showParentName;
+  const parentRequired = parentPhoneRequired || parentNameRequired;
+  const star = (on: boolean) => (on ? " *" : "");
   const customFields = admissionForm.filter((field) => field.visible && !field.builtin);
   const detailFields = customFields.filter((field) => field.type !== "file");
   const fileFields = customFields.filter((field) => field.type === "file");
@@ -394,10 +405,14 @@ export function StudentAdmitForm({
     for (const field of detailFields) {
       if (field.required && !String(form.customValues[field.id] || "").trim()) return field.label;
     }
-    if (!form.parentId) return "Parent";
-    if (newParent && !form.parentName.trim()) return builtinLabel("guardianName", "Parent name");
-    if (newParent && !form.parentPhone.trim()) return builtinLabel("phone", "Mobile number");
-    if (newParent && emailField?.visible && emailField.required && !form.parentEmail.trim()) return emailField.label;
+    if (askParent) {
+      if (!form.parentId && parentRequired) return "Parent";
+      if (newParent && parentNameRequired && !form.parentName.trim()) return builtinLabel("guardianName", "Parent name");
+      if (newParent && parentPhoneRequired && !form.parentPhone.trim()) return builtinLabel("phone", "Parent mobile");
+      // The mobile is the parent's login: other parent details without it would be lost.
+      if (newParent && !form.parentPhone.trim() && (form.parentName.trim() || form.parentEmail.trim())) return builtinLabel("phone", "Parent mobile");
+      if (newParent && form.parentPhone.trim() && emailField?.visible && emailField.required && !form.parentEmail.trim()) return emailField.label;
+    }
     for (const field of fileFields) {
       if (field.required && !files[field.id] && !enquiryFiles[field.id]) return field.label;
     }
@@ -430,7 +445,8 @@ export function StudentAdmitForm({
   }
 
   if (wizard) {
-    const steps = ["Details", ...(fileFields.length ? ["Documents"] : []), "Parent & fee"];
+    const lastStep = askParent ? "Parent & fee" : "Fee";
+    const steps = ["Details", ...(fileFields.length ? ["Documents"] : []), lastStep];
     const current = steps[Math.min(wizStep, steps.length - 1)];
     const last = wizStep >= steps.length - 1;
     const phoneDigits = form.parentPhone.replace(/\D/g, "").slice(-10);
@@ -665,9 +681,9 @@ export function StudentAdmitForm({
             </>
           ) : null}
 
-          {current === "Parent & fee" ? (
+          {current === lastStep ? (
             <>
-              {linked ? (
+              {!askParent ? null : linked ? (
                 <View className="flex-row items-center gap-3 rounded-xl border border-[#1F45C7] bg-[#EEF3FF] px-3 py-3">
                   <Ionicons name="link-outline" size={18} color="#1F45C7" />
                   <View className="min-w-0 flex-1">
@@ -680,18 +696,20 @@ export function StudentAdmitForm({
                 </View>
               ) : (
                 <>
-                  <View>
-                    {label(`${builtinLabel("phone", "Parent mobile")} *`)}
-                    <TextInput
-                      value={form.parentPhone}
-                      onChangeText={(parentPhone) => patch({ parentPhone })}
-                      keyboardType="phone-pad"
-                      placeholder="10-digit mobile number"
-                      placeholderTextColor="#94a3b8"
-                      className={box}
-                      style={{ includeFontPadding: false }}
-                    />
-                  </View>
+                  {showParentPhone ? (
+                    <View>
+                      {label(`${builtinLabel("phone", "Parent mobile")}${star(parentPhoneRequired)}`)}
+                      <TextInput
+                        value={form.parentPhone}
+                        onChangeText={(parentPhone) => patch({ parentPhone })}
+                        keyboardType="phone-pad"
+                        placeholder={parentPhoneRequired ? "10-digit mobile number" : "Optional · creates the parent login"}
+                        placeholderTextColor="#94a3b8"
+                        className={box}
+                        style={{ includeFontPadding: false }}
+                      />
+                    </View>
+                  ) : null}
                   {phoneMatch ? (
                     <Pressable
                       accessibilityRole="button"
@@ -707,18 +725,20 @@ export function StudentAdmitForm({
                     </Pressable>
                   ) : (
                     <>
-                      <View>
-                        {label(`${builtinLabel("guardianName", "Parent name")} *`)}
-                        <TextInput
-                          value={form.parentName}
-                          onChangeText={(parentName) => patch({ parentName })}
-                          autoComplete="name"
-                          placeholder="Full name"
-                          placeholderTextColor="#94a3b8"
-                          className={box}
-                          style={{ includeFontPadding: false }}
-                        />
-                      </View>
+                      {showParentName ? (
+                        <View>
+                          {label(`${builtinLabel("guardianName", "Parent name")}${star(parentNameRequired)}`)}
+                          <TextInput
+                            value={form.parentName}
+                            onChangeText={(parentName) => patch({ parentName })}
+                            autoComplete="name"
+                            placeholder="Full name"
+                            placeholderTextColor="#94a3b8"
+                            className={box}
+                            style={{ includeFontPadding: false }}
+                          />
+                        </View>
+                      ) : null}
                       {showParentEmail ? (
                         <View>
                           {label(`${emailField?.label || "Email"}${emailField?.required ? " *" : ""}`)}
@@ -924,7 +944,18 @@ export function StudentAdmitForm({
         </SectionCard>
       ) : null}
 
-      <SectionCard step={++step} title="Parent or guardian" subtitle={newParent ? "A parent login is created with this mobile number." : "Link this student to a parent already in the school."}>
+      {askParent ? (
+      <SectionCard
+        step={++step}
+        title="Parent or guardian"
+        subtitle={
+          !newParent
+            ? "Link this student to a parent already in the school."
+            : parentRequired
+              ? "A parent login is created with this mobile number."
+              : "Optional. Add a mobile to create a parent login, or add the parent later."
+        }
+      >
         {parents.length ? (
           <Segmented
             options={[{ id: "existing", label: "Existing parent" }, { id: "new", label: "New parent" }]}
@@ -934,16 +965,20 @@ export function StudentAdmitForm({
         ) : null}
         {newParent ? (
           <View className="flex-row flex-wrap justify-between gap-y-3">
-            <Cell half twoCol={twoCol}>
-              <Field label={`${builtinLabel("guardianName", "Parent name")} *`}>
-                <Input value={form.parentName} onChangeText={(parentName) => patch({ parentName })} autoComplete="name" />
-              </Field>
-            </Cell>
-            <Cell half twoCol={twoCol}>
-              <Field label={`${builtinLabel("phone", "Mobile number")} *`}>
-                <Input value={form.parentPhone} onChangeText={(parentPhone) => patch({ parentPhone })} keyboardType="phone-pad" placeholder="10-digit mobile number" />
-              </Field>
-            </Cell>
+            {showParentName ? (
+              <Cell half twoCol={twoCol}>
+                <Field label={`${builtinLabel("guardianName", "Parent name")}${star(parentNameRequired)}`}>
+                  <Input value={form.parentName} onChangeText={(parentName) => patch({ parentName })} autoComplete="name" />
+                </Field>
+              </Cell>
+            ) : null}
+            {showParentPhone ? (
+              <Cell half twoCol={twoCol}>
+                <Field label={`${builtinLabel("phone", "Mobile number")}${star(parentPhoneRequired)}`}>
+                  <Input value={form.parentPhone} onChangeText={(parentPhone) => patch({ parentPhone })} keyboardType="phone-pad" placeholder="10-digit mobile number" />
+                </Field>
+              </Cell>
+            ) : null}
             {showParentEmail ? (
               <Cell twoCol={twoCol}>
                 <Field label={`${emailField?.label || "Email"}${emailField?.required ? " *" : ""}`}>
@@ -954,7 +989,7 @@ export function StudentAdmitForm({
           </View>
         ) : (
           <Select
-            label="Parent *"
+            label={`Parent${star(parentRequired)}`}
             value={form.parentId}
             placeholder="Search by name or mobile"
             options={parents.map(parentOption)}
@@ -962,6 +997,7 @@ export function StudentAdmitForm({
           />
         )}
       </SectionCard>
+      ) : null}
 
       <SectionCard
         step={++step}

@@ -244,12 +244,25 @@ export async function createStudentCore(
   const requestedParentId = String(input.parentId || "").trim();
   const existingParentId = requestedParentId === "__new__" ? "" : requestedParentId;
   const parentName = String(input.parentName || "").trim();
-  const parentPhone = existingParentId ? "" : requireMobile(String(input.parentPhone || ""), "the parent");
+  // Parent name and mobile are the school's choice on the admission form. The mobile is the parent's login,
+  // so a parent is only created when a mobile is given; otherwise the student is admitted without a parent.
+  const formFields = admissionFormFields(admissionFields);
+  const formRequires = (id: string) => formFields.some((field) => field.id === id && field.visible && field.required);
+  const rawParentPhone = String(input.parentPhone || "").trim();
+  const parentPhone = existingParentId || !rawParentPhone ? "" : requireMobile(rawParentPhone, "the parent");
+  if (!existingParentId) {
+    const phoneLabel = formFields.find((field) => field.id === "phone")?.label || "Parent mobile";
+    const nameLabel = formFields.find((field) => field.id === "guardianName")?.label || "Parent name";
+    if (!parentPhone && formRequires("phone")) throw new Error(`${phoneLabel} is required.`);
+    if (!parentName && formRequires("guardianName")) throw new Error(`${nameLabel} is required.`);
+    if (!parentPhone && (parentName || parentEmail)) throw new Error(`Add the ${phoneLabel.toLowerCase()}, or leave the parent details empty.`);
+    if (parentName && !isPersonName(parentName)) throw new Error(`${nameLabel} should be a real name, not numbers.`);
+  }
   const tags = (input.tags || []).filter((t): t is PathTag => PATH_TAGS.includes(t as PathTag));
   const collectAdmissionFee = Boolean(input.collectAdmissionFee);
   const paymentMethod = parsePayMethod(input.paymentMethod);
   const paymentReference = String(input.paymentReference || "").trim() || null;
-  if (!name || !input.classId || !input.dateOfBirth || (!existingParentId && (!parentName || !parentPhone))) {
+  if (!name || !input.classId || !input.dateOfBirth) {
     throw new Error("Missing student fields");
   }
   if (collectAdmissionFee) {
@@ -262,11 +275,11 @@ export async function createStudentCore(
   for (let attempt = 0; attempt < 10; attempt += 1) {
     try {
       return await prisma.$transaction(async (tx) => {
-        let parentId = existingParentId;
+        let parentId: string | null = existingParentId;
         if (parentId) {
           const parent = await tx.parent.findFirst({ where: { id: parentId }, select: { id: true } });
           if (!parent) throw new Error("Pick a valid parent.");
-        } else {
+        } else if (parentPhone) {
           const parentUser = await tx.user.findFirst({ where: { phone: parentPhone }, include: { parent: true, role: { select: { portal: true } } } });
           if (parentUser?.parent) {
             parentId = parentUser.parent.id;
@@ -280,7 +293,7 @@ export async function createStudentCore(
             const createdParent = await tx.user.create({
               data: {
                 orgId: user.orgId ?? null,
-                name: parentName,
+                name: parentName || `Parent of ${name}`,
                 email: parentEmail && !emailTaken ? parentEmail : `parent.${parentPhone}@mobile.local`,
                 password: await bcrypt.hash("12345", 10),
                 roleId: await roleIdBySlug("PARENT"),
@@ -291,8 +304,10 @@ export async function createStudentCore(
             });
             parentId = createdParent.parent?.id || "";
           }
+          if (!parentId) throw new Error("Could not prepare the parent.");
+        } else {
+          parentId = null;
         }
-        if (!parentId) throw new Error("Could not prepare the parent.");
         const config = await tx.schoolConfig.findUnique({ where: { id: "school" } });
         const admissionRows = await tx.admissionFeeLine.findMany({
           where: { classId: input.classId, active: true },
@@ -655,21 +670,63 @@ export async function updateStudentCore(
   const name = input.name.trim();
   const admissionNo = input.admissionNo.trim();
   const classId = String(input.classId || "");
-  const parentId = String(input.parentId || "");
+  let parentId = String(input.parentId || "");
   const dob = String(input.dateOfBirth || "");
   const tags = (input.tags || []).filter((t): t is PathTag => PATH_TAGS.includes(t as PathTag));
   const parentName = String(input.parentName || "").trim();
   const parentEmail = String(input.parentEmail || "").toLowerCase().trim();
-  const parentPhone = requireMobile(String(input.parentPhone || ""), "the parent");
+  // A student admitted without a parent can be saved as is, or given a parent by entering a mobile here.
+  const rawParentPhone = String(input.parentPhone || "").trim();
+  const parentPhone = parentId || rawParentPhone ? requireMobile(rawParentPhone, "the parent") : "";
   const address = String(input.address || "").trim();
   const city = String(input.city || "").trim();
   const state = String(input.state || "").trim();
   const pincode = String(input.pincode || "").trim();
-  if (!id || !name || !admissionNo || !classId || !parentId || !dob) {
+  if (!id || !name || !admissionNo || !classId || !dob) {
     throw new Error("Missing student fields");
   }
   const student = await prisma.student.findUnique({ where: { id } });
   if (!student) throw new Error("Student missing");
+  if (!parentId && !parentPhone) {
+    if (parentName || parentEmail) throw new Error("Add the parent's mobile, or leave the parent details empty.");
+    const takenNo = await prisma.student.findFirst({ where: { admissionNo, NOT: { id } }, select: { id: true } });
+    if (takenNo) throw new Error("That admission number is already used");
+    await prisma.$transaction(async (tx) => {
+      await tx.student.update({ where: { id }, data: { name, admissionNo, classId, dateOfBirth: new Date(dob) } });
+      await assignStudentRollNumber(tx, { studentId: id, classId, orgId: student.orgId ?? user.orgId ?? null });
+      await tx.studentInterest.deleteMany({ where: { studentId: id } });
+      if (tags.length) await tx.studentInterest.createMany({ data: tags.map((tag) => ({ studentId: id, tag })) });
+    });
+    return;
+  }
+  if (!parentId) {
+    // Adding a parent later: link the existing login for this mobile, or create one.
+    const orgId = student.orgId ?? user.orgId ?? null;
+    const phoneUser = await prisma.user.findFirst({ where: { phone: parentPhone }, include: { parent: true, role: { select: { portal: true } } } });
+    if (phoneUser?.parent) {
+      parentId = phoneUser.parent.id;
+    } else if (phoneUser) {
+      if (phoneUser.role.portal === "STUDENT") throw new Error("That number is a student's own login. Use the parent's number.");
+      parentId = (await prisma.parent.create({ data: { orgId, userId: phoneUser.id, phone: parentPhone } })).id;
+    } else {
+      const emailTaken = parentEmail ? await prisma.user.findFirst({ where: { email: parentEmail }, select: { id: true } }) : null;
+      if (emailTaken) throw new Error("That email is already on another profile");
+      const created = await prisma.user.create({
+        data: {
+          orgId,
+          name: parentName || `Parent of ${name}`,
+          email: parentEmail || `parent.${parentPhone}@mobile.local`,
+          password: await bcrypt.hash("12345", 10),
+          roleId: await roleIdBySlug("PARENT"),
+          phone: parentPhone,
+          parent: { create: { orgId, phone: parentPhone } },
+        },
+        include: { parent: true },
+      });
+      parentId = created.parent?.id || "";
+    }
+    if (!parentId) throw new Error("Could not prepare the parent.");
+  }
   const takenAdm = await prisma.student.findFirst({
     where: { admissionNo, NOT: { id } },
     select: { id: true },
@@ -2814,7 +2871,7 @@ export async function ensureInvoiceShareTokenCore(user: AccessUser, invoiceId: s
     },
   });
   if (!existing) throw new Error("Invoice missing");
-  if (user.portal === "PARENT" && existing.student.parent.userId !== user.id) throw new Error("Invoice missing");
+  if (user.portal === "PARENT" && existing.student.parent?.userId !== user.id) throw new Error("Invoice missing");
   if (user.portal === "STUDENT" && existing.student.userId !== user.id) throw new Error("Invoice missing");
   if (existing.shareToken) return existing.shareToken;
   const shareToken = randomUUID();
@@ -2832,7 +2889,7 @@ export async function ensurePayerPayLinkCore(
     select: { id: true, userId: true, parent: { select: { userId: true } } },
   });
   if (!student) throw new Error("Student missing");
-  if (user.portal === "PARENT" && student.parent.userId !== user.id) throw new Error("Student missing");
+  if (user.portal === "PARENT" && student.parent?.userId !== user.id) throw new Error("Student missing");
   if (user.portal === "STUDENT" && student.userId !== user.id) throw new Error("Student missing");
   if (user.portal === "TEACHER") throw new Error("No access.");
   if (user.portal === "PARENT" && input.combineFamily) {
@@ -2860,6 +2917,8 @@ export async function sendStudentPayLinkCore(
     },
   });
   if (!student) throw new Error("Student missing");
+  const parent = student.parent;
+  if (!parent) throw new Error("Add a parent to this student before sending a pay link.");
   const wanted = new Set(invoiceIds);
   const picked = student.feeInvoices
     .filter((inv) => wanted.has(inv.id))
@@ -2874,8 +2933,8 @@ export async function sendStudentPayLinkCore(
       throw new Error("Connect the school's AiSensy key in Admin → School → Communication");
     }
     await sendAisensyWhatsApp({
-      phone: student.parent.phone,
-      userName: student.parent.user.name || student.name,
+      phone: parent.phone,
+      userName: parent.user.name || student.name,
       params: [student.name, range, String(dueNow), payUrl],
     });
   } else {
@@ -2883,7 +2942,7 @@ export async function sendStudentPayLinkCore(
       throw new Error("Configure platform email delivery in Anekio Admin → Email delivery.");
     }
     await sendResendEmail({
-      to: student.parent.user.email,
+      to: parent.user.email,
       studentName: student.name,
       title: range,
       amount: String(dueNow),
@@ -3305,7 +3364,9 @@ export async function saveClassCurriculumCore(
       if (keepIds.has(subject.id)) continue;
       const examCount = await prisma.exam.count({ where: { subjectId: subject.id } });
       if (examCount) {
-        throw new Error(`${formatSubjectLabel(subject.code, subject.name)} is used in ${classLabel} exams. Remove those papers first.`);
+        throw new Error(
+          `${subject.name} can't be removed from ${classLabel}: it has ${examCount} exam ${examCount === 1 ? "paper" : "papers"}. Delete ${examCount === 1 ? "that paper" : "those papers"} in Exams first, or keep ${subject.name}.`
+        );
       }
     }
   }

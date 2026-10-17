@@ -8,7 +8,8 @@ export async function invoicesForStudentMonths(studentToken: string, invoiceIds:
   });
   if (!student) throw new Error("Pay link is not valid");
   const familyInvoices = await prisma.feeInvoice.findMany({
-    where: { student: { parentId: student.parentId } },
+    // Siblings pay together; a student with no parent yet pays alone (never match every parentless student).
+    where: student.parentId ? { student: { parentId: student.parentId } } : { studentId: student.id },
     include: { student: true, payments: true },
   });
   const expanded = expandOldestUnpaidInvoiceIds(

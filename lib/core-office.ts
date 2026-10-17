@@ -338,6 +338,8 @@ async function deliverFeeReminder(invoiceId: string) {
   if (!invoice) throw new Error("Invoice missing");
   const { dueNow, message } = reminderCopy(invoice);
   if (dueNow <= 0) throw new Error("This month is already paid. Nudge another open bill.");
+  const parent = invoice.student.parent;
+  if (!parent) throw new Error(`${invoice.student.name} has no parent added yet. Add a parent mobile to send reminders.`);
   let token = invoice.shareToken;
   if (!token) {
     token = randomUUID();
@@ -353,8 +355,8 @@ async function deliverFeeReminder(invoiceId: string) {
   if (whatsapp.configured) {
     try {
       await sendAisensyWhatsApp({
-        phone: invoice.student.parent.phone,
-        userName: invoice.student.parent.user.name || invoice.student.name,
+        phone: parent.phone,
+        userName: parent.user.name || invoice.student.name,
         params: [invoice.student.name, invoice.title, String(dueNow), payUrl],
       });
       sent.push("WhatsApp");
@@ -365,7 +367,7 @@ async function deliverFeeReminder(invoiceId: string) {
   if (email.configured) {
     try {
       await sendResendEmail({
-        to: invoice.student.parent.user.email,
+        to: parent.user.email,
         studentName: invoice.student.name,
         title: invoice.title,
         amount: String(dueNow),

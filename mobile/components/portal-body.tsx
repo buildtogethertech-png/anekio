@@ -105,7 +105,10 @@ export function PortalBody({ screen }: { screen: string }) {
     );
 
   const allowed = new Set(nav.map((item) => item.key));
-  if (screen !== "more" && screen in PORTAL_PATH && !allowed.has(screen)) {
+  // "My leave" is personal (opened from the profile menu), so every staff login can open it even
+  // when Leave isn't one of their sidebar items, the same way My profile works.
+  const ownLeave = screen === "leave" && (data.kind === "OFFICE" || data.kind === "TEACHER");
+  if (screen !== "more" && screen in PORTAL_PATH && !allowed.has(screen) && !ownLeave) {
     return <Empty title="No access" body="This role cannot open this page." />;
   }
 

@@ -76,7 +76,7 @@ export async function createFeeOrder(token: string) {
     amount: due.dueNow,
     amountPaise: inrToPaise(due.dueNow),
     name: row.student.name,
-    email: row.student.parent.user.email ?? "",
+    email: row.student.parent?.user.email ?? "",
     description: row.title,
   };
 }
@@ -108,7 +108,7 @@ export async function createMonthsOrder(studentToken: string, invoiceIds: string
     amount,
     amountPaise: inrToPaise(amount),
     name: student.name,
-    email: student.parent.user.email ?? "",
+    email: student.parent?.user.email ?? "",
     description: open.length === 1 ? titles[0] : `${range} · ${open.length} invoices`,
     invoiceIds: open.map((row) => row.inv.id),
   };

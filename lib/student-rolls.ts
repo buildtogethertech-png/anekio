@@ -7,8 +7,10 @@ import { currentTenantOrg } from "./tenant-context";
 
 type RollDb = Pick<
   Prisma.TransactionClient,
-  "schoolConfig" | "schoolSession" | "student" | "studentClassEnrollment" | "$queryRaw" | "$executeRaw"
+  "schoolConfig" | "schoolSession" | "student" | "studentClassEnrollment"
 >;
+// Model queries only, no raw SQL: raw SQL is not scoped to the current school by the tenant extension
+// (lib/prisma.ts), and unquoted table names like SchoolSession fail on Postgres (42P01).
 
 type EnrollmentRow = {
   id: string;
@@ -37,9 +39,7 @@ function mapEnrollment(row: Record<string, unknown>): EnrollmentRow {
 }
 
 async function currentSession(db: RollDb) {
-  const sessions = await db.$queryRaw<Array<{ id: string; current: unknown; startsOn: string }>>`
-    SELECT id, current, startsOn FROM SchoolSession ORDER BY startsOn DESC
-  `;
+  const sessions = await db.schoolSession.findMany({ orderBy: { startsOn: "desc" } });
   if (!sessions.length) {
     const config = await db.schoolConfig.findUnique({ where: { id: "school" } });
     const fallback = defaultAcademicSession();
@@ -55,34 +55,29 @@ async function currentSession(db: RollDb) {
       },
     });
   }
-  const current = sessions.find((row) => asBool(row.current)) ?? sessions[0];
-  if (!asBool(current.current)) {
-    await db.$executeRaw`UPDATE SchoolSession SET current = 0`;
-    await db.$executeRaw`UPDATE SchoolSession SET current = 1 WHERE id = ${current.id}`;
+  const current = sessions.find((row) => row.current) ?? sessions[0];
+  if (!current.current) {
+    await db.schoolSession.updateMany({ data: { current: false } });
+    return db.schoolSession.update({ where: { id: current.id }, data: { current: true } });
   }
   return current;
 }
 
 async function nextRollNumber(db: RollDb, sessionId: string, classId: string) {
-  const rows = await db.$queryRaw<Array<{ rollNumber: number }>>`
-    SELECT rollNumber FROM StudentClassEnrollment
-    WHERE sessionId = ${sessionId} AND classId = ${classId}
-    ORDER BY rollNumber ASC
-  `;
+  const rows = await db.studentClassEnrollment.findMany({
+    where: { sessionId, classId },
+    select: { rollNumber: true },
+    orderBy: { rollNumber: "asc" },
+  });
   const used = new Set(rows.map((row) => Number(row.rollNumber)));
   let roll = 1;
   while (used.has(roll)) roll += 1;
   return roll;
 }
 
-async function enrollmentForStudentSession(db: RollDb, studentId: string, sessionId: string) {
-  const rows = await db.$queryRaw<Array<Record<string, unknown>>>`
-    SELECT id, studentId, classId, sessionId, rollNumber, orgId, active
-    FROM StudentClassEnrollment
-    WHERE studentId = ${studentId} AND sessionId = ${sessionId}
-    LIMIT 1
-  `;
-  return rows[0] ? mapEnrollment(rows[0]) : null;
+async function enrollmentForStudentSession(db: RollDb, studentId: string, sessionId: string): Promise<EnrollmentRow | null> {
+  const row = await db.studentClassEnrollment.findFirst({ where: { studentId, sessionId } });
+  return row ? mapEnrollment(row as unknown as Record<string, unknown>) : null;
 }
 
 async function saveEnrollment(
@@ -90,14 +85,10 @@ async function saveEnrollment(
   id: string,
   data: { classId: string; rollNumber: number; orgId: string | null; active: boolean }
 ) {
-  await db.$executeRaw`
-    UPDATE StudentClassEnrollment
-    SET classId = ${data.classId},
-        rollNumber = ${data.rollNumber},
-        orgId = ${data.orgId},
-        active = ${data.active ? 1 : 0}
-    WHERE id = ${id}
-  `;
+  await db.studentClassEnrollment.update({
+    where: { id },
+    data: { classId: data.classId, rollNumber: data.rollNumber, orgId: data.orgId, active: data.active },
+  });
   return {
     id,
     classId: data.classId,
@@ -140,15 +131,11 @@ async function assignStudentRollNumberUnlocked(
       ? input.rollNumber
       : null;
   if (requested) {
-    const clash = await db.$queryRaw<Array<{ id: string }>>`
-      SELECT id FROM StudentClassEnrollment
-      WHERE sessionId = ${session.id}
-        AND classId = ${input.classId}
-        AND rollNumber = ${requested}
-        AND studentId != ${input.studentId}
-      LIMIT 1
-    `;
-    if (clash[0]) throw new Error(`Roll ${requested} is already used in this class.`);
+    const clash = await db.studentClassEnrollment.findFirst({
+      where: { sessionId: session.id, classId: input.classId, rollNumber: requested, NOT: { studentId: input.studentId } },
+      select: { id: true },
+    });
+    if (clash) throw new Error(`Roll ${requested} is already used in this class.`);
   }
   if (existing?.classId === input.classId) {
     if (!requested || existing.rollNumber === requested) {
@@ -214,9 +201,7 @@ async function runRollNumberBackfill(db: RollDb) {
         },
         orderBy: [{ classId: "asc" }, { name: "asc" }],
       }),
-      db.$queryRaw<Array<{ studentId: string }>>`
-        SELECT studentId FROM StudentClassEnrollment WHERE sessionId = ${session.id}
-      `,
+      db.studentClassEnrollment.findMany({ where: { sessionId: session.id }, select: { studentId: true } }),
     ]);
     const have = new Set(enrolled.map((row) => row.studentId));
     for (const student of students) {
