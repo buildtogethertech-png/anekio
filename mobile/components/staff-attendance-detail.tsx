@@ -835,34 +835,75 @@ export function StaffAttendanceDetail({
         </View>
       ) : null}
 
-      <Modal open={review} title="Review & Finalize Payment" onClose={() => setReview(false)}>
-        <View className="gap-2">
-          <PayRow label="Employee" value={person.name} />
-          <PayRow label="Month" value={monthTitle(month)} />
-          <PayRow label="Working Days" value={String(summary.working)} />
-          <PayRow label="Present" value={String(summary.present)} />
-          <PayRow label="Absent" value={String(summary.absent + (live.lateLeaveDays || 0))} />
-          <PayRow label="Leave" value={String(summary.leave)} />
-          <PayRow label="Salary basis" value={salaryBasisLabel(payrollRules, live.divisor)} />
+      <Modal
+        open={review}
+        title="Approve salary"
+        onClose={() => setReview(false)}
+        sheetOnPhone
+        footer={
+          <View className={phone ? "gap-2" : "flex-row justify-end gap-2"}>
+            {phone ? null : (
+              <Button variant="ghost" onPress={() => void savePayroll("PENDING")} disabled={busy}>
+                Save for later
+              </Button>
+            )}
+            <Button
+              onPress={() => void savePayroll("APPROVED")}
+              disabled={busy || run?.status === "APPROVED" || run?.status === "PAID"}
+              className={phone ? "h-12 justify-center" : ""}
+            >
+              {`Approve ${inr(summary.finalAmount)}`}
+            </Button>
+            {phone ? (
+              <Pressable accessibilityRole="button" disabled={busy} onPress={() => void savePayroll("PENDING")} className="h-10 items-center justify-center">
+                <Text className="text-[14px] font-semibold text-ink-700">Save for later</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        }
+      >
+        {/* 1. The answer first: what will be paid. */}
+        <View className="items-center rounded-2xl bg-[#EEF3FF] px-4 py-5">
+          <Text className="text-[13px] font-medium text-ink-600">{person.name} · {monthTitle(month)}</Text>
+          <Text className="mt-1 text-[32px] font-bold tracking-tight text-ink-900">{inr(summary.finalAmount)}</Text>
+          <Text className="mt-0.5 text-[13px] text-ink-600">
+            {summary.payableDays === (live.divisor ?? summary.payableDays) ? "Full month salary" : `For ${summary.payableDays} of ${live.divisor ?? summary.payableDays} days`}
+          </Text>
+        </View>
+
+        {/* 2. Attendance at a glance. */}
+        <Text className="mb-2 mt-5 text-[12px] font-semibold uppercase tracking-wide text-ink-500">Attendance</Text>
+        <View className="flex-row overflow-hidden rounded-xl border border-ink-100">
+          {[
+            { label: "Working", value: summary.working, tone: "text-ink-900" },
+            { label: "Present", value: summary.present, tone: "text-emerald-700" },
+            { label: "Absent", value: summary.absent + (live.lateLeaveDays || 0), tone: summary.absent + (live.lateLeaveDays || 0) ? "text-red-700" : "text-ink-900" },
+            { label: "Leave", value: summary.leave, tone: "text-ink-900" },
+          ].map((cell, index) => (
+            <View key={cell.label} className={`flex-1 items-center py-3 ${index ? "border-l border-ink-100" : ""}`}>
+              <Text className={`text-[18px] font-semibold tabular-nums ${cell.tone}`}>{cell.value}</Text>
+              <Text className="mt-0.5 text-[11px] text-ink-500">{cell.label}</Text>
+            </View>
+          ))}
+        </View>
+
+        {/* 3. How the amount is worked out, as a short sum. */}
+        <Text className="mb-1 mt-5 text-[12px] font-semibold uppercase tracking-wide text-ink-500">How it's worked out</Text>
+        <View className="rounded-xl border border-ink-100 px-4 pb-3">
+          <PayRow label="Monthly salary" value={inr(summary.salary)} />
+          <PayRow label={live.divisor ? `Per day (÷ ${live.divisor} days)` : "Per day"} value={inr(summary.dailySalary, 2)} />
           {live.sandwichDays ? <PayRow label="Sandwich days (unpaid)" value={`−${live.sandwichDays}`} /> : null}
           {live.unpaidOffDays ? <PayRow label="Unpaid offs" value={`−${live.unpaidOffDays}`} /> : null}
-          <PayRow label="Payable Days" value={String(summary.payableDays)} />
           {live.lateLeaveDays ? (
             <PayRow
-              label="Unpaid from lates"
-              value={`−${live.lateCutDays} day${live.lateCutDays === 1 ? "" : "s"} (every ${payrollRules.latesPerLeaveDay} lates = ${payrollRules.latePenaltyDays === 0.5 ? "½" : "1"} day)`}
+              label={`Lates (every ${payrollRules.latesPerLeaveDay} = ${payrollRules.latePenaltyDays === 0.5 ? "½" : "1"} day)`}
+              value={`−${live.lateCutDays} day${live.lateCutDays === 1 ? "" : "s"}`}
             />
           ) : null}
-          <PayRow label="Monthly Salary" value={inr(summary.salary)} />
-          <PayRow label="Daily Salary" value={inr(summary.dailySalary, 2)} />
-          <PayRow label="Final Payable" value={inr(summary.finalAmount)} />
-          <View className="mt-3 flex-row flex-wrap justify-end gap-2">
-            <Button variant="ghost" onPress={() => void savePayroll("PENDING")} disabled={busy}>
-              Save as Pending
-            </Button>
-            <Button onPress={() => void savePayroll("APPROVED")} disabled={busy || run?.status === "APPROVED" || run?.status === "PAID"}>
-              Approve Payment
-            </Button>
+          <PayRow label="Payable days" value={`× ${summary.payableDays}`} />
+          <View className="mt-3 flex-row items-center justify-between border-t border-ink-100 pt-3">
+            <Text className="text-[14px] font-semibold text-ink-900">To pay</Text>
+            <Text className="text-[15px] font-bold text-ink-900">{inr(summary.finalAmount)}</Text>
           </View>
         </View>
       </Modal>

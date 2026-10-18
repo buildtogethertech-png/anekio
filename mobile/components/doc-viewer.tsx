@@ -2,6 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { createElement, useState } from "react";
 import { ActivityIndicator, Linking, Modal as RnModal, Platform, Pressable, Share, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { closeInAppDoc, useInAppDoc } from "../lib/in-app-doc";
 
 /** Shows an invoice / receipt page inside the app instead of sending the parent to the browser. */
 export function DocViewer({ url, title, onClose }: { url: string | null; title: string; onClose: () => void }) {
@@ -79,4 +80,10 @@ function NativeDoc({ uri, onLoading }: { uri: string; onLoading: (v: boolean) =>
       onLoadEnd={() => onLoading(false)}
     />
   );
+}
+
+/** Mounted once in the root layout; shows whatever openInAppDoc() asked for. */
+export function GlobalDocViewer() {
+  const doc = useInAppDoc();
+  return <DocViewer url={doc?.url ?? null} title={doc?.title ?? ""} onClose={closeInAppDoc} />;
 }

@@ -1,6 +1,6 @@
 import type { Portal } from "./permissions";
 
-export const NOTICE_KINDS = ["CIRCULAR", "ADMISSION", "EXAM", "FEES", "FEEDBACK", "ATTENDANCE", "LEAVE"] as const;
+export const NOTICE_KINDS = ["CIRCULAR", "ADMISSION", "EXAM", "FEES", "FEEDBACK", "ATTENDANCE", "LEAVE", "INBOX"] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 export type ClassifiedNoticeKind = NoticeKind | "UNKNOWN";
 
@@ -12,6 +12,7 @@ export const NOTICE_KIND_LABEL: Record<NoticeKind, string> = {
   FEEDBACK: "Feedback",
   ATTENDANCE: "Attendance",
   LEAVE: "Leave",
+  INBOX: "Messages",
 };
 
 export const CLASSIFIED_NOTICE_LABEL: Record<ClassifiedNoticeKind, string> = {

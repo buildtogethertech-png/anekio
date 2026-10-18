@@ -49,6 +49,9 @@ export function ExamEnter({
   delay?: 1 | 2 | 3 | 4 | 5;
   children: ReactNode;
 }) {
+  // The enter animation is plain CSS (global.css), so it only applies on web. On iOS/Android NativeWind
+  // turns an `animation:` class into an Animated style, which a plain View can't take ("wrap with forwardRef").
+  if (Platform.OS !== "web") return <View>{children}</View>;
   return (
     <View className={`anekio-enter${delay ? ` anekio-enter-${delay}` : ""}`}>
       {children}

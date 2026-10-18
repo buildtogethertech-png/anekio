@@ -876,9 +876,23 @@ function ThreadView({
           </View>
         ) : null}
         {closed ? (
-          <Text className="mb-1.5 text-center text-[12px] text-ink-500">
-            {parentMode ? "This conversation is closed. Replying will reopen it." : "Closed. Replying will reopen it as waiting on the parent."}
-          </Text>
+          parentMode ? (
+            <View className="mb-2 flex-row items-center gap-2 rounded-xl bg-ink-100 px-3 py-2">
+              <Ionicons name="lock-closed-outline" size={15} color="#475569" />
+              <Text className="min-w-0 flex-1 text-[12px] text-ink-700">This conversation is closed.</Text>
+              <Pressable
+                accessibilityRole="button"
+                disabled={busy}
+                onPress={() => void update({ status: "OPEN" }, "Reopened.")}
+                className="h-8 flex-row items-center gap-1 rounded-lg bg-white px-3"
+              >
+                <Ionicons name="refresh-outline" size={14} color={BRAND} />
+                <Text className="text-[13px] font-semibold text-[#1F45C7]">Reopen</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <Text className="mb-1.5 text-center text-[12px] text-ink-500">Closed. Replying will reopen it as waiting on the parent.</Text>
+          )
         ) : null}
         {!parentMode ? (
           <View className="mb-2 flex-row rounded-xl bg-ink-100 p-1">

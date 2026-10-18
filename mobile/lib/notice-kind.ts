@@ -1,4 +1,4 @@
-export const NOTICE_KINDS = ["CIRCULAR", "ADMISSION", "EXAM", "FEES", "FEEDBACK", "ATTENDANCE", "LEAVE"] as const;
+export const NOTICE_KINDS = ["CIRCULAR", "ADMISSION", "EXAM", "FEES", "FEEDBACK", "ATTENDANCE", "LEAVE", "INBOX"] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 export type ClassifiedNoticeKind = NoticeKind | "UNKNOWN";
 
@@ -10,6 +10,7 @@ export const NOTICE_KIND_LABEL: Record<NoticeKind, string> = {
   FEEDBACK: "Feedback",
   ATTENDANCE: "Attendance",
   LEAVE: "Leave",
+  INBOX: "Messages",
 };
 
 export const CLASSIFIED_NOTICE_LABEL: Record<ClassifiedNoticeKind, string> = {
@@ -87,6 +88,11 @@ export function hrefForNotice(
     return "/";
   }
   if (kind === "FEEDBACK") return has("inbox") ? "/inbox" : "/";
+  if (kind === "INBOX") {
+    const threadId = (notice.eventKey || "").startsWith("INBOX:") ? (notice.eventKey || "").split(":")[1] : "";
+    if (!has("inbox")) return "/";
+    return threadId ? `/inbox?thread=${encodeURIComponent(threadId)}` : "/inbox";
+  }
   if (kind === "LEAVE") return has("leave") ? "/leave" : has("staff") ? "/staff" : "/";
   if (kind === "CIRCULAR") return has("notices") ? "/notices" : "/";
   return "/";

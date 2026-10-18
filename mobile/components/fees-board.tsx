@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { openInAppDoc } from "../lib/in-app-doc";
 import { Linking, Modal as RnModal, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -844,7 +845,7 @@ export function FeesBoard() {
         window.open(directUrl, "_blank", "noopener,noreferrer");
         return;
       }
-      await Linking.openURL(directUrl);
+      openInAppDoc(directUrl, paid ? "Receipt" : "Invoice");
       return;
     }
     const pendingWindow = Platform.OS === "web" ? window.open("", "_blank") : null;
@@ -855,7 +856,7 @@ export function FeesBoard() {
       const url = paid ? `${webOrigin()}/pay/${shareToken}?paid=1` : `${webOrigin()}/i/${shareToken}`;
       await reload();
       if (pendingWindow) pendingWindow.location.replace(url);
-      else await Linking.openURL(url);
+      else openInAppDoc(url, paid ? "Receipt" : "Invoice");
     } catch (error) {
       pendingWindow?.close();
       toast.show(error instanceof Error ? error.message : "Could not open fee document.");

@@ -101,9 +101,28 @@ async function addMembers(threadId: string, userIds: string[], addedById: string
   if (fresh.length) await prisma.inboxMember.createMany({ data: fresh.map((userId) => ({ threadId, userId, addedById })) });
 }
 
+/**
+ * Every inbox message becomes an in-app notification (bell) for the other members of the thread,
+ * plus a push to their phones. kind INBOX + eventKey "INBOX:<threadId>:<time>" lets the bell open the thread.
+ */
 async function pushTo(userIds: string[], exceptId: string, title: string, body: string, threadId: string) {
-  const ids = userIds.filter((id) => id && id !== exceptId);
+  const ids = [...new Set(userIds.filter((id) => id && id !== exceptId))];
   if (!ids.length) return;
+  try {
+    await prisma.notice.create({
+      data: {
+        eventKey: `INBOX:${threadId}:${Date.now()}`,
+        title,
+        body: body.slice(0, 500),
+        kind: "INBOX",
+        priority: "ACTION",
+        authorId: exceptId,
+        recipients: { create: ids.map((userId) => ({ userId })) },
+      },
+    });
+  } catch {
+    // The message itself is saved; a missing bell entry is not worth failing the send.
+  }
   await notifyNoticeRecipients({ noticeId: threadId, title, body, userIds: ids, kind: "inbox" }).catch(() => undefined);
 }
 
@@ -183,8 +202,14 @@ export async function updateInboxThreadCore(
   user: AccessUser,
   input: { threadId?: string; status?: string; assigneeId?: string; addUserIds?: string[] }
 ) {
-  if (!isStaff(user) || !can(user, "inbox.manage")) throw new Error("No access.");
   const { thread } = await threadForUser(user, String(input.threadId || ""));
+  // Parents may only reopen their own closed conversation; everything else is staff with inbox.manage.
+  if (!isStaff(user)) {
+    const parentOwner = user.portal === Portal.PARENT && thread.parentUserId === user.id;
+    if (!parentOwner || input.status !== "OPEN" || thread.status !== "CLOSED" || input.assigneeId !== undefined || input.addUserIds?.length) {
+      throw new Error("No access.");
+    }
+  } else if (!can(user, "inbox.manage")) throw new Error("No access.");
   const events: string[] = [];
   const data: { status?: string; assigneeId?: string } = {};
   if (input.status && STATUSES.includes(input.status as InboxStatus) && input.status !== thread.status) {
@@ -222,6 +247,19 @@ export async function updateInboxThreadCore(
         kind: "EVENT",
       },
     });
+  }
+  // Closing or reopening tells everyone in the conversation (staff members and the parent), except the person who did it.
+  if (data.status === "CLOSED" || data.status === "OPEN") {
+    const everyone = [...thread.members.map((m) => m.userId), thread.parentUserId];
+    const who = user.name || (isStaff(user) ? "School" : "Parent");
+    const closing = data.status === "CLOSED";
+    void pushTo(
+      everyone,
+      user.id,
+      `${closing ? "Conversation closed" : "Conversation reopened"} · ${thread.subject}`,
+      closing ? `${who} closed this conversation. Reply any time to reopen it.` : `${who} reopened this conversation.`,
+      thread.id
+    );
   }
 }
 

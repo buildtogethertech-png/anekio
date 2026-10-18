@@ -14,6 +14,7 @@ const KIND_STYLE: Record<ClassifiedNoticeKind, { icon: IoniconName; color: strin
   FEEDBACK: { icon: "chatbubble-ellipses", color: "#1e3a5f", bg: "bg-ink-100", label: "Feedback", rail: "bg-blue-600" },
   ATTENDANCE: { icon: "checkmark-circle", color: "#d97706", bg: "bg-amber-50", label: "Attendance", rail: "bg-yellow-500" },
   LEAVE: { icon: "calendar", color: "#4338ca", bg: "bg-blue-50", label: "Leave", rail: "bg-indigo-600" },
+  INBOX: { icon: "chatbubbles", color: "#1d4ed8", bg: "bg-blue-50", label: "Message", rail: "bg-blue-600" },
   CIRCULAR: { icon: "megaphone", color: "#1d4ed8", bg: "bg-blue-50", label: "School", rail: "bg-blue-600" },
   UNKNOWN: { icon: "notifications", color: "#334155", bg: "bg-ink-100", label: "Notice", rail: "bg-ink-400" },
 };

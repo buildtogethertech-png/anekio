@@ -5,6 +5,7 @@ import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { NoticeInboxProvider } from "../lib/notice-inbox";
+import { GlobalDocViewer } from "../components/doc-viewer";
 import { SessionProvider } from "../lib/session";
 import { APP_FONTS, applyAppFont } from "../lib/fonts";
 
@@ -27,6 +28,7 @@ export default function RootLayout() {
                 contentStyle: { flex: 1, backgroundColor: "#f4f7fb" },
               }}
             />
+            <GlobalDocViewer />
           </NoticeInboxProvider>
         </SessionProvider>
       </SafeAreaProvider>

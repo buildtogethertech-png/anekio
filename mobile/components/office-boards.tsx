@@ -1,4 +1,5 @@
 import { createElement, useMemo, useState, useEffect, useRef } from "react";
+import { openInAppDoc } from "../lib/in-app-doc";
 import type { ReactNode } from "react";
 import { Alert, Linking, Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -1658,7 +1659,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
         window.open(directUrl, "_blank", "noopener,noreferrer");
         return;
       }
-      await Linking.openURL(directUrl);
+      openInAppDoc(directUrl, paid ? "Receipt" : "Invoice");
       return;
     }
     const pendingWindow = Platform.OS === "web" ? window.open("", "_blank") : null;
@@ -1668,7 +1669,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
         pendingWindow.location.replace(url);
         return;
       }
-      await Linking.openURL(url);
+      openInAppDoc(url, paid ? "Receipt" : "Invoice");
     };
     try {
       const result = await act<{ ok: true; token: string }>(token, "ensurePayToken", { invoiceId: inv.id });
@@ -1802,7 +1803,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
           </Field>
           <View className="flex-row flex-wrap justify-between gap-y-3">
             <View className={half}>
-              <Field label="Date of birth *">
+              <Field label="Date of birth">
                 <DateField value={edit.dateOfBirth ?? selected.dateOfBirth ?? ""} onChange={(v) => setEdit((p) => ({ ...p, dateOfBirth: v }))} />
               </Field>
             </View>
@@ -2155,13 +2156,20 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
           title={`Edit ${selected.name}`}
           onClose={() => setFileEdit(false)}
           wide
+          sheetOnPhone
           footer={
-            <View className="flex-row justify-end gap-2">
-              <Button variant="ghost" onPress={() => setFileEdit(false)}>
-                Cancel
+            wide ? (
+              <View className="flex-row justify-end gap-2">
+                <Button variant="ghost" onPress={() => setFileEdit(false)}>
+                  Cancel
+                </Button>
+                <Button onPress={saveFile}>Save changes</Button>
+              </View>
+            ) : (
+              <Button onPress={saveFile} className="h-12 justify-center">
+                Save changes
               </Button>
-              <Button onPress={saveFile}>Save changes</Button>
-            </View>
+            )
           }
         >
           {editForm}
@@ -4648,10 +4656,18 @@ export function StaffBoard() {
                 setTimesheetOpen(false);
                 setStaffView(id);
               }}
-              className={`h-9 items-center justify-center rounded-lg px-4 ${phone ? "flex-1" : ""} ${on ? "bg-white" : ""}`}
+              className={`h-9 items-center justify-center rounded-lg ${phone ? "min-w-0 flex-1 px-1" : "px-4"} ${on ? "bg-white" : ""}`}
               style={on ? { shadowColor: "#0f172a", shadowOpacity: 0.08, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } } : undefined}
             >
-              <Text className={`text-[13px] font-semibold ${on ? "text-ink-900" : "text-ink-500"}`}>{label}</Text>
+              {/* One line always: on narrow phones the label shrinks a little instead of wrapping and getting cut. */}
+              <Text
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.8}
+                className={`text-[13px] font-semibold ${on ? "text-ink-900" : "text-ink-500"}`}
+              >
+                {label}
+              </Text>
             </Pressable>
           );
         })}
@@ -5686,7 +5702,7 @@ function LegacyFeesBoard() {
         window.open(directUrl, "_blank", "noopener,noreferrer");
         return;
       }
-      await Linking.openURL(directUrl);
+      openInAppDoc(directUrl, paid ? "Receipt" : "Invoice");
       return;
     }
     const pendingWindow = Platform.OS === "web" ? window.open("", "_blank") : null;
@@ -5696,7 +5712,7 @@ function LegacyFeesBoard() {
         pendingWindow.location.replace(url);
         return;
       }
-      await Linking.openURL(url);
+      openInAppDoc(url, paid ? "Receipt" : "Invoice");
     };
     try {
       const result = await act<{ ok: true; token: string }>(token, "ensurePayToken", { invoiceId: inv.id });

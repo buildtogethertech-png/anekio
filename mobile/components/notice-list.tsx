@@ -13,6 +13,7 @@ const KIND_LOOK: Record<ClassifiedNoticeKind, { icon: keyof typeof Ionicons.glyp
   FEEDBACK: { icon: "chatbubble-ellipses-outline", tint: "#64748B", bg: "#F3F5F8" },
   ATTENDANCE: { icon: "calendar-outline", tint: "#C08A1E", bg: "#FCF7EA" },
   LEAVE: { icon: "airplane-outline", tint: "#5B63C9", bg: "#F0F1FC" },
+  INBOX: { icon: "chatbubbles-outline", tint: "#1D4ED8", bg: "#EEF4FF" },
   UNKNOWN: { icon: "notifications-outline", tint: "#64748B", bg: "#F3F5F8" },
 };
 
