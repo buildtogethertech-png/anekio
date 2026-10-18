@@ -17,7 +17,8 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://app.staging.anekio.com"
+        "EXPO_PUBLIC_API_URL": "https://app.staging.anekio.com",
+        "ORG_GRADLE_PROJECT_reactNativeArchitectures": "armeabi-v7a,arm64-v8a"
       }
     },
     "production-test": {
@@ -26,7 +27,8 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://app.anekio.com"
+        "EXPO_PUBLIC_API_URL": "https://app.anekio.com",
+        "ORG_GRADLE_PROJECT_reactNativeArchitectures": "armeabi-v7a,arm64-v8a"
       }
     },
     "preview": {
@@ -35,7 +37,8 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://anekio-school.vercel.app"
+        "EXPO_PUBLIC_API_URL": "https://anekio-school.vercel.app",
+        "ORG_GRADLE_PROJECT_reactNativeArchitectures": "armeabi-v7a,arm64-v8a"
       }
     },
     "production": {
@@ -43,7 +46,8 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://app.anekio.com"
+        "EXPO_PUBLIC_API_URL": "https://app.anekio.com",
+        "ORG_GRADLE_PROJECT_reactNativeArchitectures": "armeabi-v7a,arm64-v8a"
       }
     }
   },
