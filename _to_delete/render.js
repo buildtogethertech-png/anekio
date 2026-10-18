@@ -1,0 +1,11 @@
+const ts=require(process.cwd()+"/node_modules/typescript");const fs=require("fs");
+const src=fs.readFileSync("lib/anekio-marketing.ts","utf8");
+const js=ts.transpileModule(src,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;
+const m={exports:{}};new Function("module","exports","require",js)(m,m.exports,require);
+const esc=v=>String(v??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+const ctx={trial:14,sale:"24,999",list:"34,999",save:"10,000",savePercent:28,period:"year",message:"",esc};
+const start=`<section id="start" class="sections wrap"><span id="pricing"></span><div class="start-head"><div class="eyebrow">Get started</div><h2 class="section-title">Choose how you want to begin</h2><p class="muted" style="margin:0">See it, try it, or launch it.</p></div><div class="path-grid"><button class="path-card"><span class="icon">▶</span><b>Book a demo</b><p>See Anekio in action.</p></button><button class="path-card is-on"><span class="path-pop">Most popular</span><span class="icon">14</span><b>Free trial</b><p>Try Anekio for 14 days.</p></button><button class="path-card"><span class="icon">₹</span><b>Launch now</b><p><strong>₹24,999 / year</strong></p></button></div></section>`;
+const shellCss=fs.readFileSync("lib/anekio-site.ts","utf8").match(/<style>([\s\S]*?)<\/style>/)[1];
+let html=`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${shellCss}</style>${m.exports.marketingHead()}${m.exports.marketingCss()}</head><body class="marketing-page">${m.exports.marketingTop(ctx)}${start}${m.exports.marketingBottom(ctx)}${m.exports.marketingScript()}</body></html>`;
+html=html.replace(/\/demo\/shots\//g,"shots/").replace(/loading="lazy"/g,'loading="eager"');
+fs.writeFileSync("_to_delete/preview.html",html);console.log(html.length);

@@ -6,6 +6,7 @@ import { normalizeMobile } from "./phone";
 import { roleIdBySlug } from "./roles";
 import { captureWebsiteLead, createDemo, createTrialSubscription, ensureOnboardingTasks, fulfillPaidSubscription, startOnboarding } from "./saas-crm";
 import { getSitePricing } from "./saas-pricing";
+import { marketingBottom, marketingCss, marketingHead, marketingScript, marketingTop } from "./anekio-marketing";
 
 const PRODUCT_NAME = "Anekio";
 const TAGLINE = "One Platform, Infinite Possibilities.";
@@ -112,25 +113,6 @@ function formatInr(amount: number) {
   return new Intl.NumberFormat("en-IN").format(amount);
 }
 
-function androidPhoneHtml(label: string) {
-  return `<div class="device-stage">
-    <div class="product-window" aria-label="Anekio school ERP workspace">
-      <div class="product-chrome">
-        <span class="chrome-dots" aria-hidden="true"><i></i><i></i><i></i></span>
-        <span>Office workspace</span>
-        <span class="product-live"><i></i> Live school record</span>
-      </div>
-      <div class="product-screen"><img class="product-shot" src="/demo/current/office-dashboard.png" alt="Current Anekio office dashboard showing live school operations"></div>
-    </div>
-    <div class="phone-shell" aria-label="${escapeHtml(label)}">
-      <div class="phone-notch" aria-hidden="true"></div>
-      <div class="phone-screen">
-        <img class="phone-shot" src="/demo/current/office-mobile.png" alt="Current Anekio office mobile dashboard">
-      </div>
-    </div>
-    <div class="product-caption" aria-hidden="true"><span><i></i> Web ERP</span><span><i></i> Android app</span><span><i></i> Role-based access</span></div>
-  </div>`;
-}
 
 function normalEmail(value: unknown) {
   return text(value).toLowerCase();
@@ -381,247 +363,6 @@ function shell(title: string, description: string, body: string, extraHead = "",
 </html>`;
 }
 
-const MARKETING_CSS = `<style>
-  body.marketing-page{--ink:#111827;--muted:#667085;--blue:#2456e8;--blue-deep:#173fbd;--line:#dfe4ec;--soft:#f6f8fb;--green:#07865c;--amber:#b54708;background:#fff;color:var(--ink);font-size:16px;line-height:1.55;overflow-x:hidden}
-  body.marketing-page:before{background:linear-gradient(180deg,#f7f9ff 0,#fff 21%,#fff 100%);animation:none}
-  body.marketing-page:after{opacity:.45;background-image:linear-gradient(rgba(36,86,232,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(36,86,232,.045) 1px,transparent 1px);background-size:48px 48px;mask-image:linear-gradient(#000 0,transparent 22%);animation:none}
-  body.marketing-page *{letter-spacing:0!important}
-  body.marketing-page .wrap{width:min(1180px,calc(100% - 48px));margin-inline:auto}
-  body.marketing-page .nav{position:sticky;top:0;z-index:50;background:rgba(255,255,255,.9);border-bottom:1px solid rgba(223,228,236,.9);box-shadow:none;backdrop-filter:blur(16px)}
-  body.marketing-page .nav .wrap{height:72px;display:flex;align-items:center;justify-content:space-between;gap:28px}
-  body.marketing-page .brand{display:flex;align-items:center;gap:10px;font-size:21px;font-weight:800}
-  body.marketing-page .brand .mark{width:34px;height:34px;border-radius:8px;background:var(--blue);box-shadow:none;font-size:15px}
-  body.marketing-page .nav-end{gap:12px}
-  body.marketing-page .navlinks{gap:26px;color:#475467;font-size:14px;font-weight:650}
-  body.marketing-page .navlinks a{padding:24px 0;border-bottom:2px solid transparent;transition:color .18s ease,border-color .18s ease}
-  body.marketing-page .navlinks a:after{display:none}
-  body.marketing-page .navlinks a:hover{color:var(--ink);border-color:#b8c5eb}
-  body.marketing-page .nav-actions{display:flex;align-items:center;gap:10px}
-  body.marketing-page .btn{min-height:42px;border-radius:8px;border:1px solid #cfd6e3;padding:10px 16px;background:#fff;color:#26364d;font-size:14px;font-weight:750;box-shadow:none;transition:background .18s ease,border-color .18s ease,color .18s ease,transform .18s ease}
-  body.marketing-page .btn:hover{transform:translateY(-1px);border-color:#98a7be;background:#f8fafc}
-  body.marketing-page .btn.primary{background:var(--blue);border-color:var(--blue);color:#fff;box-shadow:0 8px 20px rgba(36,86,232,.18)}
-  body.marketing-page .btn.primary:hover{background:var(--blue-deep);border-color:var(--blue-deep)}
-  body.marketing-page .btn.light{background:#fff;color:var(--ink)}
-  body.marketing-page .mobile-nav{display:none;position:relative}
-  body.marketing-page .mobile-nav summary{list-style:none;width:42px;height:42px;border:1px solid #d6dce7;border-radius:8px;display:grid;place-items:center;cursor:pointer;font-size:21px}
-  body.marketing-page .mobile-nav summary::-webkit-details-marker{display:none}
-  body.marketing-page .mobile-nav-menu{position:absolute;right:0;top:50px;width:250px;padding:10px;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 18px 48px rgba(16,24,40,.16);display:grid;gap:2px}
-  body.marketing-page .mobile-nav-menu a{padding:11px 12px;border-radius:6px;color:#344054;font-weight:700}
-  body.marketing-page .mobile-nav-menu a:last-child{margin-top:6px;background:var(--blue);color:#fff;text-align:center}
-  body.marketing-page .hero{padding:78px 0 0;text-align:center}
-  body.marketing-page .hero-copy{align-items:center;gap:18px;max-width:900px;margin:0 auto}
-  body.marketing-page .eyebrow{display:flex;align-items:center;gap:9px;color:var(--blue);font-size:12px;font-weight:800;text-transform:uppercase}
-  body.marketing-page .hero .eyebrow:before,body.marketing-page .section-head .eyebrow:before{content:"";width:7px;height:7px;border-radius:50%;background:var(--blue)}
-  body.marketing-page .hero h1{max-width:860px;margin:0;font-size:68px;line-height:1.02;font-weight:780}
-  body.marketing-page .hero .lead{max-width:720px;font-size:19px;line-height:1.6;color:#526078}
-  body.marketing-page .hero .cta{justify-content:center;margin-top:2px}
-  body.marketing-page .hero .btn{min-height:48px;padding:12px 20px;font-size:15px}
-  body.marketing-page .trust-note{margin:0;color:#667085;font-size:13px;font-weight:650}
-  body.marketing-page .module-rail{margin-top:56px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:rgba(255,255,255,.76)}
-  body.marketing-page .module-row{min-height:78px;display:grid;grid-template-columns:repeat(6,1fr);align-items:center}
-  body.marketing-page .module-row span{display:flex;align-items:center;justify-content:center;gap:8px;min-height:38px;border-right:1px solid #e8ebf1;color:#4b5870;font-size:13px;font-weight:750}
-  body.marketing-page .module-row span:last-child{border-right:0}
-  body.marketing-page .module-row i{width:7px;height:7px;border:2px solid var(--blue);border-radius:50%}
-  body.marketing-page .hero-visual{position:relative;max-width:1120px;margin:44px auto -56px;text-align:left}
-  body.marketing-page .device-stage{position:relative;width:100%;padding:0 52px 44px 0}
-  body.marketing-page .product-window{overflow:hidden;border:1px solid #ccd4e1;border-radius:8px;background:#fff;box-shadow:0 30px 80px rgba(23,36,65,.16),0 2px 8px rgba(23,36,65,.08)}
-  body.marketing-page .product-chrome{height:42px;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding:0 14px;border-bottom:1px solid #e4e8ef;background:#f7f8fa;color:#667085;font-size:11px;font-weight:700}
-  body.marketing-page .chrome-dots{display:flex;gap:6px}
-  body.marketing-page .chrome-dots i{width:8px;height:8px;border-radius:50%;background:#cbd2dd}
-  body.marketing-page .product-live{justify-self:end;display:flex;align-items:center;gap:7px;color:#475467}
-  body.marketing-page .product-live i,body.marketing-page .product-caption i{width:7px;height:7px;border-radius:50%;background:#13a373;box-shadow:0 0 0 3px rgba(19,163,115,.11)}
-  body.marketing-page .product-screen{position:relative;overflow:hidden;aspect-ratio:16/7.2;background:#eef2f8}
-  body.marketing-page .product-shot{display:block;width:100%;height:100%;object-fit:cover;object-position:top}
-  body.marketing-page .phone-shell{position:absolute;right:0;bottom:24px;width:168px;padding:8px 7px 10px;border:1px solid #253247;border-radius:27px;background:#101828;box-shadow:0 22px 50px rgba(16,24,40,.3)}
-  body.marketing-page .phone-notch{width:50px;height:5px;margin:1px auto 6px;background:#344054}
-  body.marketing-page .phone-screen{position:relative;aspect-ratio:9/19.5;border-radius:19px;background:#eef2f8;overflow:hidden}
-  body.marketing-page .phone-shot{display:block;width:100%;height:100%;object-fit:cover;background:#eef2f8}
-  body.marketing-page .product-caption{position:absolute;left:20px;bottom:18px;display:flex;gap:18px;padding:9px 12px;border:1px solid #d9dfe8;border-radius:8px;background:rgba(255,255,255,.92);box-shadow:0 10px 26px rgba(16,24,40,.1);backdrop-filter:blur(10px)}
-  body.marketing-page .product-caption span{display:flex;align-items:center;gap:7px;color:#475467;font-size:10px;font-weight:750}
-  body.marketing-page .market-section{padding:112px 0}
-  body.marketing-page .section-head{max-width:720px;margin-bottom:56px}
-  body.marketing-page .section-head.center{margin-inline:auto;text-align:center;display:flex;flex-direction:column;align-items:center}
-  body.marketing-page .section-title{margin:10px 0 14px;font-size:46px;line-height:1.1;font-weight:760}
-  body.marketing-page .section-head .lead{font-size:17px;line-height:1.65;color:#667085;max-width:680px}
-  body.marketing-page .value-section{padding-top:152px;padding-bottom:104px;background:#fff}
-  body.marketing-page .value-statement{display:grid;grid-template-columns:1.1fr .9fr;gap:88px;align-items:end;padding-bottom:54px;border-bottom:1px solid var(--line)}
-  body.marketing-page .value-statement h2{margin:0;max-width:700px;font-size:50px;line-height:1.08;font-weight:760}
-  body.marketing-page .value-statement p{margin:0;color:#667085;font-size:17px;line-height:1.7}
-  body.marketing-page .record-flow{display:grid;grid-template-columns:repeat(3,1fr);margin-top:36px}
-  body.marketing-page .record-flow article{position:relative;padding:18px 34px 10px 0;border-right:1px solid var(--line)}
-  body.marketing-page .record-flow article+article{padding-left:34px}
-  body.marketing-page .record-flow article:last-child{border-right:0}
-  body.marketing-page .record-flow span{display:block;color:var(--blue);font-size:12px;font-weight:800;text-transform:uppercase}
-  body.marketing-page .record-flow strong{display:block;margin-top:5px;font-size:20px}
-  body.marketing-page .record-flow p{margin:5px 0 0;color:#667085;font-size:14px}
-  body.marketing-page .workflow-section{background:var(--soft);box-shadow:0 0 0 100vmax var(--soft);clip-path:inset(0 -100vmax)}
-  body.marketing-page .workflow-list{display:grid;gap:96px}
-  body.marketing-page .workflow{display:grid;grid-template-columns:1.08fr .92fr;gap:72px;align-items:center}
-  body.marketing-page .workflow.is-reverse{grid-template-columns:.92fr 1.08fr}
-  body.marketing-page .workflow.is-reverse .workflow-copy{order:-1}
-  body.marketing-page .workflow-copy .eyebrow{margin-bottom:12px}
-  body.marketing-page .workflow-copy h3{margin:0 0 14px;font-size:36px;line-height:1.14}
-  body.marketing-page .workflow-copy>p{margin:0;color:#667085;font-size:16px;line-height:1.7}
-  body.marketing-page .workflow-points{display:grid;gap:0;margin-top:24px;border-top:1px solid #d8dee8}
-  body.marketing-page .workflow-points span{display:flex;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid #d8dee8;color:#344054;font-size:14px;font-weight:700}
-  body.marketing-page .workflow-points span:before{content:"";width:7px;height:7px;border-radius:50%;background:var(--blue)}
-  body.marketing-page .shot-frame{overflow:hidden;border:1px solid #ccd4e1;border-radius:8px;background:#fff;box-shadow:0 18px 45px rgba(23,36,65,.11)}
-  body.marketing-page .shot-top{height:36px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;border-bottom:1px solid #e4e8ef;background:#fff;color:#667085;font-size:10px;font-weight:700}
-  body.marketing-page .shot-top b{color:#344054}
-  body.marketing-page .static-app-crop{position:relative;aspect-ratio:16/9.2;overflow:hidden;background:#eef2f8}
-  body.marketing-page .static-app-crop img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:top;background:#eef2f8}
-  body.marketing-page .role-section{background:#fff}
-  body.marketing-page .role-shell{border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
-  body.marketing-page .role-tabs{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid var(--line)}
-  body.marketing-page .role-tab{position:relative;border:0;border-right:1px solid var(--line);padding:18px 14px;background:#fff;color:#667085;font:inherit;font-size:14px;font-weight:750;cursor:pointer}
-  body.marketing-page .role-tab:last-child{border-right:0}
-  body.marketing-page .role-tab[aria-selected="true"]{color:var(--blue);background:#f8faff}
-  body.marketing-page .role-tab[aria-selected="true"]:after{content:"";position:absolute;left:24px;right:24px;bottom:-1px;height:2px;background:var(--blue)}
-  body.marketing-page .role-panel{display:grid;grid-template-columns:.82fr 1.18fr;gap:72px;align-items:center;padding:50px 0}
-  body.marketing-page .role-panel[hidden]{display:none}
-  body.marketing-page .role-copy h3{margin:0 0 12px;font-size:32px}
-  body.marketing-page .role-copy p{margin:0;color:#667085;line-height:1.7}
-  body.marketing-page .role-list{display:grid;gap:10px;margin-top:22px}
-  body.marketing-page .role-list span{display:flex;gap:9px;color:#344054;font-size:14px;font-weight:700}
-  body.marketing-page .role-list span:before{content:"✓";color:var(--green);font-weight:900}
-  body.marketing-page .role-visual{max-width:620px;justify-self:end;width:100%}
-  body.marketing-page .switch-section{padding-top:0}
-  body.marketing-page .switch-band{display:grid;grid-template-columns:.85fr 1.15fr;gap:76px;padding:62px;border-radius:8px;background:#111827;color:#fff}
-  body.marketing-page .switch-band .eyebrow{color:#a9bfff}
-  body.marketing-page .switch-band h2{margin:10px 0 14px;font-size:42px;line-height:1.1}
-  body.marketing-page .switch-band p{margin:0;color:#bdc6d5;line-height:1.7}
-  body.marketing-page .switch-steps{display:grid;gap:0}
-  body.marketing-page .switch-step{display:grid;grid-template-columns:38px 1fr;gap:14px;padding:14px 0;border-bottom:1px solid rgba(255,255,255,.13)}
-  body.marketing-page .switch-step:last-child{border-bottom:0}
-  body.marketing-page .switch-step span{width:30px;height:30px;border:1px solid rgba(255,255,255,.24);border-radius:50%;display:grid;place-items:center;color:#a9bfff;font-size:12px;font-weight:800}
-  body.marketing-page .switch-step strong{display:block;font-size:15px}
-  body.marketing-page .switch-step p{margin:3px 0 0;font-size:13px}
-  body.marketing-page .india-strip{display:grid;grid-template-columns:1.1fr repeat(3,1fr);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
-  body.marketing-page .india-strip>*{padding:24px;border-right:1px solid var(--line)}
-  body.marketing-page .india-strip>*:last-child{border-right:0}
-  body.marketing-page .india-strip h3{margin:0;font-size:22px}
-  body.marketing-page .india-strip strong{display:block;font-size:14px}
-  body.marketing-page .india-strip p{margin:4px 0 0;color:#667085;font-size:12px}
-  body.marketing-page #start{padding:104px 0;scroll-margin-top:72px;background:var(--soft);box-shadow:0 0 0 100vmax var(--soft);clip-path:inset(0 -100vmax)}
-  body.marketing-page #start .start-head{max-width:650px;margin:0 auto 34px}
-  body.marketing-page #start .start-head .section-title{font-size:44px}
-  body.marketing-page #start .path-grid{max-width:900px;margin:0 auto 26px;gap:8px}
-  body.marketing-page #start .path-card{min-height:108px;border-radius:8px;padding:16px;background:#fff;border-color:#d9dfe8;box-shadow:none;transition:border-color .18s ease,background .18s ease}
-  body.marketing-page #start .path-card:hover{transform:none;border-color:#9aabe0;background:#fbfcff;box-shadow:none}
-  body.marketing-page #start .path-card.is-on{transform:none;border-color:var(--blue);background:#f7f9ff;box-shadow:0 0 0 2px rgba(36,86,232,.12);animation:none}
-  body.marketing-page #start .path-card .icon{width:30px;height:30px;border-radius:7px;font-size:12px;transform:none;background:#edf2ff}
-  body.marketing-page #start .path-card b{font-size:15px}
-  body.marketing-page #start .path-card p{font-size:12px;font-weight:650}
-  body.marketing-page #start .path-pop,body.marketing-page #start .path-save{top:8px;right:10px;left:auto;border:0;border-radius:4px;padding:3px 6px;background:#edf2ff;color:#214bbf}
-  body.marketing-page #start .start-split{max-width:980px;margin:0 auto;grid-template-columns:.8fr 1.2fr;gap:16px}
-  body.marketing-page #start .price-card,body.marketing-page #start .form-shell{border-radius:8px;border-color:#d9dfe8;background:#fff;box-shadow:none}
-  body.marketing-page #start .price-card{padding:26px}
-  body.marketing-page #start .form-shell:before,body.marketing-page #start .form-shell:after{display:none}
-  body.marketing-page #start .form-content{padding:8px!important}
-  body.marketing-page #start .form-panel{border:0;border-radius:6px;padding:18px;box-shadow:none;background:#fff}
-  body.marketing-page #start input,body.marketing-page #start select,body.marketing-page #start textarea{border-radius:7px;box-shadow:none}
-  body.marketing-page #start .check-list span:before{border-radius:50%;background:#e8f7f1;color:var(--green)}
-  body.marketing-page #start .cal-day,body.marketing-page #start .cal-day button{border-radius:7px}
-  body.marketing-page .closeout{border-radius:8px;padding:72px 42px;background:#111827;box-shadow:none}
-  body.marketing-page .closeout .eyebrow{justify-content:center;color:#a9bfff}
-  body.marketing-page .closeout .section-title{max-width:760px;margin:12px auto 16px;font-size:46px}
-  body.marketing-page .closeout .lead{max-width:660px;color:#bdc6d5}
-  body.marketing-page .closeout-grid{display:none}
-  body.marketing-page .closeout .cta{margin-top:28px}
-  body.marketing-page .closeout .btn.light{background:transparent;color:#fff;border-color:#647086}
-  body.marketing-page footer{padding:44px 0 30px;background:#fff;border-top:1px solid var(--line)}
-  body.marketing-page .footer-grid{display:grid;grid-template-columns:1fr auto;gap:30px;align-items:start}
-  body.marketing-page .footer-brand p{max-width:420px;margin:10px 0 0;color:#667085;font-size:13px}
-  body.marketing-page .footer-links{display:flex;gap:24px;color:#475467;font-size:13px;font-weight:700}
-  body.marketing-page .footer-base{margin-top:34px;padding-top:20px;border-top:1px solid #eceff3;color:#98a2b3;font-size:12px}
-  body.marketing-page #product,body.marketing-page #solutions,body.marketing-page #roles,body.marketing-page #why,body.marketing-page #pricing{scroll-margin-top:72px}
-  @media(max-width:1024px){
-    body.marketing-page .hero h1{font-size:58px}
-    body.marketing-page .workflow,body.marketing-page .workflow.is-reverse{grid-template-columns:1fr 1fr;gap:44px}
-    body.marketing-page .value-statement{gap:48px}
-    body.marketing-page .switch-band{gap:48px;padding:48px}
-  }
-  @media(max-width:820px){
-    body.marketing-page .wrap{width:min(100% - 32px,720px)}
-    body.marketing-page .desktop-nav{display:none}
-    body.marketing-page .mobile-nav{display:block}
-    body.marketing-page .hero{padding-top:58px}
-    body.marketing-page .hero h1{font-size:50px}
-    body.marketing-page .hero .lead{font-size:17px}
-    body.marketing-page .module-row{grid-template-columns:repeat(3,1fr);padding:8px 0}
-    body.marketing-page .module-row span:nth-child(3){border-right:0}
-    body.marketing-page .module-row span:nth-child(-n+3){border-bottom:1px solid #e8ebf1}
-    body.marketing-page .hero-visual{margin-top:34px;margin-bottom:-34px}
-    body.marketing-page .device-stage{padding-right:34px}
-    body.marketing-page .phone-shell{width:130px}
-    body.marketing-page .market-section{padding:86px 0}
-    body.marketing-page .value-section{padding-top:120px}
-    body.marketing-page .value-statement,body.marketing-page .workflow,body.marketing-page .workflow.is-reverse,body.marketing-page .role-panel,body.marketing-page .switch-band{grid-template-columns:1fr;gap:34px}
-    body.marketing-page .workflow.is-reverse .workflow-copy{order:0}
-    body.marketing-page .value-statement h2{font-size:42px}
-    body.marketing-page .role-visual{justify-self:start}
-    body.marketing-page .switch-band{padding:42px 34px}
-    body.marketing-page .india-strip{grid-template-columns:1fr 1fr}
-    body.marketing-page .india-strip>*:nth-child(2){border-right:0}
-    body.marketing-page .india-strip>*:nth-child(-n+2){border-bottom:1px solid var(--line)}
-    body.marketing-page #start .start-split{grid-template-columns:1fr}
-  }
-  @media(max-width:560px){
-    body.marketing-page .wrap{width:calc(100% - 28px)}
-    body.marketing-page .nav .wrap{height:64px}
-    body.marketing-page .brand{font-size:19px}
-    body.marketing-page .hero{padding-top:44px}
-    body.marketing-page .hero h1{font-size:40px;line-height:1.06}
-    body.marketing-page .hero .lead{font-size:16px;line-height:1.55}
-    body.marketing-page .hero .cta{width:100%;display:grid;grid-template-columns:1fr}
-    body.marketing-page .hero .btn{width:100%}
-    body.marketing-page .module-rail{margin-top:40px}
-    body.marketing-page .module-row{grid-template-columns:repeat(2,1fr)}
-    body.marketing-page .module-row span{min-height:44px;font-size:11px;border-bottom:1px solid #e8ebf1}
-    body.marketing-page .module-row span:nth-child(2n){border-right:0}
-    body.marketing-page .module-row span:nth-last-child(-n+2){border-bottom:0}
-    body.marketing-page .hero-visual{margin:24px auto -22px}
-    body.marketing-page .device-stage{padding:0 18px 34px 0}
-    body.marketing-page .product-chrome{height:34px;grid-template-columns:1fr auto;font-size:9px}
-    body.marketing-page .product-chrome>span:nth-child(2){display:none}
-    body.marketing-page .phone-shell{width:86px;right:-2px;bottom:20px;padding:5px 4px 6px;border-radius:18px}
-    body.marketing-page .phone-screen{border-radius:12px}
-    body.marketing-page .phone-notch{width:30px;height:3px;margin-bottom:4px}
-    body.marketing-page .product-caption{left:8px;bottom:12px;gap:8px;padding:6px 7px}
-    body.marketing-page .product-caption span{font-size:6px;gap:4px}
-    body.marketing-page .product-caption i{width:5px;height:5px}
-    body.marketing-page .market-section{padding:72px 0}
-    body.marketing-page .section-head{margin-bottom:36px}
-    body.marketing-page .section-title,body.marketing-page #start .start-head .section-title,body.marketing-page .closeout .section-title{font-size:34px}
-    body.marketing-page .value-section{padding-top:98px}
-    body.marketing-page .value-statement{gap:20px;padding-bottom:34px}
-    body.marketing-page .value-statement h2{font-size:35px}
-    body.marketing-page .value-statement p{font-size:15px}
-    body.marketing-page .record-flow{grid-template-columns:1fr}
-    body.marketing-page .record-flow article,body.marketing-page .record-flow article+article{padding:16px 0;border-right:0;border-bottom:1px solid var(--line)}
-    body.marketing-page .record-flow article:last-child{border-bottom:0}
-    body.marketing-page .workflow-list{gap:64px}
-    body.marketing-page .workflow-copy h3{font-size:29px}
-    body.marketing-page .role-tabs{grid-template-columns:1fr 1fr}
-    body.marketing-page .role-tab:nth-child(2){border-right:0}
-    body.marketing-page .role-tab:nth-child(-n+2){border-bottom:1px solid var(--line)}
-    body.marketing-page .role-panel{padding:34px 0}
-    body.marketing-page .switch-band{padding:34px 24px}
-    body.marketing-page .switch-band h2{font-size:34px}
-    body.marketing-page .india-strip{grid-template-columns:1fr}
-    body.marketing-page .india-strip>*{border-right:0;border-bottom:1px solid var(--line)!important;padding:18px 0}
-    body.marketing-page .india-strip>*:last-child{border-bottom:0!important}
-    body.marketing-page #start{padding:76px 0}
-    body.marketing-page #start .path-grid{grid-template-columns:1fr;gap:8px}
-    body.marketing-page #start .path-card{min-height:88px}
-    body.marketing-page #start .two{grid-template-columns:1fr!important}
-    body.marketing-page #start .cal-grid{grid-template-columns:1fr 1fr}
-    body.marketing-page .closeout{padding:50px 20px}
-    body.marketing-page .footer-grid{grid-template-columns:1fr}
-    body.marketing-page .footer-links{flex-wrap:wrap;gap:14px 22px}
-  }
-  @media(prefers-reduced-motion:reduce){body.marketing-page .btn{transition:none}}
-</style>`;
 
 export async function marketingHtml(message = "") {
   const pricing = await getSitePricing();
@@ -639,6 +380,7 @@ export async function marketingHtml(message = "") {
   const title = "Anekio | School ERP for India-first schools";
   const description =
     "Anekio helps schools manage admissions, fees, attendance, exams, documents, parent communication, teachers, and daily operations in one connected school ERP.";
+  const ctx = { trial, sale, list, save, savePercent: pricing.savePercent || 0, period, message, esc: escapeHtml };
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
@@ -652,88 +394,7 @@ export async function marketingHtml(message = "") {
   return shell(
     title,
     description,
-    `<nav class="nav" aria-label="Primary navigation"><div class="wrap"><a class="brand" href="/"><span class="mark">A</span><strong>Anekio</strong></a><div class="nav-end desktop-nav"><div class="navlinks"><a href="#product">Product</a><a href="#solutions">Solutions</a><a href="#roles">For every role</a><a href="#pricing" data-intent="pay">Pricing</a></div><div class="nav-actions"><a class="btn light" href="#start" data-intent="demo">Book a demo</a><a class="btn primary" href="#start" data-intent="trial">Start free trial</a></div></div><details class="mobile-nav"><summary aria-label="Open navigation">☰</summary><div class="mobile-nav-menu"><a href="#product">Product</a><a href="#solutions">Solutions</a><a href="#roles">For every role</a><a href="#pricing" data-intent="pay">Pricing</a><a href="#start" data-intent="demo">Book a demo</a><a href="#start" data-intent="trial">Start free trial</a></div></details></div></nav>
-<main>
-  <section class="hero">
-    <div class="wrap">
-      <div class="hero-copy">
-        <div class="eyebrow">School ERP for growing Indian schools</div>
-        <h1>Run your entire school from one place.</h1>
-        <p class="lead">Admissions, fees, attendance, exams, documents, parent communication, and staff operations — connected in one school record.</p>
-        <div class="cta"><a class="btn primary" href="#start" data-intent="trial">Start ${trial}-day free trial</a><a class="btn light" href="#start" data-intent="demo">Book a demo</a></div>
-        <p class="trust-note">No credit card required · Setup support included</p>
-        ${message ? `<p style="margin:4px 0 0;padding:10px 14px;border:1px solid #b7e4d1;border-radius:8px;background:#f2fbf7;color:#06724d;font-size:13px;font-weight:700">${escapeHtml(message)}</p>` : ""}
-      </div>
-    </div>
-    <div class="module-rail" aria-label="Connected Anekio modules">
-      <div class="wrap module-row"><span><i></i>Admissions</span><span><i></i>Fees</span><span><i></i>Attendance</span><span><i></i>Exams</span><span><i></i>Parent app</span><span><i></i>Staff</span></div>
-    </div>
-    <div class="wrap hero-visual">${androidPhoneHtml("Anekio Android app connected to the same school record")}</div>
-  </section>
-
-  <section id="product" class="market-section value-section">
-    <div class="wrap">
-      <div class="value-statement">
-        <h2>One platform. One school record. Every team connected.</h2>
-        <p>Anekio keeps daily school work attached to the same people, classes, and records. The office gets control, teachers lose paperwork, and families get answers without chasing the school.</p>
-      </div>
-      <div class="record-flow" aria-label="How Anekio connects a school">
-        <article><span>01 · Capture once</span><strong>One student record</strong><p>Admission details become the working school file.</p></article>
-        <article><span>02 · Work together</span><strong>Every operation stays linked</strong><p>Fees, attendance, exams, documents, and messages.</p></article>
-        <article><span>03 · Share clearly</span><strong>Each role sees what it needs</strong><p>Office, teacher, parent, and student portals.</p></article>
-      </div>
-    </div>
-  </section>
-
-  <section id="solutions" class="market-section workflow-section">
-    <div class="wrap">
-      <div class="section-head center"><div class="eyebrow">Real school workflows</div><h2 class="section-title">Everything your school needs, connected.</h2><p class="lead">Anekio follows the work from the first enquiry to the parent’s phone, without sending teams back to separate registers and spreadsheets.</p></div>
-      <div class="workflow-list">
-        <article class="workflow">
-          <div class="shot-frame"><div class="shot-top"><b>Student records</b><span>Current office portal</span></div><div class="static-app-crop"><img src="/demo/current/student-records.png" alt="Current Anekio student record with family, fee, academic, and document details" loading="lazy"></div></div>
-          <div class="workflow-copy"><div class="eyebrow">Admissions and student records</div><h3>From enquiry to enrolled student, without retyping.</h3><p>Track admission leads, follow-ups, calls, test schedules, and remarks. When a student is admitted, their working file is ready for fees, attendance, reports, and documents.</p><div class="workflow-points"><span>Admission lead history and follow-ups</span><span>Student and family records</span><span>Documents, reports, and class details</span></div></div>
-        </article>
-        <article class="workflow is-reverse">
-          <div class="shot-frame"><div class="shot-top"><b>Fees and collections</b><span>Current office portal</span></div><div class="static-app-crop"><img src="/demo/current/fees-operations.png" alt="Current Anekio fees workspace with pending invoices and overdue collections" loading="lazy"></div></div>
-          <div class="workflow-copy"><div class="eyebrow">Fees and collections</div><h3>Fees that stay visible from bill to receipt.</h3><p>Issue invoices, collect cash or UPI, share payment links, send due reminders, and keep receipts attached to the student record. Parents see their own invoices and payment status.</p><div class="workflow-points"><span>Class fee structures and late rules</span><span>Invoices, receipts, dues, and reminders</span><span>School-owned payment gateway support</span></div></div>
-        </article>
-        <article class="workflow">
-          <div class="shot-frame"><div class="shot-top"><b>Teacher operations</b><span>Current teacher portal</span></div><div class="static-app-crop"><img src="/demo/current/teacher-dashboard.png" alt="Current Anekio teacher dashboard with attendance and weekly teaching load" loading="lazy"></div></div>
-          <div class="workflow-copy"><div class="eyebrow">Attendance, exams, and documents</div><h3>Daily class work moves forward without the paper chase.</h3><p>Teachers mark attendance and enter marks from their own workspace. The office schedules exams, reviews papers, publishes results, and issues report cards, admit cards, certificates, and other school documents.</p><div class="workflow-points"><span>Class and staff attendance</span><span>Exam series, papers, marks, and publishing</span><span>Template-based documents with verification</span></div></div>
-        </article>
-      </div>
-    </div>
-  </section>
-
-  <section id="roles" class="market-section role-section">
-    <div class="wrap">
-      <div class="section-head"><div class="eyebrow">One system, four experiences</div><h2 class="section-title">The right workspace for every person.</h2><p class="lead">Everyone works from the same school data, while permissions keep each portal focused on the job at hand.</p></div>
-      <div class="role-shell">
-        <div class="role-tabs" role="tablist" aria-label="Anekio portals">
-          <button class="role-tab" id="role-office" type="button" role="tab" aria-selected="true" aria-controls="panel-office" data-role-tab="office">Admin and office</button>
-          <button class="role-tab" id="role-teacher" type="button" role="tab" aria-selected="false" aria-controls="panel-teacher" data-role-tab="teacher">Teachers</button>
-          <button class="role-tab" id="role-parent" type="button" role="tab" aria-selected="false" aria-controls="panel-parent" data-role-tab="parent">Parents</button>
-          <button class="role-tab" id="role-student" type="button" role="tab" aria-selected="false" aria-controls="panel-student" data-role-tab="student">Students</button>
-        </div>
-        <div class="role-panel" id="panel-office" role="tabpanel" aria-labelledby="role-office" data-role-panel="office"><div class="role-copy"><h3>Control the whole school day.</h3><p>See live operations, collection health, attendance, staffing, parent requests, and work that needs attention.</p><div class="role-list"><span>Dashboard and student records</span><span>Admissions, fees, exams, and documents</span><span>Roles, access, notices, and settings</span></div></div><div class="role-visual shot-frame"><div class="shot-top"><b>Admin desk</b><span>Current web portal</span></div><div class="static-app-crop"><img src="/demo/current/office-dashboard.png" alt="Current Anekio admin dashboard" loading="lazy"></div></div></div>
-        <div class="role-panel" id="panel-teacher" role="tabpanel" aria-labelledby="role-teacher" data-role-panel="teacher" hidden><div class="role-copy"><h3>Keep class work in the teacher’s hand.</h3><p>Teachers see assigned classes and routines, mark attendance, prepare exams, enter marks, communicate, and apply for leave.</p><div class="role-list"><span>Class register and attendance</span><span>Timetable, papers, marks, and exams</span><span>Inbox, notices, and leave</span></div></div><div class="role-visual shot-frame"><div class="shot-top"><b>Teacher desk</b><span>Current web portal</span></div><div class="static-app-crop"><img src="/demo/current/teacher-dashboard.png" alt="Current Anekio teacher dashboard with class attendance and teaching load" loading="lazy"></div></div></div>
-        <div class="role-panel" id="panel-parent" role="tabpanel" aria-labelledby="role-parent" data-role-panel="parent" hidden><div class="role-copy"><h3>Give families visibility without another phone call.</h3><p>Parents see attendance, fees, exam results, papers, notices, and their child’s timetable. Questions stay in a numbered request thread.</p><div class="role-list"><span>Child overview and attendance</span><span>Invoices, receipts, exams, and papers</span><span>Parent-school inbox and notices</span></div></div><div class="role-visual shot-frame"><div class="shot-top"><b>Parent portal</b><span>Current web portal</span></div><div class="static-app-crop"><img src="/demo/current/parent-dashboard.png" alt="Current Anekio parent portal showing attendance, fees, timetable, and notices" loading="lazy"></div></div></div>
-        <div class="role-panel" id="panel-student" role="tabpanel" aria-labelledby="role-student" data-role-panel="student" hidden><div class="role-copy"><h3>Make the school day easy to follow.</h3><p>Students get a focused view of today’s schedule, attendance, subjects, exams, papers, fees, profile, and published school notices.</p><div class="role-list"><span>Today view and timetable</span><span>Courses, exams, and attendance</span><span>Papers, fees, path, and profile</span></div></div><div class="role-visual shot-frame"><div class="shot-top"><b>Student portal</b><span>Current web portal</span></div><div class="static-app-crop"><img src="/demo/current/student-dashboard.png" alt="Current Anekio student dashboard built from the same school record" loading="lazy"></div></div></div>
-      </div>
-    </div>
-  </section>
-
-  <section id="why" class="market-section switch-section wrap">
-    <div class="switch-band">
-      <div><div class="eyebrow">Why schools switch</div><h2>Less chasing. More control.</h2><p>Most school work becomes difficult when every desk keeps its own version. Anekio replaces that fragmentation with one traceable operating record.</p></div>
-      <div class="switch-steps"><div class="switch-step"><span>1</span><div><strong>Capture the work where it happens</strong><p>Admissions, class attendance, fee collection, and parent requests enter one system.</p></div></div><div class="switch-step"><span>2</span><div><strong>Keep every update attached</strong><p>People, classes, payments, exams, messages, and documents stay connected.</p></div></div><div class="switch-step"><span>3</span><div><strong>Give each team a clear next action</strong><p>Office, teachers, parents, and students see the right view of the same record.</p></div></div></div>
-    </div>
-  </section>
-
-  <section class="market-section wrap" aria-label="Built for Indian school operations">
-    <div class="india-strip"><div><h3>Built around Indian school operations.</h3></div><div><strong>Fees in INR</strong><p>Cash, UPI, receipts, payment links, dues, and late rules.</p></div><div><strong>School-owned channels</strong><p>Your payment gateway and messaging accounts stay under school control.</p></div><div><strong>Web and mobile</strong><p>One Expo product for office, teacher, parent, and student access.</p></div></div>
-  </section>
-
+    `${marketingTop(ctx)}
   <section id="start" class="sections wrap">
     <span id="pricing"></span><span id="trial"></span><span id="enquiry"></span>
     <div class="start-head">
@@ -864,19 +525,8 @@ export async function marketingHtml(message = "") {
       </div>
     </div>
   </section>
-  <section id="close" class="market-section wrap">
-    <div class="closeout">
-      <div class="eyebrow">Bring the school together</div>
-      <h2 class="section-title">Give every team one reliable place to work.</h2>
-      <p class="lead">Start with a ${trial}-day trial or see how Anekio fits your school in a focused 20-minute demo.</p>
-      <div class="cta">
-        <a class="btn primary" href="#start" data-intent="trial">Start ${trial}-day free trial</a>
-        <a class="btn light" href="#start" data-intent="demo">Book a demo</a>
-      </div>
-    </div>
-  </section>
-</main>
-<footer><div class="wrap"><div class="footer-grid"><div class="footer-brand"><a class="brand" href="/"><span class="mark">A</span><strong>Anekio</strong></a><p>School ERP for growing Indian schools. One platform, one school record, every team connected.</p></div><div class="footer-links"><a href="#product">Product</a><a href="#solutions">Solutions</a><a href="#roles">For every role</a><a href="#pricing" data-intent="pay">Pricing</a><a href="#start" data-intent="demo">Book a demo</a></div></div><div class="footer-base">© ${new Date().getFullYear()} Anekio. All rights reserved.</div></div></footer>
+${marketingBottom(ctx)}
+${marketingScript()}
 <script>
   (function () {
     var root = document.getElementById("start");
@@ -1139,46 +789,9 @@ export async function marketingHtml(message = "") {
       });
     }
   })();
-  (function () {
-    var tabs = document.querySelectorAll("[data-role-tab]");
-    var panels = document.querySelectorAll("[data-role-panel]");
-    tabs.forEach(function (tab) {
-      tab.addEventListener("click", function () {
-        var role = tab.getAttribute("data-role-tab");
-        tabs.forEach(function (item) {
-          item.setAttribute("aria-selected", item === tab ? "true" : "false");
-          item.setAttribute("tabindex", item === tab ? "0" : "-1");
-        });
-        panels.forEach(function (panel) {
-          if (panel.getAttribute("data-role-panel") === role) panel.removeAttribute("hidden");
-          else panel.setAttribute("hidden", "");
-        });
-      });
-      tab.addEventListener("keydown", function (event) {
-        var keys = ["ArrowLeft", "ArrowRight", "Home", "End"];
-        if (keys.indexOf(event.key) === -1) return;
-        event.preventDefault();
-        var items = Array.prototype.slice.call(tabs);
-        var index = items.indexOf(tab);
-        if (event.key === "Home") index = 0;
-        else if (event.key === "End") index = items.length - 1;
-        else index = (index + (event.key === "ArrowRight" ? 1 : -1) + items.length) % items.length;
-        items[index].focus();
-        items[index].click();
-      });
-    });
-    tabs.forEach(function (tab) {
-      tab.setAttribute("tabindex", tab.getAttribute("aria-selected") === "true" ? "0" : "-1");
-    });
-    document.querySelectorAll(".mobile-nav-menu a").forEach(function (link) {
-      link.addEventListener("click", function () {
-        var menu = link.closest("details");
-        if (menu) menu.removeAttribute("open");
-      });
-    });
   })();
 </script>`,
-    `${MARKETING_CSS}<script type="application/ld+json">${escapeHtml(JSON.stringify(jsonLd))}</script>`,
+    `${marketingHead()}${marketingCss()}<script type="application/ld+json">${escapeHtml(JSON.stringify(jsonLd))}</script>`,
     "marketing-page"
   );
 }
