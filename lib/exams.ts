@@ -224,6 +224,8 @@ export type ExamPlanItem = {
   weight: number;
   maxMarks: number;
   expectedPeriod?: string;
+  /** Classes this exam is for; empty = every class. */
+  classIds?: string[];
 };
 
 export const DEFAULT_EXAM_PLAN: ExamPlanItem[] = [
@@ -247,11 +249,23 @@ export function parseExamPlan(raw?: string | null, fallback = true): ExamPlanIte
         weight: Math.max(0, Math.round(Number(row?.weight) || 0)),
         maxMarks: Math.max(1, Math.round(Number(row?.maxMarks) || 80)),
         expectedPeriod: String(row?.expectedPeriod || "").trim(),
+        classIds: Array.isArray(row?.classIds) ? row.classIds.map(String).filter(Boolean) : [],
       }))
       .filter((row) => row.name);
   } catch {
     return fallback ? DEFAULT_EXAM_PLAN.map((row) => ({ ...row })) : [];
   }
+}
+
+/**
+ * The exams a year actually has. A year with no saved list starts empty (schools create their own
+ * exams); the built-in CBSE pattern only shows for old years whose exams were scheduled from it.
+ */
+export function effectiveExamPlan(raw: string | null | undefined, usedPlanIds: Iterable<string>) {
+  const saved = parseExamPlan(raw, false);
+  if (saved.length) return saved;
+  const used = new Set(usedPlanIds);
+  return DEFAULT_EXAM_PLAN.filter((row) => used.has(row.id)).map((row) => ({ ...row, classIds: [] as string[] }));
 }
 
 export function examPlanWeight(items: ExamPlanItem[]) {

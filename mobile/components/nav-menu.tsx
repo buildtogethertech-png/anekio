@@ -81,7 +81,20 @@ export function AccountActions() {
   );
 }
 
-export function NavMenu({ onNavigate }: { onNavigate?: () => void }) {
+// Office items opened once in a while: kept in a quieter "Admin" group at the bottom.
+const ADMIN_KEYS = new Set(["school", "subscription", "roles"]);
+
+export function NavMenu({
+  onNavigate,
+  collapsed = false,
+  badges = {},
+  showAccount = true,
+}: {
+  onNavigate?: () => void;
+  collapsed?: boolean;
+  badges?: Record<string, number>;
+  showAccount?: boolean;
+}) {
   const { user, nav, signOut } = useSession();
   const pathname = usePathname();
   const router = useRouter();
@@ -97,6 +110,9 @@ export function NavMenu({ onNavigate }: { onNavigate?: () => void }) {
       if (!order) return 0;
       return (order.get(a.key) ?? Number.MAX_SAFE_INTEGER) - (order.get(b.key) ?? Number.MAX_SAFE_INTEGER);
     });
+  const grouped = user?.portal === "OFFICE";
+  const main = grouped ? items.filter((item) => !ADMIN_KEYS.has(item.key)) : items;
+  const admin = grouped ? items.filter((item) => ADMIN_KEYS.has(item.key)) : [];
 
   function active(key: string) {
     const href = pathForNav(key);
@@ -109,50 +125,79 @@ export function NavMenu({ onNavigate }: { onNavigate?: () => void }) {
     router.push(pathForNav(key) as never);
   }
 
+  function row(item: (typeof items)[number], quiet = false) {
+    const on = active(item.key);
+    const label = navLabel(user?.portal, item);
+    const count = badges[item.key] || 0;
+    return (
+      <Pressable
+        key={item.key}
+        accessibilityRole="link"
+        accessibilityLabel={count ? `${label}, ${count} waiting` : label}
+        onPress={() => go(item.key)}
+        className={`anekio-nav-item mb-0.5 flex-row items-center rounded-lg border ${quiet ? "min-h-[38px]" : "min-h-[42px]"} ${
+          collapsed ? "justify-center px-0" : "gap-3 px-3"
+        } ${on ? "border-clay-200 bg-clay-50" : "border-transparent"}`}
+      >
+        <View className="w-6 items-center">
+          <Ionicons name={iconForNav(item.key)} size={quiet ? 17 : 19} color={on ? "#2563eb" : quiet ? "#64748B" : "#1e3a5f"} />
+          {collapsed && count ? <View className="absolute -right-1.5 -top-1 h-2.5 w-2.5 rounded-full border-2 border-white bg-red-500" /> : null}
+        </View>
+        {collapsed ? null : (
+          <>
+            <Text
+              className={`min-w-0 flex-1 ${quiet ? "text-[13px]" : "text-[14px]"} ${
+                on ? "font-semibold text-clay-700" : quiet ? "font-medium text-ink-700" : "font-medium text-ink-900"
+              }`}
+              numberOfLines={1}
+            >
+              {label}
+            </Text>
+            {count ? (
+              <View className={`min-w-[20px] items-center rounded-full px-1.5 py-0.5 ${on ? "bg-clay-500" : "bg-red-50"}`}>
+                <Text className={`text-[11px] font-semibold ${on ? "text-white" : "text-red-700"}`}>{count > 99 ? "99+" : count}</Text>
+              </View>
+            ) : null}
+          </>
+        )}
+      </Pressable>
+    );
+  }
+
   return (
     <View className="flex-1">
-      <ScrollView className="flex-1 px-3" contentContainerStyle={{ paddingBottom: 24 }}>
-        {items.map((item) => {
-          const on = active(item.key);
-          return (
-            <Pressable
-              key={item.key}
-              onPress={() => go(item.key)}
-              className={`anekio-nav-item mb-0.5 min-h-[42px] flex-row items-center gap-3 rounded-lg border px-3 ${
-                on ? "border-clay-200 bg-clay-50" : "border-transparent"
-              }`}
-            >
-              <View className="w-6 items-center">
-                <Ionicons name={iconForNav(item.key)} size={19} color={on ? "#2563eb" : "#1e3a5f"} />
-              </View>
-              <Text className={`min-w-0 flex-1 text-[14px] ${on ? "font-semibold text-clay-700" : "font-medium text-ink-900"}`}>
-                {navLabel(user?.portal, item)}
-              </Text>
-            </Pressable>
-          );
-        })}
+      <ScrollView className={`flex-1 ${collapsed ? "px-2" : "px-3"}`} contentContainerStyle={{ paddingBottom: 24 }}>
+        {main.map((item) => row(item))}
+        {admin.length ? (
+          <View className="mt-4 border-t border-ink-100 pt-3">
+            {collapsed ? null : <Text className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Admin</Text>}
+            {admin.map((item) => row(item, true))}
+          </View>
+        ) : null}
       </ScrollView>
-      <View className="border-t border-ink-200 bg-white px-4 pb-5 pt-4">
-        <Pressable
-          onPress={() => {
-            onNavigate?.();
-            router.push("/profile" as never);
-          }}
-          className="min-h-[44px] justify-center rounded-xl px-2 py-1"
-        >
-          <Text className="text-sm font-semibold text-ink-900">{user?.name}</Text>
-          <Text className="text-[11px] text-ink-500">{user?.portal === "PARENT" ? "Parent" : user?.roleName}</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => {
-            onNavigate?.();
-            signOut();
-          }}
-          className="mt-1 min-h-[36px] justify-center px-2"
-        >
-          <Text className="text-sm font-medium text-ink-500">Sign out</Text>
-        </Pressable>
-      </View>
+      {showAccount ? (
+        <View className="border-t border-ink-200 bg-white px-4 pb-5 pt-4">
+          <Pressable
+            onPress={() => {
+              onNavigate?.();
+              router.push("/profile" as never);
+            }}
+            className="min-h-[44px] justify-center rounded-xl px-2 py-1"
+          >
+            <Text className="text-sm font-semibold text-ink-900">{user?.name}</Text>
+            <Text className="text-[11px] text-ink-500">{user?.portal === "PARENT" ? "Parent" : user?.roleName}</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              onNavigate?.();
+              signOut();
+            }}
+            className="mt-1 min-h-[36px] justify-center px-2"
+          >
+            <Text className="text-sm font-medium text-ink-500">Sign out</Text>
+          </Pressable>
+        </View>
+      ) : null}
     </View>
   );
 }

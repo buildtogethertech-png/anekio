@@ -1,3 +1,4 @@
+import { examTimes } from "./exam-time";
 import bcrypt from "bcryptjs";
 import { randomUUID } from "node:crypto";
 import { FeeLineKind, InvoiceStatus, PaperType, PathTag } from "@prisma/client";
@@ -46,8 +47,7 @@ import {
   teacherCanEditMarks,
   teacherMayEnterMarks,
   teacherMayTakeExam,
-  teacherCanTakeExam,
-} from "./exam-workflow";
+  teacherCanTakeExam, teacherMarksBlock } from "./exam-workflow";
 import {
   loadExamNoticeCtx,
   notifyExamConducted,
@@ -56,9 +56,13 @@ import {
   notifyMarksGranted,
   notifyMarksReminder,
   notifyMarksSubmitted,
+  notifyPaperHandedOver,
+  notifyPaperReceived,
+  notifyPaperReturned,
   notifyPaperSubmitted,
   notifyResultsPublished,
   notifySeriesAssigned,
+  notifyExamReassigned,
 } from "./exam-events";
 import { eligibleTeacherIdsForExam, ensureExamEvaluator, teacherIdsBySubjectName } from "./exam-evaluators";
 import { isQuestionPaperFile } from "./uploads";
@@ -129,6 +133,14 @@ function examDateFields(paper: {
   teacherId?: string | null;
   setterId?: string | null;
 }) {
+  // Order is fixed: question paper ready → exam day → copies checked.
+  const examDay = String(paper.date || "").slice(0, 10);
+  if (paper.paperDueOn && examDay && paper.paperDueOn.slice(0, 10) > examDay) {
+    throw new Error("Paper ready date must be before the exam date.");
+  }
+  if (paper.copiesDueOn && examDay && paper.copiesDueOn.slice(0, 10) < examDay) {
+    throw new Error("Checking due date must be after the exam date.");
+  }
   const teacherId = paper.teacherId || null;
   return {
     date: new Date(paper.date),
@@ -823,6 +835,30 @@ export async function copyExamSeriesCore(user: AccessUser, input: { seriesId: st
   return { copied };
 }
 
+/** Hand one paper to another teacher. Only while no marks are in. */
+export async function reassignExamTeacherCore(user: AccessUser, input: { examId?: string; teacherId?: string }) {
+  const examId = String(input.examId || "");
+  const teacherId = String(input.teacherId || "");
+  if (!examId || !teacherId) throw new Error("Pick a teacher");
+  const exam = await prisma.exam.findUnique({ where: { id: examId } });
+  if (!exam) throw new Error("Exam not found");
+  await needExamClass(user, exam.classId, "run");
+  if (exam.teacherId === teacherId) return;
+  const teacher = await prisma.teacher.findUnique({ where: { id: teacherId } });
+  if (!teacher) throw new Error("Teacher not found");
+  const marked = await prisma.examResult.count({ where: { examId } });
+  if (marked) throw new Error("Marks are already in for this paper, so the teacher can't be changed.");
+  const previous = exam.teacherId;
+  await prisma.exam.update({
+    where: { id: examId },
+    data: { teacherId, ...(exam.setterId === previous && !exam.paperAt ? { setterId: teacherId } : {}) },
+  });
+  if (previous) await prisma.examEvaluator.deleteMany({ where: { examId, teacherId: previous } });
+  await ensureExamEvaluator(examId, teacherId);
+  const ctx = await loadExamNoticeCtx(examId);
+  if (ctx) await notifyExamReassigned(ctx, user.id);
+}
+
 export async function updateExamSeriesPapersCore(
   user: AccessUser,
   input: {
@@ -836,6 +872,8 @@ export async function updateExamSeriesPapersCore(
       paperDueOn?: string;
       copiesDueOn?: string;
       resultOn?: string;
+      startTime?: string;
+      endTime?: string;
     }[];
   }
 ) {
@@ -859,6 +897,7 @@ export async function updateExamSeriesPapersCore(
         paperDueOn: String(row.paperDueOn || "").slice(0, 10),
         copiesDueOn: String(row.copiesDueOn || "").slice(0, 10),
         resultOn: String(row.resultOn || "").slice(0, 10),
+        ...examTimes(row.startTime, row.endTime),
       };
     })
     .filter((row) => row.subjectId && row.maxMarks && row.date);
@@ -878,6 +917,8 @@ export async function updateExamSeriesPapersCore(
       date: examDate,
       paperDueOn: addDays(examDate, -7),
       copiesDueOn: addDays(examDate, 7),
+      startTime: papers[0]?.startTime || "",
+      endTime: papers[0]?.endTime || "",
       resultOn: addDays(examDate, 14),
     });
   }
@@ -910,7 +951,7 @@ export async function updateExamSeriesPapersCore(
     if (existing) {
       await prisma.exam.update({
         where: { id: existing.id },
-        data: { title: `${series.name} · ${subject.name}`, maxMarks: paper.maxMarks, ...stamp },
+        data: { title: `${series.name} · ${subject.name}`, maxMarks: paper.maxMarks, startTime: paper.startTime, endTime: paper.endTime, ...stamp },
       });
     } else {
       await prisma.exam.create({
@@ -920,6 +961,8 @@ export async function updateExamSeriesPapersCore(
           subjectId: subject.id,
           classId: series.classId,
           maxMarks: paper.maxMarks,
+          startTime: paper.startTime,
+          endTime: paper.endTime,
           ...stamp,
         },
       });
@@ -1084,9 +1127,8 @@ export async function saveExamMarksCore(
   await needExamClass(user, exam.classId, "mark");
   if (user.portal === "TEACHER") {
     const teacher = await prisma.teacher.findUnique({ where: { userId: user.id } });
-    if (!teacherMayEnterMarks(exam, teacher?.id)) {
-      throw new Error("Office must allow marks entry on this paper first.");
-    }
+    const blocked = teacherMarksBlock(exam, teacher?.id);
+    if (blocked) throw new Error(blocked);
   } else if (exam.workflowStatus === "PUBLISHED") {
     throw new Error("Published results cannot be edited. Unpublish first if the school must change them.");
   } else {
@@ -1145,9 +1187,8 @@ export async function submitExamMarksCore(
   await needExamClass(user, exam.classId, "mark");
   if (user.portal === "TEACHER") {
     const teacher = await prisma.teacher.findUnique({ where: { userId: user.id } });
-    if (!teacherMayEnterMarks(exam, teacher?.id)) {
-      throw new Error("Office must allow marks entry on this paper first.");
-    }
+    const blocked = teacherMarksBlock(exam, teacher?.id);
+    if (blocked) throw new Error(blocked);
   } else {
     need(user, "exams.edit", "marks.enter");
     if (!teacherCanEditMarks(exam.workflowStatus)) {
@@ -1378,9 +1419,16 @@ export async function publishExamResultsCore(
   if (examId) {
     const exam = await prisma.exam.findUnique({ where: { id: examId }, include: { evaluators: true } });
     if (!exam) throw new Error("Exam not found");
+    if (exam.seriesId && exam.workflowStatus !== "PUBLISHED") {
+      // Parents see a sitting as soon as any paper is published, so papers of one exam go out together.
+      const papers = await prisma.exam.count({ where: { seriesId: exam.seriesId } });
+      if (papers > 1) {
+        throw new Error("Papers of this exam are published together. Publish the whole exam once every paper has marks.");
+      }
+    }
     if (exam.workflowStatus !== "PUBLISHED") {
       if (!adminCanPublish(exam.workflowStatus)) {
-        throw new Error("Approve the mark sheet before publishing results.");
+        throw new Error("The teacher hasn't sent marks for this paper yet.");
       }
       assertExamTransition(exam.workflowStatus, "PUBLISHED");
       await prisma.exam.update({
@@ -1401,20 +1449,20 @@ export async function publishExamResultsCore(
   if (!series) throw new Error("Series not found");
   await needExamClass(user, series.classId, "run");
   const notReady = series.exams.filter(
-    (exam) => exam.workflowStatus !== "APPROVED" && exam.workflowStatus !== "PUBLISHED"
+    (exam) => exam.workflowStatus !== "PUBLISHED" && !adminCanPublish(exam.workflowStatus)
   );
   if (notReady.length) {
     throw new Error(
-      `Results cannot be published yet. ${notReady.map((exam) => exam.title).join(", ")} ${notReady.length === 1 ? "is" : "are"} still awaiting review.`
+      `Results cannot be published yet. ${notReady.map((exam) => exam.title).join(", ")} ${notReady.length === 1 ? "is" : "are"} still waiting for marks.`
     );
   }
   const now = new Date();
   await prisma.exam.updateMany({
-    where: { seriesId, workflowStatus: "APPROVED" },
+    where: { seriesId, workflowStatus: { in: ["APPROVED", "SUBMITTED", "RESUBMITTED", "UNDER_REVIEW"] } },
     data: { workflowStatus: "PUBLISHED", resultsPublishedAt: now },
   });
   await persistResultsUnpaidHold(user, input.holdIfUnpaidMonths);
-  if (sendToParents) await notifyResultsPublished({ seriesId, authorId: user.id, sendToParents: true });
+  await notifyResultsPublished({ seriesId, authorId: user.id, sendToParents });
   return { published: series.exams.length };
 }
 
@@ -1439,9 +1487,8 @@ export async function importExamMarksCore(user: AccessUser, input: { examId?: st
   await needExamClass(user, exam.classId, "mark");
   if (user.portal === "TEACHER") {
     const teacher = await prisma.teacher.findUnique({ where: { userId: user.id } });
-    if (!teacherMayEnterMarks(exam, teacher?.id)) {
-      throw new Error("Office must allow marks entry on this paper first.");
-    }
+    const blocked = teacherMarksBlock(exam, teacher?.id);
+    if (blocked) throw new Error(blocked);
   } else if (exam.workflowStatus === "PUBLISHED") {
     throw new Error("Published results cannot be edited.");
   }
@@ -1499,14 +1546,89 @@ export async function completeExamWorkCore(
     if (kind === "copies" && !grantedEvaluatorIds(exam).includes(teacher.id)) throw new Error("Only a teacher allowed to enter marks can mark copies done");
   }
   const on = input.done !== false && input.done !== "0" && input.done !== 0;
+  if (kind === "paper") {
+    if (user.portal === "TEACHER") {
+      if (on) await handOverExamPaperCore(user, { examId });
+      else await undoExamPaperHandoverCore(user, { examId });
+    } else if (on) {
+      await receiveExamPaperCore(user, { examId });
+    } else {
+      need(user, "exams.edit");
+      await prisma.exam.update({ where: { id: examId }, data: { paperAt: null, paperReceivedById: null } });
+    }
+    return;
+  }
   await prisma.exam.update({
     where: { id: examId },
-    data: kind === "paper" ? { paperAt: on ? new Date() : null } : { copiesDoneAt: on ? new Date() : null },
+    data: { copiesDoneAt: on ? new Date() : null },
   });
-  if (kind === "paper" && on) {
-    const ctx = await loadExamNoticeCtx(examId);
-    if (ctx) await notifyPaperSubmitted(ctx, user.id);
+}
+
+/* ----------------------------------------------------------------------------------------------
+ * Question paper handover. Teacher hands over → office confirms (Received) or sends it back.
+ * Nothing counts as "paper ready" until the office has confirmed it.
+ * -------------------------------------------------------------------------------------------- */
+
+async function setterExam(user: AccessUser, examId: string) {
+  if (!examId) throw new Error("Pick a paper");
+  const exam = await prisma.exam.findUnique({ where: { id: examId }, include: { evaluators: true } });
+  if (!exam) throw new Error("Exam not found");
+  await needExamClass(user, exam.classId, "mark");
+  if (user.portal === "TEACHER") {
+    const teacher = await prisma.teacher.findUnique({ where: { userId: user.id } });
+    if (!teacher || paperSetterId(exam) !== teacher.id) throw new Error("Only the teacher setting this paper can hand it over.");
   }
+  return exam;
+}
+
+export async function handOverExamPaperCore(user: AccessUser, input: { examId?: string; note?: string }) {
+  const exam = await setterExam(user, String(input.examId || ""));
+  if (exam.paperAt) throw new Error("The office has already received this paper.");
+  const note = String(input.note || "").replace(/\s+/g, " ").trim().slice(0, 300);
+  await prisma.exam.update({
+    where: { id: exam.id },
+    data: { paperHandedAt: new Date(), paperHandedById: user.id, paperHandNote: note, paperReturnNote: "" },
+  });
+  const ctx = await loadExamNoticeCtx(exam.id);
+  if (ctx) await notifyPaperHandedOver(ctx, user.id, note);
+}
+
+export async function undoExamPaperHandoverCore(user: AccessUser, input: { examId?: string }) {
+  const exam = await setterExam(user, String(input.examId || ""));
+  if (exam.paperAt) throw new Error("The office has already received this paper.");
+  await prisma.exam.update({
+    where: { id: exam.id },
+    data: { paperHandedAt: null, paperHandedById: null, paperHandNote: "" },
+  });
+}
+
+export async function receiveExamPaperCore(user: AccessUser, input: { examId?: string }) {
+  need(user, "exams.edit");
+  const examId = String(input.examId || "");
+  const exam = await prisma.exam.findUnique({ where: { id: examId } });
+  if (!exam) throw new Error("Exam not found");
+  if (exam.paperAt) return;
+  await prisma.exam.update({
+    where: { id: examId },
+    data: { paperAt: new Date(), paperReceivedById: user.id, paperReturnNote: "" },
+  });
+  const ctx = await loadExamNoticeCtx(examId);
+  if (ctx) await notifyPaperReceived(ctx, user.id);
+}
+
+export async function returnExamPaperCore(user: AccessUser, input: { examId?: string; reason?: string }) {
+  need(user, "exams.edit");
+  const examId = String(input.examId || "");
+  const reason = String(input.reason || "").replace(/\s+/g, " ").trim().slice(0, 300);
+  if (reason.length < 3) throw new Error("Say what needs fixing, so the teacher knows.");
+  const exam = await prisma.exam.findUnique({ where: { id: examId } });
+  if (!exam) throw new Error("Exam not found");
+  await prisma.exam.update({
+    where: { id: examId },
+    data: { paperAt: null, paperReceivedById: null, paperHandedAt: null, paperHandedById: null, paperReturnNote: reason },
+  });
+  const ctx = await loadExamNoticeCtx(examId);
+  if (ctx) await notifyPaperReturned(ctx, user.id, reason);
 }
 
 export async function uploadPaperCore(
@@ -1549,9 +1671,13 @@ export async function uploadQuestionPaperCore(
     const setterId = exam.setterId || exam.teacherId;
     if (!teacher || teacher.id !== setterId) throw new Error("Only the question teacher can set this paper");
   }
+  if (user.portal === "TEACHER") {
+    await prisma.exam.update({ where: { id: examId }, data: { paperFileName: input.fileName, paperFilePath: input.filePath } });
+    return;
+  }
   await prisma.exam.update({
     where: { id: examId },
-    data: { paperFileName: input.fileName, paperFilePath: input.filePath, paperAt: new Date() },
+    data: { paperFileName: input.fileName, paperFilePath: input.filePath, paperAt: new Date(), paperReceivedById: user.id },
   });
   const ctx = await loadExamNoticeCtx(examId);
   if (ctx) await notifyPaperSubmitted(ctx, user.id);

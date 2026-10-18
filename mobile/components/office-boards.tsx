@@ -7,11 +7,12 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { GeneratePayment } from "./generate-payment";
 import { Dropdown } from "./form";
 import { Badge, Button, Card, Chip, Empty, Field, Input, Modal, PageHeader, Segmented, Sheet, Stat, Switch, Toast, useToast } from "./ui";
+import { Select } from "./form/select";
 import { DateField, MonthField } from "./date-field";
 import { FilterBar, type FilterConfig, type FilterValues } from "./filter";
 import { StaffAdmitForm, type StaffAdmitFiles, type StaffAdmitPayload } from "./staff-admit-form";
 import { StaffAttendanceDetail } from "./staff-attendance-detail";
-import { StudentAdmitForm, type StudentAdmitFiles, type StudentAdmitInitial, type StudentAdmitPayload } from "./student-admit-form";
+import { SectionCard, StudentAdmitForm, type StudentAdmitFiles, type StudentAdmitInitial, type StudentAdmitPayload } from "./student-admit-form";
 import { useAssetUrl } from "../lib/assets";
 import { ReportCardSheet, type ReportCardData } from "./report-card-sheet";
 import { studentSeriesScore, studentYearScore } from "../lib/exams";
@@ -357,7 +358,7 @@ function UnderlineTabs({
 
 type PeopleKind = "student" | "teacher" | "parent";
 type StudentTab = "overview" | "fees" | "attendance" | "reports" | "documents";
-type StudentSort = "name" | "class" | "due";
+type StudentSort = "name" | "roll" | "class" | "due";
 
 function studentTabFromParam(value: string | string[] | undefined): StudentTab {
   const tab = Array.isArray(value) ? value[0] : value;
@@ -1325,6 +1326,15 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
     if (studentSort === "due") {
       return (b.dueAmount || 0) - (a.dueAmount || 0) || a.name.localeCompare(b.name);
     }
+    if (studentSort === "roll") {
+      // Class first (so several classes don't interleave), then roll; students without a roll go last.
+      const roll = (value: unknown) => (Number(value) > 0 ? Number(value) : 99999);
+      return (
+        a.classLabel.localeCompare(b.classLabel, undefined, { numeric: true }) ||
+        roll(a.rollNumber) - roll(b.rollNumber) ||
+        a.name.localeCompare(b.name)
+      );
+    }
     return a.name.localeCompare(b.name);
   });
   const filteredTeachers = teachersAll.filter((t) => {
@@ -1359,16 +1369,24 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
     setPicked({ kind: "student", id: studentId });
     setFileTab(tab);
     if (studentOnly) return;
-    router.replace({ pathname: "/people", params: { student: studentId, tab } } as never);
+    router.setParams({ student: studentId, tab } as never);
   }
 
   function selectStudentTab(tab: StudentTab) {
+    if (tab !== fileTab) setFileEdit(false);
     setFileTab(tab);
-    if (selected && !studentOnly) router.replace({ pathname: "/people", params: { student: selected.id, tab } } as never);
+    // setParams keeps this screen mounted; router.replace re-mounted it and dropped local state (e.g. Edit mode).
+    if (selected && !studentOnly) router.setParams({ student: selected.id, tab } as never);
   }
 
+  const appliedIncoming = useRef("");
   useEffect(() => {
     if (!incoming || !people.length) return;
+    // Apply a deep link once. Our own clicks also update the URL (setParams) — those already picked the
+    // student, so don't re-apply the link's filters then, or on every data reload.
+    if (appliedIncoming.current === incoming) return;
+    appliedIncoming.current = incoming;
+    if (picked?.kind === "student" && picked.id === incoming) return;
     const requested = people.find((student) => student.id === incoming);
     const fallback = requested || people[0];
     setFeeFilter("due");
@@ -1380,7 +1398,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   }, [incoming, incomingTab, people, router]);
   useEffect(() => {
     setFileEdit(false);
-  }, [picked?.id, fileTab]);
+  }, [picked?.id]);
   useEffect(() => {
     setManageFeeOpen(false);
   }, [picked?.id]);
@@ -1486,14 +1504,14 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       )}
       {showStudents ? (
         <View className="flex-row flex-wrap items-center gap-1.5">
-          {(["name", "class", "due"] as StudentSort[]).map((id) => (
+          {(["name", "roll", "class", "due"] as StudentSort[]).map((id) => (
             <Pressable
               key={id}
               onPress={() => setStudentSort(id)}
               className={`rounded-full px-2.5 py-1 ${studentSort === id ? "bg-ink-900" : "bg-ink-50"}`}
             >
               <Text className={`text-xs font-medium ${studentSort === id ? "text-white" : "text-ink-700"}`}>
-                {id === "name" ? "Name" : id === "class" ? "Class" : "Due"}
+                {id === "name" ? "Name" : id === "roll" ? "Roll no." : id === "class" ? "Class" : "Due"}
               </Text>
             </Pressable>
           ))}
@@ -1773,44 +1791,59 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
         </View>
       </>
     );
-    const fileBody = fileEdit ? (
-      <View className="mt-3 gap-3">
-        <Field label="Name">
-          <Input value={edit.name ?? selected.name} onChangeText={(v) => setEdit((p) => ({ ...p, name: v }))} />
-        </Field>
-        <Field label="Admission no.">
-          <Input value={edit.admissionNo ?? selected.admissionNo} onChangeText={(v) => setEdit((p) => ({ ...p, admissionNo: v }))} />
-        </Field>
-        <Field label="Date of birth">
-          <DateField
-            value={edit.dateOfBirth ?? selected.dateOfBirth ?? ""}
-            onChange={(v) => setEdit((p) => ({ ...p, dateOfBirth: v }))}
-          />
-        </Field>
-        <Field label="Class">
-          <View className="flex-row flex-wrap gap-1.5">
-            {(data?.classes ?? []).map((c) => (
-              <Chip
-                key={c.id}
-                label={c.label}
-                active={(edit.classId || selected.classId) === c.id}
-                onPress={() => setEdit((p) => ({ ...p, classId: c.id }))}
+    // Edit opens as a popup like Add student, so the whole form scrolls on its own.
+    // Same look as Add student: numbered section cards, two fields per row on wide screens.
+    const half = "w-full sm:w-[48.5%]";
+    const editForm = (
+      <View className="gap-4">
+        <SectionCard step={1} title="Student details" subtitle="Name, date of birth and class.">
+          <Field label="Student name *">
+            <Input value={edit.name ?? selected.name} onChangeText={(v) => setEdit((p) => ({ ...p, name: v }))} placeholder="Full name as on birth certificate" />
+          </Field>
+          <View className="flex-row flex-wrap justify-between gap-y-3">
+            <View className={half}>
+              <Field label="Date of birth *">
+                <DateField value={edit.dateOfBirth ?? selected.dateOfBirth ?? ""} onChange={(v) => setEdit((p) => ({ ...p, dateOfBirth: v }))} />
+              </Field>
+            </View>
+            <View className={half}>
+              <Select
+                label="Class *"
+                value={edit.classId || selected.classId || ""}
+                options={(data?.classes ?? []).map((c) => ({ id: c.id, label: c.label }))}
+                onChange={(classId) => setEdit((p) => ({ ...p, classId }))}
               />
-            ))}
+            </View>
+            <View className={half}>
+              <Field label="Admission no.">
+                <Input value={edit.admissionNo ?? selected.admissionNo} onChangeText={(v) => setEdit((p) => ({ ...p, admissionNo: v }))} />
+              </Field>
+            </View>
           </View>
-        </Field>
-        <Field label="Parent">
-          <Input value={edit.parentName ?? selected.parent} onChangeText={(v) => setEdit((p) => ({ ...p, parentName: v }))} />
-        </Field>
-        <Field label={selected.parentId ? "Phone" : "Phone · adds a parent login"}>
-          <Input keyboardType="phone-pad" value={edit.parentPhone ?? selected.parentPhone ?? ""} onChangeText={(v) => setEdit((p) => ({ ...p, parentPhone: v }))} />
-        </Field>
-        <Field label="Email">
-          <Input autoCapitalize="none" value={edit.parentEmail ?? selected.parentEmail ?? ""} onChangeText={(v) => setEdit((p) => ({ ...p, parentEmail: v }))} />
-        </Field>
-        <Field label="Address">
-          <Input value={edit.address ?? selected.parentStreet ?? selected.parentAddress ?? ""} onChangeText={(v) => setEdit((p) => ({ ...p, address: v }))} />
-        </Field>
+        </SectionCard>
+
+        <SectionCard step={2} title="Parent" subtitle={selected.parentId ? "Linked parent login." : "Add a mobile to create the parent login."}>
+          <Field label="Parent name">
+            <Input value={edit.parentName ?? selected.parent} onChangeText={(v) => setEdit((p) => ({ ...p, parentName: v }))} placeholder="Parent or guardian" />
+          </Field>
+          <View className="flex-row flex-wrap justify-between gap-y-3">
+            <View className={half}>
+              <Field label="Parent mobile">
+                <Input keyboardType="phone-pad" value={edit.parentPhone ?? selected.parentPhone ?? ""} onChangeText={(v) => setEdit((p) => ({ ...p, parentPhone: v }))} placeholder="10-digit number" />
+              </Field>
+            </View>
+            <View className={half}>
+              <Field label="Parent email">
+                <Input autoCapitalize="none" value={edit.parentEmail ?? selected.parentEmail ?? ""} onChangeText={(v) => setEdit((p) => ({ ...p, parentEmail: v }))} placeholder="Optional" />
+              </Field>
+            </View>
+          </View>
+          <Field label="Address">
+            <Input value={edit.address ?? selected.parentStreet ?? selected.parentAddress ?? ""} onChangeText={(v) => setEdit((p) => ({ ...p, address: v }))} placeholder="House, street, area" />
+          </Field>
+        </SectionCard>
+
+        <SectionCard step={3} title={showFees ? "Path & fee add-ons" : "Path"} subtitle="Optional.">
         <Field label="Path">
           <View className="flex-row flex-wrap gap-1.5">
             {PATH_OPTIONS.map((p) => (
@@ -1898,14 +1931,10 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
             </View>
           </Field>
         ) : null}
-        <View className="flex-row justify-end gap-2">
-          <Button variant="ghost" onPress={() => setFileEdit(false)}>
-            Cancel
-          </Button>
-          <Button onPress={saveFile}>Save</Button>
-        </View>
+        </SectionCard>
       </View>
-    ) : (() => {
+    );
+    const overviewBody = (() => {
       const att = (selected.attendance ?? []).reduce(
         (acc, row) => {
           if (row.status === "PRESENT") acc.p += 1;
@@ -2118,6 +2147,27 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       </View>
       );
     })();
+    const fileBody = (
+      <>
+        {overviewBody}
+        <Modal
+          open={fileEdit}
+          title={`Edit ${selected.name}`}
+          onClose={() => setFileEdit(false)}
+          wide
+          footer={
+            <View className="flex-row justify-end gap-2">
+              <Button variant="ghost" onPress={() => setFileEdit(false)}>
+                Cancel
+              </Button>
+              <Button onPress={saveFile}>Save changes</Button>
+            </View>
+          }
+        >
+          {editForm}
+        </Modal>
+      </>
+    );
     const nextDue = selected.invoices?.find((inv) => inv.status !== "paid")?.due || "";
     const feesBody = (
       <View className="mt-5 min-h-0 flex-1 gap-4">

@@ -175,6 +175,12 @@ function validateAndFolder(user: AccessUser, file: UploadFile, fields: Record<st
     return { kind, folder: `private/${schoolRoot()}/payroll/proofs` };
   }
 
+  if (kind === "examMarks") {
+    if (!can(user, "exams.edit")) throw new Error("No access.");
+    if (!isOnboardingSheet(file.name, file.mime)) throw new Error("Upload the Excel or CSV marks sheet.");
+    return { kind, folder: `private/${schoolRoot()}/exams/imports` };
+  }
+
   if (kind === "onboarding") {
     if (!can(user, "onboarding.manage") && !can(user, "people.import")) throw new Error("No access.");
     if (!isOnboardingSheet(file.name, file.mime)) throw new Error("Upload an Anekio Excel or CSV template.");

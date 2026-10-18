@@ -52,6 +52,10 @@ function cellMeta(grid: RoutinePrintGrid, slot: RoutinePrintSlot) {
 }
 
 export function routinePrintHtml(grid: RoutinePrintGrid) {
+  return routinePrintHtmlMany([grid]);
+}
+
+function routineSheet(grid: RoutinePrintGrid) {
   const head = grid.weekdays
     .map((day) => `<th>${esc(day.label)}</th>`)
     .join("");
@@ -73,8 +77,22 @@ export function routinePrintHtml(grid: RoutinePrintGrid) {
     })
     .join("");
 
+  return `<main class="sheet">
+    <h1>${esc(grid.schoolName)}</h1>
+    ${grid.place ? `<p class="place">${esc(grid.place)}</p>` : ""}
+    <h2>${esc(grid.subtitle)}</h2>
+    <table>
+      <thead><tr><th>Period</th>${head}</tr></thead>
+      <tbody>${body}</tbody>
+    </table>
+  </main>`;
+}
+
+/** One printable page per class (page break between them), e.g. "All classes". */
+export function routinePrintHtmlMany(grids: RoutinePrintGrid[]) {
+  const title = grids.length === 1 ? grids[0].subtitle : `${grids.length} classes`;
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<title>Routine · ${esc(grid.subtitle)}</title>
+<title>Routine · ${esc(title)}</title>
 <style>
   @page { size: A4 landscape; margin: 12mm; }
   html,body { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
@@ -94,18 +112,11 @@ export function routinePrintHtml(grid: RoutinePrintGrid) {
   td.empty { color:#94a3b8; text-align:center; }
   tr.break td { text-align:center; background:#fffbeb; color:#92400e; font-weight:600; }
   @media print { body { background:#fff; } .toolbar { display:none; } .sheet { box-shadow:none; margin:0; width:auto; } }
+  .sheet + .sheet { page-break-before: always; break-before: page; }
 </style></head>
 <body>
   <div class="toolbar"><button onclick="window.print()">Save as PDF</button></div>
-  <main class="sheet">
-    <h1>${esc(grid.schoolName)}</h1>
-    ${grid.place ? `<p class="place">${esc(grid.place)}</p>` : ""}
-    <h2>${esc(grid.subtitle)}</h2>
-    <table>
-      <thead><tr><th>Period</th>${head}</tr></thead>
-      <tbody>${body}</tbody>
-    </table>
-  </main>
+  ${grids.map(routineSheet).join("\n")}
 </body></html>`;
 }
 
@@ -190,18 +201,26 @@ export async function routineHtmlForUser(user: AccessUser, input: { classId?: st
   if (user.portal === "OFFICE") {
     if (!can(user, "timetable.view")) throw new Error("No access.");
     if (!requestedClassId) throw new Error("Pick a class");
-    const klass = await prisma.class.findUnique({ where: { id: requestedClassId } });
-    if (!klass) throw new Error("Class not found");
-    const slots = slotsFromRows(await getClassTimetable(klass.id));
-    return routinePrintHtml({
-      schoolName: school.name,
-      place,
-      subtitle: `Class ${classLabel(klass)} · Weekly routine`,
-      weekdays,
-      periods,
-      slots,
-      showTeacher: true,
+    // "all" or a comma list exports several classes, one page each.
+    const ids = requestedClassId === "all" ? null : requestedClassId.split(",").map((id) => id.trim()).filter(Boolean);
+    const classes = await prisma.class.findMany({
+      where: { archivedAt: null, ...(ids ? { id: { in: ids } } : {}) },
     });
+    if (!classes.length) throw new Error("Class not found");
+    classes.sort((a, b) => classLabel(a).localeCompare(classLabel(b), undefined, { numeric: true }));
+    const grids: RoutinePrintGrid[] = [];
+    for (const klass of classes) {
+      grids.push({
+        schoolName: school.name,
+        place,
+        subtitle: `Class ${classLabel(klass)} · Weekly routine`,
+        weekdays,
+        periods,
+        slots: slotsFromRows(await getClassTimetable(klass.id)),
+        showTeacher: true,
+      });
+    }
+    return routinePrintHtmlMany(grids);
   }
 
   if (user.portal === "TEACHER") {

@@ -77,13 +77,13 @@ describe("school onboarding imports", () => {
     const studentsTemplate = await onboardingTemplate(user, "students");
     expect(studentsTemplate).toMatchObject({ fileName: "anekio-students.csv", contentType: "text/csv; charset=utf-8" });
     const studentCsv = studentsTemplate.buffer.toString("utf8");
-    expect(studentCsv).toContain("Roll number");
+    expect(studentCsv).not.toContain("Roll number");
     expect(studentCsv).toContain("Aarav Sharma (example)");
     expect(studentCsv).toContain('"YES"');
     const studentUploadPath = "private/schools/test/onboarding/imports/students.csv";
     await saveUploadPath(
       studentUploadPath,
-      Buffer.from(`${studentCsv}${csvRow(["", "", "", "Kabir Student", "2015-04-12", "6-A", "Kavita Parent", "9876540099", "", "", ""])}\r\n`),
+      Buffer.from(`${studentCsv}${csvRow(["", "", "Kabir Student", "2015-04-12", "6-A", "Kavita Parent", "9876540099", "", ""])}\r\n`),
       "text/csv"
     );
     const studentPreview = await previewOnboardingImport(user, {

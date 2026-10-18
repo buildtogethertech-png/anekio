@@ -29,8 +29,8 @@ import { classifyFromIn, normalizeHHmm, parsePayrollRules, personKey, type Payro
 import { hasLiveSalaryPayments } from "./salary-payments";
 import { loadSchoolCalendar } from "./leave";
 import { earliestStaffInAt, staffAttendanceInMark, staffDayInstant, staffDayWindow, staffDayYmd } from "./staff-day";
-import { addDays, examPlanWeight, parseExamPlan, ymd } from "./exams";
-import { teacherCanEditMarks, teacherMayEnterMarks } from "./exam-workflow";
+import { addDays, examPlanWeight, effectiveExamPlan, DEFAULT_EXAM_PLAN, parseExamPlan, ymd } from "./exams";
+import { teacherCanEditMarks, teacherMayEnterMarks, teacherMarksBlock } from "./exam-workflow";
 import { teacherIdsBySubjectName, teacherMayHostClassTest } from "./exam-evaluators";
 import { validateExamMark } from "./exam-marks";
 import { notifySchedulePublished, notifySeriesAssigned } from "./exam-events";
@@ -2631,11 +2631,21 @@ export async function saveTimetableSlotCore(
       `${formatSubjectLabel(planned.code, planned.name)} is already ${planned.weightage}/${planned.weightage} for ${classLabel}.`
     );
   }
-  await prisma.subject.update({ where: { id: planned.id }, data: { teacherId } });
+  // Check the clash before touching anything, and say exactly where the teacher already is.
   const busy = await prisma.timetableSlot.findFirst({
     where: { teacherId, periodId, weekday, NOT: { classId } },
+    include: { class: { select: { name: true, section: true } }, subject: { select: { code: true, name: true } } },
   });
-  if (busy) throw new Error("This teacher is already in another class this period.");
+  if (busy) {
+    const days = ["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+    const where = `${busy.class.name}-${busy.class.section}`;
+    const what = busy.subject ? `${busy.subject.name} ` : "";
+    const when = `${days[weekday] || "that day"}, ${period.name}${period.startsAt && period.endsAt ? ` (${period.startsAt}–${period.endsAt})` : ""}`;
+    throw new Error(
+      `${teacher.user.name} is already teaching ${what}in ${where} on ${when}. Pick another teacher, or free ${where}'s ${period.name} first.`
+    );
+  }
+  await prisma.subject.update({ where: { id: planned.id }, data: { teacherId } });
   const existing = await prisma.timetableSlot.findFirst({
     where: { classId, periodId, weekday },
   });
@@ -2779,9 +2789,8 @@ export async function enterMarksCore(
   if (!exam) throw new Error("Exam not found");
   if (user.portal === "TEACHER") {
     const teacher = await prisma.teacher.findUnique({ where: { userId: user.id } });
-    if (!teacherMayEnterMarks(exam, teacher?.id)) {
-      throw new Error("Office must allow marks entry on this paper first.");
-    }
+    const blocked = teacherMarksBlock(exam, teacher?.id);
+    if (blocked) throw new Error(blocked);
     if (!teacherCanEditMarks(exam.workflowStatus)) {
       throw new Error("Marks are locked. Wait for admin to send this paper back if a correction is needed.");
     }
@@ -3250,6 +3259,10 @@ export async function saveSchoolSubjectsCore(
       }
     }
   }
+  // The catalog is only a list of codes. Saving it never puts a code on a class by itself
+  // (MG-3 used to land on Class 3 automatically). Classes get codes from their own curriculum,
+  // unless the caller explicitly asks to apply the catalog to every class.
+  if (!input.applyToAllClasses) return;
   const classes = await prisma.class.findMany({
     where: { archivedAt: null },
     include: { subjects: true },
@@ -3740,6 +3753,89 @@ export async function saveExamPlanCore(
   await markOnboardingConfigured(user, `exam_plan:${sessionId}`);
 }
 
+/* ----------------------------------------------------------------------------------------------
+ * Exams the school creates itself: any name, any classes, any number of times in a year.
+ * "Counts in final result" is a % (0 = not counted, e.g. a class test).
+ * -------------------------------------------------------------------------------------------- */
+
+async function examYearPlan(sessionId: string) {
+  const session = await prisma.schoolSession.findUnique({ where: { id: sessionId } });
+  if (!session) throw new Error("Pick a year");
+  const used = await prisma.examSeries.findMany({ where: { sessionId }, select: { planItemId: true } });
+  return { session, plan: effectiveExamPlan(session.examPlanJson, used.map((row) => row.planItemId)) };
+}
+
+function cleanExamItem(input: { name?: string; maxMarks?: number | string; weight?: number | string; classIds?: unknown; expectedPeriod?: string }) {
+  const name = String(input.name || "").replace(/\s+/g, " ").trim();
+  if (!name) throw new Error("Give the exam a name");
+  if (name.length > 80) throw new Error("Keep the exam name under 80 characters");
+  const maxMarks = Math.round(Number(input.maxMarks));
+  if (!Number.isFinite(maxMarks) || maxMarks < 1 || maxMarks > 1000) throw new Error("Max marks must be from 1 to 1,000");
+  const weight = Math.round(Number(input.weight || 0));
+  if (!Number.isFinite(weight) || weight < 0 || weight > 100) throw new Error("Final result share must be from 0% to 100%");
+  const classIds = Array.isArray(input.classIds) ? [...new Set(input.classIds.map(String).filter(Boolean))] : [];
+  const expectedPeriod = String(input.expectedPeriod || "").trim().slice(0, 40);
+  return { name, maxMarks, weight, classIds, expectedPeriod };
+}
+
+export async function createExamCore(
+  user: AccessUser,
+  input: { sessionId?: string; name?: string; maxMarks?: number; weight?: number; classIds?: string[]; expectedPeriod?: string }
+) {
+  need(user, "exams.edit");
+  const { session, plan } = await examYearPlan(String(input.sessionId || ""));
+  const item = cleanExamItem(input);
+  if (plan.length >= 60) throw new Error("A year can have up to 60 exams");
+  const id = `exam-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  const next = [...plan, { id, kind: "custom", ...item }];
+  await prisma.schoolSession.update({ where: { id: session.id }, data: { examPlanJson: JSON.stringify(next) } });
+  return { id };
+}
+
+export async function updateExamItemCore(
+  user: AccessUser,
+  input: { sessionId?: string; id?: string; name?: string; maxMarks?: number; weight?: number; classIds?: string[]; expectedPeriod?: string }
+) {
+  need(user, "exams.edit");
+  const { session, plan } = await examYearPlan(String(input.sessionId || ""));
+  const id = String(input.id || "");
+  const current = plan.find((row) => row.id === id);
+  if (!current) throw new Error("Exam not found");
+  const item = cleanExamItem({ expectedPeriod: current.expectedPeriod, ...input });
+  const next = plan.map((row) => (row.id === id ? { ...row, ...item } : row));
+  await prisma.schoolSession.update({ where: { id: session.id }, data: { examPlanJson: JSON.stringify(next) } });
+  // Series carry the exam name for papers and report cards.
+  if (item.name !== current.name) {
+    await prisma.examSeries.updateMany({ where: { sessionId: session.id, planItemId: id }, data: { name: item.name } });
+  }
+}
+
+export async function deleteExamItemCore(user: AccessUser, input: { sessionId?: string; id?: string }) {
+  need(user, "exams.edit");
+  const { session, plan } = await examYearPlan(String(input.sessionId || ""));
+  const id = String(input.id || "");
+  if (!plan.some((row) => row.id === id)) throw new Error("Exam not found");
+  const series = await prisma.examSeries.findMany({ where: { sessionId: session.id, planItemId: id }, select: { id: true } });
+  if (series.length) {
+    const marks = await prisma.examResult.count({ where: { exam: { seriesId: { in: series.map((row) => row.id) } } } });
+    if (marks) throw new Error("This exam already has marks, so it can't be deleted.");
+    await prisma.examSeries.deleteMany({ where: { id: { in: series.map((row) => row.id) } } });
+  }
+  const next = plan.filter((row) => row.id !== id);
+  await prisma.schoolSession.update({ where: { id: session.id }, data: { examPlanJson: JSON.stringify(next) } });
+}
+
+/** One tap: add the standard CBSE exams (skips any already in the year). */
+export async function addCbseExamsCore(user: AccessUser, input: { sessionId?: string }) {
+  need(user, "exams.edit");
+  const { session, plan } = await examYearPlan(String(input.sessionId || ""));
+  const have = new Set(plan.map((row) => row.name.toLowerCase()));
+  const add = DEFAULT_EXAM_PLAN.filter((row) => !have.has(row.name.toLowerCase()) && !plan.some((p) => p.id === row.id)).map((row) => ({ ...row, classIds: [] as string[] }));
+  if (!add.length) return { added: 0 };
+  await prisma.schoolSession.update({ where: { id: session.id }, data: { examPlanJson: JSON.stringify([...plan, ...add]) } });
+  return { added: add.length };
+}
+
 async function needExamClass(user: AccessUser, classId: string, mode: "mark" | "run" = "mark") {
   need(user, "exams.edit", "marks.enter", "exams.teach");
   if (user.portal === "OFFICE" && can(user, "exams.edit")) return;
@@ -3789,6 +3885,14 @@ function examDateFields(paper: {
   teacherId?: string | null;
   setterId?: string | null;
 }) {
+  // Order is fixed: question paper ready → exam day → copies checked.
+  const examDay = String(paper.date || "").slice(0, 10);
+  if (paper.paperDueOn && examDay && paper.paperDueOn.slice(0, 10) > examDay) {
+    throw new Error("Paper ready date must be before the exam date.");
+  }
+  if (paper.copiesDueOn && examDay && paper.copiesDueOn.slice(0, 10) < examDay) {
+    throw new Error("Checking due date must be after the exam date.");
+  }
   const teacherId = paper.teacherId || null;
   return {
     date: new Date(paper.date),

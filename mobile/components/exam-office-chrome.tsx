@@ -201,7 +201,7 @@ export function ExamPaperDots({
     { on: paper, label: "Paper" },
     { on: exam, label: "Exam" },
     { on: marks, label: "Marks" },
-    { on: review, label: "Review" },
+    { on: review, label: "Published" },
   ];
   const current = steps.findIndex((d) => !d.on);
   return (
@@ -721,5 +721,35 @@ export function ExamDrawer({
         </View>
       </View>
     </RnModal>
+  );
+}
+
+/** Five plain steps for one paper: Scheduled → Paper ready → Exam done → Marks entered → Published. */
+export function ExamSimpleSteps({ steps }: { steps: { title: string; done: boolean; hint?: string }[] }) {
+  const current = steps.findIndex((step) => !step.done);
+  return (
+    <View>
+      {steps.map((step, i) => {
+        const now = i === current;
+        return (
+          <View key={step.title} className="flex-row gap-3">
+            <View className="items-center">
+              <View
+                className={`h-[22px] w-[22px] items-center justify-center rounded-full ${
+                  step.done ? "bg-[#10B981]" : now ? "border-2 border-clay-500 bg-white" : "border border-ink-200 bg-white"
+                }`}
+              >
+                {step.done ? <Ionicons name="checkmark" size={12} color="#fff" /> : <Text className={`text-[10px] font-bold ${now ? "text-clay-600" : "text-ink-400"}`}>{i + 1}</Text>}
+              </View>
+              {i < steps.length - 1 ? <View className={`my-1 w-0.5 flex-1 ${step.done ? "bg-[#10B981]" : "bg-ink-200"}`} style={{ minHeight: 14 }} /> : null}
+            </View>
+            <View className="min-w-0 flex-1 pb-3">
+              <Text className={`text-[13px] font-medium ${step.done || now ? "text-ink-900" : "text-ink-500"}`}>{step.title}</Text>
+              {step.hint ? <Text className="mt-0.5 text-[11px] text-ink-500">{step.hint}</Text> : null}
+            </View>
+          </View>
+        );
+      })}
+    </View>
   );
 }

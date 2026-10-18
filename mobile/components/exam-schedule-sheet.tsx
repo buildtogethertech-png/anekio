@@ -1,5 +1,5 @@
 import { forwardRef, useImperativeHandle, useMemo, useState } from "react";
-import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { DateField } from "./date-field";
 import {
   cadenceForKind,
@@ -10,6 +10,7 @@ import {
   paperOffsets,
   paperDates,
   prettyDay,
+  schoolDaysBetween,
   sittingDeadlines,
   snapToSchoolDay,
   type DeadlineOffsets,
@@ -90,6 +91,26 @@ function seedRows(
   });
 }
 
+/** The three dates of one paper, in the order they happen. */
+const STEPS = [
+  { key: "paper", n: 1, title: "Paper ready by", who: "Teacher uploads the question paper" },
+  { key: "exam", n: 2, title: "Exam day", who: "Students write the paper" },
+  { key: "check", n: 3, title: "Checking done by", who: "Teacher enters the marks" },
+] as const;
+
+function StepBadge({ n, tone = "blue" }: { n: number; tone?: "blue" | "dark" }) {
+  return (
+    <View className={`h-5 w-5 items-center justify-center rounded-full ${tone === "dark" ? "bg-ink-900" : "bg-clay-500"}`}>
+      <Text className="text-[11px] font-bold text-white">{n}</Text>
+    </View>
+  );
+}
+
+function gapText(days: number, side: "before" | "after") {
+  if (days <= 0) return "Same day as the exam";
+  return `${days} school day${days === 1 ? "" : "s"} ${side} the exam`;
+}
+
 function DeadlineControl({
   title,
   days,
@@ -166,6 +187,8 @@ export const ExamScheduleSheet = forwardRef<
   },
   ref
 ) {
+  const { width } = useWindowDimensions();
+  const narrow = width < 720;
   const sittingKind = kind || "term1";
   const sameDay = cadenceForKind(sittingKind) === "same";
   const firstExisting = day(existing?.[0]?.date);
@@ -313,6 +336,16 @@ export const ExamScheduleSheet = forwardRef<
       setError("Every paper needs paper-ready and checking dates, and the sitting needs a result date.");
       return;
     }
+    const badPaper = rows.find((row) => row.paperDueOn >= row.date);
+    if (badPaper) {
+      setError(`${badPaper.name}: the paper must be ready before the exam day.`);
+      return;
+    }
+    const badCheck = rows.find((row) => row.copiesDueOn <= row.date);
+    if (badCheck) {
+      setError(`${badCheck.name}: checking must finish after the exam day.`);
+      return;
+    }
     setError("");
     onSave(
       rows.map((row) => ({
@@ -385,7 +418,14 @@ export const ExamScheduleSheet = forwardRef<
 
       <View>
         <Pressable onPress={() => setAdvanced((v) => !v)} className="flex-row items-center justify-between py-1">
-          <Text className="text-sm font-medium text-ink-900">Advanced scheduling options {advanced ? "▴" : "▾"}</Text>
+          <View className="min-w-0 flex-1">
+            <Text className="text-sm font-medium text-ink-900">Default gaps {advanced ? "▴" : "▾"}</Text>
+            {!advanced ? (
+              <Text className="mt-0.5 text-xs text-ink-700">
+                Paper ready {offsets.paperBefore} school days before · checking {offsets.copiesAfter} after · results {offsets.resultAfter} after the last exam
+              </Text>
+            ) : null}
+          </View>
         </Pressable>
         {advanced ? (
         <View>
@@ -396,7 +436,7 @@ export const ExamScheduleSheet = forwardRef<
         <View className="mt-4 flex-row flex-wrap gap-y-5 border-b border-ink-100 pb-5">
           <View className="min-w-[14rem] flex-1 pr-5">
             <DeadlineControl
-              title="Paper due"
+              title="Paper ready by"
               days={offsets.paperBefore}
               relation="before each exam"
               onDays={(days) => setDeadlineDays("paper", days)}
@@ -404,7 +444,7 @@ export const ExamScheduleSheet = forwardRef<
           </View>
           <View className="min-w-[14rem] flex-1 border-l border-ink-100 px-5">
             <DeadlineControl
-              title="Checking due"
+              title="Checking done by"
               days={offsets.copiesAfter}
               relation="after each exam"
               onDays={(days) => setDeadlineDays("copies", days)}
@@ -438,49 +478,100 @@ export const ExamScheduleSheet = forwardRef<
             </Pressable>
           ) : null}
         </View>
-        <ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator={false}>
-          <View className="min-w-full">
-            <View className="flex-row gap-3 border-b border-ink-200 pb-2">
-              <Text className="w-36 shrink-0 text-[11px] font-medium uppercase tracking-wide text-ink-700">Paper</Text>
-              <Text className="min-w-[11rem] basis-0 flex-1 text-center text-[11px] font-medium uppercase tracking-wide text-ink-700">Paper due</Text>
-              <Text className="min-w-[11rem] basis-0 flex-1 text-center text-[11px] font-medium uppercase tracking-wide text-ink-700">Exam date</Text>
-              <Text className="min-w-[11rem] basis-0 flex-1 text-center text-[11px] font-medium uppercase tracking-wide text-ink-700">Checking due</Text>
-            </View>
-            {rows.map((row) => (
-              <View key={row.subjectId} className="flex-row items-center gap-3 border-b border-ink-100 py-2.5">
-                <Text className="w-36 shrink-0 text-sm font-medium text-ink-900" numberOfLines={2}>
-                  {row.name}
-                  <Text className="font-normal text-ink-700"> /{row.maxMarks}</Text>
-                </Text>
-                <View className="min-w-[11rem] basis-0 flex-1">
-                  <DateField
-                    plain
-                    value={row.paperDueOn}
-                    onChange={(paperDueOn) => patch(row.subjectId, { paperDueOn })}
-                  />
-                </View>
-                <View className="min-w-[11rem] basis-0 flex-1">
-                  <DateField
-                    plain
-                    value={row.date}
-                    onChange={(date) => {
-                      setStagger(true);
-                      patch(row.subjectId, { date });
-                    }}
-                    closedReason={reasonFor}
-                  />
-                </View>
-                <View className="min-w-[11rem] basis-0 flex-1">
-                  <DateField
-                    plain
-                    value={row.copiesDueOn}
-                    onChange={(copiesDueOn) => patch(row.subjectId, { copiesDueOn })}
-                  />
-                </View>
+        {/* How the three dates work, once, in plain words. */}
+        {narrow ? (
+          <View className="gap-1.5 rounded-lg bg-blue-50 px-3 py-2.5">
+            {STEPS.map((step) => (
+              <View key={step.key} className="flex-row items-center gap-2">
+                <StepBadge n={step.n} tone={step.key === "exam" ? "dark" : "blue"} />
+                <Text className="text-[13px] font-semibold text-ink-900">{step.title}</Text>
+                <Text className="min-w-0 flex-1 text-xs text-ink-700" numberOfLines={1}>· {step.who}</Text>
               </View>
             ))}
           </View>
+        ) : (
+          <View className="flex-row items-stretch gap-2">
+            {STEPS.map((step, i) => (
+              <View key={step.key} className="min-w-0 flex-1 flex-row items-center gap-2">
+                <View className={`min-w-0 flex-1 flex-row items-start gap-2 rounded-lg px-3 py-2 ${step.key === "exam" ? "bg-ink-900" : "bg-blue-50"}`}>
+                  <StepBadge n={step.n} />
+                  <View className="min-w-0 flex-1">
+                    <Text className={`text-[13px] font-semibold ${step.key === "exam" ? "text-white" : "text-ink-900"}`}>{step.title}</Text>
+                    <Text className={`text-[11px] leading-4 ${step.key === "exam" ? "text-white/70" : "text-ink-700"}`}>{step.who}</Text>
+                  </View>
+                </View>
+                {i < STEPS.length - 1 ? <Text className="text-ink-300">→</Text> : null}
+              </View>
+            ))}
+          </View>
+        )}
+
+        <ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator={false}>
+          <View className="min-w-full">
+            <View className="flex-row gap-3 border-b border-ink-200 pb-2">
+              <Text className="w-36 shrink-0 text-[11px] font-medium uppercase tracking-wide text-ink-700">Subject</Text>
+              {STEPS.map((step) => (
+                <View key={step.key} className="min-w-[11rem] basis-0 flex-1 flex-row items-center justify-center gap-1.5">
+                  <StepBadge n={step.n} tone={step.key === "exam" ? "dark" : "blue"} />
+                  <Text className="text-[11px] font-medium uppercase tracking-wide text-ink-700">{step.title}</Text>
+                </View>
+              ))}
+            </View>
+            {rows.map((row) => {
+              const paperOk = Boolean(row.paperDueOn && row.date && row.paperDueOn < row.date);
+              const checkOk = Boolean(row.copiesDueOn && row.date && row.copiesDueOn > row.date);
+              const before = paperOk ? schoolDaysBetween(row.paperDueOn, row.date, calendar) : 0;
+              const after = checkOk ? schoolDaysBetween(row.date, row.copiesDueOn, calendar) : 0;
+              return (
+                <View key={row.subjectId} className="flex-row items-start gap-3 border-b border-ink-100 py-3">
+                  <View className="w-36 shrink-0 pt-2.5">
+                    <Text className="text-sm font-medium text-ink-900" numberOfLines={2}>{row.name}</Text>
+                    <Text className="text-xs text-ink-700">Out of {row.maxMarks}</Text>
+                  </View>
+                  <View className="min-w-[11rem] basis-0 flex-1 gap-1">
+                    <DateField
+                      plain
+                      value={row.paperDueOn}
+                      max={row.date ? addDays(row.date, -1) : undefined}
+                      onChange={(paperDueOn) => patch(row.subjectId, { paperDueOn })}
+                    />
+                    <Text className={`px-1 text-[11px] ${paperOk ? "text-ink-500" : "font-medium text-red-700"}`}>
+                      {paperOk ? gapText(before, "before") : "Must be before the exam day"}
+                    </Text>
+                  </View>
+                  <View className="min-w-[11rem] basis-0 flex-1 gap-1">
+                    <DateField
+                      plain
+                      value={row.date}
+                      onChange={(date) => {
+                        setStagger(true);
+                        patch(row.subjectId, { date });
+                      }}
+                      closedReason={reasonFor}
+                    />
+                    <Text className="px-1 text-[11px] text-ink-500">Paper and checking dates move with it</Text>
+                  </View>
+                  <View className="min-w-[11rem] basis-0 flex-1 gap-1">
+                    <DateField
+                      plain
+                      value={row.copiesDueOn}
+                      min={row.date ? addDays(row.date, 1) : undefined}
+                      onChange={(copiesDueOn) => patch(row.subjectId, { copiesDueOn })}
+                    />
+                    <Text className={`px-1 text-[11px] ${checkOk ? "text-ink-500" : "font-medium text-red-700"}`}>
+                      {checkOk ? gapText(after, "after") : "Must be after the exam day"}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
         </ScrollView>
+        <View className="flex-row flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-ink-100 bg-ink-50 px-3 py-2.5">
+          <Text className="text-[13px] font-semibold text-ink-900">Results out</Text>
+          <Text className="text-[13px] text-ink-700">{prettyDay(resultDate, true)}</Text>
+          <Text className="text-xs text-ink-500">· {offsets.resultAfter} school days after the last exam (change in Default gaps)</Text>
+        </View>
       </View>
 
       {error ? <Text className="text-sm text-red-700">{error}</Text> : null}

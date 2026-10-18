@@ -10,6 +10,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
   type PressableProps,
   type StyleProp,
@@ -296,6 +297,8 @@ export function Modal({
   studio,
   footer,
   centerTitle,
+  sheetOnPhone,
+  scroll = true,
 }: {
   open: boolean;
   title: string;
@@ -306,7 +309,30 @@ export function Modal({
   studio?: boolean;
   footer?: ReactNode;
   centerTitle?: boolean;
+  /** On a phone, fill the whole screen with a sticky footer instead of a small floating box. */
+  sheetOnPhone?: boolean;
+  /** false: the body does not scroll as one; the content manages its own scrolling (e.g. one scrolling column). */
+  scroll?: boolean;
 }) {
+  const { width } = useWindowDimensions();
+  if (sheetOnPhone && width < 640) {
+    return (
+      <RnModal visible={open} animationType="slide" onRequestClose={onClose}>
+        <View className="flex-1 bg-white">
+          <View className="flex-row items-center gap-3 border-b border-ink-100 px-4 pb-3 pt-4">
+            <Text className="flex-1 text-[17px] font-semibold text-ink-900" numberOfLines={1}>
+              {title}
+            </Text>
+            <CloseButton onPress={onClose} />
+          </View>
+          <ScrollView className="flex-1" contentContainerClassName="px-4 py-4" keyboardShouldPersistTaps="handled">
+            {children}
+          </ScrollView>
+          {footer ? <View className="border-t border-ink-100 bg-white px-4 pb-5 pt-3">{footer}</View> : null}
+        </View>
+      </RnModal>
+    );
+  }
   return (
     <RnModal visible={open} transparent animationType="fade" onRequestClose={onClose}>
       <View className="relative flex-1 items-center justify-center px-4 py-8">
@@ -327,9 +353,13 @@ export function Modal({
             </Text>
             <CloseButton onPress={onClose} />
           </View>
-          <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: studio ? 760 : large ? 720 : footer ? 520 : 640 }}>
-            {children}
-          </ScrollView>
+          {scroll ? (
+            <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: studio ? 760 : large ? 720 : footer ? 520 : 640 }}>
+              {children}
+            </ScrollView>
+          ) : (
+            <View>{children}</View>
+          )}
           {footer ? <View className="mt-4 border-t border-ink-100 pt-4">{footer}</View> : null}
         </View>
       </View>

@@ -20,7 +20,7 @@ import {
 } from "./data";
 import { isCircularNotice } from "./notices";
 import { ensureStaffRecord, leaveBundleFor } from "./leave";
-import { gradePolicyFrom, marksVisible, parseExamPlan, timetableVisible, ymd, addDays } from "./exams";
+import { gradePolicyFrom, marksVisible, effectiveExamPlan, parseExamPlan, timetableVisible, ymd, addDays } from "./exams";
 import { parentMaySeeExamResult } from "./exam-marks";
 import { teacherClassTestChoices } from "./exam-evaluators";
 import { parsePayrollRules } from "./payroll";
@@ -1434,7 +1434,7 @@ async function officePayload(user: AccessUser) {
       school: examPack.school,
       policy: examPack.policy,
       planBySession: Object.fromEntries(
-        sessions.map((s) => [s.id, examPack.planBySession[s.id] ?? parseExamPlan(s.examPlanJson)])
+        sessions.map((s) => [s.id, examPack.planBySession[s.id] ?? effectiveExamPlan(s.examPlanJson, [])])
       ),
       series: examPack.series,
     },

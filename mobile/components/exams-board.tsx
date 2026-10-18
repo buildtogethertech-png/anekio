@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { openSalaryProof as openPrivateFile } from "./salary-pay-sheet";
+import { Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Button, Card, Chip, Input, Modal, Toast, useToast } from "./ui";
@@ -31,6 +32,10 @@ import { useSession } from "../lib/session";
 import { QuickDocumentButton } from "./document-studio";
 import { Select } from "./form/select";
 import { Popover } from "./form/popover";
+import { ExamClassesPage, ExamYearOverview, PastMarksModal, examClasses } from "./exam-year-overview";
+import { ExamFormModal, type ExamFormValue } from "./exam-form";
+import { ScheduleExamModal } from "./exam-schedule-all";
+import { prettyTimeRange } from "./exam-time-field";
 import {
   ExamAction,
   ExamConfirm,
@@ -43,8 +48,7 @@ import {
   ExamReturnNote,
   ExamSkeleton,
   ExamStatusPill,
-  ExamTeacherMention,
-  ExamTimeline,
+  ExamSimpleSteps,
 } from "./exam-office-chrome";
 
 function can(user: { permissions: string[] } | null, key: string) {
@@ -105,11 +109,36 @@ function initials(name: string) {
   return `${parts[0]?.[0] || ""}${parts[1]?.[0] || ""}`.toUpperCase() || "—";
 }
 
+/** Table header with an ⓘ that shows what the column means on hover (tap on touch). */
+function HeaderTip({ title, tip }: { title: string; tip: string }) {
+  const [show, setShow] = useState(false);
+  return (
+    <View className="relative z-30 min-w-0 flex-1">
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`About ${title}`}
+        onPress={() => setShow((v) => !v)}
+        onHoverIn={() => setShow(true)}
+        onHoverOut={() => setShow(false)}
+        className="flex-row items-center gap-1 self-start"
+      >
+        <Text className="text-[11px] font-medium uppercase tracking-wide text-ink-500">{title}</Text>
+        <Ionicons name={show ? "information-circle" : "information-circle-outline"} size={13} color={show ? "#2563EB" : "#94A3B8"} />
+      </Pressable>
+      {show ? (
+        <View pointerEvents="none" className="absolute bottom-6 left-0 z-50 w-64 rounded-lg bg-ink-900 px-3 py-2" style={{ elevation: 6, shadowColor: "#000", shadowOpacity: 0.15, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } }}>
+          <Text className="text-[12px] normal-case leading-[18px] text-white">{tip}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 export function ExamsBoard() {
   const { data, reload } = useRecord();
   const { token, user } = useSession();
   const router = useRouter();
-  const params = useLocalSearchParams<{ examId?: string; view?: string }>();
+  const params = useLocalSearchParams<{ examId?: string; view?: string; exam?: string; cls?: string }>();
   const toast = useToast();
   const canRun = can(user, "exams.edit");
   const canPublish = can(user, "exams.publish");
@@ -124,7 +153,6 @@ export function ExamsBoard() {
   const [classId, setClassId] = useState(classes[0]?.id || "");
   const [seriesId, setSeriesId] = useState("");
   const [pending, setPending] = useState("");
-  const [copyIds, setCopyIds] = useState<string[]>([]);
   const [sheet, setSheet] = useState<"create" | "edit" | "">("");
   const [schedulePlanId, setSchedulePlanId] = useState("");
   const [bucket, setBucket] = useState<
@@ -143,8 +171,17 @@ export function ExamsBoard() {
   const [setupFocus, setSetupFocus] = useState<"gallery" | "detail">("gallery");
   const [focusPlanId, setFocusPlanId] = useState("");
   const [drawerTab, setDrawerTab] = useState<"overview" | "marks" | "activity">("overview");
-  const [moreOpen, setMoreOpen] = useState(false);
   const [historyMode, setHistoryMode] = useState(false);
+  const [pastPlanId, setPastPlanId] = useState("");
+  const [allPlanId, setAllPlanId] = useState("");
+  const [allClassIds, setAllClassIds] = useState<string[] | null>(null);
+  const [examForm, setExamForm] = useState<{ mode: "create" | "edit" | "duplicate"; initial: ExamFormValue | null } | null>(null);
+  const [deleteExamId, setDeleteExamId] = useState("");
+  // After "New exam → Next", open scheduling once the new exam has loaded.
+  const [scheduleAfter, setScheduleAfter] = useState<{ id: string; classIds: string[] } | null>(null);
+  // Exams → one exam (all classes) → one class's papers.
+  const [examPlanId, setExamPlanId] = useState("");
+  const [pageClassId, setPageClassId] = useState("");
   const scheduleRef = useRef<ExamScheduleSheetHandle>(null);
   const teachers = data?.peopleTeachers ?? [];
   useEffect(() => {
@@ -158,8 +195,14 @@ export function ExamsBoard() {
     setHoldUnpaidMonths(String(pack?.policy?.reportCardUnpaidMonths ?? school?.policy?.reportCardUnpaidMonths ?? ""));
   }, [publishOpen, pack?.policy?.reportCardUnpaidMonths, school?.policy?.reportCardUnpaidMonths]);
   const session = sessions.find((s) => s.id === sessionId) ?? currentSession;
-  const plan =
-    (sessionId && pack?.planBySession?.[sessionId]) || school?.plan || [];
+  const plan = (session?.id && pack?.planBySession?.[session.id]) || (sessionId && pack?.planBySession?.[sessionId]) || [];
+  useEffect(() => {
+    if (!scheduleAfter) return;
+    if (!plan.some((p) => p.id === scheduleAfter.id)) return;
+    setAllClassIds(scheduleAfter.classIds);
+    setAllPlanId(scheduleAfter.id);
+    setScheduleAfter(null);
+  }, [plan, scheduleAfter]);
   const klass = classes.find((c) => c.id === classId) || classes[0];
   const classLabel = klass ? klass.label : "";
   const studentCount =
@@ -211,6 +254,8 @@ export function ExamsBoard() {
     setSessionId(sitting.sessionId);
     setClassId(sitting.classId);
     setSeriesId(sitting.id);
+    setExamPlanId(sitting.planItemId);
+    setPageClassId(sitting.classId);
     setDesk("setup");
     setSetupFocus("detail");
     setDetailExamId(exam.id);
@@ -223,6 +268,36 @@ export function ExamsBoard() {
       setReviewExamId(exam.id);
     }
   }, [params.examId, params.view, pack?.series]);
+
+  // Keep the open exam / class in the address, so a refresh lands on the same page.
+  const restored = useRef(false);
+  useEffect(() => {
+    if (restored.current || !pack?.series) return;
+    restored.current = true;
+    const planId = String(params.exam || "");
+    const cls = String(params.cls || "");
+    if (!planId || params.examId) return;
+    const sitting = cls ? pack.series.find((x) => x.planItemId === planId && x.classId === cls) : undefined;
+    const anyOfPlan = sitting || pack.series.find((x) => x.planItemId === planId);
+    if (anyOfPlan) setSessionId(anyOfPlan.sessionId);
+    setExamPlanId(planId);
+    if (sitting) {
+      setClassId(sitting.classId);
+      setSeriesId(sitting.id);
+      setPageClassId(sitting.classId);
+      setDesk(params.view === "marks" ? "review" : "setup");
+      setSetupFocus("detail");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pack?.series]);
+  useEffect(() => {
+    if (!restored.current) return;
+    const cls = (examPlanId && pageClassId) || undefined;
+    const next = { exam: examPlanId || undefined, cls, view: cls && desk === "review" ? "marks" : undefined };
+    if ((params.exam || undefined) === next.exam && (params.cls || undefined) === next.cls && (params.view || undefined) === next.view) return;
+    router.setParams(next as never);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [examPlanId, pageClassId, desk]);
   const reviewSheet = reviewExam
     ? {
         examId: reviewExam.id,
@@ -252,16 +327,13 @@ export function ExamsBoard() {
         }),
       }
     : null;
+  // "Approved" now means "teacher sent marks": admin can publish straight away.
   const allApproved =
     papers.length > 0 &&
     papers.every(
-      (exam) =>
-        exam.workflowStatus === "APPROVED" ||
-        exam.workflowStatus === "PUBLISHED",
+      (exam) => exam.workflowStatus === "PUBLISHED" || adminCanPublish(exam.workflowStatus),
     );
-  const approvedPapers = papers.filter(
-    (exam) => exam.workflowStatus === "APPROVED",
-  );
+  const approvedPapers = papers.filter((exam) => adminCanPublish(exam.workflowStatus));
   const calendar = useMemo(
     () => calendarFrom(school?.holidays, data?.timetable?.weekdays),
     [data?.timetable?.weekdays, school?.holidays],
@@ -297,52 +369,24 @@ export function ExamsBoard() {
       setPending("");
     }
   }
-  async function publishToParents(examId?: string, holdIfUnpaidMonths?: number, sendToParents = false) {
+  /** The only way results go out: every paper of this exam at once, to parents, after all marks are in. */
+  async function publishToParents(_examId?: string, holdIfUnpaidMonths?: number) {
     if (!series) return;
-    const ready = examId
-      ? papers.filter((exam) => exam.id === examId)
-      : approvedPapers;
-    if (!ready.length) {
-      toast.show(
-        "Approve the mark sheet first, then publish so parents can see marks.",
-      );
+    if (!allApproved) {
+      const waiting = papers.filter((exam) => exam.workflowStatus !== "PUBLISHED" && !adminCanPublish(exam.workflowStatus)).length;
+      toast.show(`Results go out together. ${waiting} ${waiting === 1 ? "paper still needs" : "papers still need"} marks.`);
       return;
     }
     const feeHold = holdIfUnpaidMonths != null ? { holdIfUnpaidMonths } : {};
     const holdNote =
       holdIfUnpaidMonths && holdIfUnpaidMonths > 0
         ? ` Families with ${holdIfUnpaidMonths} or more unpaid fee months will see results after they pay.`
-        : "";
-    const sendFlag = sendToParents ? { sendToParents: true } : {};
-    if (!examId && allApproved) {
-      await run(
-        "publishExamResults",
-        { seriesId: series.id, ...feeHold, ...sendFlag },
-        sendToParents
-          ? `Results sent to parents.${holdNote || " Families can see marks now."}`
-          : "Papers published. Send to parents after every paper is published.",
-      );
-      return;
-    }
-    setPending("publishExamResults");
-    try {
-      for (const exam of ready) {
-        await act(token, "publishExamResults", { examId: exam.id, ...feeHold, ...sendFlag });
-      }
-      toast.show(
-        sendToParents
-          ? `Results sent to parents.${holdNote}`
-          : ready.length === 1
-            ? `${subjectLabel(ready[0].subject)} paper published.`
-            : `${ready.length} papers published.`,
-      );
-      await reload();
-    } catch (e) {
-      toast.show(e instanceof Error ? e.message : "Could not publish.");
-    } finally {
-      setPending("");
-    }
+        : " Families can see the report card now.";
+    await run("publishExamResults", { seriesId: series.id, sendToParents: true, ...feeHold }, `Results published to parents.${holdNote}`);
   }
+  const [editDatesOpen, setEditDatesOpen] = useState(false);
+  const [teacherPickFor, setTeacherPickFor] = useState("");
+  const [phoneMenu, setPhoneMenu] = useState(false);
   function openSchedule(mode: "create" | "edit", planItemId?: string) {
     if (!klass?.subjects?.length) {
       toast.show("Add subjects for this class first. Exam papers need a subject list.");
@@ -430,29 +474,17 @@ export function ExamsBoard() {
     }
     setReviewExamId(exam.id);
   }
+  /** A paper with any marks opens its marks straight away; others open the paper panel. */
+  function paperHasMarks(exam: (typeof papers)[number]) {
+    return (exam.entered ?? 0) > 0 || ["SUBMITTED", "UNDER_REVIEW", "RESUBMITTED", "APPROVED", "PUBLISHED"].includes(exam.workflowStatus || "");
+  }
   async function handlePaperAction(exam: (typeof papers)[number]) {
     if (isHistoryImportPaper(exam)) {
       await openMarksEditor(exam);
       return;
     }
-    const action = officePaperAction(exam.workflowStatus, marksGranted(exam));
-    if (action === "Allow marks" && exam.teacherId && canRun) {
-      await run(
-        "grantExamMarks",
-        { examId: exam.id, teacherId: exam.teacherId },
-        "Subject teacher can enter marks",
-      );
-      return;
-    }
-    if (action === "Review" && canRun) {
-      if (exam.workflowStatus === "SUBMITTED") {
-        await run("reviewExamMarks", { examId: exam.id }, "Opened for review");
-      }
+    if (paperHasMarks(exam)) {
       setReviewExamId(exam.id);
-      return;
-    }
-    if (action === "Publish" && canPublish) {
-      await publishToParents(exam.id);
       return;
     }
     setDrawerTab("overview");
@@ -468,6 +500,7 @@ export function ExamsBoard() {
         allowedTypes={examSittingDocumentTypes(allPublished)}
         label={allPublished ? "Issue results" : "Issue admit cards"}
         resultIssue={allPublished}
+        buttonClassName="anekio-btn h-9 px-3 py-1.5"
         batchSubjects={(data.people || [])
           .filter((student) => student.classLabel === classLabel)
           .map((student) => ({
@@ -505,77 +538,75 @@ export function ExamsBoard() {
   return (
     <View className="min-h-0 flex-1 flex-row">
       <ScrollView className="min-h-0 flex-1" contentContainerClassName="pb-8" nestedScrollEnabled>
+      {/* Inside one exam the exam's own title leads; the page title would just repeat "Exams". */}
+      {/* Inside an exam the year picker isn't needed (the exam belongs to one year), so no empty header row. */}
+      {examPlanId ? null : (
       <ExamEnter>
-      <View className={compact ? "mb-4 gap-3" : "mb-5 flex-row flex-wrap items-start justify-between gap-3"}>
-        <View className={compact ? "w-full" : "min-w-0 flex-1"}>
+      <View className={compact ? "mb-4 flex-row flex-wrap items-center justify-between gap-3" : "mb-5 flex-row flex-wrap items-center justify-between gap-3"}>
+        <View className="min-w-0 flex-1">
+        {examPlanId ? null : (
         <Text className={`${compact ? "text-[24px]" : "text-[28px]"} font-bold tracking-tight text-ink-900`}>
           Exams
         </Text>
-        <Text className="mt-1 text-[13px] text-ink-700">
-          {desk === "review"
-            ? "Class marksheet: missing cells, per-student correction, approve, then publish scores. Dates stay on Exam setup."
-            : "Manage exam schedules, track progress, review marks, and publish results."}
-        </Text>
+        )}
         </View>
-      <View className={compact ? "flex-row gap-2 self-stretch" : "flex-row flex-wrap gap-2"}>
-        <Chip
-          className="anekio-chip anekio-desk-tab"
-          label="Exam Setup"
-          active={desk === "setup"}
-          onPress={() => setDesk("setup")}
-        />
-        <Chip
-          className="anekio-chip anekio-desk-tab"
-          label="Marks Review"
-          active={desk === "review"}
-          onPress={() => setDesk("review")}
+        <View className="flex-row items-center gap-2">
+      {sessions.length <= 1 ? (
+        session?.label ? (
+          <View className="h-10 flex-row items-center gap-1.5 rounded-md border border-ink-200 bg-white px-3">
+            <Ionicons name="calendar-outline" size={15} color="#64748B" />
+            <Text className="text-[14px] font-medium text-ink-800">{session.label}</Text>
+          </View>
+        ) : null
+      ) : (
+      <View className={compact ? "w-[150px]" : "w-[170px]"}>
+        <Select
+          value={session?.id || ""}
+          options={sessions.map((s) => ({
+            id: s.id,
+            label: s.current ? `${s.label} · now` : s.label,
+          }))}
+          onChange={(id) => {
+            setSessionId(id);
+            setSeriesId("");
+            setExamPlanId("");
+            setPageClassId("");
+          }}
         />
       </View>
+      )}
+      {!examPlanId && canRun ? (
+        <Button className="h-10 justify-center px-4" onPress={() => setExamForm({ mode: "create", initial: null })}>
+          + New exam
+        </Button>
+      ) : null}
+        </View>
       </View>
       </ExamEnter>
+      )}
       {toast.message ? (
         <Toast message={toast.message} onDone={toast.clear} />
       ) : null}
       {desk === "review" ? (
-        <View className="gap-3">
-          <View className="flex-row flex-wrap gap-2">
-            <View className="min-w-[140px] flex-1">
-              <Select
-                value={session?.id || ""}
-                options={sessions.map((s) => ({
-                  id: s.id,
-                  label: s.current ? `${s.label} · now` : s.label,
-                }))}
-                onChange={(id) => {
-                  setSessionId(id);
-                  setSeriesId("");
-                }}
-              />
-            </View>
-            <View className="min-w-[140px] flex-1">
-              <Select
-                value={series?.id || ""}
-                options={seriesForClass.map((s) => ({ id: s.id, label: s.name }))}
-                onChange={setSeriesId}
-                placeholder="Sitting"
-              />
-            </View>
-            <View className="min-w-[140px] flex-1">
-              <Select
-                value={klass?.id || ""}
-                options={classes.map((c) => ({
-                  id: c.id,
-                  label: c.label,
-                  group: classGroup(c),
-                }))}
-                onChange={(id) => {
-                  setClassId(id);
-                  setSeriesId("");
-                  setSetupFocus("gallery");
-                }}
-                placeholder="Class"
-              />
-            </View>
+        <View className="gap-4">
+          <View className="flex-row flex-wrap items-center gap-1">
+            <Pressable onPress={() => { setDesk("setup"); setExamPlanId(""); setPageClassId(""); }}>
+              <Text className="text-[13px] font-medium text-clay-600">Exams</Text>
+            </Pressable>
+            {series ? (
+              <>
+                <Ionicons name="chevron-forward" size={12} color="#94A3B8" />
+                <Pressable onPress={() => { setDesk("setup"); setPageClassId(""); }}>
+                  <Text className="text-[13px] font-medium text-clay-600">{series.name}</Text>
+                </Pressable>
+                <Ionicons name="chevron-forward" size={12} color="#94A3B8" />
+                <Pressable onPress={() => setDesk("setup")}>
+                  <Text className="text-[13px] font-medium text-clay-600">{classLabel}</Text>
+                </Pressable>
+              </>
+            ) : null}
+            <Ionicons name="chevron-forward" size={12} color="#94A3B8" />
+            <Text className="text-[13px] font-medium text-ink-700">Marks</Text>
           </View>
           {series ? (
             <ExamMarksReview
@@ -597,7 +628,7 @@ export function ExamsBoard() {
               canEdit={canRun}
               canPublish={canPublish}
               approvedCount={approvedPapers.length}
-              onPublish={() => void publishToParents()}
+              onPublish={() => setPublishOpen(true)}
               onRan={async (ok) => {
                 toast.show(ok);
                 await reload();
@@ -618,322 +649,215 @@ export function ExamsBoard() {
         <ExamSkeleton />
       ) : (
         <View className="gap-4">
-          <ExamEnter delay={1}>
-            <View className={compact ? "mb-1 gap-3" : "mb-3 flex-row flex-wrap items-center justify-between gap-3"}>
-              <View className={compact ? "gap-2" : "flex-row flex-wrap items-center gap-2"}>
-                <View className="flex-row items-baseline gap-2">
-                  <Text className="text-[16px] font-semibold text-ink-900">
-                    Exam Sessions
-                  </Text>
-                  <Text className="text-[13px] text-ink-700">({session?.label || ""})</Text>
-                </View>
-                <View className={compact ? "flex-row gap-2" : "flex-row flex-wrap items-center gap-2"}>
-                <View className={compact ? "min-w-0 flex-1" : "w-[148px]"}>
-                  <Select
-                    value={session?.id || ""}
-                    options={sessions.map((s) => ({
-                      id: s.id,
-                      label: s.current ? `${s.label} · now` : s.label,
-                    }))}
-                    onChange={(id) => {
-                      setSessionId(id);
-                      setSeriesId("");
-                      setSetupFocus("gallery");
-                    }}
-                  />
-                </View>
-                <View className={compact ? "min-w-0 flex-1" : "w-[148px]"}>
-                  <Select
-                    value={klass?.id || ""}
-                    options={classes.map((c) => ({
-                      id: c.id,
-                      label: c.label,
-                      group: classGroup(c),
-                    }))}
-                    onChange={(id) => {
-                      setClassId(id);
-                      setSeriesId("");
-                      setSetupFocus("gallery");
-                    }}
-                    placeholder="Class"
-                  />
-                </View>
-                </View>
-              </View>
-              {canRun ? (
-                <ExamAction
-                  busy={pending === "createExamSeries"}
-                  className={compact ? "self-stretch" : undefined}
-                  onPress={() => openSchedule("create")}
-                >
-                  + Schedule New Exam
-                </ExamAction>
-              ) : null}
-            </View>
-          </ExamEnter>
-          <ExamEnter delay={2}>
-            <ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator={false} className="grow-0">
-            <View className="flex-row gap-3 pb-1">
-              {plan.map((item) => {
-                const sitting = seriesForClass.find((s) => s.planItemId === item.id);
-                const exams = sitting?.exams || [];
-                const progress = exams.length
-                  ? officeSittingProgress(exams)
-                  : { done: 0, total: expectedSubjects, pct: 0 };
-                const status = sitting ? officeSittingStatus(exams) : "Not scheduled";
-                const selected = series?.id === sitting?.id && Boolean(sitting);
-                return (
-                  <Pressable
-                    key={item.id}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${item.name}, ${item.weight}% weightage, ${status}`}
-                    onPress={() => {
-                      if (!sitting) {
-                        if (canRun) openSchedule("create", item.id);
-                        return;
-                      }
-                      setSeriesId(sitting.id);
-                      setSetupFocus("detail");
-                    }}
-                    className={`anekio-session-card ${sitting ? "" : "anekio-session-unscheduled"} h-[136px] w-[168px] rounded-xl border bg-white p-3.5 ${
-                      selected ? "anekio-session-card-on border-clay-500 bg-[#EFF6FF]" : "border-ink-200"
-                    }`}
-                  >
-                    <View className="flex-row items-start justify-between gap-1">
-                      <View className="min-w-0 flex-1 flex-row items-center gap-1.5">
-                        <Ionicons name={sittingIcon(item.kind, item.name)} size={16} color="#2563EB" />
-                        <Text className="text-[14px] font-semibold text-ink-900" numberOfLines={1}>{item.name}</Text>
-                      </View>
-                    </View>
-                    <Text className="mt-1 text-[11px] text-ink-700">{item.weight}% weightage</Text>
-                    <View className="mt-3 h-1 overflow-hidden rounded-full bg-ink-100">
-                      <View
-                        className="anekio-progress-fill h-full rounded-full bg-clay-500"
-                        style={{ width: `${sitting ? progress.pct : 0}%` }}
-                      />
-                    </View>
-                    <View className="mt-2 flex-row items-center justify-between">
-                      <Text className="text-[11px] text-ink-800">
-                        {sitting ? `${progress.done} / ${progress.total || expectedSubjects} subjects` : "Not scheduled"}
-                      </Text>
-                      <View
-                        className={`anekio-session-go h-6 w-6 items-center justify-center rounded-full ${
-                          selected ? "bg-clay-500" : "bg-ink-50"
-                        }`}
-                      >
-                        <Ionicons name="arrow-forward" size={12} color={selected ? "#fff" : "#2563EB"} />
-                      </View>
-                    </View>
-                    {!sitting ? (
-                      <Text className="anekio-schedule-hint mt-1 text-[10px] font-medium text-clay-500">
-                        Schedule {item.name}
-                      </Text>
-                    ) : null}
-                  </Pressable>
-                );
-              })}
-            </View>
-            </ScrollView>
-          </ExamEnter>
-          {showDetail && series ? (
+          {!examPlanId ? (
+            <ExamEnter delay={1}>
+              <ExamYearOverview
+                plan={plan}
+                series={(pack?.series ?? []).filter((s) => s.sessionId === (session?.id || sessionId))}
+                classes={classes}
+                sessionStart={session?.startsOn}
+                canRun={canRun}
+                onSchedule={(planItemId) => {
+                  setAllClassIds(null);
+                  setAllPlanId(planItemId);
+                }}
+                onAddOldMarks={setPastPlanId}
+                onCreate={() => setExamForm({ mode: "create", initial: null })}
+                onAddCbse={() => void run("addCbseExams", { sessionId: session?.id || sessionId }, "Standard CBSE exams added. Rename or remove any you don't use.")}
+                onOpen={(planItemId) => {
+                  setExamPlanId(planItemId);
+                  setPageClassId("");
+                }}
+              />
+            </ExamEnter>
+          ) : !pageClassId ? (
+            (() => {
+              const item = plan.find((p) => p.id === examPlanId);
+              if (!item) return null;
+              return (
+                <ExamClassesPage
+                  item={item}
+                  classes={examClasses(item, classes)}
+                  onEdit={() =>
+                    setExamForm({
+                      mode: "edit",
+                      initial: { id: item.id, name: item.name, sessionId: session?.id || sessionId, classIds: examClasses(item, classes).map((c) => c.id), maxMarks: item.maxMarks, weight: item.weight },
+                    })
+                  }
+                  onDuplicate={() =>
+                    setExamForm({
+                      mode: "duplicate",
+                      initial: { name: item.name, sessionId: session?.id || sessionId, classIds: examClasses(item, classes).map((c) => c.id), maxMarks: item.maxMarks, weight: item.weight },
+                    })
+                  }
+                  onDelete={() => setDeleteExamId(item.id)}
+                  series={(pack?.series ?? []).filter((s) => s.sessionId === (session?.id || sessionId))}
+                  sessionStart={session?.startsOn}
+                  sessionLabel={session?.label || ""}
+                  canRun={canRun}
+                  canPublish={canPublish}
+                  busySeriesId={pending === "publishExamResults" ? series?.id : undefined}
+                  onBack={() => setExamPlanId("")}
+                  onOpenClass={(id, sid) => {
+                    setClassId(id);
+                    setSeriesId(sid);
+                    setPageClassId(id);
+                    setSetupFocus("detail");
+                    setBucket("all");
+                  }}
+                  onSchedule={(ids) => {
+                    setAllClassIds(ids);
+                    setAllPlanId(item.id);
+                  }}
+                  onAddOldMarks={() => setPastPlanId(item.id)}
+                  onPublishAll={(sid) => {
+                    setSeriesId(sid);
+                    void run("publishExamResults", { seriesId: sid }, "All papers published. Send results to parents from the class page when ready.");
+                  }}
+                />
+              );
+            })()
+          ) : null}
+          {examPlanId && pageClassId && showDetail && series ? (
             <>
+              <View className="flex-row flex-wrap items-center gap-1">
+                <Pressable onPress={() => { setExamPlanId(""); setPageClassId(""); }} className="flex-row items-center">
+                  <Text className="text-[13px] font-medium text-clay-600">Exams</Text>
+                </Pressable>
+                <Ionicons name="chevron-forward" size={12} color="#94A3B8" />
+                <Pressable onPress={() => setPageClassId("")}>
+                  <Text className="text-[13px] font-medium text-clay-600">{series.name}</Text>
+                </Pressable>
+                <Ionicons name="chevron-forward" size={12} color="#94A3B8" />
+                <Text className="text-[13px] font-medium text-ink-700">{classLabel}</Text>
+              </View>
               <ExamEnter delay={3}>
-                <View className="rounded-xl border border-ink-200 bg-white px-4 py-3.5">
-                  <View className={compact ? "gap-3" : "flex-row flex-wrap items-start justify-between gap-3"}>
-                    <View className={compact ? "w-full" : "min-w-0 flex-1"}>
+                <View>
+                  <View className={compact ? "flex-row flex-wrap items-start gap-2" : "flex-row flex-wrap items-start justify-between gap-3"}>
+                    <View className="min-w-0 flex-1">
                       <View className="flex-row flex-wrap items-center gap-2">
-                        <Ionicons name={sittingIcon(plan.find((p) => p.id === series.planItemId)?.kind || "", series.name)} size={16} color="#2563EB" />
-                        <Text className="text-[16px] font-semibold text-ink-900">{series.name}</Text>
-                        <View className="h-6 flex-row items-center gap-1.5 rounded-full bg-emerald-50 px-2.5">
+                        <Text className={`${compact ? "text-[22px]" : "text-[26px]"} font-bold tracking-tight text-ink-900`}>
+                          {series.name} · {classLabel}
+                        </Text>
+                        <View className="h-6 flex-row items-center gap-1.5 rounded-full border border-emerald-100 bg-emerald-50 px-2.5">
                           <View className="h-1.5 w-1.5 rounded-full bg-[#10B981]" />
-                          <Text className="text-[10px] font-semibold text-emerald-700">{sittingStatus}</Text>
+                          <Text className="text-[12px] font-semibold text-emerald-700">{sittingStatus}</Text>
                         </View>
                       </View>
-                      <View className="mt-2 flex-row flex-wrap items-center gap-x-4 gap-y-1">
-                        <Text className="text-[12px] text-ink-700">
-                          {prettyDay(firstDate)} – {prettyFull(lastDate)}
-                        </Text>
-                        <Text className="text-[12px] text-ink-700">{papers.length} subjects</Text>
-                        <Text className="text-[12px] text-ink-700">{studentCount} students</Text>
-                      </View>
-                      <Text className="mt-1 text-[11px] text-ink-500">
-                        Result date: {prettyFull(resultOn)} (Manual publish)
-                      </Text>
                     </View>
-                    <View className={compact ? "flex-row flex-wrap items-center gap-2 border-t border-ink-100 pt-3" : "flex-row flex-wrap items-center gap-2"}>
-                      {docsButton}
+                    {compact ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="More actions"
+                        onPress={() => setPhoneMenu((v) => !v)}
+                        className={`h-9 w-9 items-center justify-center rounded-lg border ${phoneMenu ? "border-clay-300 bg-clay-50" : "border-ink-200 bg-white"}`}
+                      >
+                        <Ionicons name="ellipsis-horizontal" size={18} color="#334155" />
+                      </Pressable>
+                    ) : null}
+                    <View className={compact ? (phoneMenu ? "w-full flex-row flex-wrap items-center gap-2 rounded-xl border border-ink-200 bg-white p-2" : "hidden") : "flex-row flex-wrap items-center gap-2"}>
                       {canRun ? (
-                        <Button variant="ghost" disabled={Boolean(pending)} onPress={() => openSchedule("edit")} className="anekio-btn h-9 px-3 py-1.5">
+                        <Pressable
+                          accessibilityRole="switch"
+                          accessibilityLabel="Exam dates visible to parents"
+                          accessibilityState={{ checked: published }}
+                          disabled={Boolean(pending)}
+                          onPress={() =>
+                            void run(
+                              "publishExamSeries",
+                              { seriesId: series.id, publish: published ? "0" : "1" },
+                              published ? "Dates hidden from parents" : "Dates visible to parents",
+                            )
+                          }
+                          className="h-9 flex-row items-center gap-2 rounded-lg px-2 active:bg-ink-50"
+                        >
+                          <View className={`h-[18px] w-8 justify-center rounded-full px-0.5 ${published ? "items-end bg-emerald-500" : "items-start bg-ink-200"}`}>
+                            <View className="h-3.5 w-3.5 rounded-full bg-white" />
+                          </View>
+                          <Text className="text-[13px] font-medium text-ink-700">Dates visible to parents</Text>
+                        </Pressable>
+                      ) : null}
+                      {canRun ? (
+                        <Button variant="ghost" disabled={Boolean(pending)} onPress={() => setEditDatesOpen(true)} className="anekio-btn h-9 px-3 py-1.5">
                           Edit dates
                         </Button>
                       ) : null}
-                      <Popover
-                        open={moreOpen}
-                        onClose={() => setMoreOpen(false)}
-                        align="end"
-                        minWidth={220}
-                        panel={
-                          <View className="py-1">
-                            {canRun && series ? (
-                              <>
-                                <Pressable
-                                  className="px-3 py-2"
-                                  onPress={() =>
-                                    void run(
-                                      "publishExamSeries",
-                                      { seriesId: series.id, publish: published ? "0" : "1" },
-                                      published ? "Dates hidden from parents" : "Dates visible to parents",
-                                    )
-                                  }
-                                >
-                                  <Text className="text-[13px] text-ink-900">
-                                    {published ? "Hide dates from parents" : "Show dates to parents"}
-                                  </Text>
-                                </Pressable>
-                                <View className="px-3 py-2">
-                                  <Select
-                                    value=""
-                                    placeholder={copyIds.length ? `${copyIds.length} classes` : "Copy exam"}
-                                    options={classes
-                                      .filter((c) => c.id !== klass?.id)
-                                      .map((c) => ({ id: c.id, label: c.label, group: classGroup(c) }))}
-                                    onChange={(id) =>
-                                      setCopyIds((cur) => (cur.includes(id) ? cur.filter((row) => row !== id) : [...cur, id]))
-                                    }
-                                  />
-                                  {copyIds.length ? (
-                                    <Button
-                                      className="mt-2"
-                                      onPress={async () => {
-                                        await run("copyExamSeries", { seriesId: series.id, classIds: copyIds }, "Copied to those classes.");
-                                        setCopyIds([]);
-                                        setMoreOpen(false);
-                                      }}
-                                    >
-                                      Copy
-                                    </Button>
-                                  ) : null}
-                                </View>
-                                <Pressable
-                                  className="px-3 py-2"
-                                  onPress={async () => {
-                                    await run("deleteExamSeries", { seriesId: series.id }, "Series removed");
-                                    setMoreOpen(false);
-                                    setSeriesId("");
-                                  }}
-                                >
-                                  <Text className="text-[13px] text-red-600">Remove exam</Text>
-                                </Pressable>
-                              </>
-                            ) : null}
-                          </View>
-                        }
-                      >
-                        <Pressable
-                          accessibilityLabel="More actions"
-                          onPress={() => setMoreOpen((v) => !v)}
-                          className="anekio-icon-btn h-9 w-9 items-center justify-center rounded-lg border border-ink-200"
-                        >
-                          <Ionicons name="ellipsis-vertical" size={16} color="#64748B" />
-                        </Pressable>
-                      </Popover>
+                      {allPublished ? null : docsButton}
                     </View>
                   </View>
-                  <View className="mt-3 flex-row flex-wrap items-center gap-x-6 gap-y-2 border-t border-ink-200 pt-3">
-                    <Text className="text-[11px] font-semibold text-ink-700">Family Access</Text>
-                    <View className="flex-row items-center gap-2">
-                      <Text className="text-[12px] text-ink-800">Timetable</Text>
-                      <Pressable
-                        accessibilityRole="switch"
-                        accessibilityState={{ checked: published }}
-                        disabled={Boolean(pending)}
-                        onPress={() =>
-                          void run(
-                            "publishExamSeries",
-                            { seriesId: series.id, publish: published ? "0" : "1" },
-                            published ? "Dates hidden from parents" : "Dates visible to parents",
-                          )
-                        }
-                        className={`anekio-switch h-5 w-9 justify-center rounded-full ${published ? "bg-[#10B981]" : "bg-ink-200"}`}
-                      >
-                        <View className={`anekio-switch-knob h-4 w-4 rounded-full bg-white ${published ? "ml-4" : "ml-0.5"}`} />
-                      </Pressable>
-                      <Text className="text-[11px] text-ink-700">
-                        {published ? "Visible to parents" : "Hidden from parents"}
-                      </Text>
-                    </View>
-                    <View className="flex-row flex-wrap items-center gap-2">
-                      <Text className="text-[12px] text-ink-800">Results</Text>
-                      <Pressable
-                        accessibilityRole="switch"
-                        accessibilityLabel="Publish results to parents"
-                        accessibilityState={{ checked: allPublished, disabled: Boolean(pending) || !canPublish || !allPublished }}
-                        disabled={Boolean(pending) || !canPublish || !allPublished}
-                        onPress={() => {
-                          if (canSendResultsToParents(papers, canPublish)) {
-                            setPublishOpen(true);
-                            return;
-                          }
-                          toast.show("Publish every paper first, then send results to parents.");
-                        }}
-                        className={`anekio-switch h-5 w-9 justify-center rounded-full ${allPublished ? "bg-[#10B981]" : "bg-ink-200"}`}
-                      >
-                        <View className={`anekio-switch-knob h-4 w-4 rounded-full bg-white ${allPublished ? "ml-4" : "ml-0.5"}`} />
-                      </Pressable>
-                      <Text className="text-[11px] text-ink-700">
-                        {allPublished
-                          ? "Visible after send"
-                          : resultsPublished
-                            ? "Some papers published · send waits for every paper"
-                            : "Hidden from parents"}
-                      </Text>
-                      {canSendResultsToParents(papers, canPublish) ? (
-                        <ExamAction busy={pending === "publishExamResults"} onPress={() => setPublishOpen(true)}>
-                          Send results to parents
-                        </ExamAction>
-                      ) : null}
-                    </View>
+                  <View className={`flex-row ${compact ? "mt-3" : "mt-4 flex-wrap items-stretch gap-y-3"}`}>
+                    {[
+                      { label: compact ? "Exams" : "Exam days", value: firstDate ? `${prettyDay(firstDate)} – ${prettyDay(lastDate)}` : "—" },
+                      { label: compact ? "Papers" : "Subjects", value: String(papers.length) },
+                      { label: "Students", value: String(studentCount) },
+                      { label: compact ? "Results" : "Results on", value: resultOn ? prettyDay(resultOn) : "Not set" },
+                    ].map((fact, i) => (
+                      <View key={fact.label} className={compact ? `${i === 0 ? "flex-[1.6]" : "flex-1"} ${i ? "border-l border-ink-200 pl-2.5" : ""}` : `pr-6 ${i ? "border-l border-ink-200 pl-6" : ""}`}>
+                        <Text className={`${compact ? "text-[10px]" : "text-[11px]"} font-medium uppercase tracking-wide text-ink-500`}>{fact.label}</Text>
+                        <Text className={`mt-0.5 ${compact ? "text-[13px]" : "text-[15px]"} font-semibold tabular-nums text-ink-900`} numberOfLines={1}>{fact.value}</Text>
+                      </View>
+                    ))}
+                    {canRun ? null : (
+                      <View className={compact ? "w-1/2" : "border-l border-ink-200 pl-6"}>
+                        <Text className="text-[11px] font-medium uppercase tracking-wide text-ink-500">Parents see dates</Text>
+                        <Text className="mt-0.5 text-[15px] font-semibold text-ink-900">{published ? "Yes" : "No"}</Text>
+                      </View>
+                    )}
                   </View>
                 </View>
               </ExamEnter>
-              {allApproved && !allPublished && canPublish ? (
-                <View className="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3">
-                  <Text className="text-[13px] font-semibold text-ink-900">✓ {papers.length} / {papers.length} papers approved</Text>
-                  <Text className="mt-0.5 text-[12px] text-ink-700">Lock every paper. Send to parents only after they are all published.</Text>
-                  <View className="mt-2 flex-row flex-wrap gap-2">
-                    <Button variant="ghost" onPress={() => setDesk("review")}>
-                      Preview results
-                    </Button>
-                    <ExamAction
-                      busy={pending === "publishExamResults"}
-                      onPress={() => void publishToParents()}
-                    >
-                      Publish papers
-                    </ExamAction>
+              {canRun && papers.some((exam) => !exam.paperAt && exam.paperHandedAt) ? (
+                <View className="flex-row flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5">
+                  <Ionicons name="document-text-outline" size={16} color="#B45309" />
+                  <Text className="text-[13px] font-semibold text-amber-900">
+                    {(() => {
+                      const n = papers.filter((exam) => !exam.paperAt && exam.paperHandedAt).length;
+                      return `${n} ${n === 1 ? "paper" : "papers"} handed over · confirm you received ${n === 1 ? "it" : "them"}`;
+                    })()}
+                  </Text>
+                  <View className="flex-row flex-wrap gap-1.5">
+                    {papers
+                      .filter((exam) => !exam.paperAt && exam.paperHandedAt)
+                      .map((exam) => (
+                        <Pressable
+                          key={exam.id}
+                          accessibilityRole="button"
+                          onPress={() => {
+                            setDrawerTab("overview");
+                            setDetailExamId(exam.id);
+                          }}
+                          className="h-7 flex-row items-center gap-1 rounded-full border border-amber-300 bg-white px-2.5"
+                        >
+                          <Text className="text-[12px] font-medium text-amber-900">{exam.subject.name}</Text>
+                          <Ionicons name="chevron-forward" size={12} color="#B45309" />
+                        </Pressable>
+                      ))}
                   </View>
                 </View>
               ) : null}
-              {canSendResultsToParents(papers, canPublish) ? (
-                <View className="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3">
-                  <Text className="text-[13px] font-semibold text-ink-900">Every paper is published</Text>
-                  <Text className="mt-0.5 text-[12px] text-ink-700">Set a fee condition, then send the sitting to parents.</Text>
-                  <View className="mt-2 flex-row flex-wrap gap-2">
-                    <ExamAction busy={pending === "publishExamResults"} onPress={() => setPublishOpen(true)}>
-                      Send results to parents
-                    </ExamAction>
-                  </View>
-                </View>
+              {papers.length ? (
+                <ResultsBar
+                  total={papers.length}
+                  ready={papers.filter((exam) => exam.workflowStatus === "PUBLISHED" || adminCanPublish(exam.workflowStatus)).length}
+                  allPublished={allPublished}
+                  canPublish={canPublish}
+                  busy={pending === "publishExamResults"}
+                  onPreview={() => setDesk("review")}
+                  onPublish={() => setPublishOpen(true)}
+                  issueButton={allPublished ? docsButton : null}
+                />
               ) : null}
               <ExamEnter delay={4}>
                 <ExamFilterTabs value={bucket} counts={sittingCounts} onChange={setBucket} />
               </ExamEnter>
               <ExamEnter delay={5}>
-                <View key={bucket} className="anekio-list-swap overflow-hidden rounded-xl border border-ink-200 bg-white">
+                <View key={bucket} className={`anekio-list-swap rounded-xl border border-ink-200 bg-white ${compact ? "overflow-hidden" : ""}`}>
                   {compact ? null : (
-                    <View className="flex-row items-center gap-3 border-b border-ink-200 px-4 py-2">
+                    <View className="relative flex-row items-center gap-3 border-b border-ink-200 px-4 py-2" style={{ zIndex: 40 }}>
                       <Text className="min-w-0 flex-[1.4] text-[11px] font-medium uppercase tracking-wide text-ink-500">Subject</Text>
                       <Text className="w-[92px] text-[11px] font-medium uppercase tracking-wide text-ink-500">Exam Date</Text>
-                      <Text className="min-w-0 flex-1 text-[11px] font-medium uppercase tracking-wide text-ink-500">Teacher</Text>
+                      <HeaderTip title="Paper setter" tip="Makes the question paper and gives it to the exam office before the paper due date. ✓ = office has received it." />
+                      <HeaderTip title="Copy checker" tip="Checks the answer sheets after the exam and enters marks in Anekio. ✓ = all marks entered. You can hand it to another teacher until marks entry starts." />
                       <Text className="w-[72px] text-[11px] font-medium uppercase tracking-wide text-ink-500">Progress</Text>
                       <Text className="w-[148px] text-[11px] font-medium uppercase tracking-wide text-ink-500">Status</Text>
                       <Text className="w-[120px] text-right text-[11px] font-medium uppercase tracking-wide text-ink-500">Action</Text>
@@ -952,7 +876,35 @@ export function ExamsBoard() {
                       const extraTeachers = (exam.evaluators || []).filter((person) => person.id !== exam.teacherId);
                       const selectedRow = detailExamId === exam.id;
                       const historyImportPaper = isHistoryImportPaper(exam);
-                      const action = historyImportPaper ? "Edit marks" : officePaperAction(exam.workflowStatus, marksGranted(exam));
+                      const action = historyImportPaper ? "Edit marks" : paperHasMarks(exam) ? "View marks" : officePaperAction(exam.workflowStatus, marksGranted(exam));
+                      if (compact) {
+                        return (
+                          <Pressable
+                            key={exam.id}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Open ${exam.subject.name}`}
+                            onPress={() => void handlePaperAction(exam)}
+                            className="flex-row items-center gap-3 border-b border-ink-100 px-4 py-3 active:bg-ink-50"
+                          >
+                            <View className="h-8 w-8 items-center justify-center rounded-lg bg-[#EEF4FF]">
+                              <Ionicons name={subjectIcon(exam.subject.name)} size={15} color="#2563EB" />
+                            </View>
+                            <View className="min-w-0 flex-1">
+                              <Text className="text-[15px] font-semibold text-ink-900" numberOfLines={1}>{exam.subject.name}</Text>
+                              <Text className="text-[12px] text-ink-500" numberOfLines={1}>
+                                {(() => {
+                                  const makerId = exam.setterId || exam.teacherId || "";
+                                  const maker = teachers.find((t) => t.id === makerId)?.name || exam.setterName || teacherName;
+                                  const who = makerId && makerId !== exam.teacherId ? `Setter: ${maker} · Checker: ${teacherName}` : teacherName !== "—" ? teacherName : "";
+                                  return [prettyDay(exam.date), who].filter(Boolean).join(" · ");
+                                })()}
+                              </Text>
+                            </View>
+                            <ExamStatusPill status={exam.workflowStatus} />
+                            <Ionicons name="chevron-forward" size={15} color="#94A3B8" />
+                          </Pressable>
+                        );
+                      }
                       return (
                         <Pressable
                           key={exam.id}
@@ -972,25 +924,105 @@ export function ExamsBoard() {
                           </View>
                           {compact ? null : (
                             <>
-                              <Text className="w-[92px] text-[12px] text-ink-700">{prettyDay(exam.date)}</Text>
-                              <Pressable
-                                accessibilityRole="button"
-                                accessibilityLabel={`Teachers for ${subjectLabel(exam.subject)}`}
-                                onPress={(e) => {
-                                  e.stopPropagation?.();
-                                  setDrawerTab("overview");
-                                  setDetailExamId(exam.id);
-                                }}
-                                className="min-w-0 flex-1 flex-row items-center gap-2"
-                              >
-                                <View className="h-7 w-7 items-center justify-center rounded-full bg-[#EEF4FF]">
-                                  <Text className="text-[9px] font-semibold text-clay-500">{initials(teacherName)}</Text>
-                                </View>
-                                <Text className="min-w-0 flex-1 text-[12px] text-ink-800" numberOfLines={1}>
-                                  {teacherName}
-                                  {extraTeachers.length ? ` +${extraTeachers.length}` : ""}
-                                </Text>
-                              </Pressable>
+                              <View className="w-[92px]">
+                                <Text className="text-[12px] text-ink-700">{prettyDay(exam.date)}</Text>
+                                {exam.startTime && exam.endTime ? (
+                                  <Text className="text-[11px] text-ink-500" numberOfLines={1}>{prettyTimeRange(exam.startTime, exam.endTime)}</Text>
+                                ) : null}
+                              </View>
+                              {(() => {
+                                const today = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
+                                const makerId = exam.setterId || exam.teacherId || "";
+                                const makerName = teachers.find((t) => t.id === makerId)?.name || exam.setterName || teacherName;
+                                // Late only matters before the exam; afterwards the paper clearly reached the hall.
+                                const paperLate = !exam.paperAt && String(exam.date).slice(0, 10) >= today && Boolean(exam.paperDueOn) && String(exam.paperDueOn).slice(0, 10) < today;
+                                const marksIn = ["SUBMITTED", "UNDER_REVIEW", "RESUBMITTED", "APPROVED", "PUBLISHED"].includes(exam.workflowStatus || "");
+                                const checkLate = !marksIn && Boolean(exam.copiesDueOn) && String(exam.copiesDueOn).slice(0, 10) < today;
+                                const cell = (role: "paper" | "checking") => {
+                                  const isPaper = role === "paper";
+                                  const name = isPaper ? makerName : teacherName;
+                                  const currentId = isPaper ? makerId : exam.teacherId || "";
+                                  const done = isPaper ? Boolean(exam.paperAt) : marksIn;
+                                  const late = isPaper ? paperLate : checkLate;
+                                  const locked = !canRun || historyImportPaper || (isPaper ? Boolean(exam.paperAt) : marksIn || (exam.entered ?? 0) > 0 || exam.workflowStatus === "IN_PROGRESS" || exam.workflowStatus === "MARKS_DRAFT");
+                                  const key = `${exam.id}:${role}`;
+                                  return (
+                                    <View className="min-w-0 flex-1">
+                                      <Popover
+                                        open={teacherPickFor === key}
+                                        onClose={() => setTeacherPickFor("")}
+                                        align="start"
+                                        minWidth={240}
+                                        maxHeight={300}
+                                        panel={
+                                          <View className="py-1">
+                                            <Text className="px-3 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-wide text-ink-500">
+                                              {isPaper ? "Paper setter" : "Copy checker"}
+                                            </Text>
+                                            {teachers.map((t) => {
+                                              const current = t.id === currentId;
+                                              return (
+                                                <Pressable
+                                                  key={t.id}
+                                                  accessibilityRole="button"
+                                                  onPress={() => {
+                                                    setTeacherPickFor("");
+                                                    if (!current)
+                                                      void run(
+                                                        "reassignExamRole",
+                                                        { examId: exam.id, role, teacherId: t.id },
+                                                        `${exam.subject.name}: ${isPaper ? "paper setter" : "copy checker"} is now ${t.name}. Both teachers were told.`,
+                                                      );
+                                                  }}
+                                                  className={`flex-row items-center gap-2 px-3 py-2 ${current ? "bg-[#EEF4FF]" : "active:bg-ink-50"}`}
+                                                >
+                                                  <View className="h-6 w-6 items-center justify-center rounded-full bg-[#EEF4FF]">
+                                                    <Text className="text-[9px] font-semibold text-clay-500">{initials(t.name)}</Text>
+                                                  </View>
+                                                  <Text className="min-w-0 flex-1 text-[13px] text-ink-900" numberOfLines={1}>{t.name}</Text>
+                                                  {current ? <Ionicons name="checkmark" size={14} color="#2563EB" /> : null}
+                                                </Pressable>
+                                              );
+                                            })}
+                                          </View>
+                                        }
+                                      >
+                                        <Pressable
+                                          accessibilityRole="button"
+                                          accessibilityLabel={`${isPaper ? "Paper" : "Checking"} teacher for ${exam.subject.name}`}
+                                          disabled={locked || Boolean(pending)}
+                                          onPress={(e) => {
+                                            e.stopPropagation?.();
+                                            setTeacherPickFor(teacherPickFor === key ? "" : key);
+                                          }}
+                                          className={`flex-row items-center gap-1.5 self-start rounded-lg py-1 pl-1 pr-2 ${locked ? "" : "hover:bg-ink-50"}`}
+                                        >
+                                          {done ? (
+                                            <Ionicons name="checkmark-circle" size={15} color="#10B981" />
+                                          ) : (
+                                            <View className="h-6 w-6 items-center justify-center rounded-full bg-[#EEF4FF]">
+                                              <Text className="text-[9px] font-semibold text-clay-500">{initials(name)}</Text>
+                                            </View>
+                                          )}
+                                          <Text className="min-w-0 shrink text-[12px] text-ink-800" numberOfLines={1}>{name}</Text>
+                                          {late ? (
+                                            <View className="rounded bg-amber-50 px-1.5 py-0.5">
+                                              <Text className="text-[10px] font-semibold text-amber-700">late</Text>
+                                            </View>
+                                          ) : null}
+                                          {locked ? null : <Ionicons name="chevron-down" size={11} color="#94A3B8" />}
+                                        </Pressable>
+                                      </Popover>
+                                    </View>
+                                  );
+                                };
+                                return (
+                                  <>
+                                    {cell("paper")}
+                                    {cell("checking")}
+                                  </>
+                                );
+                              })()}
                               <View className="w-[72px]">
                                 <ExamPaperDots
                                   paper={dots.paper}
@@ -1084,6 +1116,129 @@ export function ExamsBoard() {
           />
         ) : null}
       </Modal>
+      <ScheduleExamModal
+        plan={plan}
+        open={editDatesOpen && Boolean(series)}
+        item={
+          series
+            ? plan.find((p) => p.id === series.planItemId) || {
+                id: series.planItemId || "",
+                name: series.name,
+                kind: "term1",
+                weight: 0,
+                maxMarks: series.exams[0]?.maxMarks || 80,
+              }
+            : null
+        }
+        edit={
+          series
+            ? {
+                seriesId: series.id,
+                classId: series.classId,
+                resultOn: series.exams.map((e) => e.resultOn || "").filter(Boolean).sort().at(-1) || null,
+                exams: series.exams.map((e) => ({
+                  subjectId: e.subject.id || "",
+                  date: e.date,
+                  paperDueOn: e.paperDueOn,
+                  copiesDueOn: e.copiesDueOn,
+                  teacherId: e.teacherId,
+                  setterId: e.setterId,
+                  maxMarks: e.maxMarks,
+                  startTime: e.startTime || "",
+                  endTime: e.endTime || "",
+                })),
+              }
+            : null
+        }
+        sessionId={session?.id || sessionId}
+        classes={classes}
+        teachers={teachers.map((t) => ({ id: t.id, name: t.name }))}
+        series={(pack?.series ?? []).filter((s) => s.sessionId === (session?.id || sessionId))}
+        calendar={calendar}
+        token={token}
+        onClose={() => setEditDatesOpen(false)}
+        onDone={async (message) => {
+          setEditDatesOpen(false);
+          toast.show(message);
+          await reload();
+        }}
+      />
+      <ScheduleExamModal
+        plan={plan}
+        open={Boolean(allPlanId)}
+        item={plan.find((p) => p.id === allPlanId) || null}
+        sessionId={session?.id || sessionId}
+        initialClassIds={allClassIds}
+        classes={(() => {
+          const it = plan.find((p) => p.id === allPlanId);
+          return it ? examClasses(it, classes) : classes;
+        })()}
+        teachers={teachers.map((t) => ({ id: t.id, name: t.name }))}
+        series={(pack?.series ?? []).filter((s) => s.sessionId === (session?.id || sessionId))}
+        calendar={calendar}
+        token={token}
+        onClose={() => setAllPlanId("")}
+        onDone={async (message) => {
+          setAllPlanId("");
+          toast.show(message);
+          await reload();
+        }}
+      />
+      <ExamFormModal
+        open={Boolean(examForm)}
+        mode={examForm?.mode || "create"}
+        initial={examForm?.initial || null}
+        sessions={sessions.map((x) => ({ id: x.id, label: x.label, current: x.current }))}
+        classes={classes.map((c) => ({ id: c.id, label: c.label }))}
+        otherWeights={(sid, exceptId) =>
+          ((pack?.planBySession?.[sid] as { id: string; weight: number }[] | undefined) || []).filter((p) => p.id !== exceptId).reduce((sum, p) => sum + (p.weight || 0), 0)
+        }
+        token={token}
+        onClose={() => setExamForm(null)}
+        onSaved={async (res) => {
+          setExamForm(null);
+          if (!res.created) {
+            toast.show("Exam saved.");
+            await reload();
+            return;
+          }
+          if (res.sessionId !== (session?.id || sessionId)) {
+            setSessionId(res.sessionId);
+            setExamPlanId("");
+            setPageClassId("");
+          }
+          await reload();
+          setScheduleAfter({ id: res.id, classIds: res.classIds });
+        }}
+      />
+      <ExamConfirm
+        open={Boolean(deleteExamId)}
+        title={`Delete ${plan.find((p) => p.id === deleteExamId)?.name || "exam"}?`}
+        body="Its scheduled papers are removed too. Exams that already have marks can't be deleted."
+        action="Delete exam"
+        busy={pending === "deleteExamItem"}
+        onClose={() => setDeleteExamId("")}
+        onConfirm={async () => {
+          const ok = await run("deleteExamItem", { sessionId: session?.id || sessionId, id: deleteExamId }, "Exam deleted.");
+          setDeleteExamId("");
+          if (ok) setExamPlanId("");
+        }}
+      />
+      <PastMarksModal
+        open={Boolean(pastPlanId)}
+        item={plan.find((p) => p.id === pastPlanId) || null}
+        sessionId={session?.id || sessionId}
+        sessionStart={session?.startsOn}
+        classes={classes}
+        students={data?.examStudents ?? []}
+        series={(pack?.series ?? []).filter((s) => s.sessionId === (session?.id || sessionId))}
+        token={token}
+        onClose={() => setPastPlanId("")}
+        onSaved={async (message) => {
+          toast.show(message);
+          await reload();
+        }}
+      />
       <ExamReturnNote
         open={Boolean(returnExamId)}
         note={returnNote}
@@ -1128,33 +1283,84 @@ export function ExamsBoard() {
           if (!ok) setApprovedFlash("");
         }}
       />
-      <ExamConfirm
+      <Modal
         open={publishOpen}
-        title={`Send ${series?.name || "exam"} results to parents`}
-        body={`${papers.length} papers published\n${studentCount} students\n\nOnly families who pass the fee condition will see the report card.`}
-        extra={
-          <View className="mt-4 gap-1.5">
-            <Text className="text-xs font-medium text-ink-800">Hold results if unpaid months ≥</Text>
-            <Input
-              keyboardType="number-pad"
-              value={holdUnpaidMonths}
-              onChangeText={setHoldUnpaidMonths}
-              placeholder="0"
-              className="w-24"
-            />
-            <Text className="text-[11px] leading-4 text-ink-600">
-              Example: 3 means a family with 3 or more unpaid fee months cannot see results until they pay. 0 publishes to everyone.
-            </Text>
+        title={allPublished ? `Send ${series?.name || "exam"} results again` : `Publish ${series?.name || "exam"} results`}
+        onClose={() => setPublishOpen(false)}
+        footer={
+          <View className="flex-row items-center justify-end gap-2">
+            <Button variant="ghost" onPress={() => setPublishOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={pending === "publishExamResults"}
+              onPress={async () => {
+                await publishToParents(undefined, Math.max(0, Math.floor(Number(holdUnpaidMonths) || 0)));
+                setPublishOpen(false);
+              }}
+            >
+              {pending === "publishExamResults" ? "Publishing…" : allPublished ? "Send again" : `Publish to ${studentCount} families`}
+            </Button>
           </View>
         }
-        action="Send results"
-        busy={pending === "publishExamResults"}
-        onClose={() => setPublishOpen(false)}
-        onConfirm={async () => {
-          await publishToParents(undefined, Math.max(0, Math.floor(Number(holdUnpaidMonths) || 0)), true);
-          setPublishOpen(false);
-        }}
-      />
+      >
+        <View className="gap-4">
+          <Text className="text-[14px] leading-5 text-ink-600">
+            All papers go out together. Parents get the report card in the app.
+          </Text>
+          <View className="overflow-hidden rounded-xl border border-ink-200 bg-white">
+            <View className="flex-row items-center gap-3 px-4 py-3">
+              <Ionicons name="school-outline" size={18} color="#64748B" />
+              <Text className="flex-1 text-[14px] text-ink-700">Class</Text>
+              <Text className="text-[14px] font-semibold text-ink-900">{classLabel}</Text>
+            </View>
+            <View className="flex-row items-center gap-3 border-t border-ink-100 px-4 py-3">
+              <Ionicons name="document-text-outline" size={18} color="#64748B" />
+              <Text className="flex-1 text-[14px] text-ink-700">Papers</Text>
+              <Text className="text-[14px] font-semibold tabular-nums text-ink-900">{papers.length}</Text>
+            </View>
+            <View className="flex-row items-center gap-3 border-t border-ink-100 px-4 py-3">
+              <Ionicons name="people-outline" size={18} color="#64748B" />
+              <Text className="flex-1 text-[14px] text-ink-700">Students</Text>
+              <Text className="text-[14px] font-semibold tabular-nums text-ink-900">{studentCount}</Text>
+            </View>
+            <View className="border-t border-ink-100 px-4 py-3">
+              <Pressable
+                accessibilityRole="switch"
+                accessibilityState={{ checked: Math.max(0, Math.floor(Number(holdUnpaidMonths) || 0)) > 0 }}
+                onPress={() => setHoldUnpaidMonths(Math.max(0, Math.floor(Number(holdUnpaidMonths) || 0)) > 0 ? "0" : "1")}
+                className="flex-row items-center gap-3"
+              >
+                <Ionicons name="wallet-outline" size={18} color="#64748B" />
+                <View className="flex-1">
+                  <Text className="text-[14px] text-ink-700">Hold back if fees are unpaid</Text>
+                  <Text className="mt-0.5 text-[12px] text-ink-500">
+                    {Math.max(0, Math.floor(Number(holdUnpaidMonths) || 0)) > 0 ? "Those families see results after they pay." : "Every family sees results, paid or not."}
+                  </Text>
+                </View>
+                <View className={`h-6 w-10 justify-center rounded-full px-0.5 ${Math.max(0, Math.floor(Number(holdUnpaidMonths) || 0)) > 0 ? "items-end bg-clay-500" : "items-start bg-ink-200"}`}>
+                  <View className="h-5 w-5 rounded-full bg-white" />
+                </View>
+              </Pressable>
+              {Math.max(0, Math.floor(Number(holdUnpaidMonths) || 0)) > 0 ? (
+                <View className="ml-[30px] mt-3 flex-row flex-wrap items-center gap-2">
+                  <Text className="text-[13px] text-ink-700">Hold back if</Text>
+                  <View className="flex-row items-center overflow-hidden rounded-lg border border-ink-200">
+                    <Pressable accessibilityLabel="Fewer months" onPress={() => setHoldUnpaidMonths(String(Math.max(1, Math.max(0, Math.floor(Number(holdUnpaidMonths) || 0)) - 1)))} className="h-8 w-8 items-center justify-center">
+                      <Ionicons name="remove" size={14} color="#334155" />
+                    </Pressable>
+                    <Text className="w-8 text-center text-[14px] font-semibold tabular-nums text-ink-900">{Math.max(0, Math.floor(Number(holdUnpaidMonths) || 0))}</Text>
+                    <Pressable accessibilityLabel="More months" onPress={() => setHoldUnpaidMonths(String(Math.max(0, Math.floor(Number(holdUnpaidMonths) || 0)) + 1))} className="h-8 w-8 items-center justify-center">
+                      <Ionicons name="add" size={14} color="#334155" />
+                    </Pressable>
+                  </View>
+                  <Text className="text-[13px] text-ink-700">{`or more month${Math.max(0, Math.floor(Number(holdUnpaidMonths) || 0)) === 1 ? " is" : "s are"} unpaid`}</Text>
+                </View>
+              ) : null}
+            </View>
+          </View>
+        </View>
+      </Modal>
       <ExamDrawer
         docked={!compact}
         open={Boolean(detailExam)}
@@ -1183,60 +1389,52 @@ export function ExamsBoard() {
                   <View className="min-w-[120px] flex-1 rounded-xl border border-ink-100 bg-ink-50 px-3 py-2.5">
                     <Text className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">Exam date</Text>
                     <Text className="mt-1 text-sm text-ink-900">{prettyFull(detailExam.date)}</Text>
+                    {detailExam.startTime && detailExam.endTime ? (
+                      <Text className="mt-0.5 text-[12px] text-ink-700">{prettyTimeRange(detailExam.startTime, detailExam.endTime)}</Text>
+                    ) : null}
                   </View>
                   <View className="min-w-[120px] flex-1 rounded-xl border border-ink-100 bg-ink-50 px-3 py-2.5">
                     <Text className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">Max marks</Text>
                     <Text className="mt-1 text-sm text-ink-900">{detailExam.maxMarks}</Text>
                   </View>
                 </View>
-                {!isHistoryImportPaper(detailExam) ? (() => {
-                  const granted = detailExam.evaluators || [];
-                  const subjectTeacherId = klass?.subjects?.find(
-                    (subject) => subject.name === detailExam.subject.name,
-                  )?.teacherId;
-                  const eligibleIds = new Set(
-                    (detailExam.eligibleTeacherIds?.length
-                      ? detailExam.eligibleTeacherIds
-                      : [detailExam.teacherId, subjectTeacherId]
-                    ).filter(Boolean) as string[],
-                  );
-                  const people = teachers
-                    .filter((teacher) => eligibleIds.has(teacher.id))
-                    .map((teacher) => ({ id: teacher.id, name: teacher.name }));
-                  if (
-                    detailExam.teacherId &&
-                    !people.some((person) => person.id === detailExam.teacherId)
-                  ) {
-                    people.unshift({
-                      id: detailExam.teacherId,
-                      name: detailExam.teacherName || "Subject teacher",
-                    });
-                  }
-                  return (
-                    <ExamTeacherMention
-                      subject={subjectLabel(detailExam.subject)}
-                      people={people}
-                      granted={granted}
-                      primaryId={detailExam.teacherId}
-                      canEdit={canRun && detailExam.workflowStatus !== "PUBLISHED"}
-                      busy={pending === "grantExamMarks"}
-                      onGrant={(teacherId) =>
-                        void run(
-                          "grantExamMarks",
-                          { examId: detailExam.id, teacherId },
-                          "Marks entry granted",
-                        )
-                      }
-                      onRemove={(teacherId) =>
-                        void run(
-                          "grantExamMarks",
-                          { examId: detailExam.id, teacherId, remove: true },
-                          "Marks entry removed",
-                        )
-                      }
-                    />
-                  );
-                })() : null}
+                {!isHistoryImportPaper(detailExam) ? (
+                  <View className="overflow-hidden rounded-lg border border-ink-100">
+                    {(["paper", "checking"] as const).map((role, i) => {
+                      const isPaper = role === "paper";
+                      const currentId = isPaper ? detailExam.setterId || detailExam.teacherId || "" : detailExam.teacherId || "";
+                      const name = teachers.find((t) => t.id === currentId)?.name || (isPaper ? detailExam.setterName : detailExam.teacherName) || "No teacher yet";
+                      const locked = !canRun || (isPaper ? Boolean(detailExam.paperAt) : (detailExam.entered ?? 0) > 0 || ["SUBMITTED", "UNDER_REVIEW", "RESUBMITTED", "APPROVED", "PUBLISHED", "IN_PROGRESS", "MARKS_DRAFT"].includes(detailExam.workflowStatus || ""));
+                      return (
+                        <View key={role} className={`flex-row items-center gap-2.5 px-3 py-2.5 ${i ? "border-t border-ink-100" : ""}`}>
+                          <View className="h-7 w-7 items-center justify-center rounded-full bg-[#EEF4FF]">
+                            <Text className="text-[10px] font-semibold text-clay-500">{initials(name)}</Text>
+                          </View>
+                          <View className="min-w-0 flex-1">
+                            <Text className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">{isPaper ? "Paper setter" : "Copy checker"}</Text>
+                            {locked ? (
+                              <Text className="text-[13px] font-medium text-ink-900" numberOfLines={1}>{name}</Text>
+                            ) : (
+                              <Select
+                                value={currentId}
+                                placeholder="Pick the teacher"
+                                options={teachers.map((t) => ({ id: t.id, label: t.name }))}
+                                onChange={(id) => {
+                                  if (id !== currentId)
+                                    void run(
+                                      "reassignExamRole",
+                                      { examId: detailExam.id, role, teacherId: id },
+                                      `${detailExam.subject.name}: ${isPaper ? "paper setter" : "copy checker"} changed. Both teachers were told.`,
+                                    );
+                                }}
+                              />
+                            )}
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                ) : null}
                 <View className="gap-2">
                   <Text className="text-[10px] font-semibold uppercase tracking-wide text-ink-700">
                     {isHistoryImportPaper(detailExam) ? "History status" : "Exam progress"}
@@ -1262,44 +1460,54 @@ export function ExamsBoard() {
                       </View>
                     </View>
                   ) : (
-                    <ExamTimeline
-                      paper={Boolean(detailExam.paperAt)}
-                      paperHint={detailExam.paperAt ? `Prepared on ${prettyDay(detailExam.paperAt)}` : undefined}
-                      scheduled={Boolean(detailExam.date)}
-                      scheduledHint={prettyFull(detailExam.date)}
-                      conducted={Boolean(detailExam.conductedAt)}
-                      conductedHint={detailExam.conductedAt ? prettyDay(detailExam.conductedAt) : undefined}
-                      marksGranted={marksGranted(detailExam)}
-                      marksGrantedHint={
-                        marksGranted(detailExam)
-                          ? `${(detailExam.evaluators || []).length || 1} teacher${(detailExam.evaluators || []).length === 1 ? "" : "s"} can enter marks`
-                          : "Office must allow marks entry"
-                      }
-                      marksDone={(detailExam.entered ?? 0) >= studentCount && studentCount > 0}
-                      marksHint={`${detailExam.entered ?? 0}/${studentCount} entered`}
-                      submitted={officeSubmitted(detailExam.workflowStatus)}
-                      correction={detailExam.workflowStatus === "CORRECTION_REQUIRED"}
-                      correctionHint={
-                        detailExam.workflowStatus === "CORRECTION_REQUIRED"
-                          ? detailExam.correctionNote || "Sent back to the teacher"
-                          : undefined
-                      }
-                      approved={detailExam.workflowStatus === "APPROVED" || detailExam.workflowStatus === "PUBLISHED"}
-                      published={detailExam.workflowStatus === "PUBLISHED"}
-                      publishedHint={
-                        detailExam.workflowStatus === "PUBLISHED"
-                          ? allPublished
-                            ? "This paper is published. Send the sitting to parents when ready."
-                            : "This paper is published. The full report card waits until every subject is published."
-                          : undefined
-                      }
-                      released={allPublished}
-                      releasedHint={
-                        allPublished ? "Send results to parents with the fee condition." : "Waits until every paper is published."
-                      }
+                    <ExamSimpleSteps
+                      steps={[
+                        { title: "Scheduled", done: true, hint: prettyFull(detailExam.date) },
+                        {
+                          title: "Paper ready",
+                          done: Boolean(detailExam.paperAt) || day(detailExam.date) <= day(new Date().toISOString()),
+                          hint: detailExam.paperAt
+                            ? `Received on ${prettyDay(detailExam.paperAt)}`
+                            : detailExam.paperHandedAt
+                              ? "Handed over · waiting for you to confirm"
+                            : detailExam.paperDueOn
+                              ? `Due by ${prettyDay(detailExam.paperDueOn)}`
+                              : "",
+                        },
+                        {
+                          title: "Exam done",
+                          done: Boolean(detailExam.conductedAt) || day(detailExam.date) <= day(new Date().toISOString()),
+                          hint: prettyDay(detailExam.date),
+                        },
+                        {
+                          title: "Marks entered",
+                          done: officeSubmitted(detailExam.workflowStatus) || detailExam.workflowStatus === "PUBLISHED",
+                          hint: `${detailExam.entered ?? 0}/${studentCount} entered`,
+                        },
+                        {
+                          title: "Published",
+                          done: detailExam.workflowStatus === "PUBLISHED",
+                          hint:
+                            detailExam.workflowStatus === "PUBLISHED"
+                              ? "Parents can see these marks"
+                              : adminCanPublish(detailExam.workflowStatus)
+                                ? "Press Publish when ready"
+                                : "",
+                        },
+                      ]}
                     />
                   )}
                 </View>
+                {!isHistoryImportPaper(detailExam) ? (
+                  <OfficePaperHandover
+                    exam={detailExam}
+                    canRun={canRun}
+                    busy={pending === "receiveExamPaper" || pending === "returnExamPaper"}
+                    onReceive={() => void run("receiveExamPaper", { examId: detailExam.id }, `${detailExam.subject.name} paper received. The teacher has been told.`)}
+                    onReturn={(reason) => run("returnExamPaper", { examId: detailExam.id, reason }, `${detailExam.subject.name} paper sent back to the teacher.`)}
+                    onOpenFile={(path) => void openPrivateFile(token, path).catch((e) => toast.show(e instanceof Error ? e.message : "Could not open the file."))}
+                  />
+                ) : null}
                 <View className="flex-row flex-wrap gap-2">
                   {canRun && isHistoryImportPaper(detailExam) ? (
                     <Button className="w-full" onPress={() => void openMarksEditor(detailExam)}>
@@ -1320,37 +1528,14 @@ export function ExamsBoard() {
                         await openMarksEditor(detailExam);
                       }}
                     >
-                      Review marks
+                      View marks
                     </ExamAction>
                   ) : null}
-                  {canRun && !isHistoryImportPaper(detailExam) && adminCanReview(detailExam.workflowStatus) ? (
-                    <ExamAction
-                      done={approvedFlash === detailExam.id}
-                      onPress={() => setApproveExamId(detailExam.id)}
-                    >
-                      Approve marks
-                    </ExamAction>
-                  ) : null}
-                  {canRun &&
-                  !isHistoryImportPaper(detailExam) &&
-                  (detailExam.workflowStatus === "SUBMITTED" ||
-                    detailExam.workflowStatus === "UNDER_REVIEW" ||
-                    detailExam.workflowStatus === "APPROVED") ? (
-                    <Button
-                      variant="ghost"
-                      onPress={() => {
-                        setReturnExamId(detailExam.id);
-                        setReturnNote(detailExam.correctionNote || "");
-                      }}
-                    >
-                      Return for correction
-                    </Button>
-                  ) : null}
-                  {canPublish && !isHistoryImportPaper(detailExam) && adminCanPublish(detailExam.workflowStatus) ? (
-                    <ExamAction onPress={() => void publishToParents(detailExam.id)}>Publish paper</ExamAction>
+                  {canPublish && papers.length === 1 && !isHistoryImportPaper(detailExam) && adminCanPublish(detailExam.workflowStatus) ? (
+                    <ExamAction onPress={() => setPublishOpen(true)}>Publish result</ExamAction>
                   ) : null}
                   {canRun && !isHistoryImportPaper(detailExam) ? (
-                    <Button variant="ghost" className="w-full" onPress={() => openSchedule("edit")}>
+                    <Button variant="ghost" className="w-full" onPress={() => setEditDatesOpen(true)}>
                       Edit paper details
                     </Button>
                   ) : null}
@@ -1425,6 +1610,193 @@ export function ExamsBoard() {
           await reload();
         }}
       />
+    </View>
+  );
+}
+
+/** One place for results: locked until every paper has marks, then a single "Publish results" for the whole exam. */
+function ResultsBar({
+  total,
+  ready,
+  allPublished,
+  canPublish,
+  busy,
+  onPreview,
+  onPublish,
+  issueButton,
+}: {
+  total: number;
+  ready: number;
+  allPublished: boolean;
+  canPublish: boolean;
+  busy: boolean;
+  onPreview: () => void;
+  onPublish: () => void;
+  issueButton?: React.ReactNode;
+}) {
+  const waiting = total - ready;
+  const tone = allPublished ? "border-emerald-100 bg-emerald-50" : waiting ? "border-ink-200 bg-white" : "border-clay-100 bg-[#EEF3FF]";
+  return (
+    <View className={`flex-row flex-wrap items-center gap-3 rounded-xl border px-4 py-2.5 ${tone}`}>
+      {allPublished ? (
+        <View className="h-8 w-8 items-center justify-center rounded-full bg-emerald-500">
+          <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+        </View>
+      ) : null}
+      <View className="min-w-[220px] flex-1">
+        <Text className="text-[14px] font-semibold text-ink-900">
+          {allPublished ? "Results published to parents" : waiting ? `Results · ${ready} of ${total} papers have marks` : `All ${total} papers have marks`}
+        </Text>
+        <Text className="mt-0.5 text-[12px] text-ink-700">
+          {allPublished
+            ? "Families can see the report card."
+            : waiting
+              ? `Publishing unlocks when every paper is in. ${waiting} still ${waiting === 1 ? "needs" : "need"} marks.`
+              : "Check the marks, then publish once. Every paper goes to parents together."}
+        </Text>
+        {!allPublished ? (
+          <View className="mt-2 h-1.5 w-full max-w-[280px] overflow-hidden rounded-full bg-ink-100">
+            <View className="h-full rounded-full bg-clay-500" style={{ width: `${total ? (ready / total) * 100 : 0}%` }} />
+          </View>
+        ) : null}
+      </View>
+      {canPublish ? (
+        <View className="flex-row flex-wrap items-center gap-2">
+          {allPublished ? (
+            <Pressable accessibilityRole="button" disabled={busy} onPress={onPublish} className="h-9 flex-row items-center gap-1.5 rounded-lg px-2 active:bg-emerald-100">
+              <Ionicons name="refresh" size={14} color="#047857" />
+              <Text className="text-[13px] font-medium text-emerald-700">{busy ? "Sending…" : "Send again"}</Text>
+            </Pressable>
+          ) : null}
+          {!waiting ? (
+            <Button variant="ghost" onPress={onPreview} className="anekio-btn h-9 px-3 py-1.5">
+              Preview results
+            </Button>
+          ) : null}
+          {allPublished ? (
+            issueButton
+          ) : (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ disabled: Boolean(waiting) || busy }}
+              disabled={Boolean(waiting) || busy}
+              onPress={onPublish}
+              className={`h-9 items-center justify-center rounded-lg px-4 ${waiting ? "bg-ink-200" : "bg-clay-500"}`}
+            >
+              <Text className={`text-[14px] font-semibold ${waiting ? "text-ink-500" : "text-white"}`}>{busy ? "Publishing…" : "Publish results"}</Text>
+            </Pressable>
+          )}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+/** Office side of the paper handover: Received / Send back, or mark received directly. */
+function OfficePaperHandover({
+  exam,
+  canRun,
+  busy,
+  onReceive,
+  onReturn,
+  onOpenFile,
+}: {
+  exam: {
+    paperAt?: string | null;
+    paperHandedAt?: string | null;
+    paperHandNote?: string;
+    paperReturnNote?: string;
+    paperFilePath?: string;
+    paperFileName?: string | null;
+    setterName?: string;
+    teacherName?: string;
+  };
+  canRun: boolean;
+  busy: boolean;
+  onReceive: () => void;
+  onReturn: (reason: string) => Promise<unknown>;
+  onOpenFile: (path: string) => void;
+}) {
+  const [returning, setReturning] = useState(false);
+  const [reason, setReason] = useState("");
+  const who = exam.setterName || exam.teacherName || "The teacher";
+  const when = (iso?: string | null) =>
+    iso ? new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "";
+  const file = exam.paperFilePath ? (
+    <Pressable accessibilityRole="button" onPress={() => onOpenFile(String(exam.paperFilePath))} className="flex-row items-center gap-1.5 self-start py-0.5">
+      <Ionicons name="attach-outline" size={14} color="#2563EB" />
+      <Text className="text-[12px] font-medium text-clay-600" numberOfLines={1}>{exam.paperFileName || "Soft copy"}</Text>
+    </Pressable>
+  ) : null;
+
+  if (exam.paperAt) {
+    return (
+      <View className="gap-1 rounded-xl border border-emerald-100 bg-emerald-50 px-3.5 py-3">
+        <Text className="text-[13px] font-semibold text-emerald-800">{`✓ Question paper received · ${when(exam.paperAt)}`}</Text>
+        {file}
+      </View>
+    );
+  }
+  if (exam.paperHandedAt) {
+    return (
+      <View className="gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3">
+        <Text className="text-[13px] font-semibold text-amber-900">{`${who} handed over the paper · ${when(exam.paperHandedAt)}`}</Text>
+        {exam.paperHandNote ? <Text className="text-[12px] text-amber-900">{`Note: ${exam.paperHandNote}`}</Text> : null}
+        {file}
+        {canRun ? (
+          returning ? (
+            <View className="gap-2">
+              <TextInput
+                value={reason}
+                onChangeText={setReason}
+                maxLength={300}
+                autoFocus
+                placeholder="What needs fixing? e.g. page 2 missing"
+                placeholderTextColor="#94A3B8"
+                className="rounded-lg border border-ink-200 bg-white px-3 py-2 text-[13px] text-ink-900"
+              />
+              <View className="flex-row flex-wrap justify-end gap-2">
+                <Button variant="ghost" onPress={() => setReturning(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="danger"
+                  disabled={busy || reason.trim().length < 3}
+                  onPress={async () => {
+                    await onReturn(reason.trim());
+                    setReturning(false);
+                    setReason("");
+                  }}
+                >
+                  Send back
+                </Button>
+              </View>
+            </View>
+          ) : (
+            <View className="flex-row flex-wrap gap-2">
+              <Button disabled={busy} onPress={onReceive}>
+                Received ✓
+              </Button>
+              <Button variant="ghost" disabled={busy} onPress={() => setReturning(true)}>
+                Send back
+              </Button>
+            </View>
+          )
+        ) : null}
+      </View>
+    );
+  }
+  return (
+    <View className="gap-2 rounded-xl border border-ink-200 bg-white px-3.5 py-3">
+      <Text className="text-[13px] font-semibold text-ink-900">
+        {exam.paperReturnNote ? "Paper sent back to the teacher" : "Question paper not handed over yet"}
+      </Text>
+      {exam.paperReturnNote ? <Text className="text-[12px] text-red-700">{`Reason: ${exam.paperReturnNote}`}</Text> : null}
+      {canRun ? (
+        <Pressable accessibilityRole="button" disabled={busy} onPress={onReceive} className="self-start py-0.5">
+          <Text className="text-[12px] font-medium text-clay-600">Already have it? Mark received</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }

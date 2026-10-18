@@ -35,11 +35,10 @@ export function grantedEvaluatorIds(exam: {
   evaluatorIds?: string[] | null;
   evaluators?: { teacherId?: string; id?: string }[] | null;
 }) {
+  // The paper's own teacher can always enter marks (no office "allow" step). Extra evaluators are added on top.
   const fromJoin = (exam.evaluators || []).map(evaluatorRowId).filter(Boolean);
-  if (exam.evaluatorIds?.length) return [...new Set(exam.evaluatorIds.filter(Boolean))];
-  if (fromJoin.length) return [...new Set(fromJoin)];
-  if (exam.teacherId && exam.marksGrantedAt) return [exam.teacherId];
-  return [];
+  const extra = exam.evaluatorIds?.length ? exam.evaluatorIds.filter(Boolean) : fromJoin;
+  return [...new Set([exam.teacherId || "", ...extra].filter(Boolean))];
 }
 
 export function eligibleMarksTeacherIds(input: {
@@ -80,6 +79,27 @@ export function teacherIsEvaluator(
   teacherId?: string | null
 ) {
   return Boolean(teacherId && examEvaluatorIds(exam).includes(teacherId));
+}
+
+/** Why a teacher cannot enter marks on this paper right now, in plain words ("" = they can). */
+export function teacherMarksBlock(
+  exam: {
+    workflowStatus?: string | null;
+    teacherId?: string | null;
+    date?: Date | string | null;
+    evaluatorIds?: string[] | null;
+    evaluators?: { teacherId?: string; id?: string }[] | null;
+  },
+  teacherId?: string | null
+) {
+  if (!teacherId || !grantedEvaluatorIds(exam).includes(teacherId)) return "This paper is assigned to another teacher.";
+  if (!teacherCanEditMarks(exam.workflowStatus)) return "Marks for this paper are already sent.";
+  if (exam.date) {
+    const india = (d: Date) => new Date(d.getTime() + 330 * 60000).toISOString().slice(0, 10);
+    const examDay = typeof exam.date === "string" ? exam.date.slice(0, 10) : india(exam.date);
+    if (examDay > india(new Date())) return `Marks open on the exam day (${examDay.split("-").reverse().join("-")}).`;
+  }
+  return "";
 }
 
 export function teacherMayEnterMarks(
@@ -151,18 +171,19 @@ export function adminCanReview(status?: string | null) {
   return status === "SUBMITTED" || status === "UNDER_REVIEW" || status === "RESUBMITTED";
 }
 
+/** Teacher submits → admin publishes. No separate review/approve step is required. */
 export function adminCanPublish(status?: string | null) {
-  return status === "APPROVED";
+  return status === "APPROVED" || status === "SUBMITTED" || status === "RESUBMITTED" || status === "UNDER_REVIEW";
 }
 
 const TRANSITIONS: Record<ExamWorkflowStatus, ExamWorkflowStatus[]> = {
   SCHEDULED: ["IN_PROGRESS", "MARKS_DRAFT", "SUBMITTED"],
   IN_PROGRESS: ["MARKS_DRAFT", "SUBMITTED"],
   MARKS_DRAFT: ["MARKS_DRAFT", "SUBMITTED"],
-  SUBMITTED: ["UNDER_REVIEW", "CORRECTION_REQUIRED", "APPROVED"],
-  UNDER_REVIEW: ["CORRECTION_REQUIRED", "APPROVED"],
+  SUBMITTED: ["UNDER_REVIEW", "CORRECTION_REQUIRED", "APPROVED", "PUBLISHED"],
+  UNDER_REVIEW: ["CORRECTION_REQUIRED", "APPROVED", "PUBLISHED"],
   CORRECTION_REQUIRED: ["MARKS_DRAFT", "SUBMITTED", "RESUBMITTED"],
-  RESUBMITTED: ["UNDER_REVIEW", "CORRECTION_REQUIRED", "APPROVED"],
+  RESUBMITTED: ["UNDER_REVIEW", "CORRECTION_REQUIRED", "APPROVED", "PUBLISHED"],
   APPROVED: ["PUBLISHED", "CORRECTION_REQUIRED"],
   PUBLISHED: [],
 };
@@ -194,7 +215,7 @@ export function workflowLabel(status?: string | null) {
     case "MARKS_DRAFT":
       return "Marks in progress";
     case "SUBMITTED":
-      return "Submitted — awaiting review";
+      return "Marks sent — ready to publish";
     case "UNDER_REVIEW":
       return "Under review";
     case "CORRECTION_REQUIRED":

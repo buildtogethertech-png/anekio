@@ -54,6 +54,7 @@ import { runExamCronNotifications } from "../lib/exam-notification-run";
 import { ensureAccessRoles, loadAccess } from "../lib/roles";
 import { scopePolicyFor } from "../lib/permissions";
 import { onboardingSpreadsheetTemplate } from "../lib/onboarding";
+import { pastExamTemplate } from "../lib/past-exams";
 import { finishOnboardingGoogleAuth } from "../lib/onboarding-google";
 import { withPublicRequestOrigin } from "../lib/utils";
 import { hasHostnamePrefix, normalizeHostname, schoolSlugFromHostname } from "../lib/host-routing";
@@ -546,6 +547,26 @@ app.get("/api/v1/onboarding/template", async (req, res) => {
     res.send(template.buffer);
   } catch (e) {
     sendError(res, 400, e instanceof Error ? e.message : "Template unavailable");
+  }
+});
+
+app.get("/api/v1/exams/past-template", async (req, res) => {
+  const user = await requireUser(req, res);
+  if (!user) return;
+  if (!(await requireActiveSubscription(user.id, res))) return;
+  try {
+    const template = await pastExamTemplate(user, {
+      sessionId: String(req.query.sessionId || ""),
+      classId: String(req.query.classId || ""),
+      planItemId: String(req.query.planItemId || ""),
+      maxMarks: String(req.query.maxMarks || ""),
+    });
+    res.setHeader("Content-Type", template.contentType);
+    res.setHeader("Content-Disposition", `attachment; filename="${template.fileName}"`);
+    res.setHeader("Cache-Control", "no-store");
+    res.send(template.buffer);
+  } catch (e) {
+    sendError(res, 400, e instanceof Error ? e.message : "Sheet unavailable");
   }
 });
 

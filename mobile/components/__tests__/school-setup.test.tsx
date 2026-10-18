@@ -87,8 +87,7 @@ describe("SchoolSubjectsForm", () => {
     fireEvent.press(screen.getByLabelText("Add subject"));
     fireEvent.changeText(screen.getByPlaceholderText("ENG"), "HIN-5");
     fireEvent.changeText(screen.getByPlaceholderText("English"), "HINDI");
-    const addButtons = screen.getAllByRole("button", { name: "Add subject" });
-    fireEvent.press(addButtons[addButtons.length - 1]);
+    fireEvent.press(screen.getByText("Add HIN-5"));
 
     expect(screen.queryByText("That subject is already in the catalog.")).toBeNull();
     expect(screen.queryByText("That subject code is already in the catalog.")).toBeNull();
@@ -98,11 +97,15 @@ describe("SchoolSubjectsForm", () => {
     expect(screen.getByLabelText("Edit HIN-5 · HINDI in catalog")).toBeTruthy();
   });
 
-  it("pops up when the subject code is already in the catalog", () => {
+  it("suggests one code per class, skips codes already in the catalog, and lets you cross some out", () => {
     render(
       <SchoolSubjectsForm
-        catalog={[{ code: "HIN", name: "Hindi" }]}
-        classes={[{ id: "class-5-a", label: "5-A", name: "5", subjects: [] }]}
+        catalog={[{ code: "HIN", name: "Hindi" }, { code: "HIN-5", name: "Hindi" }]}
+        classes={[
+          { id: "class-5-a", label: "5-A", name: "5", subjects: [] },
+          { id: "class-6-a", label: "6-A", name: "6", subjects: [] },
+          { id: "class-7-a", label: "7-A", name: "7", subjects: [] },
+        ]}
         onSaveCatalog={jest.fn()}
         onSaveClass={jest.fn()}
       />
@@ -110,13 +113,15 @@ describe("SchoolSubjectsForm", () => {
 
     fireEvent.press(screen.getByText("Manage catalog"));
     fireEvent.press(screen.getByLabelText("Add subject"));
-    fireEvent.changeText(screen.getByPlaceholderText("ENG"), "HIN");
     fireEvent.changeText(screen.getByPlaceholderText("English"), "Hindi");
-    const addButtons = screen.getAllByRole("button", { name: "Add subject" });
-    fireEvent.press(addButtons[addButtons.length - 1]);
-
-    expect(screen.getByText("Can't add subject")).toBeTruthy();
-    expect(screen.getByText("That subject code is already in the catalog.")).toBeTruthy();
+    fireEvent.changeText(screen.getByPlaceholderText("ENG"), "HIN");
+    expect(screen.getAllByText("already in catalog")).toHaveLength(2);
+    expect(screen.getByText("Add 2 codes")).toBeTruthy();
+    fireEvent.press(screen.getByLabelText("Don't add HIN-7"));
+    fireEvent.press(screen.getByText("Add HIN-6"));
+    fireEvent.press(screen.getByLabelText("Open Hindi"));
+    expect(screen.getByLabelText("Edit HIN-6 · Hindi in catalog")).toBeTruthy();
+    expect(screen.queryByLabelText("Edit HIN-7 · Hindi in catalog")).toBeNull();
   });
 
   it("lets the class list drop a subject locally so save can clear routine and teachers", () => {
@@ -278,28 +283,30 @@ describe("SchoolSubjectsForm", () => {
 });
 
 describe("SchoolSubjectsForm add subject", () => {
-  it("offers only the class's own grade codes, with a way to see the rest", () => {
+  it("offers only orphan codes that no class uses", () => {
     render(
       <SchoolSubjectsForm
         catalog={[
-          { code: "SST", name: "Social Studies" },
           { code: "SST-3", name: "Social Studies" },
           { code: "ENG", name: "English" },
           { code: "ENG-1", name: "English" },
+          { code: "MAT", name: "Mathematics" },
         ]}
-        classes={[{ id: "class-1-a", label: "1-A", name: "1", subjects: [] }]}
+        classes={[
+          { id: "class-1-a", label: "1-A", name: "1", subjects: [] },
+          { id: "class-2-a", label: "2-A", name: "2", subjects: [{ id: "s1", code: "MAT", name: "Mathematics", weightage: 4 }] },
+        ]}
         onSaveCatalog={jest.fn()}
         onSaveClass={jest.fn()}
       />
     );
     fireEvent.press(screen.getByText("+ Add Subject"));
-    expect(screen.getByLabelText("SST · Social Studies")).toBeTruthy();
-    expect(screen.getByLabelText("ENG-1 · English")).toBeTruthy();
-    expect(screen.queryByLabelText("SST-3 · Social Studies")).toBeNull();
-    expect(screen.queryByLabelText("ENG · English")).toBeNull();
-    expect(screen.getByText("Pick a subject")).toBeTruthy();
-    fireEvent.press(screen.getByText("Show codes from other classes (2)"));
     expect(screen.getByLabelText("SST-3 · Social Studies")).toBeTruthy();
+    expect(screen.getByLabelText("ENG · English")).toBeTruthy();
+    expect(screen.getByLabelText("ENG-1 · English")).toBeTruthy();
+    expect(screen.queryByLabelText("MAT · Mathematics")).toBeNull();
+    expect(screen.queryByText(/Show codes from other classes/)).toBeNull();
+    expect(screen.getByText("Pick a subject")).toBeTruthy();
   });
 
   it("asks before removing a catalog code", () => {

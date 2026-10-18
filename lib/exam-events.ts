@@ -222,6 +222,18 @@ export async function notifyExamAssigned(exam: ExamNoticeCtx, authorId?: string 
   });
 }
 
+export async function notifyExamReassigned(exam: ExamNoticeCtx, authorId?: string | null) {
+  const userIds = assignedTeacherUserIds(exam);
+  if (!userIds.length) return;
+  await emitExactExamNotice({
+    eventKey: examEventKey(["EXAM", exam.id, "EXAM_REASSIGNED", exam.teacherId || ""]),
+    title: `Exam assigned: ${exam.subject.name}`,
+    body: `${examSittingName(exam)} · ${examClassLabel(exam)}\nThis paper is now yours. Exam date ${prettyIndiaDay(exam.date)}.`,
+    userIds,
+    authorId,
+  });
+}
+
 export async function notifySeriesAssigned(seriesId: string, authorId?: string | null) {
   const series = await prisma.examSeries.findUnique({
     where: { id: seriesId },
@@ -265,6 +277,42 @@ export async function notifyPaperSubmitted(exam: ExamNoticeCtx, authorId?: strin
     body: `${examSittingName(exam)} · ${examClassLabel(exam)}`,
     userIds: await examAdminUserIds(),
     authorId,
+  });
+}
+
+/** Teacher handed the question paper over; every exam office user can confirm it. */
+export async function notifyPaperHandedOver(exam: ExamNoticeCtx, authorId?: string | null, note?: string) {
+  await emitExactExamNotice({
+    eventKey: examEventKey(["EXAM", exam.id, "PAPER_HANDED", Date.now()]),
+    title: `Paper handed over: ${exam.subject.name}`,
+    body: `${examSittingName(exam)} · ${examClassLabel(exam)}\nConfirm you received it on the exam page.${note ? `\nNote: ${note}` : ""}`,
+    userIds: await examAdminUserIds(),
+    authorId,
+  });
+}
+
+function setterUserId(exam: ExamNoticeCtx) {
+  return exam.setter?.user.id || exam.teacher?.user.id || "";
+}
+
+export async function notifyPaperReceived(exam: ExamNoticeCtx, authorId?: string | null) {
+  await emitExactExamNotice({
+    eventKey: examEventKey(["EXAM", exam.id, "PAPER_RECEIVED", Date.now()]),
+    title: `Office received your ${exam.subject.name} paper`,
+    body: `${examSittingName(exam)} · ${examClassLabel(exam)}`,
+    userIds: [setterUserId(exam)],
+    authorId,
+  });
+}
+
+export async function notifyPaperReturned(exam: ExamNoticeCtx, authorId: string | null | undefined, reason: string) {
+  await emitExactExamNotice({
+    eventKey: examEventKey(["EXAM", exam.id, "PAPER_RETURNED", Date.now()]),
+    title: `${exam.subject.name} paper sent back`,
+    body: `${examSittingName(exam)} · ${examClassLabel(exam)}\nReason: ${reason}\nFix it and hand it over again.`,
+    userIds: [setterUserId(exam)],
+    authorId,
+    priority: "HIGH",
   });
 }
 
@@ -384,8 +432,8 @@ export async function notifyResultsPublished(input: {
     if (userIds.length) {
       await emitExactExamNotice({
         eventKey: examEventKey(["EXAM", input.exam.id, "RESULT_PUBLISHED"]),
-        title: `${input.exam.subject.name} result published`,
-        body: `${examSittingName(input.exam)} · ${examClassLabel(input.exam)}\nOffice published this paper. Parents receive the report card only after every subject is published.`,
+        title: `${examSittingName(input.exam)} results are out`,
+        body: `${examClassLabel(input.exam)} · ${input.exam.subject.name}\nThank you for evaluating. ${input.sendToParents ? "Families can now see the report card." : "Results are visible in the app."}`,
         userIds,
         authorId: input.authorId,
       });
@@ -410,14 +458,24 @@ export async function notifyResultsPublished(input: {
     },
   });
   if (!series) return;
+  // The whole sitting is published at once: one calm notice per teacher listing
+  // their subjects, instead of one notice per paper.
+  const subjectsByUser = new Map<string, string[]>();
   for (const exam of series.exams) {
-    const userIds = evaluatorNoticeUserIds(exam);
-    if (!userIds.length) continue;
+    for (const userId of evaluatorNoticeUserIds(exam)) {
+      const list = subjectsByUser.get(userId) || [];
+      if (!list.includes(exam.subject.name)) list.push(exam.subject.name);
+      subjectsByUser.set(userId, list);
+    }
+  }
+  const first = series.exams[0];
+  const classLabel = first ? examClassLabel(first) : "";
+  for (const [userId, subjects] of subjectsByUser) {
     await emitExactExamNotice({
-      eventKey: examEventKey(["EXAM", exam.id, "RESULT_PUBLISHED"]),
-      title: `${exam.subject.name} result published`,
-      body: `${examSittingName(exam)} · ${examClassLabel(exam)}\nOffice published this paper. Parents receive the report card only after every subject is published.`,
-      userIds,
+      eventKey: examEventKey(["SERIES", series.id, "RESULT_PUBLISHED", userId]),
+      title: `${series.name} results are out`,
+      body: `${classLabel} · ${subjects.join(", ")}\nThank you for evaluating. ${input.sendToParents ? "Families can now see the report card." : "Results are visible in the app."}`,
+      userIds: [userId],
       authorId: input.authorId,
     });
   }

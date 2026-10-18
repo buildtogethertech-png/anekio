@@ -1,7 +1,7 @@
 import { prisma } from "./prisma";
 import { buildCollectionSeries, buildDeskPulse, collectionWindow, startOfDay } from "./desk";
 import { classifyStudent } from "./classify";
-import { addDays, gradePolicyFrom, paperSetterId, parseExamPlan, ymd } from "./exams";
+import { addDays, gradePolicyFrom, paperSetterId, effectiveExamPlan, parseExamPlan, ymd } from "./exams";
 import { packedEvaluators, examEvaluatorIds, grantedEvaluatorIds } from "./exam-evaluators";
 import { teacherAssignedToPaper } from "./exam-marks";
 import { compareExamNearness, eligibleMarksTeacherIds, examWorkStepOrder, teacherMayEnterMarks, teacherMayTakeExam } from "./exam-workflow";
@@ -393,23 +393,11 @@ export async function getTeacherDesk(userId: string) {
         id: `paper-${exam.id}`,
         examId: exam.id,
         kind: "paper",
-        title: `Set ${formatSubjectLabel(exam.subject.code, exam.subject.name)} paper`,
+        title: `Set ${exam.subject.name} paper`,
         hint: `${where} · ${dueLine(due)}`,
         href,
         dueOn: ymd(exam.date),
         urgency: dueUrgency(due),
-      });
-    }
-    if (teacherMayTakeExam(exam, teacher.id) && students) {
-      todos.push({
-        id: `take-${exam.id}`,
-        examId: exam.id,
-        kind: "take",
-        title: `Take exam · ${formatSubjectLabel(exam.subject.code, exam.subject.name)}`,
-        hint: `${where} · paper set · exam ${ymd(exam.date)}`,
-        href,
-        dueOn: ymd(exam.date),
-        urgency: dueUrgency(exam.date),
       });
     }
     if (teacherMayEnterMarks(exam, teacher.id) && students) {
@@ -417,7 +405,7 @@ export async function getTeacherDesk(userId: string) {
         id: `marks-${exam.id}`,
         examId: exam.id,
         kind: "marks",
-        title: exam.workflowStatus === "CORRECTION_REQUIRED" ? `Correct marks · ${formatSubjectLabel(exam.subject.code, exam.subject.name)}` : `Enter marks · ${formatSubjectLabel(exam.subject.code, exam.subject.name)}`,
+        title: exam.workflowStatus === "CORRECTION_REQUIRED" ? `Correct marks · ${exam.subject.name}` : `Enter marks · ${exam.subject.name}`,
         hint: `${exam._count.results}/${students} entered · ${where}`,
         href: `${href}&view=register`,
         dueOn: ymd(exam.date),
@@ -491,11 +479,27 @@ export async function getTeacherDesk(userId: string) {
         maxMarks: exam.maxMarks,
         classLabel: label,
         date: ymd(exam.date),
+        startTime: exam.startTime || "",
+        endTime: exam.endTime || "",
         seriesName: exam.series?.name || exam.title,
         workflowStatus: exam.workflowStatus,
         correctionNote: exam.correctionNote || "",
         entered: exam._count.results,
         canEnterMarks: teacherMayEnterMarks(exam, teacher.id),
+        // The teacher's 3 steps: paper ready → exam day → checking done.
+        paperDueOn: exam.paperDueOn ? ymd(exam.paperDueOn) : "",
+        copiesDueOn: exam.copiesDueOn ? ymd(exam.copiesDueOn) : "",
+        paperDone: Boolean(exam.paperAt),
+        // Handed over but the office hasn't confirmed yet; or sent back with a reason.
+        paperWaiting: Boolean(!exam.paperAt && exam.paperHandedAt),
+        paperHandedAt: exam.paperHandedAt?.toISOString() ?? "",
+        paperHandNote: exam.paperHandNote || "",
+        paperReturnNote: exam.paperAt ? "" : exam.paperReturnNote || "",
+        paperFileName: exam.paperFileName || "",
+        paperFilePath: exam.paperFilePath || "",
+        isSetter: paperSetterId(exam) === teacher.id,
+        // Checks copies and enters marks (the paper maker may be someone else).
+        isChecker: grantedEvaluatorIds(exam).includes(teacher.id),
         students: (studentsByClass.get(exam.classId) || []).map((s) => {
           const saved = byStudent.get(s.id);
           return {
@@ -742,7 +746,8 @@ export async function getPeopleExamPack() {
   const planBySession: Record<string, ReturnType<typeof parseExamPlan>> = {};
   for (const row of series) {
     if (!planBySession[row.sessionId]) {
-      planBySession[row.sessionId] = parseExamPlan(row.session.examPlanJson);
+      const used = series.filter((s) => s.sessionId === row.sessionId).map((s) => s.planItemId);
+      planBySession[row.sessionId] = effectiveExamPlan(row.session.examPlanJson, used);
     }
   }
   return {
@@ -783,6 +788,12 @@ export async function getPeopleExamPack() {
         correctionNote: e.correctionNote || "",
         entered: e.results.length,
         paperAt: e.paperAt?.toISOString() ?? null,
+        startTime: e.startTime || "",
+        endTime: e.endTime || "",
+        paperHandedAt: e.paperHandedAt?.toISOString() ?? null,
+        paperHandNote: e.paperHandNote || "",
+        paperReturnNote: e.paperAt ? "" : e.paperReturnNote || "",
+        paperFilePath: e.paperFilePath || "",
         marksGrantedAt: e.marksGrantedAt?.toISOString() ?? null,
         conductedAt: e.conductedAt?.toISOString() ?? null,
         paperFileName: e.paperFileName || "",

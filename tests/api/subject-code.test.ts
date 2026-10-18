@@ -141,7 +141,7 @@ describe.sequential("subject code API", () => {
     expect(count).toBe(1);
   });
 
-  it("loads a grade-coded catalog subject onto that class", async () => {
+  it("does not put a grade-coded catalog subject onto a class by itself", async () => {
     await prisma.class.create({ data: { id: "class-5-a", name: "5", section: "A" } });
     const saved = await act(officeToken, "saveSchoolSubjects", {
       entries: [
@@ -153,7 +153,7 @@ describe.sequential("subject code API", () => {
       ],
     });
     expect(saved.status).toBe(200);
-    expect(await prisma.subject.count({ where: { classId: "class-5-a", code: "SAN-5" } })).toBe(1);
+    expect(await prisma.subject.count({ where: { classId: "class-5-a", code: "SAN-5" } })).toBe(0);
     expect(await prisma.subject.count({ where: { classId: fixture.classId, code: "SAN-5" } })).toBe(0);
   });
 

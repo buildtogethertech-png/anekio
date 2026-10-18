@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Platform, Pressable, ScrollView, Text, View, type ViewStyle } from "react-native";
+import { Platform, Pressable, ScrollView, Text, useWindowDimensions, View, type ViewStyle } from "react-native";
 import { act } from "../lib/mutate";
 import { marksReviewCsv, sheetCellState, sheetRowScore, subjectCompletion } from "../lib/exam-marks";
 import { workflowLabel } from "../lib/exam-workflow";
@@ -92,6 +92,9 @@ export function ExamMarksReview({
   const [reason, setReason] = useState("");
   const [history, setHistory] = useState<HistoryRow[]>([]);
   const [busy, setBusy] = useState("");
+  const [missingOnly, setMissingOnly] = useState(false);
+  const { width } = useWindowDimensions();
+  const narrow = width < 760;
 
   const papers = exams.filter((exam) => {
     if (subjectId && exam.subject.id !== subjectId) return false;
@@ -136,34 +139,11 @@ export function ExamMarksReview({
     }
   }
 
-  async function requestCorrection() {
-    if (!picked || !reason.trim()) return;
-    setBusy("correct");
-    try {
-      await act(token, "requestExamMarkCorrection", { examId: picked.examId, studentId: picked.studentId, note: reason.trim() });
-      setPicked(null);
-      await onRan("Correction requested from the subject teacher");
-    } finally {
-      setBusy("");
-    }
-  }
-
   async function remind(examId: string) {
     setBusy("remind");
     try {
       await act(token, "remindExamMarks", { examId });
       await onRan("Reminder sent to the subject teacher");
-    } finally {
-      setBusy("");
-    }
-  }
-
-  async function approvePaper(examId: string) {
-    setBusy("approve");
-    try {
-      await act(token, "approveExamMarks", { examId });
-      setPicked(null);
-      await onRan("Mark sheet approved");
     } finally {
       setBusy("");
     }
@@ -189,163 +169,201 @@ export function ExamMarksReview({
     );
   }
 
+  const waiting = completions.filter((c) => c.pending > 0);
+  const allPublished = exams.length > 0 && exams.every((e) => e.workflowStatus === "PUBLISHED");
+  const ready = !waiting.length && !allPublished;
+  const shown = missingOnly
+    ? rows.filter((student) => papers.some((exam) => !byKey.get(`${exam.id}:${student.id}`)))
+    : rows;
+  const nameOf = (exam: Exam) => exam.subject.name;
+  const shortOf = (exam: Exam) => (exam.subject.code || exam.subject.name).replace(/-\d+$/, "").slice(0, 4).toUpperCase();
+
+  function cellText(exam: Exam, studentId: string) {
+    const mark = byKey.get(`${exam.id}:${studentId}`);
+    if (!mark) return { text: "—", tone: "missing" as const };
+    if (mark.absent) return { text: "AB", tone: "absent" as const };
+    return { text: String(mark.marks), tone: "ok" as const };
+  }
+  const toneClass = { missing: "bg-amber-50", absent: "", ok: "" };
+  const toneText = { missing: "text-amber-700", absent: "text-ink-500", ok: "text-ink-900" };
+
   return (
-    <View className="gap-3">
-      <View className="flex-row flex-wrap items-center justify-between gap-2">
-        <Text className="text-base font-semibold text-ink-900">
-          {seriesName} · {classLabel}
+    <View className="gap-4">
+      <View className="flex-row items-center justify-between gap-3">
+        <Text className={`min-w-0 flex-1 ${narrow ? "text-[22px]" : "text-[26px]"} font-bold tracking-tight text-ink-900`}>
+          {seriesName} · {classLabel} · Marks
         </Text>
-        <View className="flex-row flex-wrap gap-2">
-          {canPublish && approvedCount ? (
-            <Button disabled={Boolean(pending)} onPress={onPublish}>
-              Publish {approvedCount} to parents
-            </Button>
-          ) : null}
+        {narrow ? (
+          <Pressable accessibilityRole="button" onPress={exportSheet} className="h-9 flex-row items-center gap-1 rounded-lg border border-ink-200 bg-white px-3">
+            <Text className="text-[13px] font-medium text-ink-800">Export</Text>
+          </Pressable>
+        ) : (
           <Button variant="ghost" onPress={exportSheet}>
             Export
           </Button>
-        </View>
+        )}
       </View>
+
+      <View className={`rounded-xl border border-ink-200 bg-white px-4 py-3 ${narrow ? "gap-3" : "flex-row items-center gap-4"}`}>
+        <View className="min-w-0 flex-1">
+          <Text className="text-[14px] font-semibold text-ink-900">
+            {allPublished
+              ? "All papers published"
+              : `${exams.length - waiting.length} of ${exams.length} papers complete`}
+          </Text>
+          <Text className="mt-0.5 text-[13px] text-ink-600">
+            {allPublished
+              ? "Parents can see these marks."
+              : waiting.length
+                ? `${waiting.map((c) => nameOf(c.exam as Exam)).join(", ")} still ${waiting.length === 1 ? "needs" : "need"} marks`
+                : "Every paper has marks. Publish when you are ready."}
+          </Text>
+        </View>
+        {canPublish && !allPublished ? (
+          <Button disabled={!ready || Boolean(pending)} onPress={onPublish}>
+            Publish results
+          </Button>
+        ) : null}
+      </View>
+
       <View className="flex-row flex-wrap items-center gap-2">
-        <View className="min-w-[220px] flex-1">
-          <Input value={query} onChangeText={setQuery} placeholder="Search student or admission no." />
+        <View className="min-w-[200px] flex-1">
+          <Input value={query} onChangeText={setQuery} placeholder="Search student" />
         </View>
-        <ChipScroller>
-          {(
-            [
-              ["", "All"],
-              ["PENDING", "Pending"],
-              ["CORRECTION_REQUIRED", "Correction"],
-              ["SUBMITTED", "Submitted"],
-              ["APPROVED", "Approved"],
-              ["PUBLISHED", "Published"],
-            ] as const
-          ).map(([id, label]) => (
-            <Chip key={id || "all"} label={label} active={status === id} onPress={() => setStatus(id)} />
-          ))}
-        </ChipScroller>
+        <Pressable
+          accessibilityRole="switch"
+          accessibilityState={{ checked: missingOnly }}
+          onPress={() => setMissingOnly((v) => !v)}
+          className={`h-10 flex-row items-center gap-2 rounded-lg border px-3 ${missingOnly ? "border-amber-300 bg-amber-50" : "border-ink-200 bg-white"}`}
+        >
+          <View className={`h-4 w-7 justify-center rounded-full px-0.5 ${missingOnly ? "items-end bg-amber-500" : "items-start bg-ink-200"}`}>
+            <View className="h-3 w-3 rounded-full bg-white" />
+          </View>
+          <Text className={`text-[13px] font-medium ${missingOnly ? "text-amber-800" : "text-ink-700"}`}>Missing marks only</Text>
+        </Pressable>
       </View>
-      <Text className="text-xs text-ink-700">
-        {sessionLabel ? `${sessionLabel} · ` : ""}
-        {students.length} students · {exams.length} subjects · {completeCells}/{totalCells || 0} complete · {pendingCells} pending
-        {correctionCells ? ` · ${correctionCells} correction` : ""}
-      </Text>
-      <ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator={false}>
-        <View className="flex-row gap-1.5 pb-1">
-          <Chip label="All subjects" active={!subjectId} onPress={() => setSubjectId("")} />
-          {completions.map((row) => {
-            const on = subjectId === row.exam.subject.id;
-            return (
-              <Pressable
-                key={row.exam.id}
-                onPress={() => setSubjectId(on ? "" : row.exam.subject.id)}
-                className={`rounded-md border px-2.5 py-1.5 ${on ? "border-ink-900 bg-ink-900" : "border-ink-200 bg-white"}`}
-              >
-                <Text className={`text-xs ${on ? "text-white" : "text-ink-900"}`}>
-                  {subjectLabel(row.exam.subject)}
-                  <Text className={on ? "text-white/70" : row.pending || row.correction ? "text-amber-800" : "text-ink-700"}>
-                    {`  ${row.entered}/${row.studentCount}`}
-                  </Text>
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </ScrollView>
-      <View className="overflow-hidden rounded-xl border border-ink-200 bg-white">
-        <ScrollView horizontal nestedScrollEnabled>
-          <View>
-            <View className="flex-row border-b border-ink-200 bg-ink-50">
-              <Pressable onPress={() => setSort("admission")} className="w-[108px] justify-center border-r border-ink-100 bg-ink-50 px-3 py-2.5" style={sticky ? { ...sticky, left: 0 } : undefined}>
-                <Text className="text-[10px] font-medium uppercase tracking-wide text-ink-700">Admission</Text>
-              </Pressable>
-              <Pressable onPress={() => setSort("name")} className="w-[156px] justify-center border-r border-ink-100 bg-ink-50 px-3 py-2.5" style={sticky ? { ...sticky, left: 108 } : undefined}>
-                <Text className="text-[10px] font-medium uppercase tracking-wide text-ink-700">Student</Text>
-              </Pressable>
-              {papers.map((exam) => (
-                <Pressable key={exam.id} onPress={() => setSubjectId(exam.subject.id)} className="w-[92px] items-center border-r border-ink-100 px-1.5 py-2">
-                  <Text className="text-center text-xs font-semibold text-ink-900" numberOfLines={1}>
-                    {subjectLabel(exam.subject)}
-                  </Text>
-                  <Text className="text-[10px] text-ink-700">/{exam.maxMarks}</Text>
-                </Pressable>
-              ))}
-              <View className="w-[72px] items-center justify-center px-2 py-2">
-                <Text className="text-[10px] font-medium uppercase tracking-wide text-ink-700">Total</Text>
-              </View>
-              <View className="w-[56px] items-center justify-center px-2 py-2">
-                <Text className="text-[10px] font-medium uppercase tracking-wide text-ink-700">%</Text>
-              </View>
-            </View>
-            <ScrollView nestedScrollEnabled style={{ maxHeight: 520 }}>
-              {rows.map((student) => {
-                const studentMarks = marks.filter((row) => row.studentId === student.id);
-                const score = sheetRowScore(papers, studentMarks);
-                return (
-                  <View key={student.id} className="flex-row border-b border-ink-50">
-                    <View className="w-[108px] justify-center border-r border-ink-100 bg-white px-3 py-2" style={sticky ? { ...sticky, left: 0 } : undefined}>
-                      <Text className="text-xs text-ink-800" numberOfLines={1}>
-                        {studentMetaLine(student) || "—"}
-                      </Text>
+
+      {narrow ? (
+        <View className="overflow-hidden rounded-xl border border-ink-200 bg-white">
+          {shown.length ? (
+            shown.map((student, index) => {
+              const score = sheetRowScore(papers, marks.filter((row) => row.studentId === student.id));
+              return (
+                <View key={student.id} className={`px-4 py-3 ${index ? "border-t border-ink-100" : ""}`}>
+                  <View className="flex-row items-center gap-3">
+                    <Text className="w-6 text-[13px] tabular-nums text-ink-400">{student.rollNumber ?? ""}</Text>
+                    <View className="min-w-0 flex-1">
+                      <Text className="text-[15px] font-semibold text-ink-900" numberOfLines={1}>{student.name}</Text>
+                      <Text className="text-[12px] text-ink-500">{student.admissionNo || ""}</Text>
                     </View>
-                    <View className="w-[156px] justify-center border-r border-ink-100 bg-white px-3 py-2" style={sticky ? { ...sticky, left: 108 } : undefined}>
-                      <Text className="text-sm font-medium text-ink-900" numberOfLines={1}>
-                        {student.name}
-                      </Text>
-                    </View>
+                    <Text className="text-[15px] font-semibold tabular-nums text-ink-900">
+                      {score.entered ? `${Math.round(score.pct)}%` : "—"}
+                    </Text>
+                  </View>
+                  <View className="ml-9 mt-2 flex-row flex-wrap gap-1.5">
                     {papers.map((exam) => {
-                      const mark = byKey.get(`${exam.id}:${student.id}`);
-                      if (status === "PENDING" && mark) return <View key={exam.id} className="w-[92px] border-r border-ink-50" />;
-                      const cell = sheetCellState({ workflowStatus: exam.workflowStatus, mark });
+                      const c = cellText(exam, student.id);
                       return (
                         <Pressable
                           key={exam.id}
                           onPress={() => void openCell(exam.id, student.id)}
-                          className={`w-[92px] items-center justify-center border-r border-ink-50 py-2 ${cellClass(cell.kind)}`}
+                          className={`flex-row items-center gap-1 rounded-md border px-2 py-1 ${c.tone === "missing" ? "border-amber-200 bg-amber-50" : "border-ink-100 bg-ink-50/60"}`}
                         >
-                          <Text className={`text-xs font-medium ${cellColor(cell.kind)}`}>
-                            {cell.kind === "pending" || cell.kind === "correction" || cell.label.startsWith("✓") || cell.label === "Ab"
-                              ? cell.label
-                              : `${cell.label}/${exam.maxMarks}`}
-                          </Text>
+                          <Text className="text-[11px] text-ink-500">{shortOf(exam)}</Text>
+                          <Text className={`text-[12px] font-semibold tabular-nums ${toneText[c.tone]}`}>{c.text}</Text>
                         </Pressable>
                       );
                     })}
-                    <View className="w-[72px] items-center justify-center px-2 py-2">
-                      <Text className="text-xs font-medium text-ink-900">{score.entered ? `${score.total}/${score.max}` : "—"}</Text>
-                    </View>
-                    <View className="w-[56px] items-center justify-center px-2 py-2">
-                      <Text className="text-xs text-ink-700">{score.entered ? `${score.pct}` : "—"}</Text>
-                    </View>
                   </View>
-                );
-              })}
-            </ScrollView>
-          </View>
-        </ScrollView>
-      </View>
+                </View>
+              );
+            })
+          ) : (
+            <Text className="px-4 py-8 text-center text-[13px] text-ink-500">{missingOnly ? "No missing marks." : "No one matches that search."}</Text>
+          )}
+        </View>
+      ) : (
+        <View className="overflow-hidden rounded-xl border border-ink-200 bg-white">
+          <ScrollView horizontal nestedScrollEnabled>
+            <View>
+              <View className="flex-row border-b border-ink-200 bg-ink-50">
+                <View className="w-[44px] justify-center bg-ink-50 px-3 py-2.5" style={sticky ? { ...sticky, left: 0 } : undefined}>
+                  <Text className="text-[11px] font-medium text-ink-500">#</Text>
+                </View>
+                <View className="w-[200px] justify-center border-r border-ink-200 bg-ink-50 px-3 py-2.5" style={sticky ? { ...sticky, left: 44 } : undefined}>
+                  <Text className="text-[11px] font-medium uppercase tracking-wide text-ink-500">Student</Text>
+                </View>
+                {papers.map((exam) => (
+                  <View key={exam.id} className="w-[84px] items-center justify-center px-1.5 py-2">
+                    <View className="flex-row items-center gap-1">
+                      <Text className="text-[12px] font-semibold text-ink-900" numberOfLines={1}>{shortOf(exam)}</Text>
+                      {exam.workflowStatus === "PUBLISHED" ? <View className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> : null}
+                    </View>
+                    <Text className="text-[10px] text-ink-500">/{exam.maxMarks}</Text>
+                  </View>
+                ))}
+                <View className="w-[72px] items-center justify-center border-l border-ink-200 px-2 py-2">
+                  <Text className="text-[11px] font-medium uppercase tracking-wide text-ink-500">Total</Text>
+                </View>
+                <View className="w-[56px] items-center justify-center px-2 py-2">
+                  <Text className="text-[11px] font-medium uppercase tracking-wide text-ink-500">%</Text>
+                </View>
+              </View>
+              <ScrollView nestedScrollEnabled style={{ maxHeight: 560 }}>
+                {shown.length ? (
+                  shown.map((student) => {
+                    const score = sheetRowScore(papers, marks.filter((row) => row.studentId === student.id));
+                    return (
+                      <View key={student.id} className="flex-row border-b border-ink-100">
+                        <View className="w-[44px] justify-center bg-white px-3 py-2" style={sticky ? { ...sticky, left: 0 } : undefined}>
+                          <Text className="text-[13px] tabular-nums text-ink-400">{student.rollNumber ?? ""}</Text>
+                        </View>
+                        <View className="w-[200px] justify-center border-r border-ink-200 bg-white px-3 py-2" style={sticky ? { ...sticky, left: 44 } : undefined}>
+                          <Text className="text-[14px] font-medium text-ink-900" numberOfLines={1}>{student.name}</Text>
+                          <Text className="text-[11px] text-ink-500" numberOfLines={1}>{student.admissionNo || ""}</Text>
+                        </View>
+                        {papers.map((exam) => {
+                          const c = cellText(exam, student.id);
+                          return (
+                            <Pressable
+                              key={exam.id}
+                              onPress={() => void openCell(exam.id, student.id)}
+                              className={`w-[84px] items-center justify-center py-2 hover:bg-ink-50 ${toneClass[c.tone]}`}
+                            >
+                              <Text className={`text-[14px] tabular-nums ${c.tone === "ok" ? "font-medium" : "font-semibold"} ${toneText[c.tone]}`}>{c.text}</Text>
+                            </Pressable>
+                          );
+                        })}
+                        <View className="w-[72px] items-center justify-center border-l border-ink-200 px-2 py-2">
+                          <Text className="text-[14px] font-semibold tabular-nums text-ink-900">{score.entered ? score.total : "—"}</Text>
+                        </View>
+                        <View className="w-[56px] items-center justify-center px-2 py-2">
+                          <Text className="text-[13px] tabular-nums text-ink-600">{score.entered ? `${Math.round(score.pct)}%` : "—"}</Text>
+                        </View>
+                      </View>
+                    );
+                  })
+                ) : (
+                  <Text className="px-4 py-8 text-center text-[13px] text-ink-500">{missingOnly ? "No missing marks." : "No one matches that search."}</Text>
+                )}
+              </ScrollView>
+            </View>
+          </ScrollView>
+        </View>
+      )}
+      <Text className="text-[12px] text-ink-500">Tap a mark to see its history. Amber “—” = not entered yet · AB = absent · green dot = published.</Text>
       <Modal
         open={Boolean(picked)}
         onClose={() => setPicked(null)}
-        title={pickedExam ? subjectLabel(pickedExam.subject) : "Mark"}
+        title={pickedExam && pickedStudent ? `${pickedStudent.name} · ${nameOf(pickedExam)}` : "Mark"}
         footer={
           <View className="flex-row flex-wrap justify-end gap-2">
             <Button variant="ghost" onPress={() => setPicked(null)}>
               Close
             </Button>
-            {pickedExam && canEdit && pickedExam.workflowStatus !== "PUBLISHED" && pickedExam.workflowStatus !== "APPROVED" ? (
-              <Button variant="ghost" disabled={Boolean(busy || pending)} onPress={() => void remind(pickedExam.id)}>
-                Send reminder
-              </Button>
-            ) : null}
-            {pickedExam && canEdit && (pickedExam.workflowStatus === "SUBMITTED" || pickedExam.workflowStatus === "UNDER_REVIEW" || pickedExam.workflowStatus === "RESUBMITTED") ? (
-              <Button disabled={Boolean(busy || pending)} onPress={() => void approvePaper(pickedExam.id)}>
-                Approve paper
-              </Button>
-            ) : null}
-            {pickedExam && canEdit && pickedExam.workflowStatus !== "PUBLISHED" && pickedMark ? (
-              <Button disabled={Boolean(busy || pending) || !reason.trim()} onPress={() => void requestCorrection()}>
-                Request correction
+            {pickedExam && canEdit && !pickedMark && pickedExam.workflowStatus !== "PUBLISHED" ? (
+              <Button disabled={Boolean(busy || pending)} onPress={() => void remind(pickedExam.id)}>
+                Remind teacher
               </Button>
             ) : null}
           </View>
@@ -353,35 +371,31 @@ export function ExamMarksReview({
       >
         {pickedExam && pickedStudent ? (
           <View className="gap-3">
-            <View className="gap-1">
-              <Text className="text-sm font-medium text-ink-900">{pickedStudent.name}</Text>
-              <Text className="text-xs text-ink-700">{studentMetaLine(pickedStudent) || "—"}</Text>
+            <View className="flex-row items-end justify-between rounded-xl bg-ink-50 px-4 py-3">
+              <View>
+                <Text className="text-[12px] text-ink-500">Mark</Text>
+                <Text className="text-[22px] font-bold tabular-nums text-ink-900">
+                  {pickedMark ? (pickedMark.absent ? "Absent" : `${pickedMark.marks} / ${pickedExam.maxMarks}`) : "Not entered"}
+                </Text>
+              </View>
+              <Text className="text-[12px] text-ink-500">{pickedExam.teacherName || ""}</Text>
             </View>
-            <Text className="text-sm text-ink-700">
-              {seriesName} · {classLabel}
-              {"\n"}Status: {pickedMark ? workflowLabel(pickedExam.workflowStatus) : "Awaiting marks"}
-              {"\n"}Teacher: {pickedExam.teacherName || "—"}
-              {"\n"}Maximum: {pickedExam.maxMarks}
-              {"\n"}Current: {pickedMark ? (pickedMark.absent ? "Absent" : `${pickedMark.marks} / ${pickedExam.maxMarks}`) : "PENDING"}
-            </Text>
-            {pickedMark?.correctionNote ? (
-              <Text className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">{pickedMark.correctionNote}</Text>
-            ) : null}
-            {pickedExam.workflowStatus !== "PUBLISHED" && pickedMark && canEdit ? (
-              <Input value={reason} onChangeText={setReason} placeholder="Reason for the subject teacher" />
-            ) : null}
             <View>
-              <Text className="mb-2 text-[11px] font-medium uppercase tracking-wide text-ink-700">History</Text>
+              <Text className="mb-2 text-[11px] font-medium uppercase tracking-wide text-ink-500">History</Text>
               {history.length ? (
                 history.map((row) => (
-                  <Text key={row.id} className="mb-2 text-xs text-ink-700">
-                    {row.action.replace(/_/g, " ")} · {row.absent ? "Absent" : row.marks} · {row.actorName}
-                    {row.note ? `\n${row.note}` : ""}
-                    {`\n${new Date(row.at).toLocaleString("en-IN")}`}
-                  </Text>
+                  <View key={row.id} className="mb-2">
+                    <Text className="text-[13px] text-ink-800">
+                      {row.absent ? "Absent" : row.marks} · {row.actorName}
+                    </Text>
+                    <Text className="text-[11px] text-ink-500">
+                      {new Date(row.at).toLocaleString("en-IN")}
+                      {row.note ? ` · ${row.note}` : ""}
+                    </Text>
+                  </View>
                 ))
               ) : (
-                <Text className="text-xs text-ink-700">No history yet for this cell.</Text>
+                <Text className="text-[13px] text-ink-500">No changes yet.</Text>
               )}
             </View>
           </View>

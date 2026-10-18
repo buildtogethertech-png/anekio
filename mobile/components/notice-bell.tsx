@@ -3,35 +3,14 @@ import { useRouter } from "expo-router";
 import { useState } from "react";
 import { ActivityIndicator, Modal, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { hrefForNotice } from "../lib/notice-kind";
-import { classifyNotice, CLASSIFIED_NOTICE_LABEL, noticeBellVisible, type ClassifiedNoticeKind } from "../lib/notice-kind";
+import { noticeBellVisible } from "../lib/notice-kind";
 import { useNoticeInbox } from "../lib/notice-inbox";
 import { useSession } from "../lib/session";
+import { NoticeList } from "./notice-list";
 import { QrDockButton } from "./staff-attendance-qr";
 import { ProfileMenuButton } from "./profile-menu";
 import { useRecord } from "../lib/record";
 import { visibleTabs } from "../lib/nav-icons";
-
-const TAG_STYLE: Record<ClassifiedNoticeKind, string> = {
-  ADMISSION: "bg-amber-100 text-amber-900",
-  EXAM: "bg-orange-100 text-orange-900",
-  FEES: "bg-emerald-100 text-emerald-900",
-  FEEDBACK: "bg-slate-100 text-slate-700",
-  ATTENDANCE: "bg-yellow-100 text-yellow-900",
-  LEAVE: "bg-indigo-100 text-indigo-900",
-  CIRCULAR: "bg-blue-100 text-blue-800",
-  UNKNOWN: "bg-slate-100 text-slate-700",
-};
-
-function postedWhen(value: string) {
-  return new Date(value).toLocaleString("en-IN", {
-    day: "numeric",
-    month: "short",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
-}
 
 export function NoticeBell() {
   const { nav } = useSession();
@@ -130,45 +109,17 @@ export function NoticeBell() {
               </View>
             ) : (
               <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: panelHeight - 58 }}>
-                {rows.map((notice) => {
-                  const { kind } = classifyNotice(notice);
-                  const unreadRow = !inbox?.isSeen(notice.id);
-                  const href = hrefForNotice(kind, notice, navKeys);
-                  return (
-                    <Pressable
-                      key={notice.id}
-                      accessibilityRole="button"
-                      accessibilityLabel={`${CLASSIFIED_NOTICE_LABEL[kind]}. ${notice.title}`}
-                      onPress={async () => {
-                        await inbox?.markSeen(notice.id);
-                        setOpen(false);
-                        router.push(href as never);
-                      }}
-                      className={`border-b border-ink-100 px-4 py-3 ${unreadRow ? "bg-white" : "bg-ink-50/60"}`}
-                    >
-                      <View className="flex-row items-start gap-3">
-                        <View className="min-w-0 flex-1">
-                          <View className="flex-row items-center gap-2">
-                            <Text className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${TAG_STYLE[kind]}`}>
-                              {CLASSIFIED_NOTICE_LABEL[kind]}
-                            </Text>
-                            {unreadRow ? <View className="h-2 w-2 rounded-full bg-blue-600" /> : null}
-                            <Text className="ml-auto text-xs text-ink-500">{postedWhen(notice.createdAt)}</Text>
-                          </View>
-                          <Text className={`mt-1.5 text-sm ${unreadRow ? "font-bold text-ink-900" : "font-semibold text-ink-700"}`} numberOfLines={1}>
-                            {notice.title}
-                          </Text>
-                          {notice.body ? (
-                            <Text className="mt-0.5 text-xs leading-5 text-ink-600" numberOfLines={2}>
-                              {notice.body}
-                            </Text>
-                          ) : null}
-                        </View>
-                        <Ionicons name="chevron-forward" size={16} color="#94a3b8" style={{ marginTop: 24 }} />
-                      </View>
-                    </Pressable>
-                  );
-                })}
+                <NoticeList
+                  dense
+                  rows={rows}
+                  navKeys={navKeys}
+                  isSeen={(id) => Boolean(inbox?.isSeen(id))}
+                  onOpen={async (notice, href) => {
+                    await inbox?.markSeen(notice.id);
+                    setOpen(false);
+                    router.push(href as never);
+                  }}
+                />
               </ScrollView>
             )}
           </View>

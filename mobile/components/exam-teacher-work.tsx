@@ -238,7 +238,6 @@ export function TeacherMarksModal({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
-  const [returnNote, setReturnNote] = useState("");
   const locked = mode === "teacher" && !teacherCanEditMarks(sheet?.workflowStatus);
   const adminReview = mode === "admin";
 
@@ -252,15 +251,17 @@ export function TeacherMarksModal({
     setQuery("");
     setError("");
     setNote("");
-    setReturnNote("");
   }, [sheet]);
 
   const needle = query.trim().toLowerCase();
+  const ordered = !sheet
+    ? []
+    : sheet.students.slice().sort((a, b) => (Number(a.rollNumber) || 9999) - (Number(b.rollNumber) || 9999) || a.name.localeCompare(b.name));
   const visible = !sheet
     ? []
     : !needle
-      ? sheet.students
-      : sheet.students.filter((s) =>
+      ? ordered
+      : ordered.filter((s) =>
           [s.name, s.rollNumber, s.admissionNo].join(" ").toLowerCase().includes(needle)
         );
 
@@ -275,21 +276,6 @@ export function TeacherMarksModal({
         return { studentId: s.id, marks: absent ? "" : raw, absent };
       });
       await act(token, submit ? "submitExamMarks" : "saveExamMarks", { examId: sheet.examId, marks });
-      await onSaved();
-      onClose();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not save.");
-    } finally {
-      setPending(false);
-    }
-  }
-
-  async function adminRun(op: string) {
-    if (!sheet) return;
-    setPending(true);
-    setError("");
-    try {
-      await act(token, op, { examId: sheet.examId, note: returnNote });
       await onSaved();
       onClose();
     } catch (e) {
@@ -381,6 +367,10 @@ export function TeacherMarksModal({
   const entered = sheet
     ? sheet.students.filter((s) => (draft[s.id] || "").trim()).length
     : 0;
+  const changed = sheet
+    ? sheet.students.filter((s) => (draft[s.id] ?? "").trim() !== (s.absent ? "Ab" : s.marks == null ? "" : String(s.marks))).length
+    : 0;
+  const adminCanEdit = adminReview && sheet?.workflowStatus !== "PUBLISHED";
   const absents = sheet
     ? sheet.students.filter((s) => /^(ab|absent)$/i.test((draft[s.id] || "").trim())).length
     : 0;
@@ -388,46 +378,33 @@ export function TeacherMarksModal({
   return (
     <Modal
       open={Boolean(sheet)}
-      title={sheet ? `${sheet.subject}${sheet.classLabel ? ` · ${sheet.classLabel}` : ""}` : "Marks"}
+      title={sheet ? `${sheet.subject.replace(/^[A-Z0-9-]{2,12}\s*·\s*/, "")}${sheet.classLabel ? ` · ${sheet.classLabel}` : ""}` : "Marks"}
       onClose={onClose}
       wide
+      sheetOnPhone
       footer={
         sheet ? (
           <View className="flex-row flex-wrap items-center justify-between gap-3">
             <Text className="text-xs text-ink-700">
-              {entered} of {sheet.students.length} entered · {entered - absents} present · {absents} absent · {workflowLabel(sheet.workflowStatus)}
+              {`${entered}/${sheet.students.length} entered`}{absents ? ` · ${absents} absent` : ""}{adminReview ? ` · ${sheet.workflowStatus === "PUBLISHED" ? "Published" : entered === sheet.students.length ? "Ready to publish with the exam" : "Teacher still entering"}` : ` · ${workflowLabel(sheet.workflowStatus)}`}
             </Text>
             <View className="flex-row flex-wrap items-center justify-end gap-2">
-              <Button variant="ghost" disabled={pending} onPress={onClose}>Cancel</Button>
               {adminReview ? (
                 <>
-                  {sheet.workflowStatus !== "PUBLISHED" ? (
-                    <Button variant="ghost" disabled={pending} onPress={() => void saveTyped(false)}>
-                      Save overrides
-                    </Button>
-                  ) : null}
-                  {sheet.workflowStatus === "SUBMITTED" || sheet.workflowStatus === "UNDER_REVIEW" || sheet.workflowStatus === "APPROVED" ? (
-                    <Button
-                      variant="ghost"
-                      disabled={pending || !returnNote.trim()}
-                      onPress={() => void adminRun("returnExamMarks")}
-                    >
-                      Return for correction
-                    </Button>
-                  ) : null}
-                  {sheet.workflowStatus === "SUBMITTED" || sheet.workflowStatus === "UNDER_REVIEW" ? (
-                    <Button disabled={pending} onPress={() => void adminRun("approveExamMarks")}>
-                      Approve
-                    </Button>
-                  ) : null}
-                  {sheet.workflowStatus === "APPROVED" ? (
-                    <Button disabled={pending} onPress={() => void adminRun("publishExamResults")}>
-                      Publish to parents
+                  <Button variant="ghost" disabled={pending} onPress={onClose}>
+                    {changed ? "Cancel" : "Close"}
+                  </Button>
+                  {adminCanEdit ? (
+                    <Button disabled={pending || !changed} onPress={() => void saveTyped(false)}>
+                      {pending ? "Saving…" : changed ? `Save ${changed} change${changed === 1 ? "" : "s"}` : "Save changes"}
                     </Button>
                   ) : null}
                 </>
-              ) : locked ? null : (
+              ) : locked ? (
+                <Button variant="ghost" disabled={pending} onPress={onClose}>Close</Button>
+              ) : (
                 <>
+                  <Button variant="ghost" disabled={pending} onPress={onClose}>Cancel</Button>
                   <Button variant="ghost" disabled={pending} onPress={() => void saveTyped(false)}>
                     {pending ? "Saving…" : "Save draft"}
                   </Button>
@@ -443,6 +420,12 @@ export function TeacherMarksModal({
     >
       {sheet ? (
         <View>
+          {adminReview ? (
+            <Text className="text-[13px] text-ink-600">
+              {[sheet.seriesName, `out of ${sheet.maxMarks}`, sheet.date ? `exam ${Number(sheet.date.slice(8, 10))} ${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][Number(sheet.date.slice(5, 7)) - 1] || ""}` : ""].filter(Boolean).join(" · ")}
+              {adminCanEdit ? " · You can correct any mark here." : " · Published to parents."}
+            </Text>
+          ) : (
           <View className="rounded-md bg-ink-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
             <View className="min-w-0 flex-1">
               <Text className="text-sm font-medium text-ink-900">
@@ -465,21 +448,10 @@ export function TeacherMarksModal({
               ) : null}
             </View>
           </View>
+          )}
           {note ? <Text className="mt-3 rounded-md bg-blue-50 px-3 py-2 text-sm text-clay-600">{note}</Text> : null}
           {sheet.correctionNote ? (
             <Text className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">{sheet.correctionNote}</Text>
-          ) : null}
-          {adminReview ? (
-            <View className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3">
-              <Text className="text-sm font-medium text-amber-950">Return to teacher if marks are wrong</Text>
-              <Text className="mt-1 text-xs text-amber-900">Write what to correct, then use Return for correction.</Text>
-              <Input
-                value={returnNote}
-                onChangeText={setReturnNote}
-                placeholder="Required: tell the teacher what to correct"
-                className="mt-2 bg-white"
-              />
-            </View>
           ) : null}
           {error ? <Text className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</Text> : null}
           {sheet.students.length > 12 ? (
@@ -524,7 +496,7 @@ export function TeacherMarksModal({
                       onChangeText={(v) => setDraft((cur) => ({ ...cur, [s.id]: v }))}
                       placeholder={absent ? "Ab" : ""}
                       placeholderTextColor="#3d4f66"
-                      editable={!absent && !(locked || (mode === "teacher" && sheet.workflowStatus === "CORRECTION_REQUIRED" && sheet.students.some((row) => row.correctionRequested) && !s.correctionRequested && !sheet.correctionNote))}
+                      editable={!absent && !(adminReview && sheet.workflowStatus === "PUBLISHED") && !(locked || (mode === "teacher" && sheet.workflowStatus === "CORRECTION_REQUIRED" && sheet.students.some((row) => row.correctionRequested) && !s.correctionRequested && !sheet.correctionNote))}
                       style={{
                         width: 80,
                         height: 38,
@@ -540,7 +512,7 @@ export function TeacherMarksModal({
                       }}
                     />
                     <Pressable
-                      disabled={locked}
+                      disabled={locked || (adminReview && sheet.workflowStatus === "PUBLISHED")}
                       onPress={() =>
                         setDraft((cur) => ({
                           ...cur,

@@ -28,7 +28,7 @@ type ClassSubjectDraft = { id?: string; code: string; previousCode: string; name
 
 /** What counts as "changed" for the unsaved-changes guard: which subjects are on the class and their periods. */
 function draftSignature(rows: ClassSubjectDraft[] | undefined) {
-  return (rows || []).map((row) => `${row.id || row.previousCode || row.code}:${row.periods}`).join("|");
+  return (rows || []).map((row) => `${row.id || row.previousCode || row.code}:${row.code}:${row.periods}`).join("|");
 }
 
 /** Grade part of a catalog code: "ENG-2" → "2", "MATH6" → "6", "ENG" → "" (fits any grade). */
@@ -900,6 +900,10 @@ export function SchoolSubjectsForm({
   const [addCode, setAddCode] = useState("");
   const [addName, setAddName] = useState("");
   const [addOpen, setAddOpen] = useState(false);
+  /** Per-class codes the user crossed out in the Add subject popup (keys like "1", "2", or "*" for the plain code). */
+  const [addSkip, setAddSkip] = useState<string[]>(["*"]);
+  const [addCodeTouched, setAddCodeTouched] = useState(false);
+  const [groupCode, setGroupCode] = useState("");
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [catalogQuery, setCatalogQuery] = useState("");
   const [importOpen, setImportOpen] = useState(false);
@@ -951,15 +955,18 @@ export function SchoolSubjectsForm({
       .flatMap((klass) => (classSubjects[klass.id] || klass.subjects).map((row) => normalizeSubjectCode(row.code)))
       .filter(Boolean)
   );
-  const remainingCatalog = entries.filter((entry) => {
-    if (selectedRows.some((row) => row.code === entry.code || row.name === entry.name)) return false;
-    if (codesOnOtherGrades.has(entry.code)) return false;
-    return true;
-  });
-  const gradeCatalog = remainingCatalog.filter((entry) => catalogFitsGrade(entry, selectedGrade, entries));
-  const otherGradeCount = remainingCatalog.length - gradeCatalog.length;
-  const addPool = classAddAllGrades ? remainingCatalog : gradeCatalog;
+  // The add popup lists only orphan codes: catalog codes no class uses yet (any class, any grade).
+  const usedCodes = new Set(
+    classes.flatMap((klass) => (classSubjects[klass.id] || []).map((row) => normalizeSubjectCode(row.code))).filter(Boolean)
+  );
+  const orphanCatalog = entries.filter((entry) => !usedCodes.has(normalizeSubjectCode(entry.code)));
+  const otherGradeCount = 0;
+  const addPool = orphanCatalog;
   const addQuery = classAddQuery.trim().toLowerCase();
+  const sameNameRow = (entry: { name: string }) =>
+    selectedRows.find((row) => row.name.trim().toLowerCase() === entry.name.trim().toLowerCase());
+  const pickedForAdd = addPool.find((row) => row.code === classAddCode);
+  const replacing = pickedForAdd ? sameNameRow(pickedForAdd) : undefined;
   const remainingVisible = addPool.filter((row) => {
     if (!addQuery) return true;
     return `${row.code} ${row.name}`.toLowerCase().includes(addQuery);
@@ -1198,6 +1205,55 @@ export function SchoolSubjectsForm({
     setEntries([...entries, { code, name, previousCode: code }]);
     setAddCode("");
     setAddName("");
+    return true;
+  }
+
+  /** Classes in the school by grade, e.g. ["1","2",…,"10"], for the per-class codes in Add subject. */
+  const schoolGrades = [...new Set(classes.map((klass) => classGrade(klass)).filter(Boolean))].sort((a, b) => {
+    const x = Number(a);
+    const y = Number(b);
+    return Number.isFinite(x) && Number.isFinite(y) ? x - y : a.localeCompare(b);
+  });
+
+  function addCodeOptions(baseRaw: string) {
+    const base = normalizeSubjectCode(baseRaw).replace(/-?\d+$/, "") || normalizeSubjectCode(baseRaw);
+    if (!base) return [];
+    const rows = [
+      { key: "*", label: "Any class", code: base },
+      ...schoolGrades.map((grade) => ({ key: grade, label: `Class ${grade}`, code: normalizeSubjectCode(`${base}-${grade}`) })),
+    ];
+    return rows.map((row) => ({
+      ...row,
+      exists: entries.some((entry) => entry.code === row.code),
+      valid: clientCodeOk(row.code),
+    }));
+  }
+
+  function openCatalogAdd() {
+    setAddCode("");
+    setAddName("");
+    setAddSkip(["*"]);
+    setAddCodeTouched(false);
+    setNotice("");
+    setAddOpen(true);
+  }
+
+  function addCatalogCodes() {
+    const name = addName.trim();
+    const picked = addCodeOptions(addCode).filter((row) => !addSkip.includes(row.key) && !row.exists && row.valid);
+    if (!name) {
+      setNotice("Type the subject name.");
+      return false;
+    }
+    if (!picked.length) {
+      setNotice("Keep at least one new code.");
+      return false;
+    }
+    setNotice("");
+    setEntries([...entries, ...picked.map((row) => ({ code: row.code, name, previousCode: row.code }))]);
+    setAddCode("");
+    setAddName("");
+    setAddSkip(["*"]);
     return true;
   }
 
@@ -1504,14 +1560,22 @@ export function SchoolSubjectsForm({
         <View className="gap-3">
           {openGroup && !catalogQueryText ? (
             <>
-              <Pressable accessibilityRole="button" onPress={() => setCatalogSubjectKey("")} className="flex-row items-center gap-1 self-start py-1">
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  setCatalogSubjectKey("");
+                  setGroupCode("");
+                  setNotice("");
+                }}
+                className="flex-row items-center gap-1 self-start py-1"
+              >
                 <Ionicons name="chevron-back" size={16} color="#2563eb" />
                 <Text className="text-sm font-medium text-clay-600">All subjects</Text>
               </Pressable>
               <View>
                 <Text className="text-base font-semibold text-ink-900">{openGroup.name}</Text>
                 <Text className="mt-0.5 text-xs text-ink-700">
-                  {`${openGroup.items.length} ${openGroup.items.length === 1 ? "code" : "codes"} · tap one to rename or remove it`}
+                  {`${openGroup.items.length} ${openGroup.items.length === 1 ? "code" : "codes"} · tap one to rename or remove it, or add another below`}
                 </Text>
               </View>
               <View className="overflow-hidden rounded-md border border-ink-200">
@@ -1528,6 +1592,39 @@ export function SchoolSubjectsForm({
                   />
                 ))}
               </View>
+              <View className="gap-1.5 rounded-md border border-dashed border-ink-200 bg-ink-50 px-3 py-3">
+                <Text className="text-xs font-medium text-ink-800">{`Add another code for ${openGroup.name}`}</Text>
+                <View className="flex-row items-center gap-2">
+                  <View className="min-w-0 flex-1">
+                    <Input
+                      accessibilityLabel={`New code for ${openGroup.name}`}
+                      value={groupCode}
+                      onChangeText={(value) => setGroupCode(normalizeSubjectCode(value))}
+                      placeholder={(() => {
+                        const base = openGroup.items[0]?.row.code.replace(/-?\d+$/, "") || "CODE";
+                        let n = 1;
+                        while (entries.some((e) => e.code === `${base}-${n}`)) n += 1;
+                        return `${base}-${n}`;
+                      })()}
+                      autoCapitalize="characters"
+                      onSubmitEditing={() => {
+                        if (addCatalogEntry(groupCode, openGroup.items[0]?.row.name || openGroup.name)) setGroupCode("");
+                      }}
+                    />
+                  </View>
+                  <Button
+                    disabled={!groupCode.trim()}
+                    onPress={() => {
+                      if (addCatalogEntry(groupCode, openGroup.items[0]?.row.name || openGroup.name)) setGroupCode("");
+                    }}
+                  >
+                    Add code
+                  </Button>
+                </View>
+                {notice ? <Text className="text-xs text-red-700">{notice}</Text> : (
+                  <Text className="text-xs text-ink-500">{`For example, one code per class: ${(openGroup.items[0]?.row.code || "CODE").replace(/-?\d+$/, "")}-1, ${(openGroup.items[0]?.row.code || "CODE").replace(/-?\d+$/, "")}-2. Tap Save catalog to keep it.`}</Text>
+                )}
+              </View>
             </>
           ) : (
             <>
@@ -1542,7 +1639,7 @@ export function SchoolSubjectsForm({
                 <View className="min-w-0 flex-1">
                   <Input accessibilityLabel="Search subject" value={catalogQuery} onChangeText={setCatalogQuery} placeholder="ENG or English" />
                 </View>
-                <Button variant="ghost" accessibilityLabel="Add subject" onPress={() => setAddOpen(true)}>
+                <Button variant="ghost" accessibilityLabel="Add subject" onPress={openCatalogAdd}>
                   + Add
                 </Button>
               </View>
@@ -1610,21 +1707,86 @@ export function SchoolSubjectsForm({
       </Modal>
       <Modal open={addOpen} title="Add subject" onClose={() => setAddOpen(false)}>
         <View className="gap-3">
-          <Field label="Code">
-            <Input value={addCode} onChangeText={(value) => setAddCode(normalizeSubjectCode(value))} placeholder="ENG" autoCapitalize="characters" />
-          </Field>
           <Field label="Name">
-            <Input value={addName} onChangeText={setAddName} placeholder="English" />
-          </Field>
-          <View className="flex-row flex-wrap gap-2">
-            <Button
-              onPress={() => {
-                if (addCatalogEntry(addCode, addName)) setAddOpen(false);
+            <Input
+              value={addName}
+              onChangeText={(value) => {
+                setAddName(value);
+                // Suggest a short code from the name (English → ENG) until the user types their own.
+                if (!addCodeTouched) setAddCode(normalizeSubjectCode(value.replace(/[^A-Za-z]/g, "").slice(0, 3)));
               }}
-            >
-              Add subject
-            </Button>
-          </View>
+              placeholder="English"
+            />
+          </Field>
+          <Field label="Code">
+            <Input
+              value={addCode}
+              onChangeText={(value) => {
+                setAddCodeTouched(true);
+                setAddCode(normalizeSubjectCode(value));
+              }}
+              placeholder="ENG"
+              autoCapitalize="characters"
+            />
+          </Field>
+          {(() => {
+            const options = addCodeOptions(addCode);
+            if (!options.length) {
+              return (
+                <View className="gap-2">
+                  <View className="rounded-md border border-dashed border-ink-200 bg-ink-50 px-3 py-3">
+                    <Text className="text-[13px] text-ink-700">
+                      {schoolGrades.length
+                        ? `Type the name and code. You'll get one code per class (${schoolGrades.length} classes) — cross out the ones you don't need.`
+                        : "Type the name and code."}
+                    </Text>
+                  </View>
+                  <View className="flex-row pt-1">
+                    <Button disabled onPress={() => undefined}>Add codes</Button>
+                  </View>
+                </View>
+              );
+            }
+            const keep = options.filter((row) => !addSkip.includes(row.key) && !row.exists && row.valid);
+            return (
+              <View className="gap-2">
+                <Text className="text-xs font-medium text-ink-800">Codes to add · tap × on the ones you don't need</Text>
+                <View className="flex-row flex-wrap gap-2">
+                  {options.map((row) => {
+                    const off = addSkip.includes(row.key);
+                    const blocked = row.exists || !row.valid;
+                    return (
+                      <Pressable
+                        key={row.key}
+                        accessibilityRole="button"
+                        accessibilityLabel={off ? `Add ${row.code} back` : `Don't add ${row.code}`}
+                        disabled={blocked}
+                        onPress={() => setAddSkip((cur) => (off ? cur.filter((k) => k !== row.key) : [...cur, row.key]))}
+                        className={`flex-row items-center gap-1.5 rounded-md border px-2.5 py-1.5 ${
+                          blocked ? "border-ink-100 bg-ink-50" : off ? "border-dashed border-ink-200 bg-white" : "border-clay-500 bg-[#EEF3FF]"
+                        }`}
+                      >
+                        <Text className={`text-[13px] font-semibold ${blocked || off ? "text-ink-500" : "text-ink-900"} ${off ? "line-through" : ""}`}>{row.code}</Text>
+                        <Text className="text-[11px] text-ink-500">{row.exists ? "already in catalog" : !row.valid ? "too long" : row.label}</Text>
+                        {blocked ? null : <Ionicons name={off ? "add" : "close"} size={13} color={off ? "#2563eb" : "#64748b"} />}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                {notice ? <Text className="text-xs text-red-700">{notice}</Text> : null}
+                <View className="flex-row flex-wrap gap-2 pt-1">
+                  <Button
+                    disabled={!keep.length || !addName.trim()}
+                    onPress={() => {
+                      if (addCatalogCodes()) setAddOpen(false);
+                    }}
+                  >
+                    {keep.length === 1 ? `Add ${keep[0].code}` : `Add ${keep.length} codes`}
+                  </Button>
+                </View>
+              </View>
+            );
+          })()}
           <View className="border-t border-ink-100 pt-3">
             <Text className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-700">Defaults</Text>
             <View className="flex-row flex-wrap gap-2">
@@ -1649,7 +1811,22 @@ export function SchoolSubjectsForm({
             onPress={() => {
               const picked = addPool.find((row) => row.code === classAddCode);
               const periods = parsePeriods(classAddPeriods);
-              if (!picked || periods == null || periods <= 0 || !selected) return;
+              if (!picked || !selected) return;
+              const existing = sameNameRow(picked);
+              if (existing) {
+                // Same subject, different code → swap the code on the existing row (keeps periods and links).
+                setClassSubjects(
+                  syncGradeSubjectDrafts(
+                    classSubjects,
+                    classes,
+                    selected.id,
+                    selectedRows.map((row) => (row === existing ? { ...row, code: picked.code, name: picked.name } : row))
+                  )
+                );
+                closeClassAdd();
+                return;
+              }
+              if (periods == null || periods <= 0) return;
               setClassSubjects(
                 syncGradeSubjectDrafts(classSubjects, classes, selected.id, [
                   ...selectedRows,
@@ -1659,16 +1836,14 @@ export function SchoolSubjectsForm({
               closeClassAdd();
             }}
           >
-            {addPool.some((row) => row.code === classAddCode) ? "Add to class" : "Pick a subject"}
+            {!pickedForAdd ? "Pick a subject" : replacing ? `Use ${pickedForAdd.code} instead of ${replacing.code}` : "Add to class"}
           </Button>
         }
       >
         <View className="gap-3">
           {!addPool.length ? (
             <Text className="text-sm text-ink-700">
-              {remainingCatalog.length
-                ? `Every Class ${selectedGrade} subject in the catalog is already on this class.`
-                : "Every catalog subject is already on this class."}
+              {"Every catalog code is already used by a class. Add a new code in Manage catalog."}
             </Text>
           ) : (
             <>
@@ -1680,6 +1855,7 @@ export function SchoolSubjectsForm({
               <View className="flex-row flex-wrap gap-2">
                 {remainingVisible.map((row) => {
                   const active = classAddCode === row.code;
+                  const swapsWith = sameNameRow(row);
                   return (
                     <Pressable
                       key={row.code}
@@ -1692,6 +1868,9 @@ export function SchoolSubjectsForm({
                       {active ? <Ionicons name="checkmark" size={14} color="#fff" /> : null}
                       <Text className={`text-sm font-medium ${active ? "text-white" : "text-ink-900"}`}>{row.name}</Text>
                       <Text className={`text-[11px] font-medium tracking-wide ${active ? "text-white" : "text-ink-700"}`}>{row.code}</Text>
+                      {swapsWith ? (
+                        <Text className={`text-[11px] ${active ? "text-white/80" : "text-ink-500"}`}>{`instead of ${swapsWith.code}`}</Text>
+                      ) : null}
                     </Pressable>
                   );
                 })}
@@ -1713,10 +1892,19 @@ export function SchoolSubjectsForm({
               </Text>
             </Pressable>
           ) : null}
-          <View className="flex-row items-center justify-between gap-3 border-t border-ink-100 pt-3">
-            <Text className="text-sm font-medium text-ink-800">Periods / week</Text>
-            <PeriodStepper label="new subject" value={classAddPeriods} onChange={setClassAddPeriods} />
-          </View>
+          {replacing && pickedForAdd ? (
+            <View className="flex-row items-start gap-2 rounded-lg bg-amber-50 px-3 py-2.5">
+              <Ionicons name="swap-horizontal-outline" size={15} color="#B45309" />
+              <Text className="min-w-0 flex-1 text-[13px] leading-5 text-amber-900">
+                {`${selected?.label || "This class"} already has ${replacing.name} as ${replacing.code}. Picking ${pickedForAdd.code} changes its code; periods (${replacing.periods}/week), routine and exams stay.`}
+              </Text>
+            </View>
+          ) : (
+            <View className="flex-row items-center justify-between gap-3 border-t border-ink-100 pt-3">
+              <Text className="text-sm font-medium text-ink-800">Periods / week</Text>
+              <PeriodStepper label="new subject" value={classAddPeriods} onChange={setClassAddPeriods} />
+            </View>
+          )}
         </View>
       </Modal>
       <Modal

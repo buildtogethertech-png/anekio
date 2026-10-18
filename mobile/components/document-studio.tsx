@@ -1126,6 +1126,7 @@ export function QuickDocumentButton({
   extraData,
   batchSubjects,
   resultIssue = false,
+  buttonClassName,
 }: {
   data: RecordPayload;
   subjectType: string;
@@ -1136,6 +1137,7 @@ export function QuickDocumentButton({
   extraData?: Record<string, unknown>;
   batchSubjects?: { subjectType: string; subjectId: string; subjectLabel: string; data?: Record<string, unknown> }[];
   resultIssue?: boolean;
+  buttonClassName?: string;
 }) {
   const { token, user } = useSession();
   const { reload } = useRecord();
@@ -1148,6 +1150,7 @@ export function QuickDocumentButton({
   const [message, setMessage] = useState("");
   const [blocked, setBlocked] = useState<BlockedDocumentStudent[]>([]);
   const [blockMonths, setBlockMonths] = useState("");
+  const [paidMin, setPaidMin] = useState("");
   const admitThreshold = data.school?.policy?.admitCardPendingMonths ?? 0;
   const reportThreshold = data.school?.policy?.reportCardPaidMonths ?? 0;
   const admitOnly = allowedTypes.length > 0 && allowedTypes.every((type) => type === "ADMIT_CARD");
@@ -1163,6 +1166,13 @@ export function QuickDocumentButton({
           selectedTemplate.type.startsWith("REPORT_CARD_")))
   );
   const unpaidBlock = Math.max(0, Math.floor(Number(blockMonths) || 0));
+  const simpleAdmit = Boolean(admitOnly && !resultIssue && batchSubjects?.length && templates.length);
+  const requiredPaid = Math.max(0, Math.floor(Number(paidMin) || 0));
+  const simpleResult = Boolean(resultIssue && batchSubjects?.length && templates.length);
+  useEffect(() => {
+    if (!open || !reportGate) return;
+    setPaidMin(String(reportThreshold));
+  }, [open, reportGate, reportThreshold]);
   useEffect(() => {
     if (!open) return;
     const preferred =
@@ -1189,7 +1199,7 @@ export function QuickDocumentButton({
         const result = await act<{ ok: true; combinedUrl: string; issued: unknown[]; blocked: BlockedDocumentStudent[] }>(token, "issueDocumentBatch", {
           templateId: template.id,
           blockIfPendingMonths: feeGate ? unpaidBlock : 0,
-          requirePaidMonths: reportGate ? reportThreshold : 0,
+          requirePaidMonths: reportGate ? requiredPaid : 0,
           subjects: batchSubjects.map((row) => {
             const batchStudent = data.people?.find((person) => person.id === row.subjectId);
             const batchEmployee = data.staff?.find((person) => person.id === row.subjectId);
@@ -1206,7 +1216,7 @@ export function QuickDocumentButton({
         if (result.blocked?.length) {
           setMessage(
             reportGate
-              ? `${result.issued.length} report cards sent. ${result.blocked.length} parents skipped — paid fee months below ${reportThreshold}.`
+              ? `${result.issued.length} report cards sent. ${result.blocked.length} parents skipped — paid fee months below ${requiredPaid}.`
               : `${result.issued.length} issued. ${result.blocked.length} blocked because unpaid fee months were ≥ ${unpaidBlock}.`
           );
         }
@@ -1259,10 +1269,128 @@ export function QuickDocumentButton({
 
   return (
     <>
-      <Button variant="ghost" onPress={() => setOpen(true)}>{label}</Button>
-      <Modal open={open} title={resultIssue ? `Issue results for ${subjectLabel}` : admitOnly ? `Issue admit cards for ${subjectLabel}` : `Issue for ${subjectLabel}`} onClose={() => setOpen(false)} footer={<View className="items-end"><Button disabled={pending || !templates.length} onPress={() => void issue()}>{pending ? "Issuing…" : "Issue and open"}</Button></View>}>
+      <Button variant="ghost" onPress={() => setOpen(true)} className={buttonClassName}>{label}</Button>
+      <Modal open={open} title={resultIssue ? `Issue results for ${subjectLabel}` : admitOnly ? `Admit cards · ${subjectLabel}` : `Issue for ${subjectLabel}`} onClose={() => setOpen(false)} footer={
+          <View className="flex-row items-center justify-end gap-2">
+            {simpleAdmit || simpleResult ? (
+              <Button variant="ghost" onPress={() => setOpen(false)}>
+                Cancel
+              </Button>
+            ) : null}
+            <Button disabled={pending || !templates.length} onPress={() => void issue()}>
+              {pending ? "Issuing…" : simpleAdmit ? `Issue ${batchSubjects?.length ?? 0} admit cards` : simpleResult ? `Send ${batchSubjects?.length ?? 0} report cards` : "Issue and open"}
+            </Button>
+          </View>
+        }>
         <View className="gap-4">
-          {batchSubjects?.length ? (
+          {simpleResult ? (
+            <View className="gap-4">
+              <Text className="text-[14px] leading-5 text-ink-600">
+                One report card per student, sent to parents and opened as one file to print.
+              </Text>
+              <View className="overflow-hidden rounded-xl border border-ink-200 bg-white">
+                <View className="flex-row items-center gap-3 px-4 py-3">
+                  <Ionicons name="people-outline" size={18} color="#64748B" />
+                  <Text className="flex-1 text-[14px] text-ink-700">Students</Text>
+                  <Text className="text-[14px] font-semibold tabular-nums text-ink-900">{batchSubjects?.length ?? 0}</Text>
+                </View>
+                <View className="flex-row items-center gap-3 border-t border-ink-100 px-4 py-3">
+                  <Ionicons name="document-text-outline" size={18} color="#64748B" />
+                  <Text className="flex-1 text-[14px] text-ink-700">Design</Text>
+                  <Text className="text-[14px] font-semibold text-ink-900" numberOfLines={1}>{selectedTemplate?.name || "Report card"}</Text>
+                </View>
+                <View className="border-t border-ink-100 px-4 py-3">
+                  <Pressable
+                    accessibilityRole="switch"
+                    accessibilityState={{ checked: requiredPaid > 0 }}
+                    onPress={() => setPaidMin(requiredPaid > 0 ? "0" : String(reportThreshold || 1))}
+                    className="flex-row items-center gap-3"
+                  >
+                    <Ionicons name="wallet-outline" size={18} color="#64748B" />
+                    <View className="flex-1">
+                      <Text className="text-[14px] text-ink-700">Hold back if fees are unpaid</Text>
+                      <Text className="mt-0.5 text-[12px] text-ink-500">
+                        {requiredPaid > 0 ? "Skipped parents are told why." : "Every family gets the report card."}
+                      </Text>
+                    </View>
+                    <View className={`h-6 w-10 justify-center rounded-full px-0.5 ${requiredPaid > 0 ? "items-end bg-clay-500" : "items-start bg-ink-200"}`}>
+                      <View className="h-5 w-5 rounded-full bg-white" />
+                    </View>
+                  </Pressable>
+                  {requiredPaid > 0 ? (
+                    <View className="ml-[30px] mt-3 flex-row flex-wrap items-center gap-2">
+                      <Text className="text-[13px] text-ink-700">Send only if</Text>
+                      <View className="flex-row items-center overflow-hidden rounded-lg border border-ink-200">
+                        <Pressable accessibilityLabel="Fewer months" onPress={() => setPaidMin(String(Math.max(1, requiredPaid - 1)))} className="h-8 w-8 items-center justify-center">
+                          <Ionicons name="remove" size={14} color="#334155" />
+                        </Pressable>
+                        <Text className="w-8 text-center text-[14px] font-semibold tabular-nums text-ink-900">{requiredPaid}</Text>
+                        <Pressable accessibilityLabel="More months" onPress={() => setPaidMin(String(requiredPaid + 1))} className="h-8 w-8 items-center justify-center">
+                          <Ionicons name="add" size={14} color="#334155" />
+                        </Pressable>
+                      </View>
+                      <Text className="text-[13px] text-ink-700">{`or more month${requiredPaid === 1 ? " is" : "s are"} paid`}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              </View>
+              <Text className="text-[12px] text-ink-500">School default is set in Settings → Academics → Exams.</Text>
+            </View>
+          ) : null}
+          {simpleAdmit ? (
+            <View className="gap-4">
+              <Text className="text-[14px] leading-5 text-ink-600">
+                One admit card per student. They open together as one file, ready to print.
+              </Text>
+              <View className="overflow-hidden rounded-xl border border-ink-200 bg-white">
+                <View className="flex-row items-center gap-3 px-4 py-3">
+                  <Ionicons name="people-outline" size={18} color="#64748B" />
+                  <Text className="flex-1 text-[14px] text-ink-700">Students</Text>
+                  <Text className="text-[14px] font-semibold tabular-nums text-ink-900">{batchSubjects?.length ?? 0}</Text>
+                </View>
+                <View className="flex-row items-center gap-3 border-t border-ink-100 px-4 py-3">
+                  <Ionicons name="document-text-outline" size={18} color="#64748B" />
+                  <Text className="flex-1 text-[14px] text-ink-700">Design</Text>
+                  <Text className="text-[14px] font-semibold text-ink-900" numberOfLines={1}>{selectedTemplate?.name || "Admit card"}</Text>
+                </View>
+                <View className="border-t border-ink-100 px-4 py-3">
+                  <Pressable
+                    accessibilityRole="switch"
+                    accessibilityState={{ checked: unpaidBlock > 0 }}
+                    onPress={() => setBlockMonths(unpaidBlock > 0 ? "0" : String(admitThreshold || 1))}
+                    className="flex-row items-center gap-3"
+                  >
+                    <Ionicons name="wallet-outline" size={18} color="#64748B" />
+                    <View className="flex-1">
+                      <Text className="text-[14px] text-ink-700">Hold back if fees are unpaid</Text>
+                      <Text className="mt-0.5 text-[12px] text-ink-500">
+                        {unpaidBlock > 0 ? "Parents of held-back students are told why." : "Everyone gets a card, paid or not."}
+                      </Text>
+                    </View>
+                    <View className={`h-6 w-10 justify-center rounded-full px-0.5 ${unpaidBlock > 0 ? "items-end bg-clay-500" : "items-start bg-ink-200"}`}>
+                      <View className="h-5 w-5 rounded-full bg-white" />
+                    </View>
+                  </Pressable>
+                  {unpaidBlock > 0 ? (
+                    <View className="ml-[30px] mt-3 flex-row flex-wrap items-center gap-2">
+                      <Text className="text-[13px] text-ink-700">Hold back if</Text>
+                      <View className="flex-row items-center overflow-hidden rounded-lg border border-ink-200">
+                        <Pressable accessibilityLabel="Fewer months" onPress={() => setBlockMonths(String(Math.max(1, unpaidBlock - 1)))} className="h-8 w-8 items-center justify-center">
+                          <Ionicons name="remove" size={14} color="#334155" />
+                        </Pressable>
+                        <Text className="w-8 text-center text-[14px] font-semibold tabular-nums text-ink-900">{unpaidBlock}</Text>
+                        <Pressable accessibilityLabel="More months" onPress={() => setBlockMonths(String(unpaidBlock + 1))} className="h-8 w-8 items-center justify-center">
+                          <Ionicons name="add" size={14} color="#334155" />
+                        </Pressable>
+                      </View>
+                      <Text className="text-[13px] text-ink-700">{`or more month${unpaidBlock === 1 ? " is" : "s are"} unpaid`}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              </View>
+            </View>
+          ) : null}
+          {batchSubjects?.length && !simpleAdmit && !simpleResult ? (
             <View className="rounded-md border border-blue-200 bg-blue-50 p-3">
               <Text className="text-sm font-semibold text-blue-900">Class batch · {batchSubjects.length} students</Text>
               <Text className="mt-1 text-xs leading-5 text-blue-900">
@@ -1274,7 +1402,7 @@ export function QuickDocumentButton({
               </Text>
             </View>
           ) : null}
-          {resultIssue || admitOnly ? (
+          {simpleAdmit || simpleResult ? null : resultIssue || admitOnly ? (
             templates.length ? (
               <View className="rounded-md border border-ink-200 bg-white px-3 py-2.5">
                 <Text className="text-sm font-semibold text-ink-900">{selectedTemplate?.name || (admitOnly ? "Admit card" : "Report card")}</Text>
@@ -1319,17 +1447,17 @@ export function QuickDocumentButton({
               </Pressable>
             </View>
           )}
-          {batchSubjects?.length && reportGate ? (
+          {batchSubjects?.length && reportGate && !simpleResult ? (
             <View className="rounded-md border border-amber-200 bg-amber-50 p-3">
               <Text className="text-sm font-semibold text-amber-950">Fee rule for results</Text>
               <Text className="mt-1 text-xs leading-5 text-amber-900">
                 {reportThreshold > 0
-                  ? `Parents receive this report card only if the child has paid at least ${reportThreshold} fee month${reportThreshold === 1 ? "" : "s"}. Change this in School → Exams.`
-                  : "No paid-months rule is set. Every family in this class will receive the report card. Set a threshold in School → Exams if needed."}
+                  ? `Parents receive this report card only if the child has paid at least ${reportThreshold} fee month${reportThreshold === 1 ? "" : "s"}. Change this in Settings → Academics → Exams.`
+                  : "No paid-months rule is set. Every family in this class will receive the report card. Set a threshold in Settings → Academics → Exams if needed."}
               </Text>
             </View>
           ) : null}
-          {batchSubjects?.length && feeGate ? (
+          {batchSubjects?.length && feeGate && !simpleAdmit ? (
             <View className="rounded-md border border-amber-200 bg-amber-50 p-3">
               <Text className="text-sm font-semibold text-amber-950">Skip students with unpaid fees</Text>
               <Text className="mt-1 text-xs leading-5 text-amber-900">

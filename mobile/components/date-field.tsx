@@ -47,7 +47,7 @@ const DEFAULT_TIME_SLOTS: [string, string][] = [
   ["19:00", "7 PM"],
 ];
 
-function TimePicker({ value, onChange }: { value: string; onChange: (next: string) => void }) {
+export function TimePicker({ value, onChange }: { value: string; onChange: (next: string) => void }) {
   const [h24, m] = value.split(":").map((n) => Number(n) || 0);
   const pm = h24 >= 12;
   const h12 = ((h24 + 11) % 12) + 1;

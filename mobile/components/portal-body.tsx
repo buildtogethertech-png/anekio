@@ -27,6 +27,7 @@ import {
   TeacherLeaveBoard,
 } from "./family-boards";
 import { TeacherExamsBoard } from "./teacher-exams-workspace";
+import { TeacherPapersBoard } from "./teacher-papers";
 import { Button, Empty, PageHeader } from "./ui";
 import { AccountActions, MoreBoard } from "./nav-menu";
 import { ParentExamination, ParentExaminationError, ParentExaminationLoading } from "./parent-examination";
@@ -146,7 +147,7 @@ export function PortalBody({ screen }: { screen: string }) {
     if (examsScreen === "teacher") {
       return (
         <View className="min-h-0 flex-1">
-          <TeacherExamsBoard />
+          <TeacherPapersBoard />
         </View>
       );
     }

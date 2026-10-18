@@ -500,12 +500,22 @@ model Exam {
   setterId           String?
   setter             Teacher?           @relation("ExamSetter", fields: [setterId], references: [id])
   date               DateTime
+  /// Exam sitting time on the exam day, "HH:MM" 24-hour; empty when not set.
+  startTime          String             @default("")
+  endTime            String             @default("")
   paperDueOn         DateTime?
   copiesDueOn        DateTime?
   resultOn           DateTime?
   paperFileName      String             @default("")
   paperFilePath      String             @default("")
+  /// Question paper handover: the setter hands it to the exam office (paperHandedAt), the office
+  /// confirms receipt (paperAt + paperReceivedById) or sends it back (paperReturnNote).
   paperAt            DateTime?
+  paperHandedAt      DateTime?
+  paperHandedById    String?
+  paperHandNote      String             @default("")
+  paperReceivedById  String?
+  paperReturnNote    String             @default("")
   marksGrantedAt     DateTime?
   copiesDoneAt       DateTime?
   maxMarks           Int

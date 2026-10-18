@@ -275,15 +275,40 @@ export function WeekBoard() {
     }
   }
 
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportIds, setExportIds] = useState<string[]>([]);
+  const [exporting, setExporting] = useState(false);
+  const exportable = classes.filter((c) => c.id);
+
   async function exportRoutine() {
     if (!klass?.id) {
       toast.show("Pick a class first.");
+      return;
+    }
+    // Office picks one class, several, or all. Others export the class on screen.
+    if (user?.portal === "OFFICE" && exportable.length > 1) {
+      setExportIds([klass.id]);
+      setExportOpen(true);
       return;
     }
     try {
       await openRoutinePdf(token, { classId: klass.id });
     } catch (e) {
       toast.show(e instanceof Error ? e.message : "Could not export the routine.");
+    }
+  }
+
+  async function runExport() {
+    if (!exportIds.length) return;
+    setExporting(true);
+    try {
+      const all = exportIds.length === exportable.length;
+      await openRoutinePdf(token, { classId: all ? "all" : exportIds.join(",") });
+      setExportOpen(false);
+    } catch (e) {
+      toast.show(e instanceof Error ? e.message : "Could not export the routine.");
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -299,8 +324,13 @@ export function WeekBoard() {
     }
     const period = periods.find((p) => p.id === periodId);
     const slot = findSlot(slots, period ?? { id: periodId, name: "" }, weekday);
-    if (slotFilled(slot)) return;
-    setAssign({ periodId, weekday, periodName: period?.name || "Period" });
+    // Filled cell → open the same popup with "Now: …", Change and Clear period.
+    setAssign({
+      periodId,
+      weekday,
+      periodName: period?.name || "Period",
+      current: slotFilled(slot) ? { subject: slotSubject(slot), teacher: slot?.teacher || "" } : undefined,
+    });
   }
 
   async function clearCell(periodId: string, weekday: number) {
@@ -659,6 +689,70 @@ export function WeekBoard() {
       ) : null}
 
       <Modal
+        open={exportOpen}
+        title="Export routine"
+        onClose={() => (exporting ? undefined : setExportOpen(false))}
+        footer={
+          <View className="flex-row items-center justify-end gap-2">
+            <Button variant="ghost" disabled={exporting} onPress={() => setExportOpen(false)}>
+              Cancel
+            </Button>
+            <Button disabled={!exportIds.length || exporting} onPress={() => void runExport()}>
+              {exporting
+                ? "Preparing…"
+                : exportIds.length === exportable.length
+                  ? "Export all classes"
+                  : exportIds.length === 1
+                    ? `Export ${exportable.find((c) => c.id === exportIds[0])?.label || "class"}`
+                    : `Export ${exportIds.length} classes`}
+            </Button>
+          </View>
+        }
+      >
+        <View className="gap-4">
+          <View className="flex-row flex-wrap gap-2">
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setExportIds(klass?.id ? [klass.id] : [])}
+              className={`h-10 flex-row items-center gap-2 rounded-lg border px-3.5 ${exportIds.length === 1 && exportIds[0] === klass?.id ? "border-clay-500 bg-[#EEF3FF]" : "border-ink-200 bg-white"}`}
+            >
+              <Ionicons name="document-outline" size={15} color="#1F45C7" />
+              <Text className="text-[14px] font-medium text-ink-900">{`This class (${klass?.label || ""})`}</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setExportIds(exportable.map((c) => c.id || ""))}
+              className={`h-10 flex-row items-center gap-2 rounded-lg border px-3.5 ${exportIds.length === exportable.length ? "border-clay-500 bg-[#EEF3FF]" : "border-ink-200 bg-white"}`}
+            >
+              <Ionicons name="documents-outline" size={15} color="#1F45C7" />
+              <Text className="text-[14px] font-medium text-ink-900">{`All classes (${exportable.length})`}</Text>
+            </Pressable>
+          </View>
+          <View className="gap-2">
+            <Text className="text-xs font-medium text-ink-700">Or pick classes</Text>
+            <View className="flex-row flex-wrap gap-2">
+              {exportable.map((c) => {
+                const on = exportIds.includes(c.id || "");
+                return (
+                  <Pressable
+                    key={c.id}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: on }}
+                    onPress={() => setExportIds((cur) => (on ? cur.filter((id) => id !== c.id) : [...cur, c.id || ""]))}
+                    className={`h-9 flex-row items-center gap-1.5 rounded-full border px-3 ${on ? "border-clay-500 bg-clay-500" : "border-ink-200 bg-white"}`}
+                  >
+                    {on ? <Ionicons name="checkmark" size={13} color="#fff" /> : null}
+                    <Text className={`text-[13px] font-medium ${on ? "text-white" : "text-ink-800"}`}>{c.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+          <Text className="text-[12px] text-ink-500">Each class prints on its own A4 page.</Text>
+        </View>
+      </Modal>
+
+      <Modal
         open={fillOpen}
         title={`Auto-fill ${klass?.label || ""}`}
         onClose={() => (filling ? undefined : setFillOpen(false))}
@@ -773,6 +867,7 @@ export function WeekBoard() {
         <TeacherForm
           key="new-teacher"
           catalog={data?.school?.subjectCatalog ?? []}
+          others={rawTeachers.map((t) => ({ id: t.id, name: t.name, skills: t.skills ?? [] }))}
           classes={rawClasses.map((c) => ({ id: c.id || "", label: c.label, name: c.name, subjects: c.subjects ?? [] }))}
           onCancel={() => setModal(null)}
           onSave={async (payload) => {
@@ -790,6 +885,7 @@ export function WeekBoard() {
             key={teacherId}
             teacher={rawTeachers.find((t) => t.id === teacherId)}
             catalog={data?.school?.subjectCatalog ?? []}
+            others={rawTeachers.map((t) => ({ id: t.id, name: t.name, skills: t.skills ?? [] }))}
             classes={rawClasses.map((c) => ({ id: c.id || "", label: c.label, name: c.name, subjects: c.subjects ?? [] }))}
             onCancel={() => setModal(null)}
             onSave={async (payload) => {
@@ -1900,17 +1996,19 @@ function DropCell({
                 </View>
               ) : null}
             </View>
-            {editable && (hover || Platform.OS !== "web") ? (
+            {editable ? (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={`Clear ${subject || "period"}`}
+                accessibilityLabel={`Remove ${subject || "period"}`}
+                hitSlop={6}
                 onPress={(e) => {
                   e.stopPropagation?.();
                   onClear();
                 }}
-                className="h-6 w-6 items-center justify-center rounded-full bg-white"
+                className={`h-6 w-6 items-center justify-center rounded-full ${hover ? "bg-red-50" : "bg-transparent"}`}
+                style={{ opacity: hover || Platform.OS !== "web" ? 1 : 0.45 }}
               >
-                <Ionicons name="close" size={13} color="#64748b" />
+                <Ionicons name="close" size={14} color={hover ? "#b91c1c" : "#64748b"} />
               </Pressable>
             ) : null}
           </View>

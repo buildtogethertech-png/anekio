@@ -28,11 +28,10 @@ export function grantedEvaluatorIds(exam: {
   evaluatorIds?: string[] | null;
   evaluators?: { teacherId?: string; id?: string }[] | null;
 }) {
+  // The paper's own teacher can always enter marks (no office "allow" step). Extra evaluators are added on top.
   const fromJoin = (exam.evaluators || []).map(evaluatorRowId).filter(Boolean);
-  if (exam.evaluatorIds?.length) return [...new Set(exam.evaluatorIds.filter(Boolean))];
-  if (fromJoin.length) return [...new Set(fromJoin)];
-  if (exam.teacherId && exam.marksGrantedAt) return [exam.teacherId];
-  return [];
+  const extra = exam.evaluatorIds?.length ? exam.evaluatorIds.filter(Boolean) : fromJoin;
+  return [...new Set([exam.teacherId || "", ...extra].filter(Boolean))];
 }
 
 export function eligibleMarksTeacherIds(input: {
@@ -149,8 +148,9 @@ export function adminCanReview(status?: string | null) {
   return status === "SUBMITTED" || status === "UNDER_REVIEW" || status === "RESUBMITTED";
 }
 
+/** Teacher submits → admin publishes. No separate review/approve step is required. */
 export function adminCanPublish(status?: string | null) {
-  return status === "APPROVED";
+  return status === "APPROVED" || status === "SUBMITTED" || status === "RESUBMITTED" || status === "UNDER_REVIEW";
 }
 
 export function workflowLabel(status?: string | null) {
@@ -162,7 +162,7 @@ export function workflowLabel(status?: string | null) {
     case "MARKS_DRAFT":
       return "Marks in progress";
     case "SUBMITTED":
-      return "Submitted — awaiting review";
+      return "Marks sent — ready to publish";
     case "UNDER_REVIEW":
       return "Under review";
     case "CORRECTION_REQUIRED":
@@ -190,16 +190,15 @@ export const ADMIN_PAPER_TABS = [
 export const OFFICE_SETUP_FILTERS = [
   ["all", "All papers"],
   ["scheduled", "Scheduled"],
-  ["correction", "Returned for correction"],
-  ["review", "Ready to publish"],
+  ["review", "Marks entered"],
   ["published", "Published"],
 ] as const;
 
 export function officePaperLabel(status?: string | null) {
   if (status === "IN_PROGRESS" || status === "MARKS_DRAFT") return "Marks in progress";
-  if (status === "SUBMITTED" || status === "UNDER_REVIEW" || status === "RESUBMITTED") return "Submitted";
-  if (status === "CORRECTION_REQUIRED") return "Returned for correction";
-  if (status === "APPROVED") return "Ready to publish";
+  // Simple flow: Scheduled → Marks in progress → Marks entered → Published.
+  if (status === "SUBMITTED" || status === "UNDER_REVIEW" || status === "RESUBMITTED" || status === "APPROVED") return "Marks entered";
+  if (status === "CORRECTION_REQUIRED") return "Marks in progress";
   if (status === "PUBLISHED") return "Published";
   return "Scheduled";
 }
@@ -225,7 +224,7 @@ export function officePaperTone(status?: string | null): "ink" | "clay" | "leaf"
 export function officeSittingStatus(papers: { workflowStatus?: string | null }[]) {
   if (!papers.length) return "Not scheduled";
   if (papers.every((p) => p.workflowStatus === "PUBLISHED")) return "Published";
-  if (papers.every((p) => p.workflowStatus === "APPROVED" || p.workflowStatus === "PUBLISHED")) {
+  if (papers.every((p) => p.workflowStatus === "PUBLISHED" || adminCanPublish(p.workflowStatus))) {
     return "Ready to publish";
   }
   if (
@@ -233,7 +232,7 @@ export function officeSittingStatus(papers: { workflowStatus?: string | null }[]
       ["SUBMITTED", "UNDER_REVIEW", "RESUBMITTED", "CORRECTION_REQUIRED"].includes(p.workflowStatus || "")
     )
   ) {
-    return "Marks review";
+    return "Marks coming in";
   }
   if (papers.some((p) => p.workflowStatus === "IN_PROGRESS" || p.workflowStatus === "MARKS_DRAFT")) {
     return "In progress";
@@ -249,11 +248,13 @@ export function officeSittingProgress(papers: { workflowStatus?: string | null }
 
 export function officePaperAction(status?: string | null, granted?: boolean) {
   if (status === "PUBLISHED") return "View result";
-  if (status === "APPROVED") return "Publish";
+  // Papers of one exam are published together (see the Results bar), never one by one.
+  if (status === "APPROVED") return "Review";
   if (status === "CORRECTION_REQUIRED") return "View issue";
+  // Teacher submits → admin publishes. Teachers no longer need office permission to enter marks.
   if (status === "SUBMITTED" || status === "UNDER_REVIEW" || status === "RESUBMITTED") return "Review";
-  if (status === "IN_PROGRESS" || status === "MARKS_DRAFT") return "View";
-  return granted ? "View" : "Allow marks";
+  void granted;
+  return "View";
 }
 
 export function isHistoryImportPaper(exam: {
@@ -291,8 +292,8 @@ export function officePaperDots(exam: {
   return {
     paper: paperSet,
     exam: taken,
-    marks: marked,
-    review: reviewed,
+    marks: reviewed,
+    review: status === "PUBLISHED",
   };
 }
 

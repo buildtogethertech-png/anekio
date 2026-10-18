@@ -43,6 +43,10 @@ import {
   saveClassCurriculumCore,
   saveRoomsCore,
   saveExamPlanCore,
+  createExamCore,
+  updateExamItemCore,
+  deleteExamItemCore,
+  addCbseExamsCore,
   createExamSeriesCore,
   publishExamSeriesCore,
   deleteExamSeriesCore,
@@ -106,11 +110,19 @@ import {
   submitExamMarksCore,
   takeExamCore,
   updateExamSeriesPapersCore,
+  reassignExamTeacherCore,
   uploadPaperCore,
   uploadQuestionPaperCore,
+  handOverExamPaperCore,
+  receiveExamPaperCore,
+  returnExamPaperCore,
+  undoExamPaperHandoverCore,
 } from "./core-office";
 import { issueFeeReceiptCore } from "./fee-register";
 import { savePushTokenCore } from "./push";
+import { pastExamMarksCore, readPastExamSheetCore, savePastExamMarksCore } from "./past-exams";
+import { reassignExamRoleCore, scheduleExamForClassesCore } from "./exam-schedule-all";
+import { editPublishedMarksCore } from "./exam-mark-edits";
 import { confirmMyContactChangeCore, getMyAccountCore, requestMyContactChangeCore, updateMyNameCore } from "./my-account";
 import {
   applyOnboardingImport,
@@ -291,6 +303,16 @@ export async function runAct(
     case "saveGradePolicy":
       await saveGradePolicyCore(user, body as never);
       break;
+    case "createExam":
+      return { ok: true, ...(await createExamCore(user, body as never)) };
+    case "updateExamItem":
+      await updateExamItemCore(user, body as never);
+      break;
+    case "deleteExamItem":
+      await deleteExamItemCore(user, body as never);
+      break;
+    case "addCbseExams":
+      return { ok: true, ...(await addCbseExamsCore(user, body as never)) };
     case "saveExamPlan":
       await saveExamPlanCore(user, body as never);
       break;
@@ -416,8 +438,23 @@ export async function runAct(
       break;
     case "copyExamSeries":
       return { ok: true, ...(await copyExamSeriesCore(user, body as never)) };
+    case "reassignExamTeacher":
+      await reassignExamTeacherCore(user, body as never);
+      break;
     case "updateExamSeriesPapers":
       await updateExamSeriesPapersCore(user, body as never);
+      break;
+    case "handOverExamPaper":
+      await handOverExamPaperCore(user, body as never);
+      break;
+    case "undoExamPaperHandover":
+      await undoExamPaperHandoverCore(user, body as never);
+      break;
+    case "receiveExamPaper":
+      await receiveExamPaperCore(user, body as never);
+      break;
+    case "returnExamPaper":
+      await returnExamPaperCore(user, body as never);
       break;
     case "completeExamWork":
       await completeExamWorkCore(user, body as never);
@@ -450,6 +487,18 @@ export async function runAct(
       return { ok: true, ...(await publishExamResultsCore(user, body as never)) };
     case "importExamMarks":
       return { ok: true, ...(await importExamMarksCore(user, body as never)) };
+    case "pastExamMarks":
+      return { ok: true, ...(await pastExamMarksCore(user, body as never)) };
+    case "readPastExamSheet":
+      return { ok: true, ...(await readPastExamSheetCore(user, body as never)) };
+    case "editPublishedMarks":
+      return { ok: true, ...(await editPublishedMarksCore(user, body as never)) };
+    case "reassignExamRole":
+      return { ok: true, ...(await reassignExamRoleCore(user, body as never)) };
+    case "scheduleExamForClasses":
+      return { ok: true, ...(await scheduleExamForClassesCore(user, body as never)) };
+    case "savePastExamMarks":
+      return { ok: true, ...(await savePastExamMarksCore(user, body as never)) };
     case "saveSeriesMarks":
       await saveSeriesMarksCore(user, body as never);
       break;

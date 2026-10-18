@@ -13,6 +13,8 @@ import { KioskTopButton } from "../../components/staff-attendance-qr";
 import { OnboardingBoard } from "../../components/onboarding-board";
 import { RecordProvider, useRecord } from "../../lib/record";
 import { useSession } from "../../lib/session";
+import { useAssetUrl } from "../../lib/assets";
+import { api } from "../../lib/api";
 import { isStaffScanPath } from "../../lib/staff-attendance-scan";
 import { SupportBanner } from "../../components/support-banner";
 import { getLastWorkspaceRoute, getLauncherPosition, setLastWorkspaceRoute, setLauncherPosition, type LauncherPosition } from "../../lib/storage";
@@ -290,27 +292,96 @@ function LaunchPanelButton() {
   );
 }
 
+const SIDEBAR_COLLAPSED_KEY = "anekio.sidebar.collapsed";
+
+function readCollapsed() {
+  try {
+    return typeof window !== "undefined" && window.localStorage?.getItem(SIDEBAR_COLLAPSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 function Sidebar() {
-  const { user } = useSession();
+  const { user, token } = useSession();
+  const { data } = useRecord();
+  const pathname = usePathname();
+  const [collapsed, setCollapsed] = useState(readCollapsed);
+  const [inboxUnread, setInboxUnread] = useState(0);
+  const office = user?.portal === "OFFICE";
+  const schoolName = data?.school?.name?.trim() || "";
+  const logoUri = useAssetUrl(data?.school?.logoPath);
   const role =
     user?.portal === "PARENT"
       ? "Parent"
       : user?.portal === "TEACHER"
         ? "Teacher"
-        : user?.portal === "OFFICE"
+        : office
           ? "Office"
           : "Student";
+
+  // Unread conversations, refreshed whenever the page changes (cheap list call).
+  useEffect(() => {
+    if (!token) return;
+    let alive = true;
+    api<{ threads?: { unread?: boolean }[] }>("/inbox", token)
+      .then((res) => {
+        if (alive) setInboxUnread((res.threads ?? []).filter((thread) => thread.unread).length);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [token, pathname]);
+
+  const papersToReceive = (data?.examPack?.series ?? [])
+    .flatMap((series) => series.exams)
+    .filter((exam) => exam.paperHandedAt && !exam.paperAt).length;
+  const newLeads = (data?.school?.admissionLeads ?? []).filter((lead) => lead.status === "NEW").length;
+  const badges: Record<string, number> = { inbox: inboxUnread, exams: papersToReceive, admissions: newLeads };
+
+  function toggle() {
+    setCollapsed((value) => {
+      const next = !value;
+      try {
+        window.localStorage?.setItem(SIDEBAR_COLLAPSED_KEY, next ? "1" : "0");
+      } catch {
+        /* remembered for this visit only */
+      }
+      return next;
+    });
+  }
+
   return (
-    <SafeAreaView className="h-full min-h-0 w-[244px] shrink-0 overflow-hidden border-r border-ink-200 bg-white">
-      <View className="flex-row items-center gap-2.5 px-4 pb-3 pt-5">
-        <Image source={require("../../assets/anekio-mark-transparent.png")} accessibilityLabel="Anekio" style={{ width: 32, height: 32 }} />
-        <View className="min-w-0 flex-1">
-          <Text className="text-[17px] font-bold lowercase tracking-tight text-ink-900">anekio</Text>
-          <Text className="text-[11px] font-medium text-ink-500">{role}</Text>
-        </View>
+    <SafeAreaView className={`h-full min-h-0 shrink-0 overflow-hidden border-r border-ink-200 bg-white ${collapsed ? "w-[72px]" : "w-[244px]"}`}>
+      <View className={`flex-row items-center gap-2.5 pb-3 pt-5 ${collapsed ? "justify-center px-2" : "px-4"}`}>
+        {logoUri ? (
+          <Image source={{ uri: logoUri }} accessibilityLabel={schoolName || "School"} resizeMode="contain" style={{ width: 34, height: 34, borderRadius: 8 }} />
+        ) : (
+          <Image source={require("../../assets/anekio-mark-transparent.png")} accessibilityLabel="Anekio" style={{ width: 32, height: 32 }} />
+        )}
+        {collapsed ? null : (
+          <View className="min-w-0 flex-1">
+            <Text className={`font-bold tracking-tight text-ink-900 ${schoolName ? "text-[15px]" : "text-[17px] lowercase"}`} numberOfLines={2}>
+              {schoolName || "anekio"}
+            </Text>
+            <Text className="text-[11px] font-medium text-ink-500">{role}</Text>
+          </View>
+        )}
       </View>
       <View className="mt-3 min-h-0 flex-1">
-        <NavMenu />
+        <NavMenu collapsed={collapsed} badges={badges} showAccount={false} />
+      </View>
+      <View className={`border-t border-ink-100 py-2 ${collapsed ? "items-center px-2" : "px-3"}`}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          onPress={toggle}
+          className={`min-h-[38px] flex-row items-center rounded-lg hover:bg-ink-50 ${collapsed ? "w-10 justify-center" : "gap-3 px-3"}`}
+        >
+          <Ionicons name={collapsed ? "chevron-forward" : "chevron-back"} size={17} color="#64748B" />
+          {collapsed ? null : <Text className="text-[13px] font-medium text-ink-700">Collapse</Text>}
+        </Pressable>
       </View>
     </SafeAreaView>
   );

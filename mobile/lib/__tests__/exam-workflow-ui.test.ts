@@ -20,7 +20,7 @@ describe("office exam presentation", () => {
   it("picks one primary paper action", () => {
     expect(officePaperAction("SCHEDULED", false)).toBe("Allow marks");
     expect(officePaperAction("SUBMITTED", true)).toBe("Review");
-    expect(officePaperAction("APPROVED", true)).toBe("Publish");
+    expect(officePaperAction("APPROVED", true)).toBe("Review");
     expect(officePaperAction("PUBLISHED", true)).toBe("View result");
   });
 

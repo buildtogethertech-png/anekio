@@ -7,7 +7,7 @@ import { NewConversationSheet } from "./inbox-board";
 import { ChildPill } from "./child-pill";
 import { DocViewer } from "./doc-viewer";
 import { ParentDetailsCard, ParentDetailsSheet, useParentDetails } from "./parent-details";
-import { Badge, Button, Card, Chip, ChipScroller, CloseButton, Empty, Field, Input, Modal, PageHeader, Stat, Toast, useToast } from "./ui";
+import { Badge, Button, Card, Chip, ChipScroller, CloseButton, Empty, Field, Input, Modal, PageHeader, Sheet, Stat, Toast, useToast } from "./ui";
 import { act } from "../lib/mutate";
 import { AccountDetailsCard, PasswordSheet } from "./account-details";
 import { api, webOrigin } from "../lib/api";
@@ -27,6 +27,8 @@ import { useRecord, type RecordPayload } from "../lib/record";
 import { useSession } from "../lib/session";
 import { openAuthedFile, openMarksheetPdf, openRoutinePdf } from "../lib/print-html";
 import { examTodoKind, examTodoTone } from "./exam-teacher-work";
+import { MarkEntryScreen, isSent as sheetSent, paperInfo, subjectName } from "./teacher-papers";
+import { PaperHandoverSheet } from "./paper-handover";
 import { LeaveApplyCard, LeaveDecideList } from "./leave-apply";
 import { ManagerPicker } from "./manager-picker";
 import { TeacherMonthlyRegister } from "./teacher-monthly-register";
@@ -219,13 +221,58 @@ export function TeacherDeskBoard() {
   const router = useRouter();
   const toast = useToast();
   const [pending, setPending] = useState("");
+  // "Enter marks" to-dos open the marksheet right here; the teacher stays on home.
+  const [marksExamId, setMarksExamId] = useState("");
+  const [paperExamId, setPaperExamId] = useState("");
+  const paperSheet = (data?.markSheets ?? []).find((sheet) => sheet.examId === paperExamId) || null;
+  const marksSheet = (data?.markSheets ?? []).find((sheet) => sheet.examId === marksExamId) || null;
+  function openTodo(todo: { id: string; examId?: string; kind?: string }) {
+    const kind = examTodoKind(todo as never);
+    const examId = todo.examId || todo.id.replace(/^(marks|take|paper)-/, "");
+    if (kind === "marks" && (data?.markSheets ?? []).some((sheet) => sheet.examId === examId)) {
+      setMarksExamId(examId);
+      return;
+    }
+    if (kind === "paper" && (data?.markSheets ?? []).some((sheet) => sheet.examId === examId)) {
+      setPaperExamId(examId);
+      return;
+    }
+    router.push(`/exams?lane=${kind === "marks" ? "marks" : "paper"}` as never);
+  }
   const showDeskDetails = false;
   const first = (user?.name || "").split(" ")[0] || "there";
   const day = todaySlots(data ?? { kind: "TEACHER" });
   const next = nextPeriod(day.periods);
   const upcoming = nextScheduledPeriod(data ?? { kind: "TEACHER" });
   const rest = remainingPeriods(day.periods, next);
-  const todos = (data?.todos ?? []).filter((t) => examTodoKind(t) !== "skip");
+  // Exam to-dos come from the same mark sheets and rules as Exams → My exam papers, so both lists match.
+  type HomeTodo = NonNullable<NonNullable<typeof data>["todos"]>[number];
+  const todos: HomeTodo[] = (data?.markSheets ?? [])
+    .filter((sheet) => !sheetSent(sheet))
+    .sort((a, b) => paperInfo(a).rank - paperInfo(b).rank || (a.date || "").localeCompare(b.date || ""))
+    .map((sheet) => {
+      const info = paperInfo(sheet);
+      const name = subjectName(sheet.subject);
+      const step = info.primary?.kind === "waiting" ? "paper" : info.primary?.kind;
+      const where = [sheet.seriesName, sheet.classLabel].filter(Boolean).join(" · ");
+      const detail = info.parts.filter((part) => part.tone !== "late").map((part) => part.text).join(" · ");
+      return {
+        id: `${step === "paper" ? "paper" : step === "marks" ? "marks" : "upcoming"}-${sheet.examId}`,
+        examId: sheet.examId,
+        kind: step === "paper" ? ("paper" as const) : step === "marks" ? ("marks" as const) : undefined,
+        title:
+          info.primary?.kind === "waiting"
+            ? `Paper with office · ${name}`
+            : step === "paper"
+            ? `${info.primary?.danger ? "Fix paper" : "Set paper"} · ${name}`
+            : step === "marks"
+              ? `${info.primary?.danger ? "Fix marks" : "Enter marks"} · ${name}`
+              : `${name} exam`,
+        hint: [detail, where].filter(Boolean).join(" · "),
+        dueOn: sheet.date,
+        urgency: info.late ? ("overdue" as const) : info.primary?.kind === "waiting" ? ("soon" as const) : ("" as const),
+      };
+    });
   const roster = data?.roster ?? [];
   const notices = data?.notices ?? [];
   const needsAttention = data?.needsAttention ?? [];
@@ -587,7 +634,7 @@ export function TeacherDeskBoard() {
 
   function phoneNeedsAttentionCard() {
     if (!phoneDashboard) return null;
-    type Item = { key: string; icon: keyof typeof Ionicons.glyphMap; title: string; hint: string; route: string; tel?: string; status?: "Overdue" | "Soon" | "Absent" | "Late" | "Call" };
+    type Item = { key: string; icon: keyof typeof Ionicons.glyphMap; title: string; hint: string; route: string; tel?: string; open?: () => void; status?: "Overdue" | "Soon" | "Absent" | "Late" | "Call" };
     const items: Item[] = [];
     for (const todo of todos) {
       const tone = examTodoTone(todo);
@@ -595,9 +642,10 @@ export function TeacherDeskBoard() {
       items.push({
         key: todo.id,
         icon: kind === "paper" ? "document-text-outline" : kind === "marks" ? "create-outline" : "clipboard-outline",
-        title: todo.title.replace(/^Take exam · /, ""),
+        title: todo.title,
         hint: friendlyHint(todo.hint),
         route: `/exams?lane=${kind === "take" ? "take" : kind === "marks" ? "marks" : "paper"}`,
+        open: () => openTodo(todo),
         status: tone === "overdue" ? "Overdue" : tone === "soon" ? "Soon" : undefined,
       });
     }
@@ -660,7 +708,7 @@ export function TeacherDeskBoard() {
           shown.map((item) => (
             <Pressable
               key={item.key}
-              onPress={() => (item.tel ? void Linking.openURL(item.tel) : router.push(item.route as never))}
+              onPress={() => (item.tel ? void Linking.openURL(item.tel) : item.open ? item.open() : router.push(item.route as never))}
               className="flex-row items-center gap-3 px-5 py-3 active:bg-ink-50"
             >
               <View className={`h-10 w-10 items-center justify-center rounded-xl ${item.status === "Call" ? "bg-red-50" : "bg-ink-50"}`}>
@@ -987,6 +1035,27 @@ export function TeacherDeskBoard() {
         {registerCard()}
       </View> : null}
 
+      <PaperHandoverSheet
+        sheet={paperSheet}
+        token={token}
+        onClose={() => setPaperExamId("")}
+        onDone={async (message) => {
+          setPaperExamId("");
+          toast.show(message);
+          await reload();
+        }}
+      />
+      <MarkEntryScreen
+        sheet={marksSheet}
+        token={token}
+        onClose={() => setMarksExamId("")}
+        onSaved={async (message) => {
+          setMarksExamId("");
+          if (message) toast.show(message);
+          await reload();
+        }}
+        onDraft={() => void reloadSilently()}
+      />
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
 
       {showDeskDetails ? (
@@ -1010,31 +1079,15 @@ export function TeacherDeskBoard() {
                     tone === "overdue" ? "border-red-200 bg-red-50" : tone === "soon" ? "border-amber-200 bg-amber-50" : "border-ink-100"
                   }`}
                 >
-                  <Pressable className="min-w-0 flex-1" onPress={() => router.push("/exams")}>
+                  <Pressable className="min-w-0 flex-1" onPress={() => openTodo(t)}>
                     <Text className="text-sm font-medium text-ink-900">{t.title}</Text>
                     <Text className={`mt-1 text-xs ${tone === "overdue" ? "text-red-700" : tone === "soon" ? "text-amber-800" : "text-ink-700"}`}>
                       {t.hint}
                     </Text>
                   </Pressable>
                   {kind === "paper" ? (
-                    <Button
-                      variant="ghost"
-                      disabled={pending === t.id}
-                      onPress={async () => {
-                        const examId = t.examId || t.id.replace(/^paper-/, "");
-                        setPending(t.id);
-                        try {
-                          await act(token, "completeExamWork", { examId, kind: "paper" });
-                          toast.show("Marked done.");
-                          await reload();
-                        } catch (e) {
-                          toast.show(e instanceof Error ? e.message : "Could not save.");
-                        } finally {
-                          setPending("");
-                        }
-                      }}
-                    >
-                      Done
+                    <Button variant="ghost" onPress={() => openTodo(t)}>
+                      {t.title.startsWith("Paper with office") ? "Waiting" : "Paper given"}
                     </Button>
                   ) : null}
                 </View>
