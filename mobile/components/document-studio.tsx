@@ -213,7 +213,7 @@ function TemplateGalleryCard({
         transform: [{ translateY: hover ? -3 : 0 }],
         shadowOpacity: hover ? 0.16 : 0.06,
         shadowRadius: hover ? 16 : 8,
-        transitionDuration: "220ms",
+        ...(Platform.OS === "web" ? { transitionDuration: "220ms" } : null),
       } as never}
       {...({
         onMouseEnter: () => setHover(true),

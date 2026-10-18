@@ -1,4 +1,5 @@
 import "../global.css";
+import "../lib/web-effects";
 import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";

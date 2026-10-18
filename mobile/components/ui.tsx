@@ -86,7 +86,7 @@ export function Button({
       {...props}
       accessibilityRole={props.accessibilityRole || "button"}
       disabled={disabled}
-      className={`items-center rounded-md px-4 py-2.5 transition-transform duration-150 active:scale-[0.97] ${styles} ${className || ""}`}
+      className={`items-center rounded-md px-4 py-2.5 ${Platform.OS === "web" ? "transition-transform duration-150 active:scale-[0.97]" : "active:opacity-80"} ${styles} ${className || ""}`}
       style={(state) => [
         { opacity: disabled ? 0.5 : 1 },
         typeof style === "function" ? style(state) : style,

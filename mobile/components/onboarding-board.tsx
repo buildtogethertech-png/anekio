@@ -1,7 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Linking, Modal as RnModal, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Linking, Modal as RnModal, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { apiBase } from "../lib/api";
 import { act } from "../lib/mutate";
@@ -129,7 +129,8 @@ export function OnboardingBoard({
   const [howOpen, setHowOpen] = useState(false);
 
   useEffect(() => {
-    if (autoGoogleStarted.current || !onboarding || !token || typeof window === "undefined") return;
+    // Web only: phones have a `window` object but no `window.location`; reading it crashes the app.
+    if (autoGoogleStarted.current || !onboarding || !token || Platform.OS !== "web" || typeof window === "undefined" || !window.location) return;
     const params = new URLSearchParams(window.location.search);
     if (params.get("googleSheets") !== "connected") return;
     const kind = params.get("googleKind") as Template["kind"] | null;
