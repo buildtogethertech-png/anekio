@@ -1,0 +1,77 @@
+<!doctype html><html><head><meta charset="utf-8">
+<style>
+@page{size:A4;margin:0}
+*{box-sizing:border-box}html,body{margin:0;background:#fff}
+body{font-family:Inter,"Inter Display",system-ui,sans-serif;color:#0f172a;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.page{position:relative;width:210mm;height:297mm;overflow:hidden;background:#fff}
+.hero{position:relative;height:126mm;background:#0b1530;color:#fff;padding:14mm 14mm 0;overflow:hidden}
+.hero:before{content:"";position:absolute;inset:0;background:radial-gradient(60% 80% at 10% 0%,rgba(40,85,246,.85),transparent 60%),radial-gradient(45% 60% at 100% 10%,rgba(34,193,240,.45),transparent 60%),radial-gradient(45% 60% at 70% 110%,rgba(20,184,137,.35),transparent 60%)}
+.hero:after{content:"";position:absolute;inset:0;opacity:.2;background-image:linear-gradient(rgba(255,255,255,.12) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.12) 1px,transparent 1px);background-size:9mm 9mm;mask-image:radial-gradient(ellipse 70% 70% at 60% 40%,#000 10%,transparent 70%)}
+.hero > *{position:relative;z-index:1}
+.brand{display:flex;align-items:center;gap:3mm}
+.mark{width:9mm;height:9mm;border-radius:2.6mm;background:linear-gradient(135deg,#2855f6,#22c1f0);display:grid;place-items:center;font-weight:800;font-size:5.4mm;color:#fff}
+.brand b{font-size:6.2mm;font-weight:800;letter-spacing:-.01em}
+.chip{display:inline-block;margin-top:8mm;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.08);border-radius:99px;padding:1.6mm 3.4mm;font-size:3mm;font-weight:600;color:#dbe6ff}
+h1{font-size:11.5mm;line-height:1.04;letter-spacing:-.03em;margin:4mm 0 0;max-width:96mm;font-weight:800}
+h1 span{color:#8dffd2}
+.lead{font-size:3.5mm;line-height:1.45;color:#b9c6e4;max-width:88mm;margin:3.5mm 0 0}
+.shots{position:absolute;right:-2mm;top:14mm;width:98mm;height:120mm}
+.shots img{position:absolute;display:block}
+.shots .win{left:0;top:6mm;width:84mm;filter:drop-shadow(0 8mm 10mm rgba(0,0,0,.35))}
+.shots .ph1{right:0;top:0;width:34mm;transform:rotate(3deg)}
+.shots .ph2{right:28mm;top:50mm;width:30mm;transform:rotate(-3deg)}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:4mm;padding:0 14mm;margin-top:-10mm;position:relative;z-index:2}
+.stat{background:#fff;border:1px solid #e3e9f3;border-radius:4mm;padding:4mm 4.5mm;box-shadow:0 6mm 12mm rgba(15,23,42,.08)}
+.stat b{display:block;font-size:8mm;letter-spacing:-.03em;line-height:1}.stat b small{font-size:4.5mm;color:#2855f6}
+.stat span{display:block;font-size:2.8mm;color:#5b6b85;font-weight:600;margin-top:1.5mm}
+.body{padding:8mm 14mm 0}
+.roles{display:grid;grid-template-columns:repeat(3,1fr);gap:4mm}
+.role{border:1px solid #e3e9f3;border-radius:4mm;padding:4.5mm;background:#f5f8fe}
+.role h3{margin:0 0 1mm;font-size:4.2mm;letter-spacing:-.01em}
+.role .who{font-size:2.6mm;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#2855f6;margin-bottom:1.5mm}
+.role ul{margin:0;padding:0;list-style:none;display:grid;gap:1.4mm}
+.role li{font-size:3mm;line-height:1.35;color:#243247;padding-left:5mm;position:relative}
+.role li:before{content:"✓";position:absolute;left:0;top:0;color:#077354;font-weight:800}
+.mods{display:flex;flex-wrap:wrap;gap:2mm;margin-top:6mm}
+.mods span{font-size:2.9mm;font-weight:600;border:1px solid #e3e9f3;border-radius:99px;padding:1.6mm 3.2mm;color:#243247}
+.mods span:before{content:"";display:inline-block;width:1.8mm;height:1.8mm;border-radius:50%;background:#2855f6;margin-right:1.8mm;vertical-align:middle}
+.cta{position:absolute;left:14mm;right:14mm;bottom:12mm;background:#0b1530;color:#fff;border-radius:5mm;padding:7mm 8mm;display:grid;grid-template-columns:1.3fr 1fr;gap:6mm;align-items:center;overflow:hidden}
+.cta:before{content:"";position:absolute;inset:0;background:radial-gradient(50% 90% at 0% 0%,rgba(40,85,246,.8),transparent 60%),radial-gradient(40% 70% at 100% 100%,rgba(20,184,137,.4),transparent 60%)}
+.cta > *{position:relative}
+.cta h2{margin:0 0 1.5mm;font-size:6.4mm;letter-spacing:-.02em;line-height:1.1}
+.cta p{margin:0;font-size:3.2mm;color:#b9c6e4;line-height:1.45}
+.cta .paths{display:grid;gap:2mm}
+.cta .path{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);border-radius:3mm;padding:2.4mm 3.4mm;font-size:3mm;display:flex;justify-content:space-between;align-items:center}
+.cta .path b{font-size:3.3mm}.cta .path.hot{background:#fff;color:#0b1530;border-color:#fff}
+.cta .contact{margin-top:3mm;font-size:3.4mm;font-weight:700;color:#8dffd2}
+</style></head><body><div class="page">
+  <div class="hero">
+    <div class="brand"><div class="mark">A</div><b>Anekio</b></div>
+    <div class="chip">✓ Web + Android · built for Indian schools</div>
+    <h1>Run your whole school from <span>one record.</span></h1>
+    <p class="lead">Admissions, fees, attendance, exams, routine, notices and the parent app — every team works on the same student file.</p>
+    <div class="shots">
+      <img class="win" src="framed/office-dashboard.png" alt="">
+      <img class="ph1" src="framed/01-parent-home.png" alt="">
+      <img class="ph2" src="framed/05-teacher-attendance.png" alt="">
+    </div>
+  </div>
+  <div class="stats">
+    <div class="stat"><b>12<small>+</small></b><span>modules on one school record</span></div>
+    <div class="stat"><b>4</b><span>portals: office, teacher, parent, student</span></div>
+    <div class="stat"><b>60<small>s</small></b><span>to mark a whole class present</span></div>
+    <div class="stat"><b>14</b><span>free days, no card needed</span></div>
+  </div>
+  <div class="body">
+    <div class="roles">
+      <div class="role"><div class="who">Office</div><h3>See the day before it starts</h3><ul><li>Fees register: UPI, cash, pay links</li><li>Attendance overview by 10 AM</li><li>Notices with preview</li><li>Roles &amp; permissions</li></ul></div>
+      <div class="role"><div class="who">Teachers</div><h3>Lose the paperwork</h3><ul><li>Class present in under a minute</li><li>Own timetable &amp; rooms</li><li>Papers, marks, deadlines</li><li>Leave with balance shown</li></ul></div>
+      <div class="role"><div class="who">Parents</div><h3>Answers without a call</h3><ul><li>Fees due, Pay now, receipts</li><li>Marks &amp; report card</li><li>Attendance calendar</li><li>Message the school</li></ul></div>
+    </div>
+    <div class="mods"><span>Admissions</span><span>Fees &amp; receipts</span><span>Attendance</span><span>Exams</span><span>Routine</span><span>Parent inbox</span><span>Notices</span><span>Leave &amp; payroll</span><span>School website</span><span>Documents</span><span>Roles</span></div>
+  </div>
+  <div class="cta">
+    <div><h2>Three ways to begin</h2><p>See it in a 20-minute demo, try it free for 14 days with your own data, or launch now with setup support included.</p><div class="contact">anekio.com · support@anekio.com</div></div>
+    <div class="paths"><div class="path"><b>Book a demo</b><span>20 min · online</span></div><div class="path hot"><b>Free trial</b><span>14 days · no card</span></div><div class="path"><b>Launch now</b><span>annual plan</span></div></div>
+  </div>
+</div></body></html>

@@ -1748,8 +1748,8 @@ async function hydrateIssuedDocumentData(
           classLabel,
           className: classParts.className,
           sectionName: classParts.sectionName,
-          dateOfBirth: dbStudent.dateOfBirth.toISOString().slice(0, 10),
-          born: dbStudent.dateOfBirth.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }),
+          dateOfBirth: dbStudent.dateOfBirth ? dbStudent.dateOfBirth.toISOString().slice(0, 10) : "",
+          born: dbStudent.dateOfBirth ? dbStudent.dateOfBirth.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "",
         },
         staff: {
           classTeacherName: classTeacher?.user.name || "",

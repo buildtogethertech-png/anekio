@@ -319,9 +319,17 @@ function studentBuiltinColumns(fields: AdmissionFormField[]) {
   const required = (id: string) => !fields.length || Boolean(byId.get(id)?.visible && byId.get(id)?.required);
   const columns: { key: StudentColumnKey; header: string; required: boolean; reason: string }[] = [
     { key: "studentName", header: label("studentName", "Student name"), required: true, reason: "Required to create a student." },
-    { key: "dob", header: "Date of birth", required: true, reason: "Required to create a student; use YYYY-MM-DD." },
     { key: "classWanted", header: label("classWanted", "Class"), required: true, reason: "Required to place the student in a class, such as 1-A." },
   ];
+  // Date of birth follows the admission form: hidden → no column; shown → optional unless required.
+  if (shown("dateOfBirth")) {
+    columns.splice(1, 0, {
+      key: "dob",
+      header: label("dateOfBirth", "Date of birth"),
+      required: required("dateOfBirth"),
+      reason: required("dateOfBirth") ? "Required by this school's admission form; use YYYY-MM-DD." : "Optional; use YYYY-MM-DD.",
+    });
+  }
   if (fields.length && shown("billingStartPeriod")) {
     columns.push({
       key: "billingStartPeriod",
@@ -782,7 +790,7 @@ async function csvRowsFor(kind: ImportKind): Promise<CsvCell[][]> {
         ...studentTemplateRow(forms.admission, {
           rollNumber: student.enrollments.find((row) => row.classId === student.classId)?.rollNumber || "",
           name: student.name,
-          dob: dateText(student.dateOfBirth),
+          dob: student.dateOfBirth ? dateText(student.dateOfBirth) : "",
           classLabel: `${student.class.name}-${student.class.section}`,
           billingStart: student.billingStartPeriod || "",
           parentName: student.parent?.user.name || "",
@@ -1573,7 +1581,8 @@ async function validateRows(kind: ImportKind, rows: ImportRow[], coveragePeriod?
     }
     if (kind === "students") {
       const name = configuredImportValue(row, forms!.admission, "studentName", "Student name", "Name");
-      const dob = sheetCell(row, "Date of birth", "DOB");
+      const dobLabel = forms!.admission.find((field) => field.id === "dateOfBirth")?.label || "Date of birth";
+      const dob = sheetCell(row, dobLabel, "Date of birth", "DOB");
       const klass = classFromImportRow(row, forms!.admission);
       const rawPhone = configuredImportValue(row, forms!.admission, "phone", "Parent mobile", "Parent phone");
       const phone = normalizeMobile(rawPhone);
@@ -1584,7 +1593,7 @@ async function validateRows(kind: ImportKind, rows: ImportRow[], coveragePeriod?
       const admissionNo = sheetCell(row, "Admission number", "Admission no").toLowerCase();
       const roll = parseRollNumber(sheetCell(row, "Roll number", "Roll no", "Roll no.", "Roll"));
       if (!name) errors.push(rowError(row, "student name is required."));
-      if (!validDate(dob)) errors.push(rowError(row, "date of birth must be YYYY-MM-DD."));
+      if (dob ? !validDate(dob) : formRequires("dateOfBirth") || !forms!.admission.length) errors.push(rowError(row, "date of birth must be YYYY-MM-DD."));
       if (!klass) errors.push(rowError(row, "class must be a value like 1-A."));
       if (!parentName && formRequires("guardianName")) errors.push(rowError(row, "parent name is required."));
       if (rawPhone.trim() && !phone) errors.push(rowError(row, "parent mobile must be a 10-digit number."));
@@ -1928,7 +1937,11 @@ async function applyStudents(
       ...(billingStart ? { billingStartPeriod: billingStart } : {}),
       name: configuredImportValue(row, forms.admission, "studentName", "Student name", "Name"),
       admissionNo,
-      dateOfBirth: new Date(`${sheetCell(row, "Date of birth", "DOB")}T00:00:00`),
+      // A blank date of birth keeps what an existing student already has.
+      ...(() => {
+        const raw = sheetCell(row, forms.admission.find((field) => field.id === "dateOfBirth")?.label || "Date of birth", "Date of birth", "DOB");
+        return raw ? { dateOfBirth: new Date(`${raw}T00:00:00`) } : existing ? {} : { dateOfBirth: null };
+      })(),
       classId: classRow.id,
       // A row without a parent mobile keeps the student's current parent (or none for a new student).
       ...(parentId ? { parentId } : {}),

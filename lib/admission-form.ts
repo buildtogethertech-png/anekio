@@ -17,7 +17,9 @@ export type AdmissionFormField = {
   maxFileSizeMb?: number;
 };
 
-const BUILTIN_IDS = ["studentName", "classWanted", "billingStartPeriod", "guardianName", "phone", "email", "message"] as const;
+const BUILTIN_IDS = ["studentName", "dateOfBirth", "classWanted", "billingStartPeriod", "guardianName", "phone", "email", "message"] as const;
+/** Only the office form asks for date of birth; it is optional unless the school makes it required. */
+const STUDENT_FIXED_TYPES: Record<string, AdmissionFieldType> = { dateOfBirth: "date", billingStartPeriod: "month" };
 /** Every enquiry needs these: who, which class, and a number to call back. Rename only, never hide. */
 export const LOCKED_ADMISSION_FIELD_IDS: readonly string[] = ["studentName", "classWanted", "phone"];
 /**
@@ -110,12 +112,18 @@ function validatedFormJson(fields: AdmissionFormField[]) {
 
 /** Student admission form: used by Add student in the office. */
 export function admissionFormFields(value: unknown): AdmissionFormField[] {
-  return parseFormFields(value, BUILTIN_IDS, LOCKED_STUDENT_ADMISSION_FIELD_IDS);
+  const fields = parseFormFields(value, BUILTIN_IDS, LOCKED_STUDENT_ADMISSION_FIELD_IDS, false, [], STUDENT_FIXED_TYPES);
+  // Older saved forms have no Date of birth row: add it hidden, so the school can switch it on.
+  if (fields.length && !fields.some((field) => field.id === "dateOfBirth")) {
+    const at = Math.max(0, fields.findIndex((field) => field.id === "studentName") + 1);
+    fields.splice(at, 0, { id: "dateOfBirth", label: "Date of birth", type: "date", required: false, visible: false, options: [], builtin: true });
+  }
+  return fields;
 }
 
 /** Website enquiry form: used by the public school website and enquiries. */
 export function websiteFormFields(value: unknown): AdmissionFormField[] {
-  return parseFormFields(value, BUILTIN_IDS, LOCKED_ADMISSION_FIELD_IDS);
+  return parseFormFields(value, BUILTIN_IDS, LOCKED_ADMISSION_FIELD_IDS).filter((field) => field.id !== "dateOfBirth");
 }
 
 /** Every employee needs these to log in and be paid from the right day: rename only, never hide. */

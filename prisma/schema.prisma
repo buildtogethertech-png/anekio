@@ -362,7 +362,7 @@ model Student {
   class               Class                    @relation(fields: [classId], references: [id])
   admissionNo         String
   name                String
-  dateOfBirth         DateTime
+  dateOfBirth         DateTime?
   interests           StudentInterest[]
   attendance          Attendance[]
   examResults         ExamResult[]

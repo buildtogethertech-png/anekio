@@ -474,6 +474,24 @@ export function MarkEntryScreen({
     }
   }
 
+  /** Move to the next student who still has a mark box (skips absent rows). */
+  function focusNext(from: number) {
+    for (let j = from + 1; j < students.length; j += 1) {
+      const c = cells[students[j].id];
+      if (!c?.absent && inputs.current[j]) {
+        inputs.current[j]?.focus();
+        return;
+      }
+    }
+    inputs.current[from]?.blur();
+  }
+  /** A mark is "complete" once another digit would go over the maximum (e.g. 7 of 40, or 35 of 40). */
+  function markComplete(v: string) {
+    if (!v || v.includes(".")) return false;
+    const n = Number(v);
+    return v.length >= String(Math.floor(max)).length || n * 10 > max;
+  }
+  const [focused, setFocused] = useState(-1);
   function update(studentId: string, patch: Partial<Cell>) {
     if (readOnly) return;
     const nextCell = { ...(cells[studentId] || { value: "", absent: false }), ...patch };
@@ -584,12 +602,12 @@ export function MarkEntryScreen({
                 const bad = problem(c);
                 const locked = readOnly || (fixOnly && !s.correctionRequested);
                 return (
-                  <View key={s.id} className={`flex-row items-center gap-3 px-4 py-2.5 ${i ? "border-t border-ink-100" : ""} ${s.correctionRequested ? "bg-red-50/60" : ""}`}>
-                    <View className="h-9 w-9 items-center justify-center rounded-full bg-ink-50">
-                      <Text className="text-[13px] font-semibold tabular-nums text-ink-700">{s.rollNumber ?? "–"}</Text>
-                    </View>
+                  <View key={s.id} className={`flex-row items-center gap-3 px-4 py-2.5 ${i ? "border-t border-ink-100" : ""} ${s.correctionRequested ? "bg-red-50/60" : focused === i ? "bg-clay-50" : ""}`}>
                     <View className="min-w-0 flex-1">
                       <Text className="text-[15px] font-medium text-ink-900" numberOfLines={1}>{s.name}</Text>
+                      <Text className="text-[12px] text-ink-500" numberOfLines={1}>
+                        {[s.rollNumber != null ? `Roll ${s.rollNumber}` : "", s.admissionNo || ""].filter(Boolean).join(" · ")}
+                      </Text>
                       {bad ? <Text className="text-[12px] font-medium text-red-700">{bad}</Text> : s.correctionRequested ? <Text className="text-[12px] text-red-700">{s.correctionNote || "Check this mark"}</Text> : null}
                     </View>
                     {c.absent ? (
@@ -604,11 +622,18 @@ export function MarkEntryScreen({
                         accessibilityLabel={`Marks for ${s.name}`}
                         editable={!locked}
                         value={c.value}
-                        onChangeText={(v) => update(s.id, { value: v.replace(/[^0-9.]/g, "").slice(0, 5) })}
+                        onChangeText={(v) => {
+                          const clean = v.replace(/[^0-9.]/g, "").slice(0, 5);
+                          update(s.id, { value: clean });
+                          // Jump to the next student as soon as the mark can't get any longer.
+                          if (clean.length > (c.value || "").length && markComplete(clean) && Number(clean) <= max) setTimeout(() => focusNext(i), 60);
+                        }}
+                        onFocus={() => setFocused(i)}
+                        onBlur={() => setFocused((cur) => (cur === i ? -1 : cur))}
                         keyboardType="decimal-pad"
                         returnKeyType={i < students.length - 1 ? "next" : "done"}
                         blurOnSubmit={false}
-                        onSubmitEditing={() => inputs.current[i + 1]?.focus()}
+                        onSubmitEditing={() => focusNext(i)}
                         placeholder="–"
                         placeholderTextColor="#CBD5E1"
                         selectTextOnFocus
@@ -621,7 +646,10 @@ export function MarkEntryScreen({
                       <Pressable
                         accessibilityRole="button"
                         accessibilityLabel={c.absent ? `Mark ${s.name} present` : `Mark ${s.name} absent`}
-                        onPress={() => update(s.id, { absent: !c.absent, value: "" })}
+                        onPress={() => {
+                          update(s.id, { absent: !c.absent, value: "" });
+                          if (!c.absent) setTimeout(() => focusNext(i), 60);
+                        }}
                         className={`h-12 w-12 items-center justify-center rounded-lg border ${c.absent ? "border-amber-300 bg-amber-100" : "border-ink-200 bg-white"}`}
                       >
                         <Text className={`text-[13px] font-bold ${c.absent ? "text-amber-800" : "text-ink-500"}`}>AB</Text>

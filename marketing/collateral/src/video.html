@@ -1,0 +1,165 @@
+<!doctype html><html><head><meta charset="utf-8">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1920px;height:1080px;overflow:hidden;background:#0b1530;font-family:Inter,"Inter Display",system-ui,sans-serif;color:#fff}
+#stage{position:relative;width:1920px;height:1080px;overflow:hidden}
+.bg{position:absolute;inset:0;background:radial-gradient(55% 70% at 15% 10%,rgba(40,85,246,.75),transparent 60%),radial-gradient(45% 55% at 92% 15%,rgba(34,193,240,.4),transparent 60%),radial-gradient(45% 55% at 75% 105%,rgba(20,184,137,.3),transparent 60%),#0b1530}
+.grid{position:absolute;inset:0;opacity:.22;background-image:linear-gradient(rgba(255,255,255,.12) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.12) 1px,transparent 1px);background-size:80px 80px;mask-image:radial-gradient(ellipse 70% 70% at 50% 40%,#000 10%,transparent 75%)}
+.scene{position:absolute;inset:0;opacity:0}
+.el{position:absolute;will-change:transform,opacity}
+.mark{width:180px;height:180px;border-radius:52px;background:linear-gradient(135deg,#2855f6,#22c1f0);display:grid;place-items:center;font-weight:800;font-size:110px;box-shadow:0 40px 90px rgba(40,85,246,.5)}
+.word{font-size:120px;font-weight:800;letter-spacing:-.03em}
+.tag{font-size:34px;color:#b9c6e4;font-weight:500}
+.h{font-size:72px;font-weight:800;letter-spacing:-.03em;line-height:1.05}
+.h span{color:#8dffd2}
+.kick{font-size:22px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;color:#8dffd2}
+.sub{font-size:30px;color:#b9c6e4;line-height:1.4;font-weight:500}
+.card{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);border-radius:28px;padding:34px 38px;width:480px;backdrop-filter:blur(10px)}
+.card b{display:block;font-size:34px;margin-bottom:10px}.card p{font-size:22px;color:#b9c6e4;line-height:1.4}
+.card .x{position:absolute;right:28px;top:26px;width:52px;height:52px;border-radius:50%;background:#ff5d7a;display:grid;place-items:center;font-weight:800;font-size:28px;color:#fff}
+.chip{display:inline-flex;align-items:center;gap:12px;background:#fff;color:#0b1530;border-radius:999px;padding:16px 28px;font-size:28px;font-weight:700;box-shadow:0 20px 50px rgba(0,0,0,.35)}
+.chip i{width:14px;height:14px;border-radius:50%;background:#2855f6}
+.node{width:300px;height:300px;border-radius:50%;background:linear-gradient(135deg,#2855f6,#22c1f0);display:grid;place-items:center;text-align:center;font-size:30px;font-weight:800;line-height:1.2;box-shadow:0 0 0 24px rgba(40,85,246,.18),0 0 0 48px rgba(40,85,246,.08)}
+.point{display:flex;align-items:center;gap:18px;font-size:30px;font-weight:600}
+.point i{width:40px;height:40px;border-radius:50%;background:#8dffd2;color:#0b1530;display:grid;place-items:center;font-style:normal;font-weight:800;font-size:22px;flex:0 0 40px}
+.cap{font-size:24px;color:#b9c6e4;text-align:center;width:360px;font-weight:600}
+img{display:block}
+.cta{font-size:84px;font-weight:800;letter-spacing:-.03em;text-align:center;line-height:1.05}
+.btn{background:#fff;color:#0b1530;border-radius:22px;padding:26px 48px;font-size:36px;font-weight:800;box-shadow:0 30px 70px rgba(0,0,0,.4)}
+.url{font-size:40px;font-weight:700;color:#8dffd2}
+.bar{position:absolute;left:0;bottom:0;height:8px;background:linear-gradient(90deg,#2855f6,#22c1f0,#8dffd2)}
+</style></head><body><div id="stage">
+<div class="bg"></div><div class="grid"></div>
+
+<div class="scene" id="s1">
+  <div class="el mark" style="left:870px;top:330px">A</div>
+  <div class="el word" style="left:0;width:1920px;top:560px;text-align:center">Anekio</div>
+  <div class="el tag" style="left:0;width:1920px;top:720px;text-align:center">School ERP for Indian schools · Web + Android</div>
+</div>
+
+<div class="scene" id="s2">
+  <div class="el kick" style="left:160px;top:150px">Today, in most schools</div>
+  <div class="el h" style="left:160px;top:200px;width:1200px">Registers, Excel and WhatsApp groups don't scale.</div>
+  <div class="el card c" style="left:160px;top:520px"><span class="x">✕</span><b>Fees in a notebook</b><p>Who paid and who's overdue is a half-day reconciliation.</p></div>
+  <div class="el card c" style="left:720px;top:520px"><span class="x">✕</span><b>Attendance on paper</b><p>The office finds out about absences at month end.</p></div>
+  <div class="el card c" style="left:1280px;top:520px"><span class="x">✕</span><b>Parents call the office</b><p>The same five questions, every day, to whoever picks up.</p></div>
+</div>
+
+<div class="scene" id="s3">
+  <div class="el kick" style="left:0;width:1920px;text-align:center;top:120px">The Anekio way</div>
+  <div class="el h" style="left:0;width:1920px;text-align:center;top:170px">Capture once. <span>Use everywhere.</span></div>
+  <svg class="el" id="lines" style="left:0;top:0" width="1920" height="1080"></svg>
+  <div class="el node" style="left:810px;top:470px">One student<br>record</div>
+  <div class="el chip o" style="left:300px;top:420px"><i></i>Admissions</div>
+  <div class="el chip o" style="left:300px;top:720px"><i></i>Fees &amp; receipts</div>
+  <div class="el chip o" style="left:780px;top:900px"><i></i>Attendance</div>
+  <div class="el chip o" style="left:1300px;top:720px"><i></i>Exams</div>
+  <div class="el chip o" style="left:1300px;top:420px"><i></i>Routine</div>
+  <div class="el chip o" style="left:800px;top:330px"><i></i>Parent app</div>
+</div>
+
+<div class="scene" id="s4">
+  <div class="el kick" style="left:140px;top:150px">For the office</div>
+  <div class="el h" style="left:140px;top:200px;width:700px">See the whole day before it starts.</div>
+  <div class="el point p" style="left:140px;top:520px"><i>✓</i>Fees: UPI, cash, pay links, receipts</div>
+  <div class="el point p" style="left:140px;top:600px"><i>✓</i>Attendance overview by 10 AM</div>
+  <div class="el point p" style="left:140px;top:680px"><i>✓</i>Routine with clash detection</div>
+  <div class="el point p" style="left:140px;top:760px"><i>✓</i>Notices, roles &amp; permissions</div>
+  <img class="el win" src="framed/office-dashboard.png" style="left:900px;top:130px;width:1000px">
+  <img class="el ph" src="framed/08-office-fees-register.png" style="left:1560px;top:520px;width:300px">
+</div>
+
+<div class="scene" id="s5">
+  <div class="el kick" style="left:140px;top:150px">For teachers</div>
+  <div class="el h" style="left:140px;top:200px;width:720px">Lose the paperwork, not the control.</div>
+  <div class="el point p" style="left:140px;top:520px"><i>✓</i>Class present in under a minute</div>
+  <div class="el point p" style="left:140px;top:600px"><i>✓</i>Own timetable &amp; rooms</div>
+  <div class="el point p" style="left:140px;top:680px"><i>✓</i>Papers, marks and deadlines</div>
+  <div class="el point p" style="left:140px;top:760px"><i>✓</i>Leave with balance shown</div>
+  <img class="el ph" src="framed/05-teacher-attendance.png" style="left:940px;top:120px;width:330px">
+  <img class="el ph" src="framed/06-teacher-timetable.png" style="left:1250px;top:80px;width:330px">
+  <img class="el ph" src="framed/04-teacher-apply-leave.png" style="left:1560px;top:120px;width:330px">
+  <div class="el cap cp" style="left:925px;top:800px">Mark attendance</div>
+  <div class="el cap cp" style="left:1235px;top:800px">Today's periods</div>
+  <div class="el cap cp" style="left:1545px;top:800px">Apply for leave</div>
+</div>
+
+<div class="scene" id="s6">
+  <div class="el kick" style="left:140px;top:150px">For parents</div>
+  <div class="el h" style="left:140px;top:200px;width:720px">Answers without calling the school.</div>
+  <div class="el point p" style="left:140px;top:520px"><i>✓</i>Fees due, Pay now, receipts</div>
+  <div class="el point p" style="left:140px;top:600px"><i>✓</i>Marks and the report card</div>
+  <div class="el point p" style="left:140px;top:680px"><i>✓</i>Attendance calendar per child</div>
+  <div class="el point p" style="left:140px;top:760px"><i>✓</i>Message the school, tracked</div>
+  <img class="el ph" src="framed/01-parent-home.png" style="left:940px;top:120px;width:330px">
+  <img class="el ph" src="framed/17-parent-exam-result.png" style="left:1250px;top:80px;width:330px">
+  <img class="el ph" src="framed/02-parent-message-school.png" style="left:1560px;top:120px;width:330px">
+  <div class="el cap cp" style="left:925px;top:800px">Parent home</div>
+  <div class="el cap cp" style="left:1235px;top:800px">Exam results</div>
+  <div class="el cap cp" style="left:1545px;top:800px">Message the school</div>
+</div>
+
+<div class="scene" id="s7">
+  <div class="el kick" style="left:0;width:1920px;text-align:center;top:130px">Everything, connected</div>
+  <div class="el h" style="left:0;width:1920px;text-align:center;top:180px">Twelve modules. <span>One record.</span></div>
+  <div class="el" id="mods" style="left:160px;top:380px;width:1600px;display:flex;flex-wrap:wrap;gap:22px;justify-content:center"></div>
+  <div class="el sub" style="left:0;width:1920px;text-align:center;top:880px">Web portal for the office · Android app for teachers and parents</div>
+</div>
+
+<div class="scene" id="s8">
+  <div class="el mark" style="left:870px;top:200px;width:140px;height:140px;font-size:84px;border-radius:40px">A</div>
+  <div class="el cta" style="left:0;width:1920px;top:400px">Run your whole school<br>from <span style="color:#8dffd2">one record.</span></div>
+  <div class="el btn" style="left:710px;top:660px">Start your 14-day free trial</div>
+  <div class="el url" style="left:0;width:1920px;text-align:center;top:800px">anekio.com · support@anekio.com</div>
+</div>
+<div class="bar" id="bar"></div>
+</div>
+<script>
+const MODS=["Admissions","Fees & receipts","Attendance","Exams","Routine","Parent inbox","Notices","Leave & payroll","School website","Documents","Roles","Student portal"];
+document.getElementById("mods").innerHTML=MODS.map(m=>`<div class="chip m"><i></i>${m}</div>`).join("");
+const L=document.getElementById("lines");
+const center=[960,620]; const pts=[[300+120,420+34],[300+140,720+34],[780+120,900+34],[1300+80,720+34],[1300+90,420+34],[800+120,330+34]];
+L.innerHTML=pts.map(p=>`<line x1="${center[0]}" y1="${center[1]}" x2="${p[0]}" y2="${p[1]}" stroke="#22c1f0" stroke-width="5" stroke-linecap="round" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"/>`).join("");
+const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const easeOut=x=>1-Math.pow(1-x,3), easeInOut=x=>x<.5?4*x*x*x:1-Math.pow(-2*x+2,3)/2;
+const prog=(t,t0,d)=>clamp((t-t0)/d,0,1);
+// scene timing [start, end]
+const S={s1:[0,6],s2:[6,14],s3:[14,22],s4:[22,31],s5:[31,40],s6:[40,49],s7:[49,55],s8:[55,60]};
+function fade(el,t,a,b){ // in over 0.6 at a, out over 0.5 before b
+  const i=easeOut(prog(t,a,.6)), o=1-easeInOut(prog(t,b-.5,.5)); el.style.opacity=Math.min(i,o); }
+function pop(el,t,t0,{dy=40,d=.7,scale=false,dx=0}={}){ const p=easeOut(prog(t,t0,d)); el.style.opacity=p; el.style.transform=`translate(${dx*(1-p)}px,${dy*(1-p)}px)${scale?` scale(${.8+.2*p})`:""}`; }
+window.seek=function(t){
+  for(const k in S){ const [a,b]=S[k]; const sc=$("#"+k); if(t<a-0.1||t>b+0.1){sc.style.opacity=0;continue;} fade(sc,t,a,b); }
+  $("#bar").style.width=(t/60*1920)+"px";
+  // s1
+  { const a=0; const m=$("#s1 .mark"); const p=easeOut(prog(t,a+.2,.9)); m.style.opacity=p; m.style.transform=`scale(${.5+.5*p}) rotate(${(1-p)*-20}deg)`;
+    pop($("#s1 .word"),t,a+.9,{dy:30}); pop($("#s1 .tag"),t,a+1.6,{dy:20});
+    const f=prog(t,a+2.5,3.5); m.style.transform+=` translateY(${-6*Math.sin(f*6.28)}px)`; }
+  // s2
+  { const a=S.s2[0]; pop($("#s2 .kick"),t,a+.2); pop($("#s2 .h"),t,a+.5,{dy:50});
+    $$("#s2 .c").forEach((c,i)=>{ pop(c,t,a+1.4+i*.5,{dy:60}); const x=c.querySelector(".x"); const p=easeOut(prog(t,a+3.6+i*.35,.4)); x.style.transform=`scale(${p}) rotate(${(1-p)*90}deg)`; x.style.opacity=p; }); }
+  // s3
+  { const a=S.s3[0]; pop($("#s3 .kick"),t,a+.2); pop($("#s3 .h"),t,a+.5,{dy:50});
+    const n=$("#s3 .node"); const p=easeOut(prog(t,a+1.3,.8)); n.style.opacity=p; n.style.transform=`scale(${.6+.4*p})`;
+    $$("#s3 .o").forEach((c,i)=>{ pop(c,t,a+2.2+i*.35,{dy:0,scale:true}); });
+    $$("#lines line").forEach((l,i)=>{ l.style.strokeDashoffset=1-easeOut(prog(t,a+2.2+i*.35,.6)); });
+    const pulse=1+.03*Math.sin((t-a)*4); if(t>a+3.5) n.style.transform=`scale(${pulse})`; }
+  // s4-s6 shared layout
+  function roleScene(id){ const a=S[id][0]; pop($(`#${id} .kick`),t,a+.2); pop($(`#${id} .h`),t,a+.4,{dy:50});
+    $$(`#${id} .p`).forEach((p,i)=>pop(p,t,a+1.6+i*.45,{dx:-40,dy:0}));
+    const w=$(`#${id} .win`); if(w){ const p=easeOut(prog(t,a+.6,1)); w.style.opacity=p; w.style.transform=`translateX(${(1-p)*120}px) rotateY(${(1-p)*-12}deg)`; w.style.transformOrigin="right center"; w.style.perspective="1200px"; }
+    $$(`#${id} .ph`).forEach((ph,i)=>{ const base=i===1?-30:0; const p=easeOut(prog(t,a+.8+i*.35,.9)); ph.style.opacity=p; const drift=Math.sin((t-a)*1.2+i)*8; ph.style.transform=`translateY(${(1-p)*140+base+drift}px)`; });
+    $$(`#${id} .cp`).forEach((c,i)=>pop(c,t,a+2.2+i*.3,{dy:20})); }
+  roleScene("s4"); roleScene("s5"); roleScene("s6");
+  // s7
+  { const a=S.s7[0]; pop($("#s7 .kick"),t,a+.2); pop($("#s7 .h"),t,a+.4,{dy:50});
+    $$("#s7 .m").forEach((c,i)=>{ const p=easeOut(prog(t,a+1.2+i*.2,.5)); c.style.opacity=p; c.style.transform=`scale(${.6+.4*p})`; });
+    pop($("#s7 .sub"),t,a+4,{dy:20}); }
+  // s8
+  { const a=S.s8[0]; const m=$("#s8 .mark"); const p=easeOut(prog(t,a+.2,.8)); m.style.opacity=p; m.style.transform=`scale(${.5+.5*p})`;
+    pop($("#s8 .cta"),t,a+.7,{dy:40}); const b=$("#s8 .btn"); pop(b,t,a+1.6,{dy:30,scale:true}); if(t>a+2.4) b.style.transform+=` scale(${1+.02*Math.sin((t-a)*5)})`;
+    pop($("#s8 .url"),t,a+2.2,{dy:20}); }
+};
+seek(0);
+</script></body></html>

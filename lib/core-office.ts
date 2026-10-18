@@ -1754,8 +1754,8 @@ export async function importPeopleSheetCore(user: AccessUser, input: { kind?: st
         ? classes.find((c) => c.name === parsedClass.name && c.section.toUpperCase() === parsedClass.section)
         : classes.find((c) => `${c.name}-${c.section}`.toLowerCase() === classRaw.toLowerCase());
       const parentEmail = cell(row, "parentEmail").toLowerCase();
-      if (!name || !admissionNo || !dob || !klass || !parentEmail || !/^\d{4}-(0[1-9]|1[0-2])$/.test(billingStartPeriod)) {
-        skipped.push(`Row ${line}: need name, admission no., date of birth, class, parent email, and billing start month (YYYY-MM).`);
+      if (!name || !admissionNo || (cell(row, "dateOfBirth", "dob") && !dob) || !klass || !parentEmail || !/^\d{4}-(0[1-9]|1[0-2])$/.test(billingStartPeriod)) {
+        skipped.push(`Row ${line}: need name, admission no., class, parent email (date of birth as YYYY-MM-DD if given), and billing start month (YYYY-MM).`);
         continue;
       }
       if (taken.has(admissionNo.toLowerCase())) {

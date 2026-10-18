@@ -1,0 +1,38 @@
+<!doctype html><html><head><meta charset="utf-8">
+<style>
+@page{size:3.75in 2.25in;margin:0}
+*{box-sizing:border-box}html,body{margin:0;background:#fff}
+body{font-family:Inter,"Inter Display",system-ui,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.card{position:relative;width:3.75in;height:2.25in;overflow:hidden;page-break-after:always}
+/* bleed = 0.125in each side; safe area inset 0.25in from bleed edge */
+.front{background:#0b1530;color:#fff}
+.front:before{content:"";position:absolute;inset:0;background:radial-gradient(70% 90% at 0% 0%,rgba(40,85,246,.9),transparent 60%),radial-gradient(50% 70% at 100% 20%,rgba(34,193,240,.45),transparent 60%),radial-gradient(45% 60% at 85% 110%,rgba(20,184,137,.35),transparent 60%)}
+.front:after{content:"";position:absolute;inset:0;opacity:.22;background-image:linear-gradient(rgba(255,255,255,.12) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.12) 1px,transparent 1px);background-size:.28in .28in;mask-image:radial-gradient(ellipse 60% 70% at 70% 50%,#000 10%,transparent 70%)}
+.inner{position:absolute;inset:.25in;display:flex;flex-direction:column;justify-content:space-between}
+.brand{display:flex;align-items:center;gap:.09in}
+.mark{width:.38in;height:.38in;border-radius:.11in;background:linear-gradient(135deg,#2855f6,#22c1f0);display:grid;place-items:center;font-weight:800;font-size:.22in;color:#fff;box-shadow:0 .06in .14in rgba(40,85,246,.4)}
+.name{font-weight:800;font-size:.26in;letter-spacing:-.01em}
+.tag{font-size:.115in;color:#b9c6e4;line-height:1.45;max-width:2.2in}
+.tag b{color:#8dffd2;font-weight:700}
+.contact{font-size:.105in;color:#dbe6ff;display:flex;gap:.18in;font-weight:600}
+.back{background:#fff;color:#0b1530}
+.back .inner{justify-content:center;align-items:center;text-align:center;gap:.1in}
+.back .mark{width:.6in;height:.6in;border-radius:.17in;font-size:.34in}
+.back .big{font-weight:800;font-size:.2in;letter-spacing:-.01em;margin-top:.04in}
+.back .line{font-size:.1in;color:#5b6b85;font-weight:600}
+.back .chips{display:flex;gap:.06in;flex-wrap:wrap;justify-content:center;margin-top:.04in}
+.back .chips span{font-size:.085in;font-weight:700;color:#2855f6;background:#eef4ff;border-radius:999px;padding:.035in .09in}
+</style></head><body>
+<div class="card front"><div class="inner">
+  <div class="brand"><div class="mark">A</div><div class="name">Anekio</div></div>
+  <div class="tag">School ERP for Indian schools.<br><b>One school record</b> for the office, teachers and parents — on web and Android.</div>
+  <div class="contact"><span>anekio.com</span><span>support@anekio.com</span></div>
+</div></div>
+<div class="card back"><div class="inner">
+  <div class="mark">A</div>
+  <div class="big">Run your whole school from one record.</div>
+  <div class="line">Admissions · Fees · Attendance · Exams · Routine · Parent app</div>
+  <div class="chips"><span>14-day free trial</span><span>Web + Android</span><span>Setup help included</span></div>
+  <div class="line" style="margin-top:.06in;color:#2855f6">anekio.com</div>
+</div></div>
+</body></html>

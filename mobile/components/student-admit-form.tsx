@@ -362,6 +362,11 @@ export function StudentAdmitForm({
   const builtinField = (id: string) => admissionForm.find((field) => field.builtin && field.id === id);
   const builtinLabel = (id: string, fallback: string) => builtinField(id)?.label || fallback;
   const emailField = builtinField("email");
+  // Date of birth follows the form. With no saved form, keep the old behaviour (asked and required).
+  const dobField = builtinField("dateOfBirth");
+  const showDob = dobField ? dobField.visible : !admissionForm.length;
+  const dobRequired = showDob && (dobField ? dobField.required : true);
+  const dobLabel = builtinLabel("dateOfBirth", "Date of birth");
   const showParentEmail = Boolean(emailField?.visible);
   // Parent name and mobile are the school's choice. With no saved form, keep the old behaviour (both asked, both required).
   const phoneField = builtinField("phone");
@@ -399,7 +404,7 @@ export function StudentAdmitForm({
 
   function missingField() {
     if (!form.name.trim()) return builtinLabel("studentName", "Student name");
-    if (!form.dateOfBirth) return "Date of birth";
+    if (dobRequired && !form.dateOfBirth) return dobLabel;
     if (!form.classId) return "Class";
     if (!form.billingStartPeriod) return builtinLabel("billingStartPeriod", "Billing starts from");
     for (const field of detailFields) {
@@ -460,7 +465,7 @@ export function StudentAdmitForm({
     function stepMissing(name: string) {
       if (name === "Details") {
         if (!form.name.trim()) return builtinLabel("studentName", "Student name");
-        if (!form.dateOfBirth) return "Date of birth";
+        if (dobRequired && !form.dateOfBirth) return dobLabel;
         if (!form.classId) return "Class";
         if (feeMissing) return "";
         if (!form.billingStartPeriod) return builtinLabel("billingStartPeriod", "Billing starts from");
@@ -544,10 +549,12 @@ export function StudentAdmitForm({
                   style={{ includeFontPadding: false }}
                 />
               </View>
-              <View>
-                {label("Date of birth *")}
-                <DateField birthDate value={form.dateOfBirth} max={new Date().toISOString().slice(0, 10)} onChange={(dateOfBirth) => patch({ dateOfBirth })} />
-              </View>
+              {showDob ? (
+                <View>
+                  {label(`${dobLabel}${star(dobRequired)}`)}
+                  <DateField birthDate value={form.dateOfBirth} max={new Date().toISOString().slice(0, 10)} onChange={(dateOfBirth) => patch({ dateOfBirth })} />
+                </View>
+              ) : null}
               <View>
                 {label("Class *")}
                 {classes.length ? (
@@ -882,11 +889,13 @@ export function StudentAdmitForm({
               <Input value={form.name} onChangeText={(name) => patch({ name })} autoComplete="name" placeholder="Full name as on birth certificate" />
             </Field>
           </Cell>
-          <Cell half twoCol={twoCol}>
-            <Field label="Date of birth *">
-              <DateField value={form.dateOfBirth} onChange={(dateOfBirth) => patch({ dateOfBirth })} />
-            </Field>
-          </Cell>
+          {showDob ? (
+            <Cell half twoCol={twoCol}>
+              <Field label={`${dobLabel}${star(dobRequired)}`}>
+                <DateField value={form.dateOfBirth} onChange={(dateOfBirth) => patch({ dateOfBirth })} />
+              </Field>
+            </Cell>
+          ) : null}
           <Cell half twoCol={twoCol}>
             {classes.length ? (
               <Select

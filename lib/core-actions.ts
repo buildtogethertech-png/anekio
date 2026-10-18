@@ -262,9 +262,15 @@ export async function createStudentCore(
   const collectAdmissionFee = Boolean(input.collectAdmissionFee);
   const paymentMethod = parsePayMethod(input.paymentMethod);
   const paymentReference = String(input.paymentReference || "").trim() || null;
-  if (!name || !input.classId || !input.dateOfBirth) {
+  if (!name || !input.classId) {
     throw new Error("Missing student fields");
   }
+  // Date of birth follows the admission form (no saved form: still required, as before).
+  const dobField = formFields.find((field) => field.id === "dateOfBirth");
+  const dobRequired = formFields.length ? Boolean(dobField?.visible && dobField.required) : true;
+  const bornOn = String(input.dateOfBirth || "").trim() ? new Date(String(input.dateOfBirth)) : null;
+  if (bornOn && Number.isNaN(bornOn.getTime())) throw new Error("Pick a valid date of birth.");
+  if (!bornOn && dobRequired) throw new Error(`${dobField?.label || "Date of birth"} is required.`);
   if (collectAdmissionFee) {
     need(user, "fees.collect");
     assertPayRefs(paymentMethod, paymentReference);
@@ -338,7 +344,7 @@ export async function createStudentCore(
             admissionNo,
             classId: input.classId,
             parentId,
-            dateOfBirth: new Date(input.dateOfBirth),
+            dateOfBirth: bornOn,
             billingStartPeriod,
             admissionDataJson: JSON.stringify(admissionData),
             admissionLeadId: lead?.id ?? null,
@@ -682,7 +688,7 @@ export async function updateStudentCore(
   const city = String(input.city || "").trim();
   const state = String(input.state || "").trim();
   const pincode = String(input.pincode || "").trim();
-  if (!id || !name || !admissionNo || !classId || !dob) {
+  if (!id || !name || !admissionNo || !classId) {
     throw new Error("Missing student fields");
   }
   const student = await prisma.student.findUnique({ where: { id } });
@@ -692,7 +698,7 @@ export async function updateStudentCore(
     const takenNo = await prisma.student.findFirst({ where: { admissionNo, NOT: { id } }, select: { id: true } });
     if (takenNo) throw new Error("That admission number is already used");
     await prisma.$transaction(async (tx) => {
-      await tx.student.update({ where: { id }, data: { name, admissionNo, classId, dateOfBirth: new Date(dob) } });
+      await tx.student.update({ where: { id }, data: { name, admissionNo, classId, dateOfBirth: dob ? new Date(dob) : null } });
       await assignStudentRollNumber(tx, { studentId: id, classId, orgId: student.orgId ?? user.orgId ?? null });
       await tx.studentInterest.deleteMany({ where: { studentId: id } });
       if (tags.length) await tx.studentInterest.createMany({ data: tags.map((tag) => ({ studentId: id, tag })) });
@@ -752,7 +758,7 @@ export async function updateStudentCore(
         admissionNo,
         classId,
         parentId,
-        dateOfBirth: new Date(dob),
+        dateOfBirth: dob ? new Date(dob) : null,
       },
     });
     await assignStudentRollNumber(tx, { studentId: id, classId, orgId: student.orgId ?? user.orgId ?? null });
