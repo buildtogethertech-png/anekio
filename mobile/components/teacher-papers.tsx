@@ -56,6 +56,35 @@ function filledCount(sheet: Sheet) {
   return sheet.students.filter((s) => s.absent || s.marks != null).length;
 }
 
+type Job = "papers" | "marks" | "done";
+
+const marksSent = (s: Sheet) => SENT.includes(s.workflowStatus || "");
+const isHeld = (s: Sheet) => Boolean(s.date && s.date <= today());
+/** Still owes the question paper to the office. */
+function owesPaper(s: Sheet) {
+  if (!s.isSetter || s.paperDone) return false;
+  return !isHeld(s) || s.isChecker === false;
+}
+/** Has marks to enter (now or after the exam). */
+function owesMarks(s: Sheet) {
+  return s.isChecker !== false && !marksSent(s);
+}
+function paperLate(s: Sheet) {
+  return owesPaper(s) && !s.paperWaiting && Boolean(s.paperDueOn && s.paperDueOn < today());
+}
+function marksLate(s: Sheet) {
+  return owesMarks(s) && isHeld(s) && Boolean(s.copiesDueOn && s.copiesDueOn < today());
+}
+
+function groupRows(list: Sheet[]) {
+  const map = new Map<string, Sheet[]>();
+  for (const sheet of list) {
+    const key = [sheet.seriesName || "Exams", sheet.classLabel].filter(Boolean).join(" · ");
+    map.set(key, [...(map.get(key) || []), sheet]);
+  }
+  return [...map.entries()];
+}
+
 export function TeacherPapersBoard() {
   const { data, reload } = useRecord();
   const { token } = useSession();
@@ -63,91 +92,146 @@ export function TeacherPapersBoard() {
   const { width } = useWindowDimensions();
   const wide = width >= 900;
   const sheets = data?.markSheets ?? [];
-  const [tab, setTab] = useState<"todo" | "done">("todo");
   const [openId, setOpenId] = useState("");
-  const [busy, setBusy] = useState("");
-
-  const todo = sheets.filter((s) => !isSent(s));
-  const done = sheets.filter(isSent);
-  const lateCount = todo.filter((s) => paperInfo(s).late).length;
-  const list = (tab === "todo" ? todo : done)
-    .slice()
-    .sort((a, b) =>
-      tab === "todo"
-        ? paperInfo(a).rank - paperInfo(b).rank || (a.date || "").localeCompare(b.date || "")
-        : (b.date || "").localeCompare(a.date || "")
-    );
-  const leadId = tab === "todo" ? list.find((s) => paperInfo(s).primary)?.examId : undefined;
-  const groups = useMemo(() => {
-    const map = new Map<string, Sheet[]>();
-    for (const sheet of list) {
-      const key = [sheet.seriesName || "Exams", sheet.classLabel].filter(Boolean).join(" · ");
-      map.set(key, [...(map.get(key) || []), sheet]);
-    }
-    return [...map.entries()];
-  }, [list]);
-  const open = sheets.find((s) => s.examId === openId) || null;
-
   const [handoverId, setHandoverId] = useState("");
+  const [doneExam, setDoneExam] = useState("");
+
+  const papers = sheets
+    .filter(owesPaper)
+    .sort((a, b) => Number(paperLate(b)) - Number(paperLate(a)) || (a.paperDueOn || "").localeCompare(b.paperDueOn || ""));
+  const marks = sheets
+    .filter(owesMarks)
+    .sort(
+      (a, b) =>
+        Number(b.workflowStatus === "CORRECTION_REQUIRED") - Number(a.workflowStatus === "CORRECTION_REQUIRED") ||
+        Number(isHeld(b)) - Number(isHeld(a)) ||
+        Number(marksLate(b)) - Number(marksLate(a)) ||
+        (a.date || "").localeCompare(b.date || "")
+    );
+  const done = sheets
+    .filter((s) => (s.isChecker === false ? s.paperDone : marksSent(s)))
+    .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  const marksNow = marks.filter(isHeld);
+  const papersLate = papers.filter(paperLate).length;
+  const marksLateCount = marks.filter(marksLate).length + marks.filter((s) => s.workflowStatus === "CORRECTION_REQUIRED").length;
+  const setsPapers = sheets.some((s) => s.isSetter);
+
+  const pick = (): Job => (papersLate ? "papers" : marksNow.length ? "marks" : papers.length && setsPapers ? "papers" : marks.length ? "marks" : "done");
+  const [tab, setTab] = useState<Job | "">("");
+  const job: Job = tab || pick();
+  const tabs: { id: Job; label: string; count: number; late: boolean }[] = [
+    { id: "marks", label: "Enter marks", count: marksNow.length, late: marksLateCount > 0 },
+    ...(setsPapers ? [{ id: "papers" as const, label: "Question papers", count: papers.length, late: papersLate > 0 }] : []),
+    { id: "done", label: "Done", count: 0, late: false },
+  ];
+  const doneExams = [...new Set(done.map((s) => s.seriesName || "Exams"))];
+  const doneList = doneExam ? done.filter((s) => (s.seriesName || "Exams") === doneExam) : done;
+  const upcoming = job === "marks" ? marks.filter((s) => !isHeld(s) && s.workflowStatus !== "CORRECTION_REQUIRED") : [];
+  const list = job === "papers" ? papers : job === "marks" ? marks.filter((s) => !upcoming.includes(s)) : doneList;
+  const leadId = job === "marks" ? marksNow[0]?.examId : job === "papers" ? papers.find((s) => !s.paperWaiting)?.examId : undefined;
+  const open = sheets.find((s) => s.examId === openId) || null;
   const handoverSheet = sheets.find((s) => s.examId === handoverId) || null;
 
+  const empty = {
+    papers: { icon: "document-text-outline" as const, title: "No question papers due", body: "When you're asked to set a paper, it shows up here." },
+    marks: { icon: "checkmark-done-circle-outline" as const, title: "All marks entered", body: "After an exam, its marks sheet shows up here." },
+    done: { icon: "documents-outline" as const, title: "Nothing finished yet", body: "Papers move here once your part is done." },
+  }[job];
+
   return (
-    <ScrollView className="min-h-0 flex-1 bg-[#F7F9FC]" contentContainerClassName={wide ? "w-full max-w-[920px] self-center px-8 py-6" : "px-4 pb-8 pt-4"}>
+    <ScrollView className="min-h-0 flex-1 bg-[#F7F9FC]" contentContainerClassName={wide ? "w-full max-w-[920px] self-center px-8 pb-16 pt-6" : "px-4 pb-28 pt-3"}>
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
-      <View className="mb-4 flex-row flex-wrap items-end justify-between gap-3">
-        <View className="flex-row items-center gap-2">
-          <Text className="text-[24px] font-bold tracking-tight text-ink-900">My exam papers</Text>
-          {lateCount ? (
-            <View className="rounded-full bg-red-50 px-2.5 py-1">
-              <Text className="text-[12px] font-semibold text-red-700">{lateCount} late</Text>
-            </View>
-          ) : null}
-        </View>
-        <View className="flex-row rounded-lg bg-ink-100 p-0.5">
-          {(["todo", "done"] as const).map((key) => (
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-4 grow-0" contentContainerClassName="gap-2">
+        {tabs.map((t) => {
+          const on = job === t.id;
+          return (
             <Pressable
-              key={key}
+              key={t.id}
               accessibilityRole="tab"
-              accessibilityState={{ selected: tab === key }}
-              onPress={() => setTab(key)}
-              className={`h-8 justify-center rounded-md px-4 ${tab === key ? "border border-ink-200 bg-white" : "border border-transparent"}`}
-              style={tab === key ? { shadowColor: "#0F172A", shadowOpacity: 0.08, shadowRadius: 2, shadowOffset: { width: 0, height: 1 }, elevation: 1 } : undefined}
+              accessibilityState={{ selected: on }}
+              onPress={() => setTab(t.id)}
+              className={`h-9 flex-row items-center gap-1.5 rounded-full border px-3.5 ${on ? "border-ink-900 bg-ink-900" : "border-ink-200 bg-white"}`}
             >
-              <Text className={`text-[13px] ${tab === key ? "font-semibold text-ink-900" : "font-medium text-ink-500"}`}>
-                {key === "todo" ? `To do · ${todo.length}` : `Done · ${done.length}`}
-              </Text>
+              <Text className={`text-[13px] font-semibold ${on ? "text-white" : "text-ink-700"}`}>{t.label}</Text>
+              {t.count ? (
+                <View className={`min-w-[20px] items-center rounded-full px-1.5 ${t.late ? "bg-red-500" : on ? "bg-white/20" : "bg-ink-100"}`}>
+                  <Text className={`text-[12px] font-semibold tabular-nums ${t.late || on ? "text-white" : "text-ink-700"}`}>{t.count}</Text>
+                </View>
+              ) : t.id !== "done" ? (
+                <Ionicons name="checkmark-circle" size={15} color={on ? "#fff" : "#10B981"} />
+              ) : null}
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
+      {job === "done" && doneExams.length > 1 ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} className="-mt-1 mb-4 grow-0" contentContainerClassName="gap-1.5">
+          {["", ...doneExams].map((name) => (
+            <Pressable key={name || "all"} onPress={() => setDoneExam(name)} className={`h-7 justify-center rounded-md px-2.5 ${doneExam === name ? "bg-clay-50" : ""}`}>
+              <Text className={`text-[12px] font-medium ${doneExam === name ? "text-clay-700" : "text-ink-500"}`}>{name || "All exams"}</Text>
             </Pressable>
           ))}
-        </View>
-      </View>
+        </ScrollView>
+      ) : null}
 
-      {!list.length ? (
+      {!list.length && !upcoming.length ? (
         <View className="items-center rounded-xl border border-dashed border-ink-200 bg-white px-6 py-12">
-          <Ionicons name={tab === "todo" ? "checkmark-done-circle-outline" : "documents-outline"} size={34} color="#94A3B8" />
-          <Text className="mt-3 text-[15px] font-semibold text-ink-900">{tab === "todo" ? "You're all caught up" : "No finished papers yet"}</Text>
-          <Text className="mt-1 text-center text-[13px] text-ink-600">
-            {tab === "todo" ? "When the office schedules an exam, your papers show up here." : "Papers move here after you send the marks."}
-          </Text>
+          <Ionicons name={empty.icon} size={34} color="#94A3B8" />
+          <Text className="mt-3 text-[15px] font-semibold text-ink-900">{empty.title}</Text>
+          <Text className="mt-1 text-center text-[13px] text-ink-600">{empty.body}</Text>
         </View>
       ) : (
-        groups.map(([name, rows]) => (
+        <>
+        {!list.length ? (
+          <View className="mb-5 flex-row items-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3">
+            <Ionicons name="checkmark-circle" size={18} color="#10B981" />
+            <Text className="text-[14px] font-medium text-emerald-800">Nothing to do right now</Text>
+          </View>
+        ) : null}
+        {groupRows(list).map(([name, rows]) => {
+          const overdue = rows.filter((r) => (job === "papers" ? paperLate(r) : job === "marks" ? marksLate(r) : false)).length;
+          return (
           <View key={name} className="mb-5">
-            <Text className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">{name}</Text>
+            <View className="mb-2 flex-row flex-wrap items-baseline gap-x-1.5">
+              <Text className="text-[14px] font-semibold text-ink-900">{name}</Text>
+              <Text className="text-[12px] text-ink-400">{`· ${rows.length} paper${rows.length === 1 ? "" : "s"}`}</Text>
+              {overdue ? <Text className="text-[12px] font-medium text-red-600">{`· ${overdue} overdue`}</Text> : null}
+            </View>
             <View className="overflow-hidden rounded-xl border border-ink-200 bg-white">
               {rows.map((sheet, i) => (
-                <PaperRow
+                <JobRow
                   key={sheet.examId}
+                  job={job}
                   sheet={sheet}
                   first={i === 0}
                   lead={sheet.examId === leadId}
-                  busy={busy === sheet.examId}
                   onPaperGiven={() => setHandoverId(sheet.examId)}
                   onMarks={() => setOpenId(sheet.examId)}
                 />
               ))}
             </View>
           </View>
-        ))
+          );
+        })}
+        {groupRows(upcoming).map(([name, rows]) => (
+          <View key={`up:${name}`} className="mb-5">
+            <View className="mb-2 flex-row items-baseline gap-x-1.5">
+              <Text className="text-[13px] font-semibold text-ink-500">Coming up</Text>
+              <Text className="text-[12px] text-ink-500">{`· ${name}`}</Text>
+            </View>
+            <View className="overflow-hidden rounded-xl border border-ink-200 bg-white/70">
+              {rows.map((sheet, i) => (
+                <View key={sheet.examId} className={`flex-row items-center gap-3 px-4 py-2.5 ${i ? "border-t border-ink-100" : ""}`}>
+                  <Text className="w-[92px] text-[13px] tabular-nums text-ink-500">{pretty(sheet.date, true)}</Text>
+                  <Text className="min-w-0 flex-1 text-[14px] text-ink-700" numberOfLines={1}>{subjectName(sheet.subject)}</Text>
+                </View>
+              ))}
+            </View>
+            <Text className="mt-1.5 text-[12px] text-ink-500">Marks open on each exam day.</Text>
+          </View>
+        ))}
+        </>
       )}
 
       <PaperHandoverSheet
@@ -172,6 +256,91 @@ export function TeacherPapersBoard() {
         onDraft={() => void reload()}
       />
     </ScrollView>
+  );
+}
+
+/** One paper, shown for the job of the open tab only. */
+function JobRow({ job, sheet, first, lead, onPaperGiven, onMarks }: { job: Job; sheet: Sheet; first: boolean; lead: boolean; onPaperGiven: () => void; onMarks: () => void }) {
+  const name = subjectName(sheet.subject);
+  let parts: { text: string; red?: boolean }[] = [];
+  let fix = "";
+  let progress: number | null = null;
+  let action: { label: string; icon: keyof typeof Ionicons.glyphMap; onPress: () => void; danger?: boolean } | null = null;
+  let pill: { text: string; tone: "green" | "violet" | "grey" } | null = null;
+  let onRow: (() => void) | undefined;
+
+  if (job === "papers") {
+    if (sheet.paperWaiting) {
+      parts = [{ text: "With the office · waiting to confirm" }];
+      pill = { text: "Given", tone: "grey" };
+    } else {
+      parts = [{ text: `Give to office by ${pretty(sheet.paperDueOn)}`, red: paperLate(sheet) }, { text: `exam ${pretty(sheet.date)}` }];
+      if (sheet.paperReturnNote) fix = `Sent back: ${sheet.paperReturnNote}`;
+      action = { label: "Paper given", icon: "checkmark", onPress: onPaperGiven };
+    }
+  } else if (job === "marks") {
+    const total = sheet.students.length;
+    const filled = filledCount(sheet);
+    progress = total ? filled / total : 0;
+    parts = [{ text: `${filled}/${total} entered` }];
+    if (sheet.workflowStatus === "CORRECTION_REQUIRED") {
+      fix = sheet.correctionNote ? `Office: ${sheet.correctionNote}` : "Office asked for a fix";
+      action = sheet.canEnterMarks ? { label: "Fix marks", icon: "alert-circle-outline", onPress: onMarks, danger: true } : null;
+    } else {
+      parts.push({ text: `due ${pretty(sheet.copiesDueOn)}`, red: marksLate(sheet) });
+      action = sheet.canEnterMarks ? { label: filled ? "Continue" : "Start", icon: filled ? "arrow-forward" : "create-outline", onPress: onMarks } : null;
+    }
+  } else {
+    parts = [{ text: pretty(sheet.date) }];
+    if (sheet.isChecker === false) {
+      pill = { text: "Paper given", tone: "grey" };
+    } else {
+      pill = sheet.workflowStatus === "PUBLISHED" ? { text: "Published", tone: "green" } : { text: "Marks sent", tone: "violet" };
+      onRow = onMarks;
+    }
+  }
+  const filledBtn = action && (lead || action.danger);
+  const pillBg = pill?.tone === "green" ? "bg-emerald-50" : pill?.tone === "violet" ? "bg-violet-50" : "bg-ink-100";
+  const pillText = pill?.tone === "green" ? "text-emerald-700" : pill?.tone === "violet" ? "text-violet-700" : "text-ink-600";
+
+  return (
+    <Pressable
+      disabled={!onRow}
+      onPress={onRow}
+      className={`flex-row items-center gap-3 px-4 ${job === "done" ? "py-3" : "py-3.5"} ${first ? "" : "border-t border-ink-100"} ${onRow ? "active:bg-ink-50" : ""}`}
+    >
+      <View className="min-w-0 flex-1 gap-0.5">
+        <Text className="text-[15px] font-semibold text-ink-900" numberOfLines={1}>{name}</Text>
+        <Text className="text-[13px] text-ink-500" numberOfLines={2}>
+          {parts.map((part, i) => (
+            <Text key={i} className={part.red ? "font-medium text-red-600" : ""}>{`${i ? " · " : ""}${part.text}`}</Text>
+          ))}
+        </Text>
+        {fix ? <Text className="text-[12px] font-medium text-red-700" numberOfLines={2}>{fix}</Text> : null}
+        {progress !== null ? (
+          <View className="mt-1.5 h-1 w-full max-w-[220px] overflow-hidden rounded-full bg-ink-100">
+            <View className={`h-full rounded-full ${progress >= 1 ? "bg-emerald-500" : "bg-clay-500"}`} style={{ width: `${Math.round(progress * 100)}%` }} />
+          </View>
+        ) : null}
+      </View>
+      {action ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={action.onPress}
+          className={`min-h-[34px] w-[118px] shrink-0 flex-row items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 ${action.danger ? "bg-red-600" : filledBtn ? "bg-clay-500" : "border border-ink-200 bg-white"}`}
+        >
+          <Ionicons name={action.icon} size={15} color={filledBtn ? "#fff" : "#334155"} />
+          <Text className={`text-[13px] font-semibold ${filledBtn ? "text-white" : "text-ink-800"}`} numberOfLines={1}>{action.label}</Text>
+        </Pressable>
+      ) : pill ? (
+        <View className="flex-row items-center gap-1.5">
+          <View className={`rounded-full px-2 py-0.5 ${pillBg}`}>
+            <Text className={`text-[11px] font-semibold ${pillText}`}>{pill.text}</Text>
+          </View>
+          {onRow ? <Ionicons name="chevron-forward" size={14} color="#94A3B8" /> : null}
+        </View>
+      ) : null}
+    </Pressable>
   );
 }
 
