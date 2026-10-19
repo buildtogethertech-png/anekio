@@ -913,7 +913,7 @@ model SchoolConfig {
   reportCardUnpaidMonths  Int                       @default(0)
   admitCardPendingMonths  Int                       @default(0)
   whatsappCommunityUrl    String                    @default("")
-  subjectCatalog          String                    @default("[{\"code\":\"ENG\",\"name\":\"English\"},{\"code\":\"MAT\",\"name\":\"Mathematics\"},{\"code\":\"SCI\",\"name\":\"Science\"},{\"code\":\"HIN\",\"name\":\"Hindi\"},{\"code\":\"SST\",\"name\":\"Social Studies\"},{\"code\":\"CSC\",\"name\":\"Computer\"},{\"code\":\"ART\",\"name\":\"Art\"},{\"code\":\"PED\",\"name\":\"Physical Education\"}]")
+  subjectCatalog          String                    @default("[]")
   payrollJson             String                    @default("{\"presentCredit\":1,\"absentCredit\":0,\"paidLeaveCredit\":1,\"unpaidLeaveCredit\":0,\"halfDayCredit\":0.5,\"lateCredit\":1}")
   feeCatalogJson           String                    @default("{\"items\":[],\"late\":{\"enabled\":false,\"amount\":0,\"graceDays\":0}}")
   documentTemplates       DocumentTemplate[]

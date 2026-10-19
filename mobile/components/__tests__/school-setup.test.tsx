@@ -38,6 +38,22 @@ describe("ClockForm", () => {
 });
 
 describe("SchoolSubjectsForm", () => {
+  it("starts a new school with an empty catalog", () => {
+    render(
+      <SchoolSubjectsForm
+        catalog={[]}
+        classes={[{ id: "class-1-a", label: "1-A", name: "1", subjects: [] }]}
+        onSaveCatalog={jest.fn()}
+        onSaveClass={jest.fn()}
+      />
+    );
+
+    fireEvent.press(screen.getByText("Manage catalog"));
+    expect(screen.getByText("0 subjects · 0 codes")).toBeTruthy();
+    expect(screen.getByText("No catalog subjects yet. Add one or upload a CSV.")).toBeTruthy();
+    expect(screen.queryByLabelText("Open English")).toBeNull();
+  });
+
   it("shows only the selected class curriculum and keeps catalog off the class list", () => {
     render(
       <SchoolSubjectsForm

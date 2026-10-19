@@ -7,6 +7,7 @@ import {
   knownCodeForName,
   matchCatalogEntry,
   matchClassSubject,
+  isBakedDefaultCatalog,
   parseSubjectCatalog,
   serializeSubjectCatalog,
   skillMatchesSubject,
@@ -68,6 +69,27 @@ describe("legacy catalog and names", () => {
       { code: "MAT", name: "Mathematics" },
       { code: "HIN", name: "Hindi" },
     ]);
+  });
+
+  it("keeps an empty catalog empty for a new school", () => {
+    expect(parseSubjectCatalog("[]")).toEqual([]);
+    expect(parseSubjectCatalog("")).toEqual([]);
+    expect(parseSubjectCatalog(null)).toEqual([]);
+    expect(parseSubjectCatalog("not-json")).toEqual([]);
+  });
+
+  it("detects the unused starter catalog", () => {
+    expect(isBakedDefaultCatalog(parseSubjectCatalog(JSON.stringify([
+      { code: "ENG", name: "English" },
+      { code: "MAT", name: "Mathematics" },
+      { code: "SCI", name: "Science" },
+      { code: "HIN", name: "Hindi" },
+      { code: "SST", name: "Social Studies" },
+      { code: "CSC", name: "Computer" },
+      { code: "ART", name: "Art" },
+      { code: "PED", name: "Physical Education" },
+    ])))).toBe(true);
+    expect(isBakedDefaultCatalog([{ code: "ENG", name: "English" }])).toBe(false);
   });
 
   it("rejects duplicate catalog codes but allows the same name with a different code", () => {

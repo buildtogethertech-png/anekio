@@ -2306,7 +2306,7 @@ export async function saveSchoolIdentityCore(
   if (existing) {
     await prisma.schoolConfig.update({ where: { id: existing.id }, data });
   } else {
-    await prisma.schoolConfig.create({ data: { id: "school", weekdays: "[1,2,3,4,5,6]", ...data } });
+    await prisma.schoolConfig.create({ data: { id: "school", weekdays: "[1,2,3,4,5,6]", subjectCatalog: "[]", ...data } });
   }
   if (data.sessionStart && data.sessionEnd) {
     await syncCurrentSessionDates(data.sessionStart, data.sessionEnd);

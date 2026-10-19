@@ -7,6 +7,7 @@ import { roleIdBySlug } from "./roles";
 import { captureWebsiteLead, createDemo, createTrialSubscription, ensureOnboardingTasks, fulfillPaidSubscription, startOnboarding } from "./saas-crm";
 import { getSitePricing } from "./saas-pricing";
 import { marketingBottom, marketingCss, marketingHead, marketingScript, marketingTop } from "./anekio-marketing";
+import { emptyUnusedBakedSubjectCatalog } from "./subject-code";
 
 const PRODUCT_NAME = "Anekio";
 const TAGLINE = "One Platform, Infinite Possibilities.";
@@ -285,8 +286,10 @@ async function provisionTrialWorkspace(org: { id: string; schoolName: string; ow
       gstin: org.gstin,
       phone,
       email,
+      subjectCatalog: "[]",
     },
   });
+  await emptyUnusedBakedSubjectCatalog(org.id);
   const existingInOrg = await prisma.user.findFirst({
     where: { orgId: org.id, OR: [{ email }, { phone }] },
   });

@@ -99,10 +99,43 @@ export function codeFromLegacyName(name: string, used: Set<string>) {
   return `SUB${Date.now().toString(36).toUpperCase()}`.slice(0, SUBJECT_CODE_MAX);
 }
 
+export function isBakedDefaultCatalog(entries: SubjectCatalogEntry[]) {
+  if (entries.length !== DEFAULT_SUBJECT_CATALOG.length) return false;
+  const expected = new Map(DEFAULT_SUBJECT_CATALOG.map((row) => [row.code, row.name]));
+  return entries.every((row) => expected.get(row.code) === row.name);
+}
+
+/** New orgs used to inherit the CBSE starter list. Drop it when the school has not used any subjects yet. */
+export async function emptyUnusedBakedSubjectCatalog(orgId?: string | null) {
+  if (!orgId) return;
+  const config = await prisma.schoolConfig.findFirst({
+    where: { orgId },
+    select: { id: true, subjectCatalog: true },
+  });
+  if (!config) return;
+  const catalog = parseSubjectCatalog(config.subjectCatalog);
+  if (!isBakedDefaultCatalog(catalog)) return;
+  const used = await prisma.subject.count({ where: { orgId } });
+  if (used) return;
+  await prisma.schoolConfig.update({ where: { id: config.id }, data: { subjectCatalog: "[]" } });
+}
+
+export async function subjectCatalogForSchool(config?: { id?: string; orgId?: string | null; subjectCatalog?: string } | null) {
+  if (!config) return [];
+  const catalog = parseSubjectCatalog(config.subjectCatalog);
+  if (!isBakedDefaultCatalog(catalog) || !config.orgId) return catalog;
+  const used = await prisma.subject.count({ where: { orgId: config.orgId } });
+  if (used) return catalog;
+  if (config.id) {
+    await prisma.schoolConfig.update({ where: { id: config.id }, data: { subjectCatalog: "[]" } });
+  }
+  return [];
+}
+
 export function parseSubjectCatalog(raw: string | null | undefined): SubjectCatalogEntry[] {
   try {
     const parsed = JSON.parse(raw || "[]") as unknown;
-    if (!Array.isArray(parsed)) return DEFAULT_SUBJECT_CATALOG.map((row) => ({ ...row }));
+    if (!Array.isArray(parsed)) return [];
     const entries: SubjectCatalogEntry[] = [];
     const usedCodes = new Set<string>();
     const usedLegacyNames = new Set<string>();
@@ -127,9 +160,9 @@ export function parseSubjectCatalog(raw: string | null | undefined): SubjectCata
       usedCodes.add(code);
       entries.push({ code, name });
     }
-    return entries.length ? entries : DEFAULT_SUBJECT_CATALOG.map((row) => ({ ...row }));
+    return entries;
   } catch {
-    return DEFAULT_SUBJECT_CATALOG.map((row) => ({ ...row }));
+    return [];
   }
 }
 
@@ -370,12 +403,13 @@ export async function ensureSubjectCodeSchema() {
   await resolveDuplicateClassSubjectNames();
   await backfillSubjectCodes();
   await resolveCrossGradeSubjectCodes();
-  const configs = await prisma.schoolConfig.findMany({ select: { id: true, subjectCatalog: true } });
-  const subjectRows = await prisma.subject.findMany({ select: { code: true, name: true } });
+  const configs = await prisma.schoolConfig.findMany({ select: { id: true, orgId: true, subjectCatalog: true } });
+  const subjectRows = await prisma.subject.findMany({ select: { code: true, name: true, orgId: true } });
   for (const config of configs) {
     const entries = parseSubjectCatalog(config.subjectCatalog);
     const used = new Set(entries.map((row) => row.code));
     for (const row of subjectRows) {
+      if (config.orgId && row.orgId && row.orgId !== config.orgId) continue;
       const checked = validateSubjectCode(row.code);
       if (!checked.ok || used.has(checked.code)) continue;
       entries.push({ code: checked.code, name: row.name });

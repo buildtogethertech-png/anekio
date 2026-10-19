@@ -199,7 +199,7 @@ function asCatalog(catalog: (string | SubjectCatalogEntry)[]): SubjectCatalogEnt
     used.add(code);
     rows.push({ code, name, previousCode: item.previousCode || code });
   }
-  return rows.length ? rows : DEFAULT_SUBJECT_ENTRIES.slice(0, 8).map((row) => ({ ...row, previousCode: row.code }));
+  return rows;
 }
 
 function clientCodeOk(raw: string) {

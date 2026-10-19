@@ -35,8 +35,8 @@ import { prisma } from "./prisma";
 import { listManagerOptions, reportUserIds, teamClassIds } from "./reports";
 import { placeLines, schoolFromConfig } from "./school";
 import { listRoles } from "./roles";
-import { parseSubjectCatalog, parseWeekdays, weekCapacity, WEEKDAY_SHORT } from "./schedule";
-import { formatSubjectLabel, subjectDto } from "./subject-code";
+import { parseWeekdays, weekCapacity, WEEKDAY_SHORT } from "./schedule";
+import { formatSubjectLabel, subjectCatalogForSchool, subjectDto } from "./subject-code";
 import { ensureSchoolSessions } from "./school-session";
 import { documentStudioBundle } from "./document-studio";
 import { CONTEST_TYPE_LABEL, daysLate, formatInr, LEVEL_LABEL, PATH_LABEL, percent, publicOrigin } from "./utils";
@@ -1387,7 +1387,7 @@ async function officePayload(user: AccessUser) {
           createdAt: event.createdAt.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }),
         })),
       })),
-      subjectCatalog: parseSubjectCatalog(config?.subjectCatalog),
+      subjectCatalog: await subjectCatalogForSchool(config),
       sessions: sessions.map((s) => ({
         id: s.id,
         label: s.label,
