@@ -92,6 +92,8 @@ Do not use staging credentials or its database URL in production builds.
 
 ## Android production `.aab` build
 
+> **Step-by-step release flow (Dev → Preview → AAB → Play → force update): see [`RELEASE-ANDROID.md`](RELEASE-ANDROID.md).**
+
 Android release builds use Expo Application Services (EAS). The production EAS profile in [`mobile/eas.json`](mobile/eas.json) has `android.buildType: "app-bundle"`, so it produces an Android App Bundle (`.aab`) for Google Play—not an APK.
 
 ### One-time setup
@@ -167,20 +169,24 @@ Use these installable APKs for testing before release. They are all **internal**
 
 Each command prints an Expo build URL. Wait for **Finished**, open the URL, and download/install the APK on an Android device. The legacy `npm run build-apk` command remains a preview APK build.
 
-### Test builds install next to the Play Store app
+### Three apps on one phone
 
-Test builds use a different app ID, so they never clash with the Play Store version on the same phone
-(`mobile/app.config.js`, driven by `APP_VARIANT`):
+Each kind of build has its own app ID (`mobile/app.config.js`, driven by `APP_VARIANT`), so all three can be
+installed side by side:
 
-| Build | App name / ID |
-| --- | --- |
-| Play Store (`production`), `production-test` APK | **Anekio** · `in.anekio.school` |
-| Development client, preview, staging, `npm run build-apk:quick`, `npm --prefix mobile run android` | **Anekio Dev** · `in.anekio.school.dev` |
+| App on the phone | ID | What it is | How to get it |
+| --- | --- | --- | --- |
+| **Anekio** | `in.anekio.school` | The real app from Google Play | Play Store (`npm run build:aab:production[:local]` → upload) |
+| **Anekio Preview** | `in.anekio.school.preview` | Release build to check before a Play release (no live reload) | `npm run build-apk:quick`, or `build-apk:production[:local]` / `build-apk:staging[:local]` |
+| **Anekio Dev** | `in.anekio.school.dev` | Development client with live reload | once: `npm --prefix mobile run android` (USB) or `npm run build-apk:development`; then daily `npm run app` |
 
-Notes: the `production-test` APK keeps the real ID on purpose (it is the final check of the store build), so
-uninstall the Play version before installing it. Google sign-in in **Anekio Dev** needs its own Android OAuth client
-(package `in.anekio.school.dev` + the debug/EAS SHA-1) in Google Cloud. Deep links use `anekio-dev://` in the dev app.
-After switching variants for a local build, regenerate the native folder once: `cd mobile && npx expo prebuild -p android --clean`.
+Notes:
+- Force update (admin console → App version) only ever blocks **Anekio**. Preview and Dev are never blocked
+  (to test the blocker in Dev, start Metro with `EXPO_PUBLIC_FAKE_APP_BUILD=5`).
+- Google sign-in in Preview / Dev needs its own Android OAuth client in Google Cloud (package name + SHA-1).
+  Phone/OTP login works everywhere.
+- Deep links: `anekio://` opens Anekio, `anekio-preview://` Preview, `anekio-dev://` Dev.
+- Preview and Dev local builds share `mobile/android/`; the scripts regenerate it automatically when you switch.
 
 ### Building on your own Mac (no EAS build credits)
 

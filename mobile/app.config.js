@@ -1,20 +1,25 @@
 /**
- * Build variants so test builds never clash with the Play Store app on the same phone.
+ * Three apps that can all live on one phone:
  *
- *   APP_VARIANT unset / "production" -> "Anekio",     in.anekio.school      (Google Play)
- *   APP_VARIANT=development           -> "Anekio Dev", in.anekio.school.dev  (dev client, quick/local/staging test APKs)
+ *   APP_VARIANT unset / "production" -> "Anekio"         in.anekio.school          Google Play (real users)
+ *   APP_VARIANT=preview               -> "Anekio Preview" in.anekio.school.preview  release build to test before a Play release
+ *   APP_VARIANT=development           -> "Anekio Dev"     in.anekio.school.dev      dev client: live reload with `npx expo start`
  *
  * Everything else comes from app.json. Set APP_VARIANT in eas.json profiles or before a local build.
  */
-module.exports = ({ config }) => {
-  const variant = process.env.APP_VARIANT || "production";
-  if (variant === "production") return config;
+const VARIANTS = {
+  development: { name: "Anekio Dev", id: "in.anekio.school.dev", scheme: "anekio-dev" },
+  preview: { name: "Anekio Preview", id: "in.anekio.school.preview", scheme: "anekio-preview" },
+};
 
+module.exports = ({ config }) => {
+  const variant = VARIANTS[process.env.APP_VARIANT || ""];
+  if (!variant) return config;
   return {
     ...config,
-    name: "Anekio Dev",
-    scheme: "anekio-dev",
-    android: { ...config.android, package: "in.anekio.school.dev" },
-    ios: { ...config.ios, bundleIdentifier: "in.anekio.school.dev" },
+    name: variant.name,
+    scheme: variant.scheme,
+    android: { ...config.android, package: variant.id },
+    ios: { ...config.ios, bundleIdentifier: variant.id },
   };
 };

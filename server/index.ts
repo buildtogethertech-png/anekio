@@ -97,6 +97,7 @@ import {
 import { adminInvoicePdf } from "../lib/saas-invoice-pdf";
 import { sendSaasEmailEvent } from "../lib/saas-email";
 import { updateSitePricing } from "../lib/saas-pricing";
+import { appPlatform, saveAppVersionRules, updateStatusFor } from "../lib/app-version";
 import { privacyPolicyHtml } from "../lib/privacy-policy";
 import {
   ADMIN_OAUTH_COOKIE,
@@ -153,7 +154,7 @@ app.use(
   cors({
     origin: true,
     credentials: true,
-    allowedHeaders: ["Authorization", "Content-Type"],
+    allowedHeaders: ["Authorization", "Content-Type", "X-App-Platform", "X-App-Build"],
   })
 );
 app.use("/api/pay/webhook", express.raw({ type: "*/*" }));
@@ -162,6 +163,35 @@ app.use(express.json({ limit: "4mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use((_req, _res, next) => runWithoutTenant(() => next()));
 app.use((req, _res, next) => withPublicRequestOrigin(requestOrigin(req), next));
+
+/** Public: the mobile app asks whether its build must / should update. */
+app.get("/api/v1/app-version", async (req, res) => {
+  const platform = appPlatform(req.query.platform) || "android";
+  const build = Math.floor(Number(req.query.build) || 0);
+  res.setHeader("Cache-Control", "no-store");
+  res.json(await updateStatusFor(platform, build));
+});
+
+/**
+ * Force update, server side: an app below the minimum build gets 426 for every API call (except login-free
+ * version checks), so even an old build that skipped the in-app check cannot keep working during an emergency.
+ * Requests without the headers (web, older apps, scripts) pass through untouched.
+ */
+app.use("/api/v1", async (req, res, next) => {
+  const platform = appPlatform(req.header("x-app-platform"));
+  const build = Math.floor(Number(req.header("x-app-build")) || 0);
+  if (!platform || !build || req.path === "/app-version") return next();
+  try {
+    const status = await updateStatusFor(platform, build);
+    if (status.required) {
+      res.status(426).json({ error: status.message, code: "update_required", storeUrl: status.storeUrl, minBuild: status.minBuild });
+      return;
+    }
+  } catch {
+    // Never block on a failed check.
+  }
+  next();
+});
 
 function sendError(res: express.Response, status: number, error: string) {
   res.status(status).json({ error });
@@ -1118,6 +1148,19 @@ app.post(["/settings/pricing", "/anekio-admin/settings/pricing"], async (req, re
     res.redirect(303, `${basePath || "/"}?view=pricing&saved=${encodeURIComponent("Landing page pricing published.")}`);
   } catch (e) {
     res.redirect(303, `${basePath || "/"}?view=pricing&error=${encodeURIComponent(e instanceof Error ? e.message : "Could not save pricing.")}`);
+  }
+});
+
+app.post(["/settings/app-version", "/anekio-admin/settings/app-version"], async (req, res, next) => {
+  if (!adminRouteRequest(req)) return next();
+  const session = requireAdminAction(req, res);
+  if (!session) return;
+  const basePath = adminBase(req);
+  try {
+    await saveAppVersionRules(req.body || {}, session.email);
+    res.redirect(303, `${basePath || "/"}?view=app-version&saved=${encodeURIComponent("App update rules saved. Apps pick them up within a minute.")}`);
+  } catch (e) {
+    res.redirect(303, `${basePath || "/"}?view=app-version&error=${encodeURIComponent(e instanceof Error ? e.message : "Could not save app update rules.")}`);
   }
 });
 

@@ -22,7 +22,7 @@
       "env": {
         "EXPO_PUBLIC_API_URL": "https://app.staging.anekio.com",
         "ORG_GRADLE_PROJECT_reactNativeArchitectures": "armeabi-v7a,arm64-v8a",
-        "APP_VARIANT": "development"
+        "APP_VARIANT": "preview"
       }
     },
     "production-test": {
@@ -32,7 +32,8 @@
       },
       "env": {
         "EXPO_PUBLIC_API_URL": "https://app.anekio.com",
-        "ORG_GRADLE_PROJECT_reactNativeArchitectures": "armeabi-v7a,arm64-v8a"
+        "ORG_GRADLE_PROJECT_reactNativeArchitectures": "armeabi-v7a,arm64-v8a",
+        "APP_VARIANT": "preview"
       }
     },
     "preview": {
@@ -43,7 +44,7 @@
       "env": {
         "EXPO_PUBLIC_API_URL": "https://anekio-school.vercel.app",
         "ORG_GRADLE_PROJECT_reactNativeArchitectures": "armeabi-v7a,arm64-v8a",
-        "APP_VARIANT": "development"
+        "APP_VARIANT": "preview"
       }
     },
     "production": {
@@ -53,7 +54,8 @@
       "env": {
         "EXPO_PUBLIC_API_URL": "https://app.anekio.com",
         "ORG_GRADLE_PROJECT_reactNativeArchitectures": "armeabi-v7a,arm64-v8a"
-      }
+      },
+      "autoIncrement": true
     }
   },
   "submit": {

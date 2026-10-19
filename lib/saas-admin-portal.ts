@@ -3,6 +3,7 @@ import { googleAdminAuthConfigured, localAdminLoginAvailable, type SaasAdminSess
 import { PIPELINE_STAGES, firstName, greetingFor, isCustomerOrg } from "./saas-crm";
 import { getSaasEmailSettings, listSaasEmailDeliveryLogs, renderSaasEmailTemplate, type SaasEmailDeliveryLogRow } from "./saas-email";
 import { getSitePricing } from "./saas-pricing";
+import { getAppVersionRules } from "./app-version";
 import QRCode from "qrcode";
 import { recentSupportSessions, supportUsersForOrg } from "./support-session";
 function escapeHtml(value: unknown) {
@@ -93,6 +94,7 @@ function icon(name: string) {
     onboarding: "🚀",
     followups: "🔔",
     support: "🎫",
+    "app-version": "📱",
     settings: "⚙",
   };
   return icons[name] || "•";
@@ -104,7 +106,7 @@ function adminDocument(input: { title: string; basePath: string; session: SaasAd
     { label: "CRM", items: [["leads", "Leads"], ["demos", "Demos"], ["deals", "Deals"]] },
     { label: "Customers", items: [["organisations", "Organisations"], ["subscriptions", "Subscriptions"]] },
     { label: "Billing", items: [["invoices", "Invoices"], ["payments", "Payments"], ["pricing", "Pricing"]] },
-    { label: "Operations", items: [["onboarding", "Onboarding"], ["followups", "Follow-ups"], ["support", "Support"]] },
+    { label: "Operations", items: [["onboarding", "Onboarding"], ["followups", "Follow-ups"], ["support", "Support"], ["app-version", "App version"]] },
     { label: "", items: [["settings", "Settings"]] },
   ];
   const mobile: [string, string][] = [
@@ -473,6 +475,28 @@ export async function adminPortalHtml(input: {
   } else if (view === "support") {
     const tickets = await prisma.saasSupportTicket.findMany({ orderBy: { createdAt: "desc" }, include: { org: true }, take: 80 });
     body = `${pageHead("Support", "Internal tickets against customer organisations.")}<section class="panel"><div class="panel-body"><form method="post" action="${input.basePath}/crm/support" class="form-grid">${csrfField(input.session)}<div class="field"><label>Organisation</label><select name="orgId">${customers.map((o) => `<option value="${o.id}">${escapeHtml(o.schoolName)}</option>`).join("")}</select></div><div class="field"><label>Subject</label><input name="subject" required></div><div class="field full"><label>Details</label><textarea name="body"></textarea></div><div class="form-actions"><button class="btn primary">Open ticket</button></div></form></div></section><section class="panel"><div class="table-wrap">${tickets.length ? `<table><thead><tr><th>School</th><th>Subject</th><th>Status</th><th>Opened</th></tr></thead><tbody>${tickets.map((t) => `<tr><td>${escapeHtml(t.org.schoolName)}</td><td>${escapeHtml(t.subject)}</td><td>${badge(t.status)}</td><td>${dateLabel(t.createdAt)}</td></tr>`).join("")}</tbody></table>` : empty("No tickets", "Open a ticket for a customer school.")}</div></section>`;
+  } else if (view === "app-version") {
+    const rules = await getAppVersionRules("android", true);
+    const state = rules.minBuild ? `FORCING BELOW BUILD ${rules.minBuild}` : rules.latestBuild ? `SUGGESTING BUILD ${rules.latestBuild}` : "OFF";
+    body = `${pageHead("App version", "Make Android users update. Use the build number from Play Console (e.g. Release “11 (0.1.0)” = build 11).")}
+      <section class="panel"><div class="panel-head"><h2>Android · Google Play</h2>${badge(state)}</div>
+      <div class="panel-body">
+        <div class="form-grid" style="margin-bottom:18px">
+          <div><span class="muted small">Force update below build</span><strong style="display:block;font-size:26px">${rules.minBuild || "Off"}</strong></div>
+          <div><span class="muted small">Suggest update below build</span><strong style="display:block;font-size:26px">${rules.latestBuild || "Off"}</strong></div>
+        </div>
+        <form method="post" action="${input.basePath}/settings/app-version">${csrfField(input.session)}
+          <input type="hidden" name="platform" value="android">
+          <div class="form-grid">
+            <div class="field"><label>Force update — minimum build</label><input name="minBuild" type="number" min="0" value="${rules.minBuild}"><span class="muted small">Apps below this build are blocked until they update from Play. 0 = off. Only set this after the new build is live on Play.</span></div>
+            <div class="field"><label>Suggest update — latest build</label><input name="latestBuild" type="number" min="0" value="${rules.latestBuild}"><span class="muted small">Apps below this see a “New version available” banner they can dismiss. 0 = off.</span></div>
+            <div class="field full"><label>Message shown to users</label><textarea name="message" maxlength="300" placeholder="${escapeHtml("We fixed an important problem. Please update Anekio to continue.")}">${escapeHtml(rules.message)}</textarea></div>
+            <div class="field full"><label>Play Store link</label><input name="storeUrl" value="${escapeHtml(rules.storeUrl)}"></div>
+          </div>
+          <p class="muted small">${rules.updatedAt ? `Last changed ${escapeHtml(dateTimeLabel(rules.updatedAt))}${rules.updatedBy ? ` by ${escapeHtml(rules.updatedBy)}` : ""}.` : "Not changed yet."} Apps check when they open and when they come back to the screen.</p>
+          <div class="form-actions"><button class="btn primary" type="submit">Save update rules</button></div>
+        </form>
+      </div></section>`;
   } else if (view === "pricing") {
     const p = await getSitePricing();
     body = `${pageHead("Landing page pricing", "Change list price and discount here. The public website and checkout update immediately.")}

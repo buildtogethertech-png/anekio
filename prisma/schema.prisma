@@ -838,6 +838,20 @@ model Application {
   createdAt   DateTime          @default(now())
 }
 
+/// Mobile app update rules per platform (id "android" / "ios"), edited in the Anekio admin console.
+model AppVersionConfig {
+  id          String   @id
+  /// Builds below this number are blocked until the user updates from the store. 0 = off.
+  minBuild    Int      @default(0)
+  /// Builds below this number see a dismissible "new version" banner. 0 = off.
+  latestBuild Int      @default(0)
+  message     String   @default("")
+  storeUrl    String   @default("")
+  updatedBy   String   @default("")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
 model PlatformConfig {
   id                      String   @id @default("global")
   /// Anekio-wide defaults, used when a school has not saved its own form.

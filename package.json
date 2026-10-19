@@ -52,6 +52,7 @@
     "verify": "npm run typecheck && npm run test:coverage && npm run test:e2e && npm run build:web",
     "verify:full": "npm run verify && npm run test:flows",
     "app": "npm --prefix mobile start",
+    "android:dev": "npm --prefix mobile run android",
     "app:web": "npm --prefix mobile run web",
     "db:push": "prisma db push",
     "db:backfill-employee-orgs": "tsx scripts/backfill-employee-orgs.ts",

@@ -1,5 +1,6 @@
 import { NativeModules, Platform } from "react-native";
 import Constants from "expo-constants";
+import { appVersionHeaders, markUpdateRequired } from "./app-version";
 
 function isLoopback(url: string) {
   return /localhost|127\.0\.0\.1|10\.0\.2\.2/.test(url);
@@ -122,6 +123,10 @@ async function parse(res: Response) {
     data = {};
   }
   if (!res.ok) {
+    if (res.status === 426) {
+      const info = data as { error?: string; storeUrl?: string };
+      markUpdateRequired(info.error, info.storeUrl);
+    }
     throw new Error(data.error || `Request failed (${res.status}).`);
   }
   return data;
@@ -141,6 +146,7 @@ export async function api<T>(path: string, token: string | null, init?: RequestI
   const headers = new Headers(init?.headers);
   headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
+  for (const [key, value] of Object.entries(appVersionHeaders())) headers.set(key, value);
   const url = `${apiBase()}/api/v1${path}`;
   console.log("[anekio]", init?.method || "GET", url);
   let res: Response;

@@ -1,4 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { appVersionLabel } from "../lib/app-version";
 import { usePathname, useRouter } from "expo-router";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { iconForNav, qrDockSlots, visibleTabs } from "../lib/nav-icons";
@@ -67,6 +68,7 @@ export function AccountActions() {
   const { signOut, user } = useSession();
   const canSwitch = (user?.hats || []).length > 1 && !user?.support;
   return (
+    <>
     <View className="mt-4 overflow-hidden rounded-2xl border border-ink-200 bg-white">
       {canSwitch ? (
         <View className="-mt-px">
@@ -78,7 +80,15 @@ export function AccountActions() {
         <Text className="text-base font-medium text-red-700">Sign out</Text>
       </Pressable>
     </View>
+    <AppVersionLine />
+    </>
   );
+}
+
+/** Small grey "Anekio v0.1.0 (build 11)" line; nothing on web. */
+export function AppVersionLine() {
+  const label = appVersionLabel();
+  return label ? <Text className="mt-3 text-center text-[12px] text-ink-400">{label}</Text> : null;
 }
 
 // Office items opened once in a while: kept in a quieter "Admin" group at the bottom.
@@ -258,6 +268,7 @@ export function MoreBoard() {
           <Text className="text-base font-medium text-red-700">Sign out</Text>
         </Pressable>
       </View>
+      <AppVersionLine />
     </View>
   );
 }

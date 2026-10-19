@@ -1,4 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { appVersionLabel } from "../lib/app-version";
 import * as Google from "expo-auth-session/providers/google";
 import Constants, { ExecutionEnvironment } from "expo-constants";
 import * as WebBrowser from "expo-web-browser";
@@ -724,6 +725,7 @@ export default function Login() {
             {form}
             </View>
           </View>
+          {appVersionLabel() ? <Text className="mt-4 pb-2 text-center text-[11px] text-ink-400">{appVersionLabel()}</Text> : null}
         </View>
       </ScrollView>
       </KeyboardAvoidingView>

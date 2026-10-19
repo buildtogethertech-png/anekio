@@ -10,11 +10,11 @@ cd "$MOBILE_DIR"
 export EXPO_PUBLIC_API_URL="${API_URL:-https://app.anekio.com}"
 export ORG_GRADLE_PROJECT_reactNativeArchitectures="${ARCHS:-arm64-v8a}"   # one chip type = much faster
 export NODE_ENV=production
-export APP_VARIANT=development   # installs as "Anekio Dev" (in.anekio.school.dev), next to the Play app
+export APP_VARIANT=preview   # installs as "Anekio Preview" (in.anekio.school.preview), next to the Play and Dev apps
 
 echo "Building test APK against $EXPO_PUBLIC_API_URL ($ORG_GRADLE_PROJECT_reactNativeArchitectures)"
 # Re-create android/ only when app.json changed or the folder is missing.
-if [ ! -d android ] || [ app.json -nt android/build.gradle ] || ! grep -q "in.anekio.school.dev" android/app/build.gradle; then
+if [ ! -d android ] || [ app.json -nt android/build.gradle ] || ! grep -q "in.anekio.school.preview" android/app/build.gradle; then
   npx expo prebuild --platform android --clean --no-install
 fi
 
