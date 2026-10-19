@@ -38,6 +38,7 @@ const STAFF_FIXED_TYPES: Record<string, AdmissionFieldType> = {
   joiningDate: "date",
   monthlySalary: "number",
   reportingManager: "manager",
+  address: "textarea",
 };
 
 function cleanOptions(value: unknown) {
@@ -126,13 +127,44 @@ export function websiteFormFields(value: unknown): AdmissionFormField[] {
   return parseFormFields(value, BUILTIN_IDS, LOCKED_ADMISSION_FIELD_IDS).filter((field) => field.id !== "dateOfBirth");
 }
 
-/** Every employee needs these to log in and be paid from the right day: rename only, never hide. */
-export const LOCKED_STAFF_FIELD_IDS: readonly string[] = ["staffName", "phone", "role", "joiningDate", "monthlySalary"];
-/** Always on the staff form, but never required. */
-export const LOCKED_OPTIONAL_STAFF_FIELD_IDS: readonly string[] = ["email", "reportingManager"];
+/** Enough to create a staff login: name, mobile, role. Rename only, never hide. */
+export const LOCKED_STAFF_FIELD_IDS: readonly string[] = ["staffName", "phone", "role"];
+/** Always on the staff form, but never required. Salary and manager can be filled later. */
+export const LOCKED_OPTIONAL_STAFF_FIELD_IDS: readonly string[] = ["email"];
+
+const DEFAULT_STAFF_ONBOARDING_FIELDS: AdmissionFormField[] = [
+  { id: "staffName", label: "Staff name", type: "text", required: true, visible: true, options: [], builtin: true },
+  { id: "phone", label: "Mobile number", type: "phone", required: true, visible: true, options: [], builtin: true },
+  { id: "email", label: "Email", type: "email", required: false, visible: true, options: [], builtin: true },
+  { id: "role", label: "Role", type: "role", required: true, visible: true, options: [], builtin: true },
+  { id: "department", label: "Department", type: "text", required: false, visible: false, options: [], builtin: true },
+  { id: "joiningDate", label: "Joining date", type: "date", required: false, visible: true, options: [], builtin: true },
+  { id: "qualification", label: "Qualification", type: "text", required: false, visible: false, options: [], builtin: true },
+  { id: "address", label: "Address", type: "textarea", required: false, visible: false, options: [], builtin: true },
+  { id: "monthlySalary", label: "Monthly salary", type: "number", required: false, visible: false, options: [], builtin: true },
+  { id: "reportingManager", label: "Reporting manager", type: "manager", required: false, visible: false, options: [], builtin: true },
+];
+
+function withLockedStaffFields(fields: AdmissionFormField[]) {
+  const saved = new Map(fields.map((field) => [field.id, field]));
+  const next: AdmissionFormField[] = [];
+  for (const fallback of DEFAULT_STAFF_ONBOARDING_FIELDS) {
+    next.push(saved.get(fallback.id) || { ...fallback, options: [...fallback.options] });
+    saved.delete(fallback.id);
+  }
+  for (const field of fields) {
+    if (saved.has(field.id)) {
+      next.push(field);
+      saved.delete(field.id);
+    }
+  }
+  return next;
+}
 
 export function staffOnboardingFormFields(value: unknown): AdmissionFormField[] {
-  return parseFormFields(value, STAFF_ONBOARDING_BUILTIN_IDS, LOCKED_STAFF_FIELD_IDS, true, LOCKED_OPTIONAL_STAFF_FIELD_IDS, STAFF_FIXED_TYPES);
+  return withLockedStaffFields(
+    parseFormFields(value, STAFF_ONBOARDING_BUILTIN_IDS, LOCKED_STAFF_FIELD_IDS, true, LOCKED_OPTIONAL_STAFF_FIELD_IDS, STAFF_FIXED_TYPES)
+  );
 }
 
 export function websiteFormJson(value: unknown) {

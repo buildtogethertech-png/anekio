@@ -8,6 +8,7 @@ export function UploadCsvPanel({
   heading = "Choose a CSV file",
   description,
   requiredColumns,
+  columnsLabel = "Required columns",
   note,
   supportedFormat = ".csv",
   browseLabel = "Browse",
@@ -26,6 +27,7 @@ export function UploadCsvPanel({
   heading?: string;
   description: string;
   requiredColumns: string;
+  columnsLabel?: string;
   note: string;
   supportedFormat?: string;
   browseLabel?: string;
@@ -111,7 +113,7 @@ export function UploadCsvPanel({
         {dropError ? <Text className="mt-2 text-xs font-medium text-red-700">{dropError}</Text> : null}
       </View>
       <View className="flex-row flex-wrap items-center justify-between gap-3">
-        <Text className="text-sm font-medium text-ink-800">Required columns: {requiredColumns}</Text>
+        <Text className="min-w-0 flex-1 text-sm font-medium leading-5 text-ink-800">{columnsLabel}: {requiredColumns}</Text>
         <View className="flex-row flex-wrap gap-4">
           {onDownloadTemplate ? (
             <Pressable accessibilityRole="button" disabled={isDownloadDisabled} onPress={onDownloadTemplate}>

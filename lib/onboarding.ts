@@ -371,10 +371,15 @@ function studentCustomFields(fields: AdmissionFormField[]) {
   return visibleFields(fields).filter((field) => !field.builtin || field.id === "message");
 }
 
+function requiredSheetHeader(header: string, required: boolean) {
+  const base = String(header || "").replace(/\s*\*$/, "").trim();
+  return required ? `${base} *` : base;
+}
+
 export function studentImportHeaders(fields: AdmissionFormField[]) {
   return uniqueHeaders([
-    ...studentBuiltinColumns(fields).map((column) => column.header),
-    ...studentCustomFields(fields).map((field) => field.label),
+    ...studentBuiltinColumns(fields).map((column) => requiredSheetHeader(column.header, column.required)),
+    ...studentCustomFields(fields).map((field) => requiredSheetHeader(field.label, field.required)),
     "Example only",
   ]);
 }
@@ -489,23 +494,31 @@ export function studentTemplateRow(
   return [...studentBuiltinColumns(fields).map((column) => byKey[column.key]), ...custom, values.example || ""];
 }
 
-function staffImportHeaders(fields: AdmissionFormField[]) {
-  const byId = new Map(visibleFields(fields).map((field) => [field.id, field]));
-  const builtins = [
-    byId.get("staffName")?.label || "Name",
-    byId.get("phone")?.label || "Mobile",
-    byId.get("email")?.label || "Email",
-    byId.get("role")?.label || "Role",
-    "Class teacher of",
-    "Monthly salary",
-    byId.get("qualification")?.label || "Qualification",
-    byId.get("joiningDate")?.label || "Joining date",
-    byId.get("address")?.label || "Address",
-  ];
-  const custom = visibleFields(fields)
-    .filter((field) => !field.builtin || field.id === "department")
-    .map((field) => field.label);
-  return uniqueHeaders([...builtins, ...custom, "Example only"]);
+function staffImportColumns(fields: AdmissionFormField[]) {
+  const columns: { id: string; header: string; required: boolean }[] = [];
+  for (const field of visibleFields(fields)) {
+    columns.push({
+      id: field.id,
+      header: requiredSheetHeader(field.label, field.required),
+      required: field.required,
+    });
+    if (field.id === "role") {
+      columns.push({ id: "classTeacherOf", header: "Class teacher of", required: false });
+    }
+  }
+  if (!columns.some((column) => column.id === "classTeacherOf")) {
+    columns.push({ id: "classTeacherOf", header: "Class teacher of", required: false });
+  }
+  columns.push({ id: "example", header: "Example only", required: false });
+  return columns;
+}
+
+export function staffImportHeaders(fields: AdmissionFormField[]) {
+  return uniqueHeaders(staffImportColumns(fields).map((column) => column.header));
+}
+
+export function sheetColumnSummary(headers: string[]) {
+  return headers.filter((header) => normalizeHeader(header) !== "exampleonly").join(", ");
 }
 
 function staffTemplateRow(
@@ -525,22 +538,23 @@ function staffTemplateRow(
     example?: CsvCell;
   }
 ) {
-  const custom = visibleFields(fields)
-    .filter((field) => !field.builtin || field.id === "department")
-    .map((field) => field.id === "department" ? (values.department || "") : (values.custom?.[field.id] || ""));
-  return [
-    values.name,
-    values.mobile,
-    values.email,
-    values.role,
-    values.classTeacherOf || "",
-    values.salary || "",
-    values.qualification || "",
-    values.joiningDate || "",
-    values.address || "",
-    ...custom,
-    values.example || "",
-  ];
+  const byId: Record<string, CsvCell> = {
+    staffName: values.name,
+    phone: values.mobile,
+    email: values.email,
+    role: values.role,
+    classTeacherOf: values.classTeacherOf || "",
+    monthlySalary: values.salary || "",
+    qualification: values.qualification || "",
+    joiningDate: values.joiningDate || "",
+    address: values.address || "",
+    department: values.department || "",
+    example: values.example || "",
+  };
+  return staffImportColumns(fields).map((column) => {
+    if (column.id in byId) return byId[column.id];
+    return values.custom?.[column.id] || "";
+  });
 }
 
 function headerIndex(headers: CsvCell[], ...labels: string[]) {
@@ -1222,6 +1236,13 @@ export async function onboardingSpreadsheetTemplate(user: AccessUser, rawKind: s
     rows.forEach((row) => sheet.addRow(row));
     applyHeaderStyle(sheet);
     sheet.columns = (rows[0] || []).map((header) => ({ header: String(header), key: normalizeHeader(header), width: Math.max(16, String(header).length + 2) }));
+    if (kind === "teachers" && forms) {
+      staffImportColumns(forms.staff).forEach((column, columnIndex) => {
+        const cell = sheet.getRow(1).getCell(columnIndex + 1);
+        cell.note = column.required ? "Required" : "Optional";
+        if (column.required) cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFE8D6" } };
+      });
+    }
 
     if (kind === "teachers" || kind === "class_teachers") {
       const roles = kind === "teachers" ? await staffImportRoles() : [];
@@ -1673,6 +1694,12 @@ async function validateRows(kind: ImportKind, rows: ImportRow[], coveragePeriod?
       if (!configuredImportValue(row, forms!.staff, "staffName", "Teacher name", "Staff name", "Name")) errors.push(rowError(row, "name is required."));
       if (!normalizeMobile(configuredImportValue(row, forms!.staff, "phone", "Mobile", "Phone"))) errors.push(rowError(row, "mobile must be a 10-digit number."));
       if (!resolveStaffImportRole(roles, row, forms!.staff)) errors.push(rowError(row, "role must be one of the office or teacher roles."));
+      for (const field of visibleFields(forms!.staff)) {
+        if (!field.required || field.type === "file" || ["staffName", "phone", "role", "monthlySalary"].includes(field.id)) continue;
+        if (!configuredImportValue(row, forms!.staff, field.id, field.label)) {
+          errors.push(rowError(row, `${field.label} is required.`));
+        }
+      }
       const classText = sheetCell(row, "Class teacher of", "Class teacher", "Class");
       const klass = classText ? parseClass(classText) : null;
       if (classText && !klass) errors.push(rowError(row, "class teacher value must look like 1-A."));
@@ -2583,6 +2610,9 @@ export async function onboardingBundle(user: AccessUser) {
   steps.forEach((row, index) => { row.number = index + 1; });
   const required = steps;
   const completed = required.filter((row) => row.status === "complete").length;
+  const forms = await configuredImportForms();
+  const studentColumns = sheetColumnSummary(studentImportHeaders(forms.admission));
+  const staffColumns = sheetColumnSummary(staffImportHeaders(forms.staff));
   return {
     modules,
     progress: { completed, total: required.length, percent: required.length ? Math.round((completed / required.length) * 100) : 0 },
@@ -2592,6 +2622,7 @@ export async function onboardingBundle(user: AccessUser) {
       kind,
       title: TEMPLATE_DETAILS[kind].title,
       fileName: xlsxFileName(kind),
+      columns: kind === "students" ? studentColumns : kind === "teachers" ? staffColumns : "",
       disabled: (kind === "students" && !hasAdmissionFormSetup) || (kind === "opening_balances" && (studentCount === 0 || !hasFeeDocuments)) || (kind === "attendance" && (studentCount === 0 || classCount === 0 || !hasWorkingDays || !hasHolidayCalendar)) || (kind === "staff_attendance" && (staffCount === 0 || !hasWorkingDays || !hasHolidayCalendar)) || (kind === "exam_marks" && (studentCount === 0 || !hasExamPlan || !hasExamHistory)),
       prerequisite: kind === "students" ? "Save this school's admission form in School setup → Forms & Templates" : kind === "opening_balances" ? (studentCount === 0 ? "Students" : !hasFeeDocuments ? "Fee invoice and payment receipt templates" : "Students") : kind === "attendance" ? "Classes, students, working days, and holiday calendar" : kind === "staff_attendance" ? "Staff, working days, and holiday calendar" : kind === "exam_marks" ? "Year exam plan, setup exams, and students" : "Class labels can be created from the sheet",
     })),

@@ -54,7 +54,7 @@ const FOCUSED_IMPORT_COPY: Record<Template["kind"], { heading: string; descripti
   teachers: {
     heading: "Choose a staff CSV or Excel file",
     description: "Upload teaching and office staff for review.",
-    requiredColumns: "Name, Mobile, Role",
+    requiredColumns: "Staff name *, Mobile number *, Email, Role *, Class teacher of, Joining date",
     note: "Employee IDs are generated when blank. Class teacher values can use labels like 1-A; review must pass before Apply changes records.",
   },
   class_teachers: {
@@ -88,6 +88,12 @@ const FOCUSED_IMPORT_COPY: Record<Template["kind"], { heading: string; descripti
     note: "Include all unpaid fees through the current month and give each invoice its due date. Invoice date is created automatically; monthly billing starts the following month.",
   },
 };
+
+function importColumnCopy(template: Template) {
+  const columns = template.columns || FOCUSED_IMPORT_COPY[template.kind].requiredColumns;
+  const useSheetColumns = template.kind === "teachers" || template.kind === "students";
+  return { columns, label: useSheetColumns ? "Columns" : "Required columns" };
+}
 
 function statusTone(status: Onboarding["steps"][number]["status"]) {
   if (status === "complete") return "leaf" as const;
@@ -368,7 +374,7 @@ export function OnboardingBoard({
           {stepDot(1, Boolean(preview), !preview)}
           <View className="min-w-0 flex-1 gap-2">
             <Text className="text-[15px] font-semibold text-ink-900">Get the template</Text>
-            <Text className="text-xs text-ink-500">Needs: {copy.requiredColumns}</Text>
+            <Text className="text-xs text-ink-500">{importColumnCopy(focusedTemplate).label}: {importColumnCopy(focusedTemplate).columns}</Text>
             <View className="flex-row flex-wrap items-center gap-3">
               <Pressable
                 accessibilityRole="button"
@@ -777,7 +783,8 @@ export function OnboardingBoard({
           <UploadCsvPanel
             heading={FOCUSED_IMPORT_COPY[focusedTemplate.kind].heading}
             description={FOCUSED_IMPORT_COPY[focusedTemplate.kind].description}
-            requiredColumns={FOCUSED_IMPORT_COPY[focusedTemplate.kind].requiredColumns}
+            requiredColumns={importColumnCopy(focusedTemplate).columns}
+            columnsLabel={importColumnCopy(focusedTemplate).label}
             note={focusedNote}
             supportedFormat=".csv, .xlsx"
             browseLabel={busy === `upload:${focusedTemplate.kind}` ? "Reviewing..." : "Browse"}

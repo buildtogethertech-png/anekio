@@ -431,16 +431,15 @@ describe("school onboarding imports", () => {
     await workbook.xlsx.load(arrayBuffer);
     const sheet = workbook.getWorksheet("Staff")!;
     expect((sheet.getRow(1).values as unknown[]).slice(1)).toEqual([
-      "Staff full name",
-      "Staff mobile",
+      "Staff full name *",
+      "Staff mobile *",
       "Work email",
-      "Access role",
+      "Access role *",
       "Class teacher of",
-      "Monthly salary",
-      "Highest qualification",
-      "Joining date",
-      "Current address",
       "Department",
+      "Joining date *",
+      "Highest qualification",
+      "Current address",
       "Emergency contact",
       "Example only",
     ]);
@@ -448,7 +447,7 @@ describe("school onboarding imports", () => {
     expect(sheet.getCell("E2").dataValidation).toMatchObject({ type: "list" });
     const blankRows = sheet.getRows(2, sheet.rowCount - 1) || [];
     const blankNames = blankRows
-      .filter((row) => !String(row.getCell(12).value || "").trim())
+      .filter((row) => !String(row.getCell(sheet.columnCount).value || "").trim())
       .map((row) => String(row.getCell(1).value || ""))
       .filter(Boolean);
     expect(blankNames).toEqual([]);

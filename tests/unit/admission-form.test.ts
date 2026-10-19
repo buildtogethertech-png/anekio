@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { admissionFormFields, admissionFormJson, admissionLeadInput, effectiveAdmissionFormJson, websiteFormFields } from "../../lib/admission-form";
+import { admissionFormFields, admissionFormJson, admissionLeadInput, effectiveAdmissionFormJson, staffOnboardingFormFields, websiteFormFields } from "../../lib/admission-form";
 
 describe("admission form configuration", () => {
   it("uses the platform form only when the school has no override", () => {
@@ -76,5 +76,36 @@ describe("admission form configuration", () => {
     expect(() => admissionFormJson([{ id: "custom_empty", label: "Empty", type: "select", visible: true }])).toThrow(
       "Empty needs at least one option."
     );
+  });
+
+  it("always includes the staff fields needed to create a teacher profile", () => {
+    const empty = staffOnboardingFormFields([]);
+    expect(empty.map((field) => field.id)).toEqual([
+      "staffName",
+      "phone",
+      "email",
+      "role",
+      "department",
+      "joiningDate",
+      "qualification",
+      "address",
+      "monthlySalary",
+      "reportingManager",
+    ]);
+    expect(empty.filter((field) => field.visible && field.required).map((field) => field.id)).toEqual([
+      "staffName",
+      "phone",
+      "role",
+    ]);
+    expect(empty.find((field) => field.id === "email")).toMatchObject({ visible: true, required: false });
+    expect(empty.find((field) => field.id === "monthlySalary")).toMatchObject({ visible: false, required: false });
+    expect(empty.find((field) => field.id === "reportingManager")).toMatchObject({ visible: false, required: false });
+
+    const mixed = staffOnboardingFormFields([
+      { id: "custom_new", label: "New field", type: "text", required: false, visible: true },
+    ]);
+    expect(mixed[0]).toMatchObject({ id: "staffName", label: "Staff name", required: true, visible: true });
+    expect(mixed.map((field) => field.id)).toContain("custom_new");
+    expect(mixed.at(-1)).toMatchObject({ id: "custom_new", label: "New field" });
   });
 });

@@ -94,6 +94,7 @@ export type RecordPayload = {
       kind: "students" | "teachers" | "class_teachers" | "attendance" | "staff_attendance" | "exam_marks" | "opening_balances";
       title: string;
       fileName: string;
+      columns?: string;
       disabled: boolean;
       prerequisite: string;
     }[];

@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { admissionFormFields } from "../../lib/admission-form";
-import { parseBillingMonth, parseRollNumber, planStudentRolls, studentImportColumnGuide, studentImportHeaders, studentTemplateRow } from "../../lib/onboarding";
+import { admissionFormFields, staffOnboardingFormFields } from "../../lib/admission-form";
+import { parseBillingMonth, parseRollNumber, planStudentRolls, sheetColumnSummary, staffImportHeaders, studentImportColumnGuide, studentImportHeaders, studentTemplateRow } from "../../lib/onboarding";
 
 describe("onboarding student roll number", () => {
   const fields = admissionFormFields(null);
 
   it("leaves Roll number out of the template; rolls are automatic", () => {
     expect(studentImportHeaders(fields)).not.toContain("Roll number");
-    expect(studentImportHeaders(fields)[0]).toBe("Student name");
-    expect(studentImportHeaders(fields)[3]).toBe("Parent name");
+    expect(studentImportHeaders(fields)[0]).toBe("Student name *");
+    expect(studentImportHeaders(fields)[3]).toBe("Parent name *");
     expect(studentTemplateRow(fields, {
       rollNumber: 7,
       name: "Aarav Sharma",
@@ -35,10 +35,9 @@ describe("onboarding student roll number", () => {
       { id: "custom_note", label: "Hidden note", type: "text", visible: false, required: true },
     ]);
     const guide = studentImportColumnGuide(configured);
-    expect(guide.find((column) => column.header === "Child name")?.required).toBe(true);
-    expect(guide.find((column) => column.header === "Date of birth")?.required).toBe(true);
+    expect(guide.find((column) => column.header === "Child name *")?.required).toBe(true);
     expect(guide.find((column) => column.header === "Guardian email")?.required).toBe(false);
-    expect(guide.find((column) => column.header === "House")?.required).toBe(true);
+    expect(guide.find((column) => column.header === "House *")?.required).toBe(true);
     expect(guide.some((column) => column.header === "Hidden note")).toBe(false);
   });
 
@@ -61,16 +60,16 @@ describe("onboarding student roll number", () => {
       { id: "guardianName", label: "Parent / guardian name", type: "text", visible: true, required: true },
       { id: "phone", label: "Parent mobile", type: "phone", visible: false, required: false },
     ]);
-    expect(studentImportColumnGuide(configured).find((column) => column.header === "Billing starts from")?.required).toBe(true);
+    expect(studentImportColumnGuide(configured).find((column) => column.header === "Billing starts from *")?.required).toBe(true);
     const headers = studentImportHeaders(configured);
     expect(headers).not.toContain("Parent mobile");
-    expect(headers).toContain("Parent / guardian name");
-    expect(headers).toContain("Billing starts from");
+    expect(headers).toContain("Parent / guardian name *");
+    expect(headers).toContain("Billing starts from *");
     const row = studentTemplateRow(configured, {
       name: "Aarav", dob: "2015-04-12", classLabel: "1-A", billingStart: "2026-04", parentName: "Neha", parentMobile: "9876543210", parentEmail: "",
     });
     expect(row).not.toContain("9876543210");
-    expect(row[headers.indexOf("Billing starts from")]).toBe("2026-04");
+    expect(row[headers.indexOf("Billing starts from *")]).toBe("2026-04");
     expect(parseBillingMonth("2026-04")).toBe("2026-04");
     expect(parseBillingMonth("2026-04-01T00:00:00.000Z")).toBe("2026-04");
     expect(parseBillingMonth("April 2026")).toBe("2026-04");
@@ -103,5 +102,28 @@ describe("onboarding student roll number", () => {
       [{ studentId: "s-other", classKey: "1-A", rollNumber: 7 }]
     );
     expect(clash.errors[0]).toMatch(/roll 7 is already used in 1-A/);
+  });
+});
+
+describe("staff onboarding excel", () => {
+  it("exports visible staff form columns and stars required ones", () => {
+    const headers = staffImportHeaders(staffOnboardingFormFields([]));
+    expect(headers).toEqual([
+      "Staff name *",
+      "Mobile number *",
+      "Email",
+      "Role *",
+      "Class teacher of",
+      "Joining date",
+      "Example only",
+    ]);
+    expect(headers).not.toContain("Department");
+    expect(headers).not.toContain("Qualification");
+    expect(headers).not.toContain("Address");
+    expect(headers.some((header) => /salary/i.test(header))).toBe(false);
+    expect(headers.some((header) => /manager/i.test(header))).toBe(false);
+    expect(sheetColumnSummary(headers)).toBe(
+      "Staff name *, Mobile number *, Email, Role *, Class teacher of, Joining date"
+    );
   });
 });

@@ -26,6 +26,8 @@ import { cloneFields, FormBuilderModal } from "./form-builder";
 const LOCKED_ADMISSION_FIELDS = ["studentName", "classWanted", "phone"];
 /** Mirrors LOCKED_STUDENT_ADMISSION_FIELD_IDS: parent fields are the school's choice on admission. */
 const LOCKED_STUDENT_ADMISSION_FIELDS = ["studentName", "classWanted", "billingStartPeriod"];
+/** Mirrors LOCKED_STAFF_FIELD_IDS + LOCKED_OPTIONAL_STAFF_FIELD_IDS. */
+const LOCKED_STAFF_ONBOARDING_FIELDS = ["staffName", "phone", "email", "role"];
 
 const TABS = [
   { id: "identity", label: "Identity & brand assets", hint: "Name, address, logo, signatures, and stamps", group: "School Setup" },
@@ -3264,7 +3266,7 @@ export function SchoolBoard() {
         intro="Used when adding employees, for staff upload templates and document collection."
         audience="staff"
         fields={form.staffOnboardingForm}
-        lockedIds={["staffName", "phone", "email", "role", "joiningDate", "monthlySalary", "reportingManager"]}
+        lockedIds={LOCKED_STAFF_ONBOARDING_FIELDS}
         roleOptions={(data?.staffRoles ?? []).filter((r) => r.portal !== "PARENT" && r.portal !== "STUDENT").map((r) => r.name)}
         suggestions={data?.school?.platformForms?.staff ?? []}
         canEdit={edit}
