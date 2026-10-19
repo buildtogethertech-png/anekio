@@ -1251,6 +1251,26 @@ export async function createClassCore(
   }
 }
 
+export async function updateClassCore(
+  user: AccessUser,
+  input: { classId?: string; name?: string; section?: string }
+) {
+  need(user, "people.edit", "school.edit");
+  const classId = String(input.classId || "").trim();
+  if (!classId) throw new Error("Class required");
+  const klass = await prisma.class.findUnique({ where: { id: classId } });
+  if (!klass || klass.archivedAt) throw new Error("Class not found");
+  const name = String(input.name ?? klass.name).trim();
+  const section = String(input.section ?? klass.section ?? "A").trim().toUpperCase();
+  if (!name) throw new Error("Class and section required");
+  const clash = await prisma.class.findFirst({
+    where: { name, section, id: { not: classId } },
+    select: { id: true, archivedAt: true },
+  });
+  if (clash) throw new Error(`${name}-${section} already exists`);
+  await prisma.class.update({ where: { id: classId }, data: { name, section } });
+}
+
 export async function markAttendanceCore(
   user: AccessUser,
   input: { date: string; rows: { studentId: string; status: AttendanceStatus }[] }
