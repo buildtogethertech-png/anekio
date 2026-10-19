@@ -2555,10 +2555,24 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
         </View>
       );
     }
+    const paneBody =
+      fileTab === "fees" ? (
+        tabBody
+      ) : (
+        <ScrollView
+          className="min-h-0 flex-1"
+          nestedScrollEnabled
+          keyboardShouldPersistTaps="handled"
+          contentContainerClassName="pb-10"
+          style={Platform.OS === "web" ? { overflow: "auto" } : undefined}
+        >
+          {tabBody}
+        </ScrollView>
+      );
     return (
       <Card className="min-h-0 flex-1 overflow-hidden border-transparent p-6 shadow-sm">
         {header}
-        {tabBody}
+        {paneBody}
       </Card>
     );
   }
