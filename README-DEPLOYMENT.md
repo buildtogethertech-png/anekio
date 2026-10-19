@@ -148,14 +148,6 @@ repository root and create a fresh bundle:
 npm run build:aab:production
 ```
 
-```bash
-npx eas-cli build --platform android --profile production --local
-```
-
-```bash
-npm --prefix mobile run build:aab:production -- --local
-```
-
 To prevent this manual step for future production builds, add
 `"autoIncrement": true` to the `production` profile in `mobile/eas.json`. With
 the existing remote version source, EAS increments the Android version code for
@@ -174,6 +166,61 @@ Use these installable APKs for testing before release. They are all **internal**
 | Production test | `npm run build-apk:production` | `https://app.anekio.com` | final smoke test against production before Play submission |
 
 Each command prints an Expo build URL. Wait for **Finished**, open the URL, and download/install the APK on an Android device. The legacy `npm run build-apk` command remains a preview APK build.
+
+### Test builds install next to the Play Store app
+
+Test builds use a different app ID, so they never clash with the Play Store version on the same phone
+(`mobile/app.config.js`, driven by `APP_VARIANT`):
+
+| Build | App name / ID |
+| --- | --- |
+| Play Store (`production`), `production-test` APK | **Anekio** · `in.anekio.school` |
+| Development client, preview, staging, `npm run build-apk:quick`, `npm --prefix mobile run android` | **Anekio Dev** · `in.anekio.school.dev` |
+
+Notes: the `production-test` APK keeps the real ID on purpose (it is the final check of the store build), so
+uninstall the Play version before installing it. Google sign-in in **Anekio Dev** needs its own Android OAuth client
+(package `in.anekio.school.dev` + the debug/EAS SHA-1) in Google Cloud. Deep links use `anekio-dev://` in the dev app.
+After switching variants for a local build, regenerate the native folder once: `cd mobile && npx expo prebuild -p android --clean`.
+
+### Building on your own Mac (no EAS build credits)
+
+The Expo **Free plan includes a limited number of cloud Android builds per month**. When they run out, EAS prints
+`This account has used its Android builds from the Free plan this month` and the build fails. You can still build
+everything locally; it just runs on your Mac instead of Expo's servers.
+
+**One-time setup:** Android Studio (for the Android SDK), Java 17 (`brew install --cask zulu@17`), and in `~/.zshrc`:
+
+```bash
+export ANDROID_HOME="$HOME/Library/Android/sdk"
+export PATH="$ANDROID_HOME/platform-tools:$PATH"
+```
+
+Optional but faster: put this in `~/.gradle/gradle.properties` (use `-Xmx4g` on an 8 GB Mac):
+
+```
+org.gradle.daemon=true
+org.gradle.parallel=true
+org.gradle.caching=true
+org.gradle.jvmargs=-Xmx6g -XX:+UseParallelGC
+```
+
+| I want | Command from repository root | Output | Time (MacBook Air) |
+| --- | --- | --- | --- |
+| **Quick test APK** to install on my phone | `npm run build-apk:quick` | `mobile/anekio-test-<date>.apk` | ~5–10 min first time, ~2–4 min after |
+| Quick test APK against staging | `API_URL=https://app.staging.anekio.com npm run build-apk:quick` | same | same |
+| Production-like test APK (EAS, release signing) | `npm run build-apk:production:local` | `mobile/build-<id>.apk` | ~15–25 min |
+| **Google Play AAB** | `npm run build:aab:production:local` | `mobile/build-<id>.aab` | ~15–25 min |
+
+- **Quick test APK** (`scripts/build-apk-quick.sh`) skips EAS entirely: it builds one chip type (arm64, every modern phone)
+  and reuses `mobile/android/` between runs, so repeat builds are fast. It is signed with the debug key, so it is
+  **for testing only and can never be uploaded to Google Play**. Install it with `adb install -r <file>` or by sending
+  the `.apk` to the phone (WhatsApp/Drive) and tapping it.
+- **`:local` EAS builds** use the same profiles, signing key (from Expo) and version numbers as cloud builds, so the
+  `.aab` from `npm run build:aab:production:local` is the one to upload to Google Play.
+- `eas build --local` copies the project into a temporary folder and compiles from scratch each time; that is why it
+  is slow. Only use it for the real release.
+- If the phone already has the Play Store version installed, a quick test APK cannot install over it (different
+  signing key). Uninstall the store version first, or test on another phone.
 
 ## After release
 
