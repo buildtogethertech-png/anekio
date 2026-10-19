@@ -43,6 +43,11 @@ export function appBuild() {
   return fakeBuild() || Math.floor(Number(appInfo().nativeBuildVersion) || 0);
 }
 
+/** "0.1.0" — the user-facing version, or "" on web. */
+export function appVersionName() {
+  return Platform.OS === "web" ? "" : appInfo().nativeApplicationVersion || "";
+}
+
 export function appVersionLabel() {
   if (Platform.OS === "web") return "";
   const version = appInfo().nativeApplicationVersion || "";
@@ -59,9 +64,9 @@ export function appVersionHeaders(): Record<string, string> {
   return build ? { "X-App-Platform": Platform.OS, "X-App-Build": String(build) } : {};
 }
 
-export type UpdateState = { required: boolean; available: boolean; message: string; storeUrl: string; latestBuild: number };
+export type UpdateState = { required: boolean; available: boolean; message: string; storeUrl: string; latestBuild: number; whatsNew: string[]; supportPhone: string };
 
-let state: UpdateState = { required: false, available: false, message: "", storeUrl: PLAY_URL, latestBuild: 0 };
+let state: UpdateState = { required: false, available: false, message: "", storeUrl: PLAY_URL, latestBuild: 0, whatsNew: [], supportPhone: "" };
 const listeners = new Set<() => void>();
 
 function setState(next: Partial<UpdateState>) {
@@ -100,6 +105,8 @@ export async function checkForUpdate(apiBase: string) {
       message: String(data.message || ""),
       storeUrl: String(data.storeUrl || PLAY_URL),
       latestBuild: Number(data.latestBuild || 0),
+      whatsNew: Array.isArray(data.whatsNew) ? data.whatsNew.map(String).slice(0, 3) : [],
+      supportPhone: String(data.supportPhone || ""),
     });
   } catch {
     // fail open

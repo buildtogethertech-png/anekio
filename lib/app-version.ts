@@ -8,7 +8,17 @@ import { prisma } from "./prisma";
  * 0 switches a rule off. Edited from the Anekio admin console (view=app-version).
  */
 export type AppPlatform = "android" | "ios";
-export type AppVersionRules = { platform: AppPlatform; minBuild: number; latestBuild: number; message: string; storeUrl: string; updatedAt: string | null; updatedBy: string };
+export type AppVersionRules = {
+  platform: AppPlatform;
+  minBuild: number;
+  latestBuild: number;
+  message: string;
+  whatsNew: string[];
+  supportPhone: string;
+  storeUrl: string;
+  updatedAt: string | null;
+  updatedBy: string;
+};
 
 export const DEFAULT_STORE_URL: Record<AppPlatform, string> = {
   android: "https://play.google.com/store/apps/details?id=in.anekio.school",
@@ -24,6 +34,15 @@ export function appPlatform(value: unknown): AppPlatform | null {
   return v === "android" || v === "ios" ? v : null;
 }
 
+function whatsNewLines(value: unknown) {
+  return String(value || "")
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^[\s•\-*]+/, "").trim())
+    .filter(Boolean)
+    .slice(0, 3)
+    .map((line) => line.slice(0, 80));
+}
+
 function wholeNumber(value: unknown) {
   const n = Math.floor(Number(value));
   return Number.isFinite(n) && n > 0 ? n : 0;
@@ -32,7 +51,7 @@ function wholeNumber(value: unknown) {
 export async function getAppVersionRules(platform: AppPlatform, fresh = false): Promise<AppVersionRules> {
   const hit = cache.get(platform);
   if (!fresh && hit && Date.now() - hit.at < TTL_MS) return hit.rules;
-  let row: { minBuild: number; latestBuild: number; message: string; storeUrl: string; updatedAt: Date; updatedBy: string } | null = null;
+  let row: { minBuild: number; latestBuild: number; message: string; whatsNew: string; supportPhone: string; storeUrl: string; updatedAt: Date; updatedBy: string } | null = null;
   try {
     row = await prisma.appVersionConfig.findUnique({ where: { id: platform } });
   } catch {
@@ -43,6 +62,8 @@ export async function getAppVersionRules(platform: AppPlatform, fresh = false): 
     minBuild: row?.minBuild ?? 0,
     latestBuild: Math.max(row?.latestBuild ?? 0, row?.minBuild ?? 0),
     message: row?.message?.trim() || DEFAULT_UPDATE_MESSAGE,
+    whatsNew: whatsNewLines(row?.whatsNew),
+    supportPhone: row?.supportPhone?.trim() || "",
     storeUrl: row?.storeUrl?.trim() || DEFAULT_STORE_URL[platform],
     updatedAt: row?.updatedAt ? row.updatedAt.toISOString() : null,
     updatedBy: row?.updatedBy ?? "",
@@ -65,8 +86,10 @@ export async function saveAppVersionRules(input: Record<string, unknown>, actorE
   const latestBuild = Math.max(wholeNumber(input.latestBuild), minBuild);
   const message = String(input.message || "").trim().slice(0, 300);
   const storeUrl = String(input.storeUrl || "").trim().slice(0, 300);
+  const whatsNew = whatsNewLines(input.whatsNew).join("\n");
+  const supportPhone = String(input.supportPhone || "").replace(/[^\d+]/g, "").slice(0, 16);
   if (storeUrl && !/^https:\/\//i.test(storeUrl)) throw new Error("Store link must start with https://");
-  const data = { minBuild, latestBuild, message, storeUrl, updatedBy: actorEmail };
+  const data = { minBuild, latestBuild, message, whatsNew, supportPhone, storeUrl, updatedBy: actorEmail };
   await prisma.appVersionConfig.upsert({ where: { id: platform }, create: { id: platform, ...data }, update: data });
   cache.delete(platform);
   await prisma.saasAuditEvent

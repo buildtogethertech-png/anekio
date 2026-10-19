@@ -846,6 +846,10 @@ model AppVersionConfig {
   /// Builds below this number see a dismissible "new version" banner. 0 = off.
   latestBuild Int      @default(0)
   message     String   @default("")
+  /// Up to 3 short "What's new" lines, one per line. Empty = section hidden.
+  whatsNew    String   @default("")
+  /// Phone for "Need help?" on the update screen (WhatsApp / call). Empty = link hidden.
+  supportPhone String  @default("")
   storeUrl    String   @default("")
   updatedBy   String   @default("")
   createdAt   DateTime @default(now())
