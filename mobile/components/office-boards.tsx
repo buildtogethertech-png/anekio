@@ -1,4 +1,5 @@
 import { createElement, useMemo, useState, useEffect, useRef } from "react";
+import type { ViewStyle } from "react-native";
 import { openInAppDoc } from "../lib/in-app-doc";
 import type { ReactNode } from "react";
 import { Alert, Linking, Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
@@ -2564,7 +2565,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
           nestedScrollEnabled
           keyboardShouldPersistTaps="handled"
           contentContainerClassName="pb-10"
-          style={Platform.OS === "web" ? { overflow: "auto" } : undefined}
+          style={Platform.OS === "web" ? ({ overflow: "auto" } as unknown as ViewStyle) : undefined}
         >
           {tabBody}
         </ScrollView>
