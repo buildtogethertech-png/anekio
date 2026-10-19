@@ -90,7 +90,7 @@ adb logcat -c && adb logcat '*:S' ReactNativeJS:V ReactNative:V AndroidRuntime:E
 
 ```bash
 npm run build-apk:quick
-adb install -r mobile/anekio-test-*.apk          # use the exact file name it printed
+adb install -r mobile/anekio-preview.apk          # always the latest quick build
 ```
 
 Against staging instead:
@@ -195,7 +195,7 @@ Test the blocker in Dev: set minimum to `20` in the admin console, then
 | Install Anekio Dev (once) | `npm run android:dev` |
 | Daily dev | `npm run api` + `npm run app` |
 | Release-mode check in Expo | `cd mobile && npx expo start -c --no-dev --minify` |
-| Anekio Preview APK | `npm run build-apk:quick` → `adb install -r mobile/anekio-test-*.apk` |
+| Anekio Preview APK | `npm run build-apk:quick` → `adb install -r mobile/anekio-preview.apk` |
 | Play AAB (local) | `npm run build:aab:production:local` |
 | Play AAB (cloud) | `npm run build:aab:production` |
 | Upload to Play (cloud build) | `cd mobile && npx eas-cli submit --platform android --profile production` |

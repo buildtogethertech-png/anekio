@@ -24,6 +24,7 @@ cd android
 APK="$MOBILE_DIR/android/app/build/outputs/apk/release/app-release.apk"
 OUT="$MOBILE_DIR/anekio-test-$(date +%Y%m%d-%H%M).apk"
 cp "$APK" "$OUT"
+cp "$APK" "$MOBILE_DIR/anekio-preview.apk"   # fixed name: always the latest build
 echo ""
 echo "APK ready: $OUT"
-echo "Install on a USB-connected phone:  adb install -r \"$OUT\""
+echo "Install on a USB-connected phone:  adb install -r mobile/anekio-preview.apk   (from the anekio folder)"
