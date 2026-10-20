@@ -1159,7 +1159,48 @@ type ExamPlanDraft = {
 type LeaveGender = "ANY" | "FEMALE" | "MALE";
 type LeaveTypeDraft = NonNullable<RecordPayload["leaveTypes"]>[number] & { eligibilityGender: LeaveGender };
 
-function normalizeLeaveTypes(rows?: RecordPayload["leaveTypes"]): LeaveTypeDraft[] {
+/** Leave settings: one switch for Unpaid leave (no limit; salary is cut for those days). */
+function UnpaidLeaveSwitch({ on, canEdit, onChange }: { on: boolean; canEdit: boolean; onChange: (on: boolean) => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <View className="flex-row items-center gap-3 rounded-2xl border border-ink-200 bg-white p-3.5">
+      <View className="h-10 w-10 items-center justify-center rounded-xl bg-amber-50">
+        <Ionicons name="wallet-outline" size={19} color="#B45309" />
+      </View>
+      <View className="min-w-0 flex-1">
+        <View className="flex-row flex-wrap items-center gap-2">
+          <Text className="text-[14px] font-semibold text-ink-900">Unpaid leave</Text>
+          {on ? (
+            <View className="rounded-full bg-amber-50 px-2 py-0.5">
+              <Text className="text-[11px] font-semibold text-amber-800">∞ No limit</Text>
+            </View>
+          ) : null}
+        </View>
+        <Text className="text-[12px] text-ink-500">
+          {on
+            ? "Teachers and staff can take any number of days. Salary is cut for those days."
+            : "Turn on to let teachers and staff take leave without pay, with no limit."}
+        </Text>
+      </View>
+      <Switch
+        on={on}
+        disabled={!canEdit || busy}
+        onPress={async () => {
+          setBusy(true);
+          try {
+            await onChange(!on);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      />
+    </View>
+  );
+}
+
+function normalizeLeaveTypes(all?: RecordPayload["leaveTypes"]): LeaveTypeDraft[] {
+  // The built-in Unpaid leave has its own switch; it is not edited in this list.
+  const rows = all?.filter((row) => row.paid !== false);
   const source: (NonNullable<RecordPayload["leaveTypes"]>[number] | LeaveTypeDraft)[] = rows?.length
     ? rows
     : [
@@ -1442,17 +1483,19 @@ function PhoneLeaveTypes({
                   </View>
                 </View>
                 <LeaveCreditFields row={draft} onChange={setDraft} startMonth={startMonth} existing={editIndex !== null && Boolean(draft.id)} />
-                <View className="flex-row items-center justify-between">
-                  <View>
-                    <Text className="text-sm font-medium text-ink-900">Notice (school days)</Text>
-                    <Text className="text-[11px] text-ink-500">0 = same-day allowed</Text>
-                  </View>
-                  <Stepper value={draft.noticeDays} max={30} onChange={(noticeDays) => setDraft({ ...draft, noticeDays })} />
-                </View>
                 <Pressable onPress={() => setMoreOpen((v) => !v)} className="flex-row items-center gap-1">
                   <Text className="text-xs font-semibold text-[#1F45C7]">More options</Text>
                   <Ionicons name={moreOpen ? "chevron-up" : "chevron-down"} size={14} color="#1F45C7" />
                 </Pressable>
+                {moreOpen ? (
+                  <View className="flex-row items-center justify-between">
+                    <View>
+                      <Text className="text-sm font-medium text-ink-900">Notice (school days)</Text>
+                      <Text className="text-[11px] text-ink-500">0 = same-day allowed · past days always allowed</Text>
+                    </View>
+                    <Stepper value={draft.noticeDays} max={30} onChange={(noticeDays) => setDraft({ ...draft, noticeDays })} />
+                  </View>
+                ) : null}
                 {moreOpen ? (
                   <View>
                     <Text className="mb-2 text-xs font-medium text-ink-700">Only for (e.g. maternity / paternity)</Text>
@@ -1703,14 +1746,6 @@ function DeskLeaveTypes({
               ) : null}
             </View>
 
-            <View className="flex-row items-center justify-between gap-3">
-              <View>
-                <Text className="text-sm font-medium text-ink-900">Notice</Text>
-                <Text className="text-[11px] text-ink-500">{draft.noticeDays ? `Apply ${noticeText(draft.noticeDays).replace(" notice", "")} before` : "Same-day leave allowed"}</Text>
-              </View>
-              <LeaveStep value={draft.noticeDays} max={30} onChange={(noticeDays) => setDraft({ ...draft, noticeDays: Math.round(noticeDays) })} />
-            </View>
-
             {draft.forTeacher || draft.forStaff ? (
               <View className="gap-4 border-t border-ink-100 pt-4">
                 <LeaveCreditFields row={draft} onChange={setDraft} startMonth={startMonth} existing={editIndex !== null && Boolean(draft.id)} />
@@ -1723,7 +1758,18 @@ function DeskLeaveTypes({
                 <Ionicons name={moreOpen ? "chevron-up" : "chevron-down"} size={13} color="#1F45C7" />
               </Pressable>
               {moreOpen ? (
-                <View className="mt-2">
+                <View className="mt-2 flex-row items-center justify-between gap-3">
+                  <View>
+                    <Text className="text-sm font-medium text-ink-900">Notice</Text>
+                    <Text className="text-[11px] text-ink-500">
+                      {draft.noticeDays ? `Apply ${noticeText(draft.noticeDays).replace(" notice", "")} before` : "Same-day leave allowed"} · past days always allowed
+                    </Text>
+                  </View>
+                  <LeaveStep value={draft.noticeDays} max={30} onChange={(noticeDays) => setDraft({ ...draft, noticeDays: Math.round(noticeDays) })} />
+                </View>
+              ) : null}
+              {moreOpen ? (
+                <View className="mt-4">
                   <Text className="mb-2 text-xs font-medium text-ink-700">Only for (maternity / paternity)</Text>
                   <View className="flex-row overflow-hidden rounded-lg border border-ink-200">
                     {(
@@ -1756,8 +1802,7 @@ function DeskLeaveTypes({
                 {" · "}
                 {who(draft)}
                 {genderText(draft.eligibilityGender) ? ` · ${genderText(draft.eligibilityGender)}` : ""}
-                {" · "}
-                {noticeText(draft.noticeDays)}
+                {draft.noticeDays ? ` · ${noticeText(draft.noticeDays)}` : ""}
                 {" · "}
                 {leaveCreditSummary(draft)}
               </Text>
@@ -2532,22 +2577,11 @@ export function SchoolBoard() {
                 key={(data?.timetable?.periods ?? []).map((p) => p.id).join(",")}
                 weekdays={(data?.timetable?.weekdays ?? []).map((d) => d.n)}
                 periods={data?.timetable?.periods ?? []}
-                onSave={async (payload) => {
-                  await run("saveSchoolClock", payload, "Clock saved.");
-                }}
-                onAdd={async (payload) => {
-                  const result = await act<
-                    {
-                      ok: true;
-                      period?: { id: string; name: string; startsAt: string; endsAt: string; isBreak: boolean; sortOrder?: number };
-                    }
-                  >(token, "addPeriod", payload);
-                  toast.show("Period added.");
-                  void reload();
-                  return result;
-                }}
-                onDelete={async (id) => {
-                  await run("deletePeriod", { id }, "Period removed.");
+                onApply={async (payload, message) => {
+                  // Throws (incl. "LESSONS|…") so the form can ask before lessons are removed.
+                  await act(token, "applySchoolClock", payload);
+                  toast.show(message);
+                  await reload();
                 }}
               />
               </View>
@@ -2715,6 +2749,13 @@ export function SchoolBoard() {
                     await run("saveLeavePolicy", { types: rows, leaveYearStartMonth: leaveYearStart }, "Leave types saved.");
                   }}
                 />
+                <UnpaidLeaveSwitch
+                  on={Boolean(data?.leaveTypes?.some((t) => t.paid === false && (t.forTeacher || t.forStaff)))}
+                  canEdit={edit}
+                  onChange={async (on) => {
+                    await run("setUnpaidLeave", { on }, on ? "Unpaid leave is on. No limit; salary is cut for those days." : "Unpaid leave is off.");
+                  }}
+                />
                 <View className="gap-2.5">
                   <LeaveYearPick
                     value={leaveYearStart}
@@ -2753,6 +2794,13 @@ export function SchoolBoard() {
                   startMonth={leaveYearStart}
                   onSave={async (rows) => {
                     await run("saveLeavePolicy", { types: rows, leaveYearStartMonth: leaveYearStart }, "Leave types saved.");
+                  }}
+                />
+                <UnpaidLeaveSwitch
+                  on={Boolean(data?.leaveTypes?.some((t) => t.paid === false && (t.forTeacher || t.forStaff)))}
+                  canEdit={edit}
+                  onChange={async (on) => {
+                    await run("setUnpaidLeave", { on }, on ? "Unpaid leave is on. No limit; salary is cut for those days." : "Unpaid leave is off.");
                   }}
                 />
                 <View className="flex-row flex-wrap gap-3">

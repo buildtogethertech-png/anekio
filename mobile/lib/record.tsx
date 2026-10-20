@@ -894,6 +894,8 @@ export type RecordPayload = {
     carryForwardCap?: number;
     prorateJoiners?: boolean;
     advanceDays?: number;
+    /** false = the built-in Unpaid leave type (Leave settings switch). */
+    paid?: boolean;
   }[];
   leaveBalances?: {
     typeId: string;

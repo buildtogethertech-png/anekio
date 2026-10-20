@@ -220,7 +220,8 @@ export function LeaveApplyCard({
   const leaveClosedReason = (value: string) => {
     const closed = closedReason(value, schoolCalendar);
     if (closed) return closed;
-    if (picked?.noticeDays && value < earliest) {
+    // Past days are allowed (applying late); notice only counts for future dates.
+    if (picked?.noticeDays && value >= earliestLeaveStart(0, schoolCalendar) && value < earliest) {
       return `${picked.name} needs ${picked.noticeDays} school day${picked.noticeDays === 1 ? "" : "s"} notice`;
     }
     return "";

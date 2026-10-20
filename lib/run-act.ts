@@ -41,6 +41,8 @@ import {
   setStaffOnboardingFileCore,
   createStudentCore,
   setTeacherClassSubjectsCore,
+  setUnpaidLeaveCore,
+  applySchoolClockCore,
   copyTimetableDayCore,
   createTeacherCore,
   updateParentCore,
@@ -352,6 +354,10 @@ export async function runAct(
     case "saveSchoolSubjects":
       await saveSchoolSubjectsCore(user, body as never);
       break;
+    case "setUnpaidLeave":
+      return { ok: true, ...(await setUnpaidLeaveCore(user, body as never)) };
+    case "applySchoolClock":
+      return { ok: true, ...(await applySchoolClockCore(user, body as never)) };
     case "saveSchoolClock":
       await saveSchoolClockCore(user, body as never);
       break;

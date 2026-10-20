@@ -91,7 +91,9 @@ export async function applyLeave(
   const days = schoolDaysInRange(from, to, cal);
   if (!days.length) throw new Error("Those dates are weekly offs or holidays");
   const earliest = earliestLeaveStart(type.noticeDays, cal);
-  if (from < earliest) {
+  // Past days can always be applied for (forgot to apply, was sick). Notice only applies to future dates.
+  const today = earliestLeaveStart(0, cal);
+  if (from >= today && from < earliest) {
     throw new Error(
       type.noticeDays
         ? `${type.name} needs ${type.noticeDays} school day${type.noticeDays === 1 ? "" : "s"} of notice. Use Sick if you need today.`

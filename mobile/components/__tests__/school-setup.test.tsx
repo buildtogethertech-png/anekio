@@ -2,38 +2,20 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react-nativ
 import { ClockForm, SchoolSubjectsForm, syncGradeSubjectDrafts } from "../school-setup";
 
 describe("ClockForm", () => {
-  it("adds a period with the generated name when the name field is blank", async () => {
-    const onAdd = jest.fn().mockResolvedValue({
-      period: {
-        id: "period-1",
-        name: "Period 1",
-        startsAt: "15:10",
-        endsAt: "15:50",
-        isBreak: false,
-        sortOrder: 1,
-      },
-    });
+  it("fills a whole day from Quick setup when there are no bell times yet", async () => {
+    const onApply = jest.fn().mockResolvedValue(undefined);
+    render(<ClockForm weekdays={[1, 2, 3, 4]} periods={[]} onApply={onApply} />);
 
-    render(
-      <ClockForm
-        weekdays={[1, 2, 3, 4]}
-        periods={[]}
-        onSave={jest.fn()}
-        onAdd={onAdd}
-        onDelete={jest.fn()}
-      />
-    );
+    fireEvent.press(screen.getByText("Fill bell times"));
 
-    fireEvent.press(screen.getByRole("button", { name: "Add period" }));
-
-    await waitFor(() => {
-      expect(onAdd).toHaveBeenCalledWith({
-        name: "Period 1",
-        startsAt: "15:10",
-        endsAt: "15:50",
-        isBreak: false,
-      });
-    });
+    await waitFor(() => expect(onApply).toHaveBeenCalled());
+    const [payload] = onApply.mock.calls[0];
+    expect(payload.weekdays).toEqual([1, 2, 3, 4]);
+    // Default preset: 8 × 40 min from 09:00, recess after 3, lunch after 6.
+    expect(payload.periods).toHaveLength(10);
+    expect(payload.periods[0]).toMatchObject({ name: "Period 1", startsAt: "09:00", endsAt: "09:40", isBreak: false });
+    expect(payload.periods[3]).toMatchObject({ name: "Recess", startsAt: "11:00", endsAt: "11:20", isBreak: true });
+    expect(payload.periods[9]).toMatchObject({ name: "Period 8", endsAt: "15:10" });
   });
 });
 

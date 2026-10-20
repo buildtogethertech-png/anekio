@@ -3672,6 +3672,67 @@ export async function addPeriodCore(
   };
 }
 
+/**
+ * Bell times in one go (Quick setup, add-in-between, delete, Save): the list is the whole day in order.
+ * Rows with an id are updated, rows without are created, periods left out are deleted. Deleting a period
+ * that has lessons needs force (its lessons go with it); otherwise it stops with "LESSONS|…" for the app to confirm.
+ */
+export async function applySchoolClockCore(
+  user: AccessUser,
+  input: {
+    weekdays?: number[];
+    periods?: { id?: string; name?: string; startsAt?: string; endsAt?: string; isBreak?: boolean }[];
+    force?: boolean;
+  }
+) {
+  needSchoolScope(user, "timetable.edit");
+  const hm = /^([01]\d|2[0-3]):[0-5]\d$/;
+  const rows = (input.periods || []).map((p, i) => ({
+    id: p.id && !String(p.id).startsWith("new-") ? String(p.id) : "",
+    name: String(p.name || "").trim() || (p.isBreak ? "Break" : `Period ${i + 1}`),
+    startsAt: String(p.startsAt || ""),
+    endsAt: String(p.endsAt || ""),
+    isBreak: Boolean(p.isBreak),
+  }));
+  for (const r of rows) {
+    if (!hm.test(r.startsAt) || !hm.test(r.endsAt)) throw new Error(`${r.name}: use times like 09:00.`);
+    if (r.endsAt <= r.startsAt) throw new Error(`${r.name} must end after it starts.`);
+  }
+  const existing = await prisma.period.findMany({ select: { id: true, name: true } });
+  const keep = new Set(rows.map((r) => r.id).filter(Boolean));
+  const removing = existing.filter((p) => !keep.has(p.id));
+  if (removing.length && !input.force) {
+    const slots = await prisma.timetableSlot.findMany({
+      where: { periodId: { in: removing.map((p) => p.id) } },
+      select: { periodId: true, classId: true },
+    });
+    if (slots.length) {
+      const names = removing.filter((p) => slots.some((x) => x.periodId === p.id)).map((p) => p.name);
+      const classes = new Set(slots.map((x) => x.classId)).size;
+      throw new Error(`LESSONS|${names.join(", ")}|${slots.length}|${classes}`);
+    }
+  }
+  const days = input.weekdays
+    ? [...new Set(input.weekdays.map(Number).filter((n) => n >= 1 && n <= 7))].sort((a, b) => a - b)
+    : null;
+  if (days) {
+    await prisma.schoolConfig.upsert({
+      where: { id: "school" },
+      update: { weekdays: JSON.stringify(days.length ? days : [1, 2, 3, 4, 5, 6]) },
+      create: { id: "school", weekdays: JSON.stringify(days.length ? days : [1, 2, 3, 4, 5, 6]) },
+    });
+  }
+  if (removing.length) await prisma.period.deleteMany({ where: { id: { in: removing.map((p) => p.id) } } });
+  let order = 1;
+  for (const r of rows) {
+    const data = { name: r.name, startsAt: r.startsAt, endsAt: r.endsAt, isBreak: r.isBreak, sortOrder: order++ };
+    if (r.id && existing.some((p) => p.id === r.id)) await prisma.period.update({ where: { id: r.id }, data });
+    else await prisma.period.create({ data });
+  }
+  await markOnboardingConfigured(user, "working_days");
+  return { periods: rows.length, removed: removing.length };
+}
+
 export async function deletePeriodCore(user: AccessUser, input: { id: string }) {
   needSchoolScope(user, "timetable.edit");
   if (!input.id) throw new Error("Period required");
@@ -4352,10 +4413,11 @@ export async function saveLeavePolicyCore(
   }
   const keep = rows.filter((r) => r.id).map((r) => r.id);
   await prisma.$transaction(async (tx) => {
+    // The built-in Unpaid leave type (paid: false) is managed by its own switch, never by this list.
     if (keep.length) {
-      await tx.leaveType.deleteMany({ where: { id: { notIn: keep } } });
+      await tx.leaveType.deleteMany({ where: { id: { notIn: keep }, paid: true } });
     } else {
-      await tx.leaveType.deleteMany();
+      await tx.leaveType.deleteMany({ where: { paid: true } });
     }
     for (const row of rows) {
       const data = {
@@ -4390,6 +4452,38 @@ export async function saveLeavePolicyCore(
   if (startMonth >= 1 && startMonth <= 12) {
     await prisma.schoolConfig.update({ where: { id: "school" }, data: { leaveYearStartMonth: startMonth } }).catch(() => undefined);
   }
+}
+
+/**
+ * Leave settings → "Unpaid leave" switch. On: teachers and staff can take any number of unpaid days
+ * (no balance, salary is cut by payroll for those days). Off: hidden from applying; past requests stay.
+ */
+export async function setUnpaidLeaveCore(user: AccessUser, input: { on?: boolean }) {
+  need(user, "school.edit");
+  const on = Boolean(input.on);
+  const existing = await prisma.leaveType.findFirst({ where: { paid: false }, orderBy: { sortOrder: "asc" } });
+  if (existing) {
+    await prisma.leaveType.update({
+      where: { id: existing.id },
+      data: { forTeacher: on, forStaff: on, forStudent: false, yearlyCap: 0, creditMode: "YEARLY", creditAmount: 0, noticeDays: 0 },
+    });
+  } else if (on) {
+    await prisma.leaveType.create({
+      data: {
+        name: "Unpaid leave",
+        paid: false,
+        forTeacher: true,
+        forStaff: true,
+        forStudent: false,
+        yearlyCap: 0,
+        creditMode: "YEARLY",
+        creditAmount: 0,
+        noticeDays: 0,
+        sortOrder: 999,
+      },
+    });
+  }
+  return { on };
 }
 
 export async function setLeaveBalancesCore(

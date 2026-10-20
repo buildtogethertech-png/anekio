@@ -25,6 +25,8 @@ export type LeaveTypeRow = {
   carryForwardCap: number;
   prorateJoiners: boolean;
   advanceDays: number;
+  /** false = Unpaid leave (salary is cut). The built-in "Unpaid leave" type is the only unpaid one. */
+  paid: boolean;
 };
 
 export type LeaveRequestRow = {
@@ -126,6 +128,7 @@ export function serializeLeaveType(row: {
   carryForwardCap?: number | null;
   prorateJoiners?: boolean | null;
   advanceDays?: number | null;
+  paid?: boolean | null;
 }): LeaveTypeRow {
   return {
     id: row.id,
@@ -143,6 +146,7 @@ export function serializeLeaveType(row: {
     carryForwardCap: Number(row.carryForwardCap || 0),
     prorateJoiners: row.prorateJoiners !== false,
     advanceDays: Number(row.advanceDays || 0),
+    paid: row.paid !== false,
   };
 }
 

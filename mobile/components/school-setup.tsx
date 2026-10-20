@@ -346,176 +346,529 @@ function chainFrom(rows: ClockPeriodRow[], index: number) {
 }
 
 const LENGTH_CHOICES = [30, 35, 40, 45, 50];
+const BREAK_CHOICES = [10, 15, 20, 30, 45];
 
-/** Phone bell-times editor: one line per period, tap to edit in a sheet, times chain automatically. */
-function PhoneClock({
-  days,
-  setDays,
+type ClockApply = (
+  payload: { weekdays: number[]; periods: ClockPeriodRow[]; force?: boolean },
+  message: string
+) => Promise<void>;
+
+let newRowSeq = 0;
+function newRowId() {
+  newRowSeq += 1;
+  return `new-${Date.now()}-${newRowSeq}`;
+}
+
+function rowLength(row?: ClockPeriodRow | null) {
+  if (!row) return 0;
+  const s = clockMin(row.startsAt);
+  const e = clockMin(row.endsAt);
+  return s !== null && e !== null ? e - s : 0;
+}
+
+/** The usual period length in this school (most common), for new periods. */
+function typicalLength(rows: ClockPeriodRow[]) {
+  const counts = new Map<number, number>();
+  for (const r of rows) if (!r.isBreak && rowLength(r) > 0) counts.set(rowLength(r), (counts.get(rowLength(r)) ?? 0) + 1);
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 40;
+}
+
+/** "Period 1, Period 2 …" stay in order after adding / removing; custom names are kept. */
+function renumber(rows: ClockPeriodRow[]) {
+  let n = 0;
+  return rows.map((r) => {
+    if (r.isBreak) return r;
+    n += 1;
+    return /^period\s*\d+$/i.test(r.name.trim()) || !r.name.trim() ? { ...r, name: `Period ${n}` } : r;
+  });
+}
+
+function dayEnd(rows: ClockPeriodRow[]) {
+  return rows.length ? rows[rows.length - 1].endsAt : "";
+}
+
+function endNote(before: ClockPeriodRow[], after: ClockPeriodRow[]) {
+  const a = clockMin(dayEnd(before));
+  const b = clockMin(dayEnd(after));
+  if (b === null) return "";
+  const diff = a === null ? 0 : b - a;
+  return ` School now ends ${clock12(dayEnd(after))}${diff ? ` (${diff > 0 ? "+" : "−"}${Math.abs(diff)} min)` : ""}.`;
+}
+
+type QuickBreak = { after: number; name: string; minutes: number };
+type QuickPlan = { start: string; length: number; count: number; gap: number; breaks: QuickBreak[] };
+
+const QUICK_PRESETS: { label: string; plan: QuickPlan }[] = [
+  { label: "8 × 40 min", plan: { start: "09:00", length: 40, count: 8, gap: 0, breaks: [{ after: 3, name: "Recess", minutes: 20 }, { after: 6, name: "Lunch", minutes: 30 }] } },
+  { label: "7 × 45 min", plan: { start: "08:30", length: 45, count: 7, gap: 0, breaks: [{ after: 3, name: "Recess", minutes: 15 }, { after: 5, name: "Lunch", minutes: 30 }] } },
+  { label: "6 × 50 min", plan: { start: "09:00", length: 50, count: 6, gap: 0, breaks: [{ after: 3, name: "Lunch", minutes: 30 }] } },
+];
+
+function buildDay(plan: QuickPlan) {
+  const start = clockMin(plan.start) ?? 9 * 60;
+  const out: { name: string; startsAt: string; endsAt: string; isBreak: boolean }[] = [];
+  let t = start;
+  for (let i = 1; i <= plan.count; i += 1) {
+    out.push({ name: `Period ${i}`, startsAt: clockHm(t), endsAt: clockHm(t + plan.length), isBreak: false });
+    t += plan.length;
+    const brk = plan.breaks.find((b) => b.after === i && b.minutes > 0);
+    if (brk && i < plan.count) {
+      out.push({ name: brk.name || "Break", startsAt: clockHm(t), endsAt: clockHm(t + brk.minutes), isBreak: true });
+      t += brk.minutes;
+    } else if (i < plan.count) {
+      t += plan.gap;
+    }
+  }
+  return out;
+}
+
+/** Reuse existing rows (so lessons stay with Period 1, 2 …): teaching rows map to teaching rows, breaks to breaks. */
+function mergeDay(existing: ClockPeriodRow[], target: ReturnType<typeof buildDay>) {
+  const teach = existing.filter((r) => !r.isBreak);
+  const breaks = existing.filter((r) => r.isBreak);
+  let ti = 0;
+  let bi = 0;
+  return target.map((t) => {
+    const reuse = t.isBreak ? breaks[bi++] : teach[ti++];
+    return { id: reuse?.id || newRowId(), sortOrder: undefined, ...t };
+  });
+}
+
+function QuickSetup({
   rows,
-  setRows,
-  onSave,
-  onAdd,
-  onDelete,
+  phone,
+  onApply,
 }: {
-  days: number[];
-  setDays: (days: number[]) => void;
   rows: ClockPeriodRow[];
-  setRows: (rows: ClockPeriodRow[]) => void;
-  onSave: () => Promise<void>;
-  onAdd: (payload: { name: string; startsAt: string; endsAt: string; isBreak: boolean }) => Promise<{ period?: ClockPeriodRow } | void>;
-  onDelete: (id: string) => Promise<void>;
+  phone: boolean;
+  onApply: (rows: ClockPeriodRow[], message: string) => Promise<void>;
 }) {
-  const [editId, setEditId] = useState("");
+  const [open, setOpen] = useState(!rows.length);
+  const [plan, setPlan] = useState<QuickPlan>(() => {
+    const teaching = rows.filter((r) => !r.isBreak);
+    if (!teaching.length) return QUICK_PRESETS[0].plan;
+    const breaks: QuickBreak[] = [];
+    let n = 0;
+    for (const r of rows) {
+      if (r.isBreak) breaks.push({ after: n, name: r.name, minutes: rowLength(r) || 15 });
+      else n += 1;
+    }
+    return { start: rows[0].startsAt, length: typicalLength(rows), count: teaching.length, gap: 0, breaks };
+  });
   const [busy, setBusy] = useState(false);
+  const day = buildDay(plan);
+  const ends = day.length ? day[day.length - 1].endsAt : plan.start;
+  const total = (clockMin(ends) ?? 0) - (clockMin(plan.start) ?? 0);
+  const patch = (p: Partial<QuickPlan>) => setPlan((cur) => ({ ...cur, ...p }));
+  const setBreak = (i: number, p: Partial<QuickBreak>) => patch({ breaks: plan.breaks.map((b, j) => (j === i ? { ...b, ...p } : b)) });
+  const chip = (on: boolean) => `h-9 justify-center rounded-full border px-3 ${on ? "border-[#1F45C7] bg-[#1F45C7]" : "border-ink-200 bg-white"}`;
+  const chipText = (on: boolean) => `text-sm font-semibold ${on ? "text-white" : "text-ink-800"}`;
+  const stepper = (value: number, set: (v: number) => void, min: number, max: number) => (
+    <View className="flex-row items-center overflow-hidden rounded-lg border border-ink-200 bg-white">
+      <Pressable onPress={() => set(Math.max(min, value - 1))} className="h-9 w-9 items-center justify-center">
+        <Ionicons name="remove" size={16} color="#1F45C7" />
+      </Pressable>
+      <Text className="w-8 text-center text-sm font-semibold text-ink-900">{value}</Text>
+      <Pressable onPress={() => set(Math.min(max, value + 1))} className="h-9 w-9 items-center justify-center">
+        <Ionicons name="add" size={16} color="#1F45C7" />
+      </Pressable>
+    </View>
+  );
+  const totalMinutes = Math.max(1, total);
+
+  return (
+    <View className="overflow-hidden rounded-2xl border border-[#1F45C7]/30 bg-[#F5F8FF]">
+      <Pressable onPress={() => setOpen((v) => !v)} className="flex-row items-center gap-2 px-4 py-3" accessibilityRole="button">
+        <Ionicons name="flash-outline" size={17} color="#1F45C7" />
+        <View className="flex-1">
+          <Text className="text-sm font-semibold text-ink-900">Quick setup</Text>
+          <Text className="text-xs text-ink-600">Start time, period length and breaks. We fill the whole day.</Text>
+        </View>
+        <Ionicons name={open ? "chevron-up" : "chevron-down"} size={16} color="#3d4f66" />
+      </Pressable>
+      {open ? (
+        <View className="gap-4 border-t border-[#1F45C7]/15 px-4 py-4">
+          <View className="flex-row flex-wrap gap-2">
+            {QUICK_PRESETS.map((p) => (
+              <Pressable key={p.label} onPress={() => setPlan(p.plan)} className="h-8 justify-center rounded-full border border-ink-200 bg-white px-3">
+                <Text className="text-xs font-semibold text-ink-800">{p.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <View className={phone ? "gap-3" : "flex-row flex-wrap gap-6"}>
+            <View className="gap-1.5">
+              <Text className="text-xs font-medium text-ink-700">School starts (24h)</Text>
+              <Input value={plan.start} onChangeText={(v) => patch({ start: v })} keyboardType="numbers-and-punctuation" className="h-10 w-28" />
+            </View>
+            <View className="gap-1.5">
+              <Text className="text-xs font-medium text-ink-700">Periods a day</Text>
+              {stepper(plan.count, (count) => patch({ count }), 1, 14)}
+            </View>
+            <View className="gap-1.5">
+              <Text className="text-xs font-medium text-ink-700">Period length</Text>
+              <View className="flex-row flex-wrap gap-1.5">
+                {LENGTH_CHOICES.map((m) => (
+                  <Pressable key={m} onPress={() => patch({ length: m })} className={chip(plan.length === m)}>
+                    <Text className={chipText(plan.length === m)}>{m}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+            <View className="gap-1.5">
+              <Text className="text-xs font-medium text-ink-700">Gap between periods</Text>
+              <View className="flex-row gap-1.5">
+                {[0, 5].map((m) => (
+                  <Pressable key={m} onPress={() => patch({ gap: m })} className={chip(plan.gap === m)}>
+                    <Text className={chipText(plan.gap === m)}>{m ? `${m} min` : "None"}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          </View>
+
+          <View className="gap-2">
+            <Text className="text-xs font-medium text-ink-700">Breaks</Text>
+            {plan.breaks.map((b, i) => (
+              <View key={i} className="flex-row flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50/60 px-3 py-2">
+                <Ionicons name={/lunch/i.test(b.name) ? "restaurant-outline" : "cafe-outline"} size={15} color="#B45309" />
+                <Text className="text-xs text-amber-900">After period</Text>
+                {stepper(b.after, (after) => setBreak(i, { after }), 1, Math.max(1, plan.count - 1))}
+                <Input value={b.name} onChangeText={(name) => setBreak(i, { name })} className="h-9 w-28" />
+                <View className="flex-row gap-1">
+                  {BREAK_CHOICES.map((m) => (
+                    <Pressable key={m} onPress={() => setBreak(i, { minutes: m })} className={`h-8 justify-center rounded-full border px-2.5 ${b.minutes === m ? "border-amber-600 bg-amber-600" : "border-amber-200 bg-white"}`}>
+                      <Text className={`text-xs font-semibold ${b.minutes === m ? "text-white" : "text-amber-900"}`}>{m}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <Pressable onPress={() => patch({ breaks: plan.breaks.filter((_, j) => j !== i) })} hitSlop={8} accessibilityLabel="Remove break">
+                  <Ionicons name="close" size={16} color="#92400e" />
+                </Pressable>
+              </View>
+            ))}
+            <Pressable
+              onPress={() => patch({ breaks: [...plan.breaks, { after: Math.min(plan.count - 1, (plan.breaks.at(-1)?.after ?? 2) + 2), name: plan.breaks.length ? "Lunch" : "Recess", minutes: plan.breaks.length ? 30 : 15 }] })}
+              className="self-start"
+            >
+              <Text className="text-xs font-semibold text-[#1F45C7]">+ Add break</Text>
+            </Pressable>
+          </View>
+
+          <View className="gap-1.5">
+            <View className="h-7 flex-row overflow-hidden rounded-lg bg-white">
+              {day.map((d, i) => {
+                const len = (clockMin(d.endsAt) ?? 0) - (clockMin(d.startsAt) ?? 0);
+                return (
+                  <View
+                    key={i}
+                    style={{ flex: Math.max(1, len) / totalMinutes }}
+                    className={`items-center justify-center border-r border-white ${d.isBreak ? "bg-amber-300" : "bg-[#1F45C7]/80"}`}
+                  >
+                    <Text className="text-[9px] font-semibold text-white" numberOfLines={1}>
+                      {d.isBreak ? "" : d.name.replace("Period ", "P")}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+            <Text className="text-xs text-ink-700">
+              {clock12(plan.start)} – <Text className="font-semibold text-ink-900">{clock12(ends)}</Text> · {plan.count} periods
+              {plan.breaks.length ? ` · ${plan.breaks.length} break${plan.breaks.length === 1 ? "" : "s"}` : ""}
+            </Text>
+          </View>
+          {rows.length ? (
+            <Text className="text-[11px] leading-4 text-ink-500">
+              Replaces the bell times below. Lessons stay with Period 1, 2, 3 … at their new times.
+            </Text>
+          ) : null}
+          <Button
+            disabled={busy || clockMin(plan.start) === null}
+            onPress={async () => {
+              setBusy(true);
+              try {
+                await onApply(mergeDay(rows, day), `Bell times filled: ${plan.count} periods, ${clock12(plan.start)} – ${clock12(ends)}.`);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy ? "Filling…" : "Fill bell times"}
+          </Button>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+/** Thin "+" line between two rows: add a period or break right here. */
+function InsertLine({ onPress }: { onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel="Add a period or break here" className="h-5 flex-row items-center px-4">
+      <View className="h-px flex-1 bg-ink-100" />
+      <View className="mx-2 h-5 w-5 items-center justify-center rounded-full border border-ink-200 bg-white">
+        <Ionicons name="add" size={12} color="#1F45C7" />
+      </View>
+      <View className="h-px flex-1 bg-ink-100" />
+    </Pressable>
+  );
+}
+
+export function ClockForm({
+  weekdays,
+  periods,
+  onApply,
+}: {
+  weekdays: number[];
+  periods: { id: string; name: string; start: string; end: string; isBreak?: boolean; sortOrder?: number }[];
+  /** Saves the whole day (creates / updates / deletes / orders). Throws "LESSONS|names|count|classes" when lessons would be removed. */
+  onApply: ClockApply;
+}) {
+  const [days, setDays] = useState<number[]>(weekdays);
+  const [rows, setRows] = useState<ClockPeriodRow[]>(
+    periods.map((p) => ({ id: p.id, name: p.name, startsAt: p.start, endsAt: p.end, isBreak: Boolean(p.isBreak), sortOrder: p.sortOrder }))
+  );
   const [error, setError] = useState("");
-  const editing = rows.find((row) => row.id === editId) || null;
-  const editIndex = rows.findIndex((row) => row.id === editId);
-  const first = rows[0];
-  const last = rows[rows.length - 1];
-  const teaching = rows.filter((row) => !row.isBreak).length;
+  const [busy, setBusy] = useState(false);
+  const [insertAt, setInsertAt] = useState<number | null>(null);
+  const [editId, setEditId] = useState("");
+  const [confirm, setConfirm] = useState<{ rows: ClockPeriodRow[]; message: string; names: string; lessons: number; classes: number } | null>(null);
+  const { width } = useWindowDimensions();
+  const phone = width < 768;
+  const saved = periods.map((p) => `${p.id}|${p.name}|${p.start}|${p.end}|${p.isBreak ? 1 : 0}`).join(",");
+  const dirty =
+    rows.map((r) => `${r.id}|${r.name}|${r.startsAt}|${r.endsAt}|${r.isBreak ? 1 : 0}`).join(",") !== saved ||
+    days.join(",") !== weekdays.join(",");
+  const teaching = rows.filter((r) => !r.isBreak).length;
+  const editing = rows.find((r) => r.id === editId) || null;
+  const editIndex = rows.findIndex((r) => r.id === editId);
 
-  function patchEditing(part: Partial<ClockPeriodRow>) {
-    if (editIndex < 0) return;
-    const next = rows.map((row, i) => (i === editIndex ? { ...row, ...part } : row));
-    setRows(chainFrom(next, editIndex));
-  }
-
-  function setLength(minutes: number) {
-    if (!editing) return;
-    const start = clockMin(editing.startsAt);
-    if (start === null) return;
-    patchEditing({ endsAt: clockHm(start + minutes) });
-  }
-
-  async function addRow(isBreak: boolean) {
+  async function commit(next: ClockPeriodRow[], message: string, force = false) {
     setError("");
-    const lastEnd = last ? clockMin(last.endsAt) : 9 * 60;
-    const start = lastEnd ?? 9 * 60;
-    const length = isBreak ? 20 : (() => {
-      const sample = [...rows].reverse().find((row) => !row.isBreak);
-      const s = sample ? clockMin(sample.startsAt) : null;
-      const e = sample ? clockMin(sample.endsAt) : null;
-      return s !== null && e !== null ? Math.max(10, e - s) : 40;
-    })();
+    setBusy(true);
     try {
-      const result = await onAdd({
-        name: isBreak ? "Recess" : nextPeriodName(rows),
-        startsAt: clockHm(start),
-        endsAt: clockHm(start + length),
-        isBreak,
-      });
-      if (result?.period) {
-        setRows([...rows, result.period]);
-        setEditId(result.period.id);
-      }
+      await onApply({ weekdays: days, periods: next, force }, message);
+      setRows(next);
+      setConfirm(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not add.");
+      const msg = e instanceof Error ? e.message : "Could not save.";
+      const m = /^LESSONS\|(.*)\|(\d+)\|(\d+)$/.exec(msg);
+      if (m) setConfirm({ rows: next, message, names: m[1], lessons: Number(m[2]), classes: Number(m[3]) });
+      else setError(msg);
+    } finally {
+      setBusy(false);
     }
   }
 
-  const editStart = editing ? clockMin(editing.startsAt) : null;
-  const editEnd = editing ? clockMin(editing.endsAt) : null;
-  const editLength = editStart !== null && editEnd !== null ? editEnd - editStart : 0;
+  function insert(index: number, isBreak: boolean) {
+    const prev = rows[index - 1];
+    const start = prev ? prev.endsAt : rows[0]?.startsAt || "09:00";
+    const s = clockMin(start) ?? 9 * 60;
+    const length = isBreak ? 15 : typicalLength(rows);
+    const row: ClockPeriodRow = { id: newRowId(), name: isBreak ? "Break" : "Period", startsAt: clockHm(s), endsAt: clockHm(s + length), isBreak };
+    const next = renumber(chainFrom([...rows.slice(0, index), row, ...rows.slice(index)], index));
+    setInsertAt(null);
+    void commit(next, `${isBreak ? "Break" : next[index].name} added.${endNote(rows, next)}`);
+  }
+
+  function remove(index: number) {
+    const gone = rows[index];
+    let next = rows.filter((_, i) => i !== index);
+    if (index === 0 && next.length) {
+      const len = rowLength(next[0]) || 40;
+      const s = clockMin(gone.startsAt) ?? 9 * 60;
+      next[0] = { ...next[0], startsAt: clockHm(s), endsAt: clockHm(s + len) };
+      next = chainFrom(next, 0);
+    } else {
+      next = chainFrom(next, index - 1);
+    }
+    next = renumber(next);
+    setEditId("");
+    void commit(next, `${gone.name} removed.${endNote(rows, next)}`);
+  }
+
+  /** Edit one row; later rows follow so the day stays continuous. */
+  function patchRow(index: number, part: Partial<ClockPeriodRow>) {
+    const next = rows.map((r, i) => (i === index ? { ...r, ...part } : r));
+    setRows(chainFrom(next, index));
+  }
+
+  function setLength(index: number, minutes: number) {
+    const s = clockMin(rows[index]?.startsAt);
+    if (s === null) return;
+    patchRow(index, { endsAt: clockHm(s + minutes) });
+  }
+
+  const daysPicker = phone ? (
+    <View className="flex-row justify-between">
+      {ALL_WEEKDAYS.map((d) => {
+        const on = days.includes(d.n);
+        return (
+          <Pressable
+            key={d.n}
+            accessibilityRole="button"
+            accessibilityState={{ selected: on }}
+            accessibilityLabel={d.label}
+            onPress={() => setDays(on ? days.filter((n) => n !== d.n) : [...days, d.n].sort((a, b) => a - b))}
+            className={`h-10 w-10 items-center justify-center rounded-full ${on ? "bg-[#1F45C7]" : "border border-ink-200 bg-white"}`}
+          >
+            <Text className={`text-sm font-semibold ${on ? "text-white" : "text-ink-600"}`}>{d.label.slice(0, 1)}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  ) : (
+    <View className="flex-row flex-wrap gap-1.5">
+      {ALL_WEEKDAYS.map((d) => (
+        <Chip
+          key={d.n}
+          label={d.label}
+          active={days.includes(d.n)}
+          onPress={() => setDays(days.includes(d.n) ? days.filter((n) => n !== d.n) : [...days, d.n].sort((a, b) => a - b))}
+        />
+      ))}
+    </View>
+  );
 
   return (
     <View className="mt-3 gap-5">
       <View>
         <Text className="mb-2 text-sm font-semibold text-ink-900">School days</Text>
-        <View className="flex-row justify-between">
-          {ALL_WEEKDAYS.map((d) => {
-            const on = days.includes(d.n);
-            return (
-              <Pressable
-                key={d.n}
-                accessibilityRole="button"
-                accessibilityState={{ selected: on }}
-                accessibilityLabel={d.label}
-                onPress={() => setDays(on ? days.filter((n) => n !== d.n) : [...days, d.n].sort((a, b) => a - b))}
-                className={`h-10 w-10 items-center justify-center rounded-full ${on ? "bg-[#1F45C7]" : "border border-ink-200 bg-white"}`}
-              >
-                <Text className={`text-sm font-semibold ${on ? "text-white" : "text-ink-600"}`}>{d.label.slice(0, 1)}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
+        {daysPicker}
       </View>
 
+      <QuickSetup key={rows.length ? "has" : "none"} rows={rows} phone={phone} onApply={(next, message) => commit(next, message)} />
+
       <View>
-        <Text className="text-sm font-semibold text-ink-900">Bell times</Text>
-        <Text className="mt-0.5 text-xs text-ink-600">
-          {rows.length
-            ? `${teaching} period${teaching === 1 ? "" : "s"} · ${clock12(first.startsAt)} – ${clock12(last.endsAt)}`
-            : "No periods yet"}
-        </Text>
-        <View className="mt-2 overflow-hidden rounded-2xl border border-ink-200 bg-white">
+        <View className="flex-row flex-wrap items-end justify-between gap-2">
+          <View>
+            <Text className="text-sm font-semibold text-ink-900">Bell times</Text>
+            <Text className="mt-0.5 text-xs text-ink-600">
+              {rows.length
+                ? `${teaching} period${teaching === 1 ? "" : "s"} · ${clock12(rows[0].startsAt)} – ${clock12(dayEnd(rows))}`
+                : "No periods yet. Use Quick setup above."}
+            </Text>
+          </View>
+          {!phone ? (
+            <Text className="text-[11px] text-ink-500">Tap ⊕ between rows to add a period or break there.</Text>
+          ) : null}
+        </View>
+        <View className="mt-2 overflow-hidden rounded-2xl border border-ink-200 bg-white py-1">
+          {rows.length ? <InsertLine onPress={() => setInsertAt(0)} /> : null}
           {rows.map((row, index) => {
-            const s = clockMin(row.startsAt);
-            const e = clockMin(row.endsAt);
-            const length = s !== null && e !== null ? e - s : 0;
-            if (row.isBreak) {
-              return (
+            const length = rowLength(row);
+            const line =
+              phone ? (
                 <Pressable
-                  key={row.id}
                   onPress={() => setEditId(row.id)}
-                  className={`flex-row items-center gap-2 bg-amber-50/60 px-4 py-2.5 active:bg-amber-50 ${index ? "border-t border-ink-100" : ""}`}
+                  className={`flex-row items-center gap-3 px-4 py-2.5 ${row.isBreak ? "bg-amber-50/60" : ""} active:bg-ink-50`}
                 >
-                  <Ionicons name={/lunch/i.test(row.name) ? "restaurant-outline" : "cafe-outline"} size={15} color="#B45309" />
-                  <Text className="min-w-0 flex-1 text-sm font-medium text-amber-900" numberOfLines={1}>
-                    {row.name} · {clock12(row.startsAt)} – {clock12(row.endsAt)}
+                  {row.isBreak ? (
+                    <Ionicons name={/lunch/i.test(row.name) ? "restaurant-outline" : "cafe-outline"} size={15} color="#B45309" />
+                  ) : null}
+                  <Text className={`${row.isBreak ? "text-amber-900" : "w-[76px] text-ink-900"} text-[15px] font-medium`} numberOfLines={1}>
+                    {row.name}
                   </Text>
-                  <Text className="text-xs text-amber-800">{length} min</Text>
-                  <Ionicons name="chevron-forward" size={15} color="#B45309" />
+                  <Text className={`min-w-0 flex-1 text-sm ${row.isBreak ? "text-amber-900" : "text-ink-800"}`} numberOfLines={1}>
+                    {clock12(row.startsAt)} – {clock12(row.endsAt)}
+                  </Text>
+                  <Text className={`text-xs ${row.isBreak ? "text-amber-800" : "text-ink-500"}`}>{length} min</Text>
+                  <Ionicons name="chevron-forward" size={15} color={row.isBreak ? "#B45309" : "#94A3B8"} />
                 </Pressable>
+              ) : (
+                <View className={`flex-row flex-wrap items-center gap-2 px-3 py-1.5 ${row.isBreak ? "bg-amber-50/60" : ""}`}>
+                  <View className="min-w-[9rem] flex-1">
+                    <Input value={row.name} onChangeText={(name) => patchRow(index, { name })} />
+                  </View>
+                  <View className="w-24">
+                    <Input
+                      value={row.startsAt}
+                      onChangeText={(v) => {
+                        const s = clockMin(v);
+                        if (s === null || !/^\d{1,2}:\d{2}$/.test(v)) return setRows(rows.map((r, i) => (i === index ? { ...r, startsAt: v } : r)));
+                        patchRow(index, { startsAt: clockHm(s), endsAt: clockHm(s + Math.max(5, length || 40)) });
+                      }}
+                    />
+                  </View>
+                  <View className="w-24">
+                    <Input
+                      value={row.endsAt}
+                      onChangeText={(v) => {
+                        if (clockMin(v) === null || !/^\d{1,2}:\d{2}$/.test(v)) return setRows(rows.map((r, i) => (i === index ? { ...r, endsAt: v } : r)));
+                        patchRow(index, { endsAt: clockHm(clockMin(v)!) });
+                      }}
+                    />
+                  </View>
+                  <Text className="w-14 text-xs text-ink-500">{length > 0 ? `${length} min` : ""}</Text>
+                  <Chip label="Break" active={row.isBreak} onPress={() => patchRow(index, { isBreak: !row.isBreak })} />
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Delete ${row.name}`}
+                    onPress={() => remove(index)}
+                    className="h-10 w-10 items-center justify-center rounded-md border border-ink-200 bg-white"
+                  >
+                    <Ionicons name="trash-outline" size={18} color="#3d4f66" />
+                  </Pressable>
+                </View>
               );
-            }
             return (
-              <Pressable
-                key={row.id}
-                onPress={() => setEditId(row.id)}
-                className={`flex-row items-center gap-3 px-4 py-3 active:bg-ink-50 ${index ? "border-t border-ink-100" : ""}`}
-              >
-                <Text className="w-[76px] text-[15px] font-medium text-ink-900" numberOfLines={1}>{row.name}</Text>
-                <Text className="min-w-0 flex-1 text-sm text-ink-800" numberOfLines={1}>
-                  {clock12(row.startsAt)} – {clock12(row.endsAt)}
-                </Text>
-                <Text className="text-xs text-ink-500">{length} min</Text>
-                <Ionicons name="chevron-forward" size={15} color="#94A3B8" />
-              </Pressable>
+              <View key={row.id}>
+                {line}
+                <InsertLine onPress={() => setInsertAt(index + 1)} />
+              </View>
             );
           })}
-          {!rows.length ? <Text className="px-4 py-5 text-sm text-ink-600">Add the first period to start the school day.</Text> : null}
         </View>
-        <View className="mt-3 flex-row gap-2">
-          <Pressable onPress={() => void addRow(false)} className="h-10 flex-1 flex-row items-center justify-center gap-1.5 rounded-xl border border-ink-200 bg-white">
-            <Ionicons name="add" size={17} color="#1F45C7" />
-            <Text className="text-sm font-semibold text-[#1F45C7]">Add period</Text>
-          </Pressable>
-          <Pressable onPress={() => void addRow(true)} className="h-10 flex-1 flex-row items-center justify-center gap-1.5 rounded-xl border border-ink-200 bg-white">
-            <Ionicons name="cafe-outline" size={16} color="#B45309" />
-            <Text className="text-sm font-semibold text-amber-800">Add break</Text>
-          </Pressable>
-        </View>
+        {!phone ? (
+          <Text className="mt-2 text-[11px] text-ink-500">Change a time and the later periods move with it. Removing a period moves the rest earlier.</Text>
+        ) : null}
       </View>
 
       {error ? <Text className="text-sm text-red-700">{error}</Text> : null}
-      <Pressable
-        disabled={busy}
-        onPress={async () => {
-          setError("");
-          setBusy(true);
-          try {
-            await onSave();
-          } catch (e) {
-            setError(e instanceof Error ? e.message : "Could not save.");
-          } finally {
-            setBusy(false);
-          }
-        }}
-        className={`h-12 items-center justify-center rounded-2xl bg-[#1F45C7] ${busy ? "opacity-60" : ""}`}
-      >
-        <Text className="text-[15px] font-semibold text-white">{busy ? "Saving…" : "Save bell times"}</Text>
-      </Pressable>
+      <Button disabled={busy || !dirty} onPress={() => void commit(renumber(rows), "Bell times saved.")}>
+        {busy ? "Saving…" : dirty ? "Save bell times" : "Saved"}
+      </Button>
 
+      {/* Add here: period or break */}
+      <Modal open={insertAt !== null} title="Add here" onClose={() => setInsertAt(null)}>
+        <View className="gap-2">
+          <Text className="text-xs text-ink-600">
+            {insertAt !== null && rows[insertAt - 1] ? `After ${rows[insertAt - 1].name} (${clock12(rows[insertAt - 1].endsAt)}).` : "At the start of the day."} Later rows move later.
+          </Text>
+          <Pressable onPress={() => insertAt !== null && insert(insertAt, false)} className="flex-row items-center gap-3 rounded-xl border border-ink-200 bg-white px-4 py-3">
+            <Ionicons name="time-outline" size={18} color="#1F45C7" />
+            <Text className="flex-1 text-sm font-semibold text-ink-900">Period</Text>
+            <Text className="text-xs text-ink-500">{typicalLength(rows)} min</Text>
+          </Pressable>
+          <Pressable onPress={() => insertAt !== null && insert(insertAt, true)} className="flex-row items-center gap-3 rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3">
+            <Ionicons name="cafe-outline" size={18} color="#B45309" />
+            <Text className="flex-1 text-sm font-semibold text-amber-900">Break</Text>
+            <Text className="text-xs text-amber-800">15 min</Text>
+          </Pressable>
+        </View>
+      </Modal>
+
+      {/* Lessons would be removed */}
+      <Modal
+        open={Boolean(confirm)}
+        title="Remove periods with lessons?"
+        onClose={() => setConfirm(null)}
+        footer={
+          <View className="flex-row justify-end gap-2">
+            <Button variant="ghost" onPress={() => setConfirm(null)}>
+              Keep them
+            </Button>
+            <Button variant="danger" disabled={busy} onPress={() => confirm && void commit(confirm.rows, confirm.message, true)}>
+              Remove anyway
+            </Button>
+          </View>
+        }
+      >
+        <Text className="text-sm leading-5 text-ink-800">
+          {confirm ? `${confirm.names} ${confirm.names.includes(",") ? "have" : "has"} ${confirm.lessons} lessons in ${confirm.classes} ${confirm.classes === 1 ? "class" : "classes"}. Removing ${confirm.names.includes(",") ? "them" : "it"} clears those lessons from the routine.` : ""}
+        </Text>
+      </Modal>
+
+      {/* Phone: edit one row */}
       <RnModal visible={Boolean(editing)} transparent animationType="slide" onRequestClose={() => setEditId("")}>
         <Pressable className="flex-1 justify-end bg-black/40" onPress={() => setEditId("")}>
           <Pressable className="rounded-t-3xl bg-white px-5 pb-8 pt-3" onPress={() => {}}>
@@ -531,7 +884,7 @@ function PhoneClock({
                   </Pressable>
                 </View>
                 <Field label="Name">
-                  <Input value={editing.name} onChangeText={(name) => patchEditing({ name })} className="h-12 text-[15px]" />
+                  <Input value={editing.name} onChangeText={(name) => patchRow(editIndex, { name })} className="h-12 text-[15px]" />
                 </Field>
                 <View className="flex-row gap-3">
                   <View className="flex-1">
@@ -542,11 +895,8 @@ function PhoneClock({
                         className="h-12 text-[15px]"
                         onChangeText={(value) => {
                           const s = clockMin(value);
-                          if (s === null) {
-                            patchEditing({ startsAt: value });
-                            return;
-                          }
-                          patchEditing({ startsAt: clockHm(s), endsAt: clockHm(s + Math.max(5, editLength || 40)) });
+                          if (s === null || !/^\d{1,2}:\d{2}$/.test(value)) return setRows(rows.map((r, i) => (i === editIndex ? { ...r, startsAt: value } : r)));
+                          patchRow(editIndex, { startsAt: clockHm(s), endsAt: clockHm(s + Math.max(5, rowLength(editing) || 40)) });
                         }}
                       />
                     </Field>
@@ -562,12 +912,12 @@ function PhoneClock({
                 <View>
                   <Text className="mb-2 text-xs font-medium text-ink-700">Length</Text>
                   <View className="flex-row flex-wrap gap-2">
-                    {(editing.isBreak ? [10, 15, 20, 30, 45] : LENGTH_CHOICES).map((minutes) => {
-                      const on = editLength === minutes;
+                    {(editing.isBreak ? BREAK_CHOICES : LENGTH_CHOICES).map((minutes) => {
+                      const on = rowLength(editing) === minutes;
                       return (
                         <Pressable
                           key={minutes}
-                          onPress={() => setLength(minutes)}
+                          onPress={() => setLength(editIndex, minutes)}
                           className={`h-9 justify-center rounded-full border px-3.5 ${on ? "border-[#1F45C7] bg-[#1F45C7]" : "border-ink-200 bg-white"}`}
                         >
                           <Text className={`text-sm font-semibold ${on ? "text-white" : "text-ink-800"}`}>{minutes} min</Text>
@@ -575,31 +925,16 @@ function PhoneClock({
                       );
                     })}
                   </View>
-                  <Text className="mt-2 text-[11px] text-ink-500">Later periods move automatically to follow this one.</Text>
+                  <Text className="mt-2 text-[11px] text-ink-500">Later periods move automatically to follow this one. School ends {clock12(dayEnd(rows))}.</Text>
                 </View>
                 <Pressable
-                  onPress={() => patchEditing({ isBreak: !editing.isBreak })}
+                  onPress={() => patchRow(editIndex, { isBreak: !editing.isBreak })}
                   className="flex-row items-center justify-between rounded-xl bg-ink-50 px-4 py-3"
                 >
                   <Text className="text-sm font-medium text-ink-900">This is a break (recess / lunch)</Text>
                   <Ionicons name={editing.isBreak ? "checkbox" : "square-outline"} size={20} color={editing.isBreak ? "#1F45C7" : "#94A3B8"} />
                 </Pressable>
-                <Pressable
-                  onPress={async () => {
-                    const id = editing.id;
-                    setError("");
-                    try {
-                      await onDelete(id);
-                      const index = rows.findIndex((row) => row.id === id);
-                      setRows(chainFrom(rows.filter((row) => row.id !== id), Math.max(0, index - 1)));
-                      setEditId("");
-                    } catch (e) {
-                      setError(e instanceof Error ? e.message : "Could not delete.");
-                      setEditId("");
-                    }
-                  }}
-                  className="h-11 flex-row items-center justify-center gap-1.5 rounded-xl"
-                >
+                <Pressable onPress={() => remove(editIndex)} className="h-11 flex-row items-center justify-center gap-1.5 rounded-xl">
                   <Ionicons name="trash-outline" size={16} color="#B91C1C" />
                   <Text className="text-sm font-semibold text-red-700">Delete {editing.isBreak ? "break" : "period"}</Text>
                 </Pressable>
@@ -608,181 +943,6 @@ function PhoneClock({
           </Pressable>
         </Pressable>
       </RnModal>
-    </View>
-  );
-}
-
-export function ClockForm({
-  weekdays,
-  periods,
-  onSave,
-  onAdd,
-  onDelete,
-}: {
-  weekdays: number[];
-  periods: { id: string; name: string; start: string; end: string; isBreak?: boolean; sortOrder?: number }[];
-  onSave: (payload: {
-    weekdays: number[];
-    periods: { id: string; name: string; startsAt: string; endsAt: string; isBreak: boolean; sortOrder?: number }[];
-  }) => Promise<void>;
-  onAdd: (payload: { name: string; startsAt: string; endsAt: string; isBreak: boolean }) => Promise<
-    | {
-        period?: ClockPeriodRow;
-      }
-    | void
-  >;
-  onDelete: (id: string) => Promise<void>;
-}) {
-  const [days, setDays] = useState<number[]>(weekdays);
-  const [rows, setRows] = useState<ClockPeriodRow[]>(
-    periods.map((p) => ({
-      id: p.id,
-      name: p.name,
-      startsAt: p.start,
-      endsAt: p.end,
-      isBreak: Boolean(p.isBreak),
-      sortOrder: p.sortOrder,
-    }))
-  );
-  const [add, setAdd] = useState({ name: "", startsAt: "15:10", endsAt: "15:50", isBreak: false });
-  const [error, setError] = useState("");
-  const draftName = add.name.trim() || nextPeriodName(rows);
-  const { width } = useWindowDimensions();
-  if (width < 768) {
-    return (
-      <PhoneClock
-        days={days}
-        setDays={setDays}
-        rows={rows}
-        setRows={setRows}
-        onSave={() => onSave({ weekdays: days, periods: rows })}
-        onAdd={onAdd}
-        onDelete={onDelete}
-      />
-    );
-  }
-  return (
-    <View className="mt-4 gap-4">
-      <View className="gap-2">
-        <Text className="mb-2 text-xs font-medium text-ink-700">Days the school runs</Text>
-        <View className="flex-row flex-wrap gap-1.5">
-          {ALL_WEEKDAYS.map((d) => (
-            <Chip
-              key={d.n}
-              label={d.label}
-              active={days.includes(d.n)}
-              onPress={() =>
-                setDays(days.includes(d.n) ? days.filter((n) => n !== d.n) : [...days, d.n].sort((a, b) => a - b))
-              }
-            />
-          ))}
-        </View>
-      </View>
-
-      <View className="gap-3 rounded-lg border border-ink-100 bg-ink-50 p-3">
-        <View className="flex-row flex-wrap items-center justify-between gap-2">
-          <View>
-            <Text className="text-xs font-medium uppercase text-ink-700">Bell times</Text>
-            <Text className="mt-0.5 text-sm font-semibold text-ink-900">{rows.length} {rows.length === 1 ? "period" : "periods"}</Text>
-          </View>
-          <Button
-            variant="ghost"
-            className="px-5"
-            onPress={async () => {
-              setError("");
-              try {
-                await onSave({ weekdays: days, periods: rows });
-              } catch (e) {
-                setError(e instanceof Error ? e.message : "Could not save.");
-              }
-            }}
-          >
-            Save clock
-          </Button>
-        </View>
-
-        {rows.length ? (
-          <View className="gap-2">
-            {rows.map((p) => (
-              <View key={p.id} className="flex-row flex-wrap items-center gap-2 rounded-md border border-ink-100 bg-white p-2">
-                <View className="min-w-[9rem] flex-1">
-                  <Input value={p.name} onChangeText={(v) => setRows(rows.map((r) => (r.id === p.id ? { ...r, name: v } : r)))} />
-                </View>
-                <View className="w-24">
-                  <Input
-                    value={p.startsAt}
-                    onChangeText={(v) => setRows(rows.map((r) => (r.id === p.id ? { ...r, startsAt: v } : r)))}
-                  />
-                </View>
-                <View className="w-24">
-                  <Input
-                    value={p.endsAt}
-                    onChangeText={(v) => setRows(rows.map((r) => (r.id === p.id ? { ...r, endsAt: v } : r)))}
-                  />
-                </View>
-                <Chip
-                  label="Break"
-                  active={p.isBreak}
-                  onPress={() => setRows(rows.map((r) => (r.id === p.id ? { ...r, isBreak: !r.isBreak } : r)))}
-                />
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`Delete ${p.name}`}
-                  onPress={async () => {
-                    setError("");
-                    try {
-                      await onDelete(p.id);
-                      setRows(rows.filter((row) => row.id !== p.id));
-                    } catch (e) {
-                      setError(e instanceof Error ? e.message : "Could not delete period.");
-                    }
-                  }}
-                  className="h-10 w-10 items-center justify-center rounded-md border border-ink-200 bg-white"
-                >
-                  <Ionicons name="trash-outline" size={18} color="#3d4f66" />
-                </Pressable>
-              </View>
-            ))}
-          </View>
-        ) : (
-          <View className="rounded-md border border-dashed border-ink-200 bg-white px-3 py-4">
-            <Text className="text-sm font-medium text-ink-900">No bell times yet</Text>
-            <Text className="mt-1 text-xs leading-5 text-ink-700">Add periods below, then save the clock for timetable planning.</Text>
-          </View>
-        )}
-
-        <View className="gap-2 rounded-md border border-ink-100 bg-white p-3">
-          <Text className="text-xs font-medium text-ink-700">Add a period</Text>
-          <View className="flex-row flex-wrap items-center gap-2">
-            <View className="min-w-[9rem] flex-1">
-              <Input value={add.name} onChangeText={(v) => setAdd({ ...add, name: v })} placeholder={draftName} />
-            </View>
-            <View className="w-24">
-              <Input value={add.startsAt} onChangeText={(v) => setAdd({ ...add, startsAt: v })} />
-            </View>
-            <View className="w-24">
-              <Input value={add.endsAt} onChangeText={(v) => setAdd({ ...add, endsAt: v })} />
-            </View>
-            <Chip label="Break" active={add.isBreak} onPress={() => setAdd({ ...add, isBreak: !add.isBreak })} />
-            <Button
-              className="px-6"
-              onPress={async () => {
-                setError("");
-                try {
-                  const result = await onAdd({ ...add, name: draftName });
-                  if (result?.period) setRows([...rows, result.period]);
-                  setAdd({ name: "", startsAt: "15:10", endsAt: "15:50", isBreak: false });
-                } catch (e) {
-                  setError(e instanceof Error ? e.message : "Could not add period.");
-                }
-              }}
-            >
-              Add period
-            </Button>
-          </View>
-        </View>
-        {error ? <Text className="text-sm text-red-700">{error}</Text> : null}
-      </View>
     </View>
   );
 }
