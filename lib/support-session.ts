@@ -7,7 +7,7 @@ export const SUPPORT_CODE_TTL_MS = 5 * 60_000;
 /** How long a redeemed support session stays signed in. */
 export const SUPPORT_SESSION_TTL_MS = 60 * 60_000;
 /** Ops a support session may never run: they would change the real user's device or credentials. */
-export const SUPPORT_BLOCKED_OPS = new Set(["savePushToken", "changePassword", "updateMyName", "requestContactChange", "confirmContactChange"]);
+export const SUPPORT_BLOCKED_OPS = new Set(["savePushToken", "changePassword", "adminSetPassword", "updateMyName", "requestContactChange", "confirmContactChange"]);
 
 const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 const CODE_LENGTH = 8;

@@ -96,13 +96,15 @@ export async function roleIdBySlug(slug: string) {
   return role.id;
 }
 
-const accessInclude = { role: { include: { grants: true } }, parent: { select: { id: true } } } as const;
+const accessInclude = { role: { include: { grants: true } }, parent: { select: { id: true } }, teacher: { select: { id: true, teachingOnly: true } } } as const;
 
 /**
- * Loads who is signed in. One login can wear two hats: a teacher or office user who is also a parent
- * has a Parent row on the same User. `as: "PARENT"` loads them with the Parent role (own children only).
+ * Loads who is signed in. One login can wear several hats:
+ * - a teacher or office user who is also a parent has a Parent row on the same User -> PARENT hat;
+ * - an office user marked "Also a teacher" has a (teachingOnly) Teacher row on the same User -> TEACHER hat.
+ * `as` loads them with that hat's system role (Parent: own children; Teacher: own classes, periods and papers).
  */
-export async function loadAccess(userId: string, as?: "PARENT"): Promise<AccessUser | null> {
+export async function loadAccess(userId: string, as?: "PARENT" | "TEACHER"): Promise<AccessUser | null> {
   await ensureAccessRoles();
   let user = await prisma.user.findUnique({ where: { id: userId }, include: accessInclude });
   if (!user?.role) return null;
@@ -111,10 +113,12 @@ export async function loadAccess(userId: string, as?: "PARENT"): Promise<AccessU
     if (!user?.role) return null;
   }
   const primary = user.role.portal;
-  const hats: AccessUser["portal"][] = user.parent && primary !== "PARENT" ? [primary, "PARENT"] : [primary];
-  if (as === "PARENT" && hats.includes("PARENT") && primary !== "PARENT") {
-    const parentRole = await prisma.role.findUnique({ where: { slug: "PARENT" }, include: { grants: true } });
-    if (parentRole) return { ...toAccess({ ...user, roleId: parentRole.id, role: parentRole }), hats };
+  const hats: AccessUser["portal"][] = [primary];
+  if (primary === "OFFICE" && user.teacher) hats.push("TEACHER");
+  if (user.parent && primary !== "PARENT") hats.push("PARENT");
+  if (as && as !== primary && hats.includes(as)) {
+    const hatRole = await prisma.role.findUnique({ where: { slug: as }, include: { grants: true } });
+    if (hatRole) return { ...toAccess({ ...user, roleId: hatRole.id, role: hatRole }), hats };
   }
   return { ...toAccess(user), hats };
 }

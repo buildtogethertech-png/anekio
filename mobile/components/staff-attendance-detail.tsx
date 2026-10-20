@@ -23,6 +23,8 @@ import type { RecordPayload } from "../lib/record";
 import type { IoniconName } from "../lib/nav-icons";
 import { EmployeeLeaveCard } from "./leave-balances";
 import { SalaryPayCard } from "./salary-pay-card";
+import { SetPasswordModal } from "./set-password-modal";
+import { useSession } from "../lib/session";
 
 type StaffPerson = NonNullable<RecordPayload["staff"]>[number];
 type DayKind = "working" | "weekend" | "holiday";
@@ -213,6 +215,20 @@ export function StaffAttendanceDetail({
   const Wrap = (inSheet ? View : ScrollView) as typeof ScrollView;
   const [section, setSection] = useState<"attendance" | "leave" | "pay">("attendance");
   const [moreOpen, setMoreOpen] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const { user: me } = useSession();
+  const canSetPassword = Boolean(person.userId && me?.permissions?.includes("roles.manage") && person.userId !== me?.id);
+
+  /** "Also a teacher": adds or removes this employee's teaching profile (Office ↔ Teacher switch). */
+  async function toggleTeaching() {
+    try {
+      await act(token, "setStaffTeaching", { staffId: person.id, on: !person.teaches });
+      toast.show(person.teaches ? `${person.name} no longer teaches.` : `${person.name} can now teach. Give them periods in Routine.`);
+      await onSaved();
+    } catch (e) {
+      toast.show(e instanceof Error ? e.message : "Could not change teaching.");
+    }
+  }
   const split = width >= 960;
   const now = ymd(new Date());
   const [month, setMonth] = useState(initialMonth || now.slice(0, 7));
@@ -298,7 +314,7 @@ export function StaffAttendanceDetail({
   }, [rows]);
   const inspect = rows.find((r) => r.date === inspectDate) || null;
   const monthTrail = (audits ?? []).filter((row) => row.personKey === key && row.date.startsWith(month));
-  const roleLine = [person.employeeId || "—", person.kind === "teacher" ? "Teacher" : person.role || "Employee", person.department || "Academic"]
+  const roleLine = [person.employeeId || "—", person.kind === "teacher" ? "Teacher" : person.role || "Employee", person.teaches ? "Also teaches" : "", person.department || "Academic"]
     .filter(Boolean)
     .join(" · ");
 
@@ -553,81 +569,184 @@ export function StaffAttendanceDetail({
     );
   })() : null;
 
+  const moreItems = [
+    ["download-outline", "Download register", salaryAccess.view ? "CSV of this month's attendance and pay" : "CSV of this month's attendance", exportCsv],
+    ["print-outline", "Print register", "Opens a printable page", printRegister],
+    ...(phone && onEditSalary ? ([["create-outline", "Edit salary & profile", "Salary, role, reporting manager", onEditSalary]] as const) : []),
+    ...(phone && canSetPassword ? ([["key-outline", "Change password", "Set a new password for their login", () => setPasswordOpen(true)]] as const) : []),
+    ...(phone && onEditSalary && person.kind === "staff"
+      ? ([
+          [
+            "school-outline",
+            person.teaches ? "Also a teacher · On" : "Also a teacher · Off",
+            person.teaches ? "Tap to turn off. Their periods, class and papers must be reassigned first." : "Lets you give them periods, a class and exam papers. They get a Teacher mode.",
+            () => void toggleTeaching(),
+          ],
+        ] as const)
+      : []),
+  ] as const;
+
   return (
     <Wrap {...(inSheet ? { className: "px-4 pb-6" } : { className: "min-h-0 flex-1", contentContainerClassName: "pb-6", keyboardShouldPersistTaps: "handled" as const })}>
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
-      <View className="mb-3 flex-row items-center gap-3">
+      {/* Header: breadcrumb back (never confused with the month arrows), name + pills, actions. */}
+      <View style={{ zIndex: 30 }} className="mb-4">
         {inSheet ? null : (
-          <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Back to Staff" className="h-10 w-10 items-center justify-center rounded-full border border-ink-200 bg-white">
-            <Ionicons name="chevron-back" size={18} color="#1F45C7" />
+          <Pressable onPress={onBack} accessibilityRole="link" accessibilityLabel="Back to Staff" className="mb-3 flex-row items-center gap-1.5 self-start">
+            <Ionicons name="arrow-back" size={15} color="#1F45C7" />
+            <Text className="text-[13px] font-semibold text-[#1F45C7]">Staff</Text>
+            <Text className="text-[13px] text-ink-400">/</Text>
+            <Text className="text-[13px] text-ink-500" numberOfLines={1}>{person.name}</Text>
           </Pressable>
         )}
-        <View className="h-10 w-10 items-center justify-center rounded-full bg-[#1F45C7]">
-          <Text className="text-[13px] font-bold text-white">
-            {person.name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase()}
-          </Text>
-        </View>
-        <View className="min-w-0 flex-1">
-          <Text className="text-[16px] font-bold text-ink-900" numberOfLines={1}>{person.name}</Text>
-          <Text className="text-[12px] text-ink-500" numberOfLines={1}>{roleLine}</Text>
-        </View>
-        <View>
-          <Pressable accessibilityLabel="More options" onPress={() => setMoreOpen((v) => !v)} className="h-10 w-10 items-center justify-center rounded-full border border-ink-200 bg-white">
-            <Ionicons name="ellipsis-horizontal" size={18} color="#334155" />
-          </Pressable>
-          <RnModal visible={moreOpen} transparent animationType="fade" onRequestClose={() => setMoreOpen(false)}>
-            <View className="flex-1 justify-end">
-              <Pressable accessibilityLabel="Close" className="absolute inset-0 bg-black/40" onPress={() => setMoreOpen(false)} />
-              <View className="mx-auto w-full max-w-md rounded-t-3xl bg-white px-3 pb-6 pt-2">
-                <View className="mb-2 items-center">
-                  <View className="h-1 w-10 rounded-full bg-ink-200" />
-                </View>
-                <Text className="px-3 pb-2 text-[13px] font-semibold text-ink-500">{person.name} · {monthTitle(month)}</Text>
-                {(
-                  [
-                    ["download-outline", "Download register", salaryAccess.view ? "CSV of this month's attendance and pay" : "CSV of this month's attendance", exportCsv],
-                    ["print-outline", "Print register", "Opens a printable page", printRegister],
-                    ...(onEditSalary ? ([["create-outline", "Edit salary & profile", "Salary, role, reporting manager", onEditSalary]] as const) : []),
-                  ] as const
-                ).map(([icon, label, hint, fn]) => (
-                  <Pressable
-                    key={label}
-                    onPress={() => {
-                      setMoreOpen(false);
-                      fn();
-                    }}
-                    className="flex-row items-center gap-3 rounded-xl px-3 py-3 active:bg-ink-50 hover:bg-ink-50"
-                  >
-                    <View className="h-10 w-10 items-center justify-center rounded-xl bg-[#EEF3FF]">
-                      <Ionicons name={icon} size={18} color="#1F45C7" />
-                    </View>
-                    <View className="min-w-0 flex-1">
-                      <Text className="text-[15px] font-medium text-ink-900">{label}</Text>
-                      <Text className="text-[12px] text-ink-500">{hint}</Text>
-                    </View>
-                  </Pressable>
+        <View className="flex-row items-center gap-3">
+          <View className={`${phone ? "h-11 w-11" : "h-14 w-14"} items-center justify-center rounded-full bg-[#1F45C7]`}>
+            <Text className={`${phone ? "text-[14px]" : "text-[17px]"} font-bold text-white`}>
+              {person.name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase()}
+            </Text>
+          </View>
+          <View className="min-w-0 flex-1">
+            <Text className={`${phone ? "text-[18px]" : "text-[22px]"} font-bold tracking-tight text-ink-900`} numberOfLines={1}>{person.name}</Text>
+            <View className="mt-1 flex-row flex-wrap gap-1.5">
+              {[
+                person.employeeId || "",
+                person.kind === "teacher" ? "Teacher" : person.role || "Employee",
+                person.teaches ? "Also teaches" : "",
+                person.department || "",
+              ]
+                .filter(Boolean)
+                .map((pill, index) => (
+                  <View key={`${pill}-${index}`} className={`rounded-full px-2 py-0.5 ${pill === "Also teaches" ? "bg-emerald-50" : "bg-ink-100"}`}>
+                    <Text className={`text-[11px] font-medium ${pill === "Also teaches" ? "text-emerald-700" : "text-ink-700"}`}>{pill}</Text>
+                  </View>
                 ))}
-              </View>
             </View>
-          </RnModal>
+          </View>
+          {!phone && onEditSalary ? (
+            <Pressable onPress={onEditSalary} className="h-10 flex-row items-center gap-1.5 rounded-lg border border-ink-200 bg-white px-3.5 hover:bg-ink-50">
+              <Ionicons name="create-outline" size={16} color="#334155" />
+              <Text className="text-[13px] font-semibold text-ink-800">Edit profile</Text>
+            </Pressable>
+          ) : null}
+          {!phone && canSetPassword ? (
+            <Pressable onPress={() => setPasswordOpen(true)} className="h-10 flex-row items-center gap-1.5 rounded-lg border border-ink-200 bg-white px-3.5 hover:bg-ink-50">
+              <Ionicons name="key-outline" size={16} color="#334155" />
+              <Text className="text-[13px] font-semibold text-ink-800">Change password</Text>
+            </Pressable>
+          ) : null}
+          <View style={{ zIndex: 40 }}>
+            <Pressable accessibilityLabel="More options" onPress={() => setMoreOpen((v) => !v)} className="h-10 w-10 items-center justify-center rounded-full border border-ink-200 bg-white">
+              <Ionicons name="ellipsis-horizontal" size={18} color="#334155" />
+            </Pressable>
+            {!phone && moreOpen ? (
+              <>
+                <Pressable accessibilityLabel="Close menu" onPress={() => setMoreOpen(false)} style={{ position: "fixed" as never, top: 0, left: 0, right: 0, bottom: 0 }} />
+                <View
+                  className="absolute right-0 top-12 w-[280px] rounded-xl border border-ink-200 bg-white p-1.5"
+                  style={{ shadowColor: "#0f172a", shadowOpacity: 0.14, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 10 }}
+                >
+                  {moreItems.map(([icon, label, hint, fn]) => (
+                    <Pressable
+                      key={label}
+                      onPress={() => {
+                        setMoreOpen(false);
+                        fn();
+                      }}
+                      className="flex-row items-center gap-3 rounded-lg px-3 py-2.5 hover:bg-ink-50"
+                    >
+                      <Ionicons name={icon} size={17} color="#1F45C7" />
+                      <View className="min-w-0 flex-1">
+                        <Text className="text-[14px] font-medium text-ink-900">{label}</Text>
+                        <Text className="text-[11px] text-ink-500" numberOfLines={2}>{hint}</Text>
+                      </View>
+                    </Pressable>
+                  ))}
+                </View>
+              </>
+            ) : null}
+            <RnModal visible={phone && moreOpen} transparent animationType="fade" onRequestClose={() => setMoreOpen(false)}>
+              <View className="flex-1 justify-end">
+                <Pressable accessibilityLabel="Close" className="absolute inset-0 bg-black/40" onPress={() => setMoreOpen(false)} />
+                <View className="mx-auto w-full max-w-md rounded-t-3xl bg-white px-3 pb-6 pt-2">
+                  <View className="mb-2 items-center">
+                    <View className="h-1 w-10 rounded-full bg-ink-200" />
+                  </View>
+                  <Text className="px-3 pb-2 text-[13px] font-semibold text-ink-500">{person.name} · {monthTitle(month)}</Text>
+                  {moreItems.map(([icon, label, hint, fn]) => (
+                    <Pressable
+                      key={label}
+                      onPress={() => {
+                        setMoreOpen(false);
+                        fn();
+                      }}
+                      className="flex-row items-center gap-3 rounded-xl px-3 py-3 active:bg-ink-50"
+                    >
+                      <View className="h-10 w-10 items-center justify-center rounded-xl bg-[#EEF3FF]">
+                        <Ionicons name={icon} size={18} color="#1F45C7" />
+                      </View>
+                      <View className="min-w-0 flex-1">
+                        <Text className="text-[15px] font-medium text-ink-900">{label}</Text>
+                        <Text className="text-[12px] text-ink-500">{hint}</Text>
+                      </View>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            </RnModal>
+          </View>
         </View>
       </View>
 
-      <View className="mb-3 flex-row items-center gap-2">
-        <Pressable accessibilityLabel="Previous month" onPress={() => setMonth(prev)} className="h-10 w-10 items-center justify-center rounded-full border border-ink-200 bg-white">
-          <Ionicons name="chevron-back" size={17} color="#1F45C7" />
-        </Pressable>
-        <View className="h-10 flex-1 items-center justify-center rounded-full border border-ink-200 bg-white">
-          <Text className="text-[14px] font-semibold text-ink-900">{monthTitle(month)}</Text>
+      {/* Desktop: profile facts + "Also a teacher" visible, not buried in a menu. */}
+      {!phone ? (
+        <View className="mb-4 flex-row flex-wrap items-center gap-x-8 gap-y-3 rounded-2xl border border-ink-100 bg-white px-5 py-4">
+          {[
+            ["call-outline", "Phone", person.phone || "—"],
+            ["mail-outline", "Email", person.email || "—"],
+            ["calendar-outline", "Joined", person.joinedOn || "—"],
+            ["git-network-outline", "Reports to", person.managerName || "—"],
+          ].map(([icon, label, value]) => (
+            <View key={label} className="min-w-[150px] flex-row items-center gap-2.5">
+              <Ionicons name={icon as keyof typeof Ionicons.glyphMap} size={16} color="#94A3B8" />
+              <View className="min-w-0">
+                <Text className="text-[11px] text-ink-500">{label}</Text>
+                <Text className="text-[13px] font-medium text-ink-900" numberOfLines={1}>{value}</Text>
+              </View>
+            </View>
+          ))}
+          {onEditSalary && person.kind === "staff" ? (
+            <Pressable onPress={() => void toggleTeaching()} className="ml-auto flex-row items-center gap-3 rounded-xl bg-ink-50 px-3.5 py-2.5 hover:bg-ink-100">
+              <View>
+                <Text className="text-[13px] font-semibold text-ink-900">Also a teacher</Text>
+                <Text className="text-[11px] text-ink-500">{person.teaches ? "Can get periods, a class and papers" : "Off"}</Text>
+              </View>
+              <View className={`h-6 w-10 justify-center rounded-full px-0.5 ${person.teaches ? "items-end bg-clay-500" : "items-start bg-ink-200"}`}>
+                <View className="h-5 w-5 rounded-full bg-white" />
+              </View>
+            </Pressable>
+          ) : null}
         </View>
-        <Pressable accessibilityLabel="Next month" onPress={() => setMonth(next)} className="h-10 w-10 items-center justify-center rounded-full border border-ink-200 bg-white">
-          <Ionicons name="chevron-forward" size={17} color="#1F45C7" />
-        </Pressable>
-        {month !== now.slice(0, 7) ? (
-          <Pressable onPress={() => setMonth(now.slice(0, 7))} className="h-10 justify-center rounded-full bg-[#EEF3FF] px-3.5">
-            <Text className="text-[13px] font-semibold text-[#1F45C7]">This month</Text>
-          </Pressable>
-        ) : null}
+      ) : null}
+
+      {/* Month: one compact pill, clearly part of the attendance section. */}
+      <View className="mb-2.5 flex-row items-center justify-between gap-2">
+        <Text className="text-[15px] font-semibold text-ink-900">Attendance & pay</Text>
+        <View className="flex-row items-center gap-2">
+          {month !== now.slice(0, 7) ? (
+            <Pressable onPress={() => setMonth(now.slice(0, 7))} className="h-9 justify-center rounded-full bg-[#EEF3FF] px-3">
+              <Text className="text-[12px] font-semibold text-[#1F45C7]">This month</Text>
+            </Pressable>
+          ) : null}
+          <View className="h-9 flex-row items-center rounded-full border border-ink-200 bg-white">
+            <Pressable accessibilityLabel="Previous month" onPress={() => setMonth(prev)} className="h-9 w-9 items-center justify-center">
+              <Ionicons name="chevron-back" size={16} color="#1F45C7" />
+            </Pressable>
+            <Text className="min-w-[96px] text-center text-[13px] font-semibold text-ink-900">{monthTitle(month)}</Text>
+            <Pressable accessibilityLabel="Next month" onPress={() => setMonth(next)} className="h-9 w-9 items-center justify-center">
+              <Ionicons name="chevron-forward" size={16} color="#1F45C7" />
+            </Pressable>
+          </View>
+        </View>
       </View>
 
       {(() => {
@@ -835,6 +954,13 @@ export function StaffAttendanceDetail({
         </View>
       ) : null}
 
+      <SetPasswordModal
+        open={passwordOpen}
+        name={person.name}
+        target={{ userId: person.userId }}
+        onClose={() => setPasswordOpen(false)}
+        onDone={(message) => toast.show(message)}
+      />
       <Modal
         open={review}
         title="Approve salary"

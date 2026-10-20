@@ -312,7 +312,7 @@ async function loginSession(
 ) {
   const access = await loadAccess(userId, opts.as);
   if (!access) throw new Error("Sign in again.");
-  const hat = opts.as === "PARENT" && access.portal === "PARENT" && (access.hats || []).length > 1 ? "PARENT" : undefined;
+  const hat = opts.as && access.portal === opts.as && (access.hats || []).length > 1 ? opts.as : undefined;
   return {
     token: opts.override?.token ?? signAppToken(userId, hat),
     user: { ...serializeUser(access), ...(opts.override ? { support: opts.override.support } : {}) },
@@ -463,13 +463,16 @@ app.post("/api/v1/login/support/redeem", async (req, res) => {
   }
 });
 
-/** Switch between a staff login's own role and its parent hat, without signing out. */
+/** Switch between a staff login's own role and its parent / teacher hat, without signing out. */
 app.post("/api/v1/session/switch", async (req, res) => {
   const user = await requireUser(req, res);
   if (!user) return;
   if (user.support) return sendError(res, 403, "Switching is not available in a support session.");
-  const as = String(req.body?.as || "").toUpperCase() === "PARENT" ? ("PARENT" as const) : undefined;
-  if (as && !(user.hats || []).includes("PARENT")) return sendError(res, 403, "This login is not a parent.");
+  const wanted = String(req.body?.as || "").toUpperCase();
+  const as = wanted === "PARENT" || wanted === "TEACHER" ? (wanted as "PARENT" | "TEACHER") : undefined;
+  if (as && !(user.hats || []).includes(as)) {
+    return sendError(res, 403, as === "PARENT" ? "This login is not a parent." : "This login is not set up to teach.");
+  }
   try {
     res.json(await loginSession(user.id, { as }));
   } catch (error) {
@@ -1541,7 +1544,8 @@ app.get("/api/v1/leave-ledger", async (req, res) => {
     let teacherId = String(req.query.teacherId || "");
     let staffId = String(req.query.staffId || "");
     if (req.query.me === "1") {
-      teacherId = (await prisma.teacher.findUnique({ where: { userId: user.id }, select: { id: true } }))?.id || "";
+      const own = await prisma.teacher.findUnique({ where: { userId: user.id }, select: { id: true, teachingOnly: true } });
+      teacherId = own && !own.teachingOnly ? own.id : "";
       staffId = teacherId ? "" : (await prisma.staffMember.findUnique({ where: { userId: user.id }, select: { id: true } }))?.id || "";
       if (!teacherId && !staffId) return res.json({ balances: [], ledger: [] });
     }

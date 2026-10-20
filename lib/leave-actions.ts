@@ -105,7 +105,8 @@ export async function applyLeave(
   const parent = user.portal === "PARENT" ? await prisma.parent.findUnique({ where: { userId: user.id }, include: { students: { include: { class: true } } } }) : null;
 
   if (user.portal === "TEACHER" || (user.portal === "OFFICE" && !input.studentId)) {
-    const teacherId = teacher?.id || null;
+    // "Also a teacher" office staff apply leave as their one employee record (staff), even from Teacher mode.
+    const teacherId = teacher && !teacher.teachingOnly ? teacher.id : null;
     const staffId = teacherId ? null : staff?.id || (await ensureStaffRecord(user)) || null;
     if (teacherId && !type.forTeacher) throw new Error("This type is not for teachers");
     if (staffId && !type.forStaff) throw new Error("This type is not for staff");

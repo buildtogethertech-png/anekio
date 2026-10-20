@@ -818,7 +818,7 @@ async function csvRowsFor(kind: ImportKind): Promise<CsvCell[][]> {
   if (kind === "teachers") {
     await ensureAccessRoles();
     const [teachers, staffMembers, forms] = await Promise.all([
-      prisma.teacher.findMany({ include: { user: { include: { role: true } }, class: true }, orderBy: { user: { name: "asc" } } }),
+      prisma.teacher.findMany({ where: { teachingOnly: false }, include: { user: { include: { role: true } }, class: true }, orderBy: { user: { name: "asc" } } }),
       prisma.staffMember.findMany({ include: { user: { include: { role: true } }, role: true }, orderBy: { name: "asc" } }),
       configuredImportForms(),
     ]);
@@ -961,6 +961,7 @@ async function staffAttendanceTemplateWorkbook(options: { sampleData?: boolean }
     prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { weekdays: true } }),
     prisma.schoolHoliday.findMany({ where: { sessionId: session.id }, orderBy: { date: "asc" } }),
     prisma.teacher.findMany({
+      where: { teachingOnly: false },
       include: { user: { include: { role: true } }, class: true },
       orderBy: { user: { name: "asc" } },
     }),
@@ -1471,7 +1472,7 @@ function normalizeStaffKind(value: string): StaffAttendancePerson["kind"] | "" {
 
 async function staffAttendancePeople(db: Pick<typeof prisma, "teacher" | "staffMember"> = prisma): Promise<StaffAttendancePerson[]> {
   const [teachers, staffMembers] = await Promise.all([
-    db.teacher.findMany({ include: { user: { include: { role: true } }, class: true } }),
+    db.teacher.findMany({ where: { teachingOnly: false }, include: { user: { include: { role: true } }, class: true } }),
     db.staffMember.findMany({ where: { archivedAt: null }, include: { role: true, user: { include: { role: true } } } }),
   ]);
   return [

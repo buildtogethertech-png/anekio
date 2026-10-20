@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, Switch, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, Switch, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { act } from "../lib/mutate";
 import { Modal } from "./ui";
 
@@ -99,6 +99,8 @@ export function ExamFormModal({
     }
   }
 
+  const { width } = useWindowDimensions();
+  const phone = width < 640;
   const title = mode === "edit" ? "Edit exam" : mode === "duplicate" ? "Duplicate exam" : "New exam";
   const action = mode === "edit" ? "Save changes" : "Next: set dates";
 
@@ -108,7 +110,20 @@ export function ExamFormModal({
       title={title}
       onClose={() => !busy && onClose()}
       wide
+      sheetOnPhone
       footer={
+        phone ? (
+          <Pressable
+            accessibilityRole="button"
+            disabled={!ok || busy}
+            onPress={() => void save()}
+            className={`h-12 flex-row items-center justify-center gap-2 rounded-xl ${ok && !busy ? "bg-clay-500" : "bg-ink-200"}`}
+          >
+            {busy ? <ActivityIndicator size="small" color="#fff" /> : null}
+            <Text className={`text-[15px] font-semibold ${ok && !busy ? "text-white" : "text-ink-500"}`}>{action}</Text>
+            {mode !== "edit" && ok && !busy ? <Ionicons name="arrow-forward" size={16} color="#fff" /> : null}
+          </Pressable>
+        ) : (
         <View className="flex-row flex-wrap items-center justify-end gap-2">
           <Pressable accessibilityRole="button" onPress={onClose} disabled={busy} className="h-10 justify-center px-3">
             <Text className="text-[14px] font-medium text-ink-700">Cancel</Text>
@@ -124,6 +139,7 @@ export function ExamFormModal({
             {mode !== "edit" && ok && !busy ? <Ionicons name="arrow-forward" size={15} color="#fff" /> : null}
           </Pressable>
         </View>
+        )
       }
     >
       <View className="gap-5">
@@ -134,16 +150,21 @@ export function ExamFormModal({
             value={name}
             onChangeText={setName}
             maxLength={80}
-            autoFocus={mode !== "edit"}
+            autoFocus={mode !== "edit" && !phone}
             placeholder="e.g. Unit Test 3, Half Yearly"
             placeholderTextColor="#94A3B8"
-            className="h-11 rounded-lg border border-ink-200 bg-white px-3 text-[15px] text-ink-900"
+            className={`${phone ? "h-12 rounded-xl text-[16px]" : "h-11 rounded-lg text-[15px]"} border border-ink-200 bg-white px-3 text-ink-900`}
           />
           {mode === "create" ? (
             <View className="flex-row flex-wrap gap-2">
               {SUGGESTIONS.map((s) => (
-                <Pressable key={s} accessibilityRole="button" onPress={() => setName(s)} className="h-7 justify-center rounded-full border border-ink-200 bg-white px-3">
-                  <Text className="text-[12px] font-medium text-ink-800">{s}</Text>
+                <Pressable
+                  key={s}
+                  accessibilityRole="button"
+                  onPress={() => setName(s)}
+                  className={`${phone ? "h-9 px-3.5" : "h-7 px-3"} justify-center rounded-full border ${name === s ? "border-clay-500 bg-[#EEF3FF]" : "border-ink-200 bg-white"}`}
+                >
+                  <Text className={`${phone ? "text-[13px]" : "text-[12px]"} font-medium ${name === s ? "text-clay-700" : "text-ink-800"}`}>{s}</Text>
                 </Pressable>
               ))}
             </View>
@@ -163,7 +184,7 @@ export function ExamFormModal({
                   accessibilityState={{ selected: on }}
                   disabled={mode === "edit"}
                   onPress={() => setSessionId(s.id)}
-                  className={`h-9 flex-row items-center gap-1.5 rounded-full border px-3.5 ${on ? "border-clay-500 bg-clay-500" : "border-ink-200 bg-white"} ${mode === "edit" && !on ? "opacity-40" : ""}`}
+                  className={`${phone ? "h-11 flex-1 justify-center" : "h-9"} flex-row items-center gap-1.5 rounded-full border px-3.5 ${on ? "border-clay-500 bg-clay-500" : "border-ink-200 bg-white"} ${mode === "edit" && !on ? "opacity-40" : ""}`}
                 >
                   <Text className={`text-[13px] font-medium ${on ? "text-white" : "text-ink-800"}`}>{s.label}</Text>
                   {s.current ? <Text className={`text-[11px] ${on ? "text-white/80" : "text-ink-500"}`}>now</Text> : null}
@@ -191,9 +212,10 @@ export function ExamFormModal({
                   accessibilityRole="checkbox"
                   accessibilityState={{ checked: on }}
                   onPress={() => setClassIds((cur) => (on ? cur.filter((id) => id !== c.id) : [...cur, c.id]))}
-                  className={`h-8 justify-center rounded-full border px-3 ${on ? "border-clay-500 bg-clay-500" : "border-ink-200 bg-white"}`}
+                  className={`${phone ? "h-10 min-w-[60px] flex-row gap-1 px-3.5" : "h-8 px-3"} items-center justify-center rounded-full border ${on ? "border-clay-500 bg-clay-500" : "border-ink-200 bg-white"}`}
                 >
-                  <Text className={`text-[13px] font-medium ${on ? "text-white" : "text-ink-800"}`}>{c.label}</Text>
+                  {phone && on ? <Ionicons name="checkmark" size={14} color="#fff" /> : null}
+                  <Text className={`${phone ? "text-[14px]" : "text-[13px]"} font-medium ${on ? "text-white" : "text-ink-800"}`}>{c.label}</Text>
                 </Pressable>
               );
             })}
@@ -202,6 +224,55 @@ export function ExamFormModal({
         </View>
 
         {/* Marks + final result */}
+        {phone ? (
+          <>
+            <View className="gap-2">
+              <Text className="text-[13px] font-semibold text-ink-900">Max marks</Text>
+              <View className="flex-row flex-wrap items-center gap-2">
+                <TextInput
+                  value={maxMarks}
+                  onChangeText={(v) => setMaxMarks(v.replace(/\D/g, "").slice(0, 4))}
+                  keyboardType="number-pad"
+                  className="h-11 w-20 rounded-xl border border-ink-200 bg-white text-center text-[16px] font-semibold text-ink-900"
+                />
+                {["20", "25", "50", "80", "100"].map((m) => (
+                  <Pressable
+                    key={m}
+                    onPress={() => setMaxMarks(m)}
+                    className={`h-9 justify-center rounded-full border px-3 ${maxMarks === m ? "border-clay-500 bg-[#EEF3FF]" : "border-ink-200 bg-white"}`}
+                  >
+                    <Text className={`text-[13px] font-medium ${maxMarks === m ? "text-clay-700" : "text-ink-700"}`}>{m}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+            <View className="gap-2">
+              <Pressable
+                accessibilityRole="switch"
+                accessibilityState={{ checked: counts }}
+                onPress={() => setCounts((v) => !v)}
+                className="flex-row items-center gap-3 rounded-xl border border-ink-200 bg-white px-3.5 py-3"
+              >
+                <View className="min-w-0 flex-1">
+                  <Text className="text-[15px] font-medium text-ink-900">Counts in the final result</Text>
+                  <Text className="mt-0.5 text-[12px] text-ink-500">{counts ? "Part of the report card total" : "Off · practice / class test"}</Text>
+                </View>
+                <Switch value={counts} onValueChange={setCounts} />
+              </Pressable>
+              {counts ? (
+                <View className="flex-row items-center gap-2 pl-1">
+                  <TextInput
+                    value={weight}
+                    onChangeText={(v) => setWeight(v.replace(/\D/g, "").slice(0, 3))}
+                    keyboardType="number-pad"
+                    className="h-10 w-16 rounded-lg border border-ink-200 bg-white text-center text-[15px] font-semibold text-ink-900"
+                  />
+                  <Text className="text-[13px] text-ink-700">% of the final result</Text>
+                </View>
+              ) : null}
+            </View>
+          </>
+        ) : (
         <View className="flex-row flex-wrap gap-4">
           <View className="gap-2">
             <Text className="text-[13px] font-semibold text-ink-900">Max marks</Text>
@@ -232,6 +303,7 @@ export function ExamFormModal({
             </View>
           </View>
         </View>
+        )}
         {counts && total !== 100 ? (
           <View className={`flex-row items-start gap-2 rounded-lg px-3 py-2.5 ${total > 100 ? "bg-red-50" : "bg-amber-50"}`}>
             <Ionicons name="alert-circle-outline" size={15} color={total > 100 ? "#B91C1C" : "#B45309"} />

@@ -879,9 +879,19 @@ export async function getWeekCapacity() {
   return weekCapacity(days.length, teaching);
 }
 
+/**
+ * School working days (e.g. Mon–Sat). Periods saved on a day the school is closed (old data, or a day that was
+ * later switched off) are invisible in the routine grid, so they must not count anywhere either.
+ */
+async function openWeekdays() {
+  const config = await prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { weekdays: true } });
+  return parseWeekdays(config?.weekdays);
+}
+
 export async function getClassTimetable(classId: string) {
+  const days = await openWeekdays();
   return prisma.timetableSlot.findMany({
-    where: { classId },
+    where: { classId, weekday: { in: days } },
     include: {
       period: true,
       subject: true,
@@ -893,8 +903,9 @@ export async function getClassTimetable(classId: string) {
 }
 
 export async function getTeacherTimetable(teacherId: string) {
+  const days = await openWeekdays();
   return prisma.timetableSlot.findMany({
-    where: { teacherId },
+    where: { teacherId, weekday: { in: days } },
     include: {
       period: true,
       subject: true,
@@ -912,6 +923,7 @@ export async function getStaffRoster(date = startOfDay()) {
   const fromStamp = ymd(from);
   const [teachers, staff, days, leave, payrollRuns, audits, salaryPayments] = await Promise.all([
     prisma.teacher.findMany({
+      where: { teachingOnly: false }, // office staff who also teach are listed once, as staff
       include: { user: { include: { manager: { select: { id: true, name: true } } } }, class: true },
       orderBy: { employeeId: "asc" },
     }),
@@ -943,17 +955,22 @@ export async function getStaffRoster(date = startOfDay()) {
     prisma.staffAttendanceAudit.findMany({ orderBy: { createdAt: "desc" }, take: 400 }),
     prisma.staffSalaryPayment.findMany({ orderBy: [{ paidOn: "desc" }, { createdAt: "desc" }], take: 3000 }),
   ]);
-  return { teachers, staff, days, leave, payrollRuns, audits, salaryPayments, date };
+  // Office employees marked "Also a teacher" (their teachingOnly Teacher rows point back at the staff row).
+  const teaching = await prisma.teacher.findMany({ where: { teachingOnly: true, staffMemberId: { not: null } }, select: { staffMemberId: true } });
+  const teachingStaffIds = new Set(teaching.map((t) => t.staffMemberId as string));
+  return { teachers, staff, days, leave, payrollRuns, audits, salaryPayments, date, teachingStaffIds };
 }
 
 export async function getDeskPulse() {
   const now = new Date();
   const day = startOfDay(now);
   const window = collectionWindow(now);
+  const openDays = await openWeekdays();
   const [config, periods, slots, teachers, attendance, invoices, classes, payments] = await Promise.all([
     prisma.schoolConfig.findUnique({ where: { id: "school" } }),
     prisma.period.findMany({ orderBy: { sortOrder: "asc" } }),
     prisma.timetableSlot.findMany({
+      where: { weekday: { in: openDays } },
       include: {
         class: true,
         subject: true,
@@ -963,6 +980,7 @@ export async function getDeskPulse() {
       },
     }),
     prisma.teacher.findMany({
+      where: { teachingOnly: false },
       include: { user: true },
       orderBy: { employeeId: "asc" },
     }),

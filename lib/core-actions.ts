@@ -2649,6 +2649,7 @@ export async function saveTimetableSlotCore(
     where: {
       classId,
       subjectId: planned.id,
+      weekday: { in: days }, // ignore periods left on closed days (not shown in the grid)
       NOT: { periodId, weekday },
     },
   });

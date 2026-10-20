@@ -195,11 +195,29 @@ function currentRoll(row: { classId: string; enrollments?: { classId: string; ro
   return row.enrollments?.find((enrollment) => enrollment.classId === row.classId)?.rollNumber || null;
 }
 
+/** Office user who is "Also a teacher": a small summary for the office Desk ("My teaching today"). */
+async function myTeachingToday(user: AccessUser) {
+  const teacher = await prisma.teacher.findUnique({ where: { userId: user.id }, select: { id: true, teachingOnly: true } });
+  if (!teacher?.teachingOnly) return null;
+  const js = new Date().getDay();
+  const weekday = js === 0 ? 7 : js;
+  const [periodsToday, marksToEnter, papersToSet] = await Promise.all([
+    prisma.timetableSlot.count({ where: { teacherId: teacher.id, weekday } }),
+    prisma.exam.count({
+      where: { teacherId: teacher.id, date: { lte: new Date() }, workflowStatus: { in: ["SCHEDULED", "IN_PROGRESS", "MARKS_DRAFT", "CORRECTION_REQUIRED"] } },
+    }),
+    prisma.exam.count({ where: { setterId: teacher.id, paperAt: null, workflowStatus: { not: "PUBLISHED" } } }),
+  ]);
+  return { periodsToday, marksToEnter, papersToSet };
+}
+
 async function staffAttendanceSelf(user: AccessUser) {
-  const teacher = await prisma.teacher.findUnique({
+  // An office employee who also teaches keeps ONE attendance record: their StaffMember row.
+  const teacherRow = await prisma.teacher.findUnique({
     where: { userId: user.id },
-    select: { id: true, employeeId: true, user: { select: { name: true } } },
+    select: { id: true, employeeId: true, teachingOnly: true, user: { select: { name: true } } },
   });
+  const teacher = teacherRow && !teacherRow.teachingOnly ? teacherRow : null;
   const staff = teacher
     ? null
     : await prisma.staffMember.findUnique({
@@ -877,7 +895,7 @@ async function teacherTeamExtras(
               name: c.name,
               section: c.section,
               subjects: (c.subjects || []).map((s) => subjectDto(s)),
-              slots: c.slots.map((s) => ({
+              slots: c.slots.filter((s) => weekdays.includes(s.weekday)).map((s) => ({
                 weekday: s.weekday,
                 periodId: s.periodId,
                 period: s.period.name,
@@ -932,6 +950,8 @@ async function officePayload(user: AccessUser) {
     ]);
   const activeFeeDocumentTypes = new Set(activeFeeDocuments.map((row) => row.type));
   const weekdays = parseWeekdays(sched?.weekdays);
+  // Periods left on days the school is closed are not in the grid, so they must not count anywhere.
+  for (const klass of classes) klass.slots = klass.slots.filter((slot) => weekdays.includes(slot.weekday));
   const openBills = invoices.filter((i) => i.status !== "PAID");
   const overdue = openBills.filter((i) => daysLate(i.dueDate) > 0);
   const dueNow = openBills.reduce((sum, i) => {
@@ -1032,6 +1052,7 @@ async function officePayload(user: AccessUser) {
   return {
     kind: "OFFICE" as const,
     staffAttendanceSelf: await staffAttendanceSelf(user),
+    myTeaching: await myTeachingToday(user),
     onboarding: can(user, "onboarding.manage") && user.orgId ? await onboardingBundle(user) : null,
     desk: {
       label: pulse.label,
@@ -1257,6 +1278,7 @@ async function officePayload(user: AccessUser) {
           kind: "staff" as const,
           name: s.name,
           email: s.user?.email || "",
+          teaches: staff.teachingStaffIds.has(s.id),
           employeeId: s.employeeId,
           roleId: s.roleId || "",
           role: s.role?.name || s.title || "Staff",

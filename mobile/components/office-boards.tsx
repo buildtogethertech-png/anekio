@@ -1,4 +1,5 @@
 import { createElement, useMemo, useState, useEffect, useRef } from "react";
+import { SetPasswordModal } from "./set-password-modal";
 import type { ViewStyle } from "react-native";
 import { openInAppDoc } from "../lib/in-app-doc";
 import type { ReactNode } from "react";
@@ -450,6 +451,42 @@ function LockedFeePanel({ kind }: { kind: "trend" | "health" }) {
   );
 }
 
+/** Office employee who is "Also a teacher": today's teaching, and one tap into Teacher mode. */
+function MyTeachingCard() {
+  const { data } = useRecord();
+  const { switchHat } = useSession();
+  const router = useRouter();
+  const mine = data?.myTeaching;
+  if (!mine) return null;
+  const parts = [
+    mine.periodsToday ? `${mine.periodsToday} period${mine.periodsToday === 1 ? "" : "s"} today` : "No periods today",
+    mine.marksToEnter ? `${mine.marksToEnter} marks sheet${mine.marksToEnter === 1 ? "" : "s"} to enter` : "",
+    mine.papersToSet ? `${mine.papersToSet} paper${mine.papersToSet === 1 ? "" : "s"} to set` : "",
+  ].filter(Boolean);
+  const due = mine.marksToEnter + mine.papersToSet > 0;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={() => {
+        void switchHat("TEACHER").then(() => router.replace("/" as never)).catch(() => undefined);
+      }}
+      className="mb-4 flex-row items-center gap-3 rounded-2xl border border-ink-100 bg-white px-4 py-3.5"
+    >
+      <View className={`h-10 w-10 items-center justify-center rounded-xl ${due ? "bg-amber-50" : "bg-[#EEF3FF]"}`}>
+        <Ionicons name="school-outline" size={20} color={due ? "#B45309" : "#1F45C7"} />
+      </View>
+      <View className="min-w-0 flex-1">
+        <Text className="text-[15px] font-semibold text-ink-900">My teaching today</Text>
+        <Text className="mt-0.5 text-[13px] text-ink-600" numberOfLines={1}>{parts.join(" · ")}</Text>
+      </View>
+      <View className="flex-row items-center gap-1">
+        <Text className="text-[13px] font-semibold text-[#1F45C7]">Teacher mode</Text>
+        <Ionicons name="chevron-forward" size={15} color="#1F45C7" />
+      </View>
+    </Pressable>
+  );
+}
+
 export function DeskBoard() {
   const { data, reload } = useRecord();
   const { token, user } = useSession();
@@ -570,6 +607,7 @@ export function DeskBoard() {
           Routine
         </Button>
       </View>
+      <MyTeachingCard />
       <ParentUpdatesReview />
 
       <View className="flex-row flex-wrap gap-3">
@@ -1268,6 +1306,7 @@ function monthlyFeeByClass(data: ReturnType<typeof useRecord>["data"]) {
 export function PeopleBoard({ studentOnly = false, title = "Students" }: { studentOnly?: boolean; title?: string }) {
   const { data, reload } = useRecord();
   const { token, user } = useSession();
+  const [parentPasswordFor, setParentPasswordFor] = useState<{ parentId: string; name: string } | null>(null);
   const router = useRouter();
   const { width } = useWindowDimensions();
   const wide = width >= 768;
@@ -2048,7 +2087,25 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                   {selected.parentId ? `Parent · ${selected.parentPhone || "no phone"}` : "Edit the student and add a parent mobile to create a parent login."}
                 </Text>
               </View>
+              {selected.parentId && can(user, "roles.manage") ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Change parent password"
+                  onPress={() => setParentPasswordFor({ parentId: selected.parentId as string, name: selected.parent || "Parent" })}
+                  className="h-9 flex-row items-center gap-1.5 rounded-lg border border-ink-200 px-2.5"
+                >
+                  <Ionicons name="key-outline" size={14} color="#334155" />
+                  <Text className="text-[12px] font-medium text-ink-800">Password</Text>
+                </Pressable>
+              ) : null}
             </View>
+            <SetPasswordModal
+              open={Boolean(parentPasswordFor)}
+              name={parentPasswordFor?.name || "Parent"}
+              target={{ parentId: parentPasswordFor?.parentId }}
+              onClose={() => setParentPasswordFor(null)}
+              onDone={(message) => toast.show(message)}
+            />
             {selected.parentEmail ? (
               <View className="flex-row items-center gap-2.5 border-t border-ink-100 px-3.5 py-2.5">
                 <Ionicons name="mail-outline" size={14} color="#94a3b8" />
@@ -4763,7 +4820,7 @@ export function StaffBoard() {
               <View className="min-w-0 flex-1">
                 <Text className="text-[15px] font-semibold text-ink-900" numberOfLines={1}>{p.name}</Text>
                 <Text className="text-xs text-ink-500" numberOfLines={1}>
-                  {p.kind === "teacher" ? "Teacher" : p.role}
+                  {p.kind === "teacher" ? "Teacher" : p.teaches ? `${p.role} · Teaches` : p.role}
                   {p.classLabel ? ` · Class ${p.classLabel}` : ""}
                   {p.employeeId ? ` · ${p.employeeId}` : ""}
                 </Text>
@@ -5042,7 +5099,7 @@ export function StaffBoard() {
                     {p.name}
                   </Text>
                   <Text className="text-xs text-ink-500" numberOfLines={1}>
-                    {p.kind === "teacher" ? "Teacher" : p.role}
+                    {p.kind === "teacher" ? "Teacher" : p.teaches ? `${p.role} · Teaches` : p.role}
                     {(() => {
                       const inAt = timesOf(p);
                       if (st === "LEAVE") return null;
@@ -5087,7 +5144,7 @@ export function StaffBoard() {
                     </Pressable>
                   </View>
                   <Text className="text-xs text-ink-700" numberOfLines={1}>
-                    {p.kind === "teacher" ? "Teacher" : p.role}
+                    {p.kind === "teacher" ? "Teacher" : p.teaches ? `${p.role} · Teaches` : p.role}
                   </Text>
                 </View>
               </View>
@@ -6750,6 +6807,7 @@ export function RolesBoard() {
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [form, setForm] = useState<Record<string, string>>({});
   const [managerFor, setManagerFor] = useState<string | null>(null);
+  const [passwordFor, setPasswordFor] = useState<{ id: string; name: string } | null>(null);
   const [detailGroup, setDetailGroup] = useState<string | null>(null);
   const { width } = useWindowDimensions();
   const phone = width < 768;
@@ -7115,6 +7173,13 @@ export function RolesBoard() {
 
   return (
     <View>
+      <SetPasswordModal
+        open={Boolean(passwordFor)}
+        name={passwordFor?.name || ""}
+        target={{ userId: passwordFor?.id }}
+        onClose={() => setPasswordFor(null)}
+        onDone={(message) => toast.show(message)}
+      />
       <PageHeader
         kicker="Admin · Reports"
         title="Roles & permissions"
@@ -7285,6 +7350,11 @@ export function RolesBoard() {
                             <Text className="text-[11px] text-ink-700" numberOfLines={1}>
                               {u.email}
                             </Text>
+                            {u.id !== user?.id ? (
+                              <Pressable onPress={() => setPasswordFor({ id: u.id, name: u.name })} hitSlop={6}>
+                                <Text className="text-[11px] font-medium text-clay-600">Change password</Text>
+                              </Pressable>
+                            ) : null}
                             {!adminRole && (u.managerName || canChangeManager(user, u.managerId)) ? (
                               <Pressable
                                 disabled={!canChangeManager(user, u.managerId)}

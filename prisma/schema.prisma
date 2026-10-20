@@ -270,6 +270,12 @@ model Teacher {
   state                 String                 @default("")
   pincode               String                 @default("")
   monthlySalary         Int                    @default(30000)
+  /// True when this row only exists so an office employee can also teach ("Also a teacher" on their staff profile).
+  /// Such rows are left out of HR lists (staff directory, payroll, staff attendance, leave balances): the person
+  /// stays one employee, on their StaffMember row.
+  teachingOnly          Boolean                @default(false)
+  /// The StaffMember this teaching profile belongs to (teachingOnly rows only).
+  staffMemberId         String?                @unique
   qualification         String?
   /// Answers to the school's staff onboarding form (custom fields + uploaded file paths).
   onboardingDataJson    String                 @default("{}")

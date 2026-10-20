@@ -537,6 +537,8 @@ export type RecordPayload = {
     id: string;
     userId?: string;
     kind?: "teacher" | "staff";
+    /** Office employee marked "Also a teacher". */
+    teaches?: boolean;
     name: string;
     email?: string;
     employeeId?: string;
@@ -569,6 +571,8 @@ export type RecordPayload = {
     /** Answers to the school's staff onboarding form; file fields hold the stored path. */
     onboardingValues?: Record<string, string>;
   }[];
+  /** Office user who also teaches: today's teaching at a glance. */
+  myTeaching?: { periodsToday: number; marksToEnter: number; papersToSet: number } | null;
   staffAttendanceSelf?: {
     kind: "teacher" | "staff";
     id: string;
