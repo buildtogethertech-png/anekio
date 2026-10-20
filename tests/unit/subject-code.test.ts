@@ -8,12 +8,18 @@ import {
   matchCatalogEntry,
   matchClassSubject,
   isBakedDefaultCatalog,
+  labeledTeacherSkills,
   parseSubjectCatalog,
+  resolveSkillLabel,
   serializeSubjectCatalog,
   skillMatchesSubject,
   validateSubjectCode,
 } from "../../lib/subject-code";
-import { formatSubjectLabel as mobileLabel } from "../../mobile/lib/subject-label";
+import {
+  formatSubjectLabel as mobileLabel,
+  labeledTeacherSkills as mobileLabeledSkills,
+  resolveSkillLabel as mobileResolveSkill,
+} from "../../mobile/lib/subject-label";
 
 describe("subject code validation", () => {
   it.each(["ENG", "MAT", "ENG-1", "ENG-L-012"])("accepts %s", (code) => {
@@ -46,9 +52,9 @@ describe("subject code validation", () => {
 });
 
 describe("subject labels", () => {
-  it("formats CODE · Name", () => {
-    expect(formatSubjectLabel("ENG", "English")).toBe("ENG · English");
-    expect(mobileLabel("ENG", "English")).toBe("ENG · English");
+  it("shows the subject name", () => {
+    expect(formatSubjectLabel("ENG", "English")).toBe("English");
+    expect(mobileLabel("ENG", "English")).toBe("English");
   });
 
   it("falls back to name when code is missing", () => {
@@ -92,26 +98,19 @@ describe("legacy catalog and names", () => {
     expect(isBakedDefaultCatalog([{ code: "ENG", name: "English" }])).toBe(false);
   });
 
-  it("rejects duplicate catalog codes but allows the same name with a different code", () => {
-    expect(() => serializeSubjectCatalog([{ code: "ENG", name: "English" }, { code: "ENG", name: "English 2" }])).toThrow(
+  it("rejects duplicate catalog names", () => {
+    expect(() => serializeSubjectCatalog([{ code: "ENG", name: "English" }, { code: "ENG-2", name: "English" }])).toThrow(
       /already in the catalog/
     );
-    expect(
-      serializeSubjectCatalog([
-        { code: "ENG", name: "English" },
-        { code: "ENG-2", name: "English" },
-      ])
-    ).toBe(JSON.stringify([
-      { code: "ENG", name: "English" },
-      { code: "ENG-2", name: "English" },
-    ]));
-    expect(matchCatalogEntry([{ code: "HIN", name: "Hindi" }, { code: "HIN-5", name: "Hindi" }], { code: "HIN-5", name: "Hindi" })?.code).toBe("HIN-5");
-    expect(matchCatalogEntry([{ code: "HIN", name: "Hindi" }, { code: "HIN-5", name: "Hindi" }], { name: "Hindi" })).toBeNull();
+    expect(serializeSubjectCatalog([{ code: "ENG", name: "English" }, { code: "HIN", name: "Hindi" }])).toBe(
+      JSON.stringify([{ name: "English" }, { name: "Hindi" }])
+    );
+    expect(matchCatalogEntry([{ code: "HIN", name: "Hindi" }], { name: "Hindi" })?.name).toBe("Hindi");
   });
 });
 
 describe("TeacherSkill matching", () => {
-  it("matches code first and name as fallback", () => {
+  it("matches name and still accepts a stored code", () => {
     expect(skillMatchesSubject("ENG", { code: "ENG", name: "English" })).toBe(true);
     expect(skillMatchesSubject("English", { code: "ENG", name: "English" })).toBe(true);
     expect(skillMatchesSubject("Hindi", { code: "ENG", name: "English" })).toBe(false);
@@ -132,5 +131,45 @@ describe("class subject matching", () => {
 
   it("does not invent a subject from an unknown skill name", () => {
     expect(matchClassSubject(rows, { subjectName: "Biology" })).toBeNull();
+  });
+});
+
+describe("teacher skill labels after a catalog rename", () => {
+  const class10 = {
+    id: "class-10-a",
+    subjects: [
+      { id: "s-art", code: "ART", name: "Art" },
+      { id: "s-kho", code: "KHORTHABCDEF", name: "Khortha" },
+    ],
+  };
+
+  it("shows the current subject name when the skill still holds the old code or name", () => {
+    expect(resolveSkillLabel("KHORTHABCDEF", class10.subjects)).toBe("Khortha");
+    expect(resolveSkillLabel("Khortha", class10.subjects)).toBe("Khortha");
+    expect(mobileResolveSkill("KHORTHABCDEF", class10.subjects)).toBe("Khortha");
+  });
+
+  it("relabels leftover codes on the teacher board", () => {
+    const skills = labeledTeacherSkills(
+      [
+        { subjectName: "ART", classId: "class-10-a" },
+        { subjectName: "KHORTHABCDEF", classId: "class-10-a" },
+      ],
+      [class10]
+    );
+    expect(skills.map((row) => row.subjectName)).toEqual(["Art", "Khortha"]);
+    expect(
+      mobileLabeledSkills(
+        [
+          { subjectName: "ART", classId: "class-10-a" },
+          { subjectName: "KHORTHABCDEF", classId: "class-10-a" },
+        ],
+        [class10]
+      ).map((row) => row.subjectName)
+    ).toEqual(["Art", "Khortha"]);
+  });
+
+  it("uses the catalog name when the class list is empty", () => {
+    expect(resolveSkillLabel("ENG", [], [{ code: "ENG", name: "English" }])).toBe("English");
   });
 });

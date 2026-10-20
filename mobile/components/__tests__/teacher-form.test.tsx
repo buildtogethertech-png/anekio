@@ -27,7 +27,7 @@ const classes = [
 ];
 
 describe("TeacherForm assignments", () => {
-  it("shows a catalog subject coded for this grade even before it is on the class plan", () => {
+  it("shows only subjects already on the class plan", () => {
     render(
       <TeacherForm
         catalog={[{ code: "SAN-5", name: "Sanskrit" }, { code: "ENG", name: "English" }]}
@@ -44,10 +44,9 @@ describe("TeacherForm assignments", () => {
       />
     );
 
-    expect(screen.getByLabelText("Select ENG-5 · English for 5-A")).toBeTruthy();
-    expect(screen.getByLabelText("Select SAN-5 · Sanskrit for 5-A")).toBeTruthy();
-    expect(screen.getByText("not on 5-A's subjects yet")).toBeTruthy();
-    expect(screen.queryByLabelText("Select ENG · English for 5-A")).toBeNull();
+    expect(screen.getByLabelText("Select English for 5-A")).toBeTruthy();
+    expect(screen.queryByLabelText("Select Sanskrit for 5-A")).toBeNull();
+    expect(screen.queryByText("not on 5-A's subjects yet")).toBeNull();
   });
 
   it("shows only the selected class curriculum, not other-grade codes", () => {
@@ -59,8 +58,8 @@ describe("TeacherForm assignments", () => {
       />
     );
 
-    expect(screen.getByLabelText("Select ENG · English for 1-A")).toBeTruthy();
-    expect(screen.getByLabelText("Select MAT · Mathematics for 1-A")).toBeTruthy();
+    expect(screen.getByLabelText("Select English for 1-A")).toBeTruthy();
+    expect(screen.getByLabelText("Select Mathematics for 1-A")).toBeTruthy();
     expect(screen.getAllByText("4/wk").length).toBeGreaterThan(0);
     expect(screen.queryByText("SCI-2")).toBeNull();
   });
@@ -84,7 +83,7 @@ describe("TeacherForm assignments", () => {
     );
 
     expect(screen.getByText("12 periods/week · 3 subjects · 2 classes")).toBeTruthy();
-    expect(screen.getByLabelText("Unselect ENG · English for 1-A")).toBeTruthy();
+    expect(screen.getByLabelText("Unselect English for 1-A")).toBeTruthy();
     expect(screen.getByText("1-B")).toBeTruthy();
     expect(screen.getByText("English · 4 periods")).toBeTruthy();
     expect(screen.queryByText("2-A")).toBeNull();
@@ -101,30 +100,30 @@ describe("TeacherForm assignments", () => {
       />
     );
 
-    fireEvent.press(screen.getByLabelText("Select ENG · English for 1-A"));
-    fireEvent.press(screen.getByLabelText("Select MAT · Mathematics for 1-A"));
+    fireEvent.press(screen.getByLabelText("Select English for 1-A"));
+    fireEvent.press(screen.getByLabelText("Select Mathematics for 1-A"));
     fireEvent.press(screen.getByLabelText("Add another class"));
     fireEvent.press(screen.getByLabelText("Add 1-B"));
-    fireEvent.press(screen.getByLabelText("Select ENG · English for 1-B"));
+    fireEvent.press(screen.getByLabelText("Select English for 1-B"));
     fireEvent.press(screen.getByLabelText("Add another class"));
     fireEvent.press(screen.getByLabelText("Add 2-A"));
-    fireEvent.press(screen.getByLabelText("Select SCI-2 · Science for 2-A"));
+    fireEvent.press(screen.getByLabelText("Select Science for 2-A"));
     fireEvent.press(screen.getByText("Save"));
 
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({
         name: "Kavita",
         offers: [
-          { classId: "class-1-a", subjectCode: "ENG", subjectName: "English" },
-          { classId: "class-1-a", subjectCode: "MAT", subjectName: "Mathematics" },
-          { classId: "class-1-b", subjectCode: "ENG", subjectName: "English" },
-          { classId: "class-2-a", subjectCode: "SCI-2", subjectName: "Science" },
+          { classId: "class-1-a", subjectName: "English" },
+          { classId: "class-1-a", subjectName: "Mathematics" },
+          { classId: "class-1-b", subjectName: "English" },
+          { classId: "class-2-a", subjectName: "Science" },
         ],
       })
     );
   });
 
-  it("keeps two English assignments distinct by code", async () => {
+  it("keeps two English assignments distinct by class", async () => {
     const onSave = jest.fn().mockResolvedValue(undefined);
     render(
       <TeacherForm
@@ -148,17 +147,17 @@ describe("TeacherForm assignments", () => {
       />
     );
 
-    fireEvent.press(screen.getByLabelText("Select ENG · English for 1-A"));
+    fireEvent.press(screen.getByLabelText("Select English for 1-A"));
     fireEvent.press(screen.getByLabelText("Add another class"));
     fireEvent.press(screen.getByLabelText("Add 2-A"));
-    fireEvent.press(screen.getByLabelText("Select ENG-2 · English for 2-A"));
+    fireEvent.press(screen.getByLabelText("Select English for 2-A"));
     fireEvent.press(screen.getByText("Save"));
 
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({
         offers: [
-          { classId: "class-1-a", subjectCode: "ENG", subjectName: "English" },
-          { classId: "class-2-a", subjectCode: "ENG-2", subjectName: "English" },
+          { classId: "class-1-a", subjectName: "English" },
+          { classId: "class-2-a", subjectName: "English" },
         ],
       })
     );
@@ -179,7 +178,7 @@ describe("TeacherForm assignments", () => {
       />
     );
 
-    fireEvent.press(screen.getByLabelText("Unselect ENG · English for 1-A"));
+    fireEvent.press(screen.getByLabelText("Unselect English for 1-A"));
     fireEvent.press(screen.getByText("Save"));
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ offers: [] }));
   });

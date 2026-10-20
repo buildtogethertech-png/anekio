@@ -39,8 +39,6 @@ import { notifyNoticePublished, notifyNoticeRecipients } from "./push";
 import { PAY_GATEWAYS, type PayGateway } from "./pay-config";
 import { formatQualification, parseWeekdays, weekCapacity } from "./schedule";
 import {
-  assertCodeFitsGrade,
-  catalogCodeMatchesGrade,
   catalogEntryFromName,
   catalogHasSubject,
   formatClassList,
@@ -49,8 +47,8 @@ import {
   matchCatalogEntry,
   matchClassSubject,
   parseSubjectCatalog,
-  requireSubjectCode,
   serializeSubjectCatalog,
+  reconcileTeacherSkillNames,
   skillMatchesSubject,
   validateSubjectCode,
 } from "./subject-code";
@@ -1150,25 +1148,18 @@ async function catalogTeacherOffers(
       name: row.subjectName,
     });
     if (!matched) {
-      throw new Error(`${row.subjectCode || row.subjectName} is not in the school subject catalog.`);
+      throw new Error(`${row.subjectName || row.subjectCode} is not in the school subject catalog.`);
     }
     const klass = classes.find((item) => item.id === row.classId);
     if (!klass) throw new Error("Class required");
-    let planned = matchClassSubject(klass.subjects, { code: matched.code, subjectName: matched.name });
-    if (!planned && catalogCodeMatchesGrade(matched.code, klass.name)) {
-      await assertCodeFitsGrade({ gradeName: klass.name, code: matched.code, name: matched.name });
-      planned = await prisma.subject.create({
-        data: { classId: klass.id, code: matched.code, name: matched.name, weightage: 4 },
-      });
-      klass.subjects.push(planned);
-    }
+    const planned = matchClassSubject(klass.subjects, { code: matched.code, subjectName: matched.name });
     if (!planned) {
       const label = `${klass.name}-${klass.section}`;
       throw new Error(
-        `${matched.code} is not part of ${label}'s class curriculum. Add ${matched.code} to the class plan first.`
+        `${matched.name} is not part of ${label}'s class curriculum. Add it to the class plan first.`
       );
     }
-    resolved.push({ subjectName: planned.code, classId: row.classId, subjectId: planned.id });
+    resolved.push({ subjectName: planned.name, classId: row.classId, subjectId: planned.id });
   }
   return resolved;
 }
@@ -1213,9 +1204,6 @@ export async function createClassCore(
     })
     .filter((s): s is { code: string; name: string; weightage: number } => Boolean(s));
   if (weights.length) await assertWeightsFitWeek(weights);
-  for (const row of weights) {
-    await assertCodeFitsGrade({ gradeName: name, code: row.code, name: row.name });
-  }
   const existingClass = await prisma.class.findFirst({ where: { name, section } });
   const klass = existingClass
     ? await prisma.class.update({ where: { id: existingClass.id }, data: { archivedAt: null } })
@@ -3215,7 +3203,7 @@ export async function saveSchoolSubjectsCore(
   user: AccessUser,
   input: {
     names?: string[];
-    entries?: { code?: string; name?: string; previousCode?: string }[];
+    entries?: { code?: string; name?: string; previousCode?: string; previousName?: string }[];
     applyToAllClasses?: boolean;
   }
 ) {
@@ -3225,37 +3213,51 @@ export async function saveSchoolSubjectsCore(
   const incoming = (input.entries || []).length
     ? (input.entries || []).map((row) => {
         const name = String(row.name || "").trim();
-        const code = String(row.code || "");
-        const previousCode = row.previousCode ? validateSubjectCode(row.previousCode) : null;
-        return { code, name, previousCode };
+        const previousName = String(row.previousName || "").trim();
+        const previousCode = row.previousCode || row.code ? validateSubjectCode(row.previousCode || row.code) : null;
+        const prev =
+          previous.find((entry) => previousName && entry.name.trim().toLowerCase() === previousName.toLowerCase()) ||
+          previous.find((entry) => previousCode?.ok && entry.code === previousCode.code) ||
+          previous.find((entry) => entry.name.trim().toLowerCase() === name.toLowerCase());
+        return { ...catalogEntryFromName(name), previousName: prev?.name || previousName, previousCode: prev?.code || "" };
       })
     : (input.names || []).map((name) => ({
         ...catalogEntryFromName(String(name || "")),
-        previousCode: null as ReturnType<typeof validateSubjectCode> | null,
+        previousName: "",
+        previousCode: "",
       }));
   const entries = incoming.map((row) => ({ code: row.code, name: row.name }));
   const subjectCatalog = serializeSubjectCatalog(entries);
   const catalog = parseSubjectCatalog(subjectCatalog);
-  const recodedAway = new Set(
-    incoming
-      .map((row) => (row.previousCode?.ok && row.previousCode.code !== requireSubjectCode(row.code) ? row.previousCode.code : ""))
-      .filter(Boolean)
+  for (const row of incoming) {
+    if (!row.previousName || row.previousName.toLowerCase() === row.name.toLowerCase()) continue;
+    await prisma.subject.updateMany({
+      where: {
+        OR: [{ name: row.previousName }, ...(row.previousCode ? [{ code: row.previousCode }] : [])],
+      },
+      data: { name: row.name },
+    });
+  }
+  await reconcileTeacherSkillNames(
+    incoming.flatMap((row) =>
+      [row.previousName, row.previousCode]
+        .filter((from): from is string => Boolean(from) && from.toLowerCase() !== row.name.toLowerCase())
+        .map((from) => ({ from, to: row.name }))
+    )
   );
-  const allowedCodes = new Set([...catalog.map((row) => row.code), ...recodedAway]);
-  const stillUsed = await prisma.subject.findMany({
-    where: { code: { notIn: [...allowedCodes] } },
-    include: { class: true },
-  });
+  const allowedNames = new Set(catalog.map((row) => row.name.trim().toLowerCase()));
+  const stillUsed = await prisma.subject.findMany({ include: { class: true } });
   const blocked = new Map<string, string[]>();
   for (const row of stillUsed) {
-    const labels = blocked.get(row.code) || [];
+    if (allowedNames.has(row.name.trim().toLowerCase())) continue;
+    const labels = blocked.get(row.name) || [];
     labels.push(`${row.class.name}-${row.class.section}`);
-    blocked.set(row.code, labels);
+    blocked.set(row.name, labels);
   }
   if (blocked.size) {
-    const [code, labels] = [...blocked.entries()][0];
+    const [name, labels] = [...blocked.entries()][0];
     throw new Error(
-      `${code} is still used by ${formatClassList(labels)}. Remove it from those class curricula first.`
+      `${name} is still used by ${formatClassList(labels)}. Remove it from those class curricula first.`
     );
   }
   await prisma.schoolConfig.upsert({
@@ -3263,68 +3265,19 @@ export async function saveSchoolSubjectsCore(
     update: { subjectCatalog },
     create: { id: "school", subjectCatalog },
   });
-  for (const row of incoming) {
-    const nextCode = requireSubjectCode(row.code);
-    const oldCode = row.previousCode?.ok ? row.previousCode.code : nextCode;
-    const prev = previous.find((entry) => entry.code === oldCode) || previous.find((entry) => entry.code === nextCode);
-    if (oldCode !== nextCode) {
-      await prisma.subject.updateMany({
-        where: { code: oldCode },
-        data: { code: nextCode, name: row.name },
-      });
-      await prisma.teacherSkill.updateMany({
-        where: { subjectName: { in: [oldCode, prev?.name || row.name] } },
-        data: { subjectName: nextCode },
-      });
-    } else {
-      await prisma.subject.updateMany({ where: { code: nextCode }, data: { name: row.name } });
-      if (prev && prev.name !== row.name) {
-        await prisma.teacherSkill.updateMany({
-          where: { subjectName: prev.name },
-          data: { subjectName: nextCode },
-        });
-      }
-    }
-  }
-  // The catalog is only a list of codes. Saving it never puts a code on a class by itself
-  // (MG-3 used to land on Class 3 automatically). Classes get codes from their own curriculum,
-  // unless the caller explicitly asks to apply the catalog to every class.
   if (!input.applyToAllClasses) return;
   const classes = await prisma.class.findMany({
     where: { archivedAt: null },
     include: { subjects: true },
   });
-  const owners = await prisma.subject.findMany({
-    where: { code: { in: catalog.map((row) => row.code) } },
-    include: { class: { select: { name: true } } },
-  });
-  const gradesByCode = new Map<string, Set<string>>();
-  for (const row of owners) {
-    const grades = gradesByCode.get(row.code) || new Set<string>();
-    grades.add(row.class.name.trim());
-    gradesByCode.set(row.code, grades);
-  }
   for (const klass of classes) {
     for (const entry of catalog) {
-      const ownedOnGrade = gradesByCode.get(entry.code)?.has(klass.name.trim());
-      const gradeMatch = catalogCodeMatchesGrade(entry.code, klass.name);
-      if (!gradeMatch && !(input.applyToAllClasses && ownedOnGrade)) continue;
-      const have = klass.subjects.find(
-        (s) => s.code === entry.code || s.name.trim().toLowerCase() === entry.name.trim().toLowerCase()
-      );
+      const have = klass.subjects.find((s) => s.name.trim().toLowerCase() === entry.name.trim().toLowerCase());
       if (have) continue;
-      try {
-        await assertCodeFitsGrade({ gradeName: klass.name, code: entry.code, name: entry.name });
-      } catch {
-        continue;
-      }
       const created = await prisma.subject.create({
         data: { classId: klass.id, code: entry.code, name: entry.name, weightage: 4 },
       });
       klass.subjects.push(created);
-      const grades = gradesByCode.get(entry.code) || new Set<string>();
-      grades.add(klass.name.trim());
-      gradesByCode.set(entry.code, grades);
     }
   }
 }
@@ -3350,7 +3303,6 @@ export async function saveClassCurriculumCore(
   });
   const source = sections.find((row) => row.id === classId);
   if (!source) throw new Error("Class required");
-  const seenCodes = new Set<string>();
   const seenNames = new Set<string>();
   const weights: CurriculumWeight[] = (input.subjects || []).map((s) => {
     const name = s.name.trim();
@@ -3365,12 +3317,10 @@ export async function saveClassCurriculumCore(
     if (!existing && !catalogHasSubject(catalog, { code: s.code || matched?.code, name: matched?.name || name })) {
       throw new Error(`${name} is not in the school subject catalog.`);
     }
-    const code = requireSubjectCode(s.code || matched?.code || existing?.code);
     const displayName = name || matched?.name || existing?.name || "";
-    if (seenCodes.has(code)) throw new Error(`Subject code ${code} is already used in Class ${gradeName}.`);
     if (seenNames.has(displayName.toLowerCase())) throw new Error(`${displayName} is already used in Class ${gradeName}.`);
-    seenCodes.add(code);
     seenNames.add(displayName.toLowerCase());
+    const code = String(existing?.code || matched?.code || s.code || catalogEntryFromName(displayName).code);
     return {
       id: s.id || existing?.id,
       previousCode: previous,
@@ -3380,19 +3330,6 @@ export async function saveClassCurriculumCore(
     };
   });
   if (weights.length) await assertWeightsFitWeek(weights);
-  for (const row of weights) {
-    await assertCodeFitsGrade({
-      gradeName,
-      code: row.code,
-      name: row.name,
-      excludeSubjectId: row.id,
-    });
-    const previousCode = row.previousCode && row.previousCode.ok ? row.previousCode.code : row.code;
-    const idx = catalog.findIndex((entry) => entry.code === previousCode || entry.code === row.code);
-    if (catalog.some((entry, i) => entry.code === row.code && i !== idx)) {
-      throw new Error(`Subject code ${row.code} is already in the catalog.`);
-    }
-  }
   for (const section of sections) {
     const classLabel = `${section.name}-${section.section}`;
     const keepIds = new Set(
@@ -3440,7 +3377,7 @@ export async function saveClassCurriculumCore(
         if (previousCode !== row.code || previousName !== row.name) {
           await prisma.teacherSkill.updateMany({
             where: { classId: section.id, subjectName: { in: [previousCode, previousName] } },
-            data: { subjectName: row.code },
+            data: { subjectName: row.name },
           });
         }
       } else {
@@ -3452,14 +3389,13 @@ export async function saveClassCurriculumCore(
   }
   const nextCatalog = [...catalog];
   for (const row of weights) {
-    const previousCode = row.previousCode && row.previousCode.ok ? row.previousCode.code : row.code;
-    const idx = nextCatalog.findIndex((entry) => entry.code === previousCode || entry.code === row.code);
-    if (idx >= 0) nextCatalog[idx] = { code: row.code, name: row.name };
+    const idx = nextCatalog.findIndex((entry) => entry.name.trim().toLowerCase() === row.name.trim().toLowerCase());
+    if (idx >= 0) nextCatalog[idx] = { code: nextCatalog[idx].code, name: row.name };
   }
   if (JSON.stringify(nextCatalog) !== JSON.stringify(catalog)) {
     await prisma.schoolConfig.update({
       where: { id: "school" },
-      data: { subjectCatalog: JSON.stringify(nextCatalog) },
+      data: { subjectCatalog: serializeSubjectCatalog(nextCatalog) },
     });
   }
 }

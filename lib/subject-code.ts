@@ -63,9 +63,8 @@ export function requireSubjectCode(raw: string | null | undefined) {
 
 export function formatSubjectLabel(code?: string | null, name?: string | null) {
   const displayName = String(name || "").trim();
-  const checked = validateSubjectCode(code || "");
-  if (checked.ok) return displayName ? `${checked.code} · ${displayName}` : checked.code;
-  return displayName;
+  if (displayName) return displayName;
+  return String(code || "").trim();
 }
 
 export function knownCodeForName(name: string) {
@@ -101,8 +100,8 @@ export function codeFromLegacyName(name: string, used: Set<string>) {
 
 export function isBakedDefaultCatalog(entries: SubjectCatalogEntry[]) {
   if (entries.length !== DEFAULT_SUBJECT_CATALOG.length) return false;
-  const expected = new Map(DEFAULT_SUBJECT_CATALOG.map((row) => [row.code, row.name]));
-  return entries.every((row) => expected.get(row.code) === row.name);
+  const expected = new Set(DEFAULT_SUBJECT_CATALOG.map((row) => row.name.trim().toLowerCase()));
+  return entries.every((row) => expected.has(row.name.trim().toLowerCase()));
 }
 
 /** New orgs used to inherit the CBSE starter list. Drop it when the school has not used any subjects yet. */
@@ -138,25 +137,21 @@ export function parseSubjectCatalog(raw: string | null | undefined): SubjectCata
     if (!Array.isArray(parsed)) return [];
     const entries: SubjectCatalogEntry[] = [];
     const usedCodes = new Set<string>();
-    const usedLegacyNames = new Set<string>();
+    const usedNames = new Set<string>();
     for (const item of parsed) {
+      let name = "";
+      let storedCode = "";
       if (typeof item === "string") {
-        const name = item.trim();
-        if (!name || usedLegacyNames.has(name.toLowerCase())) continue;
-        let code = knownCodeForName(name) || codeFromLegacyName(name, usedCodes);
-        if (usedCodes.has(code)) code = codeFromLegacyName(`${name}-${usedCodes.size + 1}`, usedCodes);
-        usedCodes.add(code);
-        usedLegacyNames.add(name.toLowerCase());
-        entries.push({ code, name });
-        continue;
+        name = item.trim();
+      } else if (item && typeof item === "object") {
+        const row = item as { code?: unknown; name?: unknown };
+        name = String(row.name || "").trim();
+        storedCode = String(row.code || "").trim();
       }
-      if (!item || typeof item !== "object") continue;
-      const row = item as { code?: unknown; name?: unknown };
-      const name = String(row.name || "").trim();
-      if (!name) continue;
-      const checked = validateSubjectCode(String(row.code || knownCodeForName(name) || ""));
+      if (!name || usedNames.has(name.toLowerCase())) continue;
+      usedNames.add(name.toLowerCase());
+      const checked = validateSubjectCode(storedCode || knownCodeForName(name) || "");
       const code = checked.ok && !usedCodes.has(checked.code) ? checked.code : codeFromLegacyName(name, usedCodes);
-      if (usedCodes.has(code)) continue;
       usedCodes.add(code);
       entries.push({ code, name });
     }
@@ -167,17 +162,16 @@ export function parseSubjectCatalog(raw: string | null | undefined): SubjectCata
 }
 
 export function serializeSubjectCatalog(entries: SubjectCatalogEntry[]) {
-  const seenCodes = new Set<string>();
-  const rows: SubjectCatalogEntry[] = [];
+  const seen = new Set<string>();
+  const rows: { name: string }[] = [];
   for (const entry of entries) {
     const name = String(entry.name || "").trim();
     if (!name) throw new Error("Give every subject a name.");
-    const code = requireSubjectCode(entry.code);
-    if (seenCodes.has(code)) throw new Error(`Subject code ${code} is already in the catalog.`);
-    seenCodes.add(code);
-    rows.push({ code, name });
+    const key = name.toLowerCase();
+    if (seen.has(key)) throw new Error(`${name} is already in the catalog.`);
+    seen.add(key);
+    rows.push({ name });
   }
-  if (!rows.length) throw new Error("Add at least one subject.");
   return JSON.stringify(rows);
 }
 
@@ -217,49 +211,30 @@ export function formatClassList(labels: string[]) {
   return `${unique.slice(0, -1).join(", ")} and ${unique[unique.length - 1]}`;
 }
 
-export async function assertCodeFitsGrade(input: {
+export async function assertCodeFitsGrade(_input: {
   gradeName: string;
   code: string;
   name: string;
   excludeSubjectId?: string;
 }) {
-  const gradeName = gradeNameOf(input.gradeName);
-  const code = requireSubjectCode(input.code);
-  const name = input.name.trim();
-  const owners = await prisma.subject.findMany({
-    where: {
-      code,
-      ...(input.excludeSubjectId ? { id: { not: input.excludeSubjectId } } : {}),
-    },
-    include: { class: { select: { name: true, section: true } } },
-  });
-  for (const row of owners) {
-    const ownerGrade = gradeNameOf(row.class.name);
-    const ownerLabel = classLabelOf(row.class.name, row.class.section);
-    if (ownerGrade === gradeName) continue;
-    throw new Error(
-      `${code} is already used by Class ${ownerGrade} (${ownerLabel}). Use a different code for Class ${gradeName}.`
-    );
-  }
+  return;
 }
 
 export function catalogHasSubject(catalog: SubjectCatalogEntry[], input: { code?: string; name?: string }) {
-  const code = input.code ? validateSubjectCode(input.code) : null;
-  if (code?.ok) return catalog.some((row) => row.code === code.code);
-  const name = String(input.name || "").trim().toLowerCase();
-  return Boolean(name && catalog.some((row) => row.name.trim().toLowerCase() === name));
+  return Boolean(matchCatalogEntry(catalog, input));
 }
 
 export function matchCatalogEntry(catalog: SubjectCatalogEntry[], input: { code?: string; name?: string }) {
-  const code = input.code ? validateSubjectCode(input.code) : null;
-  if (code?.ok) {
-    const byCode = catalog.find((row) => row.code === code.code);
-    if (byCode) return byCode;
-  }
   const name = String(input.name || "").trim().toLowerCase();
-  if (!name) return null;
-  const named = catalog.filter((row) => row.name.trim().toLowerCase() === name);
-  return named.length === 1 ? named[0] : null;
+  if (name) {
+    const byName = catalog.find((row) => row.name.trim().toLowerCase() === name);
+    if (byName) return byName;
+  }
+  const code = input.code ? validateSubjectCode(input.code) : null;
+  if (code?.ok) return catalog.find((row) => row.code === code.code) || null;
+  const asName = String(input.code || "").trim().toLowerCase();
+  if (asName) return catalog.find((row) => row.name.trim().toLowerCase() === asName) || null;
+  return null;
 }
 
 export function skillMatchesSubject(skillName: string, subject: { code?: string | null; name?: string | null }) {
@@ -268,6 +243,73 @@ export function skillMatchesSubject(skillName: string, subject: { code?: string 
   const code = validateSubjectCode(subject.code || "");
   if (code.ok && skill === code.code.toLowerCase()) return true;
   return skill === String(subject.name || "").trim().toLowerCase();
+}
+
+export function resolveSkillLabel(
+  skillName: string,
+  subjects: { code?: string | null; name: string }[],
+  catalog: SubjectCatalogEntry[] = []
+) {
+  const hit = matchClassSubject(subjects, { subjectName: skillName, code: skillName });
+  if (hit) return hit.name;
+  const cat = matchCatalogEntry(catalog, { name: skillName, code: skillName });
+  if (cat) {
+    const planned = matchClassSubject(subjects, { code: cat.code, subjectName: cat.name });
+    return planned?.name || cat.name;
+  }
+  return String(skillName || "").trim();
+}
+
+export function labeledTeacherSkills<T extends { subjectName: string; classId: string }>(
+  skills: T[],
+  classes: { id: string; subjects: { code?: string | null; name: string }[] }[],
+  catalog: SubjectCatalogEntry[] = []
+) {
+  const everySubject = classes.flatMap((klass) => klass.subjects);
+  return skills.map((skill) => {
+    const pool = (skill.classId && classes.find((klass) => klass.id === skill.classId)?.subjects) || everySubject;
+    return { ...skill, subjectName: resolveSkillLabel(skill.subjectName, pool, catalog) };
+  });
+}
+
+export async function reconcileTeacherSkillNames(aliases: { from: string; to: string }[] = []) {
+  const skills = await prisma.teacherSkill.findMany();
+  const wanted = new Map<string, string>();
+  for (const alias of aliases) {
+    const from = alias.from.trim();
+    const to = alias.to.trim();
+    if (!from || !to || from.toLowerCase() === to.toLowerCase()) continue;
+    wanted.set(from, to);
+  }
+  const subjects = await prisma.subject.findMany({ select: { classId: true, code: true, name: true } });
+  const byClass = new Map<string, { classId: string; code: string; name: string }[]>();
+  for (const row of subjects) {
+    byClass.set(row.classId, [...(byClass.get(row.classId) || []), row]);
+  }
+  for (const skill of skills) {
+    const next =
+      wanted.get(skill.subjectName) ||
+      resolveSkillLabel(skill.subjectName, byClass.get(skill.classId) || []);
+    if (!next || next === skill.subjectName) continue;
+    const clash = skills.some(
+      (row) =>
+        row.id !== skill.id &&
+        row.teacherId === skill.teacherId &&
+        row.classId === skill.classId &&
+        row.subjectName === next
+    );
+    try {
+      if (clash) {
+        await prisma.teacherSkill.delete({ where: { id: skill.id } });
+        skill.subjectName = next;
+        continue;
+      }
+      await prisma.teacherSkill.update({ where: { id: skill.id }, data: { subjectName: next } });
+      skill.subjectName = next;
+    } catch {
+      // Leftover rows without a tenant org still display via labeledTeacherSkills.
+    }
+  }
 }
 
 export function matchClassSubject<T extends { id: string; code?: string | null; name: string }>(
@@ -292,13 +334,12 @@ export function matchClassSubject<T extends { id: string; code?: string | null; 
 }
 
 export function subjectDto(subject: { id: string; code?: string | null; name: string; weightage?: number | null }) {
-  const code = validateSubjectCode(subject.code || "").ok ? normalizeSubjectCode(subject.code) : "";
   return {
     id: subject.id,
-    code,
+    code: subject.code || "",
     name: subject.name,
     weightage: subject.weightage ?? 0,
-    label: formatSubjectLabel(code, subject.name),
+    label: formatSubjectLabel(subject.code, subject.name),
   };
 }
 
@@ -410,10 +451,11 @@ export async function ensureSubjectCodeSchema() {
     const used = new Set(entries.map((row) => row.code));
     for (const row of subjectRows) {
       if (config.orgId && row.orgId && row.orgId !== config.orgId) continue;
-      const checked = validateSubjectCode(row.code);
-      if (!checked.ok || used.has(checked.code)) continue;
-      entries.push({ code: checked.code, name: row.name });
-      used.add(checked.code);
+      if (entries.some((entry) => entry.name.trim().toLowerCase() === row.name.trim().toLowerCase())) continue;
+      const next = catalogEntryFromName(row.name);
+      if (used.has(next.code)) next.code = codeFromLegacyName(row.name, used);
+      entries.push(next);
+      used.add(next.code);
     }
     await prisma.schoolConfig.update({
       where: { id: config.id },
