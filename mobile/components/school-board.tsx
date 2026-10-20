@@ -773,11 +773,13 @@ const CLASS_SECTIONS = ["A", "B", "C", "D", "E"];
 function NewClassSheet({
   open,
   classes,
+  initial,
   onClose,
   onCreate,
 }: {
   open: boolean;
-  classes: { label: string; name?: string; section?: string }[];
+  classes: { id?: string; label: string; name?: string; section?: string }[];
+  initial?: { id?: string; name: string; section: string } | null;
   onClose: () => void;
   onCreate: (name: string, section: string) => Promise<void>;
 }) {
@@ -786,19 +788,31 @@ function NewClassSheet({
   const [section, setSection] = useState("A");
   const [otherSection, setOtherSection] = useState(false);
   const [busy, setBusy] = useState(false);
+  const editing = Boolean(initial?.id);
   const key = (name: string, sec: string) => `${name.trim()}-${sec.trim()}`.toLowerCase();
-  const taken = new Set(classes.map((c) => (c.name ? key(c.name, c.section || "") : c.label.toLowerCase())));
-  const gradeHas = (g: string) => classes.some((c) => (c.name || c.label.split("-")[0] || "").trim().toLowerCase() === g.toLowerCase());
+  const taken = new Set(
+    classes
+      .filter((c) => !initial?.id || c.id !== initial.id)
+      .map((c) => (c.name ? key(c.name, c.section || "") : c.label.toLowerCase()))
+  );
+  const gradeHas = (g: string) =>
+    classes.some(
+      (c) =>
+        (!initial?.id || c.id !== initial.id) &&
+        (c.name || c.label.split("-")[0] || "").trim().toLowerCase() === g.toLowerCase()
+    );
   const nextFree = (g: string) => CLASS_SECTIONS.find((sec) => !taken.has(key(g, sec))) || "";
 
   useEffect(() => {
     if (!open) return;
-    setGrade("");
-    setOtherGrade(false);
-    setSection("A");
-    setOtherSection(false);
+    const startName = initial?.name || "";
+    const startSection = (initial?.section || "A").toUpperCase();
+    setGrade(startName);
+    setOtherGrade(Boolean(startName) && !CLASS_GRADES.includes(startName));
+    setSection(startSection);
+    setOtherSection(Boolean(startSection) && !CLASS_SECTIONS.includes(startSection));
     setBusy(false);
-  }, [open]);
+  }, [open, initial?.id, initial?.name, initial?.section]);
 
   const name = grade.trim();
   const sec = section.trim().toUpperCase();
@@ -829,7 +843,7 @@ function NewClassSheet({
               <View className="h-1 w-10 rounded-full bg-ink-200" />
             </View>
             <View className="flex-row items-center px-5 pb-1 pt-3">
-              <Text className="flex-1 text-lg font-semibold text-ink-900">New class</Text>
+              <Text className="flex-1 text-lg font-semibold text-ink-900">{editing ? "Edit class" : "New class"}</Text>
               <Pressable accessibilityRole="button" accessibilityLabel="Close" hitSlop={10} onPress={onClose} className="h-8 w-8 items-center justify-center rounded-full bg-ink-100">
                 <Ionicons name="close" size={18} color="#3d4f66" />
               </Pressable>
@@ -840,7 +854,7 @@ function NewClassSheet({
                   <Text className={`text-[28px] font-bold ${duplicate ? "text-red-700" : label ? "text-[#1F45C7]" : "text-ink-300"}`}>{label || "—"}</Text>
                 </View>
                 <Text className={`mt-1.5 text-xs ${duplicate ? "font-semibold text-red-700" : "text-ink-500"}`}>
-                  {duplicate ? `${label} already exists` : label ? "New class" : "Pick a class"}
+                  {duplicate ? `${label} already exists` : label ? (editing ? "Class name" : "New class") : "Pick a class"}
                 </Text>
               </View>
 
@@ -915,7 +929,7 @@ function NewClassSheet({
                 className={`h-12 items-center justify-center rounded-xl ${ready ? "bg-[#1F45C7]" : "bg-ink-200"}`}
               >
                 <Text className="text-[15px] font-semibold text-white">
-                  {busy ? "Creating…" : label && !duplicate ? `Create ${label}` : "Create class"}
+                  {busy ? (editing ? "Saving…" : "Creating…") : label && !duplicate ? (editing ? `Save ${label}` : `Create ${label}`) : editing ? "Save class" : "Create class"}
                 </Text>
               </Pressable>
             </View>
@@ -933,14 +947,16 @@ function PhoneClassList({
   sessionId,
   canAdd,
   onAdd,
+  onEdit,
   onGo,
 }: {
-  classes: { id: string; label: string; students?: number }[];
+  classes: { id: string; label: string; name?: string; section?: string; students?: number }[];
   staff: { kind?: string; name: string; classId?: string | null }[];
   templates: { classId: string; sessionId: string; startsPeriod?: string; lines: { amount: number; scope?: string }[] }[];
   sessionId: string;
   canAdd: boolean;
   onAdd: () => void;
+  onEdit?: (klass: { id: string; name: string; section: string }) => void;
   onGo: (href: string) => void;
 }) {
   const [openId, setOpenId] = useState<string | null>(null);
@@ -1021,6 +1037,23 @@ function PhoneClassList({
                     <Ionicons name="close" size={18} color="#3d4f66" />
                   </Pressable>
                 </View>
+                {onEdit ? (
+                  <View className="mx-5 mb-3">
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Edit ${open.label}`}
+                      onPress={() => {
+                        const name = open.name || open.label.split("-")[0] || "";
+                        const section = open.section || open.label.split("-").slice(1).join("-") || "A";
+                        setOpenId(null);
+                        onEdit({ id: open.id, name, section });
+                      }}
+                      className="h-11 items-center justify-center rounded-xl border border-ink-200 bg-white"
+                    >
+                      <Text className="text-[15px] font-semibold text-[#1F45C7]">Edit class name</Text>
+                    </Pressable>
+                  </View>
+                ) : null}
                 <View className="mx-5 overflow-hidden rounded-xl border border-ink-100">
                   {(
                     [
@@ -1804,7 +1837,7 @@ export function SchoolBoard() {
   const [addOpen, setAddOpen] = useState(false);
   const [classOpen, setClassOpen] = useState(false);
   const [calendarImportOpen, setCalendarImportOpen] = useState(false);
-  const [classDraft, setClassDraft] = useState({ name: "", section: "A" });
+  const [classDraft, setClassDraft] = useState({ id: "", name: "", section: "A" });
   const [viewYear, setViewYear] = useState<string | null>(null);
   const [sessionDraft, setSessionDraft] = useState({ startsOn: "", endsOn: "", copyFromId: "", makeCurrent: true });
   const [calendarSessionId, setCalendarSessionId] = useState(s?.sessionId || "");
@@ -2415,9 +2448,17 @@ export function SchoolBoard() {
                 sessionId={sessions.find((row) => row.current)?.id || s?.sessionId || ""}
                 canAdd={edit}
                 onAdd={() => {
-                  setClassDraft({ name: "", section: "A" });
+                  setClassDraft({ id: "", name: "", section: "A" });
                   setClassOpen(true);
                 }}
+                onEdit={
+                  edit
+                    ? (klass) => {
+                        setClassDraft({ id: klass.id, name: klass.name, section: klass.section });
+                        setClassOpen(true);
+                      }
+                    : undefined
+                }
                 onGo={(href) => router.push(href as never)}
               />
             ) : null}
@@ -2438,7 +2479,7 @@ export function SchoolBoard() {
                       <Button
                         variant="ghost"
                         onPress={() => {
-                          setClassDraft({ name: "", section: "A" });
+                          setClassDraft({ id: "", name: "", section: "A" });
                           setClassOpen(true);
                         }}
                       >
@@ -2447,13 +2488,34 @@ export function SchoolBoard() {
                     ) : null}
                   </View>
                   {(data?.classes ?? []).length ? (
-                    <View className="mt-3 flex-row flex-wrap gap-1.5">
-                      {(data?.classes ?? []).map((c) => (
-                        <View key={c.id} className="rounded-md border border-ink-100 bg-ink-50 px-2.5 py-1">
-                          <Text className="text-xs text-ink-800">
-                            {c.label}
-                            {c.students ? ` · ${c.students}` : ""}
-                          </Text>
+                    <View className="mt-3 overflow-hidden rounded-md border border-ink-100">
+                      {(data?.classes ?? []).map((c, i) => (
+                        <View
+                          key={c.id}
+                          className={`flex-row items-center gap-3 px-3 py-2.5 ${i ? "border-t border-ink-100" : ""}`}
+                        >
+                          <View className="min-w-0 flex-1">
+                            <Text className="text-sm font-semibold text-ink-900">{c.label}</Text>
+                            <Text className="text-xs text-ink-600">
+                              {c.students ? `${c.students} ${c.students === 1 ? "student" : "students"}` : "No students yet"}
+                            </Text>
+                          </View>
+                          {edit ? (
+                            <Button
+                              variant="ghost"
+                              accessibilityLabel={`Edit ${c.label}`}
+                              onPress={() => {
+                                setClassDraft({
+                                  id: c.id,
+                                  name: c.name || c.label.split("-")[0] || "",
+                                  section: c.section || c.label.split("-").slice(1).join("-") || "A",
+                                });
+                                setClassOpen(true);
+                              }}
+                            >
+                              Edit
+                            </Button>
+                          ) : null}
                         </View>
                       ))}
                     </View>
@@ -3332,17 +3394,26 @@ export function SchoolBoard() {
       {phone ? (
         <NewClassSheet
           open={classOpen}
-          classes={(data?.classes ?? []).map((c) => ({ label: c.label, name: c.name, section: c.section }))}
+          classes={(data?.classes ?? []).map((c) => ({ id: c.id, label: c.label, name: c.name, section: c.section }))}
+          initial={classDraft.id ? { id: classDraft.id, name: classDraft.name, section: classDraft.section } : null}
           onClose={() => setClassOpen(false)}
           onCreate={async (name, section) => {
-            await run("createClass", { name, section }, `Class ${name}-${section} added.`);
+            if (classDraft.id) {
+              await run("updateClass", { classId: classDraft.id, name, section }, `Class renamed to ${name}-${section}.`);
+            } else {
+              await run("createClass", { name, section }, `Class ${name}-${section} added.`);
+            }
             setClassOpen(false);
           }}
         />
       ) : null}
-      <Modal open={!phone && classOpen} title="New class" onClose={() => setClassOpen(false)}>
+      <Modal open={!phone && classOpen} title={classDraft.id ? "Edit class" : "New class"} onClose={() => setClassOpen(false)}>
         <View className="gap-3">
-          <Text className="text-sm text-ink-700">Name the section. Load subjects from the catalog in School → Subjects → Class plan.</Text>
+          <Text className="text-sm text-ink-700">
+            {classDraft.id
+              ? "This name is used for teachers, students, timetable, and fees. Subjects stay on the class."
+              : "Name the section. Load subjects from the catalog in School → Subjects → Class plan."}
+          </Text>
           <View className="flex-row flex-wrap gap-3">
             <Half>
               <Field label="Class">
@@ -3358,15 +3429,17 @@ export function SchoolBoard() {
           <Button
             disabled={!classDraft.name.trim()}
             onPress={async () => {
-              await run(
-                "createClass",
-                { name: classDraft.name, section: classDraft.section || "A" },
-                "Class added."
-              );
+              const name = classDraft.name.trim();
+              const section = (classDraft.section || "A").trim().toUpperCase();
+              if (classDraft.id) {
+                await run("updateClass", { classId: classDraft.id, name, section }, `Class renamed to ${name}-${section}.`);
+              } else {
+                await run("createClass", { name, section }, "Class added.");
+              }
               setClassOpen(false);
             }}
           >
-            Create class
+            {classDraft.id ? "Save class" : "Create class"}
           </Button>
         </View>
       </Modal>

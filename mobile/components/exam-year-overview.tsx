@@ -964,7 +964,7 @@ export function PastMarksModal({
                 <Text className="w-48 px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-ink-500">Student</Text>
                 {subjects.map((subject) => (
                   <Text key={subject.id} numberOfLines={1} className="w-24 px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-wide text-ink-700">
-                    {subject.code || subject.name}
+                    {subject.name || subject.code}
                   </Text>
                 ))}
               </View>

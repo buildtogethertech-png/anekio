@@ -21,6 +21,7 @@ import {
   collectPartialFeesCore,
   changeOwnPasswordCore,
   createClassCore,
+  updateClassCore,
   admitLeadAsStudentCore,
   assignOfficeUserCore,
   copyRoleAccessCore,
@@ -202,6 +203,9 @@ export async function runAct(
       break;
     case "createClass":
       await createClassCore(user, body as never);
+      break;
+    case "updateClass":
+      await updateClassCore(user, body as never);
       break;
     case "markAttendance":
       await markAttendanceCore(user, body as never);

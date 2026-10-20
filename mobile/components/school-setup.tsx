@@ -22,7 +22,7 @@ export const DEFAULT_SUBJECT_ENTRIES = [
 
 export const DEFAULT_SUBJECTS = DEFAULT_SUBJECT_ENTRIES.map((row) => row.name);
 
-export type SubjectCatalogEntry = { code: string; name: string; previousCode?: string };
+export type SubjectCatalogEntry = { code: string; name: string; previousCode?: string; previousName?: string };
 
 type ClassSubjectDraft = { id?: string; code: string; previousCode: string; name: string; periods: string };
 
@@ -118,8 +118,7 @@ function CatalogCodeRow({
     >
       <View className="min-w-0 flex-1">
         <View className="flex-row flex-wrap items-center gap-2">
-          <Text className="text-sm font-semibold tracking-wide text-ink-900">{code}</Text>
-          {name ? <Text className="text-sm text-ink-700">{name}</Text> : null}
+          <Text className="text-sm font-semibold text-ink-900">{name || code}</Text>
         </View>
         <Text className={`mt-0.5 text-xs ${unused ? "text-amber-700" : "text-ink-700"}`} numberOfLines={1}>
           {usage}
@@ -133,12 +132,7 @@ function CatalogCodeRow({
 function SubjectNameWithCode({ code, name }: { code: string; name: string }) {
   return (
     <View className="flex-row flex-wrap items-center gap-2">
-      <Text className="text-sm font-semibold text-ink-900">{name}</Text>
-      {code ? (
-        <View className="rounded bg-ink-100 px-1.5 py-0.5">
-          <Text className="text-[11px] font-medium tracking-wide text-ink-700">{code}</Text>
-        </View>
-      ) : null}
+      <Text className="text-sm font-semibold text-ink-900">{name || code}</Text>
     </View>
   );
 }
@@ -183,21 +177,20 @@ function asCatalog(catalog: (string | SubjectCatalogEntry)[]): SubjectCatalogEnt
   const rows: SubjectCatalogEntry[] = [];
   const used = new Set<string>();
   for (const item of catalog) {
-    if (typeof item === "string") {
-      const name = item.trim();
-      if (!name) continue;
-      const found = DEFAULT_SUBJECT_ENTRIES.find((row) => row.name.toLowerCase() === name.toLowerCase());
-      const code = found?.code || normalizeSubjectCode(name).slice(0, 12);
-      if (used.has(code)) continue;
-      used.add(code);
-      rows.push({ code, name, previousCode: code });
-      continue;
-    }
-    const name = String(item.name || "").trim();
-    const code = normalizeSubjectCode(item.code);
-    if (!name || !code || used.has(code)) continue;
-    used.add(code);
-    rows.push({ code, name, previousCode: item.previousCode || code });
+    const name = typeof item === "string" ? item.trim() : String(item.name || "").trim();
+    if (!name || used.has(name.toLowerCase())) continue;
+    used.add(name.toLowerCase());
+    const found = DEFAULT_SUBJECT_ENTRIES.find((row) => row.name.toLowerCase() === name.toLowerCase());
+    const code =
+      (typeof item === "object" && normalizeSubjectCode(item.code)) ||
+      found?.code ||
+      normalizeSubjectCode(name).replace(/[^A-Z0-9]/g, "").slice(0, 12);
+    rows.push({
+      code,
+      name,
+      previousCode: typeof item === "object" ? item.previousCode || code : code,
+      previousName: typeof item === "object" ? item.previousName || name : name,
+    });
   }
   return rows;
 }
@@ -903,7 +896,6 @@ export function SchoolSubjectsForm({
   /** Per-class codes the user crossed out in the Add subject popup (keys like "1", "2", or "*" for the plain code). */
   const [addSkip, setAddSkip] = useState<string[]>(["*"]);
   const [addCodeTouched, setAddCodeTouched] = useState(false);
-  const [groupCode, setGroupCode] = useState("");
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [catalogQuery, setCatalogQuery] = useState("");
   const [importOpen, setImportOpen] = useState(false);
@@ -913,13 +905,8 @@ export function SchoolSubjectsForm({
   const [classAddAllGrades, setClassAddAllGrades] = useState(false);
   const [savedEntries, setSavedEntries] = useState(() => asCatalog(catalog));
   const [confirmRemoveCode, setConfirmRemoveCode] = useState("");
-  const [catalogSubjectKey, setCatalogSubjectKey] = useState("");
   const [classAddPeriods, setClassAddPeriods] = useState("4");
-  const [editIndex, setEditIndex] = useState<number | null>(null);
-  const [editCode, setEditCode] = useState("");
-  const [editName, setEditName] = useState("");
   const [catalogEditIndex, setCatalogEditIndex] = useState<number | null>(null);
-  const [catalogEditCode, setCatalogEditCode] = useState("");
   const [catalogEditName, setCatalogEditName] = useState("");
   const [classId, setClassId] = useState(classes[0]?.id || "");
   const [classSubjects, setClassSubjects] = useState<Record<string, ClassSubjectDraft[]>>(() =>
@@ -949,19 +936,10 @@ export function SchoolSubjectsForm({
   const unsaved = !!selected && draftSignature(selectedRows) !== draftSignature(savedSubjects[selected.id]);
   const plannedPeriods = selectedRows.reduce((sum, row) => sum + (parsePeriods(row.periods) || 0), 0);
   const capacity = weeklyPeriods && weeklyPeriods > 0 ? weeklyPeriods : 0;
-  const codesOnOtherGrades = new Set(
-    classes
-      .filter((klass) => (klass.name || klass.label.split("-")[0] || "").trim() !== selectedGrade)
-      .flatMap((klass) => (classSubjects[klass.id] || klass.subjects).map((row) => normalizeSubjectCode(row.code)))
-      .filter(Boolean)
-  );
-  // The add popup lists only orphan codes: catalog codes no class uses yet (any class, any grade).
-  const usedCodes = new Set(
-    classes.flatMap((klass) => (classSubjects[klass.id] || []).map((row) => normalizeSubjectCode(row.code))).filter(Boolean)
-  );
-  const orphanCatalog = entries.filter((entry) => !usedCodes.has(normalizeSubjectCode(entry.code)));
+  const codesOnOtherGrades = new Set<string>();
+  const usedNames = new Set(selectedRows.map((row) => row.name.trim().toLowerCase()).filter(Boolean));
+  const addPool = entries.filter((entry) => !usedNames.has(entry.name.trim().toLowerCase()));
   const otherGradeCount = 0;
-  const addPool = orphanCatalog;
   const addQuery = classAddQuery.trim().toLowerCase();
   const sameNameRow = (entry: { name: string }) =>
     selectedRows.find((row) => row.name.trim().toLowerCase() === entry.name.trim().toLowerCase());
@@ -987,22 +965,21 @@ export function SchoolSubjectsForm({
   })();
 
   // Which classes use each catalog code, so unused codes are easy to spot and clean up.
-  const codeUsage = (() => {
+  const nameUsage = (() => {
     const map = new Map<string, string[]>();
     for (const klass of classes) {
       for (const row of classSubjects[klass.id] || []) {
-        const code = normalizeSubjectCode(row.code);
-        if (!code) continue;
-        map.set(code, [...(map.get(code) || []), klass.label]);
+        const key = row.name.trim().toLowerCase();
+        if (!key) continue;
+        map.set(key, [...(map.get(key) || []), klass.label]);
       }
     }
     return map;
   })();
-  const usageText = (code: string) => {
-    const used = codeUsage.get(normalizeSubjectCode(code)) || [];
+  const usageText = (name: string) => {
+    const used = nameUsage.get(name.trim().toLowerCase()) || [];
     return used.length ? `Used by ${used.join(", ")}` : "Not used by any class";
   };
-  const openGroup = catalogGroups.find((group) => group.key === catalogSubjectKey);
   const totalSubjects = new Set(entries.map((row) => row.name.trim().toLowerCase())).size;
 
   function closeClassAdd() {
@@ -1077,9 +1054,9 @@ export function SchoolSubjectsForm({
     setFlash(null);
     const subjects = selectedRows.flatMap((row) => {
       const weightage = parsePeriods(row.periods);
-      const code = normalizeSubjectCode(row.code);
       const name = row.name.trim();
-      if (!name || !code || weightage == null || weightage <= 0) return [];
+      const code = normalizeSubjectCode(row.code) || name.replace(/[^A-Za-z0-9]/g, "").slice(0, 12).toUpperCase();
+      if (!name || weightage == null || weightage <= 0) return [];
       return [{ id: row.id, code, previousCode: row.previousCode, name, weightage }];
     });
     try {
@@ -1127,84 +1104,25 @@ export function SchoolSubjectsForm({
     );
   }
 
-  function openClassSubjectEdit(index: number) {
-    const row = selectedRows[index];
-    if (!row) return;
-    setEditIndex(index);
-    setEditCode(row.code);
-    setEditName(row.name);
-    setNotice("");
-  }
-
-  function applyClassSubjectEdit() {
-    if (editIndex == null || !selected) return false;
-    const name = editName.trim();
-    const code = normalizeSubjectCode(editCode);
-    const row = selectedRows[editIndex];
-    if (!row || !name || !clientCodeOk(code)) {
-      setNotice("Code must be 2–12 letters, numbers, or single hyphens.");
-      return false;
-    }
-    if (selectedRows.some((item, i) => i !== editIndex && (item.code === code || item.name.trim().toLowerCase() === name.toLowerCase()))) {
-      setNotice("That subject is already on this class.");
-      return false;
-    }
-    if (codesOnOtherGrades.has(code) && code !== row.code) {
-      setNotice(`That subject code is already used by another class.`);
-      return false;
-    }
-    if (entries.some((entry) => entry.code === code && entry.code !== row.code && entry.code !== row.previousCode)) {
-      setNotice("That subject code is already in the catalog.");
-      return false;
-    }
-    const nextRows = selectedRows.map((item, i) => (i === editIndex ? { ...item, code, name } : item));
-    const subjects = nextRows.flatMap((item) => {
-      const weightage = parsePeriods(item.periods);
-      const nextCode = normalizeSubjectCode(item.code);
-      const nextName = item.name.trim();
-      if (!nextName || !nextCode || weightage == null || weightage <= 0) return [];
-      return [{ id: item.id, code: nextCode, previousCode: item.previousCode, name: nextName, weightage }];
-    });
-    setNotice("");
-    void (async () => {
-      try {
-        await onSaveClass(selected.id, subjects);
-        const savedDrafts = syncGradeSubjectDrafts(classSubjects, classes, selected.id, nextRows);
-        setClassSubjects(savedDrafts);
-        markGradeSaved(savedDrafts);
-    setEntries(
-      entries.some((entry) => entry.code === row.previousCode || entry.code === row.code)
-        ? entries.map((entry) =>
-            entry.code === row.previousCode || entry.code === row.code
-              ? { ...entry, code, name }
-              : entry
-          )
-        : [...entries, { code, name, previousCode: code }]
-    );
-        setEditIndex(null);
-        setFlash({ at: "class", kind: "ok", text: "Subject updated for this class and the catalog." });
-      } catch (error) {
-        setNotice(error instanceof Error ? error.message : "Could not save.");
-      }
-    })();
-    return true;
-  }
-
   function addCatalogEntry(codeRaw: string, nameRaw: string) {
     const name = nameRaw.trim();
-    const code = normalizeSubjectCode(codeRaw);
-    if (!name || !clientCodeOk(code)) {
-      setNotice("Code must be 2–12 letters, numbers, or single hyphens.");
+    if (!name) {
+      setNotice("Type the subject name.");
       return false;
     }
-    if (entries.some((row) => row.code === code)) {
-      setNotice("That subject code is already in the catalog.");
+    if (entries.some((row) => row.name.trim().toLowerCase() === name.toLowerCase())) {
+      setNotice("That subject is already in the catalog.");
       return false;
     }
+    const found = DEFAULT_SUBJECT_ENTRIES.find((row) => row.name.toLowerCase() === name.toLowerCase());
+    const code = normalizeSubjectCode(codeRaw) || found?.code || normalizeSubjectCode(name.replace(/[^A-Za-z0-9]/g, "")).slice(0, 12);
     setNotice("");
-    setEntries([...entries, { code, name, previousCode: code }]);
+    setEntries([{ code, name, previousCode: code, previousName: name }, ...entries]);
     setAddCode("");
     setAddName("");
+    setCatalogQuery("");
+    setAddOpen(false);
+    setFlash({ at: "catalog", kind: "ok", text: `${name} added.` });
     return true;
   }
 
@@ -1239,22 +1157,7 @@ export function SchoolSubjectsForm({
   }
 
   function addCatalogCodes() {
-    const name = addName.trim();
-    const picked = addCodeOptions(addCode).filter((row) => !addSkip.includes(row.key) && !row.exists && row.valid);
-    if (!name) {
-      setNotice("Type the subject name.");
-      return false;
-    }
-    if (!picked.length) {
-      setNotice("Keep at least one new code.");
-      return false;
-    }
-    setNotice("");
-    setEntries([...entries, ...picked.map((row) => ({ code: row.code, name, previousCode: row.code }))]);
-    setAddCode("");
-    setAddName("");
-    setAddSkip(["*"]);
-    return true;
+    return addCatalogEntry(addCode, addName);
   }
 
   function removeCatalog(code: string) {
@@ -1265,7 +1168,6 @@ export function SchoolSubjectsForm({
     const row = entries[index];
     if (!row) return;
     setCatalogEditIndex(index);
-    setCatalogEditCode(row.code);
     setCatalogEditName(row.name);
     setNotice("");
   }
@@ -1274,29 +1176,27 @@ export function SchoolSubjectsForm({
     if (catalogEditIndex == null) return false;
     const row = entries[catalogEditIndex];
     const name = catalogEditName.trim();
-    const code = normalizeSubjectCode(catalogEditCode);
-    if (!row || !name || !clientCodeOk(code)) {
-      setNotice("Code must be 2–12 letters, numbers, or single hyphens.");
+    if (!row || !name) {
+      setNotice("Give this subject a name.");
       return false;
     }
-    if (entries.some((entry, i) => i !== catalogEditIndex && entry.code === code)) {
-      setNotice("That subject code is already in the catalog.");
-      return false;
-    }
-    if (codesOnOtherGrades.has(code) && code !== row.code) {
-      setNotice("That subject code is already used by another class.");
+    if (entries.some((entry, i) => i !== catalogEditIndex && entry.name.trim().toLowerCase() === name.toLowerCase())) {
+      setNotice("That subject is already in the catalog.");
       return false;
     }
     const previousCode = row.previousCode || row.code;
+    const previousName = row.previousName || row.name;
     const nextEntries = entries.map((entry, i) =>
-      i === catalogEditIndex ? { ...entry, code, name, previousCode } : entry
+      i === catalogEditIndex ? { ...entry, code: row.code, name, previousCode, previousName } : entry
     );
+    const sameSubject = (item: { code: string; previousCode: string; name: string }) =>
+      item.name.trim().toLowerCase() === row.name.trim().toLowerCase() ||
+      item.code === row.code ||
+      item.previousCode === row.code;
     const nextDrafts = Object.fromEntries(
       Object.entries(classSubjects).map(([id, rows]) => [
         id,
-        rows.map((item) =>
-          item.code === row.code || item.previousCode === row.code ? { ...item, code, name } : item
-        ),
+        rows.map((item) => (sameSubject(item) ? { ...item, name } : item)),
       ])
     );
     setNotice("");
@@ -1310,7 +1210,7 @@ export function SchoolSubjectsForm({
           Object.fromEntries(
             Object.entries(prev).map(([id, rows]) => [
               id,
-              rows.map((item) => (item.code === row.code || item.previousCode === row.code ? { ...item, code, name } : item)),
+              rows.map((item) => (sameSubject(item) ? { ...item, name } : item)),
             ])
           )
         );
@@ -1325,8 +1225,8 @@ export function SchoolSubjectsForm({
 
   function sheetCsv(sample = false) {
     const rows = [
-      ["Code", "Name"],
-      ...(sample && !entries.length ? DEFAULT_SUBJECT_ENTRIES.slice(0, 8) : entries).map((row) => [row.code, row.name]),
+      ["Name"],
+      ...(sample && !entries.length ? DEFAULT_SUBJECT_ENTRIES.slice(0, 8) : entries).map((row) => [row.name]),
     ];
     return rows.map((row) => row.map(csvEscape).join(",")).join("\n");
   }
@@ -1354,7 +1254,7 @@ export function SchoolSubjectsForm({
     const codeIdx = head.findIndex((cell) => cell.includes("code"));
     const nameIdx = head.findIndex((cell) => cell.includes("name") || cell.includes("subject"));
     if (nameIdx < 0) {
-      setFlash({ at: "catalog", kind: "err", text: "Use a CSV with Code and Name columns." });
+      setFlash({ at: "catalog", kind: "err", text: "Use a CSV with a Name column." });
       return;
     }
     const imported = asCatalog(
@@ -1392,7 +1292,7 @@ export function SchoolSubjectsForm({
               <Text className="text-sm font-medium text-clay-600">Manage catalog</Text>
             </Pressable>
           </View>
-          <SaveFlash at="catalog" flash={flash} />
+          {!catalogOpen ? <SaveFlash at="catalog" flash={flash} /> : null}
           {gradeSections.length > 1 ? (
             <Text className="text-sm text-ink-700">
               Class {selectedGrade} sections share these subjects. Each section keeps its own routine and teachers.
@@ -1443,7 +1343,7 @@ export function SchoolSubjectsForm({
             <View className="flex-row items-center gap-3 border-b border-ink-100 bg-ink-50 px-3 py-2">
               <Text className="min-w-0 flex-1 text-xs font-medium uppercase tracking-wide text-ink-700">Subject</Text>
               <Text className="w-28 text-center text-xs font-medium uppercase tracking-wide text-ink-700">Periods/week</Text>
-              <View className="w-20" />
+              <View className="w-8" />
             </View>
             {selectedRows.map((row, index) => {
               const placed = placedCount(row.id);
@@ -1458,15 +1358,7 @@ export function SchoolSubjectsForm({
                   <View className="w-28 items-center">
                     <PeriodStepper label={row.name} value={row.periods} onChange={(value) => setRowPeriods(index, value)} />
                   </View>
-                  <View className="w-20 flex-row items-center justify-end gap-1">
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={`Edit ${formatSubjectLabel(row.code, row.name)}`}
-                      onPress={() => openClassSubjectEdit(index)}
-                      className="h-8 px-1 items-center justify-center"
-                    >
-                      <Text className="text-xs font-medium text-clay-600">Edit</Text>
-                    </Pressable>
+                  <View className="w-8 flex-row items-center justify-end">
                     <Pressable
                       accessibilityRole="button"
                       accessibilityLabel={`Remove ${formatSubjectLabel(row.code, row.name)}`}
@@ -1499,7 +1391,7 @@ export function SchoolSubjectsForm({
           >
             Manage catalog
           </Button>
-          <SaveFlash at="catalog" flash={flash} />
+          {!catalogOpen ? <SaveFlash at="catalog" flash={flash} /> : null}
         </View>
       )}
       <Modal open={pendingClassId != null} title="Unsaved changes" onClose={() => setPendingClassId(null)}>
@@ -1534,7 +1426,6 @@ export function SchoolSubjectsForm({
         title="School catalog"
         onClose={() => {
           setCatalogOpen(false);
-          setCatalogSubjectKey("");
         }}
         wide
         footer={
@@ -1548,7 +1439,6 @@ export function SchoolSubjectsForm({
               variant="ghost"
               onPress={() => {
                 setCatalogOpen(false);
-                setCatalogSubjectKey("");
               }}
             >
               Close
@@ -1558,242 +1448,82 @@ export function SchoolSubjectsForm({
         }
       >
         <View className="gap-3">
-          {openGroup && !catalogQueryText ? (
-            <>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => {
-                  setCatalogSubjectKey("");
-                  setGroupCode("");
-                  setNotice("");
-                }}
-                className="flex-row items-center gap-1 self-start py-1"
-              >
-                <Ionicons name="chevron-back" size={16} color="#2563eb" />
-                <Text className="text-sm font-medium text-clay-600">All subjects</Text>
+          <>
+            <SaveFlash at="catalog" flash={flash} />
+            <View className="flex-row items-center justify-between gap-2">
+              <Text className="text-xs text-ink-700">{`${totalSubjects} ${totalSubjects === 1 ? "subject" : "subjects"}`}</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel="Upload subjects" onPress={() => setImportOpen(true)} className="flex-row items-center gap-1 py-1">
+                <Ionicons name="cloud-upload-outline" size={15} color="#2563eb" />
+                <Text className="text-sm font-medium text-clay-600">Upload CSV</Text>
               </Pressable>
-              <View>
-                <Text className="text-base font-semibold text-ink-900">{openGroup.name}</Text>
-                <Text className="mt-0.5 text-xs text-ink-700">
-                  {`${openGroup.items.length} ${openGroup.items.length === 1 ? "code" : "codes"} · tap one to rename or remove it, or add another below`}
-                </Text>
+            </View>
+            <View className="flex-row items-center gap-2">
+              <View className="min-w-0 flex-1">
+                <Input accessibilityLabel="Search subject" value={catalogQuery} onChangeText={setCatalogQuery} placeholder="English" />
               </View>
-              <View className="overflow-hidden rounded-md border border-ink-200">
-                {openGroup.items.map(({ row, index }, i) => (
-                  <CatalogCodeRow
-                    key={`${row.previousCode || row.code}-${index}`}
-                    code={row.code}
-                    name={row.name.trim() !== openGroup.name ? row.name.trim() : ""}
-                    usage={usageText(row.code)}
-                    unused={!codeUsage.has(normalizeSubjectCode(row.code))}
-                    label={`Edit ${formatSubjectLabel(row.code, row.name)} in catalog`}
-                    first={i === 0}
-                    onPress={() => openCatalogEdit(index)}
-                  />
-                ))}
-              </View>
-              <View className="gap-1.5 rounded-md border border-dashed border-ink-200 bg-ink-50 px-3 py-3">
-                <Text className="text-xs font-medium text-ink-800">{`Add another code for ${openGroup.name}`}</Text>
-                <View className="flex-row items-center gap-2">
-                  <View className="min-w-0 flex-1">
-                    <Input
-                      accessibilityLabel={`New code for ${openGroup.name}`}
-                      value={groupCode}
-                      onChangeText={(value) => setGroupCode(normalizeSubjectCode(value))}
-                      placeholder={(() => {
-                        const base = openGroup.items[0]?.row.code.replace(/-?\d+$/, "") || "CODE";
-                        let n = 1;
-                        while (entries.some((e) => e.code === `${base}-${n}`)) n += 1;
-                        return `${base}-${n}`;
-                      })()}
-                      autoCapitalize="characters"
-                      onSubmitEditing={() => {
-                        if (addCatalogEntry(groupCode, openGroup.items[0]?.row.name || openGroup.name)) setGroupCode("");
-                      }}
-                    />
-                  </View>
-                  <Button
-                    disabled={!groupCode.trim()}
-                    onPress={() => {
-                      if (addCatalogEntry(groupCode, openGroup.items[0]?.row.name || openGroup.name)) setGroupCode("");
-                    }}
-                  >
-                    Add code
-                  </Button>
+              <Button variant="ghost" accessibilityLabel="Add subject" onPress={openCatalogAdd}>
+                + Add
+              </Button>
+            </View>
+            <View className="overflow-hidden rounded-md border border-ink-200">
+              {catalogGroups.flatMap((group) => group.items).map(({ row, index }, i) => (
+                <CatalogCodeRow
+                  key={`${row.previousCode || row.code}-${index}`}
+                  code={row.code}
+                  name={row.name.trim()}
+                  usage={usageText(row.name)}
+                  unused={!nameUsage.has(row.name.trim().toLowerCase())}
+                  label={`Edit ${formatSubjectLabel(row.code, row.name)} in catalog`}
+                  first={i === 0}
+                  onPress={() => openCatalogEdit(index)}
+                />
+              ))}
+              {!entries.length ? (
+                <View className="px-3 py-4">
+                  <Text className="text-sm text-ink-700">No catalog subjects yet. Add one or upload a CSV.</Text>
                 </View>
-                {notice ? <Text className="text-xs text-red-700">{notice}</Text> : (
-                  <Text className="text-xs text-ink-500">{`For example, one code per class: ${(openGroup.items[0]?.row.code || "CODE").replace(/-?\d+$/, "")}-1, ${(openGroup.items[0]?.row.code || "CODE").replace(/-?\d+$/, "")}-2. Tap Save catalog to keep it.`}</Text>
-                )}
-              </View>
-            </>
-          ) : (
-            <>
-              <View className="flex-row items-center justify-between gap-2">
-                <Text className="text-xs text-ink-700">{`${totalSubjects} ${totalSubjects === 1 ? "subject" : "subjects"} · ${entries.length} codes`}</Text>
-                <Pressable accessibilityRole="button" accessibilityLabel="Upload subjects" onPress={() => setImportOpen(true)} className="flex-row items-center gap-1 py-1">
-                  <Ionicons name="cloud-upload-outline" size={15} color="#2563eb" />
-                  <Text className="text-sm font-medium text-clay-600">Upload CSV</Text>
-                </Pressable>
-              </View>
-              <View className="flex-row items-center gap-2">
-                <View className="min-w-0 flex-1">
-                  <Input accessibilityLabel="Search subject" value={catalogQuery} onChangeText={setCatalogQuery} placeholder="ENG or English" />
+              ) : catalogQueryText && !catalogGroups.length ? (
+                <View className="px-3 py-4">
+                  <Text className="text-sm text-ink-700">No subjects match that search.</Text>
                 </View>
-                <Button variant="ghost" accessibilityLabel="Add subject" onPress={openCatalogAdd}>
-                  + Add
-                </Button>
-              </View>
-              <View className="overflow-hidden rounded-md border border-ink-200">
-                {catalogQueryText
-                  ? catalogGroups
-                      .flatMap((group) => group.items)
-                      .map(({ row, index }, i) => (
-                        <CatalogCodeRow
-                          key={`${row.previousCode || row.code}-${index}`}
-                          code={row.code}
-                          name={row.name.trim()}
-                          usage={usageText(row.code)}
-                          unused={!codeUsage.has(normalizeSubjectCode(row.code))}
-                          label={`Edit ${formatSubjectLabel(row.code, row.name)} in catalog`}
-                          first={i === 0}
-                          onPress={() => openCatalogEdit(index)}
-                        />
-                      ))
-                  : catalogGroups.map((group, i) => {
-                      const unused = group.items.filter(({ row }) => !codeUsage.has(normalizeSubjectCode(row.code))).length;
-                      return (
-                        <Pressable
-                          key={group.key}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Open ${group.name}`}
-                          onPress={() => setCatalogSubjectKey(group.key)}
-                          className={`flex-row items-center gap-3 px-3 py-3 ${i ? "border-t border-ink-100" : ""}`}
-                        >
-                          <View className="min-w-0 flex-1">
-                            <Text className="text-sm font-semibold text-ink-900" numberOfLines={1}>
-                              {group.name}
-                            </Text>
-                            <Text className="mt-0.5 text-xs text-ink-700" numberOfLines={1}>
-                              {group.items.length === 1
-                                ? group.items[0].row.code
-                                : `${group.items.length} codes · ${group.items
-                                    .slice(0, 3)
-                                    .map(({ row }) => row.code)
-                                    .join(", ")}${group.items.length > 3 ? "…" : ""}`}
-                            </Text>
-                          </View>
-                          {unused ? (
-                            <View className="rounded-full bg-amber-50 px-2 py-0.5">
-                              <Text className="text-[11px] font-medium text-amber-700">{`${unused} unused`}</Text>
-                            </View>
-                          ) : null}
-                          <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-                        </Pressable>
-                      );
-                    })}
-                {!entries.length ? (
-                  <View className="px-3 py-4">
-                    <Text className="text-sm text-ink-700">No catalog subjects yet. Add one or upload a CSV.</Text>
-                  </View>
-                ) : catalogQueryText && !catalogGroups.length ? (
-                  <View className="px-3 py-4">
-                    <Text className="text-sm text-ink-700">No subjects match that search.</Text>
-                  </View>
-                ) : null}
-              </View>
-            </>
-          )}
+              ) : null}
+            </View>
+          </>
         </View>
       </Modal>
       <Modal open={addOpen} title="Add subject" onClose={() => setAddOpen(false)}>
         <View className="gap-3">
           <Field label="Name">
             <Input
+              accessibilityLabel="Subject name"
               value={addName}
-              onChangeText={(value) => {
-                setAddName(value);
-                // Suggest a short code from the name (English → ENG) until the user types their own.
-                if (!addCodeTouched) setAddCode(normalizeSubjectCode(value.replace(/[^A-Za-z]/g, "").slice(0, 3)));
-              }}
+              onChangeText={setAddName}
               placeholder="English"
-            />
-          </Field>
-          <Field label="Code">
-            <Input
-              value={addCode}
-              onChangeText={(value) => {
-                setAddCodeTouched(true);
-                setAddCode(normalizeSubjectCode(value));
+              onSubmitEditing={() => {
+                if (addCatalogEntry("", addName)) {
+                  setAddName("");
+                }
               }}
-              placeholder="ENG"
-              autoCapitalize="characters"
             />
           </Field>
-          {(() => {
-            const options = addCodeOptions(addCode);
-            if (!options.length) {
-              return (
-                <View className="gap-2">
-                  <View className="rounded-md border border-dashed border-ink-200 bg-ink-50 px-3 py-3">
-                    <Text className="text-[13px] text-ink-700">
-                      {schoolGrades.length
-                        ? `Type the name and code. You'll get one code per class (${schoolGrades.length} classes) — cross out the ones you don't need.`
-                        : "Type the name and code."}
-                    </Text>
-                  </View>
-                  <View className="flex-row pt-1">
-                    <Button disabled onPress={() => undefined}>Add codes</Button>
-                  </View>
-                </View>
-              );
-            }
-            const keep = options.filter((row) => !addSkip.includes(row.key) && !row.exists && row.valid);
-            return (
-              <View className="gap-2">
-                <Text className="text-xs font-medium text-ink-800">Codes to add · tap × on the ones you don't need</Text>
-                <View className="flex-row flex-wrap gap-2">
-                  {options.map((row) => {
-                    const off = addSkip.includes(row.key);
-                    const blocked = row.exists || !row.valid;
-                    return (
-                      <Pressable
-                        key={row.key}
-                        accessibilityRole="button"
-                        accessibilityLabel={off ? `Add ${row.code} back` : `Don't add ${row.code}`}
-                        disabled={blocked}
-                        onPress={() => setAddSkip((cur) => (off ? cur.filter((k) => k !== row.key) : [...cur, row.key]))}
-                        className={`flex-row items-center gap-1.5 rounded-md border px-2.5 py-1.5 ${
-                          blocked ? "border-ink-100 bg-ink-50" : off ? "border-dashed border-ink-200 bg-white" : "border-clay-500 bg-[#EEF3FF]"
-                        }`}
-                      >
-                        <Text className={`text-[13px] font-semibold ${blocked || off ? "text-ink-500" : "text-ink-900"} ${off ? "line-through" : ""}`}>{row.code}</Text>
-                        <Text className="text-[11px] text-ink-500">{row.exists ? "already in catalog" : !row.valid ? "too long" : row.label}</Text>
-                        {blocked ? null : <Ionicons name={off ? "add" : "close"} size={13} color={off ? "#2563eb" : "#64748b"} />}
-                      </Pressable>
-                    );
-                  })}
-                </View>
-                {notice ? <Text className="text-xs text-red-700">{notice}</Text> : null}
-                <View className="flex-row flex-wrap gap-2 pt-1">
-                  <Button
-                    disabled={!keep.length || !addName.trim()}
-                    onPress={() => {
-                      if (addCatalogCodes()) setAddOpen(false);
-                    }}
-                  >
-                    {keep.length === 1 ? `Add ${keep[0].code}` : `Add ${keep.length} codes`}
-                  </Button>
-                </View>
-              </View>
-            );
-          })()}
+          {notice ? <Text className="text-xs text-red-700">{notice}</Text> : (
+            <Text className="text-xs text-ink-500">Add as many subjects as you need. Save catalog when you are done.</Text>
+          )}
+          <Button
+            disabled={!addName.trim()}
+            onPress={() => {
+              if (addCatalogEntry("", addName)) setAddName("");
+            }}
+          >
+            Add to catalog
+          </Button>
           <View className="border-t border-ink-100 pt-3">
             <Text className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-700">Defaults</Text>
             <View className="flex-row flex-wrap gap-2">
-              {DEFAULT_SUBJECT_ENTRIES.filter((row) => !entries.some((entry) => entry.code === row.code)).map((row) => (
+              {DEFAULT_SUBJECT_ENTRIES.filter((row) => !entries.some((entry) => entry.name.toLowerCase() === row.name.toLowerCase())).map((row) => (
                 <Chip
-                  key={row.code}
-                  label={`+ ${formatSubjectLabel(row.code, row.name)}`}
+                  key={row.name}
+                  label={`+ ${row.name}`}
                   onPress={() => addCatalogEntry(row.code, row.name)}
                 />
               ))}
@@ -1812,21 +1542,7 @@ export function SchoolSubjectsForm({
               const picked = addPool.find((row) => row.code === classAddCode);
               const periods = parsePeriods(classAddPeriods);
               if (!picked || !selected) return;
-              const existing = sameNameRow(picked);
-              if (existing) {
-                // Same subject, different code → swap the code on the existing row (keeps periods and links).
-                setClassSubjects(
-                  syncGradeSubjectDrafts(
-                    classSubjects,
-                    classes,
-                    selected.id,
-                    selectedRows.map((row) => (row === existing ? { ...row, code: picked.code, name: picked.name } : row))
-                  )
-                );
-                closeClassAdd();
-                return;
-              }
-              if (periods == null || periods <= 0) return;
+              if (sameNameRow(picked) || periods == null || periods <= 0) return;
               setClassSubjects(
                 syncGradeSubjectDrafts(classSubjects, classes, selected.id, [
                   ...selectedRows,
@@ -1836,20 +1552,20 @@ export function SchoolSubjectsForm({
               closeClassAdd();
             }}
           >
-            {!pickedForAdd ? "Pick a subject" : replacing ? `Use ${pickedForAdd.code} instead of ${replacing.code}` : "Add to class"}
+            {!pickedForAdd ? "Pick a subject" : "Add to class"}
           </Button>
         }
       >
         <View className="gap-3">
           {!addPool.length ? (
             <Text className="text-sm text-ink-700">
-              {"Every catalog code is already used by a class. Add a new code in Manage catalog."}
+              {"Every catalog subject is already on this class. Add a new subject in Manage catalog."}
             </Text>
           ) : (
             <>
               {addPool.length > 6 ? (
                 <Field label="Search catalog">
-                  <Input value={classAddQuery} onChangeText={setClassAddQuery} placeholder="ENG or English" />
+                  <Input value={classAddQuery} onChangeText={setClassAddQuery} placeholder="English" />
                 </Field>
               ) : null}
               <View className="flex-row flex-wrap gap-2">
@@ -1867,10 +1583,6 @@ export function SchoolSubjectsForm({
                     >
                       {active ? <Ionicons name="checkmark" size={14} color="#fff" /> : null}
                       <Text className={`text-sm font-medium ${active ? "text-white" : "text-ink-900"}`}>{row.name}</Text>
-                      <Text className={`text-[11px] font-medium tracking-wide ${active ? "text-white" : "text-ink-700"}`}>{row.code}</Text>
-                      {swapsWith ? (
-                        <Text className={`text-[11px] ${active ? "text-white/80" : "text-ink-500"}`}>{`instead of ${swapsWith.code}`}</Text>
-                      ) : null}
                     </Pressable>
                   );
                 })}
@@ -1892,19 +1604,10 @@ export function SchoolSubjectsForm({
               </Text>
             </Pressable>
           ) : null}
-          {replacing && pickedForAdd ? (
-            <View className="flex-row items-start gap-2 rounded-lg bg-amber-50 px-3 py-2.5">
-              <Ionicons name="swap-horizontal-outline" size={15} color="#B45309" />
-              <Text className="min-w-0 flex-1 text-[13px] leading-5 text-amber-900">
-                {`${selected?.label || "This class"} already has ${replacing.name} as ${replacing.code}. Picking ${pickedForAdd.code} changes its code; periods (${replacing.periods}/week), routine and exams stay.`}
-              </Text>
-            </View>
-          ) : (
-            <View className="flex-row items-center justify-between gap-3 border-t border-ink-100 pt-3">
-              <Text className="text-sm font-medium text-ink-800">Periods / week</Text>
-              <PeriodStepper label="new subject" value={classAddPeriods} onChange={setClassAddPeriods} />
-            </View>
-          )}
+          <View className="flex-row items-center justify-between gap-3 border-t border-ink-100 pt-3">
+            <Text className="text-sm font-medium text-ink-800">Periods / week</Text>
+            <PeriodStepper label="new subject" value={classAddPeriods} onChange={setClassAddPeriods} />
+          </View>
         </View>
       </Modal>
       <Modal
@@ -1918,16 +1621,8 @@ export function SchoolSubjectsForm({
       >
         <View className="gap-3">
           <Text className="text-sm text-ink-700">
-            This updates the school catalog and every class that already uses this subject, unless the code is already used.
+            This updates the school catalog and every class that already uses this subject.
           </Text>
-          <Field label="Code">
-            <Input
-              value={catalogEditCode}
-              onChangeText={(value) => setCatalogEditCode(normalizeSubjectCode(value))}
-              placeholder="ENG"
-              autoCapitalize="characters"
-            />
-          </Field>
           <Field label="Name">
             <Input value={catalogEditName} onChangeText={setCatalogEditName} placeholder="English" />
           </Field>
@@ -1958,7 +1653,7 @@ export function SchoolSubjectsForm({
           <View className="flex-row flex-wrap items-center justify-between gap-2">
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={`Remove ${catalogEditIndex != null ? entries[catalogEditIndex]?.code || "" : ""} from catalog`}
+              accessibilityLabel={`Remove ${catalogEditIndex != null ? entries[catalogEditIndex]?.name || "" : ""} from catalog`}
               onPress={() => catalogEditIndex != null && setConfirmRemoveCode(entries[catalogEditIndex]?.code || "")}
               className="py-2"
             >
@@ -1968,33 +1663,10 @@ export function SchoolSubjectsForm({
           </View>
         </View>
       </Modal>
-      <Modal
-        open={editIndex != null}
-        title="Edit subject"
-        onClose={() => {
-          setEditIndex(null);
-          setNotice("");
-        }}
-      >
-        <View className="gap-3">
-          <Text className="text-sm text-ink-700">
-            This updates every section of Class {selectedGrade || "this class"} and the school catalog, unless the code is already used.
-          </Text>
-          <Field label="Code">
-            <Input value={editCode} onChangeText={(value) => setEditCode(normalizeSubjectCode(value))} placeholder="ENG" autoCapitalize="characters" />
-          </Field>
-          <Field label="Name">
-            <Input value={editName} onChangeText={setEditName} placeholder="English" />
-          </Field>
-          <View className="flex-row justify-end">
-            <Button onPress={() => applyClassSubjectEdit()}>Save</Button>
-          </View>
-        </View>
-      </Modal>
       <Modal open={importOpen} title="Upload subjects" onClose={() => setImportOpen(false)} wide>
         <UploadCsvPanel
           description="Upload the school subject catalog. Class periods stay on each class."
-          requiredColumns="Code, Name"
+          requiredColumns="Name"
           note="Use one subject per row. Existing catalog rows are replaced after you review and save."
           onBrowse={() => void uploadSheet()}
           onDropFile={(file) => void uploadSheet(file)}
@@ -2018,8 +1690,8 @@ export function SchoolSubjectsForm({
         </View>
       </Modal>
       <Modal
-        open={Boolean(notice)}
-        title={editIndex != null || catalogEditIndex != null ? "Can't edit subject" : "Can't add subject"}
+        open={Boolean(notice) && !addOpen}
+        title={catalogEditIndex != null ? "Can't edit subject" : "Can't add subject"}
         onClose={() => setNotice("")}
       >
         <View className="gap-3">

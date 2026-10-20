@@ -198,4 +198,18 @@ describe.sequential("grade curriculum sync", () => {
     expect(await prisma.subject.count({ where: { classId: klass.id, code: "ENG6A" } })).toBe(1);
     expect(await prisma.timetableSlot.count({ where: { classId: klass.id } })).toBe(0);
   });
+
+  it("renames a class without changing its id", async () => {
+    const created = await act(officeToken, "createClass", { name: "8", section: "A" });
+    expect(created.status).toBe(200);
+    const klass = await prisma.class.findFirstOrThrow({ where: { name: "8", section: "A" } });
+    const renamed = await act(officeToken, "updateClass", { classId: klass.id, name: "BODH", section: "A" });
+    expect(renamed.status).toBe(200);
+    expect(await prisma.class.findUniqueOrThrow({ where: { id: klass.id } })).toMatchObject({
+      name: "BODH",
+      section: "A",
+    });
+    const clash = await act(officeToken, "updateClass", { classId: klass.id, name: "7", section: "A" });
+    expect(clash.status).toBe(400);
+  });
 });

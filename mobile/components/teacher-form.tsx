@@ -2,7 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { Button, Field, Input } from "./ui";
-import { catalogCodeMatchesGrade, formatSubjectLabel, skillMatchesSubject } from "../lib/subject-label";
+import { formatSubjectLabel, skillMatchesSubject } from "../lib/subject-label";
 
 export const QUALIFICATION_OPTIONS = [
   "B.Ed",
@@ -30,7 +30,7 @@ function classGrade(klass: TeacherClassRow) {
 }
 
 function subjectCodeOf(subject: { code?: string; name: string }) {
-  return (subject.code || "").trim() || subject.name;
+  return subject.name.trim();
 }
 
 function parseQualification(raw?: string | null) {
@@ -87,11 +87,7 @@ export function TeacherForm({
   }) => Promise<void>;
 }) {
   const parsed = parseQualification(teacher?.qualification);
-  const teachable = classes.filter(
-    (klass) =>
-      klass.id &&
-      ((klass.subjects ?? []).length || catalog.some((entry) => catalogCodeMatchesGrade(entry.code, classGrade(klass))))
-  );
+  const teachable = classes.filter((klass) => klass.id && (klass.subjects ?? []).length);
   const startPicked = initialClassPicks(teacher, teachable);
   const firstAssigned = Object.keys(startPicked)[0];
   const [name, setName] = useState(teacher?.name || "");
@@ -113,18 +109,7 @@ export function TeacherForm({
   const editing = Boolean(teacher);
 
   function subjectsFor(klass: TeacherClassRow) {
-    const grade = classGrade(klass);
-    const planned = (klass.subjects ?? []).map((subject) => ({ ...subject, planned: true }));
-    const extra = catalog
-      .filter(
-        (entry) =>
-          catalogCodeMatchesGrade(entry.code, grade) &&
-          !(klass.subjects ?? []).some(
-            (subject) => subjectCodeOf(subject) === entry.code || subject.name.trim().toLowerCase() === entry.name.trim().toLowerCase()
-          )
-      )
-      .map((entry) => ({ code: entry.code, name: entry.name, weightage: 0, planned: false }));
-    return [...planned, ...extra];
+    return (klass.subjects ?? []).map((subject) => ({ ...subject, planned: true }));
   }
 
   function periodsOf(klass: TeacherClassRow, code: string) {
@@ -307,11 +292,6 @@ export function TeacherForm({
                         </View>
                         <View className="min-w-0 flex-1 flex-row flex-wrap items-center gap-x-2 gap-y-0.5">
                           <Text className={`text-[14px] font-semibold ${subject.planned ? "text-ink-900" : "text-ink-500"}`}>{subject.name}</Text>
-                          {subject.code ? (
-                            <View className="rounded bg-ink-100 px-1.5 py-0.5">
-                              <Text className="text-[10px] font-medium tracking-wide text-ink-700">{subject.code}</Text>
-                            </View>
-                          ) : null}
                           {!subject.planned ? (
                             <Text className="text-[11px] text-ink-500">{`not on ${klass.label}'s subjects yet`}</Text>
                           ) : also.length ? (
@@ -388,7 +368,6 @@ export function TeacherForm({
                 if (!subject) return [];
                 return [
                   {
-                    subjectCode: subjectCodeOf(subject),
                     subjectName: subject.name,
                     classId: klass.id,
                   },

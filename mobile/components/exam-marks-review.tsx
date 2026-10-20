@@ -176,7 +176,7 @@ export function ExamMarksReview({
     ? rows.filter((student) => papers.some((exam) => !byKey.get(`${exam.id}:${student.id}`)))
     : rows;
   const nameOf = (exam: Exam) => exam.subject.name;
-  const shortOf = (exam: Exam) => (exam.subject.code || exam.subject.name).replace(/-\d+$/, "").slice(0, 4).toUpperCase();
+  const shortOf = (exam: Exam) => exam.subject.name.slice(0, 4);
 
   function cellText(exam: Exam, studentId: string) {
     const mark = byKey.get(`${exam.id}:${studentId}`);

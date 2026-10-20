@@ -5,7 +5,7 @@ import { Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, use
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button, Card, Chip, ChipScroller, Empty, Field, Input, Modal, PageHeader, Toast, useToast } from "./ui";
 import { TeacherForm } from "./teacher-form";
-import { formatSubjectLabel, skillMatchesSubject } from "../lib/subject-label";
+import { formatSubjectLabel, labeledTeacherSkills } from "../lib/subject-label";
 import { act } from "../lib/mutate";
 import { openRoutinePdf } from "../lib/print-html";
 import { useRecord } from "../lib/record";
@@ -87,18 +87,14 @@ export function WeekBoard() {
       })),
     [rawClasses]
   );
-  const teachers = useMemo(() => {
-    const subjectsByClass = new Map(rawClasses.map((c) => [c.id || "", c.subjects ?? []]));
-    const everySubject = rawClasses.flatMap((c) => c.subjects ?? []);
-    return rawTeachers.map((t) => ({
-      ...t,
-      skills: t.skills.map((skill) => {
-        const pool = (skill.classId && subjectsByClass.get(skill.classId)) || everySubject;
-        const hit = pool.find((row) => skillMatchesSubject(skill.subjectName, row));
-        return hit ? { ...skill, subjectName: hit.name } : skill;
-      }),
-    }));
-  }, [rawClasses, rawTeachers]);
+  const teachers = useMemo(
+    () =>
+      rawTeachers.map((t) => ({
+        ...t,
+        skills: labeledTeacherSkills(t.skills, rawClasses),
+      })),
+    [rawClasses, rawTeachers]
+  );
   const periods = table?.periods ?? [];
   const weekdays = table?.weekdays ?? [];
   const [classId, setClassId] = useState(classes[0]?.id || "");

@@ -49,7 +49,7 @@ describe("SchoolSubjectsForm", () => {
     );
 
     fireEvent.press(screen.getByText("Manage catalog"));
-    expect(screen.getByText("0 subjects · 0 codes")).toBeTruthy();
+    expect(screen.getByText("0 subjects")).toBeTruthy();
     expect(screen.getByText("No catalog subjects yet. Add one or upload a CSV.")).toBeTruthy();
     expect(screen.queryByLabelText("Open English")).toBeNull();
   });
@@ -77,19 +77,18 @@ describe("SchoolSubjectsForm", () => {
     );
 
     expect(screen.getByText("1-A — Subjects")).toBeTruthy();
-    expect(screen.getByLabelText("Remove ENG · English")).toBeTruthy();
+    expect(screen.getByLabelText("Remove English")).toBeTruthy();
     expect(screen.getByText("English")).toBeTruthy();
-    expect(screen.getByText("ENG")).toBeTruthy();
-    expect(screen.queryByLabelText("Remove MAT · Mathematics")).toBeNull();
+    expect(screen.queryByLabelText("Remove Mathematics")).toBeNull();
     expect(screen.getByText("2-A")).toBeTruthy();
 
     fireEvent.press(screen.getByText("2-A"));
     expect(screen.getByText("2-A — Subjects")).toBeTruthy();
-    expect(screen.queryByLabelText("Remove ENG · English")).toBeNull();
+    expect(screen.queryByLabelText("Remove English")).toBeNull();
     expect(screen.getByText("No subjects on this class yet. Add from the school catalog.")).toBeTruthy();
   });
 
-  it("allows the same catalog name when the code is different", () => {
+  it("adds a catalog subject by name and rejects a duplicate", () => {
     render(
       <SchoolSubjectsForm
         catalog={[{ code: "HIN", name: "Hindi" }]}
@@ -101,43 +100,17 @@ describe("SchoolSubjectsForm", () => {
 
     fireEvent.press(screen.getByText("Manage catalog"));
     fireEvent.press(screen.getByLabelText("Add subject"));
-    fireEvent.changeText(screen.getByPlaceholderText("ENG"), "HIN-5");
-    fireEvent.changeText(screen.getByPlaceholderText("English"), "HINDI");
-    fireEvent.press(screen.getByText("Add HIN-5"));
-
-    expect(screen.queryByText("That subject is already in the catalog.")).toBeNull();
-    expect(screen.queryByText("That subject code is already in the catalog.")).toBeNull();
-    // Same name, different case: grouped under "Hindi", each code stays editable.
-    fireEvent.press(screen.getByLabelText("Open Hindi"));
-    expect(screen.getByLabelText("Edit HIN · Hindi in catalog")).toBeTruthy();
-    expect(screen.getByLabelText("Edit HIN-5 · HINDI in catalog")).toBeTruthy();
-  });
-
-  it("suggests one code per class, skips codes already in the catalog, and lets you cross some out", () => {
-    render(
-      <SchoolSubjectsForm
-        catalog={[{ code: "HIN", name: "Hindi" }, { code: "HIN-5", name: "Hindi" }]}
-        classes={[
-          { id: "class-5-a", label: "5-A", name: "5", subjects: [] },
-          { id: "class-6-a", label: "6-A", name: "6", subjects: [] },
-          { id: "class-7-a", label: "7-A", name: "7", subjects: [] },
-        ]}
-        onSaveCatalog={jest.fn()}
-        onSaveClass={jest.fn()}
-      />
+    fireEvent.changeText(screen.getByLabelText("Subject name"), "Science");
+    fireEvent.press(screen.getByText("Add to catalog"));
+    expect(screen.getAllByLabelText(/Edit .+ in catalog/).map((node) => node.props.accessibilityLabel)[0]).toBe(
+      "Edit Science in catalog"
     );
+    expect(screen.getByText("Science added.")).toBeTruthy();
 
-    fireEvent.press(screen.getByText("Manage catalog"));
     fireEvent.press(screen.getByLabelText("Add subject"));
-    fireEvent.changeText(screen.getByPlaceholderText("English"), "Hindi");
-    fireEvent.changeText(screen.getByPlaceholderText("ENG"), "HIN");
-    expect(screen.getAllByText("already in catalog")).toHaveLength(2);
-    expect(screen.getByText("Add 2 codes")).toBeTruthy();
-    fireEvent.press(screen.getByLabelText("Don't add HIN-7"));
-    fireEvent.press(screen.getByText("Add HIN-6"));
-    fireEvent.press(screen.getByLabelText("Open Hindi"));
-    expect(screen.getByLabelText("Edit HIN-6 · Hindi in catalog")).toBeTruthy();
-    expect(screen.queryByLabelText("Edit HIN-7 · Hindi in catalog")).toBeNull();
+    fireEvent.changeText(screen.getByLabelText("Subject name"), "hindi");
+    fireEvent.press(screen.getByText("Add to catalog"));
+    expect(screen.getByText("That subject is already in the catalog.")).toBeTruthy();
   });
 
   it("lets the class list drop a subject locally so save can clear routine and teachers", () => {
@@ -150,7 +123,6 @@ describe("SchoolSubjectsForm", () => {
             label: "1-A",
             name: "1",
             subjects: [{ id: "s1", code: "ENG", name: "English", weightage: 4 }],
-            slots: [{ subjectId: "s1" }],
           },
         ]}
         onSaveCatalog={jest.fn()}
@@ -158,15 +130,15 @@ describe("SchoolSubjectsForm", () => {
       />
     );
 
-    fireEvent.press(screen.getByLabelText("Remove ENG · English"));
+    fireEvent.press(screen.getByLabelText("Remove English"));
     expect(screen.getByText("1-A — Subjects")).toBeTruthy();
     expect(screen.getByText("No subjects on this class yet. Add from the school catalog.")).toBeTruthy();
     fireEvent.press(screen.getByText("Manage catalog"));
-    fireEvent.press(screen.getByLabelText("Open English"));
-    expect(screen.getByLabelText("Edit ENG · English in catalog")).toBeTruthy();
+    expect(screen.getByLabelText("Edit English in catalog")).toBeTruthy();
   });
 
-  it("edits a class subject on every section of the same class", async () => {
+  it("renames a catalog subject for every class that uses it", async () => {
+    const onSaveCatalog = jest.fn().mockResolvedValue(undefined);
     render(
       <SchoolSubjectsForm
         catalog={[{ code: "ART-01", name: "Art" }]}
@@ -184,24 +156,29 @@ describe("SchoolSubjectsForm", () => {
             subjects: [{ id: "s-b", code: "ART-01", name: "Art", weightage: 4 }],
           },
         ]}
-        onSaveCatalog={jest.fn()}
+        onSaveCatalog={onSaveCatalog}
         onSaveClass={jest.fn()}
       />
     );
 
-    fireEvent.press(screen.getByLabelText("Edit ART-01 · Art"));
-    fireEvent.changeText(screen.getByPlaceholderText("ENG"), "ART-6");
-    fireEvent.changeText(screen.getByPlaceholderText("English"), "Fine Art");
-    fireEvent.press(screen.getByRole("button", { name: "Save" }));
-    expect(await screen.findByLabelText("Remove ART-6 · Fine Art")).toBeTruthy();
-    fireEvent.press(screen.getByText("6-B"));
-    expect(screen.getByLabelText("Remove ART-6 · Fine Art")).toBeTruthy();
+    expect(screen.queryByLabelText("Edit Art")).toBeNull();
     fireEvent.press(screen.getByText("Manage catalog"));
-    fireEvent.press(screen.getByLabelText("Open Fine Art"));
-    expect(screen.getByLabelText("Edit ART-6 · Fine Art in catalog")).toBeTruthy();
+    fireEvent.press(screen.getByLabelText("Edit Art in catalog"));
+    fireEvent.changeText(screen.getByDisplayValue("Art"), "Fine Art");
+    fireEvent.press(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(onSaveCatalog).toHaveBeenCalledWith(
+        [expect.objectContaining({ name: "Fine Art", previousName: "Art" })],
+        false
+      )
+    );
+    fireEvent.press(screen.getByText("Close"));
+    expect(screen.getByLabelText("Remove Fine Art")).toBeTruthy();
+    fireEvent.press(screen.getByText("6-B"));
+    expect(screen.getByLabelText("Remove Fine Art")).toBeTruthy();
   });
 
-  it("pops up when an edited class code is already in the catalog", () => {
+  it("pops up when a catalog rename collides with another catalog name", () => {
     render(
       <SchoolSubjectsForm
         catalog={[
@@ -213,7 +190,10 @@ describe("SchoolSubjectsForm", () => {
             id: "class-6-a",
             label: "6-A",
             name: "6",
-            subjects: [{ id: "s-a", code: "ART-01", name: "Art", weightage: 4 }],
+            subjects: [
+              { id: "s-a", code: "ART-01", name: "Art", weightage: 4 },
+              { id: "s-e", code: "ENG", name: "English", weightage: 4 },
+            ],
           },
         ]}
         onSaveCatalog={jest.fn()}
@@ -221,11 +201,13 @@ describe("SchoolSubjectsForm", () => {
       />
     );
 
-    fireEvent.press(screen.getByLabelText("Edit ART-01 · Art"));
-    fireEvent.changeText(screen.getByPlaceholderText("ENG"), "ENG");
+    expect(screen.queryByLabelText("Edit Art")).toBeNull();
+    fireEvent.press(screen.getByText("Manage catalog"));
+    fireEvent.press(screen.getByLabelText("Edit Art in catalog"));
+    fireEvent.changeText(screen.getByDisplayValue("Art"), "English");
     fireEvent.press(screen.getByRole("button", { name: "Save" }));
     expect(screen.getByText("Can't edit subject")).toBeTruthy();
-    expect(screen.getByText("That subject code is already in the catalog.")).toBeTruthy();
+    expect(screen.getByText("That subject is already in the catalog.")).toBeTruthy();
   });
 
   it("adds a subject to every section of the same class before save", () => {
@@ -244,13 +226,13 @@ describe("SchoolSubjectsForm", () => {
 
     expect(screen.getByText(/Class 6 sections share these subjects/)).toBeTruthy();
     fireEvent.press(screen.getByText("+ Add Subject"));
-    fireEvent.press(screen.getByLabelText("MATH6 · Mathematics"));
+    fireEvent.press(screen.getByLabelText("Mathematics"));
     fireEvent.press(screen.getByText("Add to class"));
-    expect(screen.getByLabelText("Remove MATH6 · Mathematics")).toBeTruthy();
+    expect(screen.getByLabelText("Remove Mathematics")).toBeTruthy();
     // Sections of one class share a draft, so switching between them doesn't prompt.
     fireEvent.press(screen.getByText("6-B"));
     expect(screen.getByText("6-B — Subjects")).toBeTruthy();
-    expect(screen.getByLabelText("Remove MATH6 · Mathematics")).toBeTruthy();
+    expect(screen.getByLabelText("Remove Mathematics")).toBeTruthy();
     // Leaving the class with unsaved changes asks first; Discard drops them.
     fireEvent.press(screen.getByText("7-A"));
     expect(screen.getByText("Save and switch")).toBeTruthy();
@@ -280,18 +262,17 @@ describe("SchoolSubjectsForm", () => {
     fireEvent.press(screen.getByText("Manage catalog"));
     expect(screen.queryByText("Apply to all classes")).toBeNull();
     expect(screen.getByLabelText("Search subject")).toBeTruthy();
-    fireEvent.changeText(screen.getByPlaceholderText("ENG or English"), "Hindi");
+    fireEvent.changeText(screen.getByPlaceholderText("English"), "Hindi");
     expect(screen.getByText("No subjects match that search.")).toBeTruthy();
-    fireEvent.changeText(screen.getByPlaceholderText("ENG or English"), "art");
-    expect(screen.getByLabelText("Edit ART-01 · Art in catalog")).toBeTruthy();
+    fireEvent.changeText(screen.getByPlaceholderText("English"), "art");
+    expect(screen.getByLabelText("Edit Art in catalog")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Save catalog" })).toBeTruthy();
-    fireEvent.press(screen.getByLabelText("Edit ART-01 · Art in catalog"));
-    fireEvent.changeText(screen.getByPlaceholderText("ENG"), "ART-6");
-    fireEvent.changeText(screen.getByPlaceholderText("English"), "Fine Art");
+    fireEvent.press(screen.getByLabelText("Edit Art in catalog"));
+    fireEvent.changeText(screen.getByDisplayValue("Art"), "Fine Art");
     fireEvent.press(screen.getByRole("button", { name: "Save" }));
     await waitFor(() =>
       expect(onSaveCatalog).toHaveBeenCalledWith(
-        [expect.objectContaining({ code: "ART-6", name: "Fine Art", previousCode: "ART-01" })],
+        [expect.objectContaining({ name: "Fine Art", previousCode: "ART-01", previousName: "Art" })],
         false
       )
     );
@@ -299,13 +280,12 @@ describe("SchoolSubjectsForm", () => {
 });
 
 describe("SchoolSubjectsForm add subject", () => {
-  it("offers only orphan codes that no class uses", () => {
+  it("offers catalog subjects that this class does not already have", () => {
     render(
       <SchoolSubjectsForm
         catalog={[
           { code: "SST-3", name: "Social Studies" },
           { code: "ENG", name: "English" },
-          { code: "ENG-1", name: "English" },
           { code: "MAT", name: "Mathematics" },
         ]}
         classes={[
@@ -317,11 +297,9 @@ describe("SchoolSubjectsForm add subject", () => {
       />
     );
     fireEvent.press(screen.getByText("+ Add Subject"));
-    expect(screen.getByLabelText("SST-3 · Social Studies")).toBeTruthy();
-    expect(screen.getByLabelText("ENG · English")).toBeTruthy();
-    expect(screen.getByLabelText("ENG-1 · English")).toBeTruthy();
-    expect(screen.queryByLabelText("MAT · Mathematics")).toBeNull();
-    expect(screen.queryByText(/Show codes from other classes/)).toBeNull();
+    expect(screen.getByLabelText("Social Studies")).toBeTruthy();
+    expect(screen.getByLabelText("English")).toBeTruthy();
+    expect(screen.getByLabelText("Mathematics")).toBeTruthy();
     expect(screen.getByText("Pick a subject")).toBeTruthy();
   });
 
@@ -335,14 +313,12 @@ describe("SchoolSubjectsForm add subject", () => {
       />
     );
     fireEvent.press(screen.getByText("Manage catalog"));
-    expect(screen.getByText("1 unused")).toBeTruthy();
-    fireEvent.press(screen.getByLabelText("Open English"));
     expect(screen.getByText("Not used by any class")).toBeTruthy();
-    fireEvent.press(screen.getByLabelText("Edit ENG · English in catalog"));
-    fireEvent.press(screen.getByLabelText("Remove ENG from catalog"));
-    expect(screen.getByLabelText("Edit ENG · English in catalog")).toBeTruthy();
+    fireEvent.press(screen.getByLabelText("Edit English in catalog"));
+    fireEvent.press(screen.getByLabelText("Remove English from catalog"));
+    expect(screen.getByLabelText("Edit English in catalog")).toBeTruthy();
     fireEvent.press(screen.getByText("Remove"));
-    expect(screen.queryByLabelText("Edit ENG · English in catalog")).toBeNull();
+    expect(screen.queryByLabelText("Edit English in catalog")).toBeNull();
     expect(screen.getByText("Unsaved changes")).toBeTruthy();
   });
 });

@@ -36,7 +36,7 @@ import { listManagerOptions, reportUserIds, teamClassIds } from "./reports";
 import { placeLines, schoolFromConfig } from "./school";
 import { listRoles } from "./roles";
 import { parseWeekdays, weekCapacity, WEEKDAY_SHORT } from "./schedule";
-import { formatSubjectLabel, subjectCatalogForSchool, subjectDto } from "./subject-code";
+import { formatSubjectLabel, labeledTeacherSkills, parseSubjectCatalog, subjectCatalogForSchool, subjectDto } from "./subject-code";
 import { ensureSchoolSessions } from "./school-session";
 import { documentStudioBundle } from "./document-studio";
 import { CONTEST_TYPE_LABEL, daysLate, formatInr, LEVEL_LABEL, PATH_LABEL, percent, publicOrigin } from "./utils";
@@ -916,7 +916,11 @@ async function teacherTeamExtras(
               qualification: t.qualification || "",
               idle: idleNow.some((i) => i.id === t.id),
               team: reportTeacherIds.has(t.id),
-              skills: t.skills.map((s) => ({ subjectName: s.subjectName, classId: s.classId })),
+              skills: labeledTeacherSkills(
+                t.skills.map((s) => ({ subjectName: s.subjectName, classId: s.classId })),
+                klasses,
+                parseSubjectCatalog(setup.config?.subjectCatalog)
+              ),
             })),
             weekCapacity: weekCapacity(weekdays.length, periods.filter((p) => !p.isBreak).length),
             classes: klasses.map((c) => ({
@@ -1593,7 +1597,11 @@ async function officePayload(user: AccessUser) {
         qualification: t.qualification || "",
         idle: idleIds.has(t.id),
         team: reportTeacherIds.has(t.id),
-        skills: t.skills.map((s) => ({ subjectName: s.subjectName, classId: s.classId })),
+        skills: labeledTeacherSkills(
+          t.skills.map((s) => ({ subjectName: s.subjectName, classId: s.classId })),
+          weekClasses,
+          parseSubjectCatalog(config?.subjectCatalog)
+        ),
       })),
       weekCapacity: timetableScope ? weekCapacity(weekdays.length, periods.filter((p) => !p.isBreak).length) : 0,
       classes: weekClasses.map((c) => ({

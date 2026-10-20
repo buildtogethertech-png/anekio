@@ -138,21 +138,38 @@ describe.sequential("catalog / class plan / routine sync", () => {
     expect(otherGrade.body.error).toMatch(/already used by Class 6/i);
   });
 
-  it("renames class subjects and skills when the catalog name changes", async () => {
+  it("renames class subjects and leftover skill codes when the catalog name changes", async () => {
+    await act(officeToken, "saveClassCurriculum", {
+      classId: fixture.classId,
+      subjects: [
+        { code: "ENG", name: "English", weightage: 2 },
+        { code: "MAT", name: "Mathematics", weightage: 2 },
+      ],
+    });
+    await prisma.teacherSkill.deleteMany({ where: { teacherId: "teacher-tara", classId: fixture.classId } });
+    await prisma.teacherSkill.createMany({
+      data: [
+        { teacherId: "teacher-tara", classId: fixture.classId, subjectName: "English" },
+        { teacherId: "teacher-tara", classId: fixture.classId, subjectName: "ENG" },
+      ],
+    });
     const renamed = await act(officeToken, "saveSchoolSubjects", {
       entries: [
-        { code: "ENG", name: "English Language" },
+        { code: "ENG", name: "English Language", previousName: "English", previousCode: "ENG" },
         { code: "MAT", name: "Mathematics" },
       ],
     });
     expect(renamed.status).toBe(200);
     const english = await prisma.subject.findFirstOrThrow({ where: { classId: fixture.classId, code: "ENG" } });
-    expect(english.id).toBeDefined();
     expect(english.name).toBe("English Language");
-    const skill = await prisma.teacherSkill.findFirst({
+    const skills = await prisma.teacherSkill.findMany({
       where: { teacherId: "teacher-tara", classId: fixture.classId },
     });
-    expect(skill?.subjectName).toBe("English Language");
+    expect(skills.map((row) => row.subjectName).sort()).toEqual(["English Language"]);
+    const record = await request(app).get("/api/v1/record").set({ Authorization: `Bearer ${officeToken}` });
+    const teacher = record.body.timetable.teachers.find((row: { id: string }) => row.id === "teacher-tara");
+    expect(teacher.skills.map((row: { subjectName: string }) => row.subjectName)).toContain("English Language");
+    expect(teacher.skills.map((row: { subjectName: string }) => row.subjectName)).not.toContain("ENG");
   });
 
   it("creates a new class without copying the catalog onto it", async () => {
