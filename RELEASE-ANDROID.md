@@ -197,6 +197,7 @@ Test the blocker in Dev: set minimum to `20` in the admin console, then
 | Daily dev | `npm run api` + `npm run app` |
 | Release-mode check in Expo | `cd mobile && npx expo start -c --no-dev --minify` |
 | Anekio Preview APK | `npm run build-apk:quick` → `adb install -r mobile/anekio-preview.apk` |
+| Real "Anekio" APK (production app + server, not via Play) | `npm run build:apk:prod:local` (on your Mac) or `npm run build:apk:prod` (Expo cloud). Uninstall the Play Store version first: different signing key. |
 | Play AAB (local) | `npm run build:aab:production:local` |
 | Play AAB (cloud) | `npm run build:aab:production` |
 | Upload to Play (cloud build) | `cd mobile && npx eas-cli submit --platform android --profile production` |

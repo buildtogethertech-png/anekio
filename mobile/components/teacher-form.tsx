@@ -66,9 +66,12 @@ export function TeacherForm({
   classes,
   catalog = [],
   others = [],
+  focusClassId,
   onCancel,
   onSave,
 }: {
+  /** Open with this class ready to pick subjects in (Timetable → "Add to 1-A"). */
+  focusClassId?: string;
   teacher?: { id: string; name: string; qualification?: string; skills: { subjectName: string; classId: string }[] };
   classes: TeacherClassRow[];
   catalog?: { code: string; name: string }[];
@@ -99,11 +102,13 @@ export function TeacherForm({
   const [notes, setNotes] = useState(parsed.notes);
   const [picked, setPicked] = useState<Record<string, string[]>>(startPicked);
   // Classes shown as cards: every class with picks, plus ones the user just added.
+  const focus = focusClassId && teachable.some((klass) => klass.id === focusClassId) ? focusClassId : "";
   const [shown, setShown] = useState<string[]>(() => {
     const ids = Object.keys(startPicked);
+    if (focus && !ids.includes(focus)) return [...ids, focus];
     return ids.length ? ids : teachable[0]?.id ? [teachable[0].id] : [];
   });
-  const [openId, setOpenId] = useState(firstAssigned || teachable[0]?.id || "");
+  const [openId, setOpenId] = useState(focus || firstAssigned || teachable[0]?.id || "");
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState("");
   const editing = Boolean(teacher);

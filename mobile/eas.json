@@ -47,6 +47,16 @@
         "APP_VARIANT": "preview"
       }
     },
+    "production-apk": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://app.anekio.com",
+        "ORG_GRADLE_PROJECT_reactNativeArchitectures": "armeabi-v7a,arm64-v8a"
+      }
+    },
     "production": {
       "android": {
         "buildType": "app-bundle"

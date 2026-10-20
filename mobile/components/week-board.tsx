@@ -3,7 +3,7 @@ import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Button, Card, Chip, ChipScroller, Empty, Field, Input, Modal, PageHeader, Toast, useToast } from "./ui";
+import { Button, Card, Chip, ChipScroller, Empty, Field, Input, Modal, PageHeader, Sheet, Toast, useToast } from "./ui";
 import { TeacherForm } from "./teacher-form";
 import { formatSubjectLabel, labeledTeacherSkills } from "../lib/subject-label";
 import { act } from "../lib/mutate";
@@ -107,6 +107,10 @@ export function WeekBoard() {
   const [error, setError] = useState("");
   const [modal, setModal] = useState<ModalKind>(null);
   const [teacherId, setTeacherId] = useState<string | null>(null);
+  const [teacherFocusClass, setTeacherFocusClass] = useState("");
+  const [addTeacherOpen, setAddTeacherOpen] = useState(false);
+  /** Copy day: the weekday to copy from (0 = closed). */
+  const [copyFrom, setCopyFrom] = useState(0);
   const [assign, setAssign] = useState<{
     periodId: string;
     weekday: number;
@@ -365,12 +369,13 @@ export function WeekBoard() {
       editable={editable}
       compact={phone}
       classId={klass?.id}
-      canAdd={can(user, "staff.edit")}
-      onAdd={() => setModal("addTeacher")}
+      classLabel={klass?.label}
+      onAddTeacher={phone && klass?.id && can(user, "staff.edit") ? () => setAddTeacherOpen(true) : undefined}
       onEdit={
         can(user, "staff.edit")
-          ? (id) => {
+          ? (id, addToClass) => {
               setTeacherId(id);
+              setTeacherFocusClass(addToClass ? klass?.id || "" : "");
               setModal("teacher");
             }
           : undefined
@@ -400,6 +405,11 @@ export function WeekBoard() {
               <Button variant="ghost" onPress={() => void exportRoutine()}>
                 Export PDF
               </Button>
+              {editable && klass && !periodsNotSet && summary.placed > 0 ? (
+                <Button variant="ghost" onPress={() => setCopyFrom(weekdays[0]?.n || 1)}>
+                  Copy day
+                </Button>
+              ) : null}
               {editable && klass && !periodsNotSet && summary.empty > 0 ? (
                 <Button onPress={() => setFillOpen(true)}>{`Auto-fill ${summary.empty} empty`}</Button>
               ) : null}
@@ -472,7 +482,20 @@ export function WeekBoard() {
                         ? [overN ? `${overN} ${overN === 1 ? "subject" : "subjects"} over` : "", shortN ? `${shortN} short` : ""].filter(Boolean).join(" · ")
                         : "All subjects on target"}
                     </Text>
-                    <Text className="text-xs text-ink-500">Subject load</Text>
+                    {editable && !periodsNotSet && summary.empty > 0 ? (
+                      <Pressable
+                        onPress={() => setFillOpen(true)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Auto-fill ${summary.empty} empty periods`}
+                        hitSlop={6}
+                        className="flex-row items-center gap-1 rounded-full bg-[#1F45C7] px-2.5 py-1"
+                      >
+                        <Ionicons name="sparkles" size={11} color="#fff" />
+                        <Text className="text-[11px] font-semibold text-white">Auto-fill {summary.empty}</Text>
+                      </Pressable>
+                    ) : (
+                      <Text className="text-xs text-ink-500">Subject load</Text>
+                    )}
                     <Ionicons name={loadOpen ? "chevron-up" : "chevron-down"} size={14} color="#64748b" />
                   </Pressable>
                   {loadOpen ? (
@@ -582,6 +605,7 @@ export function WeekBoard() {
                     hold={Boolean(hold)}
                     editable={editable}
                     onDay={setDay}
+                    onCopy={editable ? () => setCopyFrom(activeDay) : undefined}
                     onClear={clearCell}
                     onPress={(periodId, weekday, slot) => {
                       if (!editable) return;
@@ -613,6 +637,7 @@ export function WeekBoard() {
                   onDrop={dropOn}
                   onPlace={(periodId, weekday) => placeOrPick(periodId, weekday, klass.slots)}
                   onClear={clearCell}
+                  onCopyDay={editable ? (n) => setCopyFrom(n) : undefined}
                   others={classes.filter((c) => c.id !== klass.id)}
                   focus={focus}
                   footer={!split ? teacherRail : null}
@@ -750,6 +775,7 @@ export function WeekBoard() {
 
       <Modal
         open={fillOpen}
+        sheetOnPhone
         title={`Auto-fill ${klass?.label || ""}`}
         onClose={() => (filling ? undefined : setFillOpen(false))}
         footer={
@@ -875,10 +901,52 @@ export function WeekBoard() {
         />
       </Modal>
 
-      <Modal open={modal === "teacher" && Boolean(teacherId)} title="Edit teacher" large onClose={() => setModal(null)}>
+      {klass?.id && copyFrom ? (
+        <CopyDaySheet
+          classId={klass.id}
+          classLabel={klass.label}
+          weekdays={weekdays}
+          fromDay={copyFrom}
+          filledOn={(n) => klass.slots.filter((x) => x.weekday === n && slotFilled(x)).length}
+          onClose={() => setCopyFrom(0)}
+          onDone={async (message) => {
+            setCopyFrom(0);
+            toast.show(message);
+            await reload();
+          }}
+        />
+      ) : null}
+      {klass?.id ? (
+        <AddTeacherSheet
+          open={addTeacherOpen}
+          classId={klass.id}
+          classLabel={klass.label}
+          subjects={(rawClasses.find((c) => c.id === klass.id)?.subjects ?? []).map((x) => x.name)}
+          teachers={rawTeachers.map((t) => ({ id: t.id, name: t.name, skills: t.skills ?? [] }))}
+          onClose={() => setAddTeacherOpen(false)}
+          onSave={async (teacherId, subjects) => {
+            const res = await act<{ ok: true; name: string; classLabel: string; subjects: string[] }>(token, "setTeacherClassSubjects", {
+              teacherId,
+              classId: klass.id,
+              subjects,
+            });
+            setAddTeacherOpen(false);
+            toast.show(`${res.name} now teaches ${res.subjects.join(", ")} in ${res.classLabel}.`);
+            await reload();
+          }}
+        />
+      ) : null}
+      <Modal
+        open={modal === "teacher" && Boolean(teacherId)}
+        title={teacherFocusClass && klass?.label ? `Add to ${klass.label}` : "Edit teacher"}
+        large
+        sheetOnPhone
+        onClose={() => setModal(null)}
+      >
         {teacherId ? (
           <TeacherForm
-            key={teacherId}
+            key={`${teacherId}:${teacherFocusClass}`}
+            focusClassId={teacherFocusClass || undefined}
             teacher={rawTeachers.find((t) => t.id === teacherId)}
             catalog={data?.school?.subjectCatalog ?? []}
             others={rawTeachers.map((t) => ({ id: t.id, name: t.name, skills: t.skills ?? [] }))}
@@ -920,8 +988,8 @@ function TeacherRail({
   editable,
   compact,
   classId,
-  canAdd,
-  onAdd,
+  classLabel,
+  onAddTeacher,
   onEdit,
   onPick,
   scroll,
@@ -938,9 +1006,11 @@ function TeacherRail({
   editable: boolean;
   compact?: boolean;
   classId?: string;
-  canAdd?: boolean;
-  onAdd?: () => void;
-  onEdit?: (id: string) => void;
+  classLabel?: string;
+  /** Phone: "+ Add teacher to 2-A" in the header (opens a bottom sheet). */
+  onAddTeacher?: () => void;
+  /** addToClass: open the editor with this class ready ("Add to 1-A"). */
+  onEdit?: (id: string, addToClass?: boolean) => void;
   onPick: (teacherId: string, subjectName: string, toggle?: boolean) => void;
   scroll?: boolean;
 }) {
@@ -959,6 +1029,7 @@ function TeacherRail({
               .map((s) => s.subjectName)
           ),
         ];
+        // Phone: teachers not set up for this class are listed below under "Other teachers".
         if (compact && classId && !skills.length) return null;
         return (
           <TeacherCard
@@ -991,13 +1062,18 @@ function TeacherRail({
         <Text className="text-xs uppercase tracking-widest text-ink-700">
           {compact ? "Or pick a subject to fill several" : "Teachers — drag a subject"}
         </Text>
-        {canAdd ? (
-          <Pressable onPress={onAdd} className="min-h-[36px] justify-center">
-            <Text className="text-xs font-medium text-clay-600">+ Teacher</Text>
+        {compact && onAddTeacher ? (
+          <Pressable
+            onPress={onAddTeacher}
+            accessibilityRole="button"
+            className="min-h-[30px] flex-row items-center gap-1 rounded-full border border-clay-500 bg-white px-2.5"
+          >
+            <Ionicons name="person-add-outline" size={12} color="#1F45C7" />
+            <Text className="text-[11px] font-semibold text-clay-600">Add teacher{classLabel ? ` to ${classLabel}` : ""}</Text>
           </Pressable>
         ) : null}
       </View>
-      {!compact && teachers.length > 4 ? (
+      {teachers.length > 4 ? (
         <View className="mt-2 shrink-0 flex-row items-center gap-2 rounded-lg border border-ink-200 bg-white px-3">
           <Ionicons name="search" size={14} color="#94a3b8" />
           <TextInput
@@ -1274,7 +1350,10 @@ function PhoneDaySchedule({
   onDay,
   onPress,
   onClear,
+  onCopy,
 }: {
+  /** Copy this day's routine to other days. */
+  onCopy?: () => void;
   /** Clear a filled period straight from the list (two taps: × then Clear). */
   onClear?: (periodId: string, weekday: number) => Promise<void> | void;
   weekdays: { n: number; label: string }[];
@@ -1293,7 +1372,8 @@ function PhoneDaySchedule({
   const [clearing, setClearing] = useState("");
   return (
     <View className="gap-3">
-      <View className="flex-row rounded-xl bg-ink-100 p-1">
+      <View className="flex-row items-stretch gap-1.5">
+      <View className="flex-1 flex-row rounded-xl bg-ink-100 p-1">
         {weekdays.map((d) => {
           const on = d.n === activeDay;
           const gaps = teachable > 0 && (fill[d.n] ?? 0) < teachable;
@@ -1310,6 +1390,18 @@ function PhoneDaySchedule({
             </Pressable>
           );
         })}
+      </View>
+      {onCopy && (fill[activeDay] ?? 0) > 0 ? (
+        <Pressable
+          onPress={onCopy}
+          accessibilityRole="button"
+          accessibilityLabel="Copy this day to other days"
+          className="w-12 items-center justify-center rounded-xl border border-ink-200 bg-white"
+        >
+          <Ionicons name="copy-outline" size={16} color="#1F45C7" />
+          <Text className="mt-0.5 text-[10px] font-semibold text-[#1F45C7]">Copy</Text>
+        </Pressable>
+      ) : null}
       </View>
       <View className="overflow-hidden rounded-xl border border-ink-100 bg-white">
         {periods.map((p, i) => {
@@ -1554,10 +1646,13 @@ function WeekGrid({
   onDrop,
   onPlace,
   onClear,
+  onCopyDay,
   others,
   focus,
   footer,
 }: {
+  /** Copy a day's column to other days. */
+  onCopyDay?: (weekday: number) => void;
   weekdays: { n: number; label: string }[];
   periods: { id: string; name: string; start: string; end: string; isBreak?: boolean }[];
   slots: WeekSlot[];
@@ -1594,13 +1689,25 @@ function WeekGrid({
                 <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">Period</Text>
               </View>
               {weekdays.map((d) => (
-                <View key={d.n} className="min-w-0 flex-1 px-2 py-2.5">
+                <View key={d.n} className="min-w-0 flex-1 flex-row items-center gap-1 px-2 py-2.5">
                   <Text
-                    className={`text-[11px] font-semibold uppercase tracking-wide ${d.n === todayN ? "text-clay-600" : "text-ink-500"}`}
+                    numberOfLines={1}
+                    className={`min-w-0 flex-1 text-[11px] font-semibold uppercase tracking-wide ${d.n === todayN ? "text-clay-600" : "text-ink-500"}`}
                   >
                     {d.label}
                     {d.n === todayN ? " · Today" : ""}
                   </Text>
+                  {onCopyDay && slots.some((x) => x.weekday === d.n && slotFilled(x)) ? (
+                    <Pressable
+                      onPress={() => onCopyDay(d.n)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Copy ${d.label} to other days`}
+                      hitSlop={6}
+                      className="rounded p-0.5 hover:bg-ink-100"
+                    >
+                      <Ionicons name="copy-outline" size={13} color="#64748b" />
+                    </Pressable>
+                  ) : null}
                 </View>
               ))}
             </View>
@@ -2019,5 +2126,367 @@ function DropCell({
         )}
       </Pressable>
     </View>
+  );
+}
+
+/** Phone: pick any teacher not yet in this class, tick the class subjects they take, save. */
+function AddTeacherSheet({
+  open,
+  classId,
+  classLabel,
+  subjects,
+  teachers,
+  onClose,
+  onSave,
+}: {
+  open: boolean;
+  classId: string;
+  classLabel: string;
+  subjects: string[];
+  teachers: { id: string; name: string; skills: { subjectName: string; classId: string }[] }[];
+  onClose: () => void;
+  onSave: (teacherId: string, subjects: string[]) => Promise<void>;
+}) {
+  const [q, setQ] = useState("");
+  const [pickedId, setPickedId] = useState("");
+  const [chosen, setChosen] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!open) return;
+    setQ("");
+    setPickedId("");
+    setChosen([]);
+    setError("");
+  }, [open]);
+
+  const inClass = (t: { skills: { classId: string }[] }) => t.skills.some((s) => s.classId === classId);
+  const needle = q.trim().toLowerCase();
+  const others = teachers
+    .filter((t) => !inClass(t))
+    .filter((t) => !needle || t.name.toLowerCase().includes(needle) || t.skills.some((s) => s.subjectName.toLowerCase().includes(needle)))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const picked = teachers.find((t) => t.id === pickedId);
+  const takenBy = (subject: string) =>
+    teachers
+      .filter((t) => t.id !== pickedId && t.skills.some((s) => s.classId === classId && s.subjectName.toLowerCase() === subject.toLowerCase()))
+      .map((t) => t.name.split(" ")[0]);
+  const initials = (name: string) => name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase();
+
+  async function save() {
+    if (!picked || !chosen.length) return;
+    setBusy(true);
+    setError("");
+    try {
+      await onSave(picked.id, chosen);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Sheet open={open} onClose={onClose} fixed={0.82}>
+      {!picked ? (
+        <View className="gap-3 px-4 pb-4">
+          <View>
+            <Text className="text-base font-semibold text-ink-900">Add teacher to {classLabel}</Text>
+            <Text className="mt-0.5 text-xs text-ink-600">Pick a teacher, then the subjects they take in {classLabel}.</Text>
+          </View>
+          <View className="flex-row items-center gap-2 rounded-lg border border-ink-200 bg-white px-3">
+            <Ionicons name="search" size={14} color="#94a3b8" />
+            <TextInput
+              value={q}
+              onChangeText={setQ}
+              placeholder="Find teacher or subject"
+              placeholderTextColor="#94a3b8"
+              className="min-h-[40px] flex-1 text-sm text-ink-900"
+            />
+          </View>
+          {others.length ? (
+            <View className="overflow-hidden rounded-xl border border-ink-200">
+              {others.map((t, i) => {
+                const where = [...new Set(t.skills.map((s) => s.subjectName))].slice(0, 3).join(", ");
+                return (
+                  <Pressable
+                    key={t.id}
+                    onPress={() => setPickedId(t.id)}
+                    accessibilityRole="button"
+                    className={`flex-row items-center gap-3 bg-white px-3 py-3 active:bg-ink-50 ${i ? "border-t border-ink-100" : ""}`}
+                  >
+                    <View className="h-9 w-9 items-center justify-center rounded-full bg-[#EEF3FF]">
+                      <Text className="text-xs font-semibold text-[#1F45C7]">{initials(t.name)}</Text>
+                    </View>
+                    <View className="min-w-0 flex-1">
+                      <Text className="text-sm font-medium text-ink-900" numberOfLines={1}>{t.name}</Text>
+                      <Text className="text-xs text-ink-500" numberOfLines={1}>
+                        {where ? `Teaches ${where}` : "No subjects yet"}
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color="#94a3b8" />
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : (
+            <Text className="py-6 text-center text-sm text-ink-600">
+              {needle ? `No teacher matches "${q.trim()}".` : `Every teacher already teaches in ${classLabel}.`}
+            </Text>
+          )}
+        </View>
+      ) : (
+        <View className="gap-3 px-4 pb-4">
+          <View className="flex-row items-center gap-3">
+            <Pressable onPress={() => setPickedId("")} accessibilityLabel="Back" hitSlop={8}>
+              <Ionicons name="chevron-back" size={20} color="#1F45C7" />
+            </Pressable>
+            <View className="h-9 w-9 items-center justify-center rounded-full bg-[#EEF3FF]">
+              <Text className="text-xs font-semibold text-[#1F45C7]">{initials(picked.name)}</Text>
+            </View>
+            <View className="min-w-0 flex-1">
+              <Text className="text-base font-semibold text-ink-900" numberOfLines={1}>{picked.name}</Text>
+              <Text className="text-xs text-ink-600">Subjects in {classLabel}</Text>
+            </View>
+          </View>
+          {subjects.length ? (
+            <View className="flex-row flex-wrap gap-2">
+              {subjects.map((name) => {
+                const on = chosen.includes(name);
+                const also = takenBy(name);
+                return (
+                  <Pressable
+                    key={name}
+                    onPress={() => setChosen((cur) => (on ? cur.filter((x) => x !== name) : [...cur, name]))}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: on }}
+                    className={`rounded-xl border px-3 py-2 ${on ? "border-[#1F45C7] bg-[#1F45C7]" : "border-ink-200 bg-white"}`}
+                  >
+                    <Text className={`text-sm font-medium ${on ? "text-white" : "text-ink-800"}`}>{name}</Text>
+                    {also.length ? (
+                      <Text className={`text-[10px] ${on ? "text-blue-100" : "text-ink-500"}`}>Also {also.join(", ")}</Text>
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : (
+            <Text className="text-sm text-ink-600">{classLabel} has no subjects yet. Add them in the class plan first.</Text>
+          )}
+          {error ? <Text className="text-xs text-red-700">{error}</Text> : null}
+          <Button disabled={busy || !chosen.length} onPress={save}>
+            {busy ? "Saving…" : chosen.length ? `Add to ${classLabel} · ${chosen.length} subject${chosen.length === 1 ? "" : "s"}` : "Pick at least one subject"}
+          </Button>
+        </View>
+      )}
+    </Sheet>
+  );
+}
+
+type CopyPreview = {
+  days: { weekday: number; copied: number; cleared: number; kept: number; skipped: { period: string; subject: string; reason: string }[] }[];
+  copied: number;
+  skipped: number;
+  over: { subject: string; count: number; target: number }[];
+};
+
+/** Copy one day's routine to other days (phone: full-screen sheet; web: dialog). Preview comes from the server. */
+function CopyDaySheet({
+  classId,
+  classLabel,
+  weekdays,
+  fromDay,
+  filledOn,
+  onClose,
+  onDone,
+}: {
+  classId: string;
+  classLabel: string;
+  weekdays: { n: number; label: string }[];
+  fromDay: number;
+  filledOn: (n: number) => number;
+  onClose: () => void;
+  onDone: (message: string) => Promise<void>;
+}) {
+  const { token } = useSession();
+  const [from, setFrom] = useState(fromDay);
+  const [to, setTo] = useState<number[]>([]);
+  const [mode, setMode] = useState<"empty" | "replace">("empty");
+  const [preview, setPreview] = useState<CopyPreview | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const others = weekdays.filter((d) => d.n !== from);
+  const name = (n: number) => weekdays.find((d) => d.n === n)?.label || "";
+  const short = (n: number) => name(n).slice(0, 3);
+
+  useEffect(() => {
+    setTo((cur) => cur.filter((n) => n !== from));
+  }, [from]);
+
+  useEffect(() => {
+    setPreview(null);
+    setError("");
+    if (!to.length || !filledOn(from)) return;
+    let stale = false;
+    setChecking(true);
+    const t = setTimeout(() => {
+      act<{ ok: true } & CopyPreview>(token, "copyTimetableDay", { classId, fromWeekday: from, toWeekdays: to, mode, dryRun: true })
+        .then((res) => !stale && setPreview(res))
+        .catch((e) => !stale && setError(e instanceof Error ? e.message : "Could not check."))
+        .finally(() => !stale && setChecking(false));
+    }, 250);
+    return () => {
+      stale = true;
+      clearTimeout(t);
+    };
+  }, [classId, from, to, mode, token]);
+
+  async function apply() {
+    setBusy(true);
+    setError("");
+    try {
+      const res = await act<{ ok: true } & CopyPreview>(token, "copyTimetableDay", { classId, fromWeekday: from, toWeekdays: to, mode });
+      const msg = `${res.copied} ${res.copied === 1 ? "period" : "periods"} copied from ${name(from)}${res.skipped ? ` · ${res.skipped} skipped` : ""}.`;
+      await onDone(msg);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not copy.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const chip = (on: boolean) => `rounded-xl border px-3 py-2 ${on ? "border-[#1F45C7] bg-[#1F45C7]" : "border-ink-200 bg-white"}`;
+  const chipText = (on: boolean) => `text-sm font-semibold ${on ? "text-white" : "text-ink-800"}`;
+  const changes = preview ? preview.copied + preview.days.reduce((n, d) => n + d.cleared, 0) : 0;
+
+  return (
+    <Modal
+      open
+      title={`Copy a day · ${classLabel}`}
+      onClose={() => (busy ? undefined : onClose())}
+      sheetOnPhone
+      footer={
+        <View className="flex-row items-center justify-end gap-2">
+          <Button variant="ghost" disabled={busy} onPress={onClose}>
+            Cancel
+          </Button>
+          <Button disabled={busy || checking || !to.length || !changes} onPress={() => void apply()}>
+            {busy
+              ? "Copying…"
+              : !to.length
+                ? "Pick days"
+                : preview && !changes
+                  ? "Nothing to copy"
+                  : `Copy to ${to.length} ${to.length === 1 ? "day" : "days"}`}
+          </Button>
+        </View>
+      }
+    >
+      <View className="gap-4">
+        <View className="gap-2">
+          <Text className="text-xs font-semibold uppercase tracking-wide text-ink-500">1 · Copy from</Text>
+          <View className="flex-row flex-wrap gap-2">
+            {weekdays.map((d) => {
+              const n = filledOn(d.n);
+              const on = d.n === from;
+              return (
+                <Pressable key={d.n} disabled={!n} onPress={() => setFrom(d.n)} className={`${chip(on)} ${!n ? "opacity-40" : ""}`}>
+                  <Text className={chipText(on)}>{short(d.n)}</Text>
+                  <Text className={`text-[10px] ${on ? "text-blue-100" : "text-ink-500"}`}>{n} periods</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
+        <View className="gap-2">
+          <View className="flex-row items-center justify-between">
+            <Text className="text-xs font-semibold uppercase tracking-wide text-ink-500">2 · Copy to</Text>
+            <Pressable onPress={() => setTo(to.length === others.length ? [] : others.map((d) => d.n))} hitSlop={6}>
+              <Text className="text-xs font-semibold text-[#1F45C7]">{to.length === others.length ? "Clear" : "All other days"}</Text>
+            </Pressable>
+          </View>
+          <View className="flex-row flex-wrap gap-2">
+            {others.map((d) => {
+              const on = to.includes(d.n);
+              return (
+                <Pressable
+                  key={d.n}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: on }}
+                  onPress={() => setTo((cur) => (on ? cur.filter((x) => x !== d.n) : [...cur, d.n]))}
+                  className={`flex-row items-center gap-1.5 ${chip(on)}`}
+                >
+                  {on ? <Ionicons name="checkmark" size={14} color="#fff" /> : null}
+                  <Text className={chipText(on)}>{short(d.n)}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
+        <View className="gap-2">
+          <Text className="text-xs font-semibold uppercase tracking-wide text-ink-500">3 · If a period already has a lesson</Text>
+          {(
+            [
+              { id: "empty", title: "Only fill empty periods", sub: "Lessons already there stay." },
+              { id: "replace", title: "Replace the whole day", sub: `The day becomes exactly like ${name(from)}.` },
+            ] as const
+          ).map((opt) => {
+            const on = mode === opt.id;
+            return (
+              <Pressable
+                key={opt.id}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: on }}
+                onPress={() => setMode(opt.id)}
+                className={`flex-row items-center gap-3 rounded-xl border px-3 py-2.5 ${on ? "border-[#1F45C7] bg-[#EEF3FF]" : "border-ink-200 bg-white"}`}
+              >
+                <View className={`h-4 w-4 items-center justify-center rounded-full border ${on ? "border-[#1F45C7]" : "border-ink-300"}`}>
+                  {on ? <View className="h-2 w-2 rounded-full bg-[#1F45C7]" /> : null}
+                </View>
+                <View className="flex-1">
+                  <Text className="text-sm font-medium text-ink-900">{opt.title}</Text>
+                  <Text className="text-xs text-ink-600">{opt.sub}</Text>
+                </View>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {to.length ? (
+          <View className="gap-2 rounded-xl border border-ink-200 bg-ink-50 p-3">
+            <Text className="text-xs font-semibold uppercase tracking-wide text-ink-500">Preview</Text>
+            {checking && !preview ? <Text className="text-sm text-ink-600">Checking teachers and targets…</Text> : null}
+            {error ? <Text className="text-sm text-red-700">{error}</Text> : null}
+            {preview?.days.map((d) => (
+              <View key={d.weekday} className="gap-0.5">
+                <Text className="text-sm text-ink-900">
+                  <Text className="font-semibold">{name(d.weekday)}: </Text>
+                  {[
+                    d.copied ? `${d.copied} copied` : "",
+                    d.cleared ? `${d.cleared} cleared` : "",
+                    d.kept ? `${d.kept} already there` : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" · ") || "no change"}
+                </Text>
+                {d.skipped.map((x, i) => (
+                  <Text key={i} className="text-xs text-amber-800">
+                    {x.period} {x.subject ? `(${x.subject})` : ""} skipped: {x.reason}
+                  </Text>
+                ))}
+              </View>
+            ))}
+            {preview?.over.length ? (
+              <Text className="text-xs text-amber-800">
+                Still over target: {preview.over.map((o) => `${o.subject} ${o.count}/${o.target}`).join(", ")}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
+      </View>
+    </Modal>
   );
 }

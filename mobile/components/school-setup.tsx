@@ -900,6 +900,10 @@ export function SchoolSubjectsForm({
   const [catalogQuery, setCatalogQuery] = useState("");
   const [importOpen, setImportOpen] = useState(false);
   const [classAddOpen, setClassAddOpen] = useState(false);
+  /** "Copy from": take another class's subjects and periods/week into this class (draft until Save). */
+  const [copyOpen, setCopyOpen] = useState(false);
+  const [copyFromId, setCopyFromId] = useState("");
+  const [copyMode, setCopyMode] = useState<"merge" | "replace">("merge");
   const [classAddCode, setClassAddCode] = useState("");
   const [classAddQuery, setClassAddQuery] = useState("");
   const [classAddAllGrades, setClassAddAllGrades] = useState(false);
@@ -1081,6 +1085,38 @@ export function SchoolSubjectsForm({
   function placedCount(subjectId?: string) {
     if (!subjectId) return 0;
     return (selected?.slots || []).filter((slot) => slot.subjectId === subjectId).length;
+  }
+
+  function copySubjectsFrom(sourceId: string, mode: "merge" | "replace") {
+    if (!selected) return;
+    const source = classSubjects[sourceId] || [];
+    const sourceLabel = classes.find((k) => k.id === sourceId)?.label || "that class";
+    const key = (r: { name: string }) => r.name.trim().toLowerCase();
+    const sourceByName = new Map(source.map((r) => [key(r), r]));
+    let kept = 0;
+    // Existing rows: take the source's periods; in "replace", drop subjects the source lacks (unless already in the routine).
+    const next: ClassSubjectDraft[] = [];
+    for (const row of selectedRows) {
+      const src = sourceByName.get(key(row));
+      if (src) next.push({ ...row, periods: src.periods });
+      else if (mode === "merge") next.push(row);
+      else if (placedCount(row.id)) {
+        next.push(row);
+        kept += 1;
+      }
+    }
+    // Subjects only the source has.
+    for (const src of source) {
+      if (next.some((r) => key(r) === key(src))) continue;
+      next.push({ code: src.code, previousCode: "", name: src.name, periods: src.periods });
+    }
+    setClassSubjects(syncGradeSubjectDrafts(classSubjects, classes, selected.id, next));
+    setCopyOpen(false);
+    setFlash({
+      at: "class",
+      kind: "ok",
+      text: `Copied ${source.length} subjects from ${sourceLabel}.${kept ? ` ${kept} kept because they are already in the routine.` : ""} Check and tap Save ${selected.label}.`,
+    });
   }
 
   function removeClassSubject(index: number) {
@@ -1330,6 +1366,18 @@ export function SchoolSubjectsForm({
                   <Text className="text-xs font-medium text-amber-700">Unsaved changes</Text>
                 </View>
               ) : null}
+              {classes.length > 1 ? (
+                <Button
+                  variant="ghost"
+                  onPress={() => {
+                    setCopyFromId("");
+                    setCopyMode(selectedRows.length ? "merge" : "replace");
+                    setCopyOpen(true);
+                  }}
+                >
+                  ⧉ Copy from
+                </Button>
+              ) : null}
               <Button variant="ghost" onPress={() => setClassAddOpen(true)}>
                 + Add Subject
               </Button>
@@ -1339,6 +1387,88 @@ export function SchoolSubjectsForm({
             </View>
           </View>
           <SaveFlash at="class" flash={flash} />
+          <Modal
+            open={copyOpen}
+            title={`Copy subjects into ${selected.label}`}
+            onClose={() => setCopyOpen(false)}
+            sheetOnPhone
+            footer={
+              <View className="flex-row justify-end gap-2">
+                <Button variant="ghost" onPress={() => setCopyOpen(false)}>
+                  Cancel
+                </Button>
+                <Button disabled={!copyFromId} onPress={() => copySubjectsFrom(copyFromId, copyMode)}>
+                  {copyFromId ? `Copy from ${classes.find((k) => k.id === copyFromId)?.label}` : "Pick a class"}
+                </Button>
+              </View>
+            }
+          >
+            <View className="gap-4">
+              <View className="gap-2">
+                <Text className="text-xs font-semibold uppercase tracking-wide text-ink-500">1 · Copy from</Text>
+                <View className="flex-row flex-wrap gap-2">
+                  {classes
+                    .filter((k) => k.id !== selected.id && (classSubjects[k.id] || []).length)
+                    .map((k) => {
+                      const rows = classSubjects[k.id] || [];
+                      const total = rows.reduce((n, r) => n + (parsePeriods(r.periods) || 0), 0);
+                      const on = copyFromId === k.id;
+                      return (
+                        <Pressable
+                          key={k.id}
+                          onPress={() => setCopyFromId(k.id)}
+                          className={`rounded-xl border px-3 py-2 ${on ? "border-[#1F45C7] bg-[#1F45C7]" : "border-ink-200 bg-white"}`}
+                        >
+                          <Text className={`text-sm font-semibold ${on ? "text-white" : "text-ink-900"}`}>{k.label}</Text>
+                          <Text className={`text-[10px] ${on ? "text-blue-100" : "text-ink-500"}`}>
+                            {rows.length} subjects · {total}/wk
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                </View>
+              </View>
+              {copyFromId ? (
+                <View className="gap-1 rounded-xl border border-ink-200 bg-ink-50 p-3">
+                  {(classSubjects[copyFromId] || []).map((r) => (
+                    <View key={r.name} className="flex-row items-center justify-between">
+                      <Text className="text-sm text-ink-800">{r.name}</Text>
+                      <Text className="text-xs text-ink-600">{r.periods}/week</Text>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+              <View className="gap-2">
+                <Text className="text-xs font-semibold uppercase tracking-wide text-ink-500">2 · {selected.label} already has subjects</Text>
+                {(
+                  [
+                    { id: "merge", title: "Add missing, update periods", sub: `Keeps ${selected.label}'s other subjects.` },
+                    { id: "replace", title: "Make it exactly the same", sub: "Removes subjects the other class doesn't have (not ones already in the routine)." },
+                  ] as const
+                ).map((opt) => {
+                  const on = copyMode === opt.id;
+                  return (
+                    <Pressable
+                      key={opt.id}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: on }}
+                      onPress={() => setCopyMode(opt.id)}
+                      className={`flex-row items-center gap-3 rounded-xl border px-3 py-2.5 ${on ? "border-[#1F45C7] bg-[#EEF3FF]" : "border-ink-200 bg-white"}`}
+                    >
+                      <View className={`h-4 w-4 items-center justify-center rounded-full border ${on ? "border-[#1F45C7]" : "border-ink-300"}`}>
+                        {on ? <View className="h-2 w-2 rounded-full bg-[#1F45C7]" /> : null}
+                      </View>
+                      <View className="flex-1">
+                        <Text className="text-sm font-medium text-ink-900">{opt.title}</Text>
+                        <Text className="text-xs text-ink-600">{opt.sub}</Text>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <Text className="text-xs text-ink-500">Nothing is saved until you tap Save {selected.label}.</Text>
+            </View>
+          </Modal>
           <View className="overflow-hidden rounded-md border border-ink-200">
             <View className="flex-row items-center gap-3 border-b border-ink-100 bg-ink-50 px-3 py-2">
               <Text className="min-w-0 flex-1 text-xs font-medium uppercase tracking-wide text-ink-700">Subject</Text>

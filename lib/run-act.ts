@@ -40,6 +40,8 @@ import {
   createStaffMemberCore,
   setStaffOnboardingFileCore,
   createStudentCore,
+  setTeacherClassSubjectsCore,
+  copyTimetableDayCore,
   createTeacherCore,
   updateParentCore,
   updateStudentCore,
@@ -182,6 +184,10 @@ export async function runAct(
 ): Promise<Record<string, unknown>> {
   const op = actOp(body);
   switch (op) {
+    case "copyTimetableDay":
+      return { ok: true, ...(await copyTimetableDayCore(user, body as never)) };
+    case "setTeacherClassSubjects":
+      return { ok: true, ...(await setTeacherClassSubjectsCore(user, body as never)) };
     case "createStudent":
       return { ok: true, ...(await createStudentCore(user, body as never)) };
     case "admitLeadAsStudent":

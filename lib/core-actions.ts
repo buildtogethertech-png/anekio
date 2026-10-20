@@ -2697,6 +2697,127 @@ export async function saveTimetableSlotCore(
   return { ok: true as const };
 }
 
+/**
+ * Timetable → Copy day: copy one day's periods of a class to other days (same period positions).
+ * mode "empty": only fill empty periods. mode "replace": the target day becomes the same as the source
+ * (periods empty on the source are cleared). Never double-books a teacher and never goes over a subject's
+ * weekly target; such periods are skipped and reported. dryRun: only report what would happen.
+ */
+export async function copyTimetableDayCore(
+  user: AccessUser,
+  input: { classId?: string; fromWeekday?: number; toWeekdays?: number[]; mode?: string; dryRun?: boolean }
+) {
+  need(user, "timetable.edit");
+  const classId = String(input.classId || "");
+  if (scopeFor(user, "timetable.edit") === "REPORTS") {
+    const team = await teamClassIds(user.id);
+    if (!team.includes(classId)) throw new Error("No access.");
+  }
+  const config = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
+  const open = parseWeekdays(config?.weekdays);
+  const from = Number(input.fromWeekday);
+  const targets = [...new Set((input.toWeekdays || []).map(Number))].filter((d) => d !== from && open.includes(d)).sort((a, b) => a - b);
+  if (!open.includes(from)) throw new Error("Pick a school day to copy from.");
+  if (!targets.length) throw new Error("Pick at least one day to copy to.");
+  const replace = input.mode === "replace";
+  const klass = await prisma.class.findUnique({ where: { id: classId }, select: { id: true } });
+  if (!klass) throw new Error("Class required");
+
+  const [periods, mine, subjects] = await Promise.all([
+    prisma.period.findMany({ select: { id: true, name: true, isBreak: true, sortOrder: true }, orderBy: { sortOrder: "asc" } }),
+    prisma.timetableSlot.findMany({ where: { classId, weekday: { in: open } } }),
+    prisma.subject.findMany({ where: { classId }, select: { id: true, name: true, weightage: true } }),
+  ]);
+  const periodById = new Map(periods.map((p) => [p.id, p]));
+  const subjectById = new Map(subjects.map((x) => [x.id, x]));
+  const source = mine
+    .filter((x) => x.weekday === from && x.subjectId && x.teacherId && !periodById.get(x.periodId)?.isBreak)
+    .sort((a, b) => (periodById.get(a.periodId)?.sortOrder ?? 0) - (periodById.get(b.periodId)?.sortOrder ?? 0));
+  if (!source.length) throw new Error("That day has nothing to copy yet.");
+  const teacherIds = [...new Set(source.map((x) => x.teacherId!))];
+  const elsewhere = await prisma.timetableSlot.findMany({
+    where: { teacherId: { in: teacherIds }, weekday: { in: targets }, NOT: { classId } },
+    select: { teacherId: true, weekday: true, periodId: true, class: { select: { name: true, section: true } } },
+  });
+  const busyAt = new Map(elsewhere.map((x) => [`${x.teacherId}:${x.weekday}:${x.periodId}`, `${x.class.name}-${x.class.section}`]));
+  const teacherNames = new Map(
+    (await prisma.teacher.findMany({ where: { id: { in: teacherIds } }, select: { id: true, user: { select: { name: true } } } })).map((t) => [t.id, t.user.name])
+  );
+
+  // Periods per subject this week, updated as the plan is made.
+  const count = new Map<string, number>();
+  for (const x of mine) if (x.subjectId) count.set(x.subjectId, (count.get(x.subjectId) ?? 0) + 1);
+
+  type Skip = { period: string; subject: string; reason: string };
+  const days: { weekday: number; copy: typeof source; clear: string[]; skipped: Skip[]; kept: number }[] = [];
+  for (const d of targets) {
+    const existing = mine.filter((x) => x.weekday === d);
+    const at = new Map(existing.map((x) => [x.periodId, x]));
+    const plan = { weekday: d, copy: [] as typeof source, clear: [] as string[], skipped: [] as Skip[], kept: 0 };
+    if (replace) {
+      // The whole day is rebuilt: what is there now stops counting.
+      for (const x of existing) if (x.subjectId) count.set(x.subjectId, (count.get(x.subjectId) ?? 1) - 1);
+      const sourcePeriods = new Set(source.map((x) => x.periodId));
+      plan.clear = existing.filter((x) => !sourcePeriods.has(x.periodId)).map((x) => x.periodId);
+    }
+    for (const slot of source) {
+      const here = at.get(slot.periodId);
+      const subj = subjectById.get(slot.subjectId!);
+      const periodName = periodById.get(slot.periodId)?.name || "Period";
+      if (!replace && here && (here.subjectId || here.teacherId)) {
+        plan.kept += 1;
+        continue;
+      }
+      if (replace && here && here.subjectId === slot.subjectId && here.teacherId === slot.teacherId) {
+        count.set(slot.subjectId!, (count.get(slot.subjectId!) ?? 0) + 1);
+        plan.kept += 1;
+        continue;
+      }
+      const clash = busyAt.get(`${slot.teacherId}:${d}:${slot.periodId}`);
+      if (clash) {
+        plan.skipped.push({ period: periodName, subject: subj?.name || "", reason: `${teacherNames.get(slot.teacherId!) || "Teacher"} is in ${clash} then` });
+        if (replace && here) plan.clear.push(slot.periodId);
+        continue;
+      }
+      const n = count.get(slot.subjectId!) ?? 0;
+      if (subj && subj.weightage > 0 && n >= subj.weightage) {
+        plan.skipped.push({ period: periodName, subject: subj.name, reason: `${subj.name} is already ${subj.weightage}/${subj.weightage} a week` });
+        if (replace && here) plan.clear.push(slot.periodId);
+        continue;
+      }
+      count.set(slot.subjectId!, n + 1);
+      plan.copy.push(slot);
+    }
+    days.push(plan);
+  }
+
+  if (!input.dryRun) {
+    for (const plan of days) {
+      if (plan.clear.length) {
+        await prisma.timetableSlot.deleteMany({ where: { classId, weekday: plan.weekday, periodId: { in: plan.clear } } });
+      }
+      for (const slot of plan.copy) {
+        await prisma.timetableSlot.upsert({
+          where: { classId_periodId_weekday: { classId, periodId: slot.periodId, weekday: plan.weekday } },
+          update: { subjectId: slot.subjectId, teacherId: slot.teacherId, roomId: slot.roomId },
+          create: { classId, periodId: slot.periodId, weekday: plan.weekday, subjectId: slot.subjectId, teacherId: slot.teacherId, roomId: slot.roomId },
+        });
+      }
+    }
+  }
+
+  const over = subjects
+    .filter((x) => x.weightage > 0 && (count.get(x.id) ?? 0) > x.weightage)
+    .map((x) => ({ subject: x.name, count: count.get(x.id) ?? 0, target: x.weightage }));
+  return {
+    days: days.map((p) => ({ weekday: p.weekday, copied: p.copy.length, cleared: p.clear.length, kept: p.kept, skipped: p.skipped })),
+    copied: days.reduce((n, p) => n + p.copy.length, 0),
+    skipped: days.reduce((n, p) => n + p.skipped.length, 0),
+    over,
+    applied: !input.dryRun,
+  };
+}
+
 function parsePayMethod(raw?: string) {
   return (
     ["CASH", "UPI", "RAZORPAY", "BANK", "CHEQUE"].includes(raw || "") ? raw : "CASH"
@@ -3459,6 +3580,37 @@ export async function setTeacherResourcesCore(
     });
   }
   await assignSubjectTeachers(teacherId, offers);
+}
+
+/**
+ * Timetable → "Add teacher to 2-A": set which subjects one teacher takes in ONE class. Their other classes,
+ * name and qualification stay as they are. A subject gets this teacher as its subject teacher only if it has none.
+ */
+export async function setTeacherClassSubjectsCore(
+  user: AccessUser,
+  input: { teacherId?: string; classId?: string; subjects?: string[] }
+) {
+  need(user, "staff.edit");
+  const teacherId = String(input.teacherId || "");
+  const classId = String(input.classId || "");
+  const teacher = await prisma.teacher.findUnique({ where: { id: teacherId }, select: { id: true, user: { select: { name: true } } } });
+  if (!teacher) throw new Error("Teacher not found.");
+  const klass = await prisma.class.findFirst({ where: { id: classId, archivedAt: null }, select: { id: true, name: true, section: true } });
+  if (!klass) throw new Error("Class not found.");
+  const names = [...new Set((input.subjects || []).map((n) => String(n || "").trim()).filter(Boolean))];
+  const offers = await catalogTeacherOffers(names.map((subjectName) => ({ subjectName, classId })));
+  await prisma.teacherSkill.deleteMany({ where: { teacherId, classId } });
+  if (offers.length) {
+    await prisma.teacherSkill.createMany({ data: offers.map((o) => ({ teacherId, subjectName: o.subjectName, classId })) });
+    const linked = await prisma.teacherClass.findFirst({ where: { teacherId, classId }, select: { teacherId: true } });
+    if (!linked) await prisma.teacherClass.create({ data: { teacherId, classId } });
+    for (const o of offers) {
+      await prisma.subject.updateMany({ where: { id: o.subjectId, teacherId: null }, data: { teacherId } });
+    }
+  } else {
+    await prisma.teacherClass.deleteMany({ where: { teacherId, classId } });
+  }
+  return { name: teacher.user.name, classLabel: `${klass.name}-${klass.section}`, subjects: offers.map((o) => o.subjectName) };
 }
 
 export async function saveSchoolClockCore(

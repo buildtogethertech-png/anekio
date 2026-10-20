@@ -16,6 +16,8 @@
     "build:aab:production": "node ../scripts/bump-android-version.js && npx eas-cli build --platform android --profile production",
     "build:number": "node ../scripts/bump-android-version.js --show",
     "build:apk:production:local": "PROFILE=production-test bash ../scripts/build-aab-local.sh",
+    "build:apk:prod": "npx eas-cli build --platform android --profile production-apk",
+    "build:apk:prod:local": "PROFILE=production-apk bash ../scripts/build-aab-local.sh",
     "build:apk:staging:local": "npx eas-cli build --platform android --profile staging --local",
     "build:aab:production:local": "bash ../scripts/build-aab-local.sh",
     "build:apk:quick": "bash ../scripts/build-apk-quick.sh",
