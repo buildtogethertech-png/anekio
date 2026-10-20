@@ -25,17 +25,29 @@ function navLabel(portal: string | undefined, item: { key: string; label: string
 }
 
 /** Shown only to a staff login that is also a parent: flips between the staff app and the parent app. */
+type HatKey = "OFFICE" | "TEACHER" | "PARENT" | "STUDENT";
+const HAT_LABEL: Record<HatKey, string> = { OFFICE: "Office", TEACHER: "Teacher", PARENT: "Parent", STUDENT: "Student" };
+const HAT_ICON: Record<HatKey, keyof typeof Ionicons.glyphMap> = {
+  OFFICE: "briefcase-outline",
+  TEACHER: "school-outline",
+  PARENT: "people-outline",
+  STUDENT: "person-outline",
+};
+
+/**
+ * Switch between the apps one login can open: its own role (first hat), and Teacher / Parent when the
+ * person also teaches or is also a parent. One row (or pill) per other app.
+ */
 export function HatSwitch({ variant = "pill" }: { variant?: "pill" | "row" }) {
   const { user, switchHat } = useSession();
   const router = useRouter();
-  const hats = user?.hats || [];
+  const hats = (user?.hats || []) as HatKey[];
   if (hats.length < 2 || user?.support) return null;
-  const toParent = user?.portal !== "PARENT";
-  const staffLabel = hats.find((hat) => hat !== "PARENT") === "TEACHER" ? "Teacher" : "Office";
-  const label = toParent ? "Switch to Parent" : `Switch to ${staffLabel}`;
-  async function flip() {
+  const primary = hats[0];
+  const others = hats.filter((hat) => hat !== user?.portal);
+  async function flip(to: HatKey) {
     try {
-      await switchHat(toParent ? "PARENT" : "STAFF");
+      await switchHat(to === primary ? "STAFF" : to === "PARENT" ? "PARENT" : "TEACHER");
       router.replace("/" as never);
     } catch {
       /* stays in the current app */
@@ -43,23 +55,32 @@ export function HatSwitch({ variant = "pill" }: { variant?: "pill" | "row" }) {
   }
   if (variant === "row") {
     return (
-      <Pressable onPress={() => void flip()} className="min-h-[56px] flex-row items-center gap-3 border-t border-ink-200 px-4 py-3">
-        <Ionicons name="swap-horizontal-outline" size={21} color="#1e3a5f" />
-        <Text className="min-w-0 flex-1 text-base text-ink-900">{label}</Text>
-        <Ionicons name="chevron-forward" size={18} color="#64748b" />
-      </Pressable>
+      <>
+        {others.map((hat) => (
+          <Pressable key={hat} onPress={() => void flip(hat)} className="min-h-[56px] flex-row items-center gap-3 border-t border-ink-200 px-4 py-3">
+            <Ionicons name={HAT_ICON[hat]} size={21} color="#1e3a5f" />
+            <Text className="min-w-0 flex-1 text-base text-ink-900">Switch to {HAT_LABEL[hat]}</Text>
+            <Ionicons name="swap-horizontal-outline" size={18} color="#64748b" />
+          </Pressable>
+        ))}
+      </>
     );
   }
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      onPress={() => void flip()}
-      className="h-9 flex-row items-center gap-1.5 rounded-full border border-blue-100 bg-blue-50 px-3"
-    >
-      <Ionicons name="swap-horizontal-outline" size={15} color="#1d4ed8" />
-      <Text className="text-xs font-semibold text-blue-700">{label}</Text>
-    </Pressable>
+    <View className="flex-row gap-2">
+      {others.map((hat) => (
+        <Pressable
+          key={hat}
+          accessibilityRole="button"
+          accessibilityLabel={`Switch to ${HAT_LABEL[hat]}`}
+          onPress={() => void flip(hat)}
+          className="h-9 flex-row items-center gap-1.5 rounded-full border border-blue-100 bg-blue-50 px-3"
+        >
+          <Ionicons name="swap-horizontal-outline" size={15} color="#1d4ed8" />
+          <Text className="text-xs font-semibold text-blue-700">{HAT_LABEL[hat]}</Text>
+        </Pressable>
+      ))}
+    </View>
   );
 }
 

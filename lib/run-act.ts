@@ -1,4 +1,6 @@
 import type { AccessUser } from "./permissions";
+import { adminSetPasswordCore } from "./admin-password";
+import { setStaffTeachingCore } from "./staff-teaching";
 import {
   addPeriodCore,
   addRoomCore,
@@ -493,6 +495,8 @@ export async function runAct(
       return { ok: true, ...(await readPastExamSheetCore(user, body as never)) };
     case "editPublishedMarks":
       return { ok: true, ...(await editPublishedMarksCore(user, body as never)) };
+    case "setStaffTeaching":
+      return { ok: true, ...(await setStaffTeachingCore(user, body as never)) };
     case "reassignExamRole":
       return { ok: true, ...(await reassignExamRoleCore(user, body as never)) };
     case "scheduleExamForClasses":
@@ -538,6 +542,8 @@ export async function runAct(
       return { ...(await requestMyContactChangeCore(user, body as never)) };
     case "confirmContactChange":
       return { ...(await confirmMyContactChangeCore(user, body as never)) };
+    case "adminSetPassword":
+      return { ok: true, ...(await adminSetPasswordCore(user, body as never)) };
     case "changePassword":
       await changeOwnPasswordCore(user, {
         current: String(body.current || ""),

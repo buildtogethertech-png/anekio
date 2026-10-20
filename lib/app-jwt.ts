@@ -45,7 +45,7 @@ export function signAppToken(userId: string, as?: AppHat) {
   return signBody({ sub: userId, typ: "app", ...(as ? { as } : {}), iat: now, exp: now + 60 * 60 * 24 * 30 });
 }
 
-export type AppHat = "PARENT";
+export type AppHat = "PARENT" | "TEACHER";
 
 export function verifyAppToken(token: string) {
   return verifyAppTokenClaims(token)?.userId ?? null;
@@ -54,7 +54,8 @@ export function verifyAppToken(token: string) {
 export function verifyAppTokenClaims(token: string): { userId: string; as?: AppHat } | null {
   const body = verifiedBody(token);
   if (!body || body.typ !== "app" || !body.sub) return null;
-  return { userId: body.sub, ...(body.as === "PARENT" ? { as: "PARENT" as const } : {}) };
+  const as = body.as === "PARENT" || body.as === "TEACHER" ? (body.as as AppHat) : undefined;
+  return { userId: body.sub, ...(as ? { as } : {}) };
 }
 
 /** Short-lived token for an Anekio staff "log in as" session. Revocable via SupportSession.endedAt. */

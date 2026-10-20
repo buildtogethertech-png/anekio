@@ -7,7 +7,20 @@ import { useSession } from "../lib/session";
 
 /** Profile button for the top bar: full chip on desktop, avatar only on phone. Opens My profile / My leave / Sign out. */
 export function ProfileMenuButton({ compact = false }: { compact?: boolean }) {
-  const { user, signOut } = useSession();
+  const { user, signOut, switchHat } = useSession();
+  // Other apps this login can open (Office / Teacher / Parent), shown right in this menu.
+  const hats = user?.support ? [] : (user?.hats || []);
+  const otherHats = hats.filter((hat) => hat !== user?.portal);
+  const hatLabel = (hat: string) => (hat === "OFFICE" ? "Office" : hat === "TEACHER" ? "Teacher" : hat === "PARENT" ? "Parent" : "Student");
+  const hatIcon = (hat: string): keyof typeof Ionicons.glyphMap =>
+    hat === "OFFICE" ? "briefcase-outline" : hat === "TEACHER" ? "school-outline" : "people-outline";
+  function switchTo(hat: string) {
+    setOpen(false);
+    const as = hat === hats[0] ? "STAFF" : hat === "PARENT" ? "PARENT" : "TEACHER";
+    void switchHat(as)
+      .then(() => router.replace("/" as never))
+      .catch(() => undefined);
+  }
   const { data } = useRecord();
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -99,6 +112,10 @@ export function ProfileMenuButton({ compact = false }: { compact?: boolean }) {
             <View className="pt-1">
               {item("person-circle-outline", "My profile", () => go("/profile"))}
               {staff ? item("airplane-outline", "My leave", () => go("/leave"), hasLimits ? `${left % 1 ? left.toFixed(1) : left} days left` : undefined) : null}
+              {otherHats.length ? <View className="my-1 h-px bg-ink-100" /> : null}
+              {otherHats.map((hat) => (
+                <View key={hat}>{item(hatIcon(hat), `Switch to ${hatLabel(hat)}`, () => switchTo(hat))}</View>
+              ))}
               <View className="my-1 h-px bg-ink-100" />
               {item("log-out-outline", "Sign out", () => {
                 setOpen(false);

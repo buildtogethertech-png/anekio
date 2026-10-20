@@ -361,7 +361,7 @@ export async function runLeaveCredits(now = new Date()) {
       const types = (await prisma.leaveType.findMany()).filter((t) => isLimited(t));
       if (!types.length) return;
       const [teachers, staff] = await Promise.all([
-        types.some((t) => t.forTeacher) ? prisma.teacher.findMany({ select: { id: true, joinedOn: true } }) : [],
+        types.some((t) => t.forTeacher) ? prisma.teacher.findMany({ where: { teachingOnly: false }, select: { id: true, joinedOn: true } }) : [],
         types.some((t) => t.forStaff) ? prisma.staffMember.findMany({ select: { id: true, joinedOn: true } }) : [],
       ]);
       for (const t of teachers) {
@@ -380,7 +380,7 @@ export async function runLeaveCredits(now = new Date()) {
 /** Office: everyone's balances for the bulk "current balances" screen. */
 export async function allLeaveBalances() {
   const [teachers, staff] = await Promise.all([
-    prisma.teacher.findMany({ select: { id: true, joinedOn: true, employeeId: true, user: { select: { name: true } } } }),
+    prisma.teacher.findMany({ where: { teachingOnly: false }, select: { id: true, joinedOn: true, employeeId: true, user: { select: { name: true } } } }),
     prisma.staffMember.findMany({ select: { id: true, joinedOn: true, employeeId: true, name: true } }),
   ]);
   const types = (await prisma.leaveType.findMany({ orderBy: [{ sortOrder: "asc" }, { name: "asc" }] })).filter((t) => isLimited(t) && (t.forTeacher || t.forStaff));
