@@ -195,6 +195,36 @@ function currentRoll(row: { classId: string; enrollments?: { classId: string; ro
   return row.enrollments?.find((enrollment) => enrollment.classId === row.classId)?.rollNumber || null;
 }
 
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+async function classFeeGaps(classes: { id: string; name: string; section: string; _count: { students: number } }[]) {
+  const withStudents = classes.filter((c) => c._count.students > 0);
+  if (!withStudents.length) return [];
+  const now = new Date();
+  const months = [0, 1].map((add) => {
+    const d = new Date(now.getFullYear(), now.getMonth() + add, 1);
+    return { period: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`, label: `${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}` };
+  });
+  const templates = await prisma.feeTemplate.findMany({
+    where: { classId: { in: withStudents.map((c) => c.id) } },
+    select: { classId: true, startsPeriod: true, endsPeriod: true, _count: { select: { lines: true } } },
+  });
+  const covers = (classId: string, period: string) =>
+    templates.some(
+      (t) =>
+        t.classId === classId &&
+        t._count.lines > 0 &&
+        (!t.startsPeriod || t.startsPeriod <= period) &&
+        (!t.endsPeriod || period <= t.endsPeriod)
+    );
+  const gaps: { classId: string; classLabel: string; students: number; period: string; periodLabel: string }[] = [];
+  for (const c of withStudents) {
+    const missing = months.find((m) => !covers(c.id, m.period));
+    if (missing) gaps.push({ classId: c.id, classLabel: `${c.name}-${c.section}`, students: c._count.students, period: missing.period, periodLabel: missing.label });
+  }
+  return gaps;
+}
+
 /** Office user who is "Also a teacher": a small summary for the office Desk ("My teaching today"). */
 async function myTeachingToday(user: AccessUser) {
   const teacher = await prisma.teacher.findUnique({ where: { userId: user.id }, select: { id: true, teachingOnly: true } });
@@ -1124,6 +1154,8 @@ async function officePayload(user: AccessUser) {
       school: config?.name || "School",
       holes: [...holeMap.values()].sort((a, b) => b.count - a.count),
       subjectShortfalls: [...subjectShortfallByClass.values()].sort((a, b) => b.count - a.count),
+      // Classes with students but no fee structure for this month or next: no bills would be made for them.
+      feeGaps: can(user, "fees.view") ? await classFeeGaps(people.classes) : [],
       idleNow: pulse.idleTeachers.map((t) => ({ id: t.id, name: t.user.name, employeeId: t.employeeId })),
       didNotCome: [
         ...pulse.emptyClasses.map((s) => ({

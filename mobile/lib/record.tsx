@@ -392,6 +392,8 @@ export type RecordPayload = {
     school: string;
     holes?: { classId: string; classLabel: string; count: number }[];
     subjectShortfalls?: { classId: string; classLabel: string; count: number }[];
+    /** Classes with students but no class fee for this month or next (no bills would be made). */
+    feeGaps?: { classId: string; classLabel: string; students: number; period: string; periodLabel: string }[];
     idleNow?: { id: string; name: string; employeeId: string }[];
     didNotCome?: { id: string; label: string }[];
     todayAmount?: string;

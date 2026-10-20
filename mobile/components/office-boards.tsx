@@ -557,7 +557,27 @@ export function DeskBoard() {
     }),
     { present: 0, absent: 0, unmarked: 0, total: 0 }
   );
-  const attention = [
+  const feeGaps = desk.feeGaps ?? [];
+  const feeSetupRoute = "/fees?tab=setup&pane=class";
+  // No class fee for the coming month = no bills get made. Shown first; grouped when many classes are missing.
+  const feeGapRows =
+    feeGaps.length > 2
+      ? [
+          {
+            label: `${feeGaps.length} classes have no fee set`,
+            hint: `${feeGaps.map((g) => g.classLabel).join(", ")} · from ${feeGaps[0].periodLabel}. Bills won't be made.`,
+            route: feeSetupRoute,
+            urgent: true,
+          },
+        ]
+      : feeGaps.map((g) => ({
+          label: `${g.classLabel} · no fee set for ${g.periodLabel}`,
+          hint: `${g.students} students won't get a bill. Add the class fee.`,
+          route: feeSetupRoute,
+          urgent: true,
+        }));
+  const attention: { label: string; hint: string; route: string; urgent?: boolean }[] = [
+    ...feeGapRows,
     ...(desk.idleNow ?? []).map((row) => ({ label: row.name, hint: `${row.employeeId} · idle now`, route: "/staff" })),
     ...(desk.didNotCome ?? []).map((row) => ({ label: row.label, hint: "Did not come", route: "/staff" })),
     ...(desk.holes ?? []).map((row) => ({ label: row.classLabel, hint: `${row.count} unassigned period${row.count === 1 ? "" : "s"}`, route: "/timetable" })),
@@ -944,9 +964,17 @@ export function DeskBoard() {
             <Text className="mt-0.5 text-xs text-ink-700">Live staffing and timetable issues</Text>
           </View>
           {attention.length ? attention.map((row, index) => (
-            <Pressable key={`${row.label}-${index}`} onPress={() => router.push(row.route as never)} className={`px-5 py-3 ${index ? "border-t border-ink-100" : ""}`}>
-              <Text className="text-sm font-medium text-ink-900" numberOfLines={1}>{row.label}</Text>
-              <Text className="mt-0.5 text-xs text-red-600">{row.hint}</Text>
+            <Pressable key={`${row.label}-${index}`} onPress={() => router.push(row.route as never)} className={`flex-row items-start gap-3 px-5 py-3 ${index ? "border-t border-ink-100" : ""} ${row.urgent ? "bg-red-50/60" : ""}`}>
+              {row.urgent ? (
+                <View className="mt-0.5 h-7 w-7 items-center justify-center rounded-full bg-red-100">
+                  <Ionicons name="wallet-outline" size={15} color="#b91c1c" />
+                </View>
+              ) : null}
+              <View className="min-w-0 flex-1">
+                <Text className="text-sm font-medium text-ink-900" numberOfLines={1}>{row.label}</Text>
+                <Text className="mt-0.5 text-xs text-red-600">{row.hint}</Text>
+                {row.urgent ? <Text className="mt-1 text-xs font-semibold text-[#1F45C7]">Set up fee ›</Text> : null}
+              </View>
             </Pressable>
           )) : (
             <View className="items-center px-5 py-10">
