@@ -312,7 +312,7 @@ export async function reconcileTeacherSkillNames(aliases: { from: string; to: st
   }
 }
 
-export function matchClassSubject<T extends { id: string; code?: string | null; name: string }>(
+export function matchClassSubject<T extends { id?: string; code?: string | null; name: string }>(
   subjects: T[],
   input: { subjectId?: string | null; code?: string | null; subjectName?: string | null }
 ) {

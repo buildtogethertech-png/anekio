@@ -53,9 +53,9 @@ export function resolveSkillLabel(
 
 export function labeledTeacherSkills<T extends { subjectName: string; classId: string }>(
   skills: T[],
-  classes: { id: string; subjects: SubjectLabelInput[] }[]
+  classes: { id?: string; subjects?: SubjectLabelInput[] }[]
 ) {
-  const everySubject = classes.flatMap((klass) => klass.subjects);
+  const everySubject = classes.flatMap((klass) => klass.subjects ?? []);
   return skills.map((skill) => {
     const pool = (skill.classId && classes.find((klass) => klass.id === skill.classId)?.subjects) || everySubject;
     return { ...skill, subjectName: resolveSkillLabel(skill.subjectName, pool) };
