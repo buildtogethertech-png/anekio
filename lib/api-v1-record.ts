@@ -1049,6 +1049,63 @@ async function officePayload(user: AccessUser) {
         include: { events: { orderBy: { createdAt: "desc" } } },
       })
     : [];
+  // One student row for the Students list (also used for Past students).
+  function personRow(s: (typeof people.students)[number]) {
+      const totals = s.feeInvoices.reduce(
+        (acc, inv) => {
+          const paidAmt = inv.payments.reduce((n, p) => n + p.amount, 0);
+          const m = invoiceBalance({ ...inv, paid: paidAmt });
+          acc.billed += inv.amount;
+          acc.paid += paidAmt;
+          acc.due += m.dueNow;
+          if (m.display === "OVERDUE") acc.overdue += 1;
+          return acc;
+        },
+        { billed: 0, paid: 0, due: 0, overdue: 0 }
+      );
+      return {
+        id: s.id,
+        name: s.name,
+        classId: s.classId,
+        classLabel: `${s.class.name}-${s.class.section}`,
+        rollNumber: currentRoll(s),
+        parent: s.parent?.user.name || "",
+        parentPhone: s.parent?.phone || "",
+        admissionNo: s.admissionNo,
+        path: s.interests.map((i) => PATH_LABEL[i.tag] || i.tag),
+        feeLabel: totals.due > 0 ? `${formatInr(totals.due)} due` : "Paid up",
+        feeTone: totals.due <= 0 ? "paid" : totals.overdue ? "overdue" : "due",
+        parentId: s.parent?.id || "",
+        parentEmail: s.parent?.user.email || "",
+        parentAddress: (s.parent ? placeLines(s.parent) : []).join(", ") || "",
+        born: s.dateOfBirth ? s.dateOfBirth.toLocaleDateString("en-IN") : "",
+        dateOfBirth: s.dateOfBirth ? ymd(s.dateOfBirth) : "",
+        parentStreet: s.parent?.address || "",
+        parentCity: s.parent?.city || "",
+        parentState: s.parent?.state || "",
+        parentPincode: s.parent?.pincode || "",
+        admissionData: admissionCustomValues(s.admissionDataJson),
+        billed: formatInr(totals.billed),
+        paid: formatInr(totals.paid),
+        dueNow: formatInr(totals.due),
+        dueAmount: totals.due,
+        overdueCount: totals.overdue,
+        attendance: s.attendance.map((a) => ({ status: a.status })),
+        invoiceIds: s.feeInvoices.filter((inv) => inv.status !== "PAID").map((inv) => inv.id),
+        feeAddOns: s.feeAddOns.map((addOn) => ({
+          id: addOn.id,
+          label: addOn.label,
+          kind: addOn.kind,
+          amount: addOn.amount,
+          cadence: addOn.cadence,
+          startsPeriod: addOn.startsPeriod,
+          endsPeriod: addOn.endsPeriod,
+          active: addOn.active,
+        })),
+        invoices: s.feeInvoices.map(serializePeopleFeeInvoice),
+      };
+  }
+
   return {
     kind: "OFFICE" as const,
     staffAttendanceSelf: await staffAttendanceSelf(user),
@@ -1150,61 +1207,22 @@ async function officePayload(user: AccessUser) {
         return [];
       }
     })(),
-    people: people.students.map((s) => {
-      const totals = s.feeInvoices.reduce(
-        (acc, inv) => {
-          const paidAmt = inv.payments.reduce((n, p) => n + p.amount, 0);
-          const m = invoiceBalance({ ...inv, paid: paidAmt });
-          acc.billed += inv.amount;
-          acc.paid += paidAmt;
-          acc.due += m.dueNow;
-          if (m.display === "OVERDUE") acc.overdue += 1;
-          return acc;
-        },
-        { billed: 0, paid: 0, due: 0, overdue: 0 }
-      );
-      return {
-        id: s.id,
-        name: s.name,
-        classId: s.classId,
-        classLabel: `${s.class.name}-${s.class.section}`,
-        rollNumber: currentRoll(s),
-        parent: s.parent?.user.name || "",
-        parentPhone: s.parent?.phone || "",
-        admissionNo: s.admissionNo,
-        path: s.interests.map((i) => PATH_LABEL[i.tag] || i.tag),
-        feeLabel: totals.due > 0 ? `${formatInr(totals.due)} due` : "Paid up",
-        feeTone: totals.due <= 0 ? "paid" : totals.overdue ? "overdue" : "due",
-        parentId: s.parent?.id || "",
-        parentEmail: s.parent?.user.email || "",
-        parentAddress: (s.parent ? placeLines(s.parent) : []).join(", ") || "",
-        born: s.dateOfBirth ? s.dateOfBirth.toLocaleDateString("en-IN") : "",
-        dateOfBirth: s.dateOfBirth ? ymd(s.dateOfBirth) : "",
-        parentStreet: s.parent?.address || "",
-        parentCity: s.parent?.city || "",
-        parentState: s.parent?.state || "",
-        parentPincode: s.parent?.pincode || "",
-        admissionData: admissionCustomValues(s.admissionDataJson),
-        billed: formatInr(totals.billed),
-        paid: formatInr(totals.paid),
-        dueNow: formatInr(totals.due),
-        dueAmount: totals.due,
-        overdueCount: totals.overdue,
-        attendance: s.attendance.map((a) => ({ status: a.status })),
-        invoiceIds: s.feeInvoices.filter((inv) => inv.status !== "PAID").map((inv) => inv.id),
-        feeAddOns: s.feeAddOns.map((addOn) => ({
-          id: addOn.id,
-          label: addOn.label,
-          kind: addOn.kind,
-          amount: addOn.amount,
-          cadence: addOn.cadence,
-          startsPeriod: addOn.startsPeriod,
-          endsPeriod: addOn.endsPeriod,
-          active: addOn.active,
-        })),
-        invoices: s.feeInvoices.map(serializePeopleFeeInvoice),
-      };
-    }),
+    people: people.students.map((s) => personRow(s)),
+    pastPeople: people.pastStudents.map((s) => ({
+      ...personRow(s),
+      classLabel: s.lastClassLabel || "Past student",
+      rollNumber: null,
+      leftOn: s.leftOn || "",
+      leftReason: s.leftReason || "",
+      former: true,
+    })),
+    joiningPeople: people.joiningStudents.map((s) => ({
+      ...personRow(s),
+      classId: s.joinsClassId || s.classId,
+      classLabel: s.joinLabel || "Joining next year",
+      rollNumber: null,
+      joinsSessionId: s.joinsSessionId || "",
+    })),
     peopleTeachers: people.teachers.map((t) => ({
       id: t.id,
       userId: t.userId,

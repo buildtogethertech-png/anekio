@@ -388,8 +388,42 @@ model Student {
   /// The enquiry this student was admitted from (one student per enquiry).
   admissionLeadId     String?                  @unique
   enrollments         StudentClassEnrollment[]
+  /// Set when the student left the school or passed out (YYYY-MM-DD). Such students are hidden from
+  /// day-to-day lists; their history (fees, marks, attendance, enrollments) stays.
+  leftOn              String?
+  /// "Passed out 2026-27", "Left school", "TC issued" …
+  leftReason          String                   @default("")
+  /// Admitted for next year (the year being prepared). Until that year starts the student waits in a hidden
+  /// "Joining next year" class, so they are not in this year's registers, fee runs or promotion.
+  joinsSessionId      String?
+  /// The class they start in when that year begins.
+  joinsClassId        String?
+  /// When the student was admitted (set from now on; older students have none).
+  admittedAt          DateTime?
 
   @@unique([orgId, admissionNo])
+}
+
+/// Next-year decision for one student, made while the next session is being prepared.
+/// Applied (and then kept as a record) when that session is made current.
+model PromotionDecision {
+  id          String   @id @default(cuid())
+  orgId       String?
+  /// The session being prepared (the new year).
+  sessionId   String
+  studentId   String
+  fromClassId String
+  /// PROMOTE | DETAIN | LEAVE | PASS_OUT
+  outcome     String
+  /// Class in the new year (PROMOTE / DETAIN).
+  toClassId   String?
+  provisional Boolean  @default(false)
+  note        String   @default("")
+  decidedById String?
+  updatedAt   DateTime @updatedAt
+
+  @@unique([sessionId, studentId])
+  @@index([orgId])
 }
 
 model StudentClassEnrollment {
@@ -1220,6 +1254,10 @@ model SchoolSession {
   endsOn             String
   current            Boolean                  @default(false)
   examPlanJson       String                   @default("")
+  /// Set when School year → Switch made this year current (lib/promotion.ts). Lets the switch be undone
+  /// for a short while if nothing has happened in the new year yet.
+  switchedAt         DateTime?
+  switchedFromId     String?
   holidays           SchoolHoliday[]
   templates          FeeTemplate[]
   examSeries         ExamSeries[]

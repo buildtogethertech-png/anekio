@@ -506,6 +506,10 @@ export type RecordPayload = {
       }[];
     }[];
   }[];
+  /** Students who passed out or left school (newest first). classLabel = their last class and year. */
+  pastPeople?: (NonNullable<RecordPayload["people"]>[number] & { leftOn: string; leftReason: string; former: true })[];
+  /** Admitted for next year; classLabel = "1-A · from 2027-28". */
+  joiningPeople?: (NonNullable<RecordPayload["people"]>[number] & { joinsSessionId: string })[];
   peopleTeachers?: {
     id: string;
     userId?: string;
@@ -1035,6 +1039,11 @@ export function RecordProvider({ children }: { children: ReactNode }) {
       {children}
     </RecordContext.Provider>
   );
+}
+
+/** Like useRecord, but returns null outside the app's RecordProvider (e.g. a form used on its own). */
+export function useOptionalRecord() {
+  return useContext(RecordContext);
 }
 
 export function useRecord() {

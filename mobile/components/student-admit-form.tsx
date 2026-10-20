@@ -5,7 +5,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { Button, Chip, DateField, Field, Input, Select } from "./form";
 import { MonthField } from "./date-field";
 import { Segmented, Switch } from "./ui";
-import type { AdmissionFormField } from "../lib/record";
+import { useOptionalRecord, type AdmissionFormField } from "../lib/record";
 import { pickFile, type PickedFile } from "../lib/upload";
 import { useAssetUrl } from "../lib/assets";
 
@@ -38,6 +38,8 @@ export type StudentAdmitPayload = {
   paymentReference: string;
   parentEmail: string;
   customValues: Record<string, string>;
+  /** Admit for next year (starts when that year begins; skipped by this year's promotion). */
+  forNextYear?: boolean;
 };
 
 /** Files picked for the school's custom admission-form file fields, uploaded after the student is created. */
@@ -355,6 +357,61 @@ export function StudentAdmitForm({
     return { ...base, ...Object.fromEntries(Object.entries(values).filter(([, value]) => value !== undefined && value !== "")) } as StudentAdmitPayload;
   });
   const [files, setFiles] = useState<StudentAdmitFiles>({});
+  // "Admit for": this year or next year — always offered (schools take next year's admissions any time).
+  const record = useOptionalRecord();
+  const years = record?.data?.school?.sessions ?? [];
+  const thisYear = years.find((y) => y.current);
+  const preparedYear = thisYear
+    ? [...years].filter((y) => !y.current && y.startsOn > thisYear.startsOn).sort((a, b) => a.startsOn.localeCompare(b.startsOn))[0]
+    : undefined;
+  const offerNextYear = Boolean(thisYear);
+  const nextYear = (() => {
+    if (preparedYear) return { label: preparedYear.label, startMonth: preparedYear.startsOn.slice(0, 7) };
+    if (!thisYear) return null;
+    const end = new Date(`${thisYear.endsOn}T00:00:00`);
+    const start = new Date(end.getFullYear(), end.getMonth() + 1, 1);
+    const y = start.getFullYear();
+    return { label: `${y}–${String(y + 1).slice(-2)}`, startMonth: `${y}-${String(start.getMonth() + 1).padStart(2, "0")}` };
+  })();
+  const thisMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
+  const yearPicker =
+    offerNextYear && thisYear && nextYear ? (
+      <View>
+        <Text className="mb-1.5 text-sm font-medium text-ink-800">Admit for *</Text>
+        <View className="flex-row gap-2">
+          {[
+            { next: false, title: thisYear.label, sub: "Joins now" },
+            { next: true, title: nextYear.label, sub: `Joins next year · billing from ${nextYear.startMonth}` },
+          ].map((opt) => {
+            const on = Boolean(form.forNextYear) === opt.next;
+            return (
+              <Pressable
+                key={opt.title}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: on }}
+                onPress={() =>
+                  patch({
+                    forNextYear: opt.next,
+                    billingStartPeriod: opt.next
+                      ? form.billingStartPeriod < nextYear.startMonth ? nextYear.startMonth : form.billingStartPeriod
+                      : form.billingStartPeriod >= nextYear.startMonth ? thisMonth : form.billingStartPeriod,
+                  })
+                }
+                className={`flex-1 rounded-xl border px-3 py-2.5 ${on ? "border-[#1F45C7] bg-[#EEF3FF]" : "border-ink-200 bg-white"}`}
+              >
+                <Text className={`text-sm font-semibold ${on ? "text-[#1F45C7]" : "text-ink-900"}`}>{opt.title}</Text>
+                <Text className="mt-0.5 text-xs text-ink-700">{opt.sub}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        {form.forNextYear ? (
+          <Text className="mt-1.5 text-xs leading-4 text-ink-700">
+            Pick the class they start in. They stay out of this year&apos;s registers and promotion, and join their class when you switch to {nextYear.label}.
+          </Text>
+        ) : null}
+      </View>
+    ) : null;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [width, setWidth] = useState(0);
@@ -555,6 +612,7 @@ export function StudentAdmitForm({
                   <DateField birthDate value={form.dateOfBirth} max={new Date().toISOString().slice(0, 10)} onChange={(dateOfBirth) => patch({ dateOfBirth })} />
                 </View>
               ) : null}
+              {yearPicker}
               <View>
                 {label("Class *")}
                 {classes.length ? (
@@ -896,6 +954,7 @@ export function StudentAdmitForm({
               </Field>
             </Cell>
           ) : null}
+          {yearPicker ? <Cell twoCol={twoCol}>{yearPicker}</Cell> : null}
           <Cell half twoCol={twoCol}>
             {classes.length ? (
               <Select

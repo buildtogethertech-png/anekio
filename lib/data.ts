@@ -691,20 +691,18 @@ export async function getStudentPay(token: string) {
 
 export async function getPeople() {
   await ensureCurrentSessionStudentRollNumbers();
-  const [students, teachers, parents, classes] = await Promise.all([
-    prisma.student.findMany({
-      include: {
-        class: true,
-        enrollments: { where: { active: true, session: { current: true } }, select: { rollNumber: true, classId: true } },
-        interests: true,
-        parent: { include: { user: true } },
-        user: true,
-        feeInvoices: { include: { payments: true }, orderBy: { dueDate: "desc" } },
-        feeAddOns: { where: { active: true }, orderBy: { createdAt: "asc" } },
-        attendance: { select: { status: true } },
-      },
-      orderBy: { name: "asc" },
-    }),
+  const include = {
+    class: true,
+    enrollments: { where: { active: true, session: { current: true } }, select: { rollNumber: true, classId: true } },
+    interests: true,
+    parent: { include: { user: true } },
+    user: true,
+    feeInvoices: { include: { payments: true }, orderBy: { dueDate: "desc" as const } },
+    feeAddOns: { where: { active: true }, orderBy: { createdAt: "asc" as const } },
+    attendance: { select: { status: true } },
+  };
+  const [students, teachers, parents, classes, pastStudents, joiningStudents] = await Promise.all([
+    prisma.student.findMany({ include, orderBy: { name: "asc" } }),
     prisma.teacher.findMany({
       include: { user: { include: { manager: { select: { id: true, name: true, phone: true } } } }, class: true, subjects: true },
       orderBy: { employeeId: "asc" },
@@ -718,8 +716,42 @@ export async function getPeople() {
       include: { _count: { select: { students: true } }, subjects: true },
       orderBy: [{ name: "asc" }, { section: "asc" }],
     }),
+    // Passed out / left school (hidden from the lists above). Shown under Students → Past students.
+    prisma.student.findMany({ where: { leftOn: { not: null } }, include, orderBy: [{ leftOn: "desc" }, { name: "asc" }], take: 500 }),
+    // Admitted for next year; they wait outside this year's classes until the switch.
+    prisma.student.findMany({ where: { joinsSessionId: { not: null }, leftOn: null }, include, orderBy: { name: "asc" } }),
   ]);
-  return { students, teachers, parents, classes };
+  const joinMeta = new Map<string, string>();
+  if (joiningStudents.length) {
+    const [klasses, years] = await Promise.all([
+      prisma.class.findMany({ where: { id: { in: joiningStudents.map((s) => s.joinsClassId || "") } }, select: { id: true, name: true, section: true } }),
+      prisma.schoolSession.findMany({ where: { id: { in: joiningStudents.map((s) => s.joinsSessionId || "") } }, select: { id: true, label: true } }),
+    ]);
+    const k = new Map(klasses.map((c) => [c.id, `${c.name}-${c.section}`]));
+    const y = new Map(years.map((r) => [r.id, r.label]));
+    for (const s of joiningStudents) joinMeta.set(s.id, `${k.get(s.joinsClassId || "") ?? "?"} · from ${y.get(s.joinsSessionId || "") ?? "next year"}`);
+  }
+  const lastClass = new Map<string, string>();
+  if (pastStudents.length) {
+    const rows = await prisma.studentClassEnrollment.findMany({
+      where: { studentId: { in: pastStudents.map((s) => s.id) } },
+      select: { studentId: true, class: { select: { name: true, section: true } }, session: { select: { label: true, startsOn: true } } },
+    });
+    const best = new Map<string, (typeof rows)[number]>();
+    for (const r of rows) {
+      const prev = best.get(r.studentId);
+      if (!prev || prev.session.startsOn < r.session.startsOn) best.set(r.studentId, r);
+    }
+    for (const [id, r] of best) lastClass.set(id, `${r.class.name}-${r.class.section} · ${r.session.label}`);
+  }
+  return {
+    students,
+    teachers,
+    parents,
+    classes,
+    pastStudents: pastStudents.map((s) => ({ ...s, lastClassLabel: lastClass.get(s.id) ?? "" })),
+    joiningStudents: joiningStudents.map((s) => ({ ...s, joinLabel: joinMeta.get(s.id) ?? "" })),
+  };
 }
 
 export async function getPeopleExamPack() {

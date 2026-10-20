@@ -39,10 +39,28 @@ function withTenantWhere(args: Record<string, unknown>, model: string, operation
   }
 }
 
+/**
+ * Students who left or passed out (Student.leftOn set) stay in the database for history, but every
+ * day-to-day list must skip them. Top-level student reads get `leftOn: null` unless the query names a
+ * specific student (`id`) or asks about leftOn itself (e.g. the Past students list).
+ */
+const FORMER_STUDENT_READS = new Set(["findMany", "findFirst", "findFirstOrThrow", "count", "aggregate", "groupBy"]);
+function hideFormerStudents(operation: string, args: Record<string, unknown>) {
+  if (!FORMER_STUDENT_READS.has(operation)) return;
+  const where = (args.where || {}) as Record<string, unknown>;
+  const text = JSON.stringify(where);
+  // Uniqueness checks and direct lookups must still see former students.
+  if (/"(leftOn|joinsSessionId|id|admissionNo|admissionLeadId|userId|payToken)":/.test(text)) return;
+  // Also hides students admitted for next year until that year starts (lib/promotion.ts).
+  const live = { leftOn: null, joinsSessionId: null };
+  args.where = Object.keys(where).length ? { AND: [where, live] } : live;
+}
+
 const prismaExtension = Prisma.defineExtension({
   query: {
     $allModels: {
       async $allOperations({ model, operation, args, query }) {
+        if (model === "Student") hideFormerStudents(operation, args as Record<string, unknown>);
         const orgId = currentTenantOrg();
         if (!orgId || !model || !tenantModels.has(model)) return query(args);
 

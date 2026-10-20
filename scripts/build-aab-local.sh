@@ -30,4 +30,9 @@ case "$(node -v)" in v2[0-9].*|v[3-9][0-9].*) ;; *) echo "Node 20+ required"; ex
 pkill -f GradleDaemon 2>/dev/null || true
 if [ -x android/gradlew ]; then (cd android && ./gradlew --stop >/dev/null 2>&1 || true); fi
 
+# Play builds: add 1 to the Android build number first (kept in mobile/app.json).
+if [ "${PROFILE:-production}" = "production" ]; then
+  node "$PROJECT_DIR/scripts/bump-android-version.js"
+fi
+
 npx eas-cli build --platform android --profile "${PROFILE:-production}" --local

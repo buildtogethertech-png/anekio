@@ -43,6 +43,8 @@
     "build-apk:production:local": "npm --prefix mobile run build:apk:production:local",
     "build-apk:staging:local": "npm --prefix mobile run build:apk:staging:local",
     "build:aab:production:local": "npm --prefix mobile run build:aab:production:local",
+    "build:number": "node scripts/bump-android-version.js --show",
+    "build:number:set": "node scripts/bump-android-version.js --set",
     "build-apk:quick": "npm --prefix mobile run build:apk:quick",
     "deploy-staging": "bash scripts/deploy-staging.sh",
     "deploy:staging": "npm run deploy-staging",

@@ -118,8 +118,13 @@ No cable? Send the `.apk` to the phone (WhatsApp/Drive) and tap it to install.
 
 ## 3. Build the AAB for Google Play
 
-The build number (Android `versionCode`) goes up automatically on every production build
-(`autoIncrement` + remote version source in `mobile/eas.json`).
+The build number (Android `versionCode`) lives in `mobile/app.json` and goes up by 1 automatically before every
+production build (`scripts/bump-android-version.js`). Commit `mobile/app.json` after a release so the number is kept.
+
+```bash
+npm run build:number            # show the last number and the next one
+npm run build:number:set -- 15  # only if Play ever says a number is already used: set the last used one
+```
 
 **On your Mac (no Expo credits, ~15–25 min):**
 
@@ -140,11 +145,7 @@ Download the `.aab` from the link it prints (also at expo.dev → project → Bu
 Optional: change the user-facing version (e.g. `0.1.0` → `0.2.0`) in `mobile/app.json` → `"version"` before
 building. The build number does not need touching.
 
-If Play says *"Version code N has already been used"*:
-
-```bash
-cd mobile && npx eas-cli build:version:set -p android -e production    # enter the next unused number
-```
+If Play says *"Version code N has already been used"*: `npm run build:number:set -- N`, then build again.
 
 ---
 
@@ -199,7 +200,7 @@ Test the blocker in Dev: set minimum to `20` in the admin console, then
 | Play AAB (local) | `npm run build:aab:production:local` |
 | Play AAB (cloud) | `npm run build:aab:production` |
 | Upload to Play (cloud build) | `cd mobile && npx eas-cli submit --platform android --profile production` |
-| Fix used version code | `cd mobile && npx eas-cli build:version:set -p android -e production` |
+| Show / fix build number | `npm run build:number` · `npm run build:number:set -- N` |
 | Crash log | `adb logcat -c && adb logcat '*:S' ReactNativeJS:V AndroidRuntime:E` |
 | Remove an app from the phone | `adb uninstall in.anekio.school.dev` (or `.preview`) |
 

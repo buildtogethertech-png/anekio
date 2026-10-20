@@ -1,5 +1,17 @@
 import type { AccessUser } from "./permissions";
 import { adminSetPasswordCore } from "./admin-password";
+import {
+  markStudentLeftCore,
+  pastStudentsCore,
+  prepareNextYearCore,
+  promotionBoardCore,
+  resetPromotionClassCore,
+  restoreStudentCore,
+  savePromotionDecisionsCore,
+  schoolYearSummaryCore,
+  switchToNextYearCore,
+  undoYearSwitchCore,
+} from "./promotion";
 import { setStaffTeachingCore } from "./staff-teaching";
 import {
   addPeriodCore,
@@ -542,6 +554,27 @@ export async function runAct(
       return { ...(await requestMyContactChangeCore(user, body as never)) };
     case "confirmContactChange":
       return { ...(await confirmMyContactChangeCore(user, body as never)) };
+    case "prepareNextYear":
+      return { ok: true, ...(await prepareNextYearCore(user, body as never)) };
+    case "promotionBoard":
+      return { ok: true, ...(await promotionBoardCore(user)) };
+    case "savePromotionDecisions":
+      return { ok: true, ...(await savePromotionDecisionsCore(user, body as never)) };
+    case "resetPromotionClass":
+      await resetPromotionClassCore(user, body as never);
+      break;
+    case "switchToNextYear":
+      return { ok: true, ...(await switchToNextYearCore(user, body as never)) };
+    case "undoYearSwitch":
+      return { ok: true, ...(await undoYearSwitchCore(user)) };
+    case "schoolYearSummary":
+      return { ok: true, ...(await schoolYearSummaryCore(user, body as never)) };
+    case "pastStudents":
+      return { ok: true, ...(await pastStudentsCore(user, body as never)) };
+    case "markStudentLeft":
+      return { ok: true, ...(await markStudentLeftCore(user, body as never)) };
+    case "restoreStudent":
+      return { ok: true, ...(await restoreStudentCore(user, body as never)) };
     case "adminSetPassword":
       return { ok: true, ...(await adminSetPasswordCore(user, body as never)) };
     case "changePassword":

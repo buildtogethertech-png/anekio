@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { SchoolYearPanel, YearSummaryModal } from "./school-year-panel";
 import { Image, KeyboardAvoidingView, Linking, Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -31,7 +32,7 @@ const LOCKED_STAFF_ONBOARDING_FIELDS = ["staffName", "phone", "email", "role"];
 
 const TABS = [
   { id: "identity", label: "Identity & brand assets", hint: "Name, address, logo, signatures, and stamps", group: "School Setup" },
-  { id: "sessions", label: "Sessions", hint: "Academic years and current session", group: "School Setup" },
+  { id: "sessions", label: "School year", hint: "Move to next year, promote students, past years", group: "School Setup" },
   { id: "classes", label: "Classes", hint: "Sections and class strength", group: "School Setup" },
   { id: "clock", label: "Clock", hint: "School days and bell times. Set once.", group: "School Setup" },
   { id: "calendar", label: "Calendar", hint: "Holidays exam papers skip. Weekly offs are on Clock.", group: "School Setup" },
@@ -1804,6 +1805,7 @@ export function SchoolBoard() {
   const [classOpen, setClassOpen] = useState(false);
   const [calendarImportOpen, setCalendarImportOpen] = useState(false);
   const [classDraft, setClassDraft] = useState({ name: "", section: "A" });
+  const [viewYear, setViewYear] = useState<string | null>(null);
   const [sessionDraft, setSessionDraft] = useState({ startsOn: "", endsOn: "", copyFromId: "", makeCurrent: true });
   const [calendarSessionId, setCalendarSessionId] = useState(s?.sessionId || "");
   const [bands, setBands] = useState(s?.policy?.bands?.length ? s.policy.bands : DEFAULT_GRADE_BANDS);
@@ -2328,27 +2330,18 @@ export function SchoolBoard() {
 
             {tab === "sessions" ? (
               <View className="gap-3">
-                <Text className="text-sm text-ink-700">
-                  Academic years control which fee templates, exam plans, and records are current. Older years stay available when a new session starts.
-                </Text>
+                <SchoolYearPanel edit={edit} phone={phone} notify={toast.show} onChanged={reload} />
+                <YearSummaryModal sessionId={viewYear} onClose={() => setViewYear(null)} />
                 <View className="rounded-md border border-ink-200 p-4">
                   <View className={phone ? "gap-3" : "flex-row items-start justify-between gap-3"}>
                     <View className="flex-1">
-                      <Text className="text-sm font-medium text-ink-900">Academic sessions</Text>
+                      <Text className="text-sm font-medium text-ink-900">All school years</Text>
                       <Text className="mt-0.5 text-xs text-ink-700">
                         Fees for 2026-27 stay when you add 2027-28.
                       </Text>
                     </View>
                     {edit ? (
                       <View className="flex-row flex-wrap gap-2">
-                        <Button
-                          variant="ghost"
-                          onPress={async () => {
-                            await run("startNextSchoolSession", {}, "Next year started.");
-                          }}
-                        >
-                          Start next year
-                        </Button>
                         <Button
                           variant="ghost"
                           onPress={() => {
@@ -2358,7 +2351,7 @@ export function SchoolBoard() {
                               startsOn: next.startsOn,
                               endsOn: next.endsOn,
                               copyFromId: current?.id || "",
-                              makeCurrent: true,
+                              makeCurrent: false,
                             });
                             setAddOpen(true);
                           }}
@@ -2382,11 +2375,18 @@ export function SchoolBoard() {
                         </View>
                         {edit ? (
                           <View className="flex-row flex-wrap gap-3">
-                            <Linkish
-                              label={row.current ? "Confirm dates" : "Use as current"}
-                              onPress={() => run("setCurrentSchoolSession", { sessionId: row.id }, `${row.label} confirmed for this school.`)}
-                            />
-                            {!row.current && sessions.length > 1 ? (
+                            {row.current ? (
+                              <Linkish
+                                label="Confirm dates"
+                                onPress={() => run("setCurrentSchoolSession", { sessionId: row.id }, `${row.label} confirmed for this school.`)}
+                              />
+                            ) : row.startsOn < (sessions.find((x) => x.current)?.startsOn ?? "") ? (
+                              <Text className="text-xs text-ink-600">Past year</Text>
+                            ) : (
+                              <Text className="text-xs text-amber-800">Being prepared</Text>
+                            )}
+                            <Linkish label="View" onPress={() => setViewYear(row.id)} />
+                            {!row.current && sessions.length > 1 && row.startsOn > (sessions.find((x) => x.current)?.startsOn ?? "") ? (
                               <Linkish
                                 label="Remove"
                                 danger

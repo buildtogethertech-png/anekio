@@ -1,7 +1,7 @@
 {
   "cli": {
     "version": ">= 14.0.0",
-    "appVersionSource": "remote"
+    "appVersionSource": "local"
   },
   "build": {
     "development": {
@@ -54,8 +54,7 @@
       "env": {
         "EXPO_PUBLIC_API_URL": "https://app.anekio.com",
         "ORG_GRADLE_PROJECT_reactNativeArchitectures": "armeabi-v7a,arm64-v8a"
-      },
-      "autoIncrement": true
+      }
     }
   },
   "submit": {

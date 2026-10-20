@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import { ensurePreparedYear, markJoiningNextYear } from "./promotion";
 import { randomUUID } from "node:crypto";
 import QRCode from "qrcode";
 import { AttendanceStatus, PaymentMethod, PathTag, Portal, PayrollStatus, Prisma, RoomKind, StaffKind } from "@prisma/client";
@@ -199,7 +200,24 @@ async function nextEmployeeId(prefix: "S" | "T", orgId: string | null) {
   return `${prefix}-${(nums.length ? Math.max(...nums) : start) + 1}`;
 }
 
-export async function createStudentCore(
+type CreateStudentInput = Parameters<typeof createStudentNow>[1] & {
+  /** Admit for next year: the student starts in `classId` when the prepared year begins (lib/promotion.ts). */
+  forNextYear?: boolean;
+};
+
+export async function createStudentCore(user: AccessUser, input: CreateStudentInput) {
+  if (!input.forNextYear) return createStudentNow(user, input);
+  need(user, "people.edit");
+  const next = await ensurePreparedYear();
+  // Billing can't start before that year does.
+  const nextStart = next.startsOn.slice(0, 7);
+  const billingStartPeriod = !input.billingStartPeriod || input.billingStartPeriod < nextStart ? nextStart : input.billingStartPeriod;
+  const result = await createStudentNow(user, { ...input, billingStartPeriod });
+  await markJoiningNextYear(result.studentId, input.classId);
+  return { ...result, joinsYear: next.label };
+}
+
+async function createStudentNow(
   user: AccessUser,
   input: {
     name: string;
@@ -348,6 +366,7 @@ export async function createStudentCore(
             billingStartPeriod,
             admissionDataJson: JSON.stringify(admissionData),
             admissionLeadId: lead?.id ?? null,
+            admittedAt: new Date(),
             interests: { create: tags.map((tag) => ({ tag })) },
           },
         });
@@ -600,6 +619,7 @@ export async function admitLeadAsStudentCore(
         billingStartPeriod: lead.billingStartPeriod || feePeriod(new Date().getFullYear(), new Date().getMonth()),
         admissionDataJson: JSON.stringify(admissionCustomValues(lead.customFieldsJson)),
         admissionLeadId: lead.id,
+        admittedAt: new Date(),
       },
     });
     await assignStudentRollNumber(tx, { studentId: student.id, classId, orgId: user.orgId ?? null });

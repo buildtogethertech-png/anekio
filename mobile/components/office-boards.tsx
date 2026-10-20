@@ -1342,7 +1342,14 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   const [idCardPending, setIdCardPending] = useState(false);
   const [documentUploadPending, setDocumentUploadPending] = useState("");
   const [docView, setDocView] = useState<"uploaded" | "issued">("uploaded");
-  const people = data?.people ?? [];
+  // Current students, "Past students" (passed out / left) or "Joining" (admitted for next year). All stay openable.
+  const [listMode, setListMode] = useState<"current" | "past" | "joining">("current");
+  const pastMode = listMode === "past";
+  const currentPeople = data?.people ?? [];
+  const pastPeople = data?.pastPeople ?? [];
+  const joiningPeople = data?.joiningPeople ?? [];
+  const people: typeof currentPeople = listMode === "past" ? pastPeople : listMode === "joining" ? joiningPeople : currentPeople;
+  const allPeople: typeof currentPeople = [...currentPeople, ...pastPeople, ...joiningPeople];
   const teachersAll = data?.peopleTeachers ?? [];
   const parentsAll = data?.peopleParents ?? [];
   const showFees = can(user, "fees.view");
@@ -1352,7 +1359,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   const showTeachers = !studentOnly && kind === "teacher";
   const showParents = false;
   const filtered = people.filter((s) => {
-    if (classIds.length && !classIds.includes(s.classId || "")) return false;
+    if (listMode === "current" && classIds.length && !classIds.includes(s.classId || "")) return false;
     if (showFees && feeFilter === "due" && !(s.dueAmount && s.dueAmount > 0)) return false;
     if (showFees && feeFilter === "overdue" && !(s.overdueCount && s.overdueCount > 0)) return false;
     if (showFees && feeFilter === "clear" && (s.dueAmount || 0) > 0) return false;
@@ -1391,7 +1398,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   });
   const selectedStudent =
     picked?.kind === "student"
-      ? people.find((s) => s.id === picked.id) || (wide ? sortedStudents[0] || null : null)
+      ? allPeople.find((s) => s.id === picked.id) || (wide ? sortedStudents[0] || null : null)
       : wide && showStudents && !showTeachers && !showParents
         ? sortedStudents[0] || null
         : null;
@@ -1428,7 +1435,9 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
     if (appliedIncoming.current === incoming) return;
     appliedIncoming.current = incoming;
     if (picked?.kind === "student" && picked.id === incoming) return;
-    const requested = people.find((student) => student.id === incoming);
+    const requested = allPeople.find((student) => student.id === incoming);
+    if (requested && pastPeople.some((p) => p.id === requested.id)) setListMode("past");
+    if (requested && joiningPeople.some((p) => p.id === requested.id)) setListMode("joining");
     const fallback = requested || people[0];
     setFeeFilter("due");
     setClassIds([]);
@@ -1545,7 +1554,40 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       )}
       {showStudents ? (
         <View className="flex-row flex-wrap items-center gap-1.5">
-          {(["name", "roll", "class", "due"] as StudentSort[]).map((id) => (
+          {joiningPeople.length || listMode === "joining" ? (
+            <Pressable
+              onPress={() => {
+                setListMode(listMode === "joining" ? "current" : "joining");
+                setPicked(null);
+                setStudentSort("name");
+              }}
+              accessibilityRole="button"
+              accessibilityState={{ selected: listMode === "joining" }}
+              className={`flex-row items-center gap-1 rounded-full px-2.5 py-1 ${listMode === "joining" ? "bg-[#1F45C7]" : "border border-ink-200 bg-white"}`}
+            >
+              <Ionicons name="calendar-outline" size={12} color={listMode === "joining" ? "#fff" : "#3d4f66"} />
+              <Text className={`text-xs font-medium ${listMode === "joining" ? "text-white" : "text-ink-700"}`}>
+                Joining next year · {joiningPeople.length}
+              </Text>
+            </Pressable>
+          ) : null}
+          <Pressable
+            onPress={() => {
+              setListMode(pastMode ? "current" : "past");
+              setPicked(null);
+              setStudentSort("name");
+            }}
+            accessibilityRole="button"
+            accessibilityState={{ selected: pastMode }}
+            className={`flex-row items-center gap-1 rounded-full px-2.5 py-1 ${pastMode ? "bg-amber-600" : "border border-ink-200 bg-white"}`}
+          >
+            <Ionicons name="archive-outline" size={12} color={pastMode ? "#fff" : "#3d4f66"} />
+            <Text className={`text-xs font-medium ${pastMode ? "text-white" : "text-ink-700"}`}>
+              Past students{pastPeople.length ? ` · ${pastPeople.length}` : ""}
+            </Text>
+          </Pressable>
+          <View className="mx-0.5 h-4 w-px bg-ink-200" />
+          {((listMode !== "current" ? ["name", "class", "due"] : ["name", "roll", "class", "due"]) as StudentSort[]).map((id) => (
             <Pressable
               key={id}
               onPress={() => setStudentSort(id)}
@@ -1751,6 +1793,27 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                 {showFees ? <FeeText label={selected.feeLabel} tone={selected.feeTone} /> : null}
               </View>
               <Text className="mt-1 text-sm text-ink-800">{studentMetaLine(selected)}</Text>
+              {(() => {
+                const joining = joiningPeople.find((p) => p.id === selected.id);
+                if (joining) {
+                  return (
+                    <View className="mt-1.5 flex-row flex-wrap items-center gap-1.5 self-start rounded-md bg-[#EEF3FF] px-2 py-1">
+                      <Ionicons name="calendar-outline" size={13} color="#1F45C7" />
+                      <Text className="text-xs font-medium text-[#1F45C7]">Admitted for next year · {joining.classLabel}</Text>
+                    </View>
+                  );
+                }
+                const former = pastPeople.find((p) => p.id === selected.id);
+                if (!former) return null;
+                return (
+                  <View className="mt-1.5 flex-row flex-wrap items-center gap-1.5 self-start rounded-md bg-amber-50 px-2 py-1">
+                    <Ionicons name="archive-outline" size={13} color="#92400e" />
+                    <Text className="text-xs font-medium text-amber-900">
+                      {[former.leftReason || "Left school", former.leftOn ? `on ${former.leftOn.split("-").reverse().join("/")}` : ""].filter(Boolean).join(" ")}
+                    </Text>
+                  </View>
+                );
+              })()}
               {selected.born ? <Text className="mt-0.5 text-xs text-ink-500">Born {selected.born}</Text> : null}
               {bare && (selected.path ?? []).length ? (
                 <View className="mt-1.5 flex-row flex-wrap gap-1">
@@ -3307,7 +3370,7 @@ function LeadDetailTile({ label, value }: { label: string; value: string }) {
   );
 }
 
-type CreatedStudent = { studentId?: string; admissionNo: string; admissionCharge?: number; admissionCollected?: boolean };
+type CreatedStudent = { studentId?: string; admissionNo: string; admissionCharge?: number; admissionCollected?: boolean; joinsYear?: string };
 
 /** Creates the student, then uploads any files picked for custom admission-form fields. Returns the names of files that failed. */
 async function createStudentWithFiles(token: string | null, values: StudentAdmitPayload & { leadId?: string }, files: StudentAdmitFiles) {
@@ -3326,6 +3389,7 @@ async function createStudentWithFiles(token: string | null, values: StudentAdmit
 }
 
 function studentAddedMessage(result: CreatedStudent, failedUploads: string[], verb = "Student added") {
+  if (result.joinsYear && !failedUploads.length) return `${verb} for ${result.joinsYear} · ${result.admissionNo} · joins their class when ${result.joinsYear} starts`;
   if (failedUploads.length) return `${verb} · ${result.admissionNo} · Could not upload ${failedUploads.join(", ")}. Add it from the student's Documents.`;
   if (result.admissionCharge) return `${verb} · ${result.admissionNo} · Admission fee ${result.admissionCollected ? "collected" : "invoiced"}`;
   return `${verb} · ${result.admissionNo}`;
