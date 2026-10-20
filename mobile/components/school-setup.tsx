@@ -1117,9 +1117,12 @@ export function SchoolSubjectsForm({
     const found = DEFAULT_SUBJECT_ENTRIES.find((row) => row.name.toLowerCase() === name.toLowerCase());
     const code = normalizeSubjectCode(codeRaw) || found?.code || normalizeSubjectCode(name.replace(/[^A-Za-z0-9]/g, "")).slice(0, 12);
     setNotice("");
-    setEntries([...entries, { code, name, previousCode: code }]);
+    setEntries([{ code, name, previousCode: code, previousName: name }, ...entries]);
     setAddCode("");
     setAddName("");
+    setCatalogQuery("");
+    setAddOpen(false);
+    setFlash({ at: "catalog", kind: "ok", text: `${name} added.` });
     return true;
   }
 
@@ -1289,7 +1292,7 @@ export function SchoolSubjectsForm({
               <Text className="text-sm font-medium text-clay-600">Manage catalog</Text>
             </Pressable>
           </View>
-          <SaveFlash at="catalog" flash={flash} />
+          {!catalogOpen ? <SaveFlash at="catalog" flash={flash} /> : null}
           {gradeSections.length > 1 ? (
             <Text className="text-sm text-ink-700">
               Class {selectedGrade} sections share these subjects. Each section keeps its own routine and teachers.
@@ -1388,7 +1391,7 @@ export function SchoolSubjectsForm({
           >
             Manage catalog
           </Button>
-          <SaveFlash at="catalog" flash={flash} />
+          {!catalogOpen ? <SaveFlash at="catalog" flash={flash} /> : null}
         </View>
       )}
       <Modal open={pendingClassId != null} title="Unsaved changes" onClose={() => setPendingClassId(null)}>
@@ -1446,6 +1449,7 @@ export function SchoolSubjectsForm({
       >
         <View className="gap-3">
           <>
+            <SaveFlash at="catalog" flash={flash} />
             <View className="flex-row items-center justify-between gap-2">
               <Text className="text-xs text-ink-700">{`${totalSubjects} ${totalSubjects === 1 ? "subject" : "subjects"}`}</Text>
               <Pressable accessibilityRole="button" accessibilityLabel="Upload subjects" onPress={() => setImportOpen(true)} className="flex-row items-center gap-1 py-1">

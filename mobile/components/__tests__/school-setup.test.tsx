@@ -102,8 +102,12 @@ describe("SchoolSubjectsForm", () => {
     fireEvent.press(screen.getByLabelText("Add subject"));
     fireEvent.changeText(screen.getByLabelText("Subject name"), "Science");
     fireEvent.press(screen.getByText("Add to catalog"));
-    expect(screen.getByLabelText("Edit Science in catalog")).toBeTruthy();
+    expect(screen.getAllByLabelText(/Edit .+ in catalog/).map((node) => node.props.accessibilityLabel)[0]).toBe(
+      "Edit Science in catalog"
+    );
+    expect(screen.getByText("Science added.")).toBeTruthy();
 
+    fireEvent.press(screen.getByLabelText("Add subject"));
     fireEvent.changeText(screen.getByLabelText("Subject name"), "hindi");
     fireEvent.press(screen.getByText("Add to catalog"));
     expect(screen.getByText("That subject is already in the catalog.")).toBeTruthy();
