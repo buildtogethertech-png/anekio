@@ -54,6 +54,11 @@ export function isStaffScanPath(pathname: string | null | undefined) {
   return pathname === STAFF_SCAN_ROUTE || Boolean(pathname?.startsWith(`${STAFF_SCAN_ROUTE}?`));
 }
 
+/** Same gate as the header scan button and `scanStaffAttendanceQr`. */
+export function canOpenStaffScan(permissions?: readonly string[] | null) {
+  return Boolean(permissions?.some((permission) => permission === "staff.attendance" || permission === "staff.edit"));
+}
+
 export function staffScanHref(origin: string) {
   const base = String(origin || "").replace(/\/$/, "");
   return `${base}${STAFF_SCAN_ROUTE}`;
@@ -71,7 +76,7 @@ export function openStaffScanRoute(
   const win = options?.win === undefined ? (typeof window !== "undefined" ? (window as ScanWindow) : null) : options.win;
   if (options?.newTab) {
     if (!win?.open) return;
-    const opened = win.open(staffScanHref(win.location.origin), "_blank");
+    const opened = win.open(staffScanHref(win.location?.origin || ""), "_blank");
     if (opened && typeof opened === "object" && "opener" in opened) {
       (opened as { opener: unknown }).opener = null;
     }

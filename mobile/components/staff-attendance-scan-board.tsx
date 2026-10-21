@@ -11,6 +11,7 @@ import { Button, Field, Input } from "./ui";
 import {
   barcodeDetectorAvailable,
   cameraConstraints,
+  canOpenStaffScan,
   classifyScanMessage,
   shouldIgnoreScan,
   STAFF_SCAN_COOLDOWN_MS,
@@ -66,7 +67,7 @@ export function StaffAttendanceScanBoard() {
   const router = useRouter();
   const { token, user } = useSession();
   const { reload } = useRecord();
-  const allowed = Boolean(user?.permissions.includes("staff.edit"));
+  const allowed = canOpenStaffScan(user?.permissions);
   const [code, setCode] = useState("");
   const [status, setStatus] = useState("Opening camera...");
   const [result, setResult] = useState({ kind: "loading" as ScanFeedbackKind, title: "Starting scanner", body: "Camera access is requested on this page only." });
@@ -249,7 +250,7 @@ export function StaffAttendanceScanBoard() {
     return (
       <View className="gap-3 p-4">
         <Text className="text-lg font-semibold text-ink-900">Scan attendance</Text>
-        <ResultPanel kind="denied" title="No access" body="Staff attendance scanning needs the staff.edit permission." />
+        <ResultPanel kind="denied" title="No access" body="Staff attendance scanning needs staff.attendance or staff.edit." />
       </View>
     );
   }

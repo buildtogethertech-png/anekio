@@ -4,7 +4,8 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
 import { act } from "../lib/mutate";
-import { openStaffScanRoute } from "../lib/staff-attendance-scan";
+import { useOptionalRecord } from "../lib/record";
+import { canOpenStaffScan, openStaffScanRoute } from "../lib/staff-attendance-scan";
 import { Badge, Button, Field, Input, Modal, Toast, useToast } from "./ui";
 
 type StaffQrResult = {
@@ -800,20 +801,28 @@ export function AttendanceKiosk({ token, open, onClose, onScanned }: { token: st
 
 /** Top-bar icon: opens the full-screen check-in desk. Only for people who can mark staff attendance. */
 export function KioskTopButton({ token, permissions, onScanned }: { token: string | null; permissions?: string[]; onScanned?: () => void }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
-  const allowed = (permissions ?? []).some((p) => p === "staff.attendance" || p === "staff.edit");
+  const allowed = canOpenStaffScan(permissions);
   if (!allowed) return null;
+  const web = Platform.OS === "web";
   return (
     <>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Open staff check-in"
-        onPress={() => setOpen(true)}
+        onPress={() => {
+          if (web) {
+            openStaffScanRoute(router, { newTab: true });
+            return;
+          }
+          setOpen(true);
+        }}
         className="h-10 w-10 items-center justify-center rounded-full bg-white"
       >
         <Ionicons name="scan-outline" size={20} color="#0f2744" />
       </Pressable>
-      <AttendanceKiosk token={token} open={open} onClose={() => setOpen(false)} onScanned={onScanned} />
+      {web ? null : <AttendanceKiosk token={token} open={open} onClose={() => setOpen(false)} onScanned={onScanned} />}
     </>
   );
 }
@@ -836,19 +845,64 @@ export function QrDockButton({
   onScanned?: () => void;
 }) {
   const toast = useToast();
+  const record = useOptionalRecord();
+  const today = record?.data?.staffAttendanceSelf?.today;
+  const alreadyMarked = Boolean(today?.marked);
+  const markedLabel = today?.inAt ? `Checked in today at ${clockLabel(today.inAt)}` : "Attendance already marked for today";
   const [kiosk, setKiosk] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [qr, setQr] = useState<StaffQrResult | null>(null);
+  const reloadRef = useRef(record?.reloadSilently);
+  reloadRef.current = record?.reloadSilently;
+
+  useEffect(() => {
+    if (!hasSelfQr) return;
+    const refresh = () => {
+      void reloadRef.current?.();
+    };
+    const onVis = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") refresh();
+    };
+    if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+      window.addEventListener("focus", refresh);
+    }
+    if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+      document.addEventListener("visibilitychange", onVis);
+    }
+    const id = setInterval(refresh, 15000);
+    refresh();
+    return () => {
+      if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
+        window.removeEventListener("focus", refresh);
+      }
+      if (typeof document !== "undefined" && typeof document.removeEventListener === "function") {
+        document.removeEventListener("visibilitychange", onVis);
+      }
+      clearInterval(id);
+    };
+  }, [hasSelfQr]);
 
   async function showMine() {
+    if (alreadyMarked) {
+      toast.show(markedLabel);
+      setQrOpen(false);
+      setQr(null);
+      return;
+    }
     setBusy(true);
     try {
       const result = await act<{ ok: true } & StaffQrResult>(token, "generateStaffAttendanceQr");
       setQr(result);
       setQrOpen(true);
     } catch (error) {
-      toast.show(error instanceof Error ? error.message : "Could not generate attendance QR.");
+      const message = error instanceof Error ? error.message : "Could not generate attendance QR.";
+      toast.show(message);
+      if (/already marked/i.test(message)) {
+        setQr(null);
+        setQrOpen(false);
+        await reloadRef.current?.();
+      }
     } finally {
       setBusy(false);
     }
@@ -866,17 +920,26 @@ export function QrDockButton({
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={hasSelfQr ? "Show my attendance QR" : "Scan staff attendance"}
+        accessibilityLabel={alreadyMarked ? "Attendance already marked for today" : hasSelfQr ? "Show my attendance QR" : "Scan staff attendance"}
+        accessibilityState={{ disabled: busy || alreadyMarked }}
         onPress={press}
-        disabled={busy}
-        className="h-10 w-10 items-center justify-center rounded-full bg-white"
+        disabled={busy || alreadyMarked}
+        className={`h-10 w-10 items-center justify-center rounded-full bg-white ${alreadyMarked ? "opacity-70" : ""}`}
       >
-        {busy ? <ActivityIndicator size="small" color="#0f2744" /> : <Ionicons name={hasSelfQr ? "qr-code-outline" : "scan-outline"} size={20} color="#0f2744" />}
+        {busy ? (
+          <ActivityIndicator size="small" color="#0f2744" />
+        ) : (
+          <Ionicons
+            name={alreadyMarked ? "checkmark-circle" : hasSelfQr ? "qr-code-outline" : "scan-outline"}
+            size={20}
+            color={alreadyMarked ? "#18794E" : "#0f2744"}
+          />
+        )}
       </Pressable>
 
 
       <QrSheet
-        open={qrOpen}
+        open={qrOpen && !alreadyMarked}
         qr={qr}
         busy={busy}
         onRefresh={() => void showMine()}

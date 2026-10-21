@@ -1,6 +1,7 @@
 import {
   barcodeDetectorAvailable,
   cameraConstraints,
+  canOpenStaffScan,
   classifyScanMessage,
   isStaffScanPath,
   openStaffScanRoute,
@@ -80,6 +81,15 @@ describe("staff attendance scan helpers", () => {
       { newTab: true, win: { open: () => null, location: { origin: "http://localhost:8081" } } }
     );
     expect(push).not.toHaveBeenCalled();
+  });
+
+  it("lets staff.attendance or staff.edit open the scanner", () => {
+    expect(canOpenStaffScan(["staff.attendance"])).toBe(true);
+    expect(canOpenStaffScan(["staff.edit"])).toBe(true);
+    expect(canOpenStaffScan(["staff.attendance", "staff.edit"])).toBe(true);
+    expect(canOpenStaffScan(["desk.view"])).toBe(false);
+    expect(canOpenStaffScan([])).toBe(false);
+    expect(canOpenStaffScan(undefined)).toBe(false);
   });
 
   it("classifies API errors for the scanner", () => {

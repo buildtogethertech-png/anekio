@@ -31,14 +31,26 @@ describe("staff attendance scan board", () => {
     } as unknown as ReturnType<typeof useSession>);
   });
 
-  it("blocks users without staff.edit", () => {
+  it("blocks users without staff.attendance or staff.edit", () => {
     mockUseSession.mockReturnValue({
       token: "office-token",
-      user: { permissions: [] },
+      user: { permissions: ["desk.view"] },
     } as unknown as ReturnType<typeof useSession>);
     render(<StaffAttendanceScanBoard />);
     expect(screen.getByText("No access")).toBeTruthy();
+    expect(screen.getByText("Staff attendance scanning needs staff.attendance or staff.edit.")).toBeTruthy();
     expect(screen.queryByText("Mark attendance")).toBeNull();
+  });
+
+  it("lets staff.attendance open the scanner", () => {
+    mockUseSession.mockReturnValue({
+      token: "office-token",
+      user: { permissions: ["staff.attendance"] },
+    } as unknown as ReturnType<typeof useSession>);
+    render(<StaffAttendanceScanBoard />);
+    expect(screen.getByTestId("staff-scan-board")).toBeTruthy();
+    expect(screen.queryByText("No access")).toBeNull();
+    expect(screen.getByText("Mark attendance")).toBeTruthy();
   });
 
   it("marks a pasted QR and stays on the scanner", async () => {
