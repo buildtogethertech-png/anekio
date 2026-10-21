@@ -2,7 +2,6 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
   Modal as RnModal,
   Platform,
   Pressable,
@@ -14,6 +13,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { act } from "../lib/mutate";
+import { KbAvoidingView, KeyboardEvents } from "../lib/keyboard";
 import { useRecord, type RecordPayload } from "../lib/record";
 import { useSession } from "../lib/session";
 import { Toast, useToast } from "./ui";
@@ -585,6 +585,29 @@ export function MarkEntryScreen({
   const [editPublished, setEditPublished] = useState(false);
   const [reason, setReason] = useState("");
   const inputs = useRef<(TextInput | null)[]>([]);
+  // After the keyboard opens (and the list got shorter), bring the student being typed for into view.
+  const listRef = useRef<ScrollView | null>(null);
+  const rowTop = useRef<number[]>([]);
+  const lastFocus = useRef(-1);
+  /** While typing the footer steps aside, so the list gets the room above the keyboard. */
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+  function revealRow(i: number) {
+    if (Platform.OS === "web" || i < 0) return;
+    const y = Math.max(0, (rowTop.current[i] ?? 0) - 72);
+    listRef.current?.scrollTo({ y, animated: true });
+  }
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    const shown = KeyboardEvents.addListener("keyboardDidShow", () => {
+      setKeyboardOpen(true);
+      setTimeout(() => revealRow(lastFocus.current), 60);
+    });
+    const hidden = KeyboardEvents.addListener("keyboardDidHide", () => setKeyboardOpen(false));
+    return () => {
+      shown.remove();
+      hidden.remove();
+    };
+  }, []);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedOnce = useRef(false);
 
@@ -735,7 +758,9 @@ export function MarkEntryScreen({
   return (
     <RnModal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={() => void close()}>
       <SafeAreaView className="flex-1 bg-white" edges={["top", "bottom"]}>
-        <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        {/* The keyboard library knows the keyboard height even inside this popup: shrink the screen above it
+            (like a normal Android screen), so the list and the footer end at the keyboard. */}
+        <KbAvoidingView style={{ flex: 1 }} behavior="padding">
           {/* Header */}
           <View className="border-b border-ink-100 px-4 pb-3 pt-2">
             <View className={`mx-auto w-full ${narrow ? "" : "max-w-2xl"}`}>
@@ -764,14 +789,20 @@ export function MarkEntryScreen({
           </View>
 
           {/* Students */}
-          <ScrollView className="flex-1" keyboardShouldPersistTaps="handled" contentContainerClassName="pb-6">
+          <ScrollView ref={listRef} style={{ flex: 1 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 24 }}>
             <View className={`mx-auto w-full ${narrow ? "" : "max-w-2xl"}`}>
               {students.map((s, i) => {
                 const c = cells[s.id] || { value: "", absent: false };
                 const bad = problem(c);
                 const locked = readOnly || (fixOnly && !s.correctionRequested);
                 return (
-                  <View key={s.id} className={`flex-row items-center gap-3 px-4 py-2.5 ${i ? "border-t border-ink-100" : ""} ${s.correctionRequested ? "bg-red-50/60" : focused === i ? "bg-clay-50" : ""}`}>
+                  <View
+                    key={s.id}
+                    onLayout={(e) => {
+                      rowTop.current[i] = e.nativeEvent.layout.y;
+                    }}
+                    className={`flex-row items-center gap-3 px-4 py-2.5 ${i ? "border-t border-ink-100" : ""} ${s.correctionRequested ? "bg-red-50/60" : focused === i ? "bg-clay-50" : ""}`}
+                  >
                     <View className="min-w-0 flex-1">
                       <Text className="text-[15px] font-medium text-ink-900" numberOfLines={1}>{s.name}</Text>
                       <Text className="text-[12px] text-ink-500" numberOfLines={1}>
@@ -797,7 +828,17 @@ export function MarkEntryScreen({
                           // Jump to the next student as soon as the mark can't get any longer.
                           if (clean.length > (c.value || "").length && markComplete(clean) && Number(clean) <= max) setTimeout(() => focusNext(i), 60);
                         }}
-                        onFocus={() => setFocused(i)}
+                        onFocus={() => {
+                          setFocused(i);
+                          lastFocus.current = i;
+                          setTimeout(() => revealRow(i), 300);
+                          // Android re-selects all text after each keystroke with selectTextOnFocus ("25" became "5"):
+                          // select an existing mark once, on focus, instead.
+                          if (Platform.OS === "android" && c.value) {
+                            const len = c.value.length;
+                            setTimeout(() => inputs.current[i]?.setSelection?.(0, len), 30);
+                          }
+                        }}
                         onBlur={() => setFocused((cur) => (cur === i ? -1 : cur))}
                         keyboardType="decimal-pad"
                         returnKeyType={i < students.length - 1 ? "next" : "done"}
@@ -805,7 +846,7 @@ export function MarkEntryScreen({
                         onSubmitEditing={() => focusNext(i)}
                         placeholder="–"
                         placeholderTextColor="#CBD5E1"
-                        selectTextOnFocus
+                        selectTextOnFocus={Platform.OS !== "android"}
                         className={`h-12 w-20 rounded-lg border text-center text-[18px] font-semibold tabular-nums ${
                           bad ? "border-red-400 bg-red-50 text-red-700" : locked ? "border-ink-100 bg-ink-50 text-ink-600" : "border-ink-300 bg-white text-ink-900"
                         }`}
@@ -879,7 +920,7 @@ export function MarkEntryScreen({
                 <Text className="text-center text-[11px] text-ink-500">Old and new marks are kept in history.</Text>
               </View>
             </View>
-          ) : !readOnly ? (
+          ) : !readOnly && !(keyboardOpen && Platform.OS !== "web") ? (
             <View className="border-t border-ink-100 bg-white px-4 py-3">
               <View className={`mx-auto w-full ${narrow ? "" : "max-w-2xl"}`}>
               {error ? <Text className="mb-2 text-[13px] text-red-700">{error}</Text> : null}
@@ -938,7 +979,7 @@ export function MarkEntryScreen({
               </View>
             </View>
           ) : null}
-        </KeyboardAvoidingView>
+        </KbAvoidingView>
       </SafeAreaView>
     </RnModal>
   );
