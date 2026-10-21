@@ -80,7 +80,15 @@ export function createTestDatabase(): TestDatabase {
     throw new Error("prisma/dev.db is required as the read-only SQLite schema template");
   }
 
-  copyEmptyDatabase(developmentDatabasePath, databasePath);
+  try {
+    copyEmptyDatabase(developmentDatabasePath, databasePath);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("sqlite3") || message.includes("ENOENT")) {
+      return createPushedTestDatabase();
+    }
+    throw error;
+  }
 
   process.env.TEST_DATABASE_URL = databaseUrl;
   process.env.DATABASE_URL = databaseUrl;

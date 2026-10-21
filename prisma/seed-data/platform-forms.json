@@ -1,6 +1,16 @@
 {
   "admissionFormJson": [
     {
+      "id": "rollNumber",
+      "label": "Roll no",
+      "type": "number",
+      "required": true,
+      "visible": true,
+      "options": [],
+      "builtin": true,
+      "helpText": "Whole number of 1 or more. Must be unique in the class."
+    },
+    {
       "id": "studentName",
       "label": "Student name",
       "type": "text",
@@ -31,7 +41,7 @@
       "id": "guardianName",
       "label": "Parent / guardian name",
       "type": "text",
-      "required": true,
+      "required": false,
       "visible": true,
       "options": [],
       "builtin": true
@@ -40,10 +50,11 @@
       "id": "phone",
       "label": "Parent mobile",
       "type": "phone",
-      "required": true,
+      "required": false,
       "visible": true,
       "options": [],
-      "builtin": true
+      "builtin": true,
+      "helpText": "Optional. A mobile or email creates the parent login."
     },
     {
       "id": "email",

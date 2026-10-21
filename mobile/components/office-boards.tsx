@@ -3398,11 +3398,22 @@ function LeadDetailTile({ label, value }: { label: string; value: string }) {
   );
 }
 
-type CreatedStudent = { studentId?: string; admissionNo: string; admissionCharge?: number; admissionCollected?: boolean; joinsYear?: string };
+type CreatedStudent = {
+  studentId?: string;
+  admissionNo: string;
+  admissionCharge?: number;
+  admissionCollected?: boolean;
+  joinsYear?: string;
+  openingDue?: number;
+};
 
 /** Creates the student, then uploads any files picked for custom admission-form fields. Returns the names of files that failed. */
 async function createStudentWithFiles(token: string | null, values: StudentAdmitPayload & { leadId?: string }, files: StudentAdmitFiles) {
-  const result = await act<CreatedStudent>(token, "createStudent", values);
+  const roll = Number(values.rollNumber);
+  const result = await act<CreatedStudent>(token, "createStudent", {
+    ...values,
+    rollNumber: Number.isInteger(roll) && roll > 0 ? roll : null,
+  });
   const failedUploads: string[] = [];
   for (const [fieldId, file] of Object.entries(files)) {
     try {
@@ -3417,10 +3428,11 @@ async function createStudentWithFiles(token: string | null, values: StudentAdmit
 }
 
 function studentAddedMessage(result: CreatedStudent, failedUploads: string[], verb = "Student added") {
-  if (result.joinsYear && !failedUploads.length) return `${verb} for ${result.joinsYear} · ${result.admissionNo} · joins their class when ${result.joinsYear} starts`;
+  const oldDue = result.openingDue ? ` · Old due ₹${result.openingDue.toLocaleString("en-IN")} invoiced` : "";
+  if (result.joinsYear && !failedUploads.length) return `${verb} for ${result.joinsYear} · ${result.admissionNo} · joins their class when ${result.joinsYear} starts${oldDue}`;
   if (failedUploads.length) return `${verb} · ${result.admissionNo} · Could not upload ${failedUploads.join(", ")}. Add it from the student's Documents.`;
-  if (result.admissionCharge) return `${verb} · ${result.admissionNo} · Admission fee ${result.admissionCollected ? "collected" : "invoiced"}`;
-  return `${verb} · ${result.admissionNo}`;
+  if (result.admissionCharge) return `${verb} · ${result.admissionNo} · Admission fee ${result.admissionCollected ? "collected" : "invoiced"}${oldDue}`;
+  return `${verb} · ${result.admissionNo}${oldDue}`;
 }
 
 function phoneKey(value?: string) {

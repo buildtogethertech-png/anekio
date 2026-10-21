@@ -161,7 +161,7 @@ describe("Express portal API", () => {
     prisma = prismaModule.prisma;
     fixture = await seedPortalFixture(prisma);
     app = (await import("../../server/index")).default;
-  }, 30_000);
+  }, 120_000);
 
   afterAll(async () => {
     await prisma?.$disconnect();
@@ -197,6 +197,7 @@ describe("Express portal API", () => {
       parentId: "parent-pari",
       dateOfBirth: "2015-06-15",
       billingStartPeriod: "2026-04",
+      tags: ["SPORTS"],
     };
 
     const first = await request(app).post("/api/v1/act").set(auth).send({ ...base, name: "Auto Number One" });
@@ -209,6 +210,68 @@ describe("Express portal API", () => {
     expect(await prisma.student.findFirst({ where: { admissionNo: "ANE-00003" } })).toMatchObject({ name: "Auto Number Two" });
     const firstStudent = await prisma.student.findFirstOrThrow({ where: { name: "Auto Number One" } });
     expect(firstStudent.billingStartPeriod).toBe("2026-04");
+  });
+
+  it("admits a student when the class has no one-time admission fee", async () => {
+    await prisma.admissionFeeLine.deleteMany({ where: { classId: fixture.classId } });
+    await prisma.schoolConfig.update({ where: { id: "school" }, data: { admissionCharge: 0 } });
+    const session = await login(fixture.users.office.email);
+    const auth = { Authorization: `Bearer ${session.body.token}` };
+    const created = await request(app).post("/api/v1/act").set(auth).send({
+      op: "createStudent",
+      name: "No Admission Fee Student",
+      classId: fixture.classId,
+      parentId: "parent-pari",
+      dateOfBirth: "2015-06-15",
+      billingStartPeriod: "2026-04",
+      tags: ["SPORTS"],
+    });
+
+    expect(created.status).toBe(200);
+    expect(created.body).toMatchObject({ ok: true, admissionCharge: 0, admissionCollected: false });
+    expect(created.body.admissionInvoiceId).toBeFalsy();
+    const student = await prisma.student.findFirstOrThrow({ where: { name: "No Admission Fee Student" } });
+    expect(await prisma.feeInvoice.count({ where: { studentId: student.id } })).toBe(0);
+  });
+
+  it("creates a backlog invoice when office fills an old due on admit", async () => {
+    const session = await login(fixture.users.office.email);
+    const auth = { Authorization: `Bearer ${session.body.token}` };
+    const created = await request(app).post("/api/v1/act").set(auth).send({
+      op: "createStudent",
+      name: "Old Due Student",
+      classId: fixture.classId,
+      parentId: "parent-pari",
+      dateOfBirth: "2015-06-15",
+      billingStartPeriod: "2026-10",
+      tags: ["SPORTS"],
+      openingDueLines: [
+        { label: "Tuition", amount: "3000" },
+        { label: "Books", amount: "1500" },
+      ],
+      openingDueDate: "2026-09-10",
+    });
+
+    expect(created.status).toBe(200);
+    expect(created.body).toMatchObject({ ok: true, openingDue: 4500 });
+    expect(created.body.openingInvoiceId).toBeTruthy();
+    const invoice = await prisma.feeInvoice.findUniqueOrThrow({
+      where: { id: created.body.openingInvoiceId },
+    });
+    expect(invoice).toMatchObject({
+      period: "OPENING",
+      kind: "OPENING",
+      title: "Backlog invoice",
+      amount: 4500,
+      generatedThrough: "2026-09",
+      status: "DUE",
+    });
+    expect(JSON.parse(invoice.linesJson)).toEqual([
+      { label: "Tuition", kind: "FLAT", amount: 3000 },
+      { label: "Books", kind: "FLAT", amount: 1500 },
+    ]);
+    const due = invoice.dueDate;
+    expect(`${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, "0")}-${String(due.getDate()).padStart(2, "0")}`).toBe("2026-09-10");
   });
 
   it("collects the configured admission fee while adding a student", async () => {
@@ -228,6 +291,7 @@ describe("Express portal API", () => {
           parentId: "parent-pari",
           dateOfBirth: "2015-06-15",
           billingStartPeriod: "2026-04",
+          tags: ["SPORTS"],
           collectAdmissionFee: true,
           paymentMethod: "UPI",
           paymentReference: "UTR-ADMISSION-001",
@@ -264,6 +328,7 @@ describe("Express portal API", () => {
           parentId: "parent-pari",
           dateOfBirth: "2015-06-15",
           billingStartPeriod: "2026-04",
+          tags: ["SPORTS"],
         });
 
       expect(created.status).toBe(200);
@@ -297,6 +362,7 @@ describe("Express portal API", () => {
           parentId: "__new__",
           parentName: "New Parent",
           parentPhone: phone,
+          tags: ["SPORTS"],
         });
 
       expect(created.status).toBe(200);

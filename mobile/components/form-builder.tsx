@@ -81,6 +81,13 @@ function typeValue(field: AdmissionFormField, classOptions: string[]) {
   return field.type;
 }
 
+/** Student form built-ins whose type the code depends on. */
+const STUDENT_FIXED_TYPES: Record<string, string> = {
+  rollNumber: "number",
+  dateOfBirth: "date",
+  billingStartPeriod: "month",
+};
+
 /** Staff form built-ins whose type the code depends on. */
 const STAFF_FIXED_TYPES: Record<string, string> = {
   staffName: "text",
@@ -105,6 +112,10 @@ function typeOptions(field: AdmissionFormField, classOptions: string[], roleOpti
     return [fixed === "role" ? ROLE_FIELD_OPTION : fixed === "manager" ? MANAGER_FIELD_OPTION : FIELD_TYPE_OPTIONS.find((o) => o.id === fixed) || { id: fixed, label: fixed }];
   }
   if (roleOptions) return [...FIELD_TYPE_OPTIONS.slice(0, 7), ROLE_FIELD_OPTION, ...FIELD_TYPE_OPTIONS.slice(7)];
+  if (!roleOptions && field.builtin && STUDENT_FIXED_TYPES[field.id]) {
+    const fixed = STUDENT_FIXED_TYPES[field.id];
+    return [FIELD_TYPE_OPTIONS.find((o) => o.id === fixed) || { id: fixed, label: fixed }];
+  }
   if (field.id !== "classWanted" || !classOptions.length) return [...FIELD_TYPE_OPTIONS];
   return [...FIELD_TYPE_OPTIONS.slice(0, 7), { id: SCHOOL_CLASSES_FIELD_TYPE, label: "School classes" }, ...FIELD_TYPE_OPTIONS.slice(7)];
 }

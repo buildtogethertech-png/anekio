@@ -66,7 +66,7 @@ import {
 } from "./school-session";
 import { placeFields, parseMonthlySalary, requireJoinedOn, STAFF_FIRST_PASSWORD, todayJoinedOn } from "./staff-profile";
 import { assertManagerChoice, defaultManagerIdForRole, managerIdForNewUser, teamClassIds } from "./reports";
-import { admissionCustomValues, admissionFormFields, admissionFormJson, admissionLeadInput, effectiveAdmissionFormJson, isPersonName, staffOnboardingFormFields, staffOnboardingFormJson, studentAdmissionCustomValues, websiteFormFields, websiteFormJson } from "./admission-form";
+import { admissionCustomValues, admissionFormFields, admissionFormJson, admissionLeadInput, effectiveAdmissionFormJson, isPersonName, parentAdmissionContact, staffOnboardingFormFields, staffOnboardingFormJson, studentAdmissionCustomValues, websiteFormFields, websiteFormJson } from "./admission-form";
 import { configuredAdmissionFormJson, configuredFormJson } from "./admission-form-config";
 import { markOnboardingConfigured } from "./onboarding";
 
@@ -226,6 +226,7 @@ async function createStudentNow(
     dateOfBirth: string;
     billingStartPeriod?: string;
     tags?: string[];
+    rollNumber?: number | null;
     collectAdmissionFee?: boolean;
     paymentMethod?: string;
     paymentReference?: string;
@@ -233,6 +234,10 @@ async function createStudentNow(
     customValues?: Record<string, unknown>;
     /** Admitting an enquiry: its answers are copied to the student and the enquiry is marked Admitted. */
     leadId?: string;
+    /** Unpaid fees from before this student joined Anekio. Creates a backlog invoice on admit. */
+    openingDueAmount?: number | string;
+    openingDueDate?: string;
+    openingDueLines?: { label?: string; amount?: number | string }[];
   }
 ) {
   need(user, "people.edit");
@@ -260,21 +265,27 @@ async function createStudentNow(
   const requestedParentId = String(input.parentId || "").trim();
   const existingParentId = requestedParentId === "__new__" ? "" : requestedParentId;
   const parentName = String(input.parentName || "").trim();
-  // Parent name and mobile are the school's choice on the admission form. The mobile is the parent's login,
-  // so a parent is only created when a mobile is given; otherwise the student is admitted without a parent.
+  // Parent fields are optional. A parent login is created only when a mobile or email is given.
   const formFields = admissionFormFields(admissionFields);
   const formRequires = (id: string) => formFields.some((field) => field.id === id && field.visible && field.required);
   const rawParentPhone = String(input.parentPhone || "").trim();
   const parentPhone = existingParentId || !rawParentPhone ? "" : requireMobile(rawParentPhone, "the parent");
+  const parentContact = parentAdmissionContact({ parentName, parentPhone, parentEmail });
   if (!existingParentId) {
     const phoneLabel = formFields.find((field) => field.id === "phone")?.label || "Parent mobile";
     const nameLabel = formFields.find((field) => field.id === "guardianName")?.label || "Parent name";
+    const emailLabel = formFields.find((field) => field.id === "email")?.label || "Parent email";
     if (!parentPhone && formRequires("phone")) throw new Error(`${phoneLabel} is required.`);
     if (!parentName && formRequires("guardianName")) throw new Error(`${nameLabel} is required.`);
-    if (!parentPhone && (parentName || parentEmail)) throw new Error(`Add the ${phoneLabel.toLowerCase()}, or leave the parent details empty.`);
+    if (!parentEmail && formRequires("email")) throw new Error(`${emailLabel} is required.`);
+    if (parentContact.filled && !parentContact.canCreate) {
+      throw new Error(`Add the ${phoneLabel.toLowerCase()} or ${emailLabel.toLowerCase()}, or leave the parent details empty.`);
+    }
     if (parentName && !isPersonName(parentName)) throw new Error(`${nameLabel} should be a real name, not numbers.`);
   }
   const tags = (input.tags || []).filter((t): t is PathTag => PATH_TAGS.includes(t as PathTag));
+  const requestedRoll = Number(input.rollNumber);
+  const rollNumber = Number.isInteger(requestedRoll) && requestedRoll > 0 ? requestedRoll : null;
   const collectAdmissionFee = Boolean(input.collectAdmissionFee);
   const paymentMethod = parsePayMethod(input.paymentMethod);
   const paymentReference = String(input.paymentReference || "").trim() || null;
@@ -291,6 +302,15 @@ async function createStudentNow(
     need(user, "fees.collect");
     assertPayRefs(paymentMethod, paymentReference);
   }
+  const openingDueLines = parseAdmitOpeningDueLines(input.openingDueLines, input.openingDueAmount);
+  const openingDueAmount = openingDueLines.reduce((sum, line) => sum + line.amount, 0);
+  const openingDueDateText = String(input.openingDueDate || "").trim();
+  const openingDueDate = openingDueAmount > 0
+    ? (openingDueDateText ? new Date(`${openingDueDateText}T00:00:00`) : new Date())
+    : null;
+  if (openingDueAmount > 0 && openingDueDate && Number.isNaN(openingDueDate.getTime())) {
+    throw new Error("Pick a valid due date for the old due.");
+  }
 
   // Admission numbers are assigned on the server so every entry point follows
   // the same sequence. Retry a unique conflict in the unlikely case of concurrent admissions.
@@ -301,17 +321,21 @@ async function createStudentNow(
         if (parentId) {
           const parent = await tx.parent.findFirst({ where: { id: parentId }, select: { id: true } });
           if (!parent) throw new Error("Pick a valid parent.");
-        } else if (parentPhone) {
-          const parentUser = await tx.user.findFirst({ where: { phone: parentPhone }, include: { parent: true, role: { select: { portal: true } } } });
+        } else if (parentContact.canCreate) {
+          const parentUser = await tx.user.findFirst({
+            where: { OR: [...(parentPhone ? [{ phone: parentPhone }] : []), ...(parentEmail ? [{ email: parentEmail }] : [])] },
+            include: { parent: true, role: { select: { portal: true } } },
+          });
           if (parentUser?.parent) {
             parentId = parentUser.parent.id;
           } else if (parentUser) {
             // Staff (teacher, office) who is also a parent: same login, one more hat. Their staff profile is untouched.
             if (parentUser.role.portal === "STUDENT") throw new Error("That number is a student's own login. Use the parent's number.");
-            const hat = await tx.parent.create({ data: { orgId: user.orgId ?? null, userId: parentUser.id, phone: parentPhone } });
+            const hat = await tx.parent.create({ data: { orgId: user.orgId ?? null, userId: parentUser.id, phone: parentPhone || parentUser.phone || null } });
             parentId = hat.id;
           } else {
             const emailTaken = parentEmail ? await tx.user.findFirst({ where: { email: parentEmail }, select: { id: true } }) : null;
+            if (emailTaken && !parentPhone) throw new Error("That email is already on another profile.");
             const createdParent = await tx.user.create({
               data: {
                 orgId: user.orgId ?? null,
@@ -319,8 +343,8 @@ async function createStudentNow(
                 email: parentEmail && !emailTaken ? parentEmail : `parent.${parentPhone}@mobile.local`,
                 password: await bcrypt.hash("12345", 10),
                 roleId: await roleIdBySlug("PARENT"),
-                phone: parentPhone,
-                parent: { create: { orgId: user.orgId ?? null, phone: parentPhone } },
+                phone: parentPhone || null,
+                parent: { create: { orgId: user.orgId ?? null, phone: parentPhone || null } },
               },
               include: { parent: true },
             });
@@ -337,10 +361,6 @@ async function createStudentNow(
         });
         const admissionLines = pickAdmissionFeeLines([], admissionRows, config?.admissionCharge || 0);
         const admissionCharge = admissionLines.reduce((sum, line) => sum + line.amount, 0);
-        // Every admission needs a fee structure first; set it in Fees → Setup.
-        if (admissionCharge <= 0) {
-          throw new Error("Set the admission fee for this class in Fees → Setup before admitting.");
-        }
         const existing = await tx.student.findMany({ select: { admissionNo: true } });
         let nextNumber = Math.max(
           0,
@@ -372,6 +392,7 @@ async function createStudentNow(
           studentId: student.id,
           classId: input.classId,
           orgId: user.orgId ?? null,
+          rollNumber,
         });
         const admissionInvoice = admissionCharge > 0
           ? await tx.feeInvoice.create({
@@ -401,6 +422,24 @@ async function createStudentNow(
               },
             })
           : null;
+        const openingInvoice = openingDueAmount > 0 && openingDueDate
+          ? await tx.feeInvoice.create({
+              data: {
+                orgId: user.orgId ?? null,
+                studentId: student.id,
+                classId: input.classId,
+                period: "OPENING",
+                kind: "OPENING",
+                generatedThrough: feePeriodBefore(billingStartPeriod),
+                title: "Backlog invoice",
+                amount: openingDueAmount,
+                linesJson: JSON.stringify(openingDueLines),
+                dueDate: openingDueDate,
+                shareToken: randomUUID(),
+                status: "DUE",
+              },
+            })
+          : null;
         if (lead) {
           const klass = await tx.class.findFirst({ where: { id: input.classId }, select: { name: true, section: true } });
           await tx.admissionLead.update({ where: { id: lead.id }, data: { status: "ADMITTED" } });
@@ -421,6 +460,8 @@ async function createStudentNow(
           admissionInvoiceId: admissionInvoice?.id,
           admissionCharge,
           admissionCollected: collectAdmissionFee && admissionCharge > 0,
+          openingInvoiceId: openingInvoice?.id,
+          openingDue: openingDueAmount,
         };
       });
     } catch (error) {
@@ -434,6 +475,30 @@ async function createStudentNow(
   }
 
   throw new Error("Could not assign an admission number");
+}
+
+function parseAdmitOpeningDueLines(
+  lines: { label?: string; amount?: number | string }[] | undefined,
+  amountFallback?: number | string
+) {
+  const rows = Array.isArray(lines) ? lines.slice(0, 4) : [];
+  const parsed = rows.map((row, index) => {
+    const amountText = String(row?.amount ?? "").replace(/,/g, "").trim();
+    if (!amountText) return null;
+    if (!/^\d+$/.test(amountText)) throw new Error("Old due must be a whole number of rupees.");
+    const amount = Number(amountText);
+    if (!Number.isFinite(amount) || amount < 0) throw new Error("Old due must be zero or more.");
+    if (amount === 0) return null;
+    const label = String(row?.label || "").trim().slice(0, 80) || (index === 0 ? "Backlog invoice" : `Old due ${index + 1}`);
+    return { label, kind: "FLAT" as const, amount };
+  }).filter((row): row is { label: string; kind: "FLAT"; amount: number } => Boolean(row));
+  if (parsed.length) return parsed;
+  const openingDueText = String(amountFallback ?? "").replace(/,/g, "").trim();
+  if (!openingDueText) return [];
+  if (!/^\d+$/.test(openingDueText)) throw new Error("Old due must be a whole number of rupees.");
+  const amount = Number(openingDueText);
+  if (!Number.isFinite(amount) || amount < 0) throw new Error("Old due must be zero or more.");
+  return amount > 0 ? [{ label: "Backlog invoice", kind: "FLAT" as const, amount }] : [];
 }
 
 function normalizeAdmissionFeeLines(input: unknown) {
@@ -460,7 +525,7 @@ export async function saveAdmissionFeeSetupCore(
   let lines = normalizeAdmissionFeeLines(input.lines);
   if (!lines.length && input.amount != null) {
     const amount = Math.max(0, Math.round(Number(input.amount) || 0));
-    if (amount > 0) lines = [{ label: "Admission fee", amount, sortOrder: 0 }];
+    lines = [{ label: "Admission fee", amount, sortOrder: 0 }];
   }
   const orgId = user.orgId ?? null;
   const orgFilter = orgId ? { orgId } : { orgId: null };

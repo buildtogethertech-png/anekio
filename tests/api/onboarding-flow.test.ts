@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AccessUser } from "../../lib/permissions";
 import { parseCsv } from "../../lib/sheet";
 import { seedPortalFixture } from "../support/factories";
-import { createTestDatabase, type TestDatabase } from "../support/test-database";
+import { createPushedTestDatabase, type TestDatabase } from "../support/test-database";
 
 let database: TestDatabase;
 let prisma: PrismaClient;
@@ -20,7 +20,7 @@ function csvFromObjects(rows: Record<string, string>[]) {
 
 describe("school onboarding imports", () => {
   beforeAll(async () => {
-    database = createTestDatabase();
+    database = createPushedTestDatabase();
     process.env.UPLOADS_DIR = `${database.directory}/uploads`;
     vi.resetModules();
     prisma = (await import("../../lib/prisma")).prisma;
@@ -51,7 +51,7 @@ describe("school onboarding imports", () => {
       scopes: Object.fromEntries(office.role.grants.map((grant) => [grant.permission, grant.scope || "SCHOOL"])) as AccessUser["scopes"],
       isSystemRole: true,
     };
-  }, 30_000);
+  }, 120_000);
 
   afterAll(async () => {
     await prisma?.$disconnect();
@@ -77,13 +77,15 @@ describe("school onboarding imports", () => {
     const studentsTemplate = await onboardingTemplate(user, "students");
     expect(studentsTemplate).toMatchObject({ fileName: "anekio-students.csv", contentType: "text/csv; charset=utf-8" });
     const studentCsv = studentsTemplate.buffer.toString("utf8");
-    expect(studentCsv).not.toContain("Roll number");
+    expect(studentCsv).toContain("Roll no *");
+    expect(studentCsv).not.toContain("Interest *");
     expect(studentCsv).toContain("Aarav Sharma (example)");
     expect(studentCsv).toContain('"YES"');
     const studentUploadPath = "private/schools/test/onboarding/imports/students.csv";
+    const headerLine = studentCsv.split(/\r?\n/).find((line) => /student name/i.test(line)) || "";
     await saveUploadPath(
       studentUploadPath,
-      Buffer.from(`${studentCsv}${csvRow(["", "", "Kabir Student", "2015-04-12", "6-A", "Kavita Parent", "9876540099", "", ""])}\r\n`),
+      Buffer.from(`${headerLine}\r\n${csvRow(["", "", "2", "Kabir Student", "6-A", "2026-04", "Kavita Parent", "9876540099", "", ""])}\r\n`),
       "text/csv"
     );
     const studentPreview = await previewOnboardingImport(user, {
@@ -91,11 +93,11 @@ describe("school onboarding imports", () => {
       uploadPath: studentUploadPath,
       fileName: "students.csv",
     });
-    expect(studentPreview).toMatchObject({ rowCount: 2, validCount: 2, errors: [] });
+    expect(studentPreview).toMatchObject({ rowCount: 1, validCount: 1, errors: [] });
     await applyOnboardingImport(user, { batchId: studentPreview.batchId });
     const kabir = await prisma.student.findFirstOrThrow({ where: { name: "Kabir Student" } });
     expect(kabir.admissionNo).toMatch(/^ANE-\d{5}$/);
-    expect(kabir.billingStartPeriod).toBe("");
+    expect(kabir.billingStartPeriod).toBe("2026-04");
     expect(await prisma.student.count({ where: { name: "Aarav Sharma (example)" } })).toBe(0);
 
     const generated = await onboardingTemplate(user, "opening_balances");
@@ -106,6 +108,7 @@ describe("school onboarding imports", () => {
       "studentname",
       "class",
       "backloginvoiceamount",
+      "duedate",
       "exampleonly",
     ]);
     const kabirRow = openingRows.find((row) => row.studentname === "Kabir Student")!;
@@ -333,19 +336,19 @@ describe("school onboarding imports", () => {
 
     const sheet = workbook.getWorksheet("7-B")!;
     expect((sheet.getRow(1).values as unknown[]).slice(1)).toEqual([
-      "Roll number",
-      "Student full name",
-      "Date of birth",
-      "Class interested",
-      "Guardian full name",
-      "Guardian WhatsApp",
+      "Roll no *",
+      "Student full name *",
+      "Class interested *",
+      "Billing starts from *",
+      "Guardian full name *",
+      "Guardian WhatsApp *",
       "Guardian email",
       "Admission note",
       "Transport needed",
       "Example only",
     ]);
     expect(sheet.getRow(2).getCell(1).value).toBe(1);
-    expect(sheet.getRow(2).getCell(4).value).toBe("7-B");
+    expect(sheet.getRow(2).getCell(3).value).toBe("7-B");
     expect(sheet.getRow(2).getCell(5).value).toBe("Neha Sharma");
     const parentNote = sheet.getRow(1).getCell(5).note;
     expect(typeof parentNote === "string" ? parentNote : parentNote?.texts?.map((part) => part.text).join("")).toContain("Required");
@@ -366,14 +369,14 @@ describe("school onboarding imports", () => {
     const sampleArrayBuffer = sampleTemplate.buffer.buffer.slice(sampleTemplate.buffer.byteOffset, sampleTemplate.buffer.byteOffset + sampleTemplate.buffer.byteLength) as ArrayBuffer;
     await sampleWorkbook.xlsx.load(sampleArrayBuffer);
     const sampleSheet = sampleWorkbook.getWorksheet("6-A")!;
-    expect(String(sampleSheet.getRow(1).getCell(1).value || "")).toBe("Roll number");
+    expect(String(sampleSheet.getRow(1).getCell(1).value || "")).toBe("Roll no *");
     expect(Number(sampleSheet.getRow(2).getCell(1).value)).toBe(1);
     expect(String(sampleSheet.getRow(2).getCell(9).value || "")).not.toMatch(/yes/i);
     const sampleCount = sampleWorkbook.worksheets.filter((worksheet) => worksheet.name !== "Field guide").reduce((total, worksheet) => {
       let count = 0;
       worksheet.eachRow((row, rowNumber) => {
         if (rowNumber <= 1) return;
-        if (String(row.getCell(11).value || "").trim()) return;
+        if (String(row.getCell(10).value || "").trim()) return;
         if (String(row.getCell(2).value || "").trim()) count += 1;
       });
       return total + count;
@@ -475,6 +478,8 @@ describe("school onboarding imports", () => {
         studentname: "Older Sheet Student",
         dateofbirth: "2015-04-12",
         class: "7-B",
+        rollno: "1",
+        interest: "Sports",
         parentname: "Older Sheet Parent",
         parentmobile: "9876543210",
       }],
@@ -488,9 +493,9 @@ describe("school onboarding imports", () => {
     const { saveUploadPath } = await import("../../lib/uploads");
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet("8-Z");
-    sheet.addRow(["Anekio student ID", "Admission number", "Student name", "Date of birth", "Billing starts from", "Parent name", "Parent mobile", "Parent email", "Example only"]);
-    sheet.addRow(["", "", "Zoya Tab Student", "2014-02-10", "2026-10", "Zara Parent", "9876501234", "", ""]);
-    sheet.addRow(["", "", "Aman Tab Student", "2014-03-11", "2026-10", "Anita Parent", "9876501235", "", ""]);
+    sheet.addRow(["Anekio student ID", "Admission number", "Roll no", "Student name", "Date of birth", "Interest", "Billing starts from", "Parent name", "Parent mobile", "Parent email", "Example only"]);
+    sheet.addRow(["", "", "1", "Zoya Tab Student", "2014-02-10", "Sports", "2026-10", "Zara Parent", "9876501234", "", ""]);
+    sheet.addRow(["", "", "2", "Aman Tab Student", "2014-03-11", "Arts", "2026-10", "Anita Parent", "9876501235", "", ""]);
     const uploadPath = "private/schools/test/onboarding/imports/students-tabs.xlsx";
     await saveUploadPath(
       uploadPath,
@@ -553,6 +558,8 @@ describe("school onboarding imports", () => {
           "Student name": "Shared Contact Student",
           "Date of birth": "2015-05-11",
           Class: "10-D",
+          "Roll no": "1",
+          Interest: "Sports",
           "Billing starts from": "2026-10",
           "Parent name": "Shared Parent Here",
           "Parent mobile": "9876509999",

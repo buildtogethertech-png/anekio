@@ -1,12 +1,48 @@
 import { describe, expect, it } from "vitest";
-import { admissionFormFields, admissionFormJson, admissionLeadInput, effectiveAdmissionFormJson, staffOnboardingFormFields, websiteFormFields } from "../../lib/admission-form";
+import {
+  admissionFormFields,
+  admissionFormJson,
+  admissionLeadInput,
+  effectiveAdmissionFormJson,
+  LOCKED_STUDENT_ADMISSION_FIELD_IDS,
+  parentAdmissionContact,
+  staffOnboardingFormFields,
+  websiteFormFields,
+} from "../../lib/admission-form";
 
 describe("admission form configuration", () => {
   it("uses the platform form only when the school has no override", () => {
     const platform = JSON.stringify([{ id: "billingStartPeriod", label: "Billing starts from", type: "month", required: true, visible: true, builtin: true }]);
-    expect(admissionFormFields(effectiveAdmissionFormJson("[]", platform))).toMatchObject([{ id: "billingStartPeriod", type: "month", required: true, builtin: true }]);
-    expect(admissionFormFields(effectiveAdmissionFormJson('[{"id":"phone","type":"phone"}]', platform)).map((field) => field.id)).toEqual(["phone"]);
-    expect(admissionFormFields("[]")).toEqual([]);
+    expect(admissionFormFields(effectiveAdmissionFormJson("[]", platform)).map((field) => field.id)).toEqual(
+      expect.arrayContaining(["rollNumber", "studentName", "classWanted", "billingStartPeriod"])
+    );
+    expect(admissionFormFields(effectiveAdmissionFormJson('[{"id":"phone","type":"phone"}]', platform)).map((field) => field.id)).toEqual(
+      expect.arrayContaining(["rollNumber", "studentName", "phone", "guardianName", "email"])
+    );
+  });
+
+  it("injects locked student fields into a custom saved form that omitted them", () => {
+    const fields = admissionFormFields([
+      { id: "dateOfBirth", label: "Date of birth", type: "date", visible: false, required: false },
+      { id: "custom_name", label: "name", type: "text", visible: true, required: false },
+      { id: "custom_photo", label: "photo", type: "file", visible: true, required: false, fileType: "image" },
+    ]);
+    const byId = Object.fromEntries(fields.map((field) => [field.id, field]));
+    for (const id of LOCKED_STUDENT_ADMISSION_FIELD_IDS) {
+      expect(byId[id]).toMatchObject({ visible: true, required: true, builtin: true });
+    }
+    expect(byId.guardianName).toMatchObject({ visible: true, required: false });
+    expect(byId.phone).toMatchObject({ visible: true, required: false });
+    expect(byId.email).toMatchObject({ visible: true, required: false });
+    expect(byId.custom_name).toMatchObject({ label: "name", builtin: false });
+    expect(byId.custom_photo).toMatchObject({ label: "photo", type: "file" });
+    expect(fields.filter((field) => field.visible && field.required).map((field) => field.id)).toEqual([
+      "rollNumber",
+      "studentName",
+      "classWanted",
+      "billingStartPeriod",
+    ]);
+    expect(fields.some((field) => field.id === "interests")).toBe(false);
   });
 
   it("normalizes builtin changes and safe custom fields", () => {
@@ -15,7 +51,7 @@ describe("admission form configuration", () => {
       { id: "custom_transport", label: "Transport needed", type: "select", required: true, visible: true, options: ["Yes", "No", "Yes"] },
     ]);
 
-    expect(fields.find((field) => field.id === "studentName")).toMatchObject({ label: "Child name", required: false });
+    expect(fields.find((field) => field.id === "studentName")).toMatchObject({ label: "Child name", required: true, visible: true });
     expect(fields.find((field) => field.id === "custom_transport")).toMatchObject({
       type: "select",
       required: true,
@@ -24,26 +60,29 @@ describe("admission form configuration", () => {
     });
   });
 
-  it("locks only student name, class and billing month on admission; parent fields are the school's choice", () => {
+  it("locks student profile fields and leaves parent fields unlocked", () => {
     const saved = [
       { id: "studentName", type: "text", required: false, visible: false },
       { id: "classWanted", type: "text", required: false, visible: false },
       { id: "billingStartPeriod", type: "month", required: false, visible: false },
       { id: "guardianName", type: "text", required: false, visible: false },
       { id: "phone", type: "phone", required: false, visible: false },
+      { id: "email", type: "email", required: false, visible: false },
     ];
     const admission = Object.fromEntries(admissionFormFields(saved).map((field) => [field.id, [field.visible, field.required]]));
-    expect(admission).toEqual({
-      studentName: [true, true],
-      classWanted: [true, true],
-      billingStartPeriod: [true, true],
-      guardianName: [false, false],
-      phone: [false, false],
-    });
-    // The website enquiry still needs a number to call back.
+    expect(admission.rollNumber).toEqual([true, true]);
+    expect(admission.studentName).toEqual([true, true]);
+    expect(admission.classWanted).toEqual([true, true]);
+    expect(admission.interests).toBeUndefined();
+    expect(admission.billingStartPeriod).toEqual([true, true]);
+    expect(admission.guardianName).toEqual([false, false]);
+    expect(admission.phone).toEqual([false, false]);
+    expect(admission.email).toEqual([false, false]);
     const website = Object.fromEntries(websiteFormFields(saved).map((field) => [field.id, [field.visible, field.required]]));
     expect(website.phone).toEqual([true, true]);
     expect(website.guardianName).toEqual([false, false]);
+    expect(website.rollNumber).toBeUndefined();
+    expect(website.interests).toBeUndefined();
   });
 
   it("allows the built-in phone field to be optional", () => {
@@ -52,6 +91,13 @@ describe("admission form configuration", () => {
     ]);
 
     expect(fields.find((field) => field.id === "phone")).toMatchObject({ visible: true, required: false });
+  });
+
+  it("creates a parent profile only when a mobile or email is given", () => {
+    expect(parentAdmissionContact({})).toMatchObject({ filled: false, canCreate: false });
+    expect(parentAdmissionContact({ parentName: "Neha Sharma" })).toMatchObject({ filled: true, canCreate: false });
+    expect(parentAdmissionContact({ parentName: "Neha Sharma", parentPhone: "9876543210" })).toMatchObject({ filled: true, canCreate: true });
+    expect(parentAdmissionContact({ parentEmail: "parent@school.test" })).toMatchObject({ filled: true, canCreate: true });
   });
 
   it("keeps billing month as a required built-in field and validates YYYY-MM", () => {
@@ -67,9 +113,9 @@ describe("admission form configuration", () => {
       { id: "custom_transport", label: "Transport needed", type: "select", required: true, visible: true, options: ["Yes", "No"], builtin: false },
     ];
 
-    expect(() => admissionLeadInput(fields, {})).toThrow("Transport needed is required.");
-    expect(() => admissionLeadInput(fields, { custom_transport: "Maybe" })).toThrow("Choose a valid Transport needed.");
-    expect(admissionLeadInput(fields, { custom_transport: "Yes" }).customValues).toEqual({ custom_transport: "Yes" });
+    expect(() => admissionLeadInput(fields, { studentName: "Aarav Sharma" })).toThrow("Transport needed is required.");
+    expect(() => admissionLeadInput(fields, { studentName: "Aarav Sharma", custom_transport: "Maybe" })).toThrow("Choose a valid Transport needed.");
+    expect(admissionLeadInput(fields, { studentName: "Aarav Sharma", custom_transport: "Yes" }).customValues).toEqual({ custom_transport: "Yes" });
   });
 
   it("rejects a visible dropdown without options before saving", () => {

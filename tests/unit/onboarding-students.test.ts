@@ -5,19 +5,39 @@ import { parseBillingMonth, parseRollNumber, planStudentRolls, sheetColumnSummar
 describe("onboarding student roll number", () => {
   const fields = admissionFormFields(null);
 
-  it("leaves Roll number out of the template; rolls are automatic", () => {
-    expect(studentImportHeaders(fields)).not.toContain("Roll number");
-    expect(studentImportHeaders(fields)[0]).toBe("Student name *");
-    expect(studentImportHeaders(fields)[3]).toBe("Parent name *");
+  it("stars locked student columns and keeps parent columns optional", () => {
+    const headers = studentImportHeaders(fields);
+    expect(headers).toContain("Roll no *");
+    expect(headers).toContain("Student name *");
+    expect(headers).toContain("Class *");
+    expect(headers).not.toContain("Interest *");
+    expect(headers).not.toContain("Interest");
+    expect(headers).toContain("Billing starts from *");
+    expect(headers).toContain("Parent name");
+    expect(headers).toContain("Parent mobile");
+    expect(headers).toContain("Parent email");
+    expect(headers).not.toContain("Parent name *");
+    expect(headers).not.toContain("Parent mobile *");
+    expect(studentImportHeaders(fields)[0]).toBe("Roll no *");
+    expect(studentImportColumnGuide(fields).find((column) => column.header === "Roll no *")?.required).toBe(true);
+    const locked = admissionFormFields(null).filter((field) => field.visible && field.required).map((field) => field.id);
+    expect(locked).toEqual(["rollNumber", "studentName", "classWanted", "billingStartPeriod"]);
+    expect(headers.filter((header) => header.endsWith(" *")).slice(0, 4)).toEqual([
+      "Roll no *",
+      "Student name *",
+      "Class *",
+      "Billing starts from *",
+    ]);
     expect(studentTemplateRow(fields, {
       rollNumber: 7,
       name: "Aarav Sharma",
       dob: "2015-04-12",
       classLabel: "1-A",
+      interests: "Sports",
       parentName: "Neha Sharma",
       parentMobile: "9876543210",
       parentEmail: "parent@example.com",
-    })[0]).toBe("Aarav Sharma");
+    })[1]).toBe("Aarav Sharma");
   });
 
   it("accepts blank rolls for auto-assign and rejects junk values", () => {
@@ -65,8 +85,9 @@ describe("onboarding student roll number", () => {
     expect(headers).not.toContain("Parent mobile");
     expect(headers).toContain("Parent / guardian name *");
     expect(headers).toContain("Billing starts from *");
+    expect(headers).not.toContain("Interest *");
     const row = studentTemplateRow(configured, {
-      name: "Aarav", dob: "2015-04-12", classLabel: "1-A", billingStart: "2026-04", parentName: "Neha", parentMobile: "9876543210", parentEmail: "",
+      name: "Aarav", dob: "2015-04-12", classLabel: "1-A", billingStart: "2026-04", interests: "Sports", parentName: "Neha", parentMobile: "9876543210", parentEmail: "",
     });
     expect(row).not.toContain("9876543210");
     expect(row[headers.indexOf("Billing starts from *")]).toBe("2026-04");

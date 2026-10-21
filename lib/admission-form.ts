@@ -17,16 +17,26 @@ export type AdmissionFormField = {
   maxFileSizeMb?: number;
 };
 
-const BUILTIN_IDS = ["studentName", "dateOfBirth", "classWanted", "billingStartPeriod", "guardianName", "phone", "email", "message"] as const;
+const BUILTIN_IDS = ["rollNumber", "studentName", "dateOfBirth", "classWanted", "billingStartPeriod", "guardianName", "phone", "email", "message"] as const;
 /** Only the office form asks for date of birth; it is optional unless the school makes it required. */
-const STUDENT_FIXED_TYPES: Record<string, AdmissionFieldType> = { dateOfBirth: "date", billingStartPeriod: "month" };
+const STUDENT_FIXED_TYPES: Record<string, AdmissionFieldType> = {
+  rollNumber: "number",
+  dateOfBirth: "date",
+  billingStartPeriod: "month",
+};
 /** Every enquiry needs these: who, which class, and a number to call back. Rename only, never hide. */
 export const LOCKED_ADMISSION_FIELD_IDS: readonly string[] = ["studentName", "classWanted", "phone"];
 /**
- * Admitting a student only needs the child, the class and the billing month. Parent name and mobile are the
- * school's choice: a student admitted without a parent mobile has no parent login until one is added.
+ * A student profile always needs roll, name, class and billing month. Parent name / mobile / email
+ * stay unlocked: fill them to create a parent login, or leave them blank and admit the child alone.
  */
-export const LOCKED_STUDENT_ADMISSION_FIELD_IDS: readonly string[] = ["studentName", "classWanted", "billingStartPeriod"];
+export const LOCKED_STUDENT_ADMISSION_FIELD_IDS: readonly string[] = [
+  "rollNumber",
+  "studentName",
+  "classWanted",
+  "billingStartPeriod",
+];
+const STUDENT_ONLY_IDS = ["rollNumber", "dateOfBirth"] as const;
 export type AdmissionBuiltinId = (typeof BUILTIN_IDS)[number];
 const STAFF_ONBOARDING_BUILTIN_IDS = ["staffName", "phone", "email", "role", "department", "joiningDate", "qualification", "address", "monthlySalary", "reportingManager"] as const;
 /** Staff fields with a fixed input type: the code reads them, so a school can't turn them into something else. */
@@ -111,20 +121,64 @@ function validatedFormJson(fields: AdmissionFormField[]) {
   return JSON.stringify(fields);
 }
 
+const DEFAULT_STUDENT_ADMISSION_FIELDS: AdmissionFormField[] = [
+  { id: "rollNumber", label: "Roll no", type: "number", required: true, visible: true, options: [], builtin: true, helpText: "Whole number of 1 or more. Must be unique in the class." },
+  { id: "studentName", label: "Student name", type: "text", required: true, visible: true, options: [], builtin: true },
+  { id: "dateOfBirth", label: "Date of birth", type: "date", required: false, visible: false, options: [], builtin: true },
+  { id: "classWanted", label: "Class", type: "text", required: true, visible: true, options: [], builtin: true },
+  { id: "billingStartPeriod", label: "Billing starts from", type: "month", required: true, visible: true, options: [], builtin: true },
+  { id: "guardianName", label: "Parent name", type: "text", required: false, visible: true, options: [], builtin: true },
+  { id: "phone", label: "Parent mobile", type: "phone", required: false, visible: true, options: [], builtin: true, helpText: "Optional. A mobile or email creates the parent login." },
+  { id: "email", label: "Parent email", type: "email", required: false, visible: true, options: [], builtin: true },
+  { id: "message", label: "Notes", type: "textarea", required: false, visible: false, options: [], builtin: true },
+];
+
+function withLockedStudentAdmissionFields(fields: AdmissionFormField[]) {
+  const saved = new Map(fields.filter((field) => field.id !== "interests").map((field) => [field.id, field]));
+  const next: AdmissionFormField[] = [];
+  for (const fallback of DEFAULT_STUDENT_ADMISSION_FIELDS) {
+    const row = saved.get(fallback.id);
+    if (row) {
+      next.push(
+        LOCKED_STUDENT_ADMISSION_FIELD_IDS.includes(fallback.id)
+          ? { ...row, helpText: fallback.helpText }
+          : row
+      );
+      saved.delete(fallback.id);
+    } else {
+      next.push({ ...fallback, options: [...fallback.options] });
+    }
+  }
+  for (const field of fields) {
+    if (saved.has(field.id)) {
+      next.push(field);
+      saved.delete(field.id);
+    }
+  }
+  return next;
+}
+
 /** Student admission form: used by Add student in the office. */
 export function admissionFormFields(value: unknown): AdmissionFormField[] {
-  const fields = parseFormFields(value, BUILTIN_IDS, LOCKED_STUDENT_ADMISSION_FIELD_IDS, false, [], STUDENT_FIXED_TYPES);
-  // Older saved forms have no Date of birth row: add it hidden, so the school can switch it on.
-  if (fields.length && !fields.some((field) => field.id === "dateOfBirth")) {
-    const at = Math.max(0, fields.findIndex((field) => field.id === "studentName") + 1);
-    fields.splice(at, 0, { id: "dateOfBirth", label: "Date of birth", type: "date", required: false, visible: false, options: [], builtin: true });
-  }
-  return fields;
+  return withLockedStudentAdmissionFields(
+    parseFormFields(value, BUILTIN_IDS, LOCKED_STUDENT_ADMISSION_FIELD_IDS, false, [], STUDENT_FIXED_TYPES)
+  );
 }
 
 /** Website enquiry form: used by the public school website and enquiries. */
 export function websiteFormFields(value: unknown): AdmissionFormField[] {
-  return parseFormFields(value, BUILTIN_IDS, LOCKED_ADMISSION_FIELD_IDS).filter((field) => field.id !== "dateOfBirth");
+  return parseFormFields(value, BUILTIN_IDS, LOCKED_ADMISSION_FIELD_IDS).filter(
+    (field) => !(STUDENT_ONLY_IDS as readonly string[]).includes(field.id)
+  );
+}
+
+/** Parent details are optional. A parent profile is created only when a mobile or email is given. */
+export function parentAdmissionContact(input: { parentName?: string; parentPhone?: string; parentEmail?: string }) {
+  const parentName = String(input.parentName || "").trim();
+  const parentEmail = String(input.parentEmail || "").trim().toLowerCase();
+  const parentPhone = String(input.parentPhone || "").trim();
+  const filled = Boolean(parentName || parentEmail || parentPhone);
+  return { parentName, parentEmail, parentPhone, filled, canCreate: Boolean(parentPhone || parentEmail) };
 }
 
 /** Enough to create a staff login: name, mobile, role. Rename only, never hide. */

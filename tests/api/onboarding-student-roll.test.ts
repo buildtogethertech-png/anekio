@@ -57,14 +57,14 @@ describe("onboarding student roll import", () => {
     const blankBook = new ExcelJS.Workbook();
     await blankBook.xlsx.load(blank.buffer.buffer.slice(blank.buffer.byteOffset, blank.buffer.byteOffset + blank.buffer.byteLength) as ArrayBuffer);
     const blankSheet = blankBook.worksheets[0]!;
-    expect((blankSheet.getRow(1).values as unknown[]).slice(1, 3)).toEqual(["Roll number", "Student name"]);
+    expect((blankSheet.getRow(1).values as unknown[]).slice(1, 3)).toEqual(["Roll no *", "Student name *"]);
     expect(blankSheet.getRow(2).getCell(1).value).toBe(1);
 
     const sample = await onboardingSpreadsheetTemplate(user, "students", { sampleData: true });
     const sampleBook = new ExcelJS.Workbook();
     await sampleBook.xlsx.load(sample.buffer.buffer.slice(sample.buffer.byteOffset, sample.buffer.byteOffset + sample.buffer.byteLength) as ArrayBuffer);
     const sampleSheet = sampleBook.getWorksheet("6-A")!;
-    expect(String(sampleSheet.getRow(1).getCell(1).value)).toBe("Roll number");
+    expect(String(sampleSheet.getRow(1).getCell(1).value)).toBe("Roll no *");
     const sampleRolls = (sampleSheet.getRows(2, Math.max(0, sampleSheet.rowCount - 1)) || [])
       .map((row) => Number(row.getCell(1).value))
       .filter((value) => Number.isFinite(value) && value > 0);
@@ -78,9 +78,9 @@ describe("onboarding student roll import", () => {
 
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet("6-A");
-    sheet.addRow(["Roll number", "Student name", "Date of birth", "Parent name", "Parent mobile", "Parent email", "Example only"]);
-    sheet.addRow(["12", "Roll Twelve Student", "2014-02-10", "Zara Parent", "9876508881", "", ""]);
-    sheet.addRow(["15", "Roll Fifteen Student", "2014-03-11", "Anita Parent", "9876508882", "", ""]);
+    sheet.addRow(["Roll number", "Student name", "Date of birth", "Interest", "Parent name", "Parent mobile", "Parent email", "Example only"]);
+    sheet.addRow(["12", "Roll Twelve Student", "2014-02-10", "Sports", "Zara Parent", "9876508881", "", ""]);
+    sheet.addRow(["15", "Roll Fifteen Student", "2014-03-11", "Arts", "Anita Parent", "9876508882", "", ""]);
     const uploadPath = "private/schools/test/onboarding/imports/students-rolls.xlsx";
     await saveUploadPath(
       uploadPath,
@@ -108,9 +108,9 @@ describe("onboarding student roll import", () => {
     const { saveUploadPath } = await import("../../lib/uploads");
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet("6-A");
-    sheet.addRow(["Roll number", "Student name", "Date of birth", "Parent name", "Parent mobile", "Parent email", "Example only"]);
-    sheet.addRow(["3", "Same Roll A", "2014-02-10", "Parent A", "9876507771", "", ""]);
-    sheet.addRow(["3", "Same Roll B", "2014-03-11", "Parent B", "9876507772", "", ""]);
+    sheet.addRow(["Roll number", "Student name", "Date of birth", "Interest", "Parent name", "Parent mobile", "Parent email", "Example only"]);
+    sheet.addRow(["3", "Same Roll A", "2014-02-10", "Sports", "Parent A", "9876507771", "", ""]);
+    sheet.addRow(["3", "Same Roll B", "2014-03-11", "Arts", "Parent B", "9876507772", "", ""]);
     const uploadPath = "private/schools/test/onboarding/imports/students-dup-roll.xlsx";
     await saveUploadPath(
       uploadPath,

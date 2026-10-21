@@ -103,6 +103,7 @@ describe.sequential("fee P0 invariants", () => {
       parentId: "parent-pari",
       dateOfBirth: "2015-06-01",
       billingStartPeriod: "2026-06",
+      tags: ["SPORTS"],
     });
     expect(created.status).toBe(200);
     const student = await prisma.student.findFirstOrThrow({ where: { admissionNo: created.body.admissionNo } });

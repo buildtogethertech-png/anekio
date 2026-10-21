@@ -25,8 +25,8 @@ import { cloneFields, FormBuilderModal } from "./form-builder";
 
 /** Mirrors LOCKED_ADMISSION_FIELD_IDS on the server: every enquiry needs these. */
 const LOCKED_ADMISSION_FIELDS = ["studentName", "classWanted", "phone"];
-/** Mirrors LOCKED_STUDENT_ADMISSION_FIELD_IDS: parent fields are the school's choice on admission. */
-const LOCKED_STUDENT_ADMISSION_FIELDS = ["studentName", "classWanted", "billingStartPeriod"];
+/** Mirrors LOCKED_STUDENT_ADMISSION_FIELD_IDS: parent fields stay unlocked. */
+const LOCKED_STUDENT_ADMISSION_FIELDS = ["rollNumber", "studentName", "classWanted", "billingStartPeriod"];
 /** Mirrors LOCKED_STAFF_FIELD_IDS + LOCKED_OPTIONAL_STAFF_FIELD_IDS. */
 const LOCKED_STAFF_ONBOARDING_FIELDS = ["staffName", "phone", "email", "role"];
 

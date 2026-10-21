@@ -1,10 +1,10 @@
 import { useState, type ReactNode } from "react";
-import { useRouter } from "expo-router";
 import { Image, Linking, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Button, Chip, DateField, Field, Input, Select } from "./form";
 import { MonthField } from "./date-field";
 import { Segmented, Switch } from "./ui";
+import { nextClassRoll } from "../lib/next-class-roll";
 import { useOptionalRecord, type AdmissionFormField } from "../lib/record";
 import { pickFile, type PickedFile } from "../lib/upload";
 import { useAssetUrl } from "../lib/assets";
@@ -28,6 +28,7 @@ export type StudentAdmitPayload = {
   dateOfBirth: string;
   billingStartPeriod: string;
   classId: string;
+  rollNumber: string;
   parentId: string;
   parentName: string;
   parentPhone: string;
@@ -40,6 +41,9 @@ export type StudentAdmitPayload = {
   customValues: Record<string, string>;
   /** Admit for next year (starts when that year begins; skipped by this year's promotion). */
   forNextYear?: boolean;
+  /** Unpaid fees from before this student joined Anekio. Up to 4 charges. */
+  openingDueLines: { label: string; amount: string }[];
+  openingDueDate: string;
 };
 
 /** Files picked for the school's custom admission-form file fields, uploaded after the student is created. */
@@ -165,12 +169,24 @@ export function AdmissionCustomField({
   );
 }
 
+function todayYmd() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+const OPENING_DUE_PLACEHOLDERS = ["e.g. Tuition", "e.g. Transport", "e.g. Books", "e.g. Fine"];
+
+function emptyOpeningDueLines() {
+  return OPENING_DUE_PLACEHOLDERS.map(() => ({ label: "", amount: "" }));
+}
+
 function emptyForm(classes: { id: string }[]): StudentAdmitPayload {
   return {
     name: "",
     dateOfBirth: "",
     billingStartPeriod: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`,
     classId: classes[0]?.id || "",
+    rollNumber: "",
     parentId: "",
     parentName: "",
     parentPhone: "",
@@ -181,6 +197,8 @@ function emptyForm(classes: { id: string }[]): StudentAdmitPayload {
     paymentReference: "",
     parentEmail: "",
     customValues: {},
+    openingDueLines: emptyOpeningDueLines(),
+    openingDueDate: todayYmd(),
   };
 }
 
@@ -347,18 +365,21 @@ export function StudentAdmitForm({
   submitLabel?: string;
   onSubmit: (values: StudentAdmitPayload, files: StudentAdmitFiles) => Promise<void>;
 }) {
-  const router = useRouter();
   const enquiryFiles = initial?.enquiryFiles || {};
+  const record = useOptionalRecord();
+  const people = record?.data?.people ?? [];
   const [wizStep, setWizStep] = useState(0);
   const [form, setForm] = useState<StudentAdmitPayload>(() => {
     const base = { ...emptyForm(classes), parentId: wizard || !parents.length ? "__new__" : "", ...(wizard ? { classId: "" } : {}) };
-    if (!initial) return base;
+    if (!initial) {
+      return { ...base, rollNumber: nextClassRoll(people, base.classId) };
+    }
     const { enquiryFiles: _files, ...values } = initial;
-    return { ...base, ...Object.fromEntries(Object.entries(values).filter(([, value]) => value !== undefined && value !== "")) } as StudentAdmitPayload;
+    const merged = { ...base, ...Object.fromEntries(Object.entries(values).filter(([, value]) => value !== undefined && value !== "")) } as StudentAdmitPayload;
+    return { ...merged, rollNumber: merged.rollNumber || nextClassRoll(people, merged.classId) };
   });
   const [files, setFiles] = useState<StudentAdmitFiles>({});
   // "Admit for": this year or next year — always offered (schools take next year's admissions any time).
-  const record = useOptionalRecord();
   const years = record?.data?.school?.sessions ?? [];
   const thisYear = years.find((y) => y.current);
   const preparedYear = thisYear
@@ -424,17 +445,19 @@ export function StudentAdmitForm({
   const showDob = dobField ? dobField.visible : !admissionForm.length;
   const dobRequired = showDob && (dobField ? dobField.required : true);
   const dobLabel = builtinLabel("dateOfBirth", "Date of birth");
-  const showParentEmail = Boolean(emailField?.visible);
-  // Parent name and mobile are the school's choice. With no saved form, keep the old behaviour (both asked, both required).
+  const showParentEmail = emailField ? emailField.visible : true;
   const phoneField = builtinField("phone");
   const nameField = builtinField("guardianName");
   const showParentPhone = phoneField ? phoneField.visible : true;
   const showParentName = nameField ? nameField.visible : true;
-  const parentPhoneRequired = showParentPhone && (phoneField ? phoneField.required : true);
-  const parentNameRequired = showParentName && (nameField ? nameField.required : true);
-  /** No visible parent field: the school admits students without a parent and adds one later. */
-  const askParent = showParentPhone || showParentName;
-  const parentRequired = parentPhoneRequired || parentNameRequired;
+  const parentPhoneRequired = showParentPhone && Boolean(phoneField?.required);
+  const parentNameRequired = showParentName && Boolean(nameField?.required);
+  const parentEmailRequired = showParentEmail && Boolean(emailField?.required);
+  /** Parent block stays on the form unless the school hid every parent field. */
+  const askParent = showParentPhone || showParentName || showParentEmail;
+  const parentRequired = parentPhoneRequired || parentNameRequired || parentEmailRequired;
+  const rollField = builtinField("rollNumber");
+  const showRoll = rollField ? rollField.visible : true;
   const star = (on: boolean) => (on ? " *" : "");
   const customFields = admissionForm.filter((field) => field.visible && !field.builtin);
   const detailFields = customFields.filter((field) => field.type !== "file");
@@ -443,15 +466,26 @@ export function StudentAdmitForm({
   const newParent = form.parentId === "__new__";
   const selectedClass = classes.find((row) => row.id === form.classId);
   const selectedAdmissionLines = admissionFeeLines
-    .filter((line) => line.classId === form.classId && line.amount > 0)
+    .filter((line) => line.classId === form.classId)
     .sort((a, b) => a.sortOrder - b.sortOrder);
-  const admissionTotal = selectedAdmissionLines.reduce((sum, line) => sum + line.amount, 0);
-  // No admission fee for the class means no admission: the school sets its fee structure first.
-  const feeMissing = Boolean(form.classId) && !selectedAdmissionLines.length;
+  const admissionTotal = selectedAdmissionLines.reduce((sum, line) => sum + Math.max(0, line.amount), 0);
+  const hasAdmissionCharge = admissionTotal > 0;
+  const openingDueLines = [...(form.openingDueLines || []), ...emptyOpeningDueLines()].slice(0, 4);
+  const openingDueAmount = openingDueLines.reduce((sum, line) => sum + Math.max(0, Math.round(Number(String(line.amount || "").replace(/,/g, "")) || 0)), 0);
+
+  function patchOpeningLine(index: number, part: Partial<{ label: string; amount: string }>) {
+    patch({
+      openingDueLines: openingDueLines.map((row, i) => (i === index ? { ...row, ...part } : row)),
+    });
+  }
 
   function patch(part: Partial<StudentAdmitPayload>) {
     setError("");
     setForm((prev) => ({ ...prev, ...part }));
+  }
+
+  function pickClass(classId: string) {
+    patch({ classId, rollNumber: nextClassRoll(people, classId) });
   }
 
   function setCustom(id: string, value: string) {
@@ -463,6 +497,7 @@ export function StudentAdmitForm({
     if (!form.name.trim()) return builtinLabel("studentName", "Student name");
     if (dobRequired && !form.dateOfBirth) return dobLabel;
     if (!form.classId) return "Class";
+    if (showRoll && !form.rollNumber.trim()) return builtinLabel("rollNumber", "Roll no");
     if (!form.billingStartPeriod) return builtinLabel("billingStartPeriod", "Billing starts from");
     for (const field of detailFields) {
       if (field.required && !String(form.customValues[field.id] || "").trim()) return field.label;
@@ -471,9 +506,10 @@ export function StudentAdmitForm({
       if (!form.parentId && parentRequired) return "Parent";
       if (newParent && parentNameRequired && !form.parentName.trim()) return builtinLabel("guardianName", "Parent name");
       if (newParent && parentPhoneRequired && !form.parentPhone.trim()) return builtinLabel("phone", "Parent mobile");
-      // The mobile is the parent's login: other parent details without it would be lost.
-      if (newParent && !form.parentPhone.trim() && (form.parentName.trim() || form.parentEmail.trim())) return builtinLabel("phone", "Parent mobile");
-      if (newParent && form.parentPhone.trim() && emailField?.visible && emailField.required && !form.parentEmail.trim()) return emailField.label;
+      if (newParent && parentEmailRequired && !form.parentEmail.trim()) return emailField?.label || "Parent email";
+      if (newParent && form.parentName.trim() && !form.parentPhone.trim() && !form.parentEmail.trim()) {
+        return "Parent mobile or email";
+      }
     }
     for (const field of fileFields) {
       if (field.required && !files[field.id] && !enquiryFiles[field.id]) return field.label;
@@ -483,10 +519,6 @@ export function StudentAdmitForm({
 
   async function save() {
     if (busy) return;
-    if (feeMissing) {
-      setError(`Set the admission fee for ${selectedClass?.label || "this class"} in Fees → Setup first.`);
-      return;
-    }
     const missing = missingField();
     if (missing) {
       setError(`${missing} is required.`);
@@ -496,7 +528,8 @@ export function StudentAdmitForm({
     setBusy(true);
     try {
       await onSubmit(form, files);
-      setForm({ ...emptyForm(classes), parentId: wizard || !parents.length ? "__new__" : "", ...(wizard ? { classId: "" } : {}) });
+      const next = { ...emptyForm(classes), parentId: wizard || !parents.length ? "__new__" : "", ...(wizard ? { classId: "" } : {}) };
+      setForm({ ...next, rollNumber: nextClassRoll(people, next.classId) });
       setWizStep(0);
       setFiles({});
     } catch {
@@ -524,7 +557,7 @@ export function StudentAdmitForm({
         if (!form.name.trim()) return builtinLabel("studentName", "Student name");
         if (dobRequired && !form.dateOfBirth) return dobLabel;
         if (!form.classId) return "Class";
-        if (feeMissing) return "";
+        if (showRoll && !form.rollNumber.trim()) return builtinLabel("rollNumber", "Roll no");
         if (!form.billingStartPeriod) return builtinLabel("billingStartPeriod", "Billing starts from");
         for (const field of detailFields) {
           if (field.required && !String(form.customValues[field.id] || "").trim()) return field.label;
@@ -539,10 +572,6 @@ export function StudentAdmitForm({
     }
 
     function next() {
-      if (current === "Details" && feeMissing) {
-        setError(`Set the admission fee for ${selectedClass?.label || "this class"} in Fees → Setup first.`);
-        return;
-      }
       const missing = stepMissing(current);
       if (missing) {
         setError(`${missing} is required.`);
@@ -624,7 +653,7 @@ export function StudentAdmitForm({
                           key={c.id}
                           accessibilityRole="button"
                           accessibilityState={{ selected: on }}
-                          onPress={() => patch({ classId: c.id })}
+                          onPress={() => pickClass(c.id)}
                           className={`min-w-[56px] items-center rounded-xl border px-3 py-2.5 ${on ? "border-[#1F45C7] bg-[#1F45C7]" : "border-ink-200 bg-white"}`}
                         >
                           <Text className={`text-sm font-semibold ${on ? "text-white" : "text-ink-800"}`}>{c.label}</Text>
@@ -635,24 +664,27 @@ export function StudentAdmitForm({
                 ) : (
                   <Text className="text-sm text-ink-700">Add a class first, then come back.</Text>
                 )}
-                {form.classId && !feeMissing ? (
+                {form.classId && monthly ? (
                   <View className="mt-2 flex-row items-center gap-2 rounded-lg bg-[#EEF3FF] px-3 py-2">
                     <Ionicons name="wallet-outline" size={15} color="#1F45C7" />
-                    <Text className="flex-1 text-sm text-[#1F45C7]">
-                      {monthly ? `${rupees(monthly)}/mo + ` : ""}
-                      {rupees(admissionTotal)} admission
-                    </Text>
-                  </View>
-                ) : null}
-                {feeMissing ? (
-                  <View className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5">
-                    <Text className="text-sm font-semibold text-amber-900">{selectedClass?.label || "This class"} has no admission fee yet</Text>
-                    <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: "/fees", params: { tab: "setup" } } as never)} className="mt-1 self-start">
-                      <Text className="text-sm font-semibold text-[#1F45C7]">Set up fee ›</Text>
-                    </Pressable>
+                    <Text className="flex-1 text-sm text-[#1F45C7]">{rupees(monthly)}/mo</Text>
                   </View>
                 ) : null}
               </View>
+              {showRoll ? (
+                <View>
+                  {label(`${builtinLabel("rollNumber", "Roll no")} *`)}
+                  <TextInput
+                    value={form.rollNumber}
+                    onChangeText={(rollNumber) => patch({ rollNumber: rollNumber.replace(/\D/g, "").slice(0, 4) })}
+                    keyboardType="number-pad"
+                    placeholder={form.classId ? `Next roll in this class` : "Pick a class first"}
+                    placeholderTextColor="#94a3b8"
+                    className={box}
+                    style={{ includeFontPadding: false }}
+                  />
+                </View>
+              ) : null}
               <View>
                 {label(`${builtinLabel("billingStartPeriod", "Billing starts from")} *`)}
                 <MonthField value={form.billingStartPeriod} onChange={(billingStartPeriod) => patch({ billingStartPeriod })} />
@@ -846,6 +878,7 @@ export function StudentAdmitForm({
                       </View>
                     ))
                   : null}
+                {hasAdmissionCharge ? (
                 <View className="flex-row items-center gap-3 border-t border-ink-100 px-3 py-3">
                   <View className="min-w-0 flex-1">
                     <Text className="text-sm font-medium text-ink-900">Collect now</Text>
@@ -853,7 +886,8 @@ export function StudentAdmitForm({
                   </View>
                   <Switch on={form.collectAdmissionFee} onPress={() => patch({ collectAdmissionFee: !form.collectAdmissionFee })} />
                 </View>
-                {form.collectAdmissionFee ? (
+                ) : null}
+                {form.collectAdmissionFee && hasAdmissionCharge ? (
                   <View className="gap-2 border-t border-ink-100 px-3 py-3">
                     <View className="flex-row flex-wrap gap-2">
                       {[
@@ -884,6 +918,42 @@ export function StudentAdmitForm({
                         style={{ includeFontPadding: false }}
                       />
                     ) : null}
+                  </View>
+                ) : null}
+              </View>
+              <View className="overflow-hidden rounded-xl border border-ink-100 bg-white">
+                <View className="flex-row items-center justify-between px-3 py-3">
+                  <View className="min-w-0 flex-1">
+                    <Text className="text-[15px] font-semibold text-ink-900">Old due</Text>
+                    <Text className="mt-0.5 text-xs leading-4 text-ink-500">Optional. Up to 4 unpaid charges from before they joined. One backlog invoice is created.</Text>
+                  </View>
+                  <Text className="text-[15px] font-bold text-ink-900">{rupees(openingDueAmount)}</Text>
+                </View>
+                {openingDueLines.map((line, index) => (
+                  <View key={index} className="flex-row items-center gap-2 border-t border-ink-100 px-3 py-2">
+                    <TextInput
+                      value={line.label}
+                      onChangeText={(label) => patchOpeningLine(index, { label })}
+                      placeholder={OPENING_DUE_PLACEHOLDERS[index]}
+                      placeholderTextColor="#94a3b8"
+                      className={`${box} min-w-0 flex-1`}
+                      style={{ includeFontPadding: false }}
+                    />
+                    <TextInput
+                      value={line.amount}
+                      onChangeText={(amount) => patchOpeningLine(index, { amount: amount.replace(/[^\d]/g, "") })}
+                      keyboardType="number-pad"
+                      placeholder="0"
+                      placeholderTextColor="#94a3b8"
+                      className={`${box} w-24`}
+                      style={{ includeFontPadding: false }}
+                    />
+                  </View>
+                ))}
+                {openingDueAmount > 0 ? (
+                  <View className="border-t border-ink-100 px-3 py-3">
+                    {label("Due date")}
+                    <DateField value={form.openingDueDate} onChange={(openingDueDate) => patch({ openingDueDate })} />
                   </View>
                 ) : null}
               </View>
@@ -961,12 +1031,24 @@ export function StudentAdmitForm({
                 label={`${builtinLabel("classWanted", "Class")} *`}
                 value={form.classId}
                 options={classes.map((c) => ({ id: c.id, label: c.label }))}
-                onChange={(classId) => patch({ classId })}
+                onChange={pickClass}
               />
             ) : (
               <Text className="text-sm text-ink-700">Add a class first, then come back.</Text>
             )}
           </Cell>
+          {showRoll ? (
+            <Cell half twoCol={twoCol}>
+              <Field label={`${builtinLabel("rollNumber", "Roll no")} *`}>
+                <Input
+                  value={form.rollNumber}
+                  keyboardType="number-pad"
+                  placeholder={form.classId ? "Next roll in this class" : "Pick a class first"}
+                  onChangeText={(rollNumber) => patch({ rollNumber: rollNumber.replace(/\D/g, "").slice(0, 4) })}
+                />
+              </Field>
+            </Cell>
+          ) : null}
           <Cell half twoCol={twoCol}>
             <Field label={`${builtinLabel("billingStartPeriod", "Billing starts from")} *`}>
               <MonthField value={form.billingStartPeriod} onChange={(billingStartPeriod) => patch({ billingStartPeriod })} />
@@ -1019,9 +1101,7 @@ export function StudentAdmitForm({
         subtitle={
           !newParent
             ? "Link this student to a parent already in the school."
-            : parentRequired
-              ? "A parent login is created with this mobile number."
-              : "Optional. Add a mobile to create a parent login, or add the parent later."
+            : "Optional. Fill a parent name plus mobile or email to create a parent login. Leave blank to admit the student without a parent."
         }
       >
         {parents.length ? (
@@ -1070,25 +1150,9 @@ export function StudentAdmitForm({
       <SectionCard
         step={++step}
         title="Admission fee"
-        subtitle={selectedAdmissionLines.length ? `One-time fee for ${selectedClass?.label || "this class"}. Monthly fees are separate.` : `No admission fee is set for ${selectedClass?.label || "this class"}.`}
+        subtitle={`One-time fee for ${selectedClass?.label || "this class"}. Monthly fees are separate.`}
         aside={<Text className="text-base font-bold text-ink-900">{rupees(admissionTotal)}</Text>}
       >
-        {feeMissing ? (
-          <View className="flex-row flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-3">
-            <View className="min-w-0 flex-1 flex-row items-start gap-2">
-              <Ionicons name="alert-circle-outline" size={18} color="#b45309" />
-              <View className="min-w-0 flex-1">
-                <Text className="text-sm font-semibold text-amber-900">Set up the admission fee first</Text>
-                <Text className="mt-0.5 text-xs leading-4 text-amber-900">
-                  {selectedClass?.label || "This class"} has no admission fee yet. Add it once in Fees → Setup, then come back to admit.
-                </Text>
-              </View>
-            </View>
-            <Button variant="ghost" onPress={() => router.push({ pathname: "/fees", params: { tab: "setup" } } as never)}>
-              Set up admission fee
-            </Button>
-          </View>
-        ) : null}
         {selectedAdmissionLines.length ? (
           <View className="overflow-hidden rounded-lg border border-ink-100">
             {selectedAdmissionLines.map((line, index) => (
@@ -1099,22 +1163,20 @@ export function StudentAdmitForm({
             ))}
           </View>
         ) : null}
-        {!feeMissing ? (
+        {hasAdmissionCharge ? (
         <View className="flex-row items-center justify-between gap-3">
           <View className="min-w-0 flex-1">
             <Text className="text-sm font-semibold text-ink-900">Collect payment now</Text>
             <Text className="mt-0.5 text-xs leading-4 text-ink-700">
               {form.collectAdmissionFee
                 ? "A paid invoice and receipt are created with the student."
-                : selectedAdmissionLines.length
-                  ? "Off: a pending invoice is created. Collect it later from Fees."
-                  : "Set the admission fee in Fees → Setup to collect it here."}
+                : "Off: a pending invoice is created. Collect it later from Fees."}
             </Text>
           </View>
           <Switch on={form.collectAdmissionFee} onPress={() => patch({ collectAdmissionFee: !form.collectAdmissionFee })} />
         </View>
         ) : null}
-        {form.collectAdmissionFee && !feeMissing ? (
+        {form.collectAdmissionFee && hasAdmissionCharge ? (
           <View className="flex-row flex-wrap justify-between gap-y-3">
             <Cell half twoCol={twoCol}>
               <Select
@@ -1140,6 +1202,46 @@ export function StudentAdmitForm({
         ) : null}
       </SectionCard>
 
+      <SectionCard
+        step={++step}
+        title="Old due"
+        subtitle="Optional. Up to 4 unpaid charges from before this student joined Anekio. One backlog invoice is created."
+        aside={openingDueAmount ? <Text className="text-base font-bold text-ink-900">{rupees(openingDueAmount)}</Text> : undefined}
+      >
+        <View className="gap-2">
+          <View className="flex-row px-1">
+            <Text className="min-w-0 flex-1 text-[11px] font-semibold uppercase tracking-wide text-ink-500">Charge</Text>
+            <Text className="w-32 text-right text-[11px] font-semibold uppercase tracking-wide text-ink-500">Amount</Text>
+          </View>
+          {openingDueLines.map((line, index) => (
+            <View key={index} className="flex-row items-center gap-2">
+              <View className="min-w-0 flex-1">
+                <Input
+                  value={line.label}
+                  placeholder={OPENING_DUE_PLACEHOLDERS[index]}
+                  onChangeText={(label) => patchOpeningLine(index, { label })}
+                />
+              </View>
+              <View className="w-32">
+                <Input
+                  keyboardType="number-pad"
+                  value={line.amount}
+                  placeholder="0"
+                  onChangeText={(amount) => patchOpeningLine(index, { amount: amount.replace(/[^\d]/g, "") })}
+                />
+              </View>
+            </View>
+          ))}
+        </View>
+        {openingDueAmount > 0 ? (
+          <Cell half twoCol={twoCol}>
+            <Field label="Due date">
+              <DateField value={form.openingDueDate} onChange={(openingDueDate) => patch({ openingDueDate })} />
+            </Field>
+          </Cell>
+        ) : null}
+      </SectionCard>
+
       <View className="gap-2 border-t border-ink-100 pt-3">
         {error ? (
           <View className="flex-row items-center gap-2 rounded-md bg-red-50 px-3 py-2">
@@ -1149,7 +1251,7 @@ export function StudentAdmitForm({
         ) : null}
         <View className={twoCol ? "flex-row items-center justify-between gap-3" : "gap-2"}>
           <Text className="text-xs text-ink-600">Admission number is assigned automatically. Add-ons can be set later from Manage fee.</Text>
-          <Button disabled={busy || !classes.length || feeMissing} onPress={save} className={twoCol ? "min-w-[160px]" : ""}>
+          <Button disabled={busy || !classes.length} onPress={save} className={twoCol ? "min-w-[160px]" : ""}>
             {busy ? "Saving…" : submitLabel}
           </Button>
         </View>

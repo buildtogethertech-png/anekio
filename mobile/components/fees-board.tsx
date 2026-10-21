@@ -24,6 +24,15 @@ type Invoice = NonNullable<Person["invoices"]>[number];
 
 type FeeLineDraft = { id: string; label: string; amount: string; scope: "ALL" | "ADD_ON" };
 
+function admissionFeeSaveLines(rows: { label: string; amount: string }[]) {
+  const mapped = rows.map((line) => ({
+    label: line.label.trim() || "Admission fee",
+    amount: Math.max(0, Math.round(Number(line.amount) || 0)),
+  }));
+  const charged = mapped.filter((line) => line.amount > 0);
+  return charged.length ? charged : [{ label: mapped[0]?.label || "Admission fee", amount: 0 }];
+}
+
 function feeTabFromParam(value: string | string[] | undefined): Tab {
   const tab = Array.isArray(value) ? value[0] : value;
   return tab === "report" || tab === "insight" || tab === "setup" ? tab : "register";
@@ -65,6 +74,7 @@ function ChargeSection<L extends ChargeLine>({
   suggestions,
   totalLabel,
   total,
+  allowZero,
 }: {
   hero?: boolean;
   collapsed?: boolean;
@@ -82,6 +92,7 @@ function ChargeSection<L extends ChargeLine>({
   suggestions: string[];
   totalLabel: string;
   total: number;
+  allowZero?: boolean;
 }) {
   const look = CHARGE_TONES[tone];
   const filled = lines.filter((line) => Number(line.amount) > 0).length;
@@ -96,7 +107,7 @@ function ChargeSection<L extends ChargeLine>({
         <View className="min-w-0 flex-1">
           <Text className="text-[15px] font-semibold text-ink-900">{title}</Text>
           <Text className="mt-0.5 text-xs text-ink-600" numberOfLines={1}>
-            {total ? `${inr(total)} ${totalLabel}` : filled ? `${filled} charge${filled === 1 ? "" : "s"}` : `Not set · ${hint}`}
+            {total || allowZero ? `${inr(total)} ${totalLabel}` : filled ? `${filled} charge${filled === 1 ? "" : "s"}` : `Not set · ${hint}`}
           </Text>
         </View>
         <Ionicons name="chevron-down" size={18} color="#64748B" />
@@ -112,7 +123,7 @@ function ChargeSection<L extends ChargeLine>({
         </View>
         {onToggle ? (
           <Ionicons name="chevron-up" size={18} color="#64748B" />
-        ) : total ? (
+        ) : total || allowZero ? (
           <View className={`rounded-full px-2.5 py-1 ${look.chip}`}>
             <Text className={`text-xs font-bold ${look.text}`}>{inr(total)}</Text>
           </View>
@@ -903,10 +914,7 @@ export function FeesBoard() {
         dueDay: sessionDueDay,
         lines,
       });
-      const admissionFeeLines = admissionLines
-        .map((line) => ({ label: line.label.trim() || "Admission fee", amount: Math.max(0, Math.round(Number(line.amount) || 0)) }))
-        .filter((line) => line.amount > 0);
-      await act(token, "saveAdmissionFeeSetup", { classId: editorClassId, lines: admissionFeeLines });
+      await act(token, "saveAdmissionFeeSetup", { classId: editorClassId, lines: admissionFeeSaveLines(admissionLines) });
       setSelectedTemplateId(saved.id);
       setFeeEditorOpen(false);
       toast.show("Class fee saved.");
@@ -972,9 +980,7 @@ export function FeesBoard() {
   async function saveAdmissionFee(applyToAll = false) {
     try {
       if (!applyToAll && !admissionClassId) throw new Error("Pick a class card first.");
-      const lines = admissionLines
-        .map((line) => ({ label: line.label.trim() || "Admission fee", amount: Math.max(0, Math.round(Number(line.amount) || 0)) }))
-        .filter((line) => line.amount > 0);
+      const lines = admissionFeeSaveLines(admissionLines);
       await act(token, "saveAdmissionFeeSetup", applyToAll ? { lines } : { classId: admissionClassId, lines });
       toast.show(applyToAll ? "One-time admission fee saved for every class." : "One-time admission fee saved for this class.");
       await reload();
@@ -1985,9 +1991,7 @@ export function FeesBoard() {
                     style={{ maxWidth: 220 }}
                   >
                     <Text className={`text-sm font-semibold ${selected ? "text-ink-900" : "text-ink-800"}`}>{row.klass.label}</Text>
-                    <Text className={`mt-1 text-base font-semibold ${total ? "text-ink-900" : "text-ink-500"}`}>
-                      {total ? inr(total) : "Not set"}
-                    </Text>
+                    <Text className="mt-1 text-base font-semibold text-ink-900">{inr(total)}</Text>
                     <Text className="mt-0.5 text-[11px] text-ink-600">One-time</Text>
                   </Pressable>
                 );
@@ -2688,7 +2692,7 @@ export function FeesBoard() {
               collapsed={!admissionOpen}
               onToggle={() => setAdmissionOpen((open) => !open)}
               title="Admission fee"
-              hint="One-time, when a student joins this class."
+              hint="One-time, when a student joins this class. ₹0 is allowed."
               tone="amber"
               lines={admissionLines}
               setLines={setAdmissionLines}
@@ -2700,6 +2704,7 @@ export function FeesBoard() {
               suggestions={ADMISSION_SUGGESTIONS}
               totalLabel="one time"
               total={admissionTotal}
+              allowZero
             />
             <ChargeSection
               collapsed={!optionalOpen}

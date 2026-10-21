@@ -59,6 +59,7 @@
     "android:dev": "npm --prefix mobile run android",
     "app:web": "npm --prefix mobile run web",
     "db:push": "prisma db push",
+    "db:studio": "node --require ./scripts/prisma-studio-json-patch.cjs ./node_modules/prisma/build/index.js studio --port 5555 --hostname 127.0.0.1 --browser none",
     "db:backfill-employee-orgs": "tsx scripts/backfill-employee-orgs.ts",
     "db:seed": "tsx prisma/seed.ts",
     "db:reset": "prisma db push --force-reset && tsx prisma/seed.ts",
