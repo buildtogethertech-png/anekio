@@ -9,6 +9,7 @@ import { NoticeInboxProvider } from "../lib/notice-inbox";
 import { UpdateGate } from "../components/update-gate";
 import { GlobalDocViewer } from "../components/doc-viewer";
 import { SessionProvider } from "../lib/session";
+import { KeyboardProvider } from "../lib/keyboard";
 import { APP_FONTS, applyAppFont } from "../lib/fonts";
 
 applyAppFont();
@@ -21,6 +22,7 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
+        <KeyboardProvider>
         <SessionProvider>
           <NoticeInboxProvider>
             <StatusBar style="dark" />
@@ -34,6 +36,7 @@ export default function RootLayout() {
             <UpdateGate />
           </NoticeInboxProvider>
         </SessionProvider>
+        </KeyboardProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
