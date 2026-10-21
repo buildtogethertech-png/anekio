@@ -45,6 +45,7 @@ config.server = {
       if (
         req.url &&
         (req.url.startsWith("/api/") ||
+          req.url.startsWith("/school/") ||
           req.url.startsWith("/pay/") ||
           req.url.startsWith("/i/") ||
           req.url.startsWith("/verify/") ||

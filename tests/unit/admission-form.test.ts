@@ -3,6 +3,7 @@ import {
   admissionFormFields,
   admissionFormJson,
   admissionLeadInput,
+  applySchoolClassOptions,
   effectiveAdmissionFormJson,
   LOCKED_STUDENT_ADMISSION_FIELD_IDS,
   parentAdmissionContact,
@@ -100,22 +101,58 @@ describe("admission form configuration", () => {
     expect(parentAdmissionContact({ parentEmail: "parent@school.test" })).toMatchObject({ filled: true, canCreate: true });
   });
 
+  it("always includes enquiry fields so walk-in works without a saved website form", () => {
+    const empty = websiteFormFields([]);
+    expect(empty.filter((field) => field.visible && field.required).map((field) => field.id)).toEqual([
+      "studentName",
+      "classWanted",
+      "guardianName",
+      "phone",
+    ]);
+    expect(empty.some((field) => field.id === "rollNumber")).toBe(false);
+    expect(empty.find((field) => field.id === "message")).toMatchObject({ visible: true, required: false });
+    expect(empty.find((field) => field.id === "classWanted")).toMatchObject({
+      type: "select",
+      helpText: "Same class list the school office uses for admissions.",
+    });
+  });
+
+  it("offers school classes for Class interested on website and walk-in forms", () => {
+    const fields = applySchoolClassOptions(websiteFormFields([]), ["10-A", "2-A", "efg-B"]);
+    expect(fields.find((field) => field.id === "classWanted")).toMatchObject({
+      type: "select",
+      options: ["10-A", "2-A", "efg-B"],
+    });
+    const base = { studentName: "Aarav Sharma", phone: "9876543210", guardianName: "Neha Sharma" };
+    expect(() => admissionLeadInput([], { ...base, classWanted: "Nursery" }, ["10-A", "2-A"])).toThrow("Choose a valid Class interested.");
+    expect(admissionLeadInput([], { ...base, classWanted: "10-A" }, ["10-A", "2-A"]).classWanted).toBe("10-A");
+  });
+
   it("keeps billing month as a required built-in field and validates YYYY-MM", () => {
-    const fields = [{ id: "billingStartPeriod", label: "Billing starts from", type: "month", required: true, visible: true, builtin: true }];
-    expect(() => admissionLeadInput(fields, {})).toThrow("Billing starts from is required.");
-    expect(() => admissionLeadInput(fields, { billingStartPeriod: "2026-13" })).toThrow("Choose a valid Billing starts from.");
-    expect(admissionLeadInput(fields, { billingStartPeriod: "2026-10" }).billingStartPeriod).toBe("2026-10");
+    const fields = [
+      { id: "studentName", label: "Student name", type: "text", required: true, visible: true, builtin: true },
+      { id: "classWanted", label: "Class interested", type: "text", required: true, visible: true, builtin: true },
+      { id: "phone", label: "Mobile number", type: "phone", required: true, visible: true, builtin: true },
+      { id: "billingStartPeriod", label: "Billing starts from", type: "month", required: true, visible: true, builtin: true },
+    ];
+    const base = { studentName: "Aarav Sharma", classWanted: "1-A", phone: "9876543210", guardianName: "Neha Sharma" };
+    expect(() => admissionLeadInput(fields, base)).toThrow("Billing starts from is required.");
+    expect(() => admissionLeadInput(fields, { ...base, billingStartPeriod: "2026-13" })).toThrow("Choose a valid Billing starts from.");
+    expect(admissionLeadInput(fields, { ...base, billingStartPeriod: "2026-10" }).billingStartPeriod).toBe("2026-10");
   });
 
   it("enforces required fields and dropdown choices for every lead source", () => {
     const fields = [
       { id: "studentName", label: "Student name", type: "text", required: false, visible: true, builtin: true },
+      { id: "classWanted", label: "Class interested", type: "text", required: true, visible: true, builtin: true },
+      { id: "phone", label: "Mobile number", type: "phone", required: true, visible: true, builtin: true },
       { id: "custom_transport", label: "Transport needed", type: "select", required: true, visible: true, options: ["Yes", "No"], builtin: false },
     ];
+    const base = { studentName: "Aarav Sharma", classWanted: "1-A", phone: "9876543210", guardianName: "Neha Sharma" };
 
-    expect(() => admissionLeadInput(fields, { studentName: "Aarav Sharma" })).toThrow("Transport needed is required.");
-    expect(() => admissionLeadInput(fields, { studentName: "Aarav Sharma", custom_transport: "Maybe" })).toThrow("Choose a valid Transport needed.");
-    expect(admissionLeadInput(fields, { studentName: "Aarav Sharma", custom_transport: "Yes" }).customValues).toEqual({ custom_transport: "Yes" });
+    expect(() => admissionLeadInput(fields, base)).toThrow("Transport needed is required.");
+    expect(() => admissionLeadInput(fields, { ...base, custom_transport: "Maybe" })).toThrow("Choose a valid Transport needed.");
+    expect(admissionLeadInput(fields, { ...base, custom_transport: "Yes" }).customValues).toEqual({ custom_transport: "Yes" });
   });
 
   it("rejects a visible dropdown without options before saving", () => {

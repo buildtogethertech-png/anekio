@@ -4198,7 +4198,7 @@ export function AdmissionsBoard() {
                   const value = walkInValues[field.id] || "";
                   const set = (v: string) => setWalkInValues((current) => ({ ...current, [field.id]: v }));
                   if (field.id === "classWanted") {
-                    const options = field.options.length ? field.options : classOptions.map((o) => o.label);
+                    const options = classOptions.length ? classOptions.map((o) => o.label) : field.options;
                     return (
                       <View key={field.id}>
                         {head}

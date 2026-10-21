@@ -3227,7 +3227,7 @@ export function SchoolBoard() {
                 </View>
                 <View className="flex-row flex-wrap gap-4">
                   {([
-                    { key: "website", title: "Website enquiry form", body: "Short form for your school website and walk-in enquiries.", who: "Parents", where: "School website", icon: "globe-outline", fields: form.websiteForm, open: () => setWebsiteFormOpen(true) },
+                    { key: "website", title: "Website enquiry form", body: "Short form for your school website and walk-in enquiries. Class interested uses the school’s current classes.", who: "Parents", where: "School website", icon: "globe-outline", fields: form.websiteForm, open: () => setWebsiteFormOpen(true) },
                     { key: "admission", title: "Student admission form", body: "The full record the office needs to enrol a student.", who: "Office", where: "Add student", icon: "school-outline", fields: form.admissionForm, open: () => setAdmissionFormOpen(true) },
                     { key: "staff", title: "Staff onboarding form", body: "Employee details, upload templates and document collection.", who: "Office & staff", where: "Add employee", icon: "briefcase-outline", fields: form.staffOnboardingForm, open: () => setStaffFormOpen(true) },
                   ] as const).map((card) => {
@@ -3589,6 +3589,11 @@ function WebsiteMiniPreview({ form, logoPath }: { form: SchoolForm; logoPath?: s
           {form.websiteForm.filter((field) => field.visible).slice(0, 8).map((field) => (
             <View key={field.id} className="rounded-md border border-ink-200 bg-ink-50 px-3 py-2">
               <Text className="text-xs text-ink-700">{field.label}{field.required ? " *" : ""}</Text>
+              {field.id === "classWanted" && field.options.length ? (
+                <Text className="mt-0.5 text-[10px] text-ink-500" numberOfLines={1}>
+                  {field.options.slice(0, 6).join(" · ")}{field.options.length > 6 ? " · …" : ""}
+                </Text>
+              ) : null}
             </View>
           ))}
         </View>

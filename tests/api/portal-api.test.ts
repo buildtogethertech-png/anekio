@@ -1314,13 +1314,13 @@ describe("Express portal API", () => {
       { id: "custom_transport", label: "Transport needed", type: "select", required: true, visible: true, options: ["Yes", "No"], builtin: false },
     ];
 
-    const saved = await request(app).post("/api/v1/act").set(officeAuth).send({ op: "saveAdmissionForm", fields });
+    const saved = await request(app).post("/api/v1/act").set(officeAuth).send({ op: "saveWebsiteForm", fields });
     expect(saved.status).toBe(200);
 
     const created = await request(app).post("/api/v1/act").set(officeAuth).send({
       op: "createAdmissionLead",
       studentName: "Walk In Child",
-      classWanted: "Nursery",
+      classWanted: "6-A",
       guardianName: "Walk In Guardian",
       phone: "9876540099",
       message: "Visited the front office",
@@ -1338,6 +1338,97 @@ describe("Express portal API", () => {
       .send({ op: "createAdmissionLead", studentName: "Blocked" });
     expect(forbidden.status).toBe(400);
     expect(forbidden.body).toEqual({ error: "No access." });
+  });
+
+  it("shows public website enquiries on the school's Admissions desk", async () => {
+    const orgId = "org-website-lead";
+    const officePassword = await prisma.user.findUniqueOrThrow({
+      where: { id: fixture.users.office.id },
+      select: { password: true },
+    });
+    await prisma.saasOrg.create({
+      data: {
+        id: orgId,
+        schoolName: "Lead Campus",
+        ownerName: "Lead Owner",
+        ownerEmail: "website.lead@school.test",
+        ownerPhone: "9876540088",
+      },
+    });
+    await prisma.schoolConfig.create({
+      data: {
+        id: `school:${orgId}`,
+        orgId,
+        name: "Lead Campus",
+        websiteEnabled: true,
+        websiteSlug: "lead-campus",
+      },
+    });
+    await prisma.class.create({ data: { id: "class-website-10-a", orgId, name: "10", section: "A" } });
+    await prisma.user.create({
+      data: {
+        id: "user-website-office",
+        orgId,
+        email: "website.lead@school.test",
+        password: officePassword.password,
+        name: "Website Office",
+        roleId: "role-admin",
+      },
+    });
+
+    try {
+      const page = await request(app).get("/school/lead-campus");
+      expect(page.status).toBe(200);
+      expect(page.text).toContain('name="classWanted"');
+      expect(page.text).toContain("10-A");
+      expect(page.text).toContain("This goes to the school Admissions desk");
+
+      const posted = await request(app)
+        .post("/school/lead-campus/lead")
+        .field("studentName", "Isha Kapoor")
+        .field("classWanted", "10-A")
+        .field("guardianName", "Meera Kapoor")
+        .field("phone", "9876509999")
+        .field("email", "meera.kapoor@example.test")
+        .field("message", "Please call about fees.");
+      expect(posted.status).toBe(200);
+      expect(posted.text).toContain("Enquiry sent");
+
+      const { runWithoutTenant } = await import("../../lib/tenant-context");
+      const row = await runWithoutTenant(() =>
+        prisma.admissionLead.findFirst({ where: { studentName: "Isha Kapoor" } })
+      );
+      expect(row).toMatchObject({
+        orgId,
+        source: "school_website",
+        classWanted: "10-A",
+        phone: "9876509999",
+      });
+
+      const session = await login("website.lead@school.test");
+      const record = await request(app)
+        .get("/api/v1/record")
+        .set({ Authorization: `Bearer ${session.body.token}` });
+      expect(record.status).toBe(200);
+      expect(record.body.school.admissionLeads).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            studentName: "Isha Kapoor",
+            guardianName: "Meera Kapoor",
+            classWanted: "10-A",
+            source: "school_website",
+          }),
+        ])
+      );
+    } finally {
+      await prisma.notice.deleteMany({ where: { title: { contains: "Isha Kapoor" } } });
+      await prisma.admissionLead.deleteMany({ where: { studentName: "Isha Kapoor" } });
+      await prisma.user.deleteMany({ where: { id: "user-website-office" } });
+      await prisma.class.deleteMany({ where: { id: "class-website-10-a" } });
+      await prisma.schoolSession.deleteMany({ where: { orgId } });
+      await prisma.schoolConfig.deleteMany({ where: { id: `school:${orgId}` } });
+      await prisma.saasOrg.deleteMany({ where: { id: orgId } });
+    }
   });
 
   it("saves, publishes, issues, verifies, and revokes an official document", async () => {

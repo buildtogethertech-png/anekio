@@ -116,6 +116,7 @@ function parseFormFields(
 
 function validatedFormJson(fields: AdmissionFormField[]) {
   for (const field of fields) {
+    if (field.id === "classWanted") continue;
     if (["select", "radio", "multi"].includes(field.type) && field.visible && !field.options.length) throw new Error(`${field.label} needs at least one option.`);
   }
   return JSON.stringify(fields);
@@ -165,11 +166,56 @@ export function admissionFormFields(value: unknown): AdmissionFormField[] {
   );
 }
 
-/** Website enquiry form: used by the public school website and enquiries. */
+const DEFAULT_WEBSITE_ADMISSION_FIELDS: AdmissionFormField[] = [
+  { id: "studentName", label: "Student name", type: "text", required: true, visible: true, options: [], builtin: true },
+  { id: "classWanted", label: "Class interested", type: "select", required: true, visible: true, options: [], builtin: true, helpText: "Same class list the school office uses for admissions." },
+  { id: "guardianName", label: "Parent / guardian name", type: "text", required: true, visible: true, options: [], builtin: true },
+  { id: "phone", label: "Mobile number", type: "phone", required: true, visible: true, options: [], builtin: true, helpText: "We will call or WhatsApp you on this number." },
+  { id: "email", label: "Email", type: "email", required: false, visible: true, options: [], builtin: true },
+  { id: "message", label: "Message", type: "textarea", required: false, visible: true, options: [], builtin: true, helpText: "Questions about fees, transport or visiting the campus." },
+  { id: "billingStartPeriod", label: "Billing starts from", type: "month", required: false, visible: false, options: [], builtin: true },
+];
+
+function withLockedWebsiteFields(fields: AdmissionFormField[]) {
+  const saved = new Map(
+    fields
+      .filter((field) => field.id !== "interests" && !(STUDENT_ONLY_IDS as readonly string[]).includes(field.id))
+      .map((field) => [field.id, field])
+  );
+  const next: AdmissionFormField[] = [];
+  for (const fallback of DEFAULT_WEBSITE_ADMISSION_FIELDS) {
+    const row = saved.get(fallback.id);
+    if (row) {
+      next.push(LOCKED_ADMISSION_FIELD_IDS.includes(fallback.id) ? { ...row, helpText: fallback.helpText } : row);
+      saved.delete(fallback.id);
+    } else {
+      next.push({ ...fallback, options: [...fallback.options] });
+    }
+  }
+  for (const field of fields) {
+    if (saved.has(field.id)) {
+      next.push(field);
+      saved.delete(field.id);
+    }
+  }
+  return next;
+}
+
+/** Website enquiry form: used by the public school website and walk-in leads. */
 export function websiteFormFields(value: unknown): AdmissionFormField[] {
-  return parseFormFields(value, BUILTIN_IDS, LOCKED_ADMISSION_FIELD_IDS).filter(
+  return withLockedWebsiteFields(parseFormFields(value, BUILTIN_IDS, LOCKED_ADMISSION_FIELD_IDS)).filter(
     (field) => !(STUDENT_ONLY_IDS as readonly string[]).includes(field.id)
   );
+}
+
+export function classLabelsFrom(classes: { name?: string; section?: string; label?: string }[]): string[] {
+  return [...new Set(classes.map((row) => row.label || [row.name, row.section].filter(Boolean).join("-")).filter(Boolean))];
+}
+
+/** Class interested always offers the school's live sections, the same list Add student uses. */
+export function applySchoolClassOptions(fields: AdmissionFormField[], classLabels: string[]): AdmissionFormField[] {
+  if (!classLabels.length) return fields;
+  return fields.map((field) => (field.id === "classWanted" ? { ...field, type: "select", options: [...classLabels] } : field));
 }
 
 /** Parent details are optional. A parent profile is created only when a mobile or email is given. */
@@ -261,8 +307,8 @@ export function admissionCustomValues(value: unknown): Record<string, string> {
 }
 
 /** Validates an enquiry (website or walk-in) against the website enquiry form. Billing month is not asked here. */
-export function admissionLeadInput(fieldsValue: unknown, input: Record<string, unknown>) {
-  const fields = websiteFormFields(fieldsValue);
+export function admissionLeadInput(fieldsValue: unknown, input: Record<string, unknown>, classLabels: string[] = []) {
+  const fields = applySchoolClassOptions(websiteFormFields(fieldsValue), classLabels);
   const values: Record<string, string> = {};
   for (const field of fields.filter((row) => row.visible)) {
     const inputValue = input[field.id];

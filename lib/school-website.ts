@@ -1,8 +1,8 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { prisma } from "./prisma";
 import { publicOrigin } from "./utils";
-import { admissionLeadInput, websiteFormFields, type AdmissionFormField } from "./admission-form";
-import { configuredFormJson } from "./admission-form-config";
+import { admissionLeadInput, applySchoolClassOptions, websiteFormFields, type AdmissionFormField } from "./admission-form";
+import { configuredFormJson, liveSchoolClassLabels } from "./admission-form-config";
 import { normalizeSchoolWebsiteSlug } from "./host-routing";
 import {
   createUploadPath,
@@ -15,6 +15,7 @@ import {
   uploadSchoolKey,
 } from "./uploads";
 import { usesS3Uploads } from "./s3-client";
+import { setTenantOrg } from "./tenant-context";
 
 function esc(value: unknown) {
   return String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch] || ch));
@@ -50,16 +51,28 @@ const themes: Record<string, { main: string; soft: string; accent: string; dark:
   orange: { main: "#f97316", soft: "#fff1e8", accent: "#2457e6", dark: "#431407" },
 };
 
+function orgData(orgId?: string | null) {
+  return orgId ? { orgId } : {};
+}
+
+function useSchoolWebsite(school: { orgId?: string | null } | null) {
+  if (school?.orgId) setTenantOrg(school.orgId);
+  return school;
+}
+
 function admissionFieldHtml(field: AdmissionFormField) {
   const required = field.required ? " required" : "";
   const marker = field.required ? " *" : "";
   const label = `<label>${esc(field.label)}${marker}</label>`;
   const help = field.helpText ? `<span class="field-help">${esc(field.helpText)}</span>` : "";
+  const full = field.id === "classWanted" || field.id === "message" || field.id === "studentName";
   if (field.type === "textarea") {
     return `<div class="field full">${label}<textarea name="${esc(field.id)}"${required}></textarea>${help}</div>`;
   }
   if (field.type === "select") {
-    return `<div class="field">${label}<select name="${esc(field.id)}"${required}><option value="">Select</option>${field.options.map((option) => `<option value="${esc(option)}">${esc(option)}</option>`).join("")}</select>${help}</div>`;
+    const wrap = full ? "field full" : "field";
+    const blank = field.options.length ? "Select class" : "Select";
+    return `<div class="${wrap}">${label}<select name="${esc(field.id)}"${required}><option value="">${esc(blank)}</option>${field.options.map((option) => `<option value="${esc(option)}">${esc(option)}</option>`).join("")}</select>${help}</div>`;
   }
   if (field.type === "radio" || field.type === "multi") {
     const type = field.type === "radio" ? "radio" : "checkbox";
@@ -75,11 +88,11 @@ function admissionFieldHtml(field: AdmissionFormField) {
     return `<div class="field full">${label}<label class="upload-box"><input name="${esc(field.id)}" data-upload-field="${esc(field.id)}" type="file" accept="${accept}"${required}><strong>Upload ${esc(field.label)}</strong><span>${formats} · up to ${max} MB</span></label>${help}</div>`;
   }
   const type = field.type === "phone" ? "tel" : field.type;
-  return `<div class="field">${label}<input name="${esc(field.id)}" type="${type}"${required}>${help}</div>`;
+  return `<div class="${full ? "field full" : "field"}">${label}<input name="${esc(field.id)}" type="${type}"${required}>${help}</div>`;
 }
 
 export async function schoolWebsiteHtml(slug?: string, opts: { preview?: boolean } = {}) {
-  const school = await findSchoolWebsiteConfig(slug);
+  const school = useSchoolWebsite(await findSchoolWebsiteConfig(slug));
   if (!school || (!school.websiteEnabled && !opts.preview)) return null;
 
   const theme = themes[school.websiteTheme] || themes.blue;
@@ -90,7 +103,14 @@ export async function schoolWebsiteHtml(slug?: string, opts: { preview?: boolean
   const subtitle = school.websiteHeroSubtitle || "Enquire for admissions, campus visits, fees, and entrance test details.";
   const place = [school.address, school.city, school.state, school.pincode].filter(Boolean).join(", ");
   const logo = asset(school.logoPath);
-  const admissionFields = websiteFormFields(await configuredFormJson("website", school.websiteFormJson)).filter((field) => field.visible);
+  const admissionFields = applySchoolClassOptions(
+    websiteFormFields(await configuredFormJson("website", school.websiteFormJson)),
+    await liveSchoolClassLabels(school.orgId)
+  ).filter((field) => field.visible);
+  const hasUploadFields = admissionFields.some((field) => field.type === "file");
+  const enquiryStep = hasUploadFields
+    ? "Tell us about the student and upload requested documents."
+    : "Share the student’s name, class, and a mobile number.";
 
   return `<!doctype html>
 <html>
@@ -138,7 +158,7 @@ export async function schoolWebsiteHtml(slug?: string, opts: { preview?: boolean
     </div></section>
     <section id="facilities" class="section"><div class="wrap facility-box"><span class="eyebrow" style="color:${theme.accent}">Campus facilities</span><h2 style="color:white">Everything parents want to understand before admission.</h2><div class="facility-list">${facilities.map((f) => `<div class="facility">${esc(f)}</div>`).join("")}</div></div></section>
     ${gallery.length ? `<section class="section"><div class="wrap"><div class="section-title"><span class="eyebrow">Campus gallery</span><h2>See the campus before you visit.</h2></div><div class="gallery">${gallery.map((g) => `<img src="${esc(asset(g))}" alt="">`).join("")}</div></div></section>` : ""}
-    <section id="admission" class="section admission-band"><div class="wrap admission-grid"><div><span class="eyebrow">Admissions</span><h2>Submit an enquiry. The school office will follow up.</h2><p class="muted">${esc(school.websiteAdmissionNote || "Admissions are open. Submit an enquiry and our office will contact you.")}</p><div class="steps"><div class="step"><span class="num">1</span><div><strong>Send enquiry</strong><br><span class="muted">Tell us about the student and upload requested documents.</span></div></div><div class="step"><span class="num">2</span><div><strong>Office callback</strong><br><span class="muted">The admission team confirms fees, documents and visit slots.</span></div></div><div class="step"><span class="num">3</span><div><strong>Entrance test / admission</strong><br><span class="muted">If needed, the school schedules a test and completes admission.</span></div></div></div></div><form id="admission-form" class="panel" method="post" enctype="multipart/form-data" action="/school/${esc(school.websiteSlug)}/lead"><h2>Admission enquiry</h2><p class="muted">Fill this form and the school office will contact you.</p><div class="form-grid">${admissionFields.map(admissionFieldHtml).join("")}</div><button class="submit" type="submit">Send admission enquiry</button></form></div></section>
+    <section id="admission" class="section admission-band"><div class="wrap admission-grid"><div><span class="eyebrow">Admissions</span><h2>Submit an enquiry. The school office will follow up.</h2><p class="muted">${esc(school.websiteAdmissionNote || "Admissions are open. Submit an enquiry and our office will contact you.")}</p><div class="steps"><div class="step"><span class="num">1</span><div><strong>Send enquiry</strong><br><span class="muted">${esc(enquiryStep)}</span></div></div><div class="step"><span class="num">2</span><div><strong>Office callback</strong><br><span class="muted">The admission team confirms fees, documents and visit slots.</span></div></div><div class="step"><span class="num">3</span><div><strong>Entrance test / admission</strong><br><span class="muted">If needed, the school schedules a test and completes admission.</span></div></div></div></div><form id="admission-form" class="panel" method="post" enctype="multipart/form-data" action="/school/${esc(school.websiteSlug)}/lead"><h2>Admission enquiry</h2><p class="muted">This goes to the school Admissions desk. Class is the school’s current class list.</p><div class="form-grid">${admissionFields.map(admissionFieldHtml).join("")}</div><button class="submit" type="submit">Send admission enquiry</button></form></div></section>
     <section id="contact" class="section"><div class="wrap"><div class="contact"><div><span class="eyebrow">Phone</span><h3>${esc(school.phone || "School office")}</h3></div><div><span class="eyebrow">Email</span><h3>${esc(school.email || "Contact school")}</h3></div><div><span class="eyebrow">Address</span><h3>${esc(place || "Campus address")}</h3></div></div></div></section>
   </main>
   <footer class="footer"><div class="wrap"><div><strong>${esc(school.name)}</strong><div class="small">${esc(place)}</div></div><div class="small">Admissions website powered by Anekio</div></div></footer>
@@ -237,7 +257,7 @@ function verifyAdmissionUpload(token: string, slug: string, field: AdmissionForm
 }
 
 export async function prepareAdmissionFileUpload(slug: string, input: Record<string, unknown>) {
-  const school = await findSchoolWebsiteConfig(slug);
+  const school = useSchoolWebsite(await findSchoolWebsiteConfig(slug));
   if (!school?.websiteEnabled) throw new Error("Admissions website not found.");
   const fieldId = String(input.fieldId || "");
   const field = websiteFormFields(await configuredFormJson("website", school.websiteFormJson)).find((row) => row.visible && row.type === "file" && row.id === fieldId);
@@ -270,9 +290,10 @@ export async function prepareAdmissionFileUpload(slug: string, input: Record<str
 }
 
 export async function createAdmissionLeadFromWebsite(slug: string, input: Record<string, unknown>, files: Express.Multer.File[] = []) {
-  const school = await findSchoolWebsiteConfig(slug);
+  const school = useSchoolWebsite(await findSchoolWebsiteConfig(slug));
   if (!school) throw new Error("Admissions website not found.");
   if (!school.websiteEnabled) throw new Error("Admissions website is not active.");
+  const tenant = orgData(school.orgId);
   const formJson = await configuredFormJson("website", school.websiteFormJson);
   const fields = websiteFormFields(formJson);
   const submissionId = randomUUID();
@@ -296,7 +317,7 @@ export async function createAdmissionLeadFromWebsite(slug: string, input: Record
     }
     input[field.id] = intent.path;
   }
-  const values = admissionLeadInput(formJson, input);
+  const values = admissionLeadInput(formJson, input, await liveSchoolClassLabels(school.orgId));
   const officeAuthor = await prisma.user.findFirst({
     where: { role: { portal: "OFFICE" } },
     orderBy: { createdAt: "asc" },
@@ -305,6 +326,7 @@ export async function createAdmissionLeadFromWebsite(slug: string, input: Record
   return prisma.$transaction(async (tx) => {
     const lead = await tx.admissionLead.create({
       data: {
+        ...tenant,
         studentName: values.studentName,
         guardianName: values.guardianName,
         phone: values.phone,
@@ -315,6 +337,7 @@ export async function createAdmissionLeadFromWebsite(slug: string, input: Record
         customFieldsJson: JSON.stringify(values.customValues),
         events: {
           create: {
+            ...tenant,
             kind: "NEW",
             title: "Website enquiry received",
             body: values.classWanted ? `Parent submitted enquiry for ${values.classWanted}.` : "Parent submitted an admission enquiry.",
@@ -326,12 +349,13 @@ export async function createAdmissionLeadFromWebsite(slug: string, input: Record
     if (officeAuthor) {
       await tx.notice.create({
         data: {
+          ...tenant,
           title: `New admission enquiry: ${lead.studentName || lead.guardianName || "Website lead"}`,
           body: `${lead.guardianName || "No guardian name"} · ${lead.phone || "No phone"} · ${lead.classWanted ? `Class ${lead.classWanted}` : "No class"}\n${lead.message || "No message"}\n\nlead:${lead.id}`,
           kind: "ADMISSION",
           priority: "ACTION",
           authorId: officeAuthor.id,
-          audiences: { create: [{ portal: "OFFICE" }] },
+          audiences: { create: [{ ...tenant, portal: "OFFICE" }] },
         },
       });
     }

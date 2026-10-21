@@ -66,8 +66,8 @@ import {
 } from "./school-session";
 import { placeFields, parseMonthlySalary, requireJoinedOn, STAFF_FIRST_PASSWORD, todayJoinedOn } from "./staff-profile";
 import { assertManagerChoice, defaultManagerIdForRole, managerIdForNewUser, teamClassIds } from "./reports";
-import { admissionCustomValues, admissionFormFields, admissionFormJson, admissionLeadInput, effectiveAdmissionFormJson, isPersonName, parentAdmissionContact, staffOnboardingFormFields, staffOnboardingFormJson, studentAdmissionCustomValues, websiteFormFields, websiteFormJson } from "./admission-form";
-import { configuredAdmissionFormJson, configuredFormJson } from "./admission-form-config";
+import { admissionCustomValues, admissionFormFields, admissionFormJson, admissionLeadInput, applySchoolClassOptions, effectiveAdmissionFormJson, isPersonName, parentAdmissionContact, staffOnboardingFormFields, staffOnboardingFormJson, studentAdmissionCustomValues, websiteFormFields, websiteFormJson } from "./admission-form";
+import { configuredAdmissionFormJson, configuredFormJson, liveSchoolClassLabels } from "./admission-form-config";
 import { markOnboardingConfigured } from "./onboarding";
 
 function need(user: AccessUser, ...keys: string[]) {
@@ -2487,7 +2487,7 @@ export async function saveStaffOnboardingFormCore(user: AccessUser, input: { fie
 
 export async function saveWebsiteFormCore(user: AccessUser, input: { fields?: unknown }) {
   needSchoolScope(user, "admissions.manage");
-  const fields = websiteFormJson(input.fields);
+  const fields = websiteFormJson(applySchoolClassOptions(websiteFormFields(input.fields), await liveSchoolClassLabels(user.orgId)));
   await prisma.schoolConfig.upsert({
     where: { id: "school" },
     update: { websiteFormJson: fields },
@@ -2499,7 +2499,7 @@ export async function saveWebsiteFormCore(user: AccessUser, input: { fields?: un
 export async function createAdmissionLeadCore(user: AccessUser, input: Record<string, unknown>) {
   needSchoolScope(user, "admissions.manage");
   const config = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
-  const values = admissionLeadInput(await configuredFormJson("website", config?.websiteFormJson), input);
+  const values = admissionLeadInput(await configuredFormJson("website", config?.websiteFormJson), input, await liveSchoolClassLabels(user.orgId));
   const actorName = user.name || "School office";
   const customSummary = values.fields
     .filter((field) => !field.builtin && values.customValues[field.id])

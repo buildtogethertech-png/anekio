@@ -59,6 +59,7 @@ function newField(overrides: Partial<AdmissionFormField> = {}): AdmissionFormFie
 export function fieldError(field: AdmissionFormField) {
   if (!field.visible) return "";
   if (!field.label.trim()) return "Field label is required.";
+  if (field.id === "classWanted") return "";
   if (["select", "radio", "multi"].includes(field.type) && !field.options.length) return "Add at least one option.";
   if (field.type === "file" && !field.fileType) return "Choose accepted file types.";
   return "";
@@ -70,14 +71,8 @@ function fileTypeSummary(field: AdmissionFormField) {
   return "JPG, PNG, PDF";
 }
 
-function sameOptions(left: string[], right: string[]) {
-  return left.length === right.length && left.every((option, index) => option === right[index]);
-}
-
 function typeValue(field: AdmissionFormField, classOptions: string[]) {
-  if (field.id === "classWanted" && field.type === "select" && classOptions.length && sameOptions(field.options, classOptions)) {
-    return SCHOOL_CLASSES_FIELD_TYPE;
-  }
+  if (field.id === "classWanted" && classOptions.length) return SCHOOL_CLASSES_FIELD_TYPE;
   return field.type;
 }
 
@@ -116,8 +111,8 @@ function typeOptions(field: AdmissionFormField, classOptions: string[], roleOpti
     const fixed = STUDENT_FIXED_TYPES[field.id];
     return [FIELD_TYPE_OPTIONS.find((o) => o.id === fixed) || { id: fixed, label: fixed }];
   }
-  if (field.id !== "classWanted" || !classOptions.length) return [...FIELD_TYPE_OPTIONS];
-  return [...FIELD_TYPE_OPTIONS.slice(0, 7), { id: SCHOOL_CLASSES_FIELD_TYPE, label: "School classes" }, ...FIELD_TYPE_OPTIONS.slice(7)];
+  if (field.id === "classWanted" && classOptions.length) return [{ id: SCHOOL_CLASSES_FIELD_TYPE, label: "School classes" }];
+  return [...FIELD_TYPE_OPTIONS];
 }
 
 export function cloneFields(fields: AdmissionFormField[]) {
@@ -309,7 +304,13 @@ function PhoneFieldSheet({
               </Pressable>
             </View>
             <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 16, gap: 16 }} keyboardShouldPersistTaps="handled">
-              <FieldPreview field={field} />
+              <FieldPreview
+                field={
+                  typeValue(field, classOptions) === SCHOOL_CLASSES_FIELD_TYPE
+                    ? { ...field, type: "select", options: classOptions }
+                    : field
+                }
+              />
               {isLocked ? (
                 <View className="flex-row items-center gap-2 rounded-xl bg-amber-50 px-3 py-2.5">
                   <Ionicons name="lock-closed" size={14} color="#b45309" />
@@ -646,7 +647,7 @@ export function FormBuilderModal({
                 <View className="overflow-hidden rounded-2xl border border-ink-200 bg-white">
                   {rows.map((field, index) => {
                     const isLocked = locked(field.id);
-                    const typeLabel = typeLabelOf(field.type);
+                    const typeLabel = typeLabelOf(typeValue(field, classOptions));
                     return (
                       <Pressable
                         key={field.id}
@@ -806,7 +807,7 @@ export function FormBuilderModal({
                       {fieldError(field) ? <Badge tone="danger">Fix</Badge> : null}
                     </View>
                     <Text className="mt-1 text-[11px] text-ink-700" numberOfLines={1}>
-                      {typeLabelOf(field.type)}
+                      {typeLabelOf(typeValue(field, classOptions))}
                       {field.type === "file" ? ` · ${fileTypeSummary(field)} · ${field.maxFileSizeMb || 5} MB` : ""}
                       {field.helpText ? ` · ${field.helpText}` : ""}
                     </Text>

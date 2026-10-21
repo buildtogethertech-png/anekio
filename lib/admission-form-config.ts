@@ -1,4 +1,4 @@
-import { effectiveFormJson } from "./admission-form";
+import { classLabelsFrom, effectiveFormJson } from "./admission-form";
 import { prisma } from "./prisma";
 
 export type FormKind = "admission" | "website" | "staff";
@@ -17,4 +17,13 @@ export async function configuredFormJson(kind: FormKind, schoolValue: unknown) {
 
 export async function configuredAdmissionFormJson(schoolValue: unknown) {
   return configuredFormJson("admission", schoolValue);
+}
+
+export async function liveSchoolClassLabels(orgId?: string | null) {
+  const rows = await prisma.class.findMany({
+    where: { archivedAt: null, ...(orgId ? { orgId } : {}) },
+    select: { name: true, section: true },
+    orderBy: [{ name: "asc" }, { section: "asc" }],
+  });
+  return classLabelsFrom(rows);
 }

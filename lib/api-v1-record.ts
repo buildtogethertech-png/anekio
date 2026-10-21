@@ -40,7 +40,7 @@ import { formatSubjectLabel, labeledTeacherSkills, parseSubjectCatalog, subjectC
 import { ensureSchoolSessions } from "./school-session";
 import { documentStudioBundle } from "./document-studio";
 import { CONTEST_TYPE_LABEL, daysLate, formatInr, LEVEL_LABEL, PATH_LABEL, percent, publicOrigin } from "./utils";
-import { admissionCustomValues, admissionFormFields, effectiveFormJson, staffOnboardingFormFields, websiteFormFields } from "./admission-form";
+import { admissionCustomValues, admissionFormFields, applySchoolClassOptions, classLabelsFrom, effectiveFormJson, staffOnboardingFormFields, websiteFormFields } from "./admission-form";
 import { subscriptionLockForUser } from "./anekio-site";
 
 function inDate(value: Date | string) {
@@ -1416,12 +1416,15 @@ async function officePayload(user: AccessUser) {
       sessionLabel: current.label,
       admissionCharge: config?.admissionCharge || 0,
       admissionForm: admissionFormFields(effectiveFormJson(config?.admissionFormJson, platformConfig?.admissionFormJson)),
-      websiteForm: websiteFormFields(effectiveFormJson(config?.websiteFormJson, platformConfig?.websiteFormJson)),
+      websiteForm: applySchoolClassOptions(
+        websiteFormFields(effectiveFormJson(config?.websiteFormJson, platformConfig?.websiteFormJson)),
+        classLabelsFrom(people.classes)
+      ),
       staffOnboardingForm: staffOnboardingFormFields(effectiveFormJson(config?.staffOnboardingFormJson, platformConfig?.staffOnboardingFormJson)),
       // Anekio defaults: the editor offers their fields (e.g. common documents) as quick adds.
       platformForms: {
         admission: admissionFormFields(platformConfig?.admissionFormJson),
-        website: websiteFormFields(platformConfig?.websiteFormJson),
+        website: applySchoolClassOptions(websiteFormFields(platformConfig?.websiteFormJson), classLabelsFrom(people.classes)),
         staff: staffOnboardingFormFields(platformConfig?.staffOnboardingFormJson),
       },
       whatsappCommunityUrl: config?.whatsappCommunityUrl || "",
