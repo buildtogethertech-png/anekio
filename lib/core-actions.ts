@@ -238,6 +238,8 @@ async function createStudentNow(
     openingDueAmount?: number | string;
     openingDueDate?: string;
     openingDueLines?: { label?: string; amount?: number | string }[];
+    /** Already in the school: skip the one-time admission fee; record old due only. */
+    existingStudent?: boolean;
   }
 ) {
   need(user, "people.edit");
@@ -286,7 +288,8 @@ async function createStudentNow(
   const tags = (input.tags || []).filter((t): t is PathTag => PATH_TAGS.includes(t as PathTag));
   const requestedRoll = Number(input.rollNumber);
   const rollNumber = Number.isInteger(requestedRoll) && requestedRoll > 0 ? requestedRoll : null;
-  const collectAdmissionFee = Boolean(input.collectAdmissionFee);
+  const existingStudent = Boolean(input.existingStudent);
+  const collectAdmissionFee = Boolean(input.collectAdmissionFee) && !existingStudent;
   const paymentMethod = parsePayMethod(input.paymentMethod);
   const paymentReference = String(input.paymentReference || "").trim() || null;
   if (!name || !input.classId) {
@@ -302,7 +305,9 @@ async function createStudentNow(
     need(user, "fees.collect");
     assertPayRefs(paymentMethod, paymentReference);
   }
-  const openingDueLines = parseAdmitOpeningDueLines(input.openingDueLines, input.openingDueAmount);
+  const openingDueLines = existingStudent
+    ? parseAdmitOpeningDueLines(input.openingDueLines, input.openingDueAmount)
+    : [];
   const openingDueAmount = openingDueLines.reduce((sum, line) => sum + line.amount, 0);
   const openingDueDateText = String(input.openingDueDate || "").trim();
   const openingDueDate = openingDueAmount > 0
@@ -359,7 +364,7 @@ async function createStudentNow(
           where: { classId: input.classId, active: true },
           orderBy: { sortOrder: "asc" },
         });
-        const admissionLines = pickAdmissionFeeLines([], admissionRows, config?.admissionCharge || 0);
+        const admissionLines = existingStudent ? [] : pickAdmissionFeeLines([], admissionRows, config?.admissionCharge || 0);
         const admissionCharge = admissionLines.reduce((sum, line) => sum + line.amount, 0);
         const existing = await tx.student.findMany({ select: { admissionNo: true } });
         let nextNumber = Math.max(

@@ -245,6 +245,7 @@ describe("Express portal API", () => {
       dateOfBirth: "2015-06-15",
       billingStartPeriod: "2026-10",
       tags: ["SPORTS"],
+      existingStudent: true,
       openingDueLines: [
         { label: "Tuition", amount: "3000" },
         { label: "Books", amount: "1500" },
@@ -272,6 +273,39 @@ describe("Express portal API", () => {
     ]);
     const due = invoice.dueDate;
     expect(`${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, "0")}-${String(due.getDate()).padStart(2, "0")}`).toBe("2026-09-10");
+  });
+
+  it("skips admission fee for an old student and records old due only", async () => {
+    const line = await prisma.admissionFeeLine.create({
+      data: { classId: fixture.classId, label: "Admission", amount: 12500, sortOrder: 0 },
+    });
+    const session = await login(fixture.users.office.email);
+    const auth = { Authorization: `Bearer ${session.body.token}` };
+    try {
+      const created = await request(app).post("/api/v1/act").set(auth).send({
+        op: "createStudent",
+        name: "Existing School Student",
+        classId: fixture.classId,
+        parentId: "parent-pari",
+        dateOfBirth: "2015-06-15",
+        billingStartPeriod: "2026-10",
+        tags: ["SPORTS"],
+        existingStudent: true,
+        openingDueLines: [{ label: "Arrears", amount: "800" }],
+        openingDueDate: "2026-09-10",
+      });
+
+      expect(created.status).toBe(200);
+      expect(created.body).toMatchObject({ ok: true, admissionCharge: 0, admissionCollected: false, openingDue: 800 });
+      expect(created.body.admissionInvoiceId).toBeFalsy();
+      const student = await prisma.student.findFirstOrThrow({ where: { name: "Existing School Student" } });
+      const invoices = await prisma.feeInvoice.findMany({ where: { studentId: student.id } });
+      expect(invoices).toHaveLength(1);
+      expect(invoices[0]).toMatchObject({ period: "OPENING", amount: 800 });
+    } finally {
+      await prisma.admissionFeeLine.delete({ where: { id: line.id } });
+      await prisma.student.deleteMany({ where: { name: "Existing School Student" } });
+    }
   });
 
   it("collects the configured admission fee while adding a student", async () => {

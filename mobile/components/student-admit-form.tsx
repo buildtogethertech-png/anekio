@@ -41,9 +41,12 @@ export type StudentAdmitPayload = {
   customValues: Record<string, string>;
   /** Admit for next year (starts when that year begins; skipped by this year's promotion). */
   forNextYear?: boolean;
-  /** Unpaid fees from before this student joined Anekio. Up to 4 charges. */
+  /** Unpaid fees from before this student joined Anekio. One total. */
+  openingDueAmount: string;
   openingDueLines: { label: string; amount: string }[];
   openingDueDate: string;
+  /** Already studying here: skip admission fee and record old due only. */
+  existingStudent: boolean;
 };
 
 /** Files picked for the school's custom admission-form file fields, uploaded after the student is created. */
@@ -197,8 +200,10 @@ function emptyForm(classes: { id: string }[]): StudentAdmitPayload {
     paymentReference: "",
     parentEmail: "",
     customValues: {},
+    openingDueAmount: "",
     openingDueLines: emptyOpeningDueLines(),
     openingDueDate: todayYmd(),
+    existingStudent: false,
   };
 }
 
@@ -469,19 +474,20 @@ export function StudentAdmitForm({
     .filter((line) => line.classId === form.classId)
     .sort((a, b) => a.sortOrder - b.sortOrder);
   const admissionTotal = selectedAdmissionLines.reduce((sum, line) => sum + Math.max(0, line.amount), 0);
-  const hasAdmissionCharge = admissionTotal > 0;
-  const openingDueLines = [...(form.openingDueLines || []), ...emptyOpeningDueLines()].slice(0, 4);
-  const openingDueAmount = openingDueLines.reduce((sum, line) => sum + Math.max(0, Math.round(Number(String(line.amount || "").replace(/,/g, "")) || 0)), 0);
-
-  function patchOpeningLine(index: number, part: Partial<{ label: string; amount: string }>) {
-    patch({
-      openingDueLines: openingDueLines.map((row, i) => (i === index ? { ...row, ...part } : row)),
-    });
-  }
+  const hasAdmissionCharge = admissionTotal > 0 && !form.existingStudent;
+  const openingDueAmount = Math.max(0, Math.round(Number(String(form.openingDueAmount || "").replace(/,/g, "")) || 0));
 
   function patch(part: Partial<StudentAdmitPayload>) {
     setError("");
     setForm((prev) => ({ ...prev, ...part }));
+  }
+
+  function setExistingStudent(on: boolean) {
+    patch({
+      existingStudent: on,
+      collectAdmissionFee: false,
+      ...(on ? {} : { openingDueAmount: "", openingDueLines: emptyOpeningDueLines() }),
+    });
   }
 
   function pickClass(classId: string) {
@@ -623,6 +629,13 @@ export function StudentAdmitForm({
         <ScrollView className="flex-1" contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24, gap: 16 }} keyboardShouldPersistTaps="handled">
           {current === "Details" ? (
             <>
+              <View className="flex-row items-center justify-between gap-3 rounded-xl border border-ink-200 bg-white px-3 py-3">
+                <View className="min-w-0 flex-1">
+                  <Text className="text-sm font-semibold text-ink-900">Old student</Text>
+                  <Text className="mt-0.5 text-xs leading-4 text-ink-500">On: old due only. Off: admission fee only.</Text>
+                </View>
+                <Switch on={form.existingStudent} onPress={() => setExistingStudent(!form.existingStudent)} />
+              </View>
               <View>
                 {label(`${builtinLabel("studentName", "Student name")} *`)}
                 <TextInput
@@ -865,9 +878,13 @@ export function StudentAdmitForm({
                 </>
               )}
 
+              {!form.existingStudent ? (
               <View className="overflow-hidden rounded-xl border border-ink-100 bg-white">
                 <View className="flex-row items-center justify-between px-3 py-3">
-                  <Text className="text-[15px] font-semibold text-ink-900">Admission fee</Text>
+                  <View className="min-w-0 flex-1">
+                    <Text className="text-[15px] font-semibold text-ink-900">Admission fee</Text>
+                    <Text className="mt-0.5 text-xs text-ink-500">One-time fee for this class.</Text>
+                  </View>
                   <Text className="text-[15px] font-bold text-ink-900">{rupees(admissionTotal)}</Text>
                 </View>
                 {selectedAdmissionLines.length > 1
@@ -921,42 +938,37 @@ export function StudentAdmitForm({
                   </View>
                 ) : null}
               </View>
+              ) : (
               <View className="overflow-hidden rounded-xl border border-ink-100 bg-white">
                 <View className="flex-row items-center justify-between px-3 py-3">
                   <View className="min-w-0 flex-1">
                     <Text className="text-[15px] font-semibold text-ink-900">Old due</Text>
-                    <Text className="mt-0.5 text-xs leading-4 text-ink-500">Optional. Up to 4 unpaid charges from before they joined. One backlog invoice is created.</Text>
+                    <Text className="mt-0.5 text-xs leading-4 text-ink-500">Total unpaid from before they joined. ₹0 is allowed.</Text>
                   </View>
                   <Text className="text-[15px] font-bold text-ink-900">{rupees(openingDueAmount)}</Text>
                 </View>
-                {openingDueLines.map((line, index) => (
-                  <View key={index} className="flex-row items-center gap-2 border-t border-ink-100 px-3 py-2">
+                <View className="gap-2 border-t border-ink-100 px-3 py-3">
+                  <View>
+                    {label("Total due")}
                     <TextInput
-                      value={line.label}
-                      onChangeText={(label) => patchOpeningLine(index, { label })}
-                      placeholder={OPENING_DUE_PLACEHOLDERS[index]}
-                      placeholderTextColor="#94a3b8"
-                      className={`${box} min-w-0 flex-1`}
-                      style={{ includeFontPadding: false }}
-                    />
-                    <TextInput
-                      value={line.amount}
-                      onChangeText={(amount) => patchOpeningLine(index, { amount: amount.replace(/[^\d]/g, "") })}
+                      value={form.openingDueAmount}
+                      onChangeText={(openingDueAmount) => patch({ openingDueAmount: openingDueAmount.replace(/[^\d]/g, "") })}
                       keyboardType="number-pad"
                       placeholder="0"
                       placeholderTextColor="#94a3b8"
-                      className={`${box} w-24`}
+                      className={box}
                       style={{ includeFontPadding: false }}
                     />
                   </View>
-                ))}
-                {openingDueAmount > 0 ? (
-                  <View className="border-t border-ink-100 px-3 py-3">
-                    {label("Due date")}
-                    <DateField value={form.openingDueDate} onChange={(openingDueDate) => patch({ openingDueDate })} />
-                  </View>
-                ) : null}
+                  {openingDueAmount > 0 ? (
+                    <View>
+                      {label("Due date")}
+                      <DateField value={form.openingDueDate} onChange={(openingDueDate) => patch({ openingDueDate })} />
+                    </View>
+                  ) : null}
+                </View>
               </View>
+              )}
               <Text className="text-xs text-ink-500">Admission number is given automatically.</Text>
             </>
           ) : null}
@@ -1012,6 +1024,15 @@ export function StudentAdmitForm({
     <View className="gap-4" onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
       <SectionCard step={++step} title="Student details" subtitle="Follows your admission form in Forms & Templates.">
         <View className="flex-row flex-wrap justify-between gap-y-3">
+          <Cell twoCol={twoCol}>
+            <View className="flex-row items-center justify-between gap-3 rounded-lg border border-ink-200 bg-ink-50/70 px-3 py-3">
+              <View className="min-w-0 flex-1">
+                <Text className="text-sm font-semibold text-ink-900">Old student</Text>
+                <Text className="mt-0.5 text-xs leading-4 text-ink-600">On: show old due only. Off: show the class one-time admission fee only.</Text>
+              </View>
+              <Switch on={form.existingStudent} onPress={() => setExistingStudent(!form.existingStudent)} />
+            </View>
+          </Cell>
           <Cell twoCol={twoCol}>
             <Field label={`${builtinLabel("studentName", "Student name")} *`}>
               <Input value={form.name} onChangeText={(name) => patch({ name })} autoComplete="name" placeholder="Full name as on birth certificate" />
@@ -1147,6 +1168,7 @@ export function StudentAdmitForm({
       </SectionCard>
       ) : null}
 
+      {!form.existingStudent ? (
       <SectionCard
         step={++step}
         title="Admission fee"
@@ -1162,7 +1184,9 @@ export function StudentAdmitForm({
               </View>
             ))}
           </View>
-        ) : null}
+        ) : (
+          <Text className="text-xs leading-4 text-ink-600">No one-time admission fee is set for this class.</Text>
+        )}
         {hasAdmissionCharge ? (
         <View className="flex-row items-center justify-between gap-3">
           <View className="min-w-0 flex-1">
@@ -1201,46 +1225,34 @@ export function StudentAdmitForm({
           </View>
         ) : null}
       </SectionCard>
-
+      ) : (
       <SectionCard
         step={++step}
         title="Old due"
-        subtitle="Optional. Up to 4 unpaid charges from before this student joined Anekio. One backlog invoice is created."
-        aside={openingDueAmount ? <Text className="text-base font-bold text-ink-900">{rupees(openingDueAmount)}</Text> : undefined}
+        subtitle="Total unpaid from before this student joined Anekio. ₹0 is allowed. One backlog invoice is created if the amount is more than ₹0."
+        aside={<Text className="text-base font-bold text-ink-900">{rupees(openingDueAmount)}</Text>}
       >
-        <View className="gap-2">
-          <View className="flex-row px-1">
-            <Text className="min-w-0 flex-1 text-[11px] font-semibold uppercase tracking-wide text-ink-500">Charge</Text>
-            <Text className="w-32 text-right text-[11px] font-semibold uppercase tracking-wide text-ink-500">Amount</Text>
-          </View>
-          {openingDueLines.map((line, index) => (
-            <View key={index} className="flex-row items-center gap-2">
-              <View className="min-w-0 flex-1">
-                <Input
-                  value={line.label}
-                  placeholder={OPENING_DUE_PLACEHOLDERS[index]}
-                  onChangeText={(label) => patchOpeningLine(index, { label })}
-                />
-              </View>
-              <View className="w-32">
-                <Input
-                  keyboardType="number-pad"
-                  value={line.amount}
-                  placeholder="0"
-                  onChangeText={(amount) => patchOpeningLine(index, { amount: amount.replace(/[^\d]/g, "") })}
-                />
-              </View>
-            </View>
-          ))}
-        </View>
-        {openingDueAmount > 0 ? (
+        <View className="flex-row flex-wrap justify-between gap-y-3">
           <Cell half twoCol={twoCol}>
-            <Field label="Due date">
-              <DateField value={form.openingDueDate} onChange={(openingDueDate) => patch({ openingDueDate })} />
+            <Field label="Total due">
+              <Input
+                keyboardType="number-pad"
+                value={form.openingDueAmount}
+                placeholder="0"
+                onChangeText={(openingDueAmount) => patch({ openingDueAmount: openingDueAmount.replace(/[^\d]/g, "") })}
+              />
             </Field>
           </Cell>
-        ) : null}
+          {openingDueAmount > 0 ? (
+            <Cell half twoCol={twoCol}>
+              <Field label="Due date">
+                <DateField value={form.openingDueDate} onChange={(openingDueDate) => patch({ openingDueDate })} />
+              </Field>
+            </Cell>
+          ) : null}
+        </View>
       </SectionCard>
+      )}
 
       <View className="gap-2 border-t border-ink-100 pt-3">
         {error ? (
