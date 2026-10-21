@@ -223,6 +223,29 @@ describe("SchoolSubjectsForm", () => {
     expect(screen.getByText("No subjects on this class yet. Add from the school catalog.")).toBeTruthy();
   });
 
+  it("adds several catalog subjects to a class in one step", () => {
+    render(
+      <SchoolSubjectsForm
+        catalog={[
+          { code: "ENG", name: "English" },
+          { code: "MAT", name: "Mathematics" },
+          { code: "SCI", name: "Science" },
+        ]}
+        classes={[{ id: "class-6-b", label: "6-B", name: "6", subjects: [] }]}
+        onSaveCatalog={jest.fn()}
+        onSaveClass={jest.fn()}
+      />
+    );
+
+    fireEvent.press(screen.getByText("+ Add Subject"));
+    fireEvent.press(screen.getByLabelText("English"));
+    fireEvent.press(screen.getByLabelText("Mathematics"));
+    fireEvent.press(screen.getByText("Add 2 to class"));
+    expect(screen.getByLabelText("Remove English")).toBeTruthy();
+    expect(screen.getByLabelText("Remove Mathematics")).toBeTruthy();
+    expect(screen.queryByLabelText("Remove Science")).toBeNull();
+  });
+
   it("edits a catalog subject and keeps Save catalog as the primary action", async () => {
     const onSaveCatalog = jest.fn().mockResolvedValue(undefined);
     render(

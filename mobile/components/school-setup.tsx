@@ -1064,7 +1064,7 @@ export function SchoolSubjectsForm({
   const [copyOpen, setCopyOpen] = useState(false);
   const [copyFromId, setCopyFromId] = useState("");
   const [copyMode, setCopyMode] = useState<"merge" | "replace">("merge");
-  const [classAddCode, setClassAddCode] = useState("");
+  const [classAddCodes, setClassAddCodes] = useState<string[]>([]);
   const [classAddQuery, setClassAddQuery] = useState("");
   const [classAddAllGrades, setClassAddAllGrades] = useState(false);
   const [savedEntries, setSavedEntries] = useState(() => asCatalog(catalog));
@@ -1107,8 +1107,7 @@ export function SchoolSubjectsForm({
   const addQuery = classAddQuery.trim().toLowerCase();
   const sameNameRow = (entry: { name: string }) =>
     selectedRows.find((row) => row.name.trim().toLowerCase() === entry.name.trim().toLowerCase());
-  const pickedForAdd = addPool.find((row) => row.code === classAddCode);
-  const replacing = pickedForAdd ? sameNameRow(pickedForAdd) : undefined;
+  const pickedForAdd = addPool.filter((row) => classAddCodes.includes(row.code));
   const remainingVisible = addPool.filter((row) => {
     if (!addQuery) return true;
     return `${row.code} ${row.name}`.toLowerCase().includes(addQuery);
@@ -1148,7 +1147,7 @@ export function SchoolSubjectsForm({
 
   function closeClassAdd() {
     setClassAddOpen(false);
-    setClassAddCode("");
+    setClassAddCodes([]);
     setClassAddQuery("");
     setClassAddAllGrades(false);
     setClassAddPeriods("4");
@@ -1827,22 +1826,27 @@ export function SchoolSubjectsForm({
         onClose={closeClassAdd}
         footer={
           <Button
-            disabled={!addPool.some((row) => row.code === classAddCode) || !(parsePeriods(classAddPeriods) || 0)}
+            disabled={!pickedForAdd.length || !(parsePeriods(classAddPeriods) || 0)}
             onPress={() => {
-              const picked = addPool.find((row) => row.code === classAddCode);
               const periods = parsePeriods(classAddPeriods);
-              if (!picked || !selected) return;
-              if (sameNameRow(picked) || periods == null || periods <= 0) return;
+              if (!pickedForAdd.length || !selected || periods == null || periods <= 0) return;
+              const next = pickedForAdd.filter((row) => !sameNameRow(row));
+              if (!next.length) return;
               setClassSubjects(
                 syncGradeSubjectDrafts(classSubjects, classes, selected.id, [
                   ...selectedRows,
-                  { code: picked.code, previousCode: picked.code, name: picked.name, periods: String(periods) },
+                  ...next.map((picked) => ({
+                    code: picked.code,
+                    previousCode: picked.code,
+                    name: picked.name,
+                    periods: String(periods),
+                  })),
                 ])
               );
               closeClassAdd();
             }}
           >
-            {!pickedForAdd ? "Pick a subject" : "Add to class"}
+            {!pickedForAdd.length ? "Pick a subject" : pickedForAdd.length === 1 ? "Add to class" : `Add ${pickedForAdd.length} to class`}
           </Button>
         }
       >
@@ -1860,15 +1864,18 @@ export function SchoolSubjectsForm({
               ) : null}
               <View className="flex-row flex-wrap gap-2">
                 {remainingVisible.map((row) => {
-                  const active = classAddCode === row.code;
-                  const swapsWith = sameNameRow(row);
+                  const active = classAddCodes.includes(row.code);
                   return (
                     <Pressable
                       key={row.code}
                       accessibilityRole="button"
                       accessibilityState={{ selected: active }}
                       accessibilityLabel={formatSubjectLabel(row.code, row.name)}
-                      onPress={() => setClassAddCode(row.code)}
+                      onPress={() =>
+                        setClassAddCodes((codes) =>
+                          codes.includes(row.code) ? codes.filter((code) => code !== row.code) : [...codes, row.code]
+                        )
+                      }
                       className={`flex-row items-center gap-2 rounded-md border px-3 py-2 ${active ? "border-clay-500 bg-clay-500" : "border-ink-200 bg-white"}`}
                     >
                       {active ? <Ionicons name="checkmark" size={14} color="#fff" /> : null}
@@ -1885,7 +1892,7 @@ export function SchoolSubjectsForm({
               accessibilityRole="button"
               onPress={() => {
                 setClassAddAllGrades((value) => !value);
-                setClassAddCode("");
+                setClassAddCodes([]);
               }}
               className="self-start py-1"
             >
