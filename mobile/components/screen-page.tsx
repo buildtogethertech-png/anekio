@@ -1,4 +1,5 @@
-import { RefreshControl, ScrollView, useWindowDimensions, View } from "react-native";
+import type { ViewStyle } from "react-native";
+import { Platform, RefreshControl, ScrollView, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { PhoneTopBar } from "./notice-bell";
 import { PortalBody } from "./portal-body";
@@ -40,6 +41,7 @@ export function ScreenPage({ screen }: { screen: string }) {
         <ScrollView
           className="min-h-0 flex-1"
           contentContainerClassName={settingsPage ? "px-4 py-3 sm:px-7 sm:py-4" : "px-4 py-5 sm:px-10 sm:py-8"}
+          style={Platform.OS === "web" ? ({ overflow: "auto" } as ViewStyle) : undefined}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => reload()} />}
         >
           <PortalBody screen={screen} />

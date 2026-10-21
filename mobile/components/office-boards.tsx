@@ -829,10 +829,10 @@ export function DeskBoard() {
         </Card>
       ) : null}
 
-      <View className={`mt-4 gap-4 ${desktop ? "flex-row" : ""}`}>
-        <Card className="flex-[1.4] p-5">
+      <View className={`mt-4 gap-4 ${desktop ? "flex-row items-stretch" : ""}`}>
+        <Card className={`p-5 ${desktop ? "min-h-0 flex-[1.4]" : "w-full shrink-0"}`}>
           <View className="flex-row items-start justify-between gap-3">
-            <View>
+            <View className="min-w-0 flex-1">
               <Text className="text-base font-semibold text-ink-900">Collection trend</Text>
               <Text className="mt-0.5 text-xs text-ink-700">Last seven days</Text>
             </View>
@@ -865,13 +865,13 @@ export function DeskBoard() {
           ) : <LockedFeePanel kind="trend" />}
         </Card>
 
-        <Card className="flex-1 p-5">
+        <Card className={`p-5 ${desktop ? "min-h-0 flex-1" : "w-full shrink-0"}`}>
           <View className="flex-row items-start justify-between gap-3">
-            <View>
+            <View className="min-w-0 flex-1">
               <Text className="text-base font-semibold text-ink-900">Fee health</Text>
               <Text className="mt-0.5 text-xs text-ink-700">Recent invoice status</Text>
             </View>
-            {canSeeFees ? <Pressable onPress={() => router.push("/fees")}><Text className="text-sm text-clay-600">Open fees</Text></Pressable> : <Badge tone="ink">Locked</Badge>}
+            {canSeeFees ? <Pressable onPress={() => router.push("/fees")} className="shrink-0"><Text className="text-sm text-clay-600">Open fees</Text></Pressable> : <Badge tone="ink">Locked</Badge>}
           </View>
           {canSeeFees ? (
             <>
@@ -893,21 +893,21 @@ export function DeskBoard() {
                 ))}
               </View>
               <View className="mt-6 rounded-md bg-red-50 px-3 py-2.5">
-                <Text className="text-xs text-red-700">{desk.dueNow || "₹0"} currently outstanding</Text>
+                <Text className="text-xs leading-5 text-red-700">{desk.dueNow || "₹0"} currently outstanding</Text>
               </View>
             </>
           ) : <LockedFeePanel kind="health" />}
         </Card>
       </View>
 
-      <View className={`mt-4 gap-4 ${desktop ? "flex-row" : ""}`}>
-        <Card className="flex-[1.4] p-5">
+      <View className={`mt-4 gap-4 ${desktop ? "flex-row items-stretch" : ""}`}>
+        <Card className={`p-5 ${desktop ? "min-h-0 flex-[1.4]" : "w-full shrink-0"}`}>
           <View className="flex-row items-start justify-between gap-3">
-            <View>
+            <View className="min-w-0 flex-1">
               <Text className="text-base font-semibold text-ink-900">Today’s attendance</Text>
               <Text className="mt-0.5 text-xs text-ink-700">Present, out, and still unmarked by class</Text>
             </View>
-            <Pressable onPress={() => router.push("/people")}><Text className="text-sm text-clay-600">Open people</Text></Pressable>
+            <Pressable onPress={() => router.push("/people")} className="shrink-0"><Text className="text-sm text-clay-600">Open people</Text></Pressable>
           </View>
           <View className="mt-6 h-4 flex-row overflow-hidden rounded-full bg-ink-100">
             {attendanceTotals.present ? <View className="h-full bg-emerald-500" style={{ width: `${(attendanceTotals.present / Math.max(1, attendanceTotals.total)) * 100}%` }} /> : null}
@@ -927,7 +927,7 @@ export function DeskBoard() {
             ))}
           </View>
           <View className="mt-5 overflow-hidden rounded-md border border-ink-100">
-            {classAttendance.slice(0, 8).map((klass, index) => {
+            {classAttendance.map((klass, index) => {
               const marked = klass.present + klass.absent;
               const teacherAway = klass.teacherStatus === "ABSENT" || klass.teacherStatus === "LEAVE";
               const status = !marked
@@ -942,7 +942,9 @@ export function DeskBoard() {
               const teacherWa = whatsappHref(klass.teacherPhone, reminder);
               return (
                 <View key={klass.classId} className={`flex-row items-center gap-3 px-3 py-2.5 ${index ? "border-t border-ink-100" : ""}`}>
-                  <View className="w-9"><Text className="text-xs font-semibold text-ink-900">{klass.label}</Text></View>
+                  <View className="w-16 shrink-0">
+                    <Text className="text-xs font-semibold text-ink-900" numberOfLines={1}>{klass.label}</Text>
+                  </View>
                   <View className="min-w-0 flex-1">
                     <Text className="text-xs font-medium text-ink-900" numberOfLines={1}>{klass.teacherName}</Text>
                     <Text className={`text-[10px] ${!marked ? "text-amber-700" : klass.percent < 75 ? "text-red-600" : "text-ink-700"}`} numberOfLines={1}>{status}</Text>
@@ -958,7 +960,7 @@ export function DeskBoard() {
           </View>
         </Card>
 
-        <Card className="flex-1 overflow-hidden">
+        <Card className={`overflow-hidden ${desktop ? "min-h-0 flex-1" : "w-full shrink-0"}`}>
           <View className="border-b border-ink-100 px-5 py-4">
             <Text className="text-base font-semibold text-ink-900">Needs attention</Text>
             <Text className="mt-0.5 text-xs text-ink-700">Live staffing and timetable issues</Text>
