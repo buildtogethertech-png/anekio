@@ -41,7 +41,7 @@ export function ScreenPage({ screen }: { screen: string }) {
         <ScrollView
           className="min-h-0 flex-1"
           contentContainerClassName={settingsPage ? "px-4 py-3 sm:px-7 sm:py-4" : "px-4 py-5 sm:px-10 sm:py-8"}
-          style={Platform.OS === "web" ? ({ overflow: "auto" } as ViewStyle) : undefined}
+          style={Platform.OS === "web" ? ({ overflow: "auto" } as unknown as ViewStyle) : undefined}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => reload()} />}
         >
           <PortalBody screen={screen} />
