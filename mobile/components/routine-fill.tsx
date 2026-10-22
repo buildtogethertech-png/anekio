@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Pressable, Text, View } from "react-native";
 import { useRouter } from "expo-router";
-import { Button, Modal } from "./ui";
+import { Button, Modal, Switch } from "./ui";
 import { Popover } from "./form/popover";
 import { act } from "../lib/mutate";
 import { useSession } from "../lib/session";
@@ -22,7 +22,27 @@ type Preview = {
     unplaced: { classLabel: string; subjectLabel: string; count: number; reason: string }[];
     splitSubjects: string[];
     placements: unknown[];
+    notes?: string[];
+    stats?: { samePeriod?: number; heavyMorning?: number; classTeacherFirst?: number };
   };
+};
+
+type Rules = {
+  classTeacherFirst: boolean;
+  samePeriodDaily: boolean;
+  heavyMorning: boolean;
+  heavySubjects: string[];
+  morningUntilPeriodId: string;
+  doubles: Record<string, number>;
+  unavailable: Record<string, string[]>;
+};
+type RulesData = {
+  rules: Rules;
+  days: { n: number; label: string }[];
+  periods: { id: string; name: string; startsAt: string }[];
+  subjects: { key: string; name: string; maxNeed: number }[];
+  teachers: { id: string; name: string }[];
+  classesWithoutClassTeacher: number;
 };
 
 export function FillAllSheet({ open, onClose, onApplied }: { open: boolean; onClose: () => void; onApplied: (ids: string[], added: number) => void }) {
@@ -33,18 +53,40 @@ export function FillAllSheet({ open, onClose, onApplied }: { open: boolean; onCl
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [anyway, setAnyway] = useState(false);
+  const [step, setStep] = useState<"rules" | "preview">("rules");
+  const [rulesData, setRulesData] = useState<RulesData | null>(null);
+  const [rules, setRules] = useState<Rules | null>(null);
 
   useEffect(() => {
     if (!open) return;
+    setStep("rules");
     setData(null);
     setError("");
     setAnyway(false);
-    setLoading(true);
-    act<Preview & { ok: true }>(token, "previewTimetableFill", {})
-      .then(setData)
-      .catch((e) => setError(e instanceof Error ? e.message : "Could not check the timetable."))
-      .finally(() => setLoading(false));
+    setRulesData(null);
+    act<RulesData & { ok: true }>(token, "loadTimetableRules", {})
+      .then((r) => {
+        setRulesData(r);
+        setRules(r.rules);
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : "Could not load rules."));
   }, [open, token]);
+
+  async function saveAndPreview() {
+    if (!rules) return;
+    setStep("preview");
+    setData(null);
+    setError("");
+    setLoading(true);
+    try {
+      await act(token, "saveTimetableRules", { rules });
+      setData(await act<Preview & { ok: true }>(token, "previewTimetableFill", {}));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not check the timetable.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   const check = data?.check;
   const preview = data?.preview;
@@ -74,7 +116,20 @@ export function FillAllSheet({ open, onClose, onApplied }: { open: boolean; onCl
       title="Fill all classes"
       onClose={onClose}
       footer={
+        step === "rules" ? (
+          <View className="flex-row items-center justify-end gap-2">
+            <Button variant="ghost" onPress={onClose}>
+              Cancel
+            </Button>
+            <Button disabled={!rules} onPress={() => void saveAndPreview()}>
+              Save rules & preview
+            </Button>
+          </View>
+        ) : (
         <View className="flex-row items-center justify-end gap-2">
+          <Button variant="ghost" onPress={() => setStep("rules")} className="mr-auto">
+            ← Rules
+          </Button>
           <Button variant="ghost" onPress={onClose}>
             Cancel
           </Button>
@@ -84,8 +139,18 @@ export function FillAllSheet({ open, onClose, onApplied }: { open: boolean; onCl
             </Button>
           ) : null}
         </View>
+        )
       }
     >
+      {step === "rules" ? (
+        rulesData && rules ? (
+          <RulesStep data={rulesData} rules={rules} onChange={setRules} />
+        ) : (
+          <View className="items-center py-8">
+            {error ? <Text className="text-[13px] text-red-700">{error}</Text> : <Text className="text-[14px] text-ink-700">Loading rules…</Text>}
+          </View>
+        )
+      ) : (
       <View className="gap-4">
         {loading ? (
           <View className="items-center py-8">
@@ -163,6 +228,33 @@ export function FillAllSheet({ open, onClose, onApplied }: { open: boolean; onCl
                     ? `All ${preview.placed} periods fit, with no teacher in two classes at once.`
                     : `${preview.placed} of ${preview.needed} periods fit. ${preview.needed - preview.placed} could not be placed.`}
                 </Text>
+                {preview.stats && Object.keys(preview.stats).length ? (
+                  <View className="flex-row flex-wrap gap-1.5">
+                    {(
+                      [
+                        ["classTeacherFirst", "Class teacher in period 1"],
+                        ["samePeriod", "Same period daily"],
+                        ["heavyMorning", "Main subjects in morning"],
+                      ] as const
+                    )
+                      .filter(([k]) => preview.stats?.[k] !== undefined)
+                      .map(([k, label]) => {
+                        const v = preview.stats![k]!;
+                        return (
+                          <View key={k} className={`rounded-md px-2 py-1 ${v >= 90 ? "bg-emerald-50" : v >= 70 ? "bg-[#EEF3FF]" : "bg-amber-50"}`}>
+                            <Text className={`text-[12px] font-medium ${v >= 90 ? "text-emerald-800" : v >= 70 ? "text-[#1F45C7]" : "text-amber-900"}`}>{`${label} · ${v}%`}</Text>
+                          </View>
+                        );
+                      })}
+                  </View>
+                ) : null}
+                {preview.notes?.length ? (
+                  <View className="gap-1 rounded-lg bg-[#EEF3FF] px-3 py-2">
+                    {preview.notes.map((n) => (
+                      <Text key={n} className="text-[12px] text-ink-700">{`• ${n}`}</Text>
+                    ))}
+                  </View>
+                ) : null}
                 <View className="flex-row flex-wrap gap-1.5">
                   {preview.perClass.map((c) => (
                     <View key={c.classId} className={`rounded-md px-2 py-1 ${c.missing ? "bg-amber-50" : "bg-ink-50"}`}>
@@ -196,7 +288,183 @@ export function FillAllSheet({ open, onClose, onApplied }: { open: boolean; onCl
           </>
         ) : null}
       </View>
+      )}
     </Modal>
+  );
+}
+
+function RuleRow({ title, hint, on, onPress, first, children }: { title: string; hint: string; on: boolean; onPress: () => void; first?: boolean; children?: React.ReactNode }) {
+  return (
+    <View className={`px-4 py-3 ${first ? "" : "border-t border-ink-100"}`}>
+      <Pressable accessibilityRole="switch" onPress={onPress} className="flex-row items-center gap-3">
+        <View className="min-w-0 flex-1">
+          <Text className="text-[14px] font-medium text-ink-900">{title}</Text>
+          <Text className="mt-0.5 text-[12px] text-ink-500">{hint}</Text>
+        </View>
+        <Switch on={on} onPress={onPress} />
+      </Pressable>
+      {on && children ? <View className="mt-3">{children}</View> : null}
+    </View>
+  );
+}
+
+function Pill({ label, on, onPress }: { label: string; on: boolean; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} className={`rounded-full border px-2.5 py-1 ${on ? "border-[#1F45C7] bg-[#1F45C7]" : "border-ink-200 bg-white"}`}>
+      <Text className={`text-[12px] font-medium ${on ? "text-white" : "text-ink-700"}`}>{label}</Text>
+    </Pressable>
+  );
+}
+
+/** Step 1 of Fill all classes: how the school likes its timetable. Saved for next time. */
+function RulesStep({ data, rules, onChange }: { data: RulesData; rules: Rules; onChange: (r: Rules) => void }) {
+  const [teacherOpen, setTeacherOpen] = useState("");
+  const set = (patch: Partial<Rules>) => onChange({ ...rules, ...patch });
+  const morningIdx = data.periods.findIndex((p) => p.id === rules.morningUntilPeriodId);
+  const morningEnd = morningIdx >= 0 ? morningIdx : Math.ceil(data.periods.length / 2) - 1;
+  const blockedCount = Object.values(rules.unavailable).reduce((n, c) => n + c.length, 0);
+  const doubleCount = Object.values(rules.doubles).reduce((n, c) => n + c, 0);
+  return (
+    <View className="gap-4">
+      <Text className="text-[13px] text-ink-600">How does your school like its timetable? Auto-fill follows these. They are saved for next time.</Text>
+      <View className="overflow-hidden rounded-xl border border-ink-200 bg-white">
+        <RuleRow
+          first
+          title="Class teacher takes Period 1 every day"
+          hint={data.classesWithoutClassTeacher ? `For attendance. ${data.classesWithoutClassTeacher} classes have no class teacher yet.` : "For attendance and the day's notices."}
+          on={rules.classTeacherFirst}
+          onPress={() => set({ classTeacherFirst: !rules.classTeacherFirst })}
+        />
+        <RuleRow
+          title="Same subject at the same period every day"
+          hint="e.g. Maths always in Period 2. Easier for students and teachers to remember."
+          on={rules.samePeriodDaily}
+          onPress={() => set({ samePeriodDaily: !rules.samePeriodDaily })}
+        />
+        <RuleRow
+          title="Main subjects in the morning"
+          hint="Main subjects early, activity subjects like PE and Art later."
+          on={rules.heavyMorning}
+          onPress={() => set({ heavyMorning: !rules.heavyMorning })}
+        >
+          <Text className="mb-1.5 text-[12px] font-medium text-ink-600">Main subjects</Text>
+          <View className="flex-row flex-wrap gap-1.5">
+            {data.subjects.map((s) => {
+              const on = rules.heavySubjects.includes(s.key);
+              return <Pill key={s.key} label={s.name} on={on} onPress={() => set({ heavySubjects: on ? rules.heavySubjects.filter((k) => k !== s.key) : [...rules.heavySubjects, s.key] })} />;
+            })}
+          </View>
+          <Text className="mb-1.5 mt-3 text-[12px] font-medium text-ink-600">Morning ends after</Text>
+          <View className="flex-row flex-wrap gap-1.5">
+            {data.periods.map((p, i) => (
+              <Pill key={p.id} label={p.name} on={i === morningEnd} onPress={() => set({ morningUntilPeriodId: p.id })} />
+            ))}
+          </View>
+        </RuleRow>
+      </View>
+
+      <View>
+        <Text className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-500">{`Double periods${doubleCount ? ` · ${doubleCount}` : ""}`}</Text>
+        <Text className="mb-2 text-[12px] text-ink-500">Two periods in a row on one day, for labs, Computer or Art. Never across a break.</Text>
+        <View className="overflow-hidden rounded-xl border border-ink-200 bg-white">
+          {data.subjects
+            .filter((s) => s.maxNeed >= 2)
+            .map((s, i) => {
+              const n = rules.doubles[s.key] || 0;
+              const max = Math.min(3, Math.floor(s.maxNeed / 2));
+              const setN = (v: number) => {
+                const next = { ...rules.doubles };
+                if (v > 0) next[s.key] = v;
+                else delete next[s.key];
+                set({ doubles: next });
+              };
+              return (
+                <View key={s.key} className={`flex-row items-center gap-3 px-4 py-2 ${i ? "border-t border-ink-100" : ""}`}>
+                  <Text className="flex-1 text-[14px] text-ink-900">{s.name}</Text>
+                  <Text className="text-[12px] text-ink-500">{n ? `${n} a week` : "None"}</Text>
+                  <View className="flex-row items-center overflow-hidden rounded-lg border border-ink-200">
+                    <Pressable accessibilityLabel={`Fewer ${s.name} doubles`} disabled={!n} onPress={() => setN(n - 1)} className="h-8 w-8 items-center justify-center">
+                      <Ionicons name="remove" size={14} color={n ? "#334155" : "#CBD5E1"} />
+                    </Pressable>
+                    <Text className="w-6 text-center text-[14px] font-semibold tabular-nums text-ink-900">{n}</Text>
+                    <Pressable accessibilityLabel={`More ${s.name} doubles`} disabled={n >= max} onPress={() => setN(n + 1)} className="h-8 w-8 items-center justify-center">
+                      <Ionicons name="add" size={14} color={n < max ? "#334155" : "#CBD5E1"} />
+                    </Pressable>
+                  </View>
+                </View>
+              );
+            })}
+        </View>
+      </View>
+
+      <View>
+        <Text className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-500">{`Teachers not available${blockedCount ? ` · ${blockedCount} periods` : ""}`}</Text>
+        <Text className="mb-2 text-[12px] text-ink-500">Part-time teachers or fixed duties. Tap a teacher, then tap the periods they can't take.</Text>
+        <View className="overflow-hidden rounded-xl border border-ink-200 bg-white">
+          {data.teachers.map((t, i) => {
+            const cells = rules.unavailable[t.id] || [];
+            const openNow = teacherOpen === t.id;
+            const toggle = (key: string) => {
+              const next = { ...rules.unavailable };
+              const list = cells.includes(key) ? cells.filter((c) => c !== key) : [...cells, key];
+              if (list.length) next[t.id] = list;
+              else delete next[t.id];
+              set({ unavailable: next });
+            };
+            const toggleDay = (day: number) => {
+              const keys = data.periods.map((p) => `${day}|${p.id}`);
+              const all = keys.every((k) => cells.includes(k));
+              const next = { ...rules.unavailable };
+              const list = all ? cells.filter((c) => !keys.includes(c)) : [...new Set([...cells, ...keys])];
+              if (list.length) next[t.id] = list;
+              else delete next[t.id];
+              set({ unavailable: next });
+            };
+            return (
+              <View key={t.id} className={i ? "border-t border-ink-100" : ""}>
+                <Pressable onPress={() => setTeacherOpen(openNow ? "" : t.id)} className="flex-row items-center gap-3 px-4 py-2.5 active:bg-ink-50">
+                  <Text className="flex-1 text-[14px] text-ink-900">{t.name}</Text>
+                  <Text className={`text-[12px] ${cells.length ? "font-medium text-red-700" : "text-ink-500"}`}>{cells.length ? `${cells.length} blocked` : "Always available"}</Text>
+                  <Ionicons name={openNow ? "chevron-up" : "chevron-down"} size={14} color="#94A3B8" />
+                </Pressable>
+                {openNow ? (
+                  <View className="px-3 pb-3">
+                    <View className="flex-row">
+                      <View className="w-12" />
+                      {data.days.map((d) => (
+                        <Pressable key={d.n} onPress={() => toggleDay(d.n)} className="flex-1 items-center py-1">
+                          <Text className="text-[11px] font-semibold text-ink-600 underline">{d.label}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                    {data.periods.map((p) => (
+                      <View key={p.id} className="flex-row items-center">
+                        <Text className="w-12 text-[11px] text-ink-500" numberOfLines={1}>{p.name.replace(/^Period\s*/i, "P")}</Text>
+                        {data.days.map((d) => {
+                          const key = `${d.n}|${p.id}`;
+                          const off = cells.includes(key);
+                          return (
+                            <Pressable
+                              key={key}
+                              accessibilityLabel={`${t.name} ${d.label} ${p.name} ${off ? "not available" : "available"}`}
+                              onPress={() => toggle(key)}
+                              className={`m-0.5 h-7 flex-1 items-center justify-center rounded ${off ? "bg-red-100" : "bg-ink-50"}`}
+                            >
+                              {off ? <Ionicons name="close" size={12} color="#b91c1c" /> : null}
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    ))}
+                    <Text className="mt-1.5 text-[11px] text-ink-500">Tap a day name to block the whole day.</Text>
+                  </View>
+                ) : null}
+              </View>
+            );
+          })}
+        </View>
+      </View>
+    </View>
   );
 }
 

@@ -972,6 +972,9 @@ model SchoolConfig {
   admitCardPendingMonths  Int                       @default(0)
   whatsappCommunityUrl    String                    @default("")
   subjectCatalog          String                    @default("[]")
+  /// Routine auto-fill rules (JSON): class teacher period 1, same period daily, heavy subjects in the morning,
+  /// double periods per subject, teacher unavailable periods. Empty = no rules.
+  timetableRulesJson      String                    @default("")
   payrollJson             String                    @default("{\"presentCredit\":1,\"absentCredit\":0,\"paidLeaveCredit\":1,\"unpaidLeaveCredit\":0,\"halfDayCredit\":0.5,\"lateCredit\":1}")
   feeCatalogJson           String                    @default("{\"items\":[],\"late\":{\"enabled\":false,\"amount\":0,\"graceDays\":0}}")
   documentTemplates       DocumentTemplate[]

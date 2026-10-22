@@ -9,30 +9,92 @@ import { parseWeekdays, WEEKDAY_SHORT } from "./schedule";
 import { formatSubjectLabel, skillMatchesSubject } from "./subject-code";
 import { checkTimetable, fillTimetable, type Placement, type SolverInput } from "./timetable-solver";
 
+export type TimetableRules = {
+  classTeacherFirst: boolean;
+  samePeriodDaily: boolean;
+  heavyMorning: boolean;
+  /** Subject names (lower case) treated as heavy. */
+  heavySubjects: string[];
+  /** Last morning period; "" = first half of the day. */
+  morningUntilPeriodId: string;
+  /** Subject name (lower case) -> double periods per week. */
+  doubles: Record<string, number>;
+  /** Teacher id -> cells "weekday|periodId" they cannot teach. */
+  unavailable: Record<string, string[]>;
+};
+
+const DEFAULT_RULES: TimetableRules = {
+  classTeacherFirst: false,
+  samePeriodDaily: false,
+  heavyMorning: false,
+  heavySubjects: ["mathematics", "maths", "science", "english"],
+  morningUntilPeriodId: "",
+  doubles: {},
+  unavailable: {},
+};
+
+const subjectKey = (name: string) => name.trim().toLowerCase();
+
+export function parseTimetableRules(raw?: string | null): TimetableRules {
+  try {
+    const v = raw ? (JSON.parse(raw) as Partial<TimetableRules>) : {};
+    const doubles: Record<string, number> = {};
+    for (const [k, n] of Object.entries(v.doubles || {})) if (Number(n) > 0) doubles[subjectKey(k)] = Math.min(3, Math.floor(Number(n)));
+    const unavailable: Record<string, string[]> = {};
+    for (const [k, cells] of Object.entries(v.unavailable || {})) {
+      const list = (Array.isArray(cells) ? cells : []).map(String).filter((c) => /^\d\|.+/.test(c));
+      if (list.length) unavailable[k] = [...new Set(list)];
+    }
+    return {
+      classTeacherFirst: Boolean(v.classTeacherFirst),
+      samePeriodDaily: Boolean(v.samePeriodDaily),
+      heavyMorning: Boolean(v.heavyMorning),
+      heavySubjects: Array.isArray(v.heavySubjects) ? [...new Set(v.heavySubjects.map((x) => subjectKey(String(x))).filter(Boolean))] : DEFAULT_RULES.heavySubjects,
+      morningUntilPeriodId: String(v.morningUntilPeriodId || ""),
+      doubles,
+      unavailable,
+    };
+  } catch {
+    return { ...DEFAULT_RULES };
+  }
+}
+
 function needSchoolEdit(user: AccessUser) {
   if (!can(user, "timetable.edit")) throw new Error("Only the office can change the timetable.");
   if (scopeFor(user, "timetable.edit") !== "SCHOOL") throw new Error("Filling the whole school needs school-wide routine access.");
 }
 
 async function loadInput(): Promise<SolverInput & { names: { teachers: Map<string, string>; classes: Map<string, string>; subjects: Map<string, string>; periods: Map<string, string> } }> {
-  const config = await prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { weekdays: true } });
+  const config = await prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { weekdays: true, timetableRulesJson: true } });
   const days = parseWeekdays(config?.weekdays);
-  const [periods, classes, teachers, slots] = await Promise.all([
-    prisma.period.findMany({ where: { isBreak: false }, orderBy: { sortOrder: "asc" } }),
+  const rules = parseTimetableRules(config?.timetableRulesJson);
+  const [allPeriods, classes, teachers, slots] = await Promise.all([
+    prisma.period.findMany({ orderBy: { sortOrder: "asc" } }),
     prisma.class.findMany({ where: { archivedAt: null }, include: { subjects: true }, orderBy: [{ name: "asc" }, { section: "asc" }] }),
     prisma.teacher.findMany({ include: { user: { select: { name: true } }, skills: true }, orderBy: { user: { name: "asc" } } }),
     prisma.timetableSlot.findMany({ where: { weekday: { in: days } }, select: { classId: true, weekday: true, periodId: true, subjectId: true, teacherId: true } }),
   ]);
+  const periods = allPeriods.filter((p) => !p.isBreak);
   const periodIds = new Set(periods.map((p) => p.id));
+  const afterBreak = new Set(allPeriods.filter((p, i) => !p.isBreak && i > 0 && allPeriods[i - 1].isBreak).map((p) => p.id));
+  const morningEnd = periods.findIndex((p) => p.id === rules.morningUntilPeriodId);
+  const morningPeriodIds = morningEnd >= 0 ? periods.slice(0, morningEnd + 1).map((p) => p.id) : undefined;
   const classIds = new Set(classes.map((c) => c.id));
   return {
     days,
     dayLabels: Object.fromEntries(days.map((d) => [d, WEEKDAY_SHORT[d] || String(d)])),
-    periods: periods.map((p) => ({ id: p.id, name: p.name })),
-    teachers: teachers.map((t) => ({ id: t.id, name: t.user.name })),
+    periods: periods.map((p) => ({ id: p.id, name: p.name, afterBreak: afterBreak.has(p.id) })),
+    teachers: teachers.map((t) => ({ id: t.id, name: t.user.name, unavailable: rules.unavailable[t.id] || [] })),
+    prefs: {
+      classTeacherFirst: rules.classTeacherFirst,
+      samePeriodDaily: rules.samePeriodDaily,
+      heavyMorning: rules.heavyMorning,
+      morningPeriodIds,
+    },
     classes: classes.map((c) => ({
       id: c.id,
       label: `${c.name}-${c.section}`,
+      classTeacherId: teachers.find((t) => t.classId === c.id)?.id || null,
       subjects: c.subjects
         .filter((s) => s.weightage > 0)
         .map((s) => ({
@@ -41,6 +103,8 @@ async function loadInput(): Promise<SolverInput & { names: { teachers: Map<strin
           need: s.weightage,
           eligible: teachers.filter((t) => t.skills.some((k) => k.classId === c.id && skillMatchesSubject(k.subjectName, s))).map((t) => t.id),
           preferred: s.teacherId,
+          heavy: rules.heavySubjects.includes(subjectKey(s.name)) || rules.heavySubjects.includes(subjectKey(s.code)),
+          doubles: rules.doubles[subjectKey(s.name)] || 0,
         })),
     })),
     existing: slots
@@ -83,6 +147,8 @@ export async function previewTimetableFill(user: AccessUser) {
       placed: result.placed,
       perClass: perClass.filter((c) => c.adding || c.missing),
       unplaced: result.unplaced.map((u) => ({ ...u, teacher: input.names.teachers.get(u.teacherId) || "" })),
+      notes: result.notes,
+      stats: result.stats,
       splitSubjects: [...split].map((k) => {
         const [classId, subjectId] = k.split("|");
         return `${input.names.classes.get(classId)} ${input.names.subjects.get(subjectId)}`;
@@ -292,4 +358,40 @@ export async function restoreTimetable(user: AccessUser, input: { snapshot?: { s
     }
   });
   return { ok: true as const, restored: back.length, skipped: slots.length - back.length };
+}
+
+/** Rules screen: saved rules plus what the screen needs to show them. */
+export async function loadTimetableRules(user: AccessUser) {
+  needSchoolEdit(user);
+  const [config, periods, subjects, teachers, classes] = await Promise.all([
+    prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { weekdays: true, timetableRulesJson: true } }),
+    prisma.period.findMany({ where: { isBreak: false }, orderBy: { sortOrder: "asc" }, select: { id: true, name: true, startsAt: true } }),
+    prisma.subject.findMany({ where: { class: { archivedAt: null }, weightage: { gt: 0 } }, select: { name: true, weightage: true } }),
+    prisma.teacher.findMany({ select: { id: true, classId: true, user: { select: { name: true } } }, orderBy: { user: { name: "asc" } } }),
+    prisma.class.findMany({ where: { archivedAt: null }, select: { id: true } }),
+  ]);
+  const days = parseWeekdays(config?.weekdays);
+  const names = new Map<string, { name: string; maxNeed: number }>();
+  for (const s of subjects) {
+    const k = subjectKey(s.name);
+    const row = names.get(k) || { name: s.name, maxNeed: 0 };
+    row.maxNeed = Math.max(row.maxNeed, s.weightage);
+    names.set(k, row);
+  }
+  const classIds = new Set(classes.map((c) => c.id));
+  return {
+    rules: parseTimetableRules(config?.timetableRulesJson),
+    days: days.map((d) => ({ n: d, label: WEEKDAY_SHORT[d] || String(d) })),
+    periods,
+    subjects: [...names.entries()].map(([key, v]) => ({ key, name: v.name, maxNeed: v.maxNeed })).sort((a, b) => a.name.localeCompare(b.name)),
+    teachers: teachers.map((t) => ({ id: t.id, name: t.user.name })),
+    classesWithoutClassTeacher: classes.length - new Set(teachers.map((t) => t.classId).filter((id): id is string => Boolean(id && classIds.has(id)))).size,
+  };
+}
+
+export async function saveTimetableRules(user: AccessUser, input: { rules?: Partial<TimetableRules> }) {
+  needSchoolEdit(user);
+  const rules = parseTimetableRules(JSON.stringify(input.rules || {}));
+  await prisma.schoolConfig.update({ where: { id: "school" }, data: { timetableRulesJson: JSON.stringify(rules) } });
+  return { ok: true as const, rules };
 }

@@ -204,3 +204,114 @@ describe("fillTimetable on random schools", () => {
     }
   }, 60_000);
 });
+
+/** 6 classes; each class teacher teaches English, Hindi and SST in their own class; specialists for the rest. */
+function schoolWithClassTeachers() {
+  const input = school({ grades: 3, sections: 2, teachersPerSubject: { Maths: 2, Science: 1, Computer: 1, Art: 1, PE: 1 } });
+  input.periods = input.periods.map((p, i) => ({ ...p, afterBreak: i === 4 })); // lunch before P5
+  for (const c of input.classes) {
+    const ct = { id: `CT-${c.id}`, name: `Class teacher ${c.label}` };
+    input.teachers.push(ct);
+    (c as { classTeacherId?: string }).classTeacherId = ct.id;
+    for (const s of c.subjects) if (["English", "Hindi", "SST"].includes(s.label)) s.eligible = [ct.id];
+  }
+  return input;
+}
+
+describe("fillTimetable rules", () => {
+  it("gives period 1 to the class teacher every day", () => {
+    const input = schoolWithClassTeachers();
+    input.prefs = { classTeacherFirst: true };
+    const result = fillTimetable(input);
+    assertValid(input, result);
+    expect(result.placed).toBe(result.needed);
+    expect(result.stats.classTeacherFirst).toBe(100);
+    for (const c of input.classes) {
+      for (const day of input.days) {
+        const p = result.placements.find((x) => x.classId === c.id && x.day === day && x.periodId === "p1");
+        expect(p?.teacherId).toBe(c.classTeacherId);
+      }
+    }
+  });
+
+  it("keeps subjects at the same period across the week far more often", () => {
+    const samePeriod = (r: FillResult) => {
+      const by = new Map<string, Map<string, number>>();
+      for (const p of r.placements) {
+        const k = `${p.classId}|${p.subjectId}`;
+        if (!by.has(k)) by.set(k, new Map());
+        by.get(k)!.set(p.periodId, (by.get(k)!.get(p.periodId) || 0) + 1);
+      }
+      let top = 0;
+      let all = 0;
+      for (const m of by.values()) {
+        const counts = [...m.values()];
+        top += Math.max(...counts);
+        all += counts.reduce((a, b) => a + b, 0);
+      }
+      return (top / all) * 100;
+    };
+    const off = fillTimetable(schoolWithClassTeachers());
+    const input = { ...schoolWithClassTeachers(), prefs: { samePeriodDaily: true } };
+    const on = fillTimetable(input);
+    assertValid(input, on);
+    expect(on.placed).toBe(on.needed);
+    expect(on.stats.samePeriod).toBeGreaterThanOrEqual(70);
+    expect(samePeriod(on)).toBeGreaterThan(samePeriod(off) + 25);
+  });
+
+  it("puts heavy subjects in the morning", () => {
+    const input = schoolWithClassTeachers();
+    for (const c of input.classes) for (const s of c.subjects) s.heavy = ["Maths", "Science", "English"].includes(s.label);
+    input.prefs = { heavyMorning: true };
+    const result = fillTimetable(input);
+    assertValid(input, result);
+    expect(result.placed).toBe(result.needed);
+    expect(result.stats.heavyMorning).toBeGreaterThanOrEqual(85);
+  });
+
+  it("makes double periods on one day, never across the lunch break", () => {
+    const input = schoolWithClassTeachers();
+    for (const c of input.classes) for (const s of c.subjects) if (s.label === "Science") s.doubles = 1;
+    const result = fillTimetable(input);
+    assertValid(input, result, false);
+    expect(result.placed).toBe(result.needed);
+    const order = input.periods.map((p) => p.id);
+    for (const c of input.classes) {
+      const sci = result.placements.filter((p) => p.classId === c.id && p.subjectId === `${c.id}-Science`);
+      const hasDouble = input.days.some((d) => {
+        const idx = sci.filter((p) => p.day === d).map((p) => order.indexOf(p.periodId)).sort((a, b) => a - b);
+        return idx.some((v, i) => i > 0 && v === idx[i - 1] + 1 && !input.periods[v].afterBreak);
+      });
+      expect(hasDouble, `${c.label} has a Science double`).toBe(true);
+    }
+  });
+
+  it("never uses a teacher's unavailable periods, and the check counts them", () => {
+    const input = schoolWithClassTeachers();
+    const art = input.teachers.find((t) => t.id === "Art-0")!;
+    art.unavailable = input.days.filter((d) => d >= 4).flatMap((d) => input.periods.map((p) => `${d}|${p.id}`)); // Thu–Sat off
+    const check = checkTimetable(input);
+    expect(check.capacity).toBe(checkTimetable(schoolWithClassTeachers()).capacity - 24);
+    const result = fillTimetable(input);
+    assertValid(input, result);
+    expect(result.placed).toBe(result.needed);
+    for (const p of result.placements.filter((x) => x.teacherId === "Art-0")) expect(p.day).toBeLessThan(4);
+  });
+
+  it("all rules together still fill everything with no clashes", () => {
+    const input = schoolWithClassTeachers();
+    for (const c of input.classes)
+      for (const s of c.subjects) {
+        s.heavy = ["Maths", "Science", "English"].includes(s.label);
+        if (s.label === "Computer") s.doubles = 1;
+      }
+    input.teachers.find((t) => t.id === "PE-0")!.unavailable = ["1|p1", "1|p2", "2|p1"];
+    input.prefs = { classTeacherFirst: true, samePeriodDaily: true, heavyMorning: true };
+    const result = fillTimetable(input);
+    assertValid(input, result);
+    expect(result.placed).toBe(result.needed);
+    expect(result.stats.classTeacherFirst).toBe(100);
+    expect(result.notes).toEqual([]);
+  });
+});

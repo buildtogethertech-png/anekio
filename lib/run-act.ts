@@ -386,6 +386,14 @@ export async function runAct(
     case "assignSubstitute":
       await assignSubstituteCore(user, body as never);
       break;
+    case "loadTimetableRules": {
+      const { loadTimetableRules } = await import("./timetable-autofill");
+      return { ok: true, ...(await loadTimetableRules(user)) };
+    }
+    case "saveTimetableRules": {
+      const { saveTimetableRules } = await import("./timetable-autofill");
+      return await saveTimetableRules(user, body as never);
+    }
     case "previewTimetableFill": {
       const { previewTimetableFill } = await import("./timetable-autofill");
       return { ok: true, ...(await previewTimetableFill(user)) };

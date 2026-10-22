@@ -14,7 +14,8 @@
  *   - each teacher's lessons spread evenly across days
  */
 
-export type SolverPeriod = { id: string; name: string };
+/** afterBreak: a break comes just before this period, so it cannot pair with the one before it. */
+export type SolverPeriod = { id: string; name: string; afterBreak?: boolean };
 export type SolverSubject = {
   id: string;
   label: string;
@@ -24,9 +25,14 @@ export type SolverSubject = {
   eligible: string[];
   /** Teacher already linked to this subject in this class (Subject.teacherId), if any. */
   preferred?: string | null;
+  /** Main subject (Maths, Science…): prefer morning periods when that rule is on. */
+  heavy?: boolean;
+  /** Number of double periods (2 in a row, same day) per week. */
+  doubles?: number;
 };
-export type SolverClass = { id: string; label: string; subjects: SolverSubject[] };
-export type SolverTeacher = { id: string; name: string };
+export type SolverClass = { id: string; label: string; subjects: SolverSubject[]; classTeacherId?: string | null };
+/** unavailable: cells "day|periodId" the teacher can never be given. */
+export type SolverTeacher = { id: string; name: string; unavailable?: string[] };
 export type SolverSlot = { classId: string; day: number; periodId: string; subjectId: string | null; teacherId: string | null };
 
 export type SolverInput = {
@@ -40,6 +46,18 @@ export type SolverInput = {
   seed?: number;
   /** Stop trying new orders after this many ms (default 2500). */
   timeLimitMs?: number;
+  prefs?: SolverPrefs;
+};
+
+export type SolverPrefs = {
+  /** Class teacher takes the first period of every day (hard where possible). */
+  classTeacherFirst?: boolean;
+  /** Keep each subject at the same period across the week (soft). */
+  samePeriodDaily?: boolean;
+  /** Heavy subjects in morning periods, light ones later (soft). */
+  heavyMorning?: boolean;
+  /** Period ids counted as morning. Default: the first half of the day. */
+  morningPeriodIds?: string[];
 };
 
 export type CheckIssue = {
@@ -71,9 +89,24 @@ export type FillResult = {
   placed: number;
   /** Teacher chosen for each class+subject that needed periods. */
   assignments: { classId: string; subjectId: string; teacherId: string }[];
+  /** Rules that could not be fully followed, in plain words. */
+  notes: string[];
+  /** How well the soft rules were followed (0–100), only for rules that are on. */
+  stats: { samePeriod?: number; heavyMorning?: number; classTeacherFirst?: number };
 };
 
 const cellKey = (day: number, periodId: string) => `${day}|${periodId}`;
+
+function morningSet(input: SolverInput) {
+  const ids = input.prefs?.morningPeriodIds?.length ? input.prefs.morningPeriodIds : input.periods.slice(0, Math.ceil(input.periods.length / 2)).map((p) => p.id);
+  return new Set(ids);
+}
+
+/** Valid cells a teacher can never teach in. */
+function blockedCells(input: SolverInput, teacherId: string) {
+  const valid = new Set(input.days.flatMap((d) => input.periods.map((p) => cellKey(d, p.id))));
+  return new Set((input.teachers.find((t) => t.id === teacherId)?.unavailable || []).filter((k) => valid.has(k)));
+}
 
 /** Remaining periods per class+subject after what is already placed. */
 function remainingNeeds(input: SolverInput) {
@@ -165,7 +198,10 @@ export function checkTimetable(input: SolverInput): CheckResult {
   const { byClass, byTeacher } = usedCells(input);
   const teacherIds = new Set(input.teachers.map((t) => t.id));
   const name = (id: string) => input.teachers.find((t) => t.id === id)?.name || "Teacher";
-  const freeOf = (teacherId: string) => Math.max(0, cellsPerWeek - (byTeacher.get(teacherId)?.size || 0));
+  const freeOf = (teacherId: string) => {
+    const used = new Set([...(byTeacher.get(teacherId) || []), ...blockedCells(input, teacherId)]);
+    return Math.max(0, cellsPerWeek - used.size);
+  };
 
   // Class: more periods planned than the week has.
   for (const klass of input.classes) {
@@ -206,7 +242,7 @@ export function checkTimetable(input: SolverInput): CheckResult {
       level: "error",
       kind: "SCHOOL_SHORT",
       periods: short,
-      text: `The school needs ${needed} periods but ${input.teachers.length} teachers can take at most ${capacity}. Short by ${short} periods (about ${more} more ${more === 1 ? "teacher" : "teachers"}).`,
+      text: `The school needs ${needed} periods but ${input.teachers.length} teachers can take at most ${capacity}${input.teachers.some((t) => t.unavailable?.length) ? " (after their unavailable periods)" : ""}. Short by ${short} periods (about ${more} more ${more === 1 ? "teacher" : "teachers"}).`,
     });
   }
 
@@ -275,6 +311,8 @@ type Group = {
   teacherId: string;
   left: number;
   maxPerDay: number;
+  heavy: boolean;
+  doubles: number;
 };
 
 /**
@@ -335,7 +373,12 @@ function attempt(input: SolverInput, seed: number): FillResult {
       if (s.teacherId && !existingTeacher.has(`${s.classId}|${s.subjectId}`)) existingTeacher.set(`${s.classId}|${s.subjectId}`, s.teacherId);
     }
   }
+  // Unavailable periods count as busy for that teacher; nothing is ever placed there.
+  for (const t of input.teachers) for (const key of blockedCells(input, t.id)) setOf(teacherBusy, t.id).add(key);
   const freeCells = (id: string) => cellsPerWeek - (teacherBusy.get(id)?.size || 0);
+  const prefs = input.prefs || {};
+  const morning = morningSet(input);
+  const notes: string[] = [];
 
   // 1) One teacher per class+subject. Fewest options first, then biggest blocks.
   const rows = remainingNeeds(input)
@@ -347,8 +390,27 @@ function attempt(input: SolverInput, seed: number): FillResult {
   const chosen: string[] = [];
   const teachesClass = (id: string, classId: string) =>
     rows.some((r, i) => chosen[i] === id && r.klass.id === classId) || input.existing.some((s) => s.teacherId === id && s.classId === classId);
+  // Class teacher first period: give the class teacher enough of their own class's subjects (one per day).
+  const forced = new Map<number, string>();
+  if (prefs.classTeacherFirst) {
+    for (const klass of input.classes) {
+      const ct = klass.classTeacherId;
+      if (!ct || !teacherIds.has(ct)) continue;
+      let got = 0;
+      rows
+        .map((r, i) => ({ r, i }))
+        .filter(({ r }) => r.klass.id === klass.id && r.eligible.includes(ct))
+        .sort((a, b) => b.r.remaining - a.r.remaining)
+        .forEach(({ r, i }) => {
+          const fixedOther = existingTeacher.get(`${r.klass.id}|${r.subject.id}`);
+          if (got >= input.days.length || (fixedOther && fixedOther !== ct)) return;
+          forced.set(i, ct);
+          got += r.remaining;
+        });
+    }
+  }
   rows.forEach((r, i) => {
-    const fixed = [existingTeacher.get(`${r.klass.id}|${r.subject.id}`), r.subject.preferred].find((id) => id && r.eligible.includes(id));
+    const fixed = [existingTeacher.get(`${r.klass.id}|${r.subject.id}`), forced.get(i), r.subject.preferred].find((id) => id && r.eligible.includes(id));
     const teacherId =
       fixed ||
       [...r.eligible].sort((a, b) => {
@@ -386,6 +448,8 @@ function attempt(input: SolverInput, seed: number): FillResult {
       teacherId,
       left,
       maxPerDay: Math.max(1, Math.ceil(r.subject.need / Math.max(1, input.days.length))),
+      heavy: Boolean(r.subject.heavy),
+      doubles: Math.max(0, Math.floor(r.subject.doubles || 0)),
     };
     groups.push(g);
     return g;
@@ -414,7 +478,12 @@ function attempt(input: SolverInput, seed: number): FillResult {
     !setOf(classBusy, g.classId).has(c.key) &&
     !setOf(teacherBusy, g.teacherId).has(c.key) &&
     (subjectDay.get(`${g.classId}|${g.subjectId}|${c.day}`) || 0) < g.maxPerDay + relaxDay;
+  const atPeriod = new Map<string, number>(); // class|subject|periodId -> count
+  const ofSubject = new Map<string, number>(); // class|subject -> count placed by this run
+  const pinned = new Set<Placement>(); // placed for a rule (period 1, doubles): repairs never move these
   const place = (g: Group, c: { day: number; periodId: string; key: string }) => {
+    bump(atPeriod, `${g.classId}|${g.subjectId}|${c.periodId}`);
+    bump(ofSubject, `${g.classId}|${g.subjectId}`);
     setOf(classBusy, g.classId).add(c.key);
     setOf(teacherBusy, g.teacherId).add(c.key);
     bump(subjectDay, `${g.classId}|${g.subjectId}|${c.day}`);
@@ -424,6 +493,8 @@ function attempt(input: SolverInput, seed: number): FillResult {
   };
   const unplace = (p: Placement) => {
     const key = cellKey(p.day, p.periodId);
+    bump(atPeriod, `${p.classId}|${p.subjectId}|${p.periodId}`, -1);
+    bump(ofSubject, `${p.classId}|${p.subjectId}`, -1);
     setOf(classBusy, p.classId).delete(key);
     setOf(teacherBusy, p.teacherId).delete(key);
     bump(subjectDay, `${p.classId}|${p.subjectId}|${p.day}`, -1);
@@ -432,8 +503,14 @@ function attempt(input: SolverInput, seed: number): FillResult {
     groupOf(p).left += 1;
   };
   const cellOf = (p: Placement) => ({ day: p.day, periodId: p.periodId, key: cellKey(p.day, p.periodId) });
-  const score = (g: Group, c: { day: number; periodId: string }) =>
-    (subjectDay.get(`${g.classId}|${g.subjectId}|${c.day}`) || 0) * 10 + (teacherDay.get(`${g.teacherId}|${c.day}`) || 0) + rand() * 0.5;
+  const score = (g: Group, c: { day: number; periodId: string }) => {
+    let s = (subjectDay.get(`${g.classId}|${g.subjectId}|${c.day}`) || 0) * 10 + (teacherDay.get(`${g.teacherId}|${c.day}`) || 0) + rand() * 0.5;
+    if (prefs.samePeriodDaily && (ofSubject.get(`${g.classId}|${g.subjectId}`) || 0) > 0) {
+      s += (atPeriod.get(`${g.classId}|${g.subjectId}|${c.periodId}`) || 0) > 0 ? -6 : 3;
+    }
+    if (prefs.heavyMorning) s += g.heavy ? (morning.has(c.periodId) ? 0 : 5) : morning.has(c.periodId) ? 2 : 0;
+    return s;
+  };
 
   /**
    * One-step repair: find a cell where g is blocked only by lessons this run placed
@@ -448,7 +525,8 @@ function attempt(input: SolverInput, seed: number): FillResult {
       const teacherTaken = setOf(teacherBusy, g.teacherId).has(c.key);
       const classBlock = placements.find((p) => at(p) && p.classId === g.classId);
       const teacherBlock = placements.find((p) => at(p) && p.teacherId === g.teacherId);
-      if (classTaken && !classBlock) continue;
+      if (classTaken && (!classBlock || pinned.has(classBlock))) continue;
+      if (teacherBlock && pinned.has(teacherBlock)) continue;
       if (teacherTaken && !teacherBlock) continue;
       const blockers = [...new Set([classBlock, teacherBlock].filter((p): p is Placement => Boolean(p)))];
       if (!blockers.length) continue;
@@ -478,6 +556,65 @@ function attempt(input: SolverInput, seed: number): FillResult {
     }
     return false;
   };
+
+  const pin = (g: Group, c: { day: number; periodId: string; key: string }) => {
+    place(g, c);
+    pinned.add(placements[placements.length - 1]);
+  };
+  const cellAt = (day: number, periodId: string) => ({ day, periodId, key: cellKey(day, periodId) });
+  const openFor = (g: Group, day: number, periodId: string) =>
+    !setOf(classBusy, g.classId).has(cellKey(day, periodId)) && !setOf(teacherBusy, g.teacherId).has(cellKey(day, periodId));
+
+  // Rule: class teacher takes period 1 every day.
+  if (prefs.classTeacherFirst && input.periods.length) {
+    const first = input.periods[0];
+    const noTeacher: string[] = [];
+    for (const klass of input.classes) {
+      const ct = klass.classTeacherId;
+      if (!ct || !teacherIds.has(ct)) {
+        if (groups.some((g) => g.classId === klass.id)) noTeacher.push(klass.label);
+        continue;
+      }
+      let missed = 0;
+      for (const day of input.days) {
+        const key = cellKey(day, first.id);
+        if (setOf(classBusy, klass.id).has(key)) continue; // already set by hand
+        const g = groups
+          .filter((x) => x.classId === klass.id && x.teacherId === ct && x.left > 0 && (subjectDay.get(`${x.classId}|${x.subjectId}|${day}`) || 0) < x.maxPerDay)
+          .sort((a, b) => b.left - a.left)[0];
+        if (g && openFor(g, day, first.id)) pin(g, cellAt(day, first.id));
+        else missed += 1;
+      }
+      if (missed) {
+        const name = input.teachers.find((t) => t.id === ct)?.name || "The class teacher";
+        notes.push(`${klass.label}: ${name} takes ${first.name} on ${input.days.length - missed} of ${input.days.length} days (not enough of their subjects or periods there).`);
+      }
+    }
+    if (noTeacher.length) notes.push(`No class teacher set for ${noTeacher.join(", ")}, so ${first.name} there is filled normally.`);
+  }
+
+  // Rule: double periods (2 in a row on one day, never across a break).
+  for (const g of groups.filter((x) => x.doubles > 0)) {
+    let made = 0;
+    for (let k = 0; k < g.doubles && g.left >= 2; k += 1) {
+      let best: { a: ReturnType<typeof cellAt>; b: ReturnType<typeof cellAt>; s: number } | null = null;
+      for (const day of input.days) {
+        if ((subjectDay.get(`${g.classId}|${g.subjectId}|${day}`) || 0) > 0) continue;
+        for (let i = 0; i + 1 < input.periods.length; i += 1) {
+          const p1 = input.periods[i];
+          const p2 = input.periods[i + 1];
+          if (p2.afterBreak || !openFor(g, day, p1.id) || !openFor(g, day, p2.id)) continue;
+          const s = score(g, cellAt(day, p1.id)) + score(g, cellAt(day, p2.id));
+          if (!best || s < best.s) best = { a: cellAt(day, p1.id), b: cellAt(day, p2.id), s };
+        }
+      }
+      if (!best) break;
+      pin(g, best.a);
+      pin(g, best.b);
+      made += 1;
+    }
+    if (made < g.doubles) notes.push(`${g.classLabel} ${g.subjectLabel}: made ${made} of ${g.doubles} double periods.`);
+  }
 
   // 2) Place lessons: always the group with the fewest spare cells next.
   const stuck = new Set<Group>();
@@ -539,6 +676,10 @@ function attempt(input: SolverInput, seed: number): FillResult {
             break;
           }
           const p = lessonAt(cell, who);
+          if (p && pinned.has(p)) {
+            ok = false;
+            break;
+          }
           if (!p || chain.includes(p)) break;
           chain.push(p);
           side = side === "teacher" ? "class" : "teacher";
@@ -592,10 +733,56 @@ function attempt(input: SolverInput, seed: number): FillResult {
     });
   const needed = rows.reduce((n, r) => n + r.remaining, 0);
   const assignments = [...new Map(groups.filter((g) => placements.some((p) => p.classId === g.classId && p.subjectId === g.subjectId && p.teacherId === g.teacherId)).map((g) => [`${g.classId}|${g.subjectId}`, { classId: g.classId, subjectId: g.subjectId, teacherId: g.teacherId }])).values()];
-  return { placements, unplaced, needed, placed: placements.length, assignments };
+  return { placements, unplaced, needed, placed: placements.length, assignments, notes, stats: ruleStats(input, placements) };
 }
 
-/** Quality: fewer unplaced first, then fewer days where a subject repeats, then even teacher days. */
+/** How well soft rules were followed, over the periods this fill placed (0–100). */
+function ruleStats(input: SolverInput, placements: Placement[]): FillResult["stats"] {
+  const prefs = input.prefs || {};
+  const stats: FillResult["stats"] = {};
+  if (prefs.samePeriodDaily) {
+    const by = new Map<string, Map<string, number>>();
+    for (const p of placements) {
+      const k = `${p.classId}|${p.subjectId}`;
+      if (!by.has(k)) by.set(k, new Map());
+      by.get(k)!.set(p.periodId, (by.get(k)!.get(p.periodId) || 0) + 1);
+    }
+    let top = 0;
+    let all = 0;
+    for (const m of by.values()) {
+      const counts = [...m.values()];
+      const n = counts.reduce((a, b) => a + b, 0);
+      if (n < 2) continue;
+      top += Math.max(...counts);
+      all += n;
+    }
+    stats.samePeriod = all ? Math.round((top / all) * 100) : 100;
+  }
+  if (prefs.heavyMorning) {
+    const morning = morningSet(input);
+    const heavy = new Set(input.classes.flatMap((c) => c.subjects.filter((s) => s.heavy).map((s) => `${c.id}|${s.id}`)));
+    const hs = placements.filter((p) => heavy.has(`${p.classId}|${p.subjectId}`));
+    stats.heavyMorning = hs.length ? Math.round((hs.filter((p) => morning.has(p.periodId)).length / hs.length) * 100) : 100;
+  }
+  if (prefs.classTeacherFirst && input.periods.length) {
+    const first = input.periods[0].id;
+    const withCt = input.classes.filter((c) => c.classTeacherId);
+    let ok = 0;
+    let all = 0;
+    for (const c of withCt) {
+      for (const day of input.days) {
+        all += 1;
+        const p = placements.find((x) => x.classId === c.id && x.day === day && x.periodId === first);
+        const e = input.existing.find((x) => x.classId === c.id && x.day === day && x.periodId === first);
+        if ((p && p.teacherId === c.classTeacherId) || (e && e.teacherId === c.classTeacherId)) ok += 1;
+      }
+    }
+    stats.classTeacherFirst = all ? Math.round((ok / all) * 100) : 100;
+  }
+  return stats;
+}
+
+/** Quality: fewer unplaced first, then rules kept, then fewer days where a subject repeats, then even teacher days. */
 function cost(r: FillResult) {
   const repeat = new Map<string, number>();
   const tday = new Map<string, number>();
@@ -607,7 +794,8 @@ function cost(r: FillResult) {
   for (const n of repeat.values()) if (n > 1) repeats += n - 1;
   let spread = 0;
   for (const n of tday.values()) spread += n * n;
-  return (r.needed - r.placed) * 1_000_000 + repeats * 100 + spread / 100;
+  const rules = (100 - (r.stats.samePeriod ?? 100)) + (100 - (r.stats.heavyMorning ?? 100)) + (100 - (r.stats.classTeacherFirst ?? 100)) * 3;
+  return (r.needed - r.placed) * 1_000_000 + rules * 500 + repeats * 100 + spread / 100;
 }
 
 /** Fill every empty cell of every class. Tries several orders and keeps the best. */
@@ -619,7 +807,8 @@ export function fillTimetable(input: SolverInput, now: () => number = () => Date
   for (let i = 0; i < 40; i += 1) {
     const result = attempt(input, seed + i * 7919);
     if (!best || cost(result) < cost(best)) best = result;
-    if (best.placed === best.needed && i >= 2) break;
+    const rulesOn = Boolean(input.prefs?.samePeriodDaily || input.prefs?.heavyMorning || input.prefs?.classTeacherFirst);
+    if (best.placed === best.needed && i >= (rulesOn ? 6 : 2)) break;
     if (now() - start > limit) break;
   }
   return best!;
