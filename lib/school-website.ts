@@ -55,7 +55,7 @@ function orgData(orgId?: string | null) {
   return orgId ? { orgId } : {};
 }
 
-function useSchoolWebsite(school: { orgId?: string | null } | null) {
+function useSchoolWebsite<T extends { orgId?: string | null }>(school: T | null): T | null {
   if (school?.orgId) setTenantOrg(school.orgId);
   return school;
 }
