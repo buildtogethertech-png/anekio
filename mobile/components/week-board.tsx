@@ -5,6 +5,8 @@ import { Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, use
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button, Card, Chip, ChipScroller, Empty, Field, Input, Modal, PageHeader, Sheet, Toast, useToast } from "./ui";
 import { TeacherForm } from "./teacher-form";
+import { DayTimetable } from "./routine-day";
+import { ClearSheet, FillAllSheet, IconButton, MenuButton, type ClearSnapshot } from "./routine-fill";
 import { formatSubjectLabel, labeledTeacherSkills } from "../lib/subject-label";
 import { act } from "../lib/mutate";
 import { openRoutinePdf } from "../lib/print-html";
@@ -19,7 +21,7 @@ type WeekSlot = {
   period?: string;
   subject?: string;
   teacher?: string;
-  covers?: { date: string; substituteId: string; substitute: string; absentTeacher: string }[];
+  covers?: { date: string; status?: string; substituteId: string; substitute: string; absentTeacher: string }[];
 };
 
 type DragEvt = {
@@ -66,8 +68,44 @@ function jsToWeekday(jsDay: number) {
   return jsDay === 0 ? 7 : jsDay;
 }
 
+/** Routine: the weekly timetable, or how it runs on one date (with one-day changes). */
 export function WeekBoard() {
+  const { data } = useRecord();
+  const [view, setView] = useState<"week" | "date">("week");
+  if (data?.teamWeek) return <WeeklyBoard />;
+  return (
+    <View className="min-h-0 flex-1">
+      <View className="mb-2 shrink-0 flex-row self-start rounded-lg border border-ink-200 bg-white p-0.5">
+        {(
+          [
+            ["week", "Weekly timetable"],
+            ["date", "By date"],
+          ] as const
+        ).map(([key, label]) => (
+          <Pressable
+            key={key}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: view === key }}
+            onPress={() => setView(key)}
+            className={`rounded-md px-3 py-1.5 ${view === key ? "bg-clay-500" : ""}`}
+          >
+            <Text className={`text-[13px] font-medium ${view === key ? "text-white" : "text-ink-700"}`}>{label}</Text>
+          </Pressable>
+        ))}
+      </View>
+      {view === "date" ? <DayTimetable /> : <WeeklyBoard />}
+    </View>
+  );
+}
+
+function WeeklyBoard() {
   const { data, reload } = useRecord();
+  const [fillAllOpen, setFillAllOpen] = useState(false);
+  const [lastFill, setLastFill] = useState<
+    { kind: "fill"; ids: string[]; added: number } | { kind: "clear"; snapshot: ClearSnapshot; removed: number; label: string } | null
+  >(null);
+  const [clearOpen, setClearOpen] = useState(false);
+  const [undoing, setUndoing] = useState(false);
   const { token, user } = useSession();
   const router = useRouter();
   const { width } = useWindowDimensions();
@@ -395,29 +433,91 @@ export function WeekBoard() {
           lede={
             teamWeek
               ? "Empty periods in your team’s classes. Free teachers are marked — drop one on the hole."
-              : "Drag a subject onto a cell, or click a cell to choose."
+              : "Drag a subject onto a cell, or click a cell to choose. Changes here repeat every week; for one day, use By date."
           }
           action={
             <View className="flex-row flex-wrap items-center gap-2">
-              <Button variant="ghost" onPress={() => router.push("/school?tab=subjects" as never)}>
-                Subjects
-              </Button>
-              <Button variant="ghost" onPress={() => void exportRoutine()}>
-                Export PDF
-              </Button>
+              <IconButton icon="download-outline" label="Export PDF" onPress={() => void exportRoutine()} />
               {editable && klass && !periodsNotSet && summary.placed > 0 ? (
-                <Button variant="ghost" onPress={() => setCopyFrom(weekdays[0]?.n || 1)}>
-                  Copy day
-                </Button>
+                <IconButton icon="copy-outline" label="Copy day" onPress={() => setCopyFrom(weekdays[0]?.n || 1)} />
               ) : null}
-              {editable && klass && !periodsNotSet && summary.empty > 0 ? (
-                <Button onPress={() => setFillOpen(true)}>{`Auto-fill ${summary.empty} empty`}</Button>
+              {editable && !periodsNotSet ? <IconButton icon="trash-outline" label="Clear" danger onPress={() => setClearOpen(true)} /> : null}
+              {editable && !periodsNotSet ? (
+                <MenuButton
+                  primary
+                  label="Auto-fill"
+                  icon="sparkles-outline"
+                  items={[
+                    ...(klass && summary.empty > 0
+                      ? [{ key: "one", label: `Only ${klass.label}`, hint: `Fill ${summary.empty} empty periods in this class`, icon: "square-outline" as const, onPress: () => setFillOpen(true) }]
+                      : []),
+                    ...(!teamWeek
+                      ? [{ key: "all", label: "All classes", hint: "Check teachers, preview, then fill every class", icon: "grid-outline" as const, onPress: () => setFillAllOpen(true) }]
+                      : []),
+                  ]}
+                />
               ) : null}
             </View>
           }
         />
       )}
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
+      {lastFill ? (
+        <View className="mb-2 flex-row items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5">
+          <Ionicons name="checkmark-circle" size={16} color="#16a34a" />
+          <Text className="flex-1 text-[13px] text-emerald-900">
+            {lastFill.kind === "fill" ? `Fill all classes added ${lastFill.added} periods.` : `Cleared ${lastFill.removed} periods from ${lastFill.label}.`}
+          </Text>
+          <Pressable
+            disabled={undoing}
+            onPress={async () => {
+              setUndoing(true);
+              try {
+                if (lastFill.kind === "fill") {
+                  const res = await act<{ ok: true; removed: number }>(token, "undoTimetableFill", { ids: lastFill.ids });
+                  toast.show(`Undone · ${res.removed} periods removed.`);
+                } else {
+                  const res = await act<{ ok: true; restored: number; skipped: number }>(token, "restoreTimetable", { snapshot: lastFill.snapshot });
+                  toast.show(res.skipped ? `Restored ${res.restored} periods · ${res.skipped} cells were already taken` : `Restored ${res.restored} periods.`);
+                }
+                setLastFill(null);
+                await reload();
+              } catch (e) {
+                toast.show(e instanceof Error ? e.message : "Could not undo.");
+              } finally {
+                setUndoing(false);
+              }
+            }}
+          >
+            <Text className="text-[13px] font-semibold text-emerald-800 underline">{undoing ? "Undoing…" : "Undo"}</Text>
+          </Pressable>
+          <Pressable accessibilityLabel="Dismiss" onPress={() => setLastFill(null)}>
+            <Ionicons name="close" size={16} color="#047857" />
+          </Pressable>
+        </View>
+      ) : null}
+      <ClearSheet
+        open={clearOpen}
+        klass={klass?.id ? { id: klass.id, label: klass.label } : null}
+        canAll={editable && !teamWeek}
+        onClose={() => setClearOpen(false)}
+        onCleared={async (snapshot, removed, label) => {
+          setClearOpen(false);
+          setLastFill({ kind: "clear", snapshot, removed, label });
+          toast.show(`Cleared ${removed} periods.`);
+          await reload();
+        }}
+      />
+      <FillAllSheet
+        open={fillAllOpen}
+        onClose={() => setFillAllOpen(false)}
+        onApplied={async (ids, added) => {
+          setFillAllOpen(false);
+          setLastFill({ kind: "fill", ids, added });
+          toast.show(`${added} periods added to the timetable.`);
+          await reload();
+        }}
+      />
       <View className={split ? "mt-3 min-h-0 flex-1 flex-row gap-6" : phone ? "min-h-0 flex-1" : "mt-3 min-h-0 flex-1"}>
         {split && !periodsNotSet ? <View className="min-h-0 w-1/4 max-w-xs shrink-0">{teacherRail}</View> : null}
 
@@ -482,17 +582,21 @@ export function WeekBoard() {
                         ? [overN ? `${overN} ${overN === 1 ? "subject" : "subjects"} over` : "", shortN ? `${shortN} short` : ""].filter(Boolean).join(" · ")
                         : "All subjects on target"}
                     </Text>
-                    {editable && !periodsNotSet && summary.empty > 0 ? (
-                      <Pressable
-                        onPress={() => setFillOpen(true)}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Auto-fill ${summary.empty} empty periods`}
-                        hitSlop={6}
-                        className="flex-row items-center gap-1 rounded-full bg-[#1F45C7] px-2.5 py-1"
-                      >
-                        <Ionicons name="sparkles" size={11} color="#fff" />
-                        <Text className="text-[11px] font-semibold text-white">Auto-fill {summary.empty}</Text>
-                      </Pressable>
+                    {editable && !periodsNotSet && (summary.empty > 0 || !teamWeek) ? (
+                      <MenuButton
+                        primary
+                        small
+                        label="Auto-fill"
+                        icon="sparkles"
+                        items={[
+                          ...(klass && summary.empty > 0
+                            ? [{ key: "one", label: `Only ${klass.label}`, hint: `Fill ${summary.empty} empty periods`, icon: "square-outline" as const, onPress: () => setFillOpen(true) }]
+                            : []),
+                          ...(!teamWeek
+                            ? [{ key: "all", label: "All classes", hint: "Check teachers, preview, then fill every class", icon: "grid-outline" as const, onPress: () => setFillAllOpen(true) }]
+                            : []),
+                        ]}
+                      />
                     ) : (
                       <Text className="text-xs text-ink-500">Subject load</Text>
                     )}
@@ -963,6 +1067,13 @@ export function WeekBoard() {
       </Modal>
     </View>
   );
+}
+
+/** One-day change shown on the weekly grid. */
+function coverWho(cover: { status?: string; substitute: string }) {
+  if (cover.status === "FREE") return "No lesson";
+  if (cover.status === "OPEN" || !cover.substitute) return "Needs cover";
+  return cover.substitute;
 }
 
 function slotFilled(slot?: { subject?: string; teacher?: string } | null) {
@@ -1461,7 +1572,7 @@ function PhoneDaySchedule({
                     ) : null}
                     {slot?.covers?.length ? (
                       <Text className="mt-0.5 text-[11px] font-medium text-emerald-700" numberOfLines={1}>
-                        Cover {slot.covers[0].substitute}
+                        {new Date(`${slot.covers[0].date}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" })} only · {coverWho(slot.covers[0])}
                         {slot.covers.length > 1 ? ` +${slot.covers.length - 1}` : ""}
                       </Text>
                     ) : null}
@@ -1973,7 +2084,7 @@ function DropCell({
   filled: boolean;
   subject: string;
   teacher: string;
-  covers?: { date: string; substituteId: string; substitute: string; absentTeacher: string }[];
+  covers?: { date: string; status?: string; substituteId: string; substitute: string; absentTeacher: string }[];
   clashes?: string[];
   editable: boolean;
   hint: string;
@@ -2092,7 +2203,7 @@ function DropCell({
                 <View className="mt-1 rounded-md bg-emerald-50 px-1.5 py-0.5">
                   {covers.slice(0, 2).map((cover) => (
                     <Text key={`${cover.date}:${cover.substituteId}`} className="text-[10px] font-medium text-emerald-700" numberOfLines={1}>
-                      Cover {new Date(`${cover.date}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" })} · {cover.substitute}
+                      {new Date(`${cover.date}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" })} only · {coverWho(cover)}
                     </Text>
                   ))}
                   {covers.length > 2 ? <Text className="text-[10px] text-emerald-700">+{covers.length - 2} more</Text> : null}

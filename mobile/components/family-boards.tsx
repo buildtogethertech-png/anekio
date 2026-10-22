@@ -783,6 +783,39 @@ export function TeacherDeskBoard() {
     );
   }
 
+  /** One-day timetable changes for me in the next 7 days (set by the office). */
+  function dayChangesCard() {
+    const changes = data?.dayChanges ?? [];
+    if (!changes.length) return null;
+    const today = ymd(new Date());
+    const dayLabel = (value: string) =>
+      value === today
+        ? "Today"
+        : new Date(`${value}T00:00:00`).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
+    return (
+      <View className="mb-4 overflow-hidden rounded-2xl border border-amber-200 bg-amber-50/60">
+        <View className="flex-row items-center gap-2 px-4 pb-1 pt-3">
+          <Ionicons name="swap-horizontal" size={16} color="#B45309" />
+          <Text className="text-sm font-semibold text-amber-900">Timetable changes</Text>
+          <Text className="text-xs text-amber-800">· only for these days</Text>
+        </View>
+        {changes.slice(0, 6).map((c) => (
+          <View key={`${c.date}:${c.period}:${c.classLabel}`} className="flex-row items-center gap-3 px-4 py-2">
+            <Text className="w-[86px] text-xs font-semibold text-ink-700">{dayLabel(c.date)}</Text>
+            <Text className="min-w-0 flex-1 text-[13px] text-ink-900" numberOfLines={2}>
+              {c.kind === "COVER"
+                ? `You take ${c.period} · ${c.classLabel}${c.subject ? ` ${c.subject}` : ""}${c.other ? ` (for ${c.other})` : ""}`
+                : `${c.period} · ${c.classLabel}${c.subject ? ` ${c.subject}` : ""}: ${
+                    c.status === "FREE" ? "no lesson" : c.other ? `taken by ${c.other}` : "being covered"
+                  }`}
+            </Text>
+          </View>
+        ))}
+        <View className="h-2" />
+      </View>
+    );
+  }
+
   const team = data?.team;
   const teamLeave = (data?.pendingLeave ?? []).filter((r) => r.who === "teacher" || r.who === "staff");
 
@@ -826,6 +859,8 @@ export function TeacherDeskBoard() {
       )}
 
       {todayFocusCard()}
+
+      {dayChangesCard()}
 
       {phoneQuickActions()}
 

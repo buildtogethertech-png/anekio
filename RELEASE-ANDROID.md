@@ -133,7 +133,7 @@ npm run build:aab:production:local
 ```
 
 Output: `mobile/build-<number>.aab`.
-
+r                                                                                                                                               
 **Or in Expo's cloud (~10–15 min, uses Expo free-plan builds):**
 
 ```bash

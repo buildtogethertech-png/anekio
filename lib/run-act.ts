@@ -386,6 +386,54 @@ export async function runAct(
     case "assignSubstitute":
       await assignSubstituteCore(user, body as never);
       break;
+    case "previewTimetableFill": {
+      const { previewTimetableFill } = await import("./timetable-autofill");
+      return { ok: true, ...(await previewTimetableFill(user)) };
+    }
+    case "applyTimetableFill": {
+      const { applyTimetableFill } = await import("./timetable-autofill");
+      return await applyTimetableFill(user, body as never);
+    }
+    case "countTimetableClear": {
+      const { countTimetableClear } = await import("./timetable-autofill");
+      return { ok: true, ...(await countTimetableClear(user, body as never)) };
+    }
+    case "clearTimetable": {
+      const { clearTimetable } = await import("./timetable-autofill");
+      return await clearTimetable(user, body as never);
+    }
+    case "restoreTimetable": {
+      const { restoreTimetable } = await import("./timetable-autofill");
+      return await restoreTimetable(user, body as never);
+    }
+    case "undoTimetableFill": {
+      const { undoTimetableFill } = await import("./timetable-autofill");
+      return await undoTimetableFill(user, body as never);
+    }
+    case "loadDayTimetable": {
+      const { loadDayTimetable } = await import("./timetable-day");
+      return { ok: true, ...(await loadDayTimetable(user, body as never)) };
+    }
+    case "saveDayChange": {
+      const { saveDayChange } = await import("./timetable-day");
+      return await saveDayChange(user, body as never);
+    }
+    case "clearDayChange": {
+      const { clearDayChange } = await import("./timetable-day");
+      return await clearDayChange(user, body as never);
+    }
+    case "markTeacherOut": {
+      const { markTeacherOut } = await import("./timetable-day");
+      return await markTeacherOut(user, body as never);
+    }
+    case "clearTeacherOut": {
+      const { clearTeacherOut } = await import("./timetable-day");
+      return await clearTeacherOut(user, body as never);
+    }
+    case "autoCoverDay": {
+      const { autoCoverDay } = await import("./timetable-day");
+      return await autoCoverDay(user, body as never);
+    }
     case "setManager":
       await setManagerCore(user, {
         userId: String(body.userId || ""),

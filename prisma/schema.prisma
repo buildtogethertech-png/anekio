@@ -1214,16 +1214,29 @@ model LeaveRequest {
   coverAssignments SubstituteAssignment[]
 }
 
+/// A one-day change to the weekly timetable (substitute, free period, or a period still needing cover).
+/// The weekly TimetableSlot stays as it is; on `date` this row wins.
 model SubstituteAssignment {
   id             String        @id @default(cuid())
   orgId          String?
-  leaveRequestId String
-  leaveRequest   LeaveRequest  @relation(fields: [leaveRequestId], references: [id], onDelete: Cascade)
+  /// Set when the change comes from an approved leave.
+  leaveRequestId String?
+  leaveRequest   LeaveRequest? @relation(fields: [leaveRequestId], references: [id], onDelete: Cascade)
   date           String
   slotId         String
   slot           TimetableSlot @relation(fields: [slotId], references: [id], onDelete: Cascade)
-  substituteId   String
-  substitute     Teacher       @relation("SubstituteTeacher", fields: [substituteId], references: [id], onDelete: Cascade)
+  /// Who takes the period that day. Empty when status is FREE or OPEN.
+  substituteId   String?
+  substitute     Teacher?      @relation("SubstituteTeacher", fields: [substituteId], references: [id], onDelete: Cascade)
+  /// COVERED = someone takes it · FREE = no lesson that day · OPEN = teacher out, nobody assigned yet.
+  status         String        @default("COVERED")
+  /// LEAVE | ABSENT | DUTY | OTHER
+  reason         String        @default("LEAVE")
+  /// Subject taught that day, when different from the weekly slot.
+  subjectId      String?
+  /// Who was meant to teach (weekly teacher at the time of the change).
+  absentTeacherId String?
+  note           String        @default("")
   assignedById   String
   assignedBy     User          @relation("CoverAssignedBy", fields: [assignedById], references: [id])
   createdAt      DateTime      @default(now())

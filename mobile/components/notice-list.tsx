@@ -46,7 +46,7 @@ function firstLine(body?: string) {
 type Item = { kind: "one"; notice: Notice } | { kind: "stack"; key: string; notices: Notice[] };
 
 /** Notices that ask someone to act stay on their own and are never clubbed. */
-const NEVER_STACK = /\b(assigned|reassigned|changed|moved|allowed|returned|sent back|correction|rejected|cancelled)\b/i;
+const NEVER_STACK = /\b(assigned|reassigned|changed|change|moved|allowed|returned|sent back|correction|rejected|cancelled|cover)\b/i;
 
 function titleWords(notice: Notice) {
   return notice.title.trim().split(/\s+/).filter(Boolean);

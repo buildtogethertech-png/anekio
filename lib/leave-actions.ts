@@ -380,8 +380,17 @@ export async function assignSubstitute(
   if (regularClass || otherCover) throw new Error("That teacher is already busy in this period");
   await prisma.substituteAssignment.upsert({
     where: { date_slotId: { date, slotId } },
-    update: { leaveRequestId: requestId, substituteId, assignedById: user.id },
-    create: { leaveRequestId: requestId, slotId, date, substituteId, assignedById: user.id },
+    update: { leaveRequestId: requestId, substituteId, assignedById: user.id, status: "COVERED", reason: "LEAVE", absentTeacherId: request.teacherId },
+    create: {
+      leaveRequestId: requestId,
+      slotId,
+      date,
+      substituteId,
+      assignedById: user.id,
+      status: "COVERED",
+      reason: "LEAVE",
+      absentTeacherId: request.teacherId,
+    },
   });
 }
 

@@ -305,7 +305,7 @@ export type RecordPayload = {
         teacherId?: string;
         teacher: string;
         room: string;
-        covers?: { date: string; substituteId: string; substitute: string; absentTeacher: string }[];
+        covers?: { date: string; status?: string; substituteId: string; substitute: string; absentTeacher: string }[];
       }[];
     }[];
   } | null;
@@ -315,6 +315,17 @@ export type RecordPayload = {
   markedToday?: boolean;
   studentCount?: number;
   outToday?: string[];
+  /** Teacher: next 7 days of one-day timetable changes (periods I cover / periods taken from me). */
+  dayChanges?: {
+    date: string;
+    period: string;
+    startsAt: string;
+    classLabel: string;
+    subject: string;
+    kind: "COVER" | "AWAY";
+    other: string;
+    status: string;
+  }[];
   todos?: {
     id: string;
     title: string;

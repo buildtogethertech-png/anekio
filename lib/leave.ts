@@ -390,7 +390,7 @@ async function upcomingTeacherLeave(requestIds: string[], cal: SchoolCalendar): 
             subject: slot.subject?.name || "Class",
             room: slot.room?.name || "",
             substituteId: assignment?.substituteId || "",
-            substituteName: assignment?.substitute.user.name || "",
+            substituteName: assignment?.substitute?.user.name || "",
             candidates,
           };
         });

@@ -692,6 +692,7 @@ async function teacherPayload(user: AccessUser) {
   return {
     kind: "TEACHER" as const,
     staffAttendanceSelf: await staffAttendanceSelf(user),
+    dayChanges: teacher ? await (await import("./timetable-day")).teacherDayChanges(teacher.id) : [],
     classId: teacher?.classId || "",
     classLabel: desk?.classLabel || "",
     classTeacher: Boolean(desk?.classTeacher),
@@ -1625,9 +1626,10 @@ async function officePayload(user: AccessUser) {
           room: s.room?.name || "",
           covers: (coverBySlot.get(s.id) ?? []).map((assignment) => ({
             date: assignment.date,
-            substituteId: assignment.substituteId,
-            substitute: assignment.substitute.user.name,
-            absentTeacher: assignment.leaveRequest.teacher?.user.name || s.teacher?.user.name || "Teacher",
+            status: assignment.status,
+            substituteId: assignment.substituteId || "",
+            substitute: assignment.substitute?.user.name || "",
+            absentTeacher: assignment.leaveRequest?.teacher?.user.name || s.teacher?.user.name || "Teacher",
           })),
         })),
       })),
