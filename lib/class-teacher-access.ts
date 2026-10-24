@@ -6,6 +6,9 @@ export const CLASS_STUDENTS_ADD = "class.students.add";
 /** Class teacher may edit students already in their own class. */
 export const CLASS_STUDENTS_EDIT = "class.students.edit";
 
+/** Class teacher may renumber this year's rolls in their own class. */
+export const CLASS_ROLLS_EDIT = "class.rolls.edit";
+
 /** The class this login is class teacher of ("" when none, or not a teacher login). */
 export async function ownClassIdFor(user: AccessUser) {
   if (user.portal !== "TEACHER") return "";

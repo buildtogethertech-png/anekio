@@ -218,3 +218,50 @@ async function runRollNumberBackfill(db: RollDb) {
     throw error;
   }
 }
+
+/** Current-year roll numbers for one class: studentId → roll. */
+export async function classRollNumbers(classId: string, db: RollDb = prisma) {
+  const session = await currentSession(db);
+  const rows = await db.studentClassEnrollment.findMany({
+    where: { sessionId: session.id, classId },
+    select: { id: true, studentId: true, rollNumber: true },
+  });
+  return { sessionId: session.id, rows };
+}
+
+/**
+ * Sets roll numbers for students of one class in the current academic year, all at once.
+ * Students not listed keep their roll. The final set must have no repeats. Saved in two steps
+ * (park changed rows on temporary negative numbers, then write the new ones) so swaps don't hit
+ * the unique (session, class, roll) rule half-way.
+ */
+export async function setClassRollNumbers(input: { classId: string; rolls: { studentId: string; rollNumber: number }[] }) {
+  return serializeAssign(async () => {
+    const { rows } = await classRollNumbers(input.classId);
+    const byStudent = new Map(rows.map((row) => [row.studentId, row]));
+    const final = new Map(rows.map((row) => [row.studentId, Number(row.rollNumber)]));
+    for (const item of input.rolls) {
+      const roll = Number(item.rollNumber);
+      if (!byStudent.has(item.studentId)) throw new Error("A student in the list is not in this class this year.");
+      if (!Number.isInteger(roll) || roll < 1 || roll > 9999) throw new Error("Roll numbers must be whole numbers from 1 to 9999.");
+      final.set(item.studentId, roll);
+    }
+    const seen = new Map<number, string>();
+    for (const [studentId, roll] of final) {
+      if (seen.has(roll)) throw new Error(`Roll ${roll} is given to two students.`);
+      seen.set(roll, studentId);
+    }
+    const changed = rows.filter((row) => final.get(row.studentId) !== Number(row.rollNumber));
+    if (!changed.length) return { changed: 0 };
+    const write = async (tx: Pick<Prisma.TransactionClient, "studentClassEnrollment">) => {
+      for (let i = 0; i < changed.length; i += 1) {
+        await tx.studentClassEnrollment.update({ where: { id: changed[i].id }, data: { rollNumber: -(i + 1) } });
+      }
+      for (const row of changed) {
+        await tx.studentClassEnrollment.update({ where: { id: row.id }, data: { rollNumber: final.get(row.studentId)! } });
+      }
+    };
+    await prisma.$transaction(async (tx) => write(tx));
+    return { changed: changed.length };
+  });
+}

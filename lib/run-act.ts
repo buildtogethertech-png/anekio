@@ -47,6 +47,7 @@ import {
   createTeacherCore,
   updateParentCore,
   updateStudentCore,
+  setClassRollNumbersCore,
   updateStaffMemberCore,
   updateTeacherCore,
   ensureInvoiceShareTokenCore,
@@ -194,6 +195,8 @@ export async function runAct(
       return { ok: true, ...(await createStudentCore(user, body as never)) };
     case "admitLeadAsStudent":
       return { ok: true, ...(await admitLeadAsStudentCore(user, body as never)) };
+    case "setClassRollNumbers":
+      return { ok: true, ...(await setClassRollNumbersCore(user, body as never)) };
     case "updateStudent":
       await updateStudentCore(user, body as never);
       break;

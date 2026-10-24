@@ -56,7 +56,7 @@ import {
 import { validateSchoolWebsiteSlug } from "./host-routing";
 import { ensureVercelSchoolWebsiteDomain } from "./vercel-domains";
 import { currentTenantOrg, runWithoutTenant } from "./tenant-context";
-import { assignStudentRollNumber } from "./student-rolls";
+import { assignStudentRollNumber, setClassRollNumbers } from "./student-rolls";
 import {
   createSchoolSession,
   deleteSchoolSession,
@@ -69,7 +69,7 @@ import { assertManagerChoice, defaultManagerIdForRole, managerIdForNewUser, team
 import { admissionCustomValues, admissionFormFields, admissionFormJson, admissionLeadInput, applySchoolClassOptions, effectiveAdmissionFormJson, isPersonName, parentAdmissionContact, staffOnboardingFormFields, staffOnboardingFormJson, studentAdmissionCustomValues, websiteFormFields, websiteFormJson } from "./admission-form";
 import { configuredAdmissionFormJson, configuredFormJson, liveSchoolClassLabels } from "./admission-form-config";
 import { markOnboardingConfigured } from "./onboarding";
-import { assertStudentAccess, classTeacherOnly, CLASS_STUDENTS_ADD, CLASS_STUDENTS_EDIT, ownClassIdFor } from "./class-teacher-access";
+import { assertStudentAccess, classTeacherOnly, CLASS_ROLLS_EDIT, CLASS_STUDENTS_ADD, CLASS_STUDENTS_EDIT, ownClassIdFor } from "./class-teacher-access";
 
 function need(user: AccessUser, ...keys: string[]) {
   if (!keys.some((k) => can(user, k))) throw new Error("No access.");
@@ -4693,4 +4693,26 @@ export async function setStudentAdmissionFileCore(user: AccessUser, input: { stu
   const data = admissionCustomValues(student.admissionDataJson);
   data[fieldId] = path;
   await prisma.student.update({ where: { id: student.id }, data: { admissionDataJson: JSON.stringify(data) } });
+}
+
+/** Renumber this year's rolls in one class. Office: any class. Class teacher: own class, with "Set roll numbers". */
+export async function setClassRollNumbersCore(
+  user: AccessUser,
+  input: { classId?: string; rolls?: { studentId?: string; rollNumber?: number | string }[] }
+) {
+  need(user, "people.edit", CLASS_ROLLS_EDIT);
+  let classId = String(input.classId || "").trim();
+  if (!can(user, "people.edit")) {
+    const own = await ownClassIdFor(user);
+    if (!own) throw new Error("Only a class teacher can set roll numbers.");
+    if (classId && classId !== own) throw new Error("You can set roll numbers for your own class only.");
+    classId = own;
+  }
+  if (!classId) throw new Error("Pick a class.");
+  const rolls = (Array.isArray(input.rolls) ? input.rolls : []).map((row) => ({
+    studentId: String(row?.studentId || ""),
+    rollNumber: Number(row?.rollNumber),
+  }));
+  if (!rolls.length) throw new Error("Nothing to save.");
+  return setClassRollNumbers({ classId, rolls });
 }

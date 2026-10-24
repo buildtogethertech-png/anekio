@@ -40,6 +40,7 @@ import { StaffAttendanceQrButton, StaffAttendanceQrScanButton } from "./staff-at
 import { studentMetaLine } from "../lib/student-label";
 import { FeesBoard as RefactoredFeesBoard } from "./fees-board";
 import { ManageFeeBody, MonthlyFeeBillSummary, feeAssignmentFromStudent } from "./manage-fee";
+import { ClassRollNumbers } from "./class-roll-numbers";
 
 export const FeesBoard = RefactoredFeesBoard;
 
@@ -1388,6 +1389,8 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   const officeEdit = can(user, "people.edit");
   const canAddStudent = officeEdit || Boolean(classStudents?.canAdd);
   const canEditStudent = officeEdit || Boolean(classStudents?.canEdit);
+  const canSetRolls = Boolean(classStudents?.canRolls && data?.classId);
+  const [rollsOpen, setRollsOpen] = useState(false);
   const admitClasses = classStudents
     ? data?.classId
       ? [{ id: data.classId, label: data.classLabel || "My class" }]
@@ -3063,6 +3066,19 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
 
   const addModals = (
     <>
+      {canSetRolls ? (
+        <ClassRollNumbers
+          open={rollsOpen}
+          onClose={() => setRollsOpen(false)}
+          classId={data?.classId || ""}
+          classLabel={data?.classLabel}
+          students={currentPeople.map((p) => ({ id: p.id, name: p.name, admissionNo: p.admissionNo, rollNumber: p.rollNumber ?? null }))}
+          onSaved={async (message) => {
+            toast.show(message);
+            await reload();
+          }}
+        />
+      ) : null}
       {phoneAdmit ? (
         <RnModal visible={add === "student"} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setAdd(null)}>
           <SafeAreaView className="flex-1 bg-white" edges={["top", "bottom"]}>
@@ -3126,9 +3142,14 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   if (studentOnly && !wide) {
     return (
       <View className="flex-1">
-        {canAddStudent ? (
-          <View className="mb-3 flex-row justify-end">
-            <Button onPress={() => setAdd("student")}>Add student</Button>
+        {canAddStudent || canSetRolls ? (
+          <View className="mb-3 flex-row justify-end gap-2">
+            {canSetRolls ? (
+              <Button variant="ghost" onPress={() => setRollsOpen(true)}>
+                Roll numbers
+              </Button>
+            ) : null}
+            {canAddStudent ? <Button onPress={() => setAdd("student")}>Add student</Button> : null}
           </View>
         ) : null}
         <TeacherRoster title={title} onPick={(id) => selectStudent(id)} />
@@ -3155,6 +3176,11 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
               onPress={() => setImportOpen(true)}
             >
               Import
+            </Button>
+          ) : null}
+          {canSetRolls ? (
+            <Button variant="ghost" onPress={() => setRollsOpen(true)}>
+              Roll numbers
             </Button>
           ) : null}
           {canAddStudent ? (

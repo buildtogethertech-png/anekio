@@ -693,10 +693,12 @@ async function teacherPayload(user: AccessUser) {
   // Class teacher add / edit students (Roles → Teacher). Only sent with a class to work on.
   const classStudentAdd = Boolean(teacher?.classId) && can(user, "class.students.add");
   const classStudentEdit = Boolean(teacher?.classId) && can(user, "class.students.edit");
-  const classStudents = classStudentAdd || classStudentEdit
+  const classRollsEdit = Boolean(teacher?.classId) && can(user, "class.rolls.edit");
+  const classStudents = classStudentAdd || classStudentEdit || classRollsEdit
     ? {
         canAdd: classStudentAdd,
         canEdit: classStudentEdit,
+        canRolls: classRollsEdit,
         admissionForm: classStudentAdd
           ? admissionFormFields(
               await configuredAdmissionFormJson(
