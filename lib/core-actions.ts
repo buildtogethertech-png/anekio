@@ -69,6 +69,7 @@ import { assertManagerChoice, defaultManagerIdForRole, managerIdForNewUser, team
 import { admissionCustomValues, admissionFormFields, admissionFormJson, admissionLeadInput, applySchoolClassOptions, effectiveAdmissionFormJson, isPersonName, parentAdmissionContact, staffOnboardingFormFields, staffOnboardingFormJson, studentAdmissionCustomValues, websiteFormFields, websiteFormJson } from "./admission-form";
 import { configuredAdmissionFormJson, configuredFormJson, liveSchoolClassLabels } from "./admission-form-config";
 import { markOnboardingConfigured } from "./onboarding";
+import { assertStudentAccess, classTeacherOnly, CLASS_STUDENTS_ADD, CLASS_STUDENTS_EDIT, ownClassIdFor } from "./class-teacher-access";
 
 function need(user: AccessUser, ...keys: string[]) {
   if (!keys.some((k) => can(user, k))) throw new Error("No access.");
@@ -204,6 +205,9 @@ type CreateStudentInput = Parameters<typeof createStudentNow>[1] & {
 };
 
 export async function createStudentCore(user: AccessUser, input: CreateStudentInput) {
+  if (input.forNextYear && classTeacherOnly(user, CLASS_STUDENTS_ADD)) {
+    throw new Error("Only the office can admit for next year.");
+  }
   if (!input.forNextYear) return createStudentNow(user, input);
   need(user, "people.edit");
   const next = await ensurePreparedYear();
@@ -242,7 +246,27 @@ async function createStudentNow(
     existingStudent?: boolean;
   }
 ) {
-  need(user, "people.edit");
+  need(user, "people.edit", CLASS_STUDENTS_ADD);
+  if (classTeacherOnly(user, CLASS_STUDENTS_ADD)) {
+    // Class teacher: own class only, and no money. No admission fee, no old due, no payment, no enquiry.
+    const ownClassId = await ownClassIdFor(user);
+    if (!ownClassId) throw new Error("Only a class teacher can add students.");
+    if (input.classId && input.classId !== ownClassId) throw new Error("You can add students to your own class only.");
+    if (input.leadId) throw new Error("Only the office can admit from an enquiry.");
+    input = {
+      ...input,
+      classId: ownClassId,
+      parentId: "",
+      billingStartPeriod: undefined,
+      collectAdmissionFee: false,
+      paymentMethod: undefined,
+      paymentReference: undefined,
+      existingStudent: true,
+      openingDueAmount: 0,
+      openingDueLines: [],
+      openingDueDate: undefined,
+    };
+  }
   const name = input.name.trim();
   if (!isPersonName(name)) throw new Error("Student name should be a real name, not numbers.");
   const leadId = String(input.leadId || "").trim();
@@ -759,7 +783,16 @@ export async function updateStudentCore(
     pincode?: string;
   }
 ) {
-  need(user, "people.edit");
+  need(user, "people.edit", CLASS_STUDENTS_EDIT);
+  if (classTeacherOnly(user, CLASS_STUDENTS_EDIT)) {
+    // Class teacher: own class only. Class and admission number stay with the office.
+    await assertStudentAccess(user, String(input.studentId || ""), [CLASS_STUDENTS_EDIT]);
+    const current = await prisma.student.findUnique({ where: { id: String(input.studentId || "") }, select: { classId: true, admissionNo: true } });
+    if (!current) throw new Error("Student missing");
+    if (input.classId && input.classId !== current.classId) throw new Error("Ask the office to move a student to another class.");
+    if (input.admissionNo && input.admissionNo.trim() !== current.admissionNo) throw new Error("Ask the office to change the admission number.");
+    input = { ...input, classId: current.classId, admissionNo: current.admissionNo };
+  }
   const id = String(input.studentId || "");
   const name = input.name.trim();
   const admissionNo = input.admissionNo.trim();
@@ -4646,8 +4679,9 @@ export async function sendClassNoteCore(
 
 /** Attaches a file uploaded for one of the school's custom admission-form file fields. */
 export async function setStudentAdmissionFileCore(user: AccessUser, input: { studentId?: string; fieldId?: string; path?: string }) {
-  need(user, "people.edit");
+  need(user, "people.edit", CLASS_STUDENTS_ADD, CLASS_STUDENTS_EDIT);
   const studentId = String(input.studentId || "").trim();
+  await assertStudentAccess(user, studentId, [CLASS_STUDENTS_ADD, CLASS_STUDENTS_EDIT]);
   const fieldId = String(input.fieldId || "").trim();
   const path = String(input.path || "").replace(/^\/+/, "");
   const student = await prisma.student.findFirst({ where: { id: studentId }, select: { id: true, admissionDataJson: true } });

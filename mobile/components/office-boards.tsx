@@ -1383,6 +1383,19 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   const teachersAll = data?.peopleTeachers ?? [];
   const parentsAll = data?.peopleParents ?? [];
   const showFees = can(user, "fees.view");
+  // Class teacher on their Class screen: add / edit own students when Roles → Teacher allows it. No fees.
+  const classStudents = studentOnly && user?.portal === "TEACHER" ? data?.classStudents : undefined;
+  const officeEdit = can(user, "people.edit");
+  const canAddStudent = officeEdit || Boolean(classStudents?.canAdd);
+  const canEditStudent = officeEdit || Boolean(classStudents?.canEdit);
+  const admitClasses = classStudents
+    ? data?.classId
+      ? [{ id: data.classId, label: data.classLabel || "My class" }]
+      : []
+    : data?.classes ?? [];
+  const admitParents = classStudents ? [] : data?.peopleParents ?? [];
+  const admitForm = classStudents ? classStudents.admissionForm : data?.school?.admissionForm ?? [];
+  const admitFeeLines = classStudents ? [] : data?.admissionFeeLines ?? [];
   const needle = q.trim().toLowerCase();
   const parentNeedle = parentQuery.trim().toLowerCase();
   const showStudents = studentOnly || kind === "student";
@@ -1855,7 +1868,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
             </View>
           </View>
           <View className="flex-row flex-wrap justify-end gap-2">
-            {can(user, "people.edit") ? (
+            {canEditStudent ? (
               <Button
                 variant="ghost"
                 onPress={() => {
@@ -1940,19 +1953,30 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                 <DateField value={edit.dateOfBirth ?? selected.dateOfBirth ?? ""} onChange={(v) => setEdit((p) => ({ ...p, dateOfBirth: v }))} />
               </Field>
             </View>
-            <View className={half}>
-              <Select
-                label="Class *"
-                value={edit.classId || selected.classId || ""}
-                options={(data?.classes ?? []).map((c) => ({ id: c.id, label: c.label }))}
-                onChange={(classId) => setEdit((p) => ({ ...p, classId }))}
-              />
-            </View>
-            <View className={half}>
-              <Field label="Admission no.">
-                <Input value={edit.admissionNo ?? selected.admissionNo} onChangeText={(v) => setEdit((p) => ({ ...p, admissionNo: v }))} />
-              </Field>
-            </View>
+            {officeEdit ? (
+              <>
+                <View className={half}>
+                  <Select
+                    label="Class *"
+                    value={edit.classId || selected.classId || ""}
+                    options={(data?.classes ?? []).map((c) => ({ id: c.id, label: c.label }))}
+                    onChange={(classId) => setEdit((p) => ({ ...p, classId }))}
+                  />
+                </View>
+                <View className={half}>
+                  <Field label="Admission no.">
+                    <Input value={edit.admissionNo ?? selected.admissionNo} onChangeText={(v) => setEdit((p) => ({ ...p, admissionNo: v }))} />
+                  </Field>
+                </View>
+              </>
+            ) : (
+              <View className="w-full rounded-lg bg-ink-50 px-3 py-2.5">
+                <Text className="text-sm text-ink-800">
+                  {selected.classLabel || "Class"} · {selected.admissionNo}
+                </Text>
+                <Text className="mt-0.5 text-xs text-ink-600">Ask the office to change the class or admission number.</Text>
+              </View>
+            )}
           </View>
         </SectionCard>
 
@@ -1977,7 +2001,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
           </Field>
         </SectionCard>
 
-        <SectionCard step={3} title={showFees ? "Path & fee add-ons" : "Path"} subtitle="Optional.">
+        <SectionCard step={3} title={showFees && officeEdit ? "Path & fee add-ons" : "Path"} subtitle="Optional.">
         <Field label="Path">
           <View className="flex-row flex-wrap gap-1.5">
             {PATH_OPTIONS.map((p) => (
@@ -1992,7 +2016,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
             ))}
           </View>
         </Field>
-        {showFees ? (
+        {showFees && officeEdit ? (
           <Field label="Student add-ons">
             <View className="gap-2">
               {feeAddOnOptions.length ? (
@@ -2950,10 +2974,12 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
     return <Card className="min-h-0 flex-1 overflow-hidden border-transparent p-6 shadow-sm">{body}</Card>;
   }
 
+  // Render helpers are called as functions, not used as JSX components: as components they get a new identity on
+  // every render of this board, so React remounted them and the Edit modal slid in again on each change ("jumping").
   function FilePane({ bare }: { bare?: boolean }) {
-    if (kind === "teacher") return <TeacherPane bare={bare} />;
-    if (kind === "parent") return <ParentPane bare={bare} />;
-    return <StudentPane bare={bare} />;
+    if (kind === "teacher") return TeacherPane({ bare });
+    if (kind === "parent") return ParentPane({ bare });
+    return StudentPane({ bare });
   }
 
   const listEmpty =
@@ -3035,14 +3061,81 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
     </Card>
   );
 
+  const addModals = (
+    <>
+      {phoneAdmit ? (
+        <RnModal visible={add === "student"} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setAdd(null)}>
+          <SafeAreaView className="flex-1 bg-white" edges={["top", "bottom"]}>
+            <View className="flex-row items-center px-2 py-2">
+              <Pressable accessibilityRole="button" accessibilityLabel="Close" hitSlop={8} onPress={() => setAdd(null)} className="flex-row items-center px-1 py-1">
+                <Ionicons name="chevron-back" size={22} color="#1F45C7" />
+                <Text className="text-[15px] font-medium text-[#1F45C7]">Students</Text>
+              </Pressable>
+            </View>
+            <Text className="px-4 pb-2 text-[22px] font-bold text-ink-900">Add student</Text>
+            <StudentAdmitForm
+              wizard
+              classOnly={Boolean(classStudents)}
+              classes={admitClasses}
+              parents={admitParents}
+              admissionFeeLines={admitFeeLines}
+              admissionForm={admitForm}
+              monthlyFees={classStudents ? undefined : monthlyFeeByClass(data)}
+              onSubmit={addStudent}
+            />
+          </SafeAreaView>
+        </RnModal>
+      ) : null}
+      <Modal
+        open={Boolean(add) && !(phoneAdmit && add === "student")}
+        title={add === "parent" ? "Add parent" : "Add student"}
+        onClose={() => setAdd(null)}
+        wide={add === "student"}
+      >
+        <View className="gap-3">
+          {add === "student" ? (
+            <StudentAdmitForm
+              classOnly={Boolean(classStudents)}
+              classes={admitClasses}
+              parents={admitParents}
+              admissionFeeLines={admitFeeLines}
+              admissionForm={admitForm}
+              onSubmit={addStudent}
+            />
+          ) : null}
+          {add === "parent" ? (
+            <>
+              <Field label="Name">
+                <Input value={form.name || ""} onChangeText={(v) => setForm({ ...form, name: v })} />
+              </Field>
+              <Field label="Email">
+                <Input autoCapitalize="none" value={form.email || ""} onChangeText={(v) => setForm({ ...form, email: v })} />
+              </Field>
+              <Field label="Mobile">
+                <Input keyboardType="phone-pad" value={form.phone || ""} onChangeText={(v) => setForm({ ...form, phone: v })} placeholder="10-digit number" />
+              </Field>
+              <Button onPress={saveAdd}>Save</Button>
+            </>
+          ) : null}
+        </View>
+      </Modal>
+    </>
+  );
+
   // Class teacher on a phone: roll-order roster with today's status; the student file opens in the sheet below.
   if (studentOnly && !wide) {
     return (
       <View className="flex-1">
+        {canAddStudent ? (
+          <View className="mb-3 flex-row justify-end">
+            <Button onPress={() => setAdd("student")}>Add student</Button>
+          </View>
+        ) : null}
         <TeacherRoster title={title} onPick={(id) => selectStudent(id)} />
         <Sheet fixed={0.74} open={Boolean(picked)} onClose={() => setPicked(null)}>
-          <FilePane bare />
+          {FilePane({ bare: true })}
         </Sheet>
+        {addModals}
         {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
       </View>
     );
@@ -3064,7 +3157,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
               Import
             </Button>
           ) : null}
-          {can(user, "people.edit") ? (
+          {canAddStudent ? (
             <Button onPress={() => setAdd("student")}>Add student</Button>
           ) : null}
         </View>
@@ -3075,7 +3168,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
         <View className="min-h-0 flex-1 flex-row gap-5">
           {peopleList}
           <View className="min-h-0 flex-1">
-            <FilePane />
+            {FilePane({})}
           </View>
         </View>
       ) : (
@@ -3083,7 +3176,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       )}
 
       <Sheet fixed={0.74} open={!wide && Boolean(picked)} onClose={() => setPicked(null)}>
-        <FilePane bare />
+        {FilePane({ bare: true })}
       </Sheet>
 
       <Modal
@@ -3184,60 +3277,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
         <OnboardingBoard compact focusKinds={["students"]} />
       </Modal>
 
-      {phoneAdmit ? (
-        <RnModal visible={add === "student"} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setAdd(null)}>
-          <SafeAreaView className="flex-1 bg-white" edges={["top", "bottom"]}>
-            <View className="flex-row items-center px-2 py-2">
-              <Pressable accessibilityRole="button" accessibilityLabel="Close" hitSlop={8} onPress={() => setAdd(null)} className="flex-row items-center px-1 py-1">
-                <Ionicons name="chevron-back" size={22} color="#1F45C7" />
-                <Text className="text-[15px] font-medium text-[#1F45C7]">Students</Text>
-              </Pressable>
-            </View>
-            <Text className="px-4 pb-2 text-[22px] font-bold text-ink-900">Add student</Text>
-            <StudentAdmitForm
-              wizard
-              classes={data?.classes ?? []}
-              parents={data?.peopleParents ?? []}
-              admissionFeeLines={data?.admissionFeeLines ?? []}
-              admissionForm={data?.school?.admissionForm ?? []}
-              monthlyFees={monthlyFeeByClass(data)}
-              onSubmit={addStudent}
-            />
-          </SafeAreaView>
-        </RnModal>
-      ) : null}
-      <Modal
-        open={Boolean(add) && !(phoneAdmit && add === "student")}
-        title={add === "parent" ? "Add parent" : "Add student"}
-        onClose={() => setAdd(null)}
-        wide={add === "student"}
-      >
-        <View className="gap-3">
-          {add === "student" ? (
-            <StudentAdmitForm
-              classes={data?.classes ?? []}
-              parents={data?.peopleParents ?? []}
-              admissionFeeLines={data?.admissionFeeLines ?? []}
-              admissionForm={data?.school?.admissionForm ?? []}
-              onSubmit={addStudent}
-            />
-          ) : null}
-          {add === "parent" ? (
-            <>
-              <Field label="Name">
-                <Input value={form.name || ""} onChangeText={(v) => setForm({ ...form, name: v })} />
-              </Field>
-              <Field label="Email">
-                <Input autoCapitalize="none" value={form.email || ""} onChangeText={(v) => setForm({ ...form, email: v })} />
-              </Field>
-              <Field label="Mobile">
-                <Input keyboardType="phone-pad" value={form.phone || ""} onChangeText={(v) => setForm({ ...form, phone: v })} placeholder="10-digit number" />
-              </Field>
-              <Button onPress={saveAdd}>Save</Button>
-            </>
-          ) : null}
-        </View>
-      </Modal>
+      {addModals}
     </View>
   );
 }

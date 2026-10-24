@@ -312,6 +312,8 @@ export type RecordPayload = {
   classLabel?: string;
   classId?: string;
   classTeacher?: boolean;
+  /** Teacher: class teacher may add / edit students in own class (Roles → Teacher). */
+  classStudents?: { canAdd: boolean; canEdit: boolean; admissionForm: AdmissionFormField[] };
   markedToday?: boolean;
   studentCount?: number;
   outToday?: string[];

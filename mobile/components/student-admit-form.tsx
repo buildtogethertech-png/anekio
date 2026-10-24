@@ -356,9 +356,12 @@ export function StudentAdmitForm({
   onSubmit,
   wizard,
   monthlyFees,
+  classOnly = false,
 }: {
   /** Phone: one step per screen with a sticky Back / Next bar. The caller supplies the full-screen frame. */
   wizard?: boolean;
+  /** Class teacher adding to their own class: no fees, no old due, no next-year admission, no billing month. */
+  classOnly?: boolean;
   /** classId → monthly fee, shown when a class is picked. */
   monthlyFees?: Record<string, number>;
   classes: { id: string; label: string }[];
@@ -375,7 +378,7 @@ export function StudentAdmitForm({
   const people = record?.data?.people ?? [];
   const [wizStep, setWizStep] = useState(0);
   const [form, setForm] = useState<StudentAdmitPayload>(() => {
-    const base = { ...emptyForm(classes), parentId: wizard || !parents.length ? "__new__" : "", ...(wizard ? { classId: "" } : {}) };
+    const base = { ...emptyForm(classes), parentId: wizard || !parents.length ? "__new__" : "", ...(wizard && !classOnly ? { classId: "" } : {}) };
     if (!initial) {
       return { ...base, rollNumber: nextClassRoll(people, base.classId) };
     }
@@ -401,7 +404,7 @@ export function StudentAdmitForm({
   })();
   const thisMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
   const yearPicker =
-    offerNextYear && thisYear && nextYear ? (
+    !classOnly && offerNextYear && thisYear && nextYear ? (
       <View>
         <Text className="mb-1.5 text-sm font-medium text-ink-800">Admit for *</Text>
         <View className="flex-row gap-2">
@@ -534,7 +537,7 @@ export function StudentAdmitForm({
     setBusy(true);
     try {
       await onSubmit(form, files);
-      const next = { ...emptyForm(classes), parentId: wizard || !parents.length ? "__new__" : "", ...(wizard ? { classId: "" } : {}) };
+      const next = { ...emptyForm(classes), parentId: wizard || !parents.length ? "__new__" : "", ...(wizard && !classOnly ? { classId: "" } : {}) };
       setForm({ ...next, rollNumber: nextClassRoll(people, next.classId) });
       setWizStep(0);
       setFiles({});
@@ -546,8 +549,8 @@ export function StudentAdmitForm({
   }
 
   if (wizard) {
-    const lastStep = askParent ? "Parent & fee" : "Fee";
-    const steps = ["Details", ...(fileFields.length ? ["Documents"] : []), lastStep];
+    const lastStep = askParent ? (classOnly ? "Parent" : "Parent & fee") : "Fee";
+    const steps = ["Details", ...(fileFields.length ? ["Documents"] : []), ...(classOnly && !askParent ? [] : [lastStep])];
     const current = steps[Math.min(wizStep, steps.length - 1)];
     const last = wizStep >= steps.length - 1;
     const phoneDigits = form.parentPhone.replace(/\D/g, "").slice(-10);
@@ -629,6 +632,7 @@ export function StudentAdmitForm({
         <ScrollView className="flex-1" contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24, gap: 16 }} keyboardShouldPersistTaps="handled">
           {current === "Details" ? (
             <>
+              {!classOnly ? (
               <View className="flex-row items-center justify-between gap-3 rounded-xl border border-ink-200 bg-white px-3 py-3">
                 <View className="min-w-0 flex-1">
                   <Text className="text-sm font-semibold text-ink-900">Old student</Text>
@@ -636,6 +640,7 @@ export function StudentAdmitForm({
                 </View>
                 <Switch on={form.existingStudent} onPress={() => setExistingStudent(!form.existingStudent)} />
               </View>
+              ) : null}
               <View>
                 {label(`${builtinLabel("studentName", "Student name")} *`)}
                 <TextInput
@@ -698,10 +703,12 @@ export function StudentAdmitForm({
                   />
                 </View>
               ) : null}
+              {!classOnly ? (
               <View>
                 {label(`${builtinLabel("billingStartPeriod", "Billing starts from")} *`)}
                 <MonthField value={form.billingStartPeriod} onChange={(billingStartPeriod) => patch({ billingStartPeriod })} />
               </View>
+              ) : null}
               {detailFields.map((field) => (
                 <AdmissionCustomField
                   key={field.id}
@@ -878,7 +885,7 @@ export function StudentAdmitForm({
                 </>
               )}
 
-              {!form.existingStudent ? (
+              {classOnly ? null : !form.existingStudent ? (
               <View className="overflow-hidden rounded-xl border border-ink-100 bg-white">
                 <View className="flex-row items-center justify-between px-3 py-3">
                   <View className="min-w-0 flex-1">
@@ -1024,6 +1031,7 @@ export function StudentAdmitForm({
     <View className="gap-4" onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
       <SectionCard step={++step} title="Student details" subtitle="Follows your admission form in Forms & Templates.">
         <View className="flex-row flex-wrap justify-between gap-y-3">
+          {!classOnly ? (
           <Cell twoCol={twoCol}>
             <View className="flex-row items-center justify-between gap-3 rounded-lg border border-ink-200 bg-ink-50/70 px-3 py-3">
               <View className="min-w-0 flex-1">
@@ -1033,6 +1041,7 @@ export function StudentAdmitForm({
               <Switch on={form.existingStudent} onPress={() => setExistingStudent(!form.existingStudent)} />
             </View>
           </Cell>
+          ) : null}
           <Cell twoCol={twoCol}>
             <Field label={`${builtinLabel("studentName", "Student name")} *`}>
               <Input value={form.name} onChangeText={(name) => patch({ name })} autoComplete="name" placeholder="Full name as on birth certificate" />
@@ -1070,11 +1079,13 @@ export function StudentAdmitForm({
               </Field>
             </Cell>
           ) : null}
+          {!classOnly ? (
           <Cell half twoCol={twoCol}>
             <Field label={`${builtinLabel("billingStartPeriod", "Billing starts from")} *`}>
               <MonthField value={form.billingStartPeriod} onChange={(billingStartPeriod) => patch({ billingStartPeriod })} />
             </Field>
           </Cell>
+          ) : null}
           {detailFields.map((field) => (
             <Cell key={field.id} half={!["textarea", "multi", "checkbox"].includes(field.type)} twoCol={twoCol}>
               <AdmissionCustomField
@@ -1168,7 +1179,7 @@ export function StudentAdmitForm({
       </SectionCard>
       ) : null}
 
-      {!form.existingStudent ? (
+      {classOnly ? null : !form.existingStudent ? (
       <SectionCard
         step={++step}
         title="Admission fee"
@@ -1262,7 +1273,9 @@ export function StudentAdmitForm({
           </View>
         ) : null}
         <View className={twoCol ? "flex-row items-center justify-between gap-3" : "gap-2"}>
-          <Text className="text-xs text-ink-600">Admission number is assigned automatically. Add-ons can be set later from Manage fee.</Text>
+          <Text className="text-xs text-ink-600">
+            {classOnly ? "Admission number is assigned automatically. The office handles fees." : "Admission number is assigned automatically. Add-ons can be set later from Manage fee."}
+          </Text>
           <Button disabled={busy || !classes.length} onPress={save} className={twoCol ? "min-w-[160px]" : ""}>
             {busy ? "Saving…" : submitLabel}
           </Button>

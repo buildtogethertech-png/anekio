@@ -59,6 +59,8 @@ export const PERMISSIONS = [
   { key: "timetable.teach", group: "Teaching", label: "See own routine", hint: "Routine for this teacher", portals: ["TEACHER"], see: true },
   { key: "leave.apply", group: "Teaching", label: "Apply leave", hint: "Own planned and sick leave", portals: ["TEACHER"], see: true },
   { key: "class.view", group: "Teaching", label: "See own class", hint: "Class teacher section: call, WhatsApp, notes", portals: ["TEACHER"], see: true },
+  { key: "class.students.add", group: "Teaching", label: "Add students to own class", hint: "Class teacher adds students to their class. No fees. Turn off after onboarding.", portals: ["TEACHER"] },
+  { key: "class.students.edit", group: "Teaching", label: "Edit students in own class", hint: "Name, date of birth, roll no., parent details. Class and admission no. stay with the office.", portals: ["TEACHER"] },
   { key: "children.view", group: "Family", label: "See own children", hint: "Attendance, tests, papers, path", portals: ["PARENT"], see: true },
   { key: "fees.pay", group: "Family", label: "Pay fees", hint: "Own invoices", portals: ["PARENT", "STUDENT"] },
   { key: "self.view", group: "Student", label: "See own record", hint: "Today, courses, attendance, tests, papers, timetable, profile", portals: ["STUDENT"], see: true },
@@ -128,6 +130,8 @@ export function scopePolicyFor(
       "exams.teach",
       "timetable.teach",
       "class.view",
+      "class.students.add",
+      "class.students.edit",
       "marks.enter",
       "papers.upload",
     ].includes(permission)

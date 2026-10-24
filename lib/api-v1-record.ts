@@ -42,6 +42,7 @@ import { documentStudioBundle } from "./document-studio";
 import { CONTEST_TYPE_LABEL, daysLate, formatInr, LEVEL_LABEL, PATH_LABEL, percent, publicOrigin } from "./utils";
 import { admissionCustomValues, admissionFormFields, applySchoolClassOptions, classLabelsFrom, effectiveFormJson, staffOnboardingFormFields, websiteFormFields } from "./admission-form";
 import { subscriptionLockForUser } from "./anekio-site";
+import { configuredAdmissionFormJson } from "./admission-form-config";
 
 function inDate(value: Date | string) {
   return new Date(value).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
@@ -689,8 +690,25 @@ async function teacherPayload(user: AccessUser) {
   const hostClasses = teacher ? await teacherClassTestChoices(teacher.id) : [];
   const peopleExamPack = teacher?.classId ? await getPeopleExamPack() : null;
   const seeFees = can(user, "fees.view");
+  // Class teacher add / edit students (Roles → Teacher). Only sent with a class to work on.
+  const classStudentAdd = Boolean(teacher?.classId) && can(user, "class.students.add");
+  const classStudentEdit = Boolean(teacher?.classId) && can(user, "class.students.edit");
+  const classStudents = classStudentAdd || classStudentEdit
+    ? {
+        canAdd: classStudentAdd,
+        canEdit: classStudentEdit,
+        admissionForm: classStudentAdd
+          ? admissionFormFields(
+              await configuredAdmissionFormJson(
+                (await prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { admissionFormJson: true } }))?.admissionFormJson
+              )
+            )
+          : [],
+      }
+    : undefined;
   return {
     kind: "TEACHER" as const,
+    classStudents,
     staffAttendanceSelf: await staffAttendanceSelf(user),
     dayChanges: teacher ? await (await import("./timetable-day")).teacherDayChanges(teacher.id) : [],
     classId: teacher?.classId || "",

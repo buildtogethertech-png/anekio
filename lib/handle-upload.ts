@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { can, type AccessUser } from "./permissions";
 import { prisma } from "./prisma";
+import { assertStudentAccess, CLASS_STUDENTS_ADD, CLASS_STUDENTS_EDIT } from "./class-teacher-access";
 import {
   createUploadPath,
   deleteUpload,
@@ -92,6 +93,16 @@ function schoolRoot() {
   return `schools/${uploadSchoolKey()}`;
 }
 
+function officeStudentUploader(user: AccessUser) {
+  return can(user, "documents.issue") || can(user, "people.edit") || can(user, "school.edit");
+}
+
+/** A class teacher may upload documents only for students in their own class. */
+async function checkStudentUploadOwner(user: AccessUser, intent: { kind: string; fields: Record<string, string> }) {
+  if (intent.kind !== "studentDocument" || officeStudentUploader(user)) return;
+  await assertStudentAccess(user, String(intent.fields.studentId || ""), [CLASS_STUDENTS_ADD, CLASS_STUDENTS_EDIT]);
+}
+
 function validateAndFolder(user: AccessUser, file: UploadFile, fields: Record<string, string>) {
   if (!file.name || file.size <= 0) throw new Error("File required");
   if (file.size > MAX_UPLOAD_BYTES) throw new Error("File must be 12 MB or smaller");
@@ -139,7 +150,8 @@ function validateAndFolder(user: AccessUser, file: UploadFile, fields: Record<st
   }
 
   if (kind === "studentDocument") {
-    if (!can(user, "documents.issue") && !can(user, "people.edit") && !can(user, "school.edit")) throw new Error("No access.");
+    // Class teachers with add/edit pass here; ownership of the student is checked in checkStudentUploadOwner.
+    if (!officeStudentUploader(user) && !can(user, CLASS_STUDENTS_ADD) && !can(user, CLASS_STUDENTS_EDIT)) throw new Error("No access.");
     if (!fields.studentId) throw new Error("Student required");
     if (!isStudentDocumentFile(file.name, file.mime)) throw new Error("Upload the student document as a PDF, Word file, or image.");
     return {
@@ -267,6 +279,7 @@ async function finalizeFileUpload(user: AccessUser, intent: UploadIntent) {
 
 export async function preparePresignedFileUpload(user: AccessUser, file: UploadFile, fields: Record<string, unknown>) {
   const intent = prepareFileUpload(user, file, fields);
+  await checkStudentUploadOwner(user, intent);
   if (!usesS3Uploads()) return { direct: false as const };
   return {
     direct: true as const,
@@ -279,6 +292,7 @@ export async function preparePresignedFileUpload(user: AccessUser, file: UploadF
 export async function completePresignedFileUpload(user: AccessUser, token: string) {
   if (!usesS3Uploads()) throw new Error("Direct upload is not configured");
   const intent = verifyUploadIntent(user, token);
+  await checkStudentUploadOwner(user, intent);
   const metadata = await uploadMetadata(intent.path);
   if (metadata.size !== intent.size || metadata.size <= 0 || metadata.size > MAX_UPLOAD_BYTES) {
     await deleteUpload(intent.path);
@@ -298,6 +312,7 @@ export async function handleFileUpload(
   fields: Record<string, string>
 ) {
   const intent = prepareFileUpload(user, { name: file.name, mime: file.mime, size: file.buf.length }, fields);
+  await checkStudentUploadOwner(user, intent);
   await saveUploadPath(intent.path, file.buf, intent.mime);
   try {
     return await finalizeFileUpload(user, intent);
