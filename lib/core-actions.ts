@@ -3228,6 +3228,35 @@ export async function sendStudentPayLinkCore(
   });
 }
 
+/**
+ * Sends one WhatsApp pay link per student (all their open invoices in one link)
+ * through the school's AiSensy account. Used by "Remind" on the Fees page.
+ */
+export async function sendBulkPayLinksCore(
+  user: AccessUser,
+  input: { students?: { studentId?: string; invoiceIds?: string[] }[] }
+) {
+  need(user, "fees.collect");
+  const rows = (Array.isArray(input.students) ? input.students : [])
+    .map((row) => ({ studentId: String(row?.studentId || ""), invoiceIds: (Array.isArray(row?.invoiceIds) ? row.invoiceIds : []).map(String).filter(Boolean) }))
+    .filter((row) => row.studentId && row.invoiceIds.length);
+  if (!rows.length) throw new Error("No one to remind");
+  if (rows.length > 200) throw new Error("At most 200 parents at a time");
+  const channels = await getPayShareChannels();
+  if (!channels.whatsapp) throw new Error("Connect the school's AiSensy key in Admin → School → Communication");
+  let sent = 0;
+  const failed: { studentId: string; error: string }[] = [];
+  for (let i = 0; i < rows.length; i += 4) {
+    const batch = rows.slice(i, i + 4);
+    const results = await Promise.allSettled(batch.map((row) => sendStudentPayLinkCore(user, { ...row, channel: "whatsapp" })));
+    results.forEach((result, n) => {
+      if (result.status === "fulfilled") sent += 1;
+      else failed.push({ studentId: batch[n].studentId, error: result.reason instanceof Error ? result.reason.message : "Failed" });
+    });
+  }
+  return { sent, failed };
+}
+
 export async function setRolePermissionsCore(
   user: AccessUser,
   input: { roleId: string; changes: { permission: string; on: boolean; scope?: string }[] }

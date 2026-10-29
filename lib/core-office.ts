@@ -65,7 +65,7 @@ import {
   notifyExamReassigned,
 } from "./exam-events";
 import { eligibleTeacherIdsForExam, ensureExamEvaluator, teacherIdsBySubjectName } from "./exam-evaluators";
-import { isQuestionPaperFile } from "./uploads";
+import { isQuestionPaperFile, uploadSchoolKey } from "./uploads";
 import { assignStudentRollNumber } from "./student-rolls";
 function need(user: AccessUser, ...keys: string[]) {
   if (!keys.some((k) => can(user, k))) throw new Error("No access.");
@@ -506,6 +506,123 @@ export async function createInvoiceCore(
       shareToken: randomUUID(),
     },
   });
+}
+
+const ADHOC_MAX_LINES = 30;
+
+/** True for a file this school uploaded with the "invoiceAttachment" upload kind. */
+function isInvoiceAttachmentPath(path: string) {
+  return path.startsWith(`private/schools/${uploadSchoolKey()}/fees/attachments/`) && !path.includes("..");
+}
+const ADHOC_MAX_STUDENTS = 500;
+const ADHOC_MAX_RATE = 10_00_000;
+
+/**
+ * One-off invoice with its own line items (ID card, trip, books, fine...).
+ * Same FeeInvoice ledger as monthly fees, so dues, pay links, receipts and
+ * the Fee status filter pick it up. kind = "ADHOC"; period is unique per invoice.
+ */
+export async function createAdhocInvoiceCore(
+  user: AccessUser,
+  input: {
+    studentId?: string;
+    studentIds?: string[];
+    title?: string;
+    dueDate?: string;
+    note?: string;
+    discount?: number;
+    lines?: { label?: string; qty?: number; rate?: number }[];
+    attachments?: { path?: string; name?: string }[];
+  }
+) {
+  need(user, "fees.collect");
+  const attachments = (Array.isArray(input.attachments) ? input.attachments : [])
+    .map((row) => ({ path: String(row?.path || "").replace(/^\/+/, "").trim(), name: String(row?.name || "").trim().slice(0, 120) }))
+    .filter((row) => row.path);
+  if (attachments.length > 5) throw new Error("At most 5 attachments per invoice");
+  for (const row of attachments) {
+    // Only files uploaded through the "invoiceAttachment" upload kind.
+    if (!isInvoiceAttachmentPath(row.path) || row.path.length > 300) {
+      throw new Error("Attach the file again.");
+    }
+    if (!row.name) row.name = row.path.split("/").pop() || "Attachment";
+  }
+  const ids = [...new Set([...(Array.isArray(input.studentIds) ? input.studentIds : []), input.studentId || ""].map((id) => String(id || "").trim()).filter(Boolean))];
+  if (!ids.length) throw new Error("Pick a student");
+  if (ids.length > ADHOC_MAX_STUDENTS) throw new Error(`At most ${ADHOC_MAX_STUDENTS} students per invoice run`);
+
+  const lines = (Array.isArray(input.lines) ? input.lines : [])
+    .map((line) => ({
+      label: String(line?.label || "").trim().slice(0, 80),
+      qty: Number(line?.qty ?? 1),
+      rate: Number(line?.rate ?? 0),
+    }))
+    .filter((line) => line.label || line.rate);
+  if (!lines.length) throw new Error("Add at least one item");
+  if (lines.length > ADHOC_MAX_LINES) throw new Error(`At most ${ADHOC_MAX_LINES} items per invoice`);
+  for (const line of lines) {
+    if (!line.label) throw new Error("Every item needs a name");
+    if (!Number.isInteger(line.qty) || line.qty < 1 || line.qty > 1000) throw new Error(`Quantity for "${line.label}" must be a whole number from 1 to 1000`);
+    if (!Number.isFinite(line.rate) || line.rate <= 0 || line.rate > ADHOC_MAX_RATE) throw new Error(`Enter a price for "${line.label}"`);
+    line.rate = Math.round(line.rate);
+  }
+  const subtotal = lines.reduce((sum, line) => sum + line.qty * line.rate, 0);
+  const discount = Math.max(0, Math.round(Number(input.discount) || 0));
+  if (discount >= subtotal) throw new Error("Discount must be less than the total");
+  const amount = subtotal - discount;
+
+  const dueText = String(input.dueDate || "").trim();
+  if (dueText && !/^\d{4}-\d{2}-\d{2}$/.test(dueText)) throw new Error("Due date must be YYYY-MM-DD");
+  const dueDate = new Date(dueText || ymd(new Date()));
+  if (Number.isNaN(+dueDate)) throw new Error("Invalid due date");
+
+  const title = (String(input.title || "").trim() || (lines.length === 1 ? lines[0].label : "Other charges")).slice(0, 120);
+  const note = String(input.note || "").trim().slice(0, 500);
+  const storedLines = [
+    ...lines.map((line) => ({
+      label: line.qty > 1 ? `${line.label} × ${line.qty}` : line.label,
+      kind: "FLAT",
+      amount: line.qty * line.rate,
+      qty: line.qty,
+      rate: line.rate,
+    })),
+    ...(discount ? [{ label: "Discount", kind: "FLAT", amount: -discount }] : []),
+  ];
+
+  const students = await prisma.student.findMany({ where: { id: { in: ids } }, select: { id: true, classId: true } });
+  if (students.length !== ids.length) throw new Error("Some students were not found");
+
+  const createdAt = new Date().toISOString();
+  const metadataJson = JSON.stringify({ adhoc: { note, attachments, createdById: user.id, createdByName: user.name || "", createdAt } });
+  const rows = students.map((student) => ({
+    orgId: user.orgId ?? null,
+    studentId: student.id,
+    classId: student.classId || null,
+    period: `ADHOC-${randomUUID()}`,
+    kind: "ADHOC",
+    title,
+    amount,
+    linesJson: JSON.stringify(storedLines),
+    metadataJson,
+    dueDate,
+    shareToken: randomUUID(),
+    status: InvoiceStatus.DUE,
+  }));
+  await prisma.feeInvoice.createMany({ data: rows });
+  return { created: rows.length, amount, title };
+}
+
+/** Removes an ad hoc invoice raised by mistake. Only while nothing has been paid on it. */
+export async function cancelAdhocInvoiceCore(user: AccessUser, input: { invoiceId?: string }) {
+  need(user, "fees.collect");
+  const invoiceId = String(input.invoiceId || "");
+  if (!invoiceId) throw new Error("Invoice required");
+  const invoice = await prisma.feeInvoice.findFirst({ where: { id: invoiceId }, include: { payments: { select: { id: true } } } });
+  if (!invoice) throw new Error("Invoice not found");
+  if (invoice.kind !== "ADHOC") throw new Error("Only ad hoc invoices can be cancelled here");
+  if (invoice.payments.length) throw new Error("This invoice has a payment on it, so it cannot be cancelled");
+  await prisma.feeInvoice.delete({ where: { id: invoice.id } });
+  return { cancelled: invoice.id };
 }
 
 export async function saveStudentFeeAddOnCore(

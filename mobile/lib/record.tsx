@@ -508,6 +508,11 @@ export type RecordPayload = {
       late?: number;
       lateLabel?: string;
       status: string;
+      /** "ADHOC" for one-off invoices raised from the student's Fees tab. */
+      kind?: string;
+      note?: string;
+      attachments?: { path: string; name: string }[];
+      canCancel?: boolean;
       lines?: { label: string; amount: number }[];
       invoiceUrl?: string;
       receiptUrl?: string;

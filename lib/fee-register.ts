@@ -213,7 +213,8 @@ function inSession(
   invoice?: { dueDate?: Date | string; generatedThrough?: string | null }
 ) {
   if (!startsOn && !endsOn) return true;
-  if (period === "OPENING") return openingBelongsToSession(invoice || {}, startsOn, endsOn);
+  // Opening and ad hoc invoices have no month; they belong to the session their due date falls in.
+  if (period === "OPENING" || period.startsWith("ADHOC-")) return openingBelongsToSession(invoice || {}, startsOn, endsOn);
   const start = (startsOn || "").slice(0, 7);
   const end = (endsOn || "").slice(0, 7);
   if (!isMonthlyFeePeriod(period)) return false;

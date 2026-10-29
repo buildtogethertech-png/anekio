@@ -112,6 +112,11 @@ export function TeacherForm({
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState("");
   const editing = Boolean(teacher);
+  // "subject": pick what they teach, then the classes. "class": the older class-by-class cards.
+  const [mode, setMode] = useState<"subject" | "class">(focus ? "class" : "subject");
+  const [subjectsOn, setSubjectsOn] = useState<string[]>(() => [
+    ...new Set(Object.values(startPicked).flat().map((n) => n.toLowerCase())),
+  ]);
 
   function subjectsFor(klass: TeacherClassRow) {
     return (klass.subjects ?? []).map((subject) => ({ ...subject, planned: true }));
@@ -139,6 +144,66 @@ export function TeacherForm({
     else delete next[targetClassId];
     setPicked(next);
   }
+
+  /** Every subject taught anywhere in the school, with the classes that have it. */
+  const subjectRows = (() => {
+    const map = new Map<string, { key: string; name: string; classes: { klass: TeacherClassRow; subject: NonNullable<TeacherClassRow["subjects"]>[number] }[] }>();
+    for (const klass of teachable) {
+      for (const subject of klass.subjects ?? []) {
+        const key = subjectCodeOf(subject).toLowerCase();
+        const row = map.get(key) || { key, name: subject.name, classes: [] };
+        row.classes.push({ klass, subject });
+        map.set(key, row);
+      }
+    }
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+  })();
+
+  function hasPick(classId: string, key: string) {
+    return (picked[classId] ?? []).some((code) => code.toLowerCase() === key);
+  }
+
+  function setPick(classId: string, subjectName: string, on: boolean) {
+    const key = subjectName.toLowerCase();
+    const current = (picked[classId] ?? []).filter((code) => code.toLowerCase() !== key);
+    const nextCodes = on ? [...current, subjectName] : current;
+    setPicked((prev) => {
+      const next = { ...prev };
+      if (nextCodes.length) next[classId] = nextCodes;
+      else delete next[classId];
+      return next;
+    });
+  }
+
+  function setSubjectEverywhere(row: (typeof subjectRows)[number], classIds: string[]) {
+    setPicked((prev) => {
+      const next = { ...prev };
+      for (const { klass, subject } of row.classes) {
+        const code = subjectCodeOf(subject);
+        const current = (next[klass.id] ?? []).filter((c) => c.toLowerCase() !== row.key);
+        const codes = classIds.includes(klass.id) ? [...current, code] : current;
+        if (codes.length) next[klass.id] = codes;
+        else delete next[klass.id];
+      }
+      return next;
+    });
+  }
+
+  function toggleSubject(row: (typeof subjectRows)[number]) {
+    if (subjectsOn.includes(row.key)) {
+      setSubjectsOn((cur) => cur.filter((k) => k !== row.key));
+      setSubjectEverywhere(row, []);
+    } else {
+      setSubjectsOn((cur) => [...cur, row.key]);
+    }
+  }
+
+  /** Class-subjects nobody teaches yet (other teachers plus what is picked here). */
+  const gaps = subjectRows.flatMap((row) =>
+    row.classes
+      .filter(({ klass, subject }) => !hasPick(klass.id, row.key) && !alsoTaughtBy(klass, subject).length)
+      .map(({ klass }) => `${klass.label} ${row.name}`)
+  );
 
   function removeClass(targetClassId: string) {
     const next = { ...picked };
@@ -232,7 +297,142 @@ export function TeacherForm({
           <Text className="text-sm text-ink-700">Load subjects onto a class plan before assigning a teacher.</Text>
         ) : null}
 
-        {cards.map((klass) => {
+        {teachable.length ? (
+          <View className="flex-row self-start rounded-lg border border-ink-200 bg-white p-0.5">
+            {(
+              [
+                ["subject", "By subject"],
+                ["class", "By class"],
+              ] as const
+            ).map(([key, label]) => (
+              <Pressable
+                key={key}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: mode === key }}
+                onPress={() => {
+                  if (key === "subject") setSubjectsOn([...new Set([...subjectsOn, ...Object.values(picked).flat().map((n) => n.toLowerCase())])]);
+                  if (key === "class") setShown((cur) => [...new Set([...cur, ...Object.keys(picked)])]);
+                  setMode(key);
+                }}
+                className={`rounded-md px-3 py-1.5 ${mode === key ? "bg-clay-500" : ""}`}
+              >
+                <Text className={`text-[13px] font-medium ${mode === key ? "text-white" : "text-ink-700"}`}>{label}</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+
+        {mode === "subject" && teachable.length ? (
+          <View className="gap-3">
+            <View>
+              <Text className="mb-1.5 text-[12px] text-ink-600">1. What can they teach?</Text>
+              <View className="flex-row flex-wrap gap-1.5">
+                {subjectRows.map((row) => {
+                  const on = subjectsOn.includes(row.key);
+                  return (
+                    <Pressable
+                      key={row.key}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: on }}
+                      onPress={() => toggleSubject(row)}
+                      className={`h-8 flex-row items-center gap-1 rounded-full border px-3 ${on ? "border-clay-500 bg-[#EEF3FF]" : "border-ink-200 bg-white"}`}
+                    >
+                      {on ? <Ionicons name="checkmark" size={13} color="#1F45C7" /> : null}
+                      <Text className={`text-[13px] ${on ? "font-semibold text-[#1F45C7]" : "text-ink-700"}`}>{row.name}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+
+            {subjectRows.filter((row) => subjectsOn.includes(row.key)).length ? (
+              <Text className="text-[12px] text-ink-600">2. In which classes?</Text>
+            ) : null}
+            {subjectRows
+              .filter((row) => subjectsOn.includes(row.key))
+              .map((row) => {
+                const chosen = row.classes.filter(({ klass }) => hasPick(klass.id, row.key));
+                const all = chosen.length === row.classes.length;
+                const periods = chosen.reduce((n, { subject }) => n + (subject.weightage || 0), 0);
+                const others = row.classes
+                  .map(({ klass, subject }) => ({ klass, names: alsoTaughtBy(klass, subject) }))
+                  .filter((x) => x.names.length);
+                const byTeacher = new Map<string, string[]>();
+                for (const { klass, names } of others) for (const n of names) byTeacher.set(n, [...(byTeacher.get(n) || []), klass.label]);
+                const grades = [...new Set(row.classes.map(({ klass }) => classGrade(klass)))];
+                return (
+                  <View key={row.key} className="overflow-hidden rounded-xl border border-ink-200 bg-white">
+                    <View className="flex-row items-center gap-2 border-b border-ink-100 bg-ink-50 px-3.5 py-2.5">
+                      <Text className="text-[15px] font-semibold text-ink-900">{row.name}</Text>
+                      <Text className="min-w-0 flex-1 text-[12px] text-ink-500" numberOfLines={1}>
+                        {chosen.length ? `${chosen.length} ${chosen.length === 1 ? "class" : "classes"} · ${periods} periods/week` : "Pick classes"}
+                      </Text>
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={() => setSubjectEverywhere(row, all ? [] : row.classes.map(({ klass }) => klass.id))}
+                        className="rounded-md px-2 py-1"
+                      >
+                        <Text className="text-[12px] font-semibold text-clay-600">{all ? "Clear" : "All classes"}</Text>
+                      </Pressable>
+                      <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${row.name}`} hitSlop={8} onPress={() => toggleSubject(row)} className="h-7 w-7 items-center justify-center">
+                        <Ionicons name="close" size={15} color="#64748b" />
+                      </Pressable>
+                    </View>
+                    <View className="gap-2 px-3.5 py-3">
+                      <View className="flex-row flex-wrap gap-1.5">
+                        {row.classes.map(({ klass, subject }) => {
+                          const on = hasPick(klass.id, row.key);
+                          const taken = alsoTaughtBy(klass, subject).length > 0;
+                          return (
+                            <Pressable
+                              key={klass.id}
+                              accessibilityRole="checkbox"
+                              accessibilityState={{ checked: on }}
+                              accessibilityLabel={`${row.name} in ${klass.label}`}
+                              onPress={() => setPick(klass.id, subjectCodeOf(subject), !on)}
+                              className={`h-9 min-w-[56px] flex-row items-center justify-center gap-1 rounded-md border px-3 ${
+                                on ? "border-clay-500 bg-clay-500" : taken ? "border-ink-200 bg-ink-50" : "border-ink-200 bg-white"
+                              }`}
+                            >
+                              {on ? <Ionicons name="checkmark" size={13} color="#fff" /> : null}
+                              <Text className={`text-[13px] font-medium ${on ? "text-white" : "text-ink-800"}`}>{klass.label}</Text>
+                              {subject.weightage ? <Text className={`text-[11px] ${on ? "text-white/80" : "text-ink-400"}`}>{`${subject.weightage}`}</Text> : null}
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                      {grades.length > 1 && grades.length < row.classes.length ? (
+                        <View className="flex-row flex-wrap items-center gap-1.5">
+                          <Text className="text-[11px] text-ink-500">Quick:</Text>
+                          {grades.map((grade) => {
+                            const ids = row.classes.filter(({ klass }) => classGrade(klass) === grade).map(({ klass }) => klass.id);
+                            return (
+                              <Pressable
+                                key={grade}
+                                onPress={() =>
+                                  setSubjectEverywhere(row, [...new Set([...chosen.map(({ klass }) => klass.id), ...ids])])
+                                }
+                                className="rounded-full border border-ink-200 px-2 py-0.5"
+                              >
+                                <Text className="text-[11px] text-ink-700">{`Class ${grade}`}</Text>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                      ) : null}
+                      {byTeacher.size ? (
+                        <Text className="text-[11px] text-amber-700">
+                          {`Also teaching ${row.name}: ${[...byTeacher].map(([n, labels]) => `${n} (${labels.join(", ")})`).join(", ")}`}
+                        </Text>
+                      ) : null}
+                    </View>
+                  </View>
+                );
+              })}
+          </View>
+        ) : null}
+
+        {mode === "class" ? cards.map((klass) => {
           const codes = picked[klass.id] ?? [];
           const open = openId === klass.id;
           const periods = codes.reduce((acc, code) => acc + periodsOf(klass, code), 0);
@@ -314,9 +514,9 @@ export function TeacherForm({
               ) : null}
             </View>
           );
-        })}
+        }) : null}
 
-        {remaining.length ? (
+        {mode === "class" && remaining.length ? (
           adding ? (
             <View className="gap-2 rounded-xl border border-dashed border-ink-200 px-3.5 py-3">
               <Text className="text-xs font-medium text-ink-800">Pick a class</Text>
@@ -351,6 +551,14 @@ export function TeacherForm({
         ) : null}
       </View>
 
+      {gaps.length ? (
+        <View className="flex-row items-start gap-2 rounded-lg bg-amber-50 px-3 py-2">
+          <Ionicons name="alert-circle-outline" size={15} color="#b45309" />
+          <Text className="flex-1 text-[12px] leading-5 text-amber-900">
+            {`No teacher yet: ${gaps.slice(0, 6).join(", ")}${gaps.length > 6 ? ` and ${gaps.length - 6} more` : ""}`}
+          </Text>
+        </View>
+      ) : null}
       {error ? <Text className="text-sm text-red-700">{error}</Text> : null}
       <View className="flex-row justify-end gap-2">
         <Button variant="ghost" onPress={onCancel}>

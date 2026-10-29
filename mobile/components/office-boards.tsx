@@ -41,6 +41,8 @@ import { studentMetaLine } from "../lib/student-label";
 import { FeesBoard as RefactoredFeesBoard } from "./fees-board";
 import { ManageFeeBody, MonthlyFeeBillSummary, feeAssignmentFromStudent } from "./manage-fee";
 import { ClassRollNumbers } from "./class-roll-numbers";
+import { AdhocInvoiceModal } from "./adhoc-invoice";
+import { openSalaryProof } from "./salary-pay-sheet";
 
 export const FeesBoard = RefactoredFeesBoard;
 
@@ -226,7 +228,7 @@ function DetailField({ label, value }: { label: string; value?: string }) {
   return (
     <View className="min-w-[44%] flex-1 py-2">
       <Text className="text-xs text-ink-700">{label}</Text>
-      <Text className="mt-1 text-sm font-medium text-ink-900" numberOfLines={2}>
+      <Text className={`mt-1 text-sm ${value ? "font-medium text-ink-900" : "text-ink-400"}`} numberOfLines={2}>
         {value || "Not provided"}
       </Text>
     </View>
@@ -345,12 +347,17 @@ function UnderlineTabs({
   onChange: (id: string) => void;
 }) {
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} className="grow-0 border-b border-ink-100">
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} className="grow-0 border-b border-ink-100" contentContainerStyle={{ paddingRight: 24 }}>
       <View className="flex-row gap-5">
         {tabs.map((tab) => {
           const on = tab.id === value;
           return (
-            <Pressable key={tab.id} onPress={() => onChange(tab.id)} className={`pb-2 ${on ? "border-b-2 border-clay-500" : ""}`}>
+            <Pressable
+              key={tab.id}
+              onPress={() => onChange(tab.id)}
+              className={`pb-2 ${on ? "border-b-2 border-clay-500" : ""}`}
+              style={Platform.OS === "web" ? ({ outlineStyle: "none" } as unknown as ViewStyle) : undefined}
+            >
               <Text className={`text-sm font-medium ${on ? "text-clay-600" : "text-ink-700"}`}>{tab.label}</Text>
             </Pressable>
           );
@@ -1355,6 +1362,8 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
     incoming ? { kind: "student", id: incoming } : null
   );
   const [payOpen, setPayOpen] = useState(false);
+  const [adhocOpen, setAdhocOpen] = useState(false);
+  const [cancellingInvoiceId, setCancellingInvoiceId] = useState("");
   const [manageFeeOpen, setManageFeeOpen] = useState(false);
   const [manageFeePending, setManageFeePending] = useState(false);
   const [manageOtherIds, setManageOtherIds] = useState<string[]>([]);
@@ -1780,6 +1789,30 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
     }
   }
 
+  function cancelAdhocInvoice(invoiceId: string, title: string) {
+    const run = async () => {
+      setCancellingInvoiceId(invoiceId);
+      try {
+        await act(token, "cancelAdhocInvoice", { invoiceId });
+        toast.show(`"${title}" cancelled.`);
+        await reload();
+      } catch (e) {
+        toast.show(e instanceof Error ? e.message : "Could not cancel the invoice.");
+      } finally {
+        setCancellingInvoiceId("");
+      }
+    };
+    const message = `Cancel "${title}"? It will be removed from this student's dues.`;
+    if (Platform.OS === "web") {
+      if ((globalThis as { confirm?: (text: string) => boolean }).confirm?.(message)) void run();
+      return;
+    }
+    Alert.alert("Cancel invoice", message, [
+      { text: "Keep", style: "cancel" },
+      { text: "Cancel invoice", style: "destructive", onPress: () => void run() },
+    ]);
+  }
+
   async function openFeeDocument(inv: { id: string; invoiceUrl?: string; receiptUrl?: string }, paid: boolean) {
     const directUrl = paid ? inv.receiptUrl : inv.invoiceUrl;
     if (directUrl) {
@@ -1828,15 +1861,15 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
     const parentTel = phoneHref(selected.parentPhone);
     const header = (
       <>
-        <View className="flex-row flex-wrap items-start justify-between gap-4">
-          <View className="min-w-0 flex-1 flex-row items-start gap-3">
-            <View className="h-14 w-14 items-center justify-center rounded-2xl bg-[#1F45C7]">
+        <View className={wide ? "flex-row flex-wrap items-start justify-between gap-4" : "gap-3"}>
+          <View className={`flex-row items-start gap-3 ${wide ? "min-w-0 flex-1" : "pr-8"}`}>
+            <View className={`${wide ? "h-14 w-14" : "h-12 w-12"} items-center justify-center rounded-2xl bg-[#1F45C7]`}>
               <Text className="text-lg font-bold text-white">{initials(selected.name)}</Text>
             </View>
             <View className="min-w-0 flex-1">
               <View className="flex-row flex-wrap items-center gap-2">
-                <Text className="text-2xl font-semibold text-ink-900" numberOfLines={1}>{selected.name}</Text>
-                {showFees ? <FeeText label={selected.feeLabel} tone={selected.feeTone} /> : null}
+                <Text className={`${wide ? "text-2xl" : "text-xl"} font-semibold text-ink-900`} numberOfLines={wide ? 1 : 2}>{selected.name}</Text>
+                {showFees && wide ? <FeeText label={selected.feeLabel} tone={selected.feeTone} /> : null}
               </View>
               <Text className="mt-1 text-sm text-ink-800">{studentMetaLine(selected)}</Text>
               {(() => {
@@ -1870,9 +1903,10 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
               ) : null}
             </View>
           </View>
-          <View className="flex-row flex-wrap justify-end gap-2">
+          <View className={wide ? "flex-row flex-wrap justify-end gap-2" : "flex-row gap-2"}>
             {canEditStudent ? (
               <Button
+                className={wide ? undefined : "flex-1"}
                 variant="ghost"
                 onPress={() => {
                   setEdit({
@@ -1900,6 +1934,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
             ) : null}
             {can(user, "people.edit") && showFees ? (
               <Button
+                className={wide ? undefined : "flex-1"}
                 variant="ghost"
                 accessibilityLabel="Manage fee"
                 onPress={() => {
@@ -2117,7 +2152,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
         value ? (
           <View className="flex-row items-center justify-between gap-3 py-2.5">
             <Text className="text-[13px] text-ink-500">{label}</Text>
-            <Text className="min-w-0 flex-shrink text-right text-[13px] font-medium text-ink-900" numberOfLines={1}>{value}</Text>
+            <Text className={`min-w-0 flex-shrink text-right text-[13px] ${/^Not (added|assigned)$/.test(value) ? "text-ink-400" : "font-medium text-ink-900"}`} numberOfLines={1}>{value}</Text>
           </View>
         ) : null;
       const selfTeacher = studentOnly && user?.portal === "TEACHER" && (!classTeacher || classTeacher.name === user.name);
@@ -2128,6 +2163,183 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
         { icon: "document-text", label: "Results", bg: "#F3E8FF", fg: "#7e22ce", onPress: () => selectStudentTab("reports") },
         { icon: "folder-open", label: "Documents", bg: "#FFF7ED", fg: "#c2410c", onPress: () => selectStudentTab("documents") },
       ];
+      const wideOverview = wide && !bare;
+      if (wideOverview) {
+        return (
+          <View className="mt-5 gap-5">
+        <View className="flex-row overflow-hidden rounded-xl border border-ink-100 bg-white">
+          {(
+            [
+              ["Attendance", attPct === null ? "—" : `${attPct}%`, attPct === null ? "text-ink-400" : low ? "text-amber-700" : "text-emerald-700", attTotal ? `${attTotal} days marked` : "Not marked yet", "attendance"],
+              ["Absent", `${att.a} ${att.a === 1 ? "day" : "days"}`, att.a ? "text-red-700" : "text-ink-900", att.l ? `${att.l} late` : "", "attendance"],
+              ...(showFees
+                ? [["Fees due", owed ? selected.dueNow || "₹0" : "Clear", owed ? "text-red-700" : "text-emerald-700", owed && selected.overdueCount ? `${selected.overdueCount} overdue` : "", "fees"] as const]
+                : []),
+            ] as const
+          ).map(([label, value, tone, hint, tab], n) => (
+            <Pressable
+              key={label}
+              accessibilityRole="button"
+              onPress={() => selectStudentTab(tab as StudentTab)}
+              className={`min-w-0 flex-1 px-4 py-3 hover:bg-slate-50 ${n ? "border-l border-ink-100" : ""}`}
+            >
+              <Text className="text-[11px] text-ink-500">{label}</Text>
+              <Text className={`mt-0.5 text-lg font-semibold ${tone}`} numberOfLines={1}>{value}</Text>
+              {hint ? <Text className="text-[11px] text-ink-500" numberOfLines={1}>{hint}</Text> : null}
+            </Pressable>
+          ))}
+        </View>
+            <View className="flex-row flex-wrap gap-5">
+              <View className="min-w-[280px] flex-1 gap-5">
+        <View className="gap-2">
+          <Text className="text-[13px] font-semibold text-ink-900">Family</Text>
+          <View className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
+            <View className="flex-row items-center gap-3 p-3.5">
+              <View className="h-10 w-10 items-center justify-center rounded-full bg-[#EEF3FF]">
+                <Text className="text-[13px] font-bold text-[#1F45C7]">{initials}</Text>
+              </View>
+              <View className="min-w-0 flex-1">
+                <Text className="text-[15px] font-semibold text-ink-900" numberOfLines={1}>{selected.parentId ? selected.parent || "Parent" : "No parent added"}</Text>
+                <Text className="text-xs text-ink-500" numberOfLines={1}>
+                  {selected.parentId ? `Parent · ${selected.parentPhone || "no phone"}` : "Edit the student and add a parent mobile to create a parent login."}
+                </Text>
+              </View>
+              {wideOverview && parentTel ? (
+                <Pressable accessibilityRole="button" accessibilityLabel="Call parent" onPress={() => void Linking.openURL(parentTel)} className="h-9 w-9 items-center justify-center rounded-lg border border-ink-200">
+                  <Ionicons name="call-outline" size={15} color="#1F45C7" />
+                </Pressable>
+              ) : null}
+              {wideOverview && wa ? (
+                <Pressable accessibilityRole="button" accessibilityLabel="WhatsApp parent" onPress={() => void Linking.openURL(wa)} className="h-9 w-9 items-center justify-center rounded-lg border border-ink-200">
+                  <Ionicons name="logo-whatsapp" size={15} color="#16a34a" />
+                </Pressable>
+              ) : null}
+              {selected.parentId && can(user, "roles.manage") ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Change parent password"
+                  onPress={() => setParentPasswordFor({ parentId: selected.parentId as string, name: selected.parent || "Parent" })}
+                  className="h-9 flex-row items-center gap-1.5 rounded-lg border border-ink-200 px-2.5"
+                >
+                  <Ionicons name="key-outline" size={14} color="#334155" />
+                  <Text className="text-[12px] font-medium text-ink-800">Password</Text>
+                </Pressable>
+              ) : null}
+            </View>
+            <SetPasswordModal
+              open={Boolean(parentPasswordFor)}
+              name={parentPasswordFor?.name || "Parent"}
+              target={{ parentId: parentPasswordFor?.parentId }}
+              onClose={() => setParentPasswordFor(null)}
+              onDone={(message) => toast.show(message)}
+            />
+            {selected.parentEmail ? (
+              <View className="flex-row items-center gap-2.5 border-t border-ink-100 px-3.5 py-2.5">
+                <Ionicons name="mail-outline" size={14} color="#94a3b8" />
+                <Text className="min-w-0 flex-1 text-[13px] text-ink-700" numberOfLines={1}>{selected.parentEmail}</Text>
+              </View>
+            ) : null}
+            {selected.parentAddress ? (
+              <View className="flex-row items-center gap-2.5 border-t border-ink-100 px-3.5 py-2.5">
+                <Ionicons name="location-outline" size={14} color="#94a3b8" />
+                <Text className="min-w-0 flex-1 text-[13px] text-ink-700" numberOfLines={2}>{selected.parentAddress}</Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+
+        {(data?.school?.admissionForm ?? []).some((field) => !field.builtin && (field.visible || selected.admissionData?.[field.id])) ? (
+          <View className="gap-2">
+            <Text className="text-[13px] font-semibold text-ink-900">Admission details</Text>
+            <View className="rounded-2xl border border-ink-100 bg-white px-3.5 py-1.5">
+              <AdmissionDetails fields={data?.school?.admissionForm ?? []} values={selected.admissionData} />
+            </View>
+          </View>
+        ) : null}
+
+              </View>
+              <View className="min-w-[280px] flex-1 gap-5">
+        {!bare || !selfTeacher ? (
+          <View className="gap-2">
+            <Text className="text-[13px] font-semibold text-ink-900">School record</Text>
+            <View className="rounded-2xl border border-ink-100 bg-white px-3.5">
+              {!bare ? (
+                <>
+                  {row("Class · Roll", `${selected.classLabel}${selected.rollNumber ? ` · ${selected.rollNumber}` : ""}`)}
+                  <View className="h-px bg-ink-100" />
+                  {row("Admission no.", selected.admissionNo)}
+                  <View className="h-px bg-ink-100" />
+                </>
+              ) : null}
+              {!selfTeacher ? (
+                <>
+                  {row("Class teacher", teacherName || "Not assigned")}
+                  <View className="h-px bg-ink-100" />
+                </>
+              ) : null}
+              {row("Date of birth", dob ? `${dob.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}${age !== null ? ` · ${age} yrs` : ""}` : "Not added")}
+              {!bare && (selected.path ?? []).length ? (
+                <>
+                  <View className="h-px bg-ink-100" />
+                  <View className="flex-row items-center justify-between gap-3 py-2.5">
+                    <Text className="text-[13px] text-ink-500">Stream</Text>
+                    <View className="flex-row flex-wrap justify-end gap-1">
+                      {selected.path!.map((p) => (
+                        <Badge key={p} tone="clay">{p}</Badge>
+                      ))}
+                    </View>
+                  </View>
+                </>
+              ) : null}
+            </View>
+          </View>
+        ) : null}
+
+        {latestIdCard || activeIdTemplate || can(user, "documents.manage") || can(user, "people.edit") ? (
+        <View className="gap-2">
+          <View className="flex-row items-center justify-between">
+            <Text className="text-[13px] font-semibold text-ink-900">ID card</Text>
+            <Pressable onPress={() => selectStudentTab("documents")} hitSlop={8}>
+              <Text className="text-xs font-medium text-clay-600">All documents</Text>
+            </Pressable>
+          </View>
+          <View className="flex-row items-center gap-3 rounded-xl border border-ink-100 bg-white p-3.5">
+            <View className="h-10 w-10 items-center justify-center rounded-lg bg-[#EEF3FF]">
+              <Ionicons name="id-card-outline" size={19} color="#1F45C7" />
+            </View>
+            <View className="min-w-0 flex-1">
+              <Text className="text-sm font-semibold text-ink-900">
+                {latestIdCard ? "Issued" : activeIdTemplate ? "Not issued yet" : "Template not set up"}
+              </Text>
+              <Text className="text-xs text-ink-500" numberOfLines={1}>
+                {latestIdCard
+                  ? `${latestIdCard.documentNumber} · ${new Date(latestIdCard.issuedAt).toLocaleDateString("en-IN")}`
+                  : activeIdTemplate
+                    ? "Ready to issue"
+                    : "Approve the ID card template once"}
+              </Text>
+            </View>
+            {latestIdCard ? (
+              <Pressable onPress={() => void Linking.openURL(latestIdCard.documentUrl)} className="h-9 justify-center rounded-lg border border-ink-200 px-3">
+                <Text className="text-[13px] font-semibold text-ink-800">Open</Text>
+              </Pressable>
+            ) : activeIdTemplate ? (
+              <Pressable disabled={idCardPending} onPress={() => void issueStudentIdCard()} className={`h-9 justify-center rounded-lg bg-[#1F45C7] px-3 ${idCardPending ? "opacity-50" : ""}`}>
+                <Text className="text-[13px] font-semibold text-white">{idCardPending ? "Issuing…" : "Issue"}</Text>
+              </Pressable>
+            ) : can(user, "documents.manage") || can(user, "people.edit") ? (
+              <Pressable onPress={() => router.push("/letter" as never)} className="h-9 justify-center rounded-lg border border-ink-200 px-3">
+                <Text className="text-[13px] font-semibold text-ink-800">Set up</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
+        ) : null}
+              </View>
+            </View>
+          </View>
+        );
+      }
       return (
       <View className="mt-4 gap-5">
         <Pressable
@@ -2356,53 +2568,125 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
     );
     const nextDue = selected.invoices?.find((inv) => inv.status !== "paid")?.due || "";
     const feesBody = (
-      <View className="mt-5 min-h-0 flex-1 gap-4">
-        <View className="flex-row items-center justify-between gap-3">
-          <Text className="text-sm font-semibold text-ink-900">Fee summary</Text>
-          {can(user, "fees.collect") || can(user, "people.edit") ? (
-            <Button onPress={() => setPayOpen(true)}>Record payment</Button>
-          ) : null}
-        </View>
-        <View className="flex-row flex-wrap gap-3">
-          <MetricTile label="Total fees" value={selected.billed || "₹0"} />
-          <MetricTile label="Paid" value={selected.paid || "₹0"} tone="leaf" />
-          <MetricTile
-            label="Outstanding"
-            value={selected.dueNow || "₹0"}
-            tone={(selected.dueAmount || 0) > 0 ? "warn" : "leaf"}
-            hint={selected.overdueCount ? `${selected.overdueCount} overdue` : (selected.dueAmount || 0) > 0 ? "Due now" : "Clear"}
-          />
-          <MetricTile label="Next due date" value={nextDue || "Not scheduled"} />
+      <View className="mt-5 gap-5">
+        <View className="flex-row flex-wrap items-center justify-between gap-3">
+          <View className={`flex-row items-stretch overflow-hidden rounded-xl border border-ink-100 bg-white ${wide ? "flex-wrap" : "w-full flex-wrap"}`}>
+            {(
+              [
+                ["Outstanding", selected.dueNow || "₹0", (selected.dueAmount || 0) > 0 ? (selected.overdueCount ? "text-red-700" : "text-amber-800") : "text-green-700", selected.overdueCount ? `${selected.overdueCount} overdue` : ""],
+                ["Next due", (selected.dueAmount || 0) > 0 ? nextDue || "—" : "—", "text-ink-900", ""],
+                ["Paid", selected.paid || "₹0", "text-ink-900", ""],
+                ["Billed", selected.billed || "₹0", "text-ink-900", ""],
+              ] as const
+            ).map(([label, value, tone, hint], n) => (
+              <View
+                key={label}
+                className={
+                  wide
+                    ? `min-w-[104px] px-4 py-2.5 ${n ? "border-l border-ink-100" : ""}`
+                    : `w-1/2 px-4 py-3 ${n % 2 ? "border-l border-ink-100" : ""} ${n > 1 ? "border-t border-ink-100" : ""}`
+                }
+              >
+                <Text className="text-xs text-ink-500">{label}</Text>
+                <Text className={`mt-0.5 text-base font-semibold ${tone}`}>{value}</Text>
+                {hint ? <Text className="text-[11px] text-red-700">{hint}</Text> : null}
+              </View>
+            ))}
+          </View>
+          <View className={wide ? "flex-row flex-wrap justify-end gap-2" : "w-full flex-row gap-2"}>
+            {can(user, "fees.collect") ? (
+              <Button className={wide ? undefined : "flex-1"} variant="ghost" accessibilityLabel="New invoice" onPress={() => setAdhocOpen(true)}>
+                New invoice
+              </Button>
+            ) : null}
+            {can(user, "fees.collect") || can(user, "people.edit") ? (
+              <Button className={wide ? undefined : "flex-1"} onPress={() => setPayOpen(true)}>Record payment</Button>
+            ) : null}
+          </View>
         </View>
         {selected.invoices?.length ? (
-          <ScrollView className="min-h-0 flex-1" nestedScrollEnabled>
-            <View className="overflow-hidden rounded-md bg-white">
-              <View className="flex-row items-center justify-between border-b border-ink-100 px-3 pb-2">
-                <View>
-                  <Text className="text-sm font-semibold text-ink-900">Invoices and receipts</Text>
-                  <Text className="mt-0.5 text-xs text-ink-700">Month-wise billing ledger for this student</Text>
-                </View>
-                <Text className="text-xs text-ink-700">{selected.invoices.length} month{selected.invoices.length === 1 ? "" : "s"}</Text>
+          <View>
+            <View className="overflow-hidden rounded-xl border border-ink-100 bg-white">
+              <View className="flex-row items-center justify-between border-b border-ink-100 px-3 py-2.5">
+                <Text className="text-sm font-semibold text-ink-900">Invoices</Text>
+                <Text className="text-xs text-ink-500">{selected.invoices.length}</Text>
               </View>
               {selected.invoices.map((inv, i) => {
                 const paid = inv.status === "paid";
+                const adhoc = inv.kind === "ADHOC";
+                const lineCount = inv.lines?.length ?? 0;
+                const showItems = adhoc && (lineCount > 1 || (lineCount === 1 && inv.lines![0].label !== inv.title));
+                const statusText = paid ? "Paid" : inv.status === "overdue" ? "Overdue" : inv.status === "partial" ? "Partly paid" : "Due";
                 return (
                   <View
                     key={inv.id}
-                    className={`flex-row items-center justify-between gap-3 px-3 py-3 ${i ? "border-t border-ink-100" : ""}`}
+                    className={`${wide ? "flex-row items-start justify-between gap-4" : "gap-3"} px-3 py-4 ${i ? "border-t border-ink-100" : ""}`}
                   >
                     <View className="min-w-0 flex-1">
-                      <Text className="text-sm font-medium text-ink-900">{inv.title}</Text>
-                      <Text className="mt-1 text-xs text-ink-700">
-                        {paid ? `Paid ${inv.paid}` : `Due ${inv.due} · ${inv.amount}`}
-                        {!paid && inv.remaining ? ` · ${inv.remaining} left` : ""}
-                        {!paid && inv.lateLabel ? ` · ${inv.lateLabel}` : ""}
-                      </Text>
+                      <View className="flex-row items-center gap-2">
+                        <Text className="shrink text-[15px] font-semibold text-ink-900" numberOfLines={wide ? 1 : 2}>{inv.title}</Text>
+                        {adhoc ? (
+                          <View className="rounded bg-ink-100 px-1.5 py-0.5">
+                            <Text className="text-[10px] font-semibold uppercase tracking-wide text-ink-700">One-off</Text>
+                          </View>
+                        ) : null}
+                        {!wide ? <Text className="ml-auto pl-2 text-[15px] font-semibold text-ink-900">{inv.amount}</Text> : null}
+                      </View>
+                      <View className="mt-1 flex-row items-center justify-between gap-2">
+                        <Text className="min-w-0 flex-1 text-xs text-ink-600">
+                          {paid ? `Paid ${inv.paid}` : `Due ${inv.due}`}
+                          {!paid && inv.remaining && inv.remaining !== inv.amount ? ` · ${inv.remaining} left` : ""}
+                          {!paid && inv.lateLabel ? ` · ${inv.lateLabel}` : ""}
+                        </Text>
+                        {!wide ? (
+                          <Badge tone={paid ? "leaf" : inv.status === "overdue" ? "danger" : "warn"}>{statusText}</Badge>
+                        ) : null}
+                      </View>
+                      {showItems || inv.note || inv.attachments?.length ? (
+                        <View className="mt-2.5 gap-2 rounded-lg bg-ink-50 px-3 py-2.5">
+                          {showItems
+                            ? (inv.lines ?? []).map((line, n) => (
+                                <View key={`${line.label}-${n}`} className="flex-row justify-between gap-3">
+                                  <Text className="min-w-0 flex-1 text-xs text-ink-700" numberOfLines={1}>{line.label}</Text>
+                                  <Text className="text-xs text-ink-700">{inr(line.amount)}</Text>
+                                </View>
+                              ))
+                            : null}
+                          {inv.note ? (
+                            <View className="flex-row gap-1.5">
+                              <Ionicons name="chatbubble-ellipses-outline" size={13} color="#64748B" style={{ marginTop: 1 }} />
+                              <Text className="min-w-0 flex-1 text-xs text-ink-700" numberOfLines={3}>{inv.note}</Text>
+                            </View>
+                          ) : null}
+                          {inv.attachments?.length ? (
+                            <View className="flex-row flex-wrap gap-1.5">
+                              {inv.attachments.map((file) => (
+                                <Pressable
+                                  key={file.path}
+                                  accessibilityRole="link"
+                                  accessibilityLabel={`Open ${file.name}`}
+                                  onPress={() => void openSalaryProof(token, file.path).catch((e) => toast.show(e instanceof Error ? e.message : "Could not open the file."))}
+                                  className="flex-row items-center gap-1.5 rounded-full border border-ink-200 bg-white px-2.5 py-1"
+                                  style={Platform.OS === "web" ? ({ outlineStyle: "none" } as unknown as ViewStyle) : undefined}
+                                >
+                                  <Ionicons name={/\.pdf$/i.test(file.name) ? "document-text-outline" : "image-outline"} size={13} color="#1F45C7" />
+                                  <Text className="max-w-[160px] text-xs font-medium text-ink-800" numberOfLines={1}>{file.name}</Text>
+                                </Pressable>
+                              ))}
+                            </View>
+                          ) : null}
+                        </View>
+                      ) : null}
                     </View>
-                    <View className="items-end gap-1.5">
-                      <Badge tone={paid ? "leaf" : inv.status === "overdue" ? "warn" : "clay"}>
-                        {paid ? "paid" : inv.status}
-                      </Badge>
+                    <View className={wide ? "items-end gap-2" : "flex-row-reverse items-center justify-between gap-3"}>
+                      {wide ? (
+                        <View className="flex-row items-center gap-2">
+                          <Text className="text-[15px] font-semibold text-ink-900">{inv.amount}</Text>
+                          <Badge tone={paid ? "leaf" : inv.status === "overdue" ? "danger" : "warn"}>
+                            {statusText}
+                          </Badge>
+                        </View>
+                      ) : null}
                       <View className="flex-row flex-wrap justify-end gap-1.5">
                         {Platform.OS === "web" ? (
                           createElement(
@@ -2491,12 +2775,22 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                           )
                         ) : null}
                       </View>
+                      {inv.canCancel && can(user, "fees.collect") ? (
+                        <Pressable
+                          accessibilityRole="button"
+                          disabled={cancellingInvoiceId === inv.id}
+                          onPress={() => cancelAdhocInvoice(inv.id, inv.title)}
+                          hitSlop={6}
+                        >
+                          <Text className="text-xs text-ink-500">{cancellingInvoiceId === inv.id ? "Cancelling..." : "Cancel invoice"}</Text>
+                        </Pressable>
+                      ) : null}
                     </View>
                   </View>
                 );
               })}
             </View>
-          </ScrollView>
+          </View>
         ) : (
           <Text className="mt-3 text-sm text-ink-700">
             No bills yet. Generate payment, then run fees for {selected.classLabel}.
@@ -2734,9 +3028,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       );
     }
     const paneBody =
-      fileTab === "fees" ? (
-        tabBody
-      ) : (
+      (
         <ScrollView
           className="min-h-0 flex-1"
           nestedScrollEnabled
@@ -3230,6 +3522,19 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
           await reload();
         }}
       /> : null}
+
+      <AdhocInvoiceModal
+        open={adhocOpen}
+        token={token}
+        student={selected ? { id: selected.id, name: selected.name, classLabel: selected.classLabel } : null}
+        catalog={data?.feeCatalog?.items}
+        onClose={() => setAdhocOpen(false)}
+        onDone={async (message) => {
+          setAdhocOpen(false);
+          toast.show(message);
+          await reload();
+        }}
+      />
 
       <Modal
         open={manageFeeOpen && Boolean(selected)}

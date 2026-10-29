@@ -4,7 +4,7 @@ import { Linking, Modal as RnModal, Platform, Pressable, ScrollView, Text, useWi
 import { SafeAreaView } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { GeneratePayment } from "./generate-payment";
+import { GeneratePayment, payLinkText, payRangeLabel, whatsAppDigits } from "./generate-payment";
 import { FilterBar, type FilterConfig, type FilterValues } from "./filter";
 import { BackLink, Button, Card, Field, Input, Modal, Switch, Toast, useToast } from "./ui";
 import { DateField, MonthField } from "./date-field";
@@ -14,6 +14,7 @@ import { act } from "../lib/mutate";
 import { webOrigin } from "../lib/api";
 import { datesForSessionYear, ordinalDay, SESSION_YEAR_OPTIONS, sessionYearId } from "../lib/fee-setup";
 import { useRecord } from "../lib/record";
+import { AdhocInvoiceModal } from "./adhoc-invoice";
 import { useSession } from "../lib/session";
 import { inr } from "../lib/payroll";
 
@@ -505,6 +506,11 @@ export function FeesBoard() {
   const toast = useToast();
   const { width } = useWindowDimensions();
   const didInitialRefresh = useRef(false);
+  const [adhocOpen, setAdhocOpen] = useState(false);
+  const [remindingId, setRemindingId] = useState("");
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkSending, setBulkSending] = useState(false);
+  const [bulkDone, setBulkDone] = useState<string[]>([]);
   const [tab, setTab] = useState<Tab>(() => feeTabFromParam(params.tab));
   const [query, setQuery] = useState("");
   const [classId, setClassId] = useState("all");
@@ -642,7 +648,8 @@ export function FeesBoard() {
           fee,
           late,
           dueNow,
-          months: open.length,
+          months: open.filter((inv) => /^\d{4}-\d{2}$/.test(inv.period || "")).length,
+          others: open.filter((inv) => !/^\d{4}-\d{2}$/.test(inv.period || "")).length,
           period: unpaidPeriodLabel(open),
           dueDate: dueDates[0] || "—",
           status: statusOf(open),
@@ -1089,6 +1096,94 @@ export function FeesBoard() {
     </View>
   );
 
+  const dueRows = registerRows.filter((row) => row.dueNow > 0);
+  const reachableDueRows = dueRows.filter((row) => whatsAppDigits(row.person.parentPhone));
+  const autoWhatsApp = Boolean(data?.school?.pay?.aisensyKeySet);
+
+  async function sendBulkAutomatically() {
+    setBulkSending(true);
+    try {
+      const result = await act<{ ok: true; sent: number; failed: { studentId: string; error: string }[] }>(token, "sendBulkPayLinks", {
+        students: reachableDueRows.map((row) => ({ studentId: row.person.id, invoiceIds: row.open.map((inv) => inv.id) })),
+      });
+      setBulkOpen(false);
+      toast.show(result.failed.length ? `Sent to ${result.sent}. ${result.failed.length} failed: ${result.failed[0].error}` : `Reminder sent to ${result.sent} parent${result.sent === 1 ? "" : "s"}.`);
+    } catch (error) {
+      toast.show(error instanceof Error ? error.message : "Could not send reminders.");
+    } finally {
+      setBulkSending(false);
+    }
+  }
+
+  async function openNextReminder() {
+    const next = reachableDueRows.find((row) => !bulkDone.includes(row.person.id));
+    if (!next) return;
+    setBulkDone((cur) => [...cur, next.person.id]);
+    await remindOnWhatsApp(next);
+  }
+
+  const remindButton =
+    tab === "register" && collect && dueRows.length ? (
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => {
+          setBulkDone([]);
+          setBulkOpen(true);
+        }}
+        className="flex-row items-center justify-center gap-2 rounded-md border border-ink-200 bg-white px-4 py-2.5"
+      >
+        <Ionicons name="logo-whatsapp" size={16} color="#16a34a" />
+        <Text className="text-sm font-medium text-ink-800">Remind {dueRows.length}</Text>
+      </Pressable>
+    ) : null;
+
+  const nextReminder = reachableDueRows.find((row) => !bulkDone.includes(row.person.id));
+  const bulkModal = (
+    <Modal open={bulkOpen} title={`Remind ${dueRows.length} parent${dueRows.length === 1 ? "" : "s"}`} sheetOnPhone onClose={() => !bulkSending && setBulkOpen(false)}>
+      <View className="gap-4">
+        {dueRows.length > reachableDueRows.length ? (
+          <Text className="text-xs text-amber-800">{dueRows.length - reachableDueRows.length} without a valid parent phone will be skipped.</Text>
+        ) : null}
+
+        <View className="gap-2 rounded-xl border border-ink-200 p-4">
+          <Text className="text-sm font-semibold text-ink-900">Send to everyone at once</Text>
+          <Text className="text-xs leading-5 text-ink-600">
+            {autoWhatsApp
+              ? "Goes out from the school's WhatsApp number with each family's amount and pay link."
+              : "Connect the school's WhatsApp (AiSensy) in Settings to use this."}
+          </Text>
+          <Button disabled={!autoWhatsApp || bulkSending || !reachableDueRows.length} onPress={() => void sendBulkAutomatically()} className="mt-1 self-start">
+            {bulkSending ? "Sending..." : `Send to ${reachableDueRows.length}`}
+          </Button>
+        </View>
+
+        <View className="gap-2 rounded-xl border border-ink-200 p-4">
+          <Text className="text-sm font-semibold text-ink-900">Send from my WhatsApp</Text>
+          <Text className="text-xs leading-5 text-ink-600">WhatsApp opens one chat at a time with the message ready. Press send, come back, open the next.</Text>
+          <View className="mt-1 overflow-hidden rounded-lg border border-ink-100">
+            {reachableDueRows.map((row, n) => {
+              const done = bulkDone.includes(row.person.id);
+              return (
+                <View key={row.person.id} className={`flex-row items-center gap-3 px-3 py-2 ${n ? "border-t border-ink-100" : ""}`}>
+                  <Ionicons name={done ? "checkmark-circle" : "ellipse-outline"} size={16} color={done ? "#16a34a" : "#A3AEC2"} />
+                  <Text className={`min-w-0 flex-1 text-sm ${done ? "text-ink-500" : "text-ink-900"}`} numberOfLines={1}>
+                    {row.person.name} <Text className="text-ink-500">· {row.person.classLabel}</Text>
+                  </Text>
+                  <Text className="text-sm font-medium text-ink-900">{compactInr(row.dueNow)}</Text>
+                </View>
+              );
+            })}
+          </View>
+          <Button variant="ghost" disabled={!nextReminder || Boolean(remindingId)} onPress={() => void openNextReminder()} className="mt-1 self-start">
+            {nextReminder
+              ? `Open WhatsApp · ${nextReminder.person.name} (${bulkDone.length + 1} of ${reachableDueRows.length})`
+              : "All done"}
+          </Button>
+        </View>
+      </View>
+    </Modal>
+  );
+
   const toolbar = (
     <View className="mb-3 gap-3">
       <View className="flex-row flex-wrap items-start justify-between gap-3">
@@ -1098,8 +1193,30 @@ export function FeesBoard() {
             {tab === "register" ? `${summary.pending} fee periods need attention across ${summary.students} students.` : tab === "report" ? "Review every payment and receipt in one place." : tab === "insight" ? "Collection performance for the current academic session." : "Configure the school’s fee structure."}
           </Text>
         </View>
-        {modeTabs}
+        <View className="flex-row flex-wrap items-center gap-2">
+          {remindButton}
+          {tab === "register" && can(user, "fees.collect") ? (
+            <Button variant="ghost" accessibilityLabel="New invoice" onPress={() => setAdhocOpen(true)}>
+              New invoice
+            </Button>
+          ) : null}
+          {modeTabs}
+        </View>
       </View>
+      {bulkModal}
+      <AdhocInvoiceModal
+        open={adhocOpen}
+        token={token}
+        student={null}
+        students={people.map((row) => ({ id: row.id, name: row.name, classId: row.classId, classLabel: row.classLabel, admissionNo: row.admissionNo }))}
+        catalog={data?.feeCatalog?.items}
+        onClose={() => setAdhocOpen(false)}
+        onDone={async (message) => {
+          setAdhocOpen(false);
+          toast.show(message);
+          await reload();
+        }}
+      />
       {tab === "register" ? missingFeeBanner : null}
       {tab !== "insight" && tab !== "setup" ? metricChips : null}
       <View className="min-w-[220px] flex-1">
@@ -1135,6 +1252,64 @@ export function FeesBoard() {
     </View>
   );
 
+  /** Opens WhatsApp with a ready reminder and a pay link for everything this student owes. */
+  async function remindOnWhatsApp(row: (typeof registerRows)[number]) {
+    const wa = whatsAppDigits(row.person.parentPhone);
+    if (!wa) {
+      toast.show("Add the parent's phone number first.");
+      return;
+    }
+    setRemindingId(row.person.id);
+    try {
+      const res = await act<{ ok: true; path: string }>(token, "ensurePayLink", {
+        studentId: row.person.id,
+        invoiceIds: row.open.map((inv) => inv.id),
+      });
+      if (!res.path) throw new Error("Could not make the pay link.");
+      const text = payLinkText({
+        studentName: row.person.name,
+        range: payRangeLabel(row.open.map((inv) => inv.title)),
+        due: row.dueNow,
+        url: `${webOrigin()}${res.path}`,
+      });
+      await Linking.openURL(`https://wa.me/${wa}?text=${encodeURIComponent(text)}`);
+    } catch (error) {
+      toast.show(error instanceof Error ? error.message : "Could not open WhatsApp.");
+    } finally {
+      setRemindingId("");
+    }
+  }
+
+  function RowAction({
+    icon,
+    color,
+    label,
+    disabled,
+    onPress,
+  }: {
+    icon: keyof typeof Ionicons.glyphMap;
+    color: string;
+    label: string;
+    disabled?: boolean;
+    onPress: () => void;
+  }) {
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        disabled={disabled}
+        onPress={(event) => {
+          (event as unknown as { stopPropagation?: () => void })?.stopPropagation?.();
+          onPress();
+        }}
+        className={`h-8 w-8 items-center justify-center rounded-full border border-ink-200 bg-white hover:bg-slate-50 ${disabled ? "opacity-40" : ""}`}
+        style={Platform.OS === "web" ? ({ cursor: disabled ? "default" : "pointer" } as object) : undefined}
+      >
+        <Ionicons name={icon} size={15} color={color} />
+      </Pressable>
+    );
+  }
+
   const registerTable = (
     <View className="w-full">
       <View className="flex-row border-b border-ink-200 bg-slate-50/70" style={stickyHead}>
@@ -1142,8 +1317,8 @@ export function FeesBoard() {
         <Head label="Amount due" flex={1.15} right />
         <Head label="Status" flex={0.9} />
         <Head label="Fee period" flex={1.25} />
-        <Head label="Last payment" flex={1.45} right />
-        <Head label="" flex={0.32} right />
+        <Head label="Last payment" flex={1.3} right />
+        <Head label="" flex={1} right />
       </View>
       {refreshing && !registerRows.length
         ? Array.from({ length: 8 }).map((_, index) => (
@@ -1195,10 +1370,14 @@ export function FeesBoard() {
                 <Cell flex={1.25}>
                   <Text numberOfLines={1} className="text-[13px] font-medium text-ink-900">{row.period}</Text>
                   <Text numberOfLines={1} className="mt-0.5 text-[11px] text-ink-500">
-                    {row.months ? `${row.months} month${row.months === 1 ? "" : "s"} · due ${row.dueDate}` : `Due ${row.dueDate}`}
+                    {[
+                      row.months ? `${row.months} month${row.months === 1 ? "" : "s"}` : "",
+                      row.others ? `${row.others} other` : "",
+                      `due ${row.dueDate}`,
+                    ].filter(Boolean).join(" · ").replace(/^due/, "Due")}
                   </Text>
                 </Cell>
-                <Cell flex={1.35} right>
+                <Cell flex={1.2} right>
                   {row.lastPayment ? (
                     <>
                       <Text numberOfLines={1} className="text-[12px] font-medium text-ink-900">{row.lastPayment.amount}</Text>
@@ -1208,8 +1387,26 @@ export function FeesBoard() {
                     <Text className="text-[12px] text-ink-400">No payment yet</Text>
                   )}
                 </Cell>
-                <Cell flex={0.32} right>
-                  <Ionicons name="chevron-forward" size={16} color="#94a3b8" />
+                <Cell flex={1} right>
+                  <View className="flex-row items-center justify-end gap-1.5">
+                    {row.dueNow > 0 ? (
+                      <RowAction
+                        icon="logo-whatsapp"
+                        color="#16a34a"
+                        label={`Send fee reminder to ${row.person.name}'s parent on WhatsApp`}
+                        disabled={!whatsAppDigits(row.person.parentPhone) || remindingId === row.person.id}
+                        onPress={() => void remindOnWhatsApp(row)}
+                      />
+                    ) : null}
+                    <RowAction
+                      icon="call-outline"
+                      color="#1F45C7"
+                      label={`Call ${row.person.name}'s parent`}
+                      disabled={!whatsAppDigits(row.person.parentPhone)}
+                      onPress={() => void Linking.openURL(`tel:+${whatsAppDigits(row.person.parentPhone)}`)}
+                    />
+                    <Ionicons name="chevron-forward" size={16} color="#94a3b8" />
+                  </View>
                 </Cell>
               </Pressable>
             );
@@ -2430,7 +2627,23 @@ export function FeesBoard() {
             {row.dueNow ? compactInr(row.dueNow) : "Paid"}
           </Text>
         </View>
-        <Ionicons name="chevron-forward" size={16} color="#94a3b8" />
+        {row.dueNow > 0 && whatsAppDigits(row.person.parentPhone) ? (
+          <RowAction
+            icon="logo-whatsapp"
+            color="#16a34a"
+            label={`Send fee reminder to ${row.person.name}'s parent on WhatsApp`}
+            disabled={remindingId === row.person.id}
+            onPress={() => void remindOnWhatsApp(row)}
+          />
+        ) : null}
+        {whatsAppDigits(row.person.parentPhone) ? (
+          <RowAction
+            icon="call-outline"
+            color="#1F45C7"
+            label={`Call ${row.person.name}'s parent`}
+            onPress={() => void Linking.openURL(`tel:+${whatsAppDigits(row.person.parentPhone)}`)}
+          />
+        ) : null}
       </Pressable>
     );
   };
@@ -2473,7 +2686,9 @@ export function FeesBoard() {
             {tab === "register" ? phoneSummary : null}
             {phoneSearch}
             {tab === "register" ? statusChips : null}
+            {remindButton}
           </View>
+          {bulkModal}
           <View className="overflow-hidden rounded-xl border border-ink-100 bg-white">
             {tab === "register"
               ? refreshing && !registerRows.length

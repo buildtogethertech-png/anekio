@@ -136,6 +136,12 @@ function validateAndFolder(user: AccessUser, file: UploadFile, fields: Record<st
     };
   }
 
+  if (kind === "invoiceAttachment") {
+    if (!can(user, "fees.collect")) throw new Error("No access.");
+    if (!isReceiptFile(file.name, file.mime)) throw new Error("Attach a photo or PDF.");
+    return { kind, folder: `private/${schoolRoot()}/fees/attachments` };
+  }
+
   if (kind === "school") {
     if (!can(user, "school.edit")) throw new Error("No access.");
     if (!isImage(file.name, file.mime)) throw new Error("Upload a PNG, JPEG, or WebP image.");

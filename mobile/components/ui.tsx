@@ -60,7 +60,7 @@ export function Input(props: TextInputProps) {
   return (
     <TextInput
       {...props}
-      placeholderTextColor="#3d4f66"
+      placeholderTextColor={props.placeholderTextColor ?? "#3d4f66"}
       className={`rounded-md border border-ink-200 bg-white px-3 py-2.5 text-sm text-ink-900 ${props.className || ""}`}
     />
   );

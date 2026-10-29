@@ -84,9 +84,22 @@ function serializeFamilyFeeInvoice(inv: {
   };
 }
 
+function adhocMeta(metadataJson?: string | null) {
+  try {
+    const parsed = JSON.parse(metadataJson || "{}") as { adhoc?: { note?: string; attachments?: { path?: string; name?: string }[] } };
+    const attachments = (Array.isArray(parsed?.adhoc?.attachments) ? parsed.adhoc.attachments : [])
+      .map((row) => ({ path: String(row?.path || ""), name: String(row?.name || "Attachment") }))
+      .filter((row) => row.path);
+    return { note: String(parsed?.adhoc?.note || ""), attachments };
+  } catch {
+    return { note: "", attachments: [] };
+  }
+}
+
 function serializePeopleFeeInvoice(inv: {
   id: string;
   title: string;
+  kind?: string | null;
   period?: string | null;
   dueDate: Date;
   amount: number;
@@ -115,6 +128,9 @@ function serializePeopleFeeInvoice(inv: {
     late: balance.late,
     lateLabel: balance.lateLabel,
     status: balance.display.toLowerCase(),
+    kind: inv.kind || "",
+    ...adhocMeta(inv.metadataJson),
+    canCancel: inv.kind === "ADHOC" && inv.payments.length === 0,
     lines,
     invoiceUrl,
     receiptUrl,

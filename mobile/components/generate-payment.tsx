@@ -72,14 +72,14 @@ function lateOf(inv: NonNullable<StudentPay["invoices"]>[number]) {
   return Math.max(0, dueOf(inv) - remaining);
 }
 
-function payRangeLabel(titles: string[]) {
+export function payRangeLabel(titles: string[]) {
   const months = titles.map((title) => title.split(" · ")[0]?.trim() || title).filter(Boolean);
   if (!months.length) return "Selected months";
   if (months.length === 1) return months[0];
   return `${months[0]} to ${months[months.length - 1]}`;
 }
 
-function whatsAppDigits(raw?: string | null) {
+export function whatsAppDigits(raw?: string | null) {
   const digits = (raw || "").replace(/\D/g, "");
   if (digits.length === 10) return `91${digits}`;
   if (digits.length === 12 && digits.startsWith("91")) return digits;
@@ -92,7 +92,7 @@ function channelHint(opts: { wa: boolean }) {
   return "Opens WhatsApp or phone on this device with the selected pay link.";
 }
 
-function payLinkText(opts: { studentName: string; range: string; due: number; url: string }) {
+export function payLinkText(opts: { studentName: string; range: string; due: number; url: string }) {
   return `Dear Parent,
 
 This is a reminder that the school fee for ${opts.studentName} (${opts.range}) is pending.

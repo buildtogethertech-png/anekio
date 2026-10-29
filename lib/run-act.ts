@@ -87,6 +87,7 @@ import {
   scanStaffAttendanceQrCore,
   saveTimetableSlotCore,
   sendStudentPayLinkCore,
+  sendBulkPayLinksCore,
   setCurrentSchoolSessionCore,
   setManagerCore,
   setRolePermissionsCore,
@@ -108,6 +109,8 @@ import {
   grantExamMarksCore,
   remindExamMarksCore,
   createInvoiceCore,
+  createAdhocInvoiceCore,
+  cancelAdhocInvoiceCore,
   importExamMarksCore,
   importPeopleSheetCore,
   issueClassFeesCore,
@@ -485,6 +488,10 @@ export async function runAct(
     case "createInvoice":
       await createInvoiceCore(user, body as never);
       break;
+    case "createAdhocInvoice":
+      return { ok: true, ...(await createAdhocInvoiceCore(user, body as never)) };
+    case "cancelAdhocInvoice":
+      return { ok: true, ...(await cancelAdhocInvoiceCore(user, body as never)) };
     case "saveFeeTemplate":
       return { ok: true, ...(await saveFeeTemplateCore(user, body as never)) };
     case "saveFeeCatalog":
@@ -680,6 +687,8 @@ export async function runAct(
       });
       return { ok: true, ...link };
     }
+    case "sendBulkPayLinks":
+      return { ok: true, ...(await sendBulkPayLinksCore(user, body as never)) };
     case "sendPayLink": {
       const invoiceIds = Array.isArray(body.invoiceIds) ? body.invoiceIds.map(String) : [];
       await sendStudentPayLinkCore(user, {
