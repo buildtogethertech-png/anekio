@@ -975,6 +975,12 @@ model SchoolConfig {
   /// Routine auto-fill rules (JSON): class teacher period 1, same period daily, heavy subjects in the morning,
   /// double periods per subject, teacher unavailable periods. Empty = no rules.
   timetableRulesJson      String                    @default("")
+  /// Admission number look for new students: {N} = serial, {YYYY}/{YY} = session year. Empty = copy the last number.
+  admissionNoFormat       String                    @default("")
+  /// Zero padding for {N}. 0 = copy the last number's padding.
+  admissionNoDigits       Int                       @default(0)
+  /// Next admission serial is at least this (paper register ran ahead). 0 = none.
+  admissionNoFloor        Int                       @default(0)
   payrollJson             String                    @default("{\"presentCredit\":1,\"absentCredit\":0,\"paidLeaveCredit\":1,\"unpaidLeaveCredit\":0,\"halfDayCredit\":0.5,\"lateCredit\":1}")
   feeCatalogJson           String                    @default("{\"items\":[],\"late\":{\"enabled\":false,\"amount\":0,\"graceDays\":0}}")
   documentTemplates       DocumentTemplate[]
@@ -1863,4 +1869,19 @@ model LeaveLedger {
 
   @@unique([typeId, personKey, kind, period])
   @@index([personKey, leaveYear])
+}
+
+/// Every correction of a student's admission number (school admin only).
+model AdmissionNumberChange {
+  id            String   @id @default(cuid())
+  orgId         String?
+  studentId     String
+  fromNo        String
+  toNo          String
+  reason        String   @default("")
+  changedById   String
+  changedByName String   @default("")
+  createdAt     DateTime @default(now())
+
+  @@index([orgId, studentId])
 }

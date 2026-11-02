@@ -23,6 +23,9 @@ import {
   createClassCore,
   updateClassCore,
   admitLeadAsStudentCore,
+  admissionNumberInfoCore,
+  saveAdmissionNumberSettingsCore,
+  changeAdmissionNumberCore,
   assignOfficeUserCore,
   copyRoleAccessCore,
   createCustomRoleCore,
@@ -198,6 +201,12 @@ export async function runAct(
       return { ok: true, ...(await createStudentCore(user, body as never)) };
     case "admitLeadAsStudent":
       return { ok: true, ...(await admitLeadAsStudentCore(user, body as never)) };
+    case "admissionNumberInfo":
+      return { ok: true, ...(await admissionNumberInfoCore(user)) };
+    case "saveAdmissionNumberSettings":
+      return { ok: true, ...(await saveAdmissionNumberSettingsCore(user, body as never)) };
+    case "changeAdmissionNumber":
+      return { ok: true, ...(await changeAdmissionNumberCore(user, body as never)) };
     case "setClassRollNumbers":
       return { ok: true, ...(await setClassRollNumbersCore(user, body as never)) };
     case "updateStudent":

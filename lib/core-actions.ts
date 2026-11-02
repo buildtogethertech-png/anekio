@@ -9,6 +9,7 @@ import { recordLedgerPayment } from "./fee-ledger";
 import { issueDueFeesCore } from "./fee-run";
 import { feePeriod, feePeriodBefore, invoiceBalance, parseFeeCatalogState, payRangeLabel, pickAdmissionFeeLines, serializeFeeCatalogState } from "./fees";
 import { buildStudentMonthPayPath } from "./pay";
+import { admissionNumberContext, cleanAdmissionFormat, planNextAdmissionNo, nextAdmissionNo, withAdmissionNoRetry } from "./admission-number";
 import { sendResendEmail } from "./resend";
 import { publicOrigin } from "./utils";
 import {
@@ -208,13 +209,13 @@ export async function createStudentCore(user: AccessUser, input: CreateStudentIn
   if (input.forNextYear && classTeacherOnly(user, CLASS_STUDENTS_ADD)) {
     throw new Error("Only the office can admit for next year.");
   }
-  if (!input.forNextYear) return createStudentNow(user, input);
+  if (!input.forNextYear) return withAdmissionNoRetry(() => createStudentNow(user, input));
   need(user, "people.edit");
   const next = await ensurePreparedYear();
   // Billing can't start before that year does.
   const nextStart = next.startsOn.slice(0, 7);
   const billingStartPeriod = !input.billingStartPeriod || input.billingStartPeriod < nextStart ? nextStart : input.billingStartPeriod;
-  const result = await createStudentNow(user, { ...input, billingStartPeriod });
+  const result = await withAdmissionNoRetry(() => createStudentNow(user, { ...input, billingStartPeriod }));
   await markJoiningNextYear(result.studentId, input.classId);
   return { ...result, joinsYear: next.label };
 }
@@ -390,18 +391,8 @@ async function createStudentNow(
         });
         const admissionLines = existingStudent ? [] : pickAdmissionFeeLines([], admissionRows, config?.admissionCharge || 0);
         const admissionCharge = admissionLines.reduce((sum, line) => sum + line.amount, 0);
-        const existing = await tx.student.findMany({ select: { admissionNo: true } });
-        let nextNumber = Math.max(
-          0,
-          ...existing
-            .map((student) => Number(student.admissionNo.replace(/\D/g, "")))
-            .filter((number) => Number.isFinite(number))
-        ) + 1;
-        let admissionNo = `ANE-${String(nextNumber).padStart(5, "0")}`;
-        while (await tx.student.findFirst({ where: { admissionNo }, select: { id: true } })) {
-          nextNumber += 1;
-          admissionNo = `ANE-${String(nextNumber).padStart(5, "0")}`;
-        }
+        // Always automatic: highest serial + 1 in the school's format (lib/admission-number.ts).
+        const admissionNo = await nextAdmissionNo(tx, user.orgId ?? null);
         const student = await tx.student.create({
           data: {
             orgId: user.orgId ?? null,
@@ -608,7 +599,6 @@ export async function admitLeadAsStudentCore(
   need(user, "admissions.manage");
   const leadId = String(input.leadId || "").trim();
   const studentName = String(input.studentName || "").trim();
-  const admissionNo = String(input.admissionNo || "").trim();
   const classId = String(input.classId || "").trim();
   const dateOfBirth = String(input.dateOfBirth || "").trim();
   const guardianName = String(input.guardianName || "").trim();
@@ -621,7 +611,7 @@ export async function admitLeadAsStudentCore(
   const paymentMethod = String(input.paymentMethod || "").trim().toUpperCase();
   const paymentReference = String(input.paymentReference || "").trim();
   if (!leadId) throw new Error("Pick a lead first.");
-  if (!studentName || !admissionNo || !classId || !dateOfBirth || !guardianName || !parentEmail || !parentPhone || !address || !city || !state || !pincode) {
+  if (!studentName || !classId || !dateOfBirth || !guardianName || !parentEmail || !parentPhone || !address || !city || !state || !pincode) {
     throw new Error("Fill all required admission fields before adding the student.");
   }
   const born = new Date(dateOfBirth);
@@ -663,8 +653,8 @@ export async function admitLeadAsStudentCore(
     if (admissionCharge > 0 && paymentMethod !== "CASH" && !paymentReference) {
       throw new Error("Enter the payment reference for the one-time admission fee.");
     }
-    const existingStudent = await tx.student.findFirst({ where: { admissionNo } });
-    if (existingStudent) throw new Error("That admission number is already used.");
+    // Admission numbers are automatic; any typed number is ignored.
+    const admissionNo = await nextAdmissionNo(tx, user.orgId ?? null);
 
     const emailOwner = await tx.user.findFirst({ where: { email: parentEmail }, include: { parent: true } });
     const phoneOwner = await tx.user.findFirst({ where: { phone: parentPhone }, include: { parent: true } });
@@ -760,7 +750,7 @@ export async function admitLeadAsStudentCore(
         actorName,
       },
     });
-    return { studentId: student.id };
+    return { studentId: student.id, admissionNo };
   });
 }
 
@@ -795,7 +785,7 @@ export async function updateStudentCore(
   }
   const id = String(input.studentId || "");
   const name = input.name.trim();
-  const admissionNo = input.admissionNo.trim();
+  let admissionNo = String(input.admissionNo || "").trim();
   const classId = String(input.classId || "");
   let parentId = String(input.parentId || "");
   const dob = String(input.dateOfBirth || "");
@@ -809,11 +799,13 @@ export async function updateStudentCore(
   const city = String(input.city || "").trim();
   const state = String(input.state || "").trim();
   const pincode = String(input.pincode || "").trim();
-  if (!id || !name || !admissionNo || !classId) {
+  if (!id || !name || !classId) {
     throw new Error("Missing student fields");
   }
   const student = await prisma.student.findUnique({ where: { id } });
   if (!student) throw new Error("Student missing");
+  // Admission numbers change only through changeAdmissionNumberCore (school admin, logged).
+  admissionNo = student.admissionNo;
   if (!parentId && !parentPhone) {
     if (parentName || parentEmail) throw new Error("Add the parent's mobile, or leave the parent details empty.");
     const takenNo = await prisma.student.findFirst({ where: { admissionNo, NOT: { id } }, select: { id: true } });
@@ -4753,4 +4745,72 @@ export async function setClassRollNumbersCore(
   }));
   if (!rolls.length) throw new Error("Nothing to save.");
   return setClassRollNumbers({ classId, rolls });
+}
+
+/* ------------------------------------------------------------------ */
+/* Admission numbers: preview, settings, admin correction              */
+/* ------------------------------------------------------------------ */
+
+/** What the next new student will get, plus the school's numbering settings. */
+export async function admissionNumberInfoCore(user: AccessUser) {
+  need(user, "people.edit", CLASS_STUDENTS_ADD, "school.edit", "admissions.manage");
+  const ctx = await admissionNumberContext(prisma, user.orgId ?? null);
+  const plan = planNextAdmissionNo(ctx.existing, ctx.settings, ctx.sessionYear);
+  return {
+    next: plan.admissionNo,
+    lastNo: plan.lastNo,
+    highestSerial: plan.highestSerial,
+    studentCount: ctx.existing.length,
+    settings: ctx.settings,
+    canEdit: can(user, "school.edit"),
+  };
+}
+
+/** School admin: set how new admission numbers look. Counting stays automatic (highest + 1). */
+export async function saveAdmissionNumberSettingsCore(user: AccessUser, input: { format?: string; digits?: number | string; floor?: number | string }) {
+  need(user, "school.edit");
+  const rawFormat = String(input.format ?? "").trim();
+  if (/[{}]/.test(rawFormat.replace(/\{(N|YYYY|YY)\}/g, ""))) throw new Error("Use only {N}, {YYYY} or {YY} inside braces.");
+  const format = cleanAdmissionFormat(rawFormat);
+  const digits = Math.floor(Number(input.digits) || 0);
+  if (digits < 0 || digits > 8) throw new Error("Digits must be between 0 and 8.");
+  const floor = Math.floor(Number(input.floor) || 0);
+  if (floor < 0 || floor > 99999999) throw new Error("Enter a valid next number.");
+  const config = await prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { id: true } });
+  if (!config) throw new Error("Finish school setup first.");
+  await prisma.schoolConfig.update({ where: { id: "school" }, data: { admissionNoFormat: format, admissionNoDigits: digits, admissionNoFloor: floor } });
+  return admissionNumberInfoCore(user);
+}
+
+/** School admin only: correct one student's admission number. Logged with who, from, to and why. */
+export async function changeAdmissionNumberCore(user: AccessUser, input: { studentId?: string; admissionNo?: string; reason?: string }) {
+  need(user, "school.edit");
+  const studentId = String(input.studentId || "");
+  const toNo = String(input.admissionNo || "").replace(/\s+/g, " ").trim().slice(0, 40);
+  const reason = String(input.reason || "").trim().slice(0, 300);
+  if (!toNo) throw new Error("Enter the new admission number.");
+  if (!reason) throw new Error("Add a reason for the change.");
+  const student = await prisma.student.findUnique({ where: { id: studentId }, select: { id: true, admissionNo: true, orgId: true } });
+  if (!student) throw new Error("Student missing");
+  if (student.admissionNo === toNo) return { admissionNo: toNo };
+  const holder = await prisma.student.findFirst({
+    where: { admissionNo: toNo, NOT: { id: studentId } },
+    select: { name: true, class: { select: { name: true, section: true } } },
+  });
+  if (holder) throw new Error(`${toNo} is already ${holder.name} (${holder.class.name}-${holder.class.section}).`);
+  await prisma.$transaction(async (tx) => {
+    await tx.student.update({ where: { id: studentId }, data: { admissionNo: toNo } });
+    await tx.admissionNumberChange.create({
+      data: {
+        orgId: student.orgId ?? user.orgId ?? null,
+        studentId,
+        fromNo: student.admissionNo,
+        toNo,
+        reason,
+        changedById: user.id,
+        changedByName: user.name || "",
+      },
+    });
+  });
+  return { admissionNo: toNo };
 }

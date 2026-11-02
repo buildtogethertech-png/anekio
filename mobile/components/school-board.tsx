@@ -22,6 +22,7 @@ import { useRecord, type AdmissionFormField, type RecordPayload } from "../lib/r
 import { useSession } from "../lib/session";
 import { pickFile, uploadFile, type PickedFile } from "../lib/upload";
 import { cloneFields, FormBuilderModal } from "./form-builder";
+import { AdmissionNumberCard } from "./admission-number";
 
 /** Mirrors LOCKED_ADMISSION_FIELD_IDS on the server: every enquiry needs these. */
 const LOCKED_ADMISSION_FIELDS = ["studentName", "classWanted", "phone"];
@@ -3285,6 +3286,7 @@ export function SchoolBoard() {
                     );
                   })}
                 </View>
+                <AdmissionNumberCard canEdit={edit} />
               </View>
             ) : null}
 

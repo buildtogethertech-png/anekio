@@ -93,10 +93,11 @@ echo "==> [1/5] prisma generate"
 echo "==> [2/5] Subject codes: add column, backfill, dedupe, unique indexes"
 "$TSX" scripts/ensure-subject-code.ts
 
-# Additive SaaS billing changes (per-student pricing, payment links, plans). Safe to re-run.
-echo "==> [3/5] Payment links, plans and per-student pricing"
+# Additive changes: SaaS billing (per-student pricing, payment links, plans) and admission numbers. Safe to re-run.
+echo "==> [3/5] Additive SQL: payment links, plans, per-student pricing, admission numbers"
 if [[ $IS_POSTGRES -eq 1 ]]; then
   "$PRISMA" db execute --url "$DATABASE_URL" --file scripts/sql/2026-11-01-payment-links-plans.sql
+  "$PRISMA" db execute --url "$DATABASE_URL" --file scripts/sql/2026-11-02-admission-numbers.sql
 else
   echo "    (SQLite: applied by prisma db push below)"
 fi

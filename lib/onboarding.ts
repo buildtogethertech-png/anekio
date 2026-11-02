@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import { admissionNumberer } from "./admission-number";
 import ExcelJS from "exceljs";
 import { AttendanceStatus, ExamWorkflowStatus, InvoiceStatus, Prisma, type Role } from "@prisma/client";
 import { randomUUID } from "node:crypto";
@@ -1926,7 +1927,8 @@ async function applyStudents(
   const rollPlan = (await studentRollPlan(db, rows, forms.admission)).rolls;
   let created = 0;
   let updated = 0;
-  let nextAdmission = setup.admission;
+  // Blank admission numbers continue the school's series after every number already in use (DB + this sheet).
+  const numberer = await admissionNumberer(db, setup.orgId, rows.map((row) => sheetCell(row, "Admission number", "Admission no")));
   for (const row of rows) {
     const klass = classFromImportRow(row, forms.admission)!;
     const existingClass = await db.class.findFirst({ where: { name: klass.name, section: klass.section } });
@@ -1986,12 +1988,7 @@ async function applyStudents(
       : admissionNo
         ? await db.student.findFirst({ where: { admissionNo, orgId: setup.orgId } })
         : null;
-    if (!admissionNo) {
-      do {
-        admissionNo = `ANE-${String(nextAdmission).padStart(5, "0")}`;
-        nextAdmission += 1;
-      } while (await db.student.findFirst({ where: { admissionNo, orgId: setup.orgId }, select: { id: true } }));
-    }
+    if (!admissionNo) admissionNo = existing?.admissionNo || numberer.next();
     const roll = { value: rollPlan.get(row._row) ?? null };
     const tags = parsePathTags(configuredImportValue(row, forms.admission, "interests", "Interest", "Interests", "Path"));
     const billingStart = parseBillingMonth(configuredImportValue(row, forms.admission, "billingStartPeriod", "Billing starts from")) || "";

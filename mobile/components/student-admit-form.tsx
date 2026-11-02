@@ -8,6 +8,7 @@ import { nextClassRoll } from "../lib/next-class-roll";
 import { useOptionalRecord, type AdmissionFormField } from "../lib/record";
 import { pickFile, type PickedFile } from "../lib/upload";
 import { useAssetUrl } from "../lib/assets";
+import { AdmissionNoPreview } from "./admission-number";
 
 export type StudentFeeAddOnPayload = {
   id?: string;
@@ -689,6 +690,7 @@ export function StudentAdmitForm({
                   </View>
                 ) : null}
               </View>
+              <AdmissionNoPreview compact />
               {showRoll ? (
                 <View>
                   {label(`${builtinLabel("rollNumber", "Roll no")} *`)}
@@ -1066,6 +1068,9 @@ export function StudentAdmitForm({
             ) : (
               <Text className="text-sm text-ink-700">Add a class first, then come back.</Text>
             )}
+          </Cell>
+          <Cell half twoCol={twoCol}>
+            <AdmissionNoPreview />
           </Cell>
           {showRoll ? (
             <Cell half twoCol={twoCol}>

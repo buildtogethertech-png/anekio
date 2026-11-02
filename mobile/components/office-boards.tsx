@@ -1,3 +1,4 @@
+import { AdmissionNoField } from "./admission-number";
 import { createElement, useMemo, useState, useEffect, useRef } from "react";
 import { SetPasswordModal } from "./set-password-modal";
 import type { ViewStyle } from "react-native";
@@ -1695,7 +1696,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
         await act(token, "updateStudent", {
           studentId: selected.id,
           name: edit.name || selected.name,
-          admissionNo: edit.admissionNo || selected.admissionNo,
+          admissionNo: selected.admissionNo,
           classId: edit.classId || selected.classId,
           parentId: edit.parentId || selected.parentId,
           dateOfBirth: edit.dateOfBirth || selected.dateOfBirth,
@@ -2002,9 +2003,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                   />
                 </View>
                 <View className={half}>
-                  <Field label="Admission no.">
-                    <Input value={edit.admissionNo ?? selected.admissionNo} onChangeText={(v) => setEdit((p) => ({ ...p, admissionNo: v }))} />
-                  </Field>
+                  <AdmissionNoField studentId={selected.id} admissionNo={selected.admissionNo} canChange={can(user, "school.edit")} onChanged={reload} />
                 </View>
               </>
             ) : (
@@ -2012,7 +2011,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                 <Text className="text-sm text-ink-800">
                   {selected.classLabel || "Class"} · {selected.admissionNo}
                 </Text>
-                <Text className="mt-0.5 text-xs text-ink-600">Ask the office to change the class or admission number.</Text>
+                <Text className="mt-0.5 text-xs text-ink-600">Ask the office to change the class. Admission numbers are set automatically.</Text>
               </View>
             )}
           </View>
