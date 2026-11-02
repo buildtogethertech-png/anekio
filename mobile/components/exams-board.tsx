@@ -529,7 +529,8 @@ export function ExamsBoard() {
             schedule: series.exams.map((exam) => ({
               subject: subjectLabel(exam.subject),
               date: prettyDay(exam.date),
-              maxMarks: exam.maxMarks,
+              startTime: exam.startTime || "",
+              endTime: exam.endTime || "",
             })),
           },
         }}

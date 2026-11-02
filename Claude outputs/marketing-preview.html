@@ -1,0 +1,1252 @@
+<!doctype html>
+<html lang="en-IN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  <title>Anekio | School Management Software &amp; ERP for Indian Schools</title>
+  <meta name="description" content="School management software for Indian schools: admissions, fees with UPI and receipts, attendance, exams and report cards, timetable and a parent app, on web and Android. Book a free demo." />
+  <meta name="robots" content="index,follow,max-image-preview:large" />
+  <link rel="canonical" href="/" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Anekio | School Management Software &amp; ERP for Indian Schools" />
+  <meta property="og:description" content="School management software for Indian schools: admissions, fees with UPI and receipts, attendance, exams and report cards, timetable and a parent app, on web and Android. Book a free demo." />
+  <meta property="og:url" content="/" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <style>
+    :root{color-scheme:light;--ink:#102033;--muted:#5d6f86;--blue:#2855f6;--sky:#21b6e8;--mint:#14b889;--gold:#f5b93f;--cream:#fffaf1;--paper:#ffffff;--soft:#f3f7fd;--line:#dbe6f4;--shadow:0 24px 70px rgba(16,32,51,.12)}
+    *{box-sizing:border-box}html{scroll-behavior:smooth;background:#eef4ff}body{margin:0;position:relative;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:transparent;color:var(--ink);line-height:1.5}
+    body:before,body:after{content:"";position:fixed;inset:0;pointer-events:none}
+    body:before{z-index:-2;background:radial-gradient(900px 560px at 6% -8%,rgba(40,85,246,.2),transparent 58%),radial-gradient(780px 520px at 96% 4%,rgba(33,182,232,.2),transparent 56%),radial-gradient(700px 480px at 80% 92%,rgba(20,184,137,.1),transparent 62%),radial-gradient(520px 360px at 12% 78%,rgba(245,185,63,.1),transparent 60%),linear-gradient(180deg,#fbfdff 0%,#eef4ff 46%,#f7fbff 100%);animation:bg-glow 22s ease-in-out infinite alternate}
+    body:after{z-index:-1;opacity:.4;background-image:radial-gradient(rgba(40,85,246,.16) 1px,transparent 1.2px),linear-gradient(rgba(40,85,246,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(40,85,246,.045) 1px,transparent 1px);background-size:22px 22px,56px 56px,56px 56px;mask-image:radial-gradient(ellipse 90% 80% at 50% 30%,#000 10%,transparent 78%);animation:bg-drift 32s linear infinite}
+    @keyframes bg-glow{from{filter:hue-rotate(-8deg) saturate(1)}to{filter:hue-rotate(12deg) saturate(1.12)}}
+    @keyframes bg-drift{from{background-position:0 0,0 0,0 0}to{background-position:120px 80px,56px 56px,-56px 56px}}
+    a{color:inherit;text-decoration:none}.wrap{width:min(1360px,90vw);margin:0 auto}.nav{position:sticky;top:0;z-index:30;width:100%;background:#fff;border-bottom:1px solid rgba(219,230,244,.85);box-shadow:0 1px 0 rgba(16,32,51,.04)}
+    .nav .wrap{height:90px;display:flex;align-items:center;justify-content:space-between;gap:24px}.brand{display:flex;align-items:center;gap:12px;font-size:24px;font-weight:950;letter-spacing:-.02em}.brand .mark{width:42px;height:42px;border-radius:14px;background:linear-gradient(135deg,var(--blue),var(--sky));display:grid;place-items:center;color:white;box-shadow:0 12px 30px rgba(40,85,246,.28);font-size:20px}
+    .nav-end{display:flex;align-items:center;gap:18px}.navlinks{display:flex;align-items:center;gap:20px;color:#334761;font-weight:850}.navlinks a{position:relative;padding:6px 0;transition:color .2s ease}.navlinks a:hover{color:var(--blue)}.navlinks a:after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;background:var(--blue);transform:scaleX(0);transition:transform .2s ease}.navlinks a:hover:after{transform:scaleX(1)}.nav-call{width:42px;height:42px;border-radius:50%;border:1px solid #bed0ea;display:grid;place-items:center;background:#fff;flex:0 0 42px}.btn{display:inline-flex;align-items:center;justify-content:center;border-radius:14px;border:1px solid #bed0ea;padding:12px 18px;font-weight:950;background:white;cursor:pointer;box-shadow:0 8px 22px rgba(16,32,51,.05)}.btn.primary{background:var(--blue);border-color:var(--blue);color:white;box-shadow:0 16px 34px rgba(40,85,246,.25)}.btn.dark{background:var(--ink);border-color:var(--ink);color:white}.btn.light{background:#f8fbff}
+    .hero{padding:clamp(40px,6vh,72px) 0 56px}.hero-grid{display:grid;grid-template-columns:.85fr 1.15fr;gap:clamp(40px,5vw,70px);align-items:center}.hero-copy{display:flex;flex-direction:column;align-items:flex-start;gap:18px}.hero-visual{position:relative;min-width:0}.eyebrow{color:var(--blue);font-weight:950;text-transform:uppercase;letter-spacing:.16em;font-size:12px}.pill{display:inline-flex;align-items:center;gap:8px;border:1px solid #cfe0f8;background:#fff;border-radius:999px;padding:8px 12px;font-size:13px;font-weight:900;color:#31506f}
+    h1{font-size:clamp(40px,4.6vw,64px);line-height:1.05;letter-spacing:-.055em;margin:0;max-width:560px}.lead{font-size:clamp(16px,1.35vw,19px);color:var(--muted);max-width:600px;margin:0}.cta{display:flex;gap:14px;flex-wrap:wrap;margin:6px 0 0}.proof{display:none}
+    .product-card{background:white;border:1px solid var(--line);border-radius:26px;box-shadow:var(--shadow);overflow:hidden}.product-top{padding:18px 20px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}.dots{display:flex;gap:7px}.dots i{width:10px;height:10px;border-radius:50%;background:#d6e2f0}.dash{padding:18px;display:grid;gap:14px}.metric-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.metric{background:#f7fbff;border:1px solid #e0eaf6;border-radius:18px;padding:16px}.metric strong{font-size:30px}.metric span{display:block;color:var(--muted);font-size:13px}.flow{display:grid;grid-template-columns:1fr 1fr;gap:12px}.mini{border:1px solid var(--line);border-radius:18px;padding:14px}.bar{height:10px;border-radius:999px;background:linear-gradient(90deg,var(--mint) 0 55%,#f04444 55%);margin-top:12px}
+    .provide{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;margin-top:24px}.provide .card ul{margin:12px 0 0;padding:0;list-style:none;display:grid;gap:8px}.provide .card li{color:var(--muted);font-size:14px;font-weight:750;padding-left:18px;position:relative}.provide .card li:before{content:"";position:absolute;left:0;top:8px;width:7px;height:7px;border-radius:50%;background:var(--blue)}#features{padding-top:36px;padding-bottom:36px}#features .provide{gap:12px;margin-top:16px}#features .grid{gap:12px;margin-top:16px}#features .card{padding:14px 16px;border-radius:18px;transition:transform .28s cubic-bezier(.22,1,.36,1),box-shadow .28s ease,border-color .28s ease}#features .card:hover{transform:translateY(-10px);border-color:var(--blue);box-shadow:0 20px 44px rgba(40,85,246,.18)}#features .card h3{margin:6px 0 4px;font-size:16px}#features .card .muted{font-size:12px;margin:0;line-height:1.4}#features .icon{width:32px;height:32px;border-radius:10px;font-size:13px;transition:transform .28s cubic-bezier(.22,1,.36,1)}#features .card:hover .icon{transform:scale(1.15) rotate(-8deg)}#features .provide .card ul{margin:8px 0 0;gap:4px}#features .provide .card li{font-size:12px;padding-left:14px}#features .provide .card li:before{top:6px;width:5px;height:5px}.feature-strip{display:flex;flex-wrap:wrap;gap:10px;margin-top:22px}.sections{padding:54px 0}.section-title{font-size:42px;letter-spacing:-.04em;line-height:1.08;margin:8px 0 12px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:24px}.card{background:white;border:1px solid var(--line);border-radius:22px;padding:24px;box-shadow:0 14px 38px rgba(16,32,51,.06)}.card h3{margin:10px 0 8px;font-size:20px}.icon{width:42px;height:42px;border-radius:14px;background:#eef5ff;display:grid;place-items:center;color:var(--blue);font-weight:950}.muted{color:var(--muted)}.compare{display:grid;grid-template-columns:1fr 56px 1fr;gap:0;margin:28px 0 8px;border:1px solid var(--line);border-radius:26px;overflow:hidden;background:#fff;box-shadow:0 14px 38px rgba(16,32,51,.06)}.compare-col{padding:22px 20px}.compare-col.old{background:#f8f4ee}.compare-col.new{background:#f3f8ff}.compare-head{display:flex;align-items:center;gap:10px;margin-bottom:16px}.compare-head strong{font-size:20px;letter-spacing:-.03em}.compare-head span{font-size:12px;font-weight:850;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}.compare-vs{display:grid;place-items:center;background:linear-gradient(180deg,#fff,#eef4ff);font-weight:950;color:var(--blue);font-size:13px;letter-spacing:.08em}.compare-list{display:grid;gap:10px}.compare-item{display:flex;gap:10px;align-items:flex-start;padding:11px 12px;border-radius:14px;background:rgba(255,255,255,.78);font-size:14px;font-weight:750;line-height:1.35;color:#334761}.compare-item b{display:block;color:var(--ink);font-size:13px;margin-bottom:2px}.compare-item i{flex:0 0 28px;width:28px;height:28px;border-radius:9px;display:grid;place-items:center;font-style:normal;font-weight:950;font-size:13px}.compare-col.old .compare-item i{background:#fde8e8;color:#b42318}.compare-col.new .compare-item i{background:#e9fff7;color:#077354}
+    .band{background:#0f2034;color:white;border-radius:30px;padding:34px;box-shadow:var(--shadow)}.band .muted{color:#c7d5e8}.closeout{background:#0f2034;color:#fff;border-radius:30px;padding:clamp(32px,5vw,52px) clamp(22px,4vw,48px);text-align:center;box-shadow:var(--shadow)}.closeout .eyebrow{color:#8bd8ff}.closeout .section-title{color:#fff;max-width:18ch;margin-left:auto;margin-right:auto}.closeout .lead{color:#c7d5e8;max-width:42em;margin:0 auto}.closeout-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:28px 0 32px;text-align:left}.closeout-grid article{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:18px;padding:18px}.closeout-grid strong{display:block;margin-bottom:6px;font-size:16px}.closeout-grid p{margin:0;color:#c7d5e8;font-size:14px;font-weight:750}.closeout .cta{justify-content:center;margin-top:0}.closeout .btn.light{background:#fff;color:#102033;border-color:#fff}.split{display:grid;grid-template-columns:.95fr 1.05fr;gap:24px;align-items:start}.price-card{background:linear-gradient(145deg,#fff,var(--cream));border:1px solid #f1dec0;border-radius:26px;padding:28px;box-shadow:var(--shadow)}.price-old{text-decoration:line-through;color:#7b8795;font-size:22px;font-weight:900}.price{font-size:62px;font-weight:980;letter-spacing:-.06em;line-height:1}.price-unit{font-size:18px;font-weight:850;letter-spacing:0;color:#5d6f86}.save{display:inline-flex;background:#e9fff7;color:#077354;border:1px solid #bdf4df;border-radius:999px;padding:8px 12px;font-weight:950;margin:12px 0}.start-heading{margin:4px 0 8px;font-size:28px;letter-spacing:-.04em;line-height:1.15}.start-steps{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 16px;font-size:12px;font-weight:850;color:#5d6f86}.start-steps .on{color:var(--blue)}.start-steps i{flex:1;height:1px;min-width:20px;background:#dbe6f4}.form-kicker{margin:0;font-size:13px;font-weight:900;color:#314861}.form-block{display:grid;gap:8px}.form-block h3{margin:6px 0 0;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#5d6f86}.trust-row{display:flex;flex-wrap:wrap;gap:8px 14px;margin-top:12px;font-size:12px;font-weight:850;color:#31506f}.start-reassure{margin:8px 0 0;text-align:center}.chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}.chip{border:1px solid #d6e4f4;background:#fff;border-radius:999px;padding:8px 11px;font-weight:850;font-size:13px}
+    .form-shell{position:relative;overflow:hidden;border-radius:30px;background:linear-gradient(145deg,#ffffff 0%,#f8fbff 58%,#eef6ff 100%);border:1px solid #d7e4f5;box-shadow:0 24px 70px rgba(16,32,51,.1)}.form-shell:before{content:"";position:absolute;inset:-120px auto auto -110px;width:260px;height:260px;border-radius:50%;background:rgba(33,182,232,.16)}.form-shell:after{content:"";position:absolute;right:-120px;bottom:-140px;width:280px;height:280px;border-radius:50%;background:rgba(40,85,246,.12)}.form-content{position:relative;z-index:1;display:grid;grid-template-columns:.9fr 1.1fr;gap:30px;padding:30px}.form-panel{background:rgba(255,255,255,.86);border:1px solid #dbe7f6;border-radius:24px;padding:22px;box-shadow:0 18px 45px rgba(16,32,51,.08)}.form{display:grid;gap:14px}.two{display:grid;grid-template-columns:1fr 1fr;gap:14px}label{display:grid;gap:7px;font-weight:900;color:#314861;font-size:13px}input,select,textarea{width:100%;border:1px solid #c9d8ec;border-radius:16px;padding:14px 15px;font:inherit;background:white;color:var(--ink);box-shadow:0 8px 20px rgba(16,32,51,.035);outline:none}input:focus,select:focus,textarea:focus{border-color:var(--blue);box-shadow:0 0 0 4px rgba(40,85,246,.12)}textarea{min-height:116px;resize:vertical}.form-note{display:flex;align-items:flex-start;gap:10px;border:1px solid #cfe7ff;background:#f4faff;color:#36516f;border-radius:18px;padding:12px 13px;font-size:13px;font-weight:750}.form-note b{color:#102033}.check-list{display:grid;gap:10px;margin:22px 0}.check-list span{display:flex;gap:10px;align-items:flex-start;color:#4c6078;font-weight:750}.check-list span:before{content:"✓";display:grid;place-items:center;flex:0 0 22px;width:22px;height:22px;border-radius:50%;background:#e9fff7;color:#07825e;font-weight:950}.fine{font-size:13px;color:var(--muted)}.intent{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.intent label{border:1px solid #d6e4f4;border-radius:16px;padding:11px 10px;cursor:pointer;background:#fff;font-size:12px;line-height:1.35;font-weight:850;color:#314861}.intent label strong{display:block;font-size:13px;color:var(--ink);margin-bottom:2px}.intent input{accent-color:var(--blue);margin-right:6px}.intent label:has(input:checked){border-color:var(--blue);background:#eef4ff;box-shadow:0 0 0 3px rgba(40,85,246,.12)}.app-band{display:grid;grid-template-columns:1.05fr .95fr;gap:36px;align-items:center}.device-stage{position:relative;width:100%;max-width:none;margin:0 0 0 auto;padding:0 0 12px;display:block}.laptop{position:relative;width:calc(100% - 56px);margin-right:56px;margin-left:auto}.laptop-lid{background:#1b232e;border-radius:16px 16px 8px 8px;padding:12px 12px 10px;box-shadow:0 30px 70px rgba(16,32,51,.2)}.laptop-screen{position:relative;aspect-ratio:16/10;background:#0b1220;border-radius:6px;overflow:hidden}.laptop-screen video,.laptop-screen img,.phone-screen video,.phone-screen img{position:absolute;inset:0;width:100%;height:100%;background:#0b1220}.laptop-screen img{object-fit:contain;object-position:center}.phone-screen img{object-fit:cover}.demo-frame{opacity:0;transition:opacity .2s ease;z-index:0;pointer-events:none}.demo-frame.is-on{opacity:1;z-index:1}.laptop-base{height:12px;margin:0 7%;background:linear-gradient(#e2e7ee,#9aa4b0);border-radius:0 0 14px 14px;position:relative;box-shadow:0 8px 20px rgba(16,32,51,.1)}.laptop-base:after{content:"";position:absolute;left:50%;top:0;transform:translateX(-50%);width:86px;height:6px;border-radius:0 0 8px 8px;background:#848e9b}.phone-shell{position:absolute;right:8px;bottom:12px;z-index:3;width:132px;margin:0;background:#102033;border-radius:24px;padding:8px 7px 10px;box-shadow:0 18px 40px rgba(16,32,51,.28)}.phone-notch{width:52px;height:5px;border-radius:999px;background:#2a415c;margin:2px auto 6px}.phone-screen{position:relative;background:#0b1220;border-radius:16px;overflow:hidden;aspect-ratio:9/19.5;min-height:0}.stats-bar{width:100%;background:#0f2034;color:#fff;padding:32px 0}.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:24px;align-items:center}.stats-row article{display:flex;align-items:center;gap:14px}.stats-row .mark{flex:0 0 42px;width:42px;height:42px;border-radius:12px;background:rgba(255,255,255,.1);display:grid;place-items:center;font-weight:950}.stats-row b{display:block;font-size:26px;line-height:1.1}.stats-row span{display:block;font-size:13px;color:#c7d5e8;font-weight:750}.phone-screen video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#0b1220}.phone-screen .metric{padding:12px}.phone-screen .metric strong{font-size:22px}.store-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}.store-badge{display:inline-flex;align-items:center;gap:8px;border:1px solid #c9d8ec;background:#102033;color:#fff;border-radius:14px;padding:12px 16px;font-weight:900;font-size:13px}.store-badge span{display:block;font-size:10px;font-weight:750;opacity:.75;text-transform:uppercase;letter-spacing:.08em}.admin{padding:38px 0 70px}.table{width:100%;border-collapse:separate;border-spacing:0;background:white;border:1px solid var(--line);border-radius:18px;overflow:hidden}.table th,.table td{padding:12px;border-bottom:1px solid #edf2fa;text-align:left;vertical-align:top}.table th{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#52657d;background:#f8fbff}.badge{display:inline-block;border-radius:999px;padding:4px 8px;background:#eaf2ff;color:#174ea6;font-weight:900;font-size:12px}.admin-card{background:white;border:1px solid var(--line);border-radius:20px;padding:18px;margin-top:18px}footer{border-top:1px solid var(--line);padding:26px 0;color:var(--muted);background:white}#start,#features,#android,#why,#pricing{scroll-margin-top:100px}#start{padding:36px 0 48px}#start .section-title{font-size:32px;margin:6px 0 8px;line-height:1.12}#start .price{font-size:48px}#start .price-card,#start .form-shell{padding:0}#start .price-card{padding:26px 24px}#start .form-content{padding:16px!important;gap:0}#start .form-panel{padding:18px 20px}#start .form{gap:12px}#start label{gap:4px;font-size:12px}#start input,#start select,#start textarea{padding:10px 12px;border-radius:12px;font-size:14px}#start textarea{min-height:48px}#start .intent{gap:8px}#start .intent label{padding:10px 9px;font-size:12px;border-radius:14px}#start .intent label strong{font-size:13px;margin-bottom:2px}#start .two{gap:10px}#start .btn{padding:12px 16px}.path-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:8px 0 22px}.path-card{position:relative;text-align:left;border:1px solid var(--line);background:#fff;border-radius:20px;padding:16px;cursor:pointer;box-shadow:0 10px 24px rgba(16,32,51,.05)}.path-card b{display:block;font-size:16px;margin:4px 0 2px}.path-card p{margin:0;color:var(--muted);font-size:13px;font-weight:750}.path-card.is-on{border-color:var(--blue);box-shadow:0 0 0 3px rgba(40,85,246,.14)}.path-card.is-popular{border-color:#c9d8ec}.path-pop{position:absolute;top:-10px;right:12px;background:var(--blue);color:#fff;border-radius:999px;padding:3px 8px;font-size:10px;font-weight:950;letter-spacing:.06em;text-transform:uppercase}.offer-block[hidden],.journey[hidden],.j-step[hidden]{display:none!important}.cal-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.cal-day{border:1px solid var(--line);border-radius:14px;padding:8px;background:#fff;text-align:center}.cal-day strong{display:block;font-size:12px}.cal-day button{width:100%;margin-top:6px;border:1px solid #d6e4f4;border-radius:10px;background:#f8fbff;padding:6px 4px;font-size:11px;font-weight:850;cursor:pointer}.cal-day button.is-on{background:var(--blue);color:#fff;border-color:var(--blue)}.start-head{text-align:center;margin-bottom:8px}.start-head .section-title{font-size:32px;margin:4px 0 6px}.path-card{transition:transform .28s cubic-bezier(.22,1,.36,1),box-shadow .28s ease,border-color .28s ease,background .28s ease}.path-card:hover{transform:translateY(-12px) scale(1.04);border-color:var(--blue);background:#f7faff;box-shadow:0 22px 50px rgba(40,85,246,.22)}.path-card.is-on{transform:translateY(-8px);border-color:var(--blue);box-shadow:0 0 0 4px rgba(40,85,246,.18),0 18px 40px rgba(40,85,246,.16);animation:path-pulse 1.5s ease-in-out infinite}.path-card.is-on:hover{transform:translateY(-14px) scale(1.05);animation:none}.path-card .icon{transition:transform .28s cubic-bezier(.22,1,.36,1)}.path-card:hover .icon,.path-card.is-on .icon{transform:scale(1.18) rotate(-10deg)}.path-old{text-decoration:line-through;color:#8b97a6;font-weight:800;margin-right:6px}.path-launch p strong{color:#077354}.path-save{position:absolute;top:-10px;left:12px;background:#e9fff7;color:#077354;border:1px solid #bdf4df;border-radius:999px;padding:3px 8px;font-size:10px;font-weight:950}.offer-block:not([hidden]),.journey:not([hidden]),.j-step:not([hidden]){animation:start-fade .35s ease}#start .btn.primary{transition:transform .25s ease,box-shadow .25s ease}#start .btn.primary:hover{transform:translateY(-3px);box-shadow:0 18px 36px rgba(40,85,246,.32)}@keyframes start-fade{from{opacity:0}to{opacity:1}}@keyframes path-pulse{0%,100%{box-shadow:0 0 0 4px rgba(40,85,246,.16),0 16px 36px rgba(40,85,246,.14)}50%{box-shadow:0 0 0 8px rgba(40,85,246,.28),0 22px 48px rgba(40,85,246,.22)}}
+    .calc-box{display:grid;gap:10px;margin:0 0 16px;padding:14px;border:1px solid #d7e4f5;border-radius:18px;background:#f8fbff}.calc-out{font-weight:800;color:#314861;line-height:1.5}.trial-error{border:1px solid #f2b8b5;background:#fff5f4;color:#842820;border-radius:14px;padding:14px 16px;outline:none}.trial-error[hidden]{display:none}.trial-error strong{display:block;color:#842820;font-size:15px}.trial-error p{margin:5px 0 0;font-size:13px;line-height:1.5}.trial-error a{display:inline-block;margin-top:10px;color:#174ea6;font-weight:850;text-decoration:underline}.trial-error a[hidden]{display:none}
+    @media(prefers-reduced-motion:reduce){.demo-frame,.path-card,.path-card .icon,#start .btn.primary,#features .card,#features .icon{transition:none}body:before,body:after,.path-card.is-on,.offer-block:not([hidden]),.journey:not([hidden]),.j-step:not([hidden]){animation:none}}
+    @media(max-width:1024px){.hero-grid{grid-template-columns:.9fr 1.1fr;gap:32px}h1{font-size:44px}.laptop{width:calc(100% - 48px);margin-right:48px}.phone-shell{right:8px;bottom:12px}}
+    @media(max-width:768px){.hero-grid,.grid,.two,.split,.flow,.form-content,.app-band,.intent,.provide,.stats-row,.compare,.closeout-grid,.path-grid,.cal-grid{grid-template-columns:1fr}.compare-vs{min-height:44px}.navlinks,.nav-call{display:none}.nav .wrap{height:72px}.hero{padding:32px 0 40px}.hero-grid{text-align:center}.hero-copy{align-items:center}.cta{justify-content:center}.hero-visual{margin-top:12px}.device-stage{padding:0 0 12px;max-width:420px;margin:0 auto}.laptop{width:calc(100% - 40px);margin-right:40px}.phone-shell{width:120px;right:4px;bottom:10px}h1{font-size:36px;max-width:none}.lead{max-width:36em}.price{font-size:48px}.table{font-size:14px}.form-content{padding:18px}.form-panel{padding:16px}#start .price{font-size:36px}.wrap{width:min(1360px,calc(100% - 40px))}}
+  </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&display=swap" rel="stylesheet"><link rel="icon" type="image/svg+xml" href="/demo/anekio-mark.svg"><link rel="apple-touch-icon" href="/favicon.png"><meta name="theme-color" content="#08090c"><meta property="og:site_name" content="Anekio"><meta property="og:locale" content="en_IN"><meta property="og:image" content="https://anekio.com/demo/og-anekio.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="Anekio: run your whole school from one record"><meta name="twitter:image" content="https://anekio.com/demo/og-anekio.png"><style>
+html:has(body.marketing-page){background:#fff;scroll-padding-top:72px}
+body.marketing-page {--bg:#fff;--soft:#f7f8fa;--ink:#0b0d12;--ink-2:#3a404d;--muted:#5b6170;--line:#e7e9ee;--line-2:#d9dce3;--brand:#2563eb;--brand-hover:#1d4ed8;--green:#16a34a;--dark:#08090c;--dark-line:rgba(255,255,255,.09);--dark-muted:#9aa1ad;--r:14px;--font:"Geist",Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-family:var(--font);color:var(--ink);background:var(--bg);-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;font-feature-settings:"ss01"}
+body.marketing-page main{overflow-x:clip}
+body.marketing-page *{box-sizing:border-box}
+body.marketing-page .wrap{width:min(1200px,calc(100% - 48px));margin:0 auto}
+body.marketing-page h1,body.marketing-page h2,body.marketing-page h3{font-family:var(--font);font-weight:600;letter-spacing:-.035em;color:inherit}
+body.marketing-page p{text-wrap:pretty}
+body.marketing-page h1,body.marketing-page h2,body.marketing-page h3{text-wrap:balance}
+
+/* buttons — one shape, one height, three kinds */
+body.marketing-page .btn,body.marketing-page #start .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:44px;padding:0 20px;border-radius:999px;border:1px solid transparent;font:500 15px/1 var(--font);letter-spacing:-.01em;box-shadow:none;cursor:pointer;white-space:nowrap;transition:background-color .15s ease,border-color .15s ease,color .15s ease;transform:none}
+body.marketing-page .btn:hover,body.marketing-page #start .btn:hover,body.marketing-page #start .btn.primary:hover{transform:none}
+body.marketing-page .btn svg{width:14px;height:14px}
+body.marketing-page .btn.primary,body.marketing-page #start .btn.primary{background:var(--brand);border-color:var(--brand);color:#fff;box-shadow:inset 0 1px 0 rgba(255,255,255,.18),0 1px 2px rgba(11,13,18,.16)}
+body.marketing-page .btn.primary:hover,body.marketing-page #start .btn.primary:hover{background:var(--brand-hover);border-color:var(--brand-hover);box-shadow:inset 0 1px 0 rgba(255,255,255,.18),0 1px 2px rgba(11,13,18,.16)}
+body.marketing-page .btn.primary:disabled{opacity:.5;cursor:not-allowed}
+body.marketing-page .btn.light,body.marketing-page #start .btn.light{background:#fff;border-color:var(--line-2);color:var(--ink)}
+body.marketing-page .btn.light:hover,body.marketing-page #start .btn.light:hover{background:var(--soft);border-color:#c9cdd6}
+body.marketing-page .btn.ghost{background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.16);color:#fff}
+body.marketing-page .btn.ghost:hover{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.26)}
+body.marketing-page .btn.sm{height:36px;padding:0 15px;font-size:14px}
+body.marketing-page .mk-link{display:inline-flex;align-items:center;gap:4px;font-weight:500;color:var(--brand)}
+body.marketing-page .mk-link svg{width:14px;height:14px;transition:transform .15s ease}
+body.marketing-page .mk-link:hover svg{transform:translateX(2px)}
+body.marketing-page :focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+
+/* type */
+body.marketing-page .eyebrow{display:inline-block;color:var(--brand);font:600 14px/1.2 var(--font);letter-spacing:-.005em;text-transform:none}
+body.marketing-page .eyebrow:before{display:none}
+body.marketing-page .section-title{font-size:clamp(28px,3.2vw,42px);line-height:1.1;letter-spacing:-.035em;margin:10px 0 12px;max-width:32ch;color:var(--ink)}
+body.marketing-page .lead{font-size:clamp(16px,1.3vw,18px);line-height:1.6;color:var(--muted);max-width:58ch;margin:0}
+body.marketing-page .center{text-align:center}
+body.marketing-page .center .section-title,body.marketing-page .center .lead{margin-left:auto;margin-right:auto}
+body.marketing-page .mk-section{padding:clamp(56px,6.5vw,96px) 0}
+
+/* brand */
+body.marketing-page .mk-brand{display:inline-flex;align-items:center;gap:10px;color:inherit;font:600 21px/1 var(--font);letter-spacing:-.04em}
+body.marketing-page .mk-mark{width:34px;height:auto;flex:0 0 auto}
+
+/* nav */
+body.marketing-page .nav{position:sticky;top:0;z-index:50;background:var(--dark);border-bottom:1px solid var(--dark-line);box-shadow:none;color:#fff;transition:background-color .25s ease,border-color .25s ease,color .25s ease}
+body.marketing-page .nav.is-light{background:#fff;border-bottom-color:var(--line);color:var(--ink)}
+body.marketing-page .nav .wrap{height:64px;display:flex;align-items:center;justify-content:space-between;gap:24px}
+body.marketing-page .mk-nav-links{display:flex;align-items:center;gap:4px;margin:0 auto 0 28px}
+body.marketing-page .mk-nav-links a{padding:8px 12px;border-radius:999px;font-size:14px;font-weight:500;color:rgba(255,255,255,.7);transition:color .15s ease,background-color .15s ease}
+body.marketing-page .mk-nav-links a:hover{color:#fff;background:rgba(255,255,255,.06)}
+body.marketing-page .nav.is-light .mk-nav-links a{color:var(--ink-2)}
+body.marketing-page .nav.is-light .mk-nav-links a:hover{color:var(--ink);background:var(--soft)}
+body.marketing-page .mk-nav-actions{display:flex;align-items:center;gap:8px}
+body.marketing-page .mk-login{padding:8px 12px;font-size:14px;font-weight:500;color:rgba(255,255,255,.8)}
+body.marketing-page .mk-login:hover{color:#fff}
+body.marketing-page .nav.is-light .mk-login{color:var(--ink-2)}
+body.marketing-page .nav.is-light .mk-login:hover{color:var(--ink)}
+body.marketing-page .mobile-nav{display:none;position:relative}
+body.marketing-page .mobile-nav summary{list-style:none;cursor:pointer;width:38px;height:38px;display:grid;place-items:center;border-radius:999px;border:1px solid rgba(255,255,255,.16)}
+body.marketing-page .mobile-nav summary::-webkit-details-marker{display:none}
+body.marketing-page .mobile-nav summary svg{width:18px;height:18px}
+body.marketing-page .nav.is-light .mobile-nav summary{border-color:var(--line-2)}
+body.marketing-page .mobile-nav-menu{position:absolute;right:0;top:48px;width:240px;display:grid;gap:2px;background:#fff;border:1px solid var(--line);border-radius:16px;padding:8px;box-shadow:0 24px 48px -12px rgba(11,13,18,.22);color:var(--ink)}
+body.marketing-page .mobile-nav-menu a{padding:10px 12px;border-radius:10px;font-size:15px;font-weight:500}
+body.marketing-page .mobile-nav-menu a:hover{background:var(--soft)}
+body.marketing-page .mobile-nav-menu .btn{margin-top:6px;width:100%}
+
+/* hero */
+body.marketing-page .mk-hero{position:relative;background:var(--dark);color:#fff;isolation:isolate;padding-top:clamp(48px,6vw,88px)}
+body.marketing-page .mk-hero-bg{position:absolute;inset:0 0 auto;height:820px;z-index:-1;pointer-events:none;background-image:linear-gradient(rgba(255,255,255,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.045) 1px,transparent 1px);background-size:56px 56px;background-position:center top;-webkit-mask-image:radial-gradient(60% 55% at 50% 30%,#000 25%,transparent 75%);mask-image:radial-gradient(60% 55% at 50% 30%,#000 25%,transparent 75%)}
+body.marketing-page .mk-hero:before{content:"";position:absolute;inset:0 0 auto;height:720px;z-index:-1;pointer-events:none;background:radial-gradient(48% 60% at 50% 0%,rgba(37,99,235,.28),transparent 70%),radial-gradient(30% 40% at 72% 8%,rgba(34,197,94,.10),transparent 70%)}
+body.marketing-page .mk-hero-copy{display:flex;flex-direction:column;align-items:center;text-align:center;gap:22px;animation:mk-rise .7s cubic-bezier(.22,1,.36,1) both}
+body.marketing-page .mk-pill{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 12px 0 10px;border-radius:999px;border:1px solid var(--dark-line);background:rgba(255,255,255,.04);font-size:13px;font-weight:500;color:#cfd3da;transition:border-color .15s ease,background-color .15s ease}
+body.marketing-page .mk-pill:hover{border-color:rgba(255,255,255,.2);background:rgba(255,255,255,.07)}
+body.marketing-page .mk-pill i{width:6px;height:6px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 3px rgba(34,197,94,.18)}
+body.marketing-page .mk-pill svg{width:12px;height:12px;color:var(--dark-muted)}
+body.marketing-page .mk-hero h1{margin:0;font-size:clamp(44px,6vw,78px);line-height:.98;letter-spacing:-.05em;max-width:none}
+body.marketing-page .mk-hero h1 span{display:block;color:transparent;background:linear-gradient(180deg,#a7adb8,#6b7280);-webkit-background-clip:text;background-clip:text}
+body.marketing-page .mk-hero .lead{color:var(--dark-muted);max-width:54ch;font-size:clamp(16px,1.4vw,19px)}
+body.marketing-page .mk-hero .cta{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:4px}
+body.marketing-page .mk-hero-note{display:flex;flex-wrap:wrap;justify-content:center;gap:6px 20px;margin:0;font-size:13px;color:#a3a9b4}
+body.marketing-page .mk-hero-note span{display:inline-flex;align-items:center;gap:6px}
+body.marketing-page .mk-hero-note svg{width:13px;height:13px;color:#22c55e}
+body.marketing-page .mk-msg{margin:0;padding:10px 14px;border:1px solid rgba(96,165,250,.35);border-radius:12px;background:rgba(37,99,235,.12);color:#dbeafe;font-size:13px;font-weight:500}
+body.marketing-page .mk-hero-stage-wrap{margin-top:clamp(40px,5vw,64px);background:linear-gradient(var(--dark) 0 58%,var(--bg) 58% 100%)}
+body.marketing-page .mk-hero-stage{position:relative;animation:mk-rise .9s .1s cubic-bezier(.22,1,.36,1) both;perspective:1600px}
+body.marketing-page .mk-float{position:absolute;z-index:3;display:flex;align-items:center;gap:10px;padding:10px 14px 10px 10px;border-radius:14px;background:#151922;border:1px solid rgba(255,255,255,.1);box-shadow:0 20px 40px -12px rgba(0,0,0,.6);font-size:13px;color:#e6e8ec;white-space:nowrap;}
+body.marketing-page .mk-float b{display:block;font-weight:600;color:#fff;font-size:13px}
+body.marketing-page .mk-float span{display:block;font-size:12px;color:#9aa1ad;margin-top:1px}
+body.marketing-page .mk-float i{flex:0 0 30px;height:30px;border-radius:9px;display:grid;place-items:center;font-style:normal}
+body.marketing-page .mk-float i svg{width:15px;height:15px}
+body.marketing-page .mk-float.f1{left:-2%;top:16%}
+body.marketing-page .mk-float.f1 i{background:rgba(34,197,94,.15);color:#4ade80}
+body.marketing-page .mk-float.f2{right:-1%;top:6%;animation-delay:1.5s}
+body.marketing-page .mk-float.f2 i{background:rgba(59,130,246,.18);color:#7ea7ff}
+body.marketing-page .mk-float.f3{left:6%;top:52%;animation-delay:3s}
+body.marketing-page .mk-float.f3 i{background:rgba(245,185,63,.16);color:#f5c451}
+body.marketing-page .mk-hero-stage .mk-window{box-shadow:0 0 0 1px rgba(255,255,255,.1),0 50px 120px -30px rgba(37,99,235,.45),0 30px 60px -20px rgba(0,0,0,.6)}
+body.marketing-page .mk-hero-phone{position:absolute;right:3%;bottom:-7%;width:16%;max-width:200px;z-index:2}
+@keyframes mk-rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+
+/* window + phone frames */
+body.marketing-page .mk-window{margin:0;border-radius:var(--r);overflow:hidden;background:#fff;border:1px solid var(--line);box-shadow:0 1px 2px rgba(11,13,18,.04),0 24px 64px -24px rgba(11,13,18,.18)}
+body.marketing-page .mk-window-bar{display:flex;align-items:center;gap:12px;height:36px;padding:0 14px;background:#f6f7f9;border-bottom:1px solid #eceef2;font-size:12px;font-weight:500;color:#8a909b}
+body.marketing-page .mk-dots{display:flex;gap:6px}
+body.marketing-page .mk-dots i{width:10px;height:10px;border-radius:50%;background:#dcdfe5}
+body.marketing-page .mk-window-title{flex:1;text-align:center;margin-right:42px}
+body.marketing-page .mk-window-body{position:relative;overflow:hidden;background:#fff}
+body.marketing-page .mk-window img{display:block;width:100%;height:auto}
+body.marketing-page .mk-window.crop-receipt .mk-window-body{aspect-ratio:16/10}
+body.marketing-page .mk-window.crop-receipt img{position:absolute;top:-2%;left:-34%;width:168%;max-width:none}
+body.marketing-page .mk-window.crop-fees .mk-window-body{aspect-ratio:1.62}
+body.marketing-page .mk-window.crop-fees img{position:absolute;top:0;left:-16.5%;width:126%;max-width:none}
+body.marketing-page .mk-phone{margin:0}
+body.marketing-page .mk-phone-shell{position:relative;aspect-ratio:9/19.4;background:#0b0d12;border-radius:30px;padding:6px;box-shadow:0 0 0 1px rgba(255,255,255,.06) inset,0 30px 60px -20px rgba(11,13,18,.45)}
+body.marketing-page .mk-phone-shell img{display:block;width:100%;height:100%;object-fit:cover;object-position:top;border-radius:24px;background:#fff}
+
+/* module marquee */
+body.marketing-page .mk-strip{padding:clamp(48px,6vw,72px) 0 0;text-align:center}
+body.marketing-page .mk-strip > p{text-align:center;margin:0 auto 20px;font-size:13px;font-weight:500;color:var(--muted)}
+body.marketing-page .mk-marquee{overflow:hidden;-webkit-mask-image:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent);mask-image:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent)}
+body.marketing-page .mk-marquee ul{list-style:none;margin:0;padding:4px 0;display:flex;gap:12px;width:max-content;animation:mk-marq 40s linear infinite}
+body.marketing-page .mk-marquee:hover ul{animation-play-state:paused}
+body.marketing-page .mk-marquee li{display:inline-flex;align-items:center;gap:10px;height:46px;padding:0 18px 0 8px;border:1px solid var(--line);border-radius:999px;background:#fff;font-size:15px;font-weight:500;letter-spacing:-.015em;color:var(--ink-2);white-space:nowrap;box-shadow:0 1px 2px rgba(11,13,18,.03)}
+body.marketing-page .mk-marquee li i{display:grid;place-items:center;width:30px;height:30px;border-radius:999px;background:#eef3ff;color:var(--brand)}
+body.marketing-page .mk-marquee li i svg{width:16px;height:16px}
+@keyframes mk-marq{to{transform:translateX(calc(-50% - 6px))}}
+
+/* stats */
+body.marketing-page .mk-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:clamp(40px,5vw,64px);text-align:left}
+body.marketing-page .mk-stat{position:relative;overflow:hidden;padding:24px 24px 26px;border:1px solid var(--line);border-radius:20px;background:linear-gradient(180deg,#fff,var(--soft));min-height:176px;display:flex;flex-direction:column}
+body.marketing-page .mk-stat em{font-style:normal;font-size:12px;font-weight:500;color:var(--muted);display:flex;align-items:center;gap:8px}
+body.marketing-page .mk-stat em i{width:6px;height:6px;border-radius:50%;background:var(--brand)}
+body.marketing-page .mk-stat b{display:block;margin-top:auto;padding-top:24px;font-size:clamp(40px,4.2vw,56px);font-weight:600;letter-spacing:-.05em;line-height:1;color:var(--ink)}
+body.marketing-page .mk-stat b small{font-size:.5em;color:var(--muted);margin-left:3px;letter-spacing:-.02em}
+body.marketing-page .mk-stat span{display:block;margin-top:10px;color:var(--muted);font-size:14px;line-height:1.45}
+body.marketing-page .mk-stat.is-dark{background:radial-gradient(80% 90% at 100% 0%,rgba(37,99,235,.45),transparent 70%),var(--dark);border-color:var(--dark)}
+body.marketing-page .mk-stat.is-dark em,body.marketing-page .mk-stat.is-dark span{color:#9aa1ad}
+body.marketing-page .mk-stat.is-dark em i{background:#22c55e}
+body.marketing-page .mk-stat.is-dark b{color:#fff}
+body.marketing-page .mk-stat.is-dark b small{color:#9aa1ad}
+
+/* record flow */
+body.marketing-page .mk-flow{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(24px,4vw,48px);margin-top:56px}
+body.marketing-page .mk-flow article{border-top:1px solid var(--line-2);padding-top:22px}
+body.marketing-page .mk-flow .n{display:block;font:500 13px/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--brand);margin-bottom:18px}
+body.marketing-page .mk-flow strong{display:block;font-size:19px;font-weight:600;letter-spacing:-.025em;margin-bottom:8px}
+body.marketing-page .mk-flow p{margin:0;color:var(--muted);font-size:15px;line-height:1.6}
+
+/* one record: copy + synced live panel */
+body.marketing-page .mk-live-cap{display:none}
+body.marketing-page .mk-one-label{position:relative;display:flex;align-items:center;justify-content:space-between;max-width:380px;margin:0 auto 16px;font-size:12px;font-weight:500;color:#9aa1ad}
+body.marketing-page .mk-one-label b{color:#fff;font-weight:600}
+body.marketing-page .mk-one-label i{display:inline-block;width:6px;height:6px;border-radius:50%;background:#22c55e;margin-right:8px;vertical-align:1px}
+body.marketing-page .mk-one{display:grid;grid-template-columns:1fr 1fr;gap:clamp(40px,6vw,96px);align-items:center}
+body.marketing-page .mk-one-copy .section-title{max-width:16ch}
+body.marketing-page .mk-steps-v{list-style:none;margin:24px 0 0;padding:0;display:grid;gap:4px}
+body.marketing-page .mk-steps-v li{position:relative;display:flex;gap:14px;padding:12px 0;border-radius:16px;transition:background-color .3s ease;}
+body.marketing-page .mk-steps-v li.s2{animation-delay:2.5s}
+body.marketing-page .mk-steps-v li.s3{animation-delay:5s}
+body.marketing-page .mk-steps-v li > span{flex:0 0 32px;height:32px;border-radius:10px;display:grid;place-items:center;font:600 13px/1 var(--font);color:var(--brand);background:#eef3ff}
+body.marketing-page .mk-steps-v strong{display:block;font-size:17px;font-weight:600;letter-spacing:-.02em}
+body.marketing-page .mk-steps-v p{margin:4px 0 0;font-size:14px;line-height:1.55;color:var(--muted)}
+body.marketing-page .mk-one-stage{position:relative;border-radius:24px;padding:clamp(20px,2.4vw,32px);background:radial-gradient(70% 60% at 80% 0%,rgba(37,99,235,.35),transparent 70%),radial-gradient(50% 40% at 0% 100%,rgba(34,197,94,.12),transparent 70%),var(--dark);overflow:hidden}
+body.marketing-page .mk-one-stage:before{content:"";position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px);background-size:40px 40px;-webkit-mask-image:radial-gradient(70% 70% at 50% 40%,#000,transparent);mask-image:radial-gradient(70% 70% at 50% 40%,#000,transparent)}
+body.marketing-page .mk-live{position:relative;display:grid;grid-template-columns:1fr;gap:0;max-width:380px;margin:0 auto}
+body.marketing-page .mk-live-card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:grid;gap:8px;box-shadow:0 20px 40px -20px rgba(0,0,0,.6);}
+body.marketing-page .mk-live-card.s2{}
+body.marketing-page .mk-live-card.s3{animation-delay:5s}
+body.marketing-page .mk-live-head{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--muted)}
+body.marketing-page .mk-live-tag{font-weight:600;font-size:11px;color:var(--brand);background:#eef3ff;border-radius:999px;padding:3px 8px}
+body.marketing-page .mk-live-tag.green{color:var(--green);background:#e8f7ee}
+body.marketing-page .mk-live-tag.dark{color:#fff;background:var(--ink)}
+body.marketing-page .mk-live-row{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:13px;color:var(--ink-2)}
+body.marketing-page .mk-live-row b{font-weight:600;color:var(--ink)}
+body.marketing-page .mk-live-row.muted{color:var(--muted);font-size:12px;padding-top:8px;border-top:1px solid var(--line)}
+body.marketing-page .mk-live-row s{color:#a3a8b2;font-weight:400;margin-right:2px}
+body.marketing-page .mk-live-row em{font-style:normal;color:var(--green);font-size:12px;font-weight:500;margin-left:4px;animation-delay:5s}
+body.marketing-page .mk-live-btn{position:relative;height:36px;border-radius:999px;background:var(--green);color:#fff;font-size:13px;font-weight:500;display:grid;place-items:center;overflow:hidden;}
+body.marketing-page .mk-live-btn span{grid-area:1/1;display:inline-flex;align-items:center;gap:6px}
+body.marketing-page .mk-live-btn svg{width:14px;height:14px}
+body.marketing-page .mk-live-btn .t1{opacity:0;}
+body.marketing-page .mk-live-btn .t2{opacity:1;}
+body.marketing-page .mk-live-note{display:flex;gap:10px;align-items:flex-start;padding:10px;border-radius:12px;background:var(--soft)}
+body.marketing-page .mk-live-note b{display:block;font-size:13px;font-weight:600}
+body.marketing-page .mk-live-note span{display:block;font-size:12px;color:var(--muted)}
+body.marketing-page .mk-live-ic{flex:0 0 24px;height:24px;border-radius:50%;background:var(--green);color:#fff;display:grid!important;place-items:center}
+body.marketing-page .mk-live-ic svg{width:13px;height:13px}
+body.marketing-page .mk-live-link{position:relative;width:2px;height:18px;margin:0 auto;background:repeating-linear-gradient(180deg,rgba(255,255,255,.25) 0 4px,transparent 4px 8px)}
+body.marketing-page .mk-live-link i{display:none;position:absolute;left:50%;top:0;width:8px;height:8px;margin-left:-4px;border-radius:50%;background:#60a5fa;box-shadow:0 0 0 4px rgba(96,165,250,.25);opacity:0;animation-delay:1.2s}
+body.marketing-page .mk-live-link + .mk-live-card + .mk-live-link i{animation-delay:3.7s}
+
+/* proof */
+body.marketing-page .mk-proof{padding-top:clamp(56px,7vw,88px);text-align:center}
+body.marketing-page .mk-proof > p{margin:0 0 20px;font-size:13px;font-weight:500;color:var(--muted)}
+body.marketing-page .mk-logos{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:24px 48px}
+body.marketing-page .mk-logos img{height:36px;width:auto;max-width:160px;object-fit:contain;filter:grayscale(1);opacity:.7;transition:opacity .2s ease,filter .2s ease}
+body.marketing-page .mk-logos img:hover{filter:none;opacity:1}
+body.marketing-page .mk-quotes{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin-top:40px;text-align:left}
+body.marketing-page .mk-quote{margin:0;padding:28px;border:1px solid var(--line);border-radius:20px;background:#fff}
+body.marketing-page .mk-quote blockquote{margin:0 0 20px;font-size:16px;line-height:1.6;color:var(--ink);letter-spacing:-.01em}
+body.marketing-page .mk-quote b{display:block;font-size:14px;font-weight:600}
+body.marketing-page .mk-quote span{display:block;font-size:13px;color:var(--muted);margin-top:2px}
+
+/* segmented tabs */
+body.marketing-page .mk-seg{display:inline-flex;gap:2px;padding:4px;border-radius:999px;background:#eef0f3;border:1px solid var(--line);max-width:100%;overflow-x:auto;scrollbar-width:none}
+body.marketing-page .mk-seg::-webkit-scrollbar{display:none}
+body.marketing-page .mk-seg button{appearance:none;border:0;background:transparent;height:38px;padding:0 18px;border-radius:999px;font:500 14px/1 var(--font);color:var(--ink-2);cursor:pointer;white-space:nowrap;transition:background-color .15s ease,color .15s ease,box-shadow .15s ease}
+body.marketing-page .mk-seg button:hover{color:var(--ink)}
+body.marketing-page .mk-seg button[aria-selected="true"]{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(11,13,18,.08),0 0 0 1px rgba(11,13,18,.04)}
+body.marketing-page .mk-seg button{position:relative;overflow:hidden}
+body.marketing-page .mk-seg.is-playing button[aria-selected="true"]:after{content:"";position:absolute;left:16px;right:16px;bottom:3px;height:3px;border-radius:3px;background:var(--brand);transform:scaleX(0);transform-origin:left;animation:mk-progress var(--mk-dur,6000ms) linear forwards}
+@keyframes mk-progress{to{transform:scaleX(1)}}
+body.marketing-page [data-panel][hidden]{display:none!important}
+body.marketing-page [data-panel]:not([hidden]){animation:mk-slide .55s cubic-bezier(.22,1,.36,1) both}
+body.marketing-page .mk-role-shots:not([hidden]) .mk-phone{animation:mk-slide .6s cubic-bezier(.22,1,.36,1) both}
+body.marketing-page .mk-role-shots:not([hidden]) .mk-phone:nth-child(2){animation-delay:.07s}
+body.marketing-page .mk-role-shots:not([hidden]) .mk-phone:nth-child(3){animation-delay:.14s}
+@keyframes mk-slide{from{opacity:0;transform:translateX(28px)}to{opacity:1;transform:none}}
+body.marketing-page .mk-seg-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+body.marketing-page .mk-wf .mk-seg-row{justify-content:center}
+body.marketing-page .mk-steps{display:flex;gap:6px}
+body.marketing-page .mk-step{display:grid;place-items:center;width:38px;height:38px;border-radius:999px;border:1px solid var(--line-2);background:#fff;color:var(--ink-2);cursor:pointer;transition:background-color .15s ease,border-color .15s ease,color .15s ease}
+body.marketing-page .mk-step:hover{color:var(--ink);border-color:#c3c8d1;background:var(--soft)}
+body.marketing-page .mk-step svg{width:14px;height:14px}
+@keyframes mk-fade{from{opacity:0}to{opacity:1}}
+
+/* points */
+body.marketing-page .mk-points{display:grid;gap:12px;margin:0;padding:0;list-style:none}
+body.marketing-page .mk-points li{display:flex;gap:10px;align-items:flex-start;color:var(--ink-2);font-size:15px;line-height:1.5}
+body.marketing-page .mk-points li svg{flex:0 0 18px;width:18px;height:18px;margin-top:2px;padding:3px;border-radius:50%;background:#e8f7ee;color:var(--green)}
+
+/* roles */
+body.marketing-page .mk-roles{background:var(--soft);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+body.marketing-page .mk-role-grid{display:grid;grid-template-columns:.9fr 1.1fr;gap:clamp(32px,6vw,88px);align-items:center;margin-top:28px}
+body.marketing-page .mk-role-copy .mk-seg-row{margin-bottom:32px}
+body.marketing-page .mk-roles-head{display:grid;grid-template-columns:1.1fr 1fr;gap:clamp(24px,5vw,80px);align-items:end}
+body.marketing-page .mk-roles-head .section-title{margin-bottom:0}
+body.marketing-page .mk-role-panel h3{font-size:clamp(24px,2.4vw,30px);line-height:1.15;margin:0 0 12px}
+body.marketing-page .mk-role-panel p{color:var(--muted);margin:0 0 24px;font-size:16px;line-height:1.6}
+body.marketing-page .mk-role-shots{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(12px,2vw,24px);align-items:end}
+body.marketing-page .mk-role-shots .mk-phone:nth-child(2){margin-bottom:24px}
+body.marketing-page .mk-role-shots figcaption{margin-top:14px;text-align:center;font-size:13px;font-weight:500;color:var(--muted)}
+
+/* role reel — endless carousel */
+body.marketing-page .mk-reel{margin-top:56px;overflow:hidden;-webkit-mask-image:linear-gradient(90deg,transparent,#000 8%,#000 92%,transparent);mask-image:linear-gradient(90deg,transparent,#000 8%,#000 92%,transparent)}
+body.marketing-page .mk-reel-track{--g:28px;display:flex;gap:var(--g);width:max-content;padding:8px 0 12px;}
+body.marketing-page .mk-reel .mk-phone{flex:0 0 220px;width:220px}
+body.marketing-page .mk-reel figcaption{margin-top:14px;text-align:center}
+body.marketing-page .mk-reel figcaption b{display:block;font-size:14px;font-weight:500;color:var(--ink)}
+body.marketing-page .mk-reel figcaption i,body.marketing-page .mk-role-tag{display:inline-block;margin-bottom:6px;font-style:normal;font-size:11px;font-weight:600;text-transform:capitalize;padding:3px 9px;border-radius:999px}
+body.marketing-page .mk-reel figcaption i.parent,body.marketing-page .mk-role-tag.parent{background:#e8f7ee;color:#15803d}
+body.marketing-page .mk-reel figcaption i.teacher,body.marketing-page .mk-role-tag.teacher{background:#eef3ff;color:#1d4ed8}
+body.marketing-page .mk-reel figcaption i.office,body.marketing-page .mk-role-tag.office{background:#fff4e0;color:#9a5b00}
+body.marketing-page .mk-role-cols{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(24px,4vw,48px);margin-top:64px}
+body.marketing-page .mk-role-col{border-top:1px solid var(--line-2);padding-top:24px}
+body.marketing-page .mk-role-col h3{font-size:20px;line-height:1.25;letter-spacing:-.025em;margin:10px 0 8px}
+body.marketing-page .mk-role-col p{margin:0 0 18px;color:var(--muted);font-size:15px;line-height:1.6}
+
+/* workflows */
+body.marketing-page .mk-wf{margin-top:28px;display:flex;flex-direction:column;align-items:center}
+body.marketing-page .mk-wf-panel{display:grid;grid-template-columns:.75fr 1.25fr;gap:clamp(32px,5vw,72px);align-items:center;width:100%;margin-top:32px}
+body.marketing-page .mk-wf-copy h3{font-size:clamp(24px,2.4vw,32px);line-height:1.12;margin:12px 0 14px;max-width:20ch}
+body.marketing-page .mk-wf-copy p{color:var(--muted);font-size:16px;line-height:1.65;margin:0 0 24px}
+
+/* modules grid */
+body.marketing-page .mk-grid{display:grid;grid-template-columns:repeat(4,1fr);margin-top:36px;border:1px solid var(--line);border-radius:20px;overflow:hidden;background:var(--line);gap:1px}
+body.marketing-page .mk-grid article{position:relative;background:#fff;padding:28px 24px 30px;transition:background-color .2s ease}
+body.marketing-page .mk-grid article:hover{background:#fbfbfc}
+body.marketing-page .mk-ico{display:grid;place-items:center;width:44px;height:44px;border-radius:12px;color:var(--brand);background:linear-gradient(180deg,#f3f7ff,#e9f0ff);box-shadow:inset 0 0 0 1px rgba(37,99,235,.12);margin-bottom:24px}
+body.marketing-page .mk-ico svg{width:24px;height:24px}
+body.marketing-page .mk-grid h3{font-size:16px;letter-spacing:-.02em;margin:0 0 6px}
+body.marketing-page .mk-grid p{margin:0;color:var(--muted);font-size:14px;line-height:1.55}
+body.marketing-page .mk-grid .tag{position:absolute;top:24px;right:20px;font-size:11px;font-weight:500;color:var(--green);background:#e8f7ee;border-radius:999px;padding:3px 8px}
+
+/* trust promises */
+body.marketing-page .mk-trust{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:36px}
+body.marketing-page .mk-trust article{padding:26px 24px 28px;border:1px solid var(--line);border-radius:20px;background:#fff;transition:border-color .2s ease,box-shadow .2s ease}
+body.marketing-page .mk-trust article:hover{border-color:var(--line-2);box-shadow:0 12px 32px -18px rgba(11,13,18,.2)}
+body.marketing-page .mk-trust i{display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:#eef3ff;color:var(--brand);margin-bottom:20px}
+body.marketing-page .mk-trust i.g{background:#e8f7ee;color:var(--green)}
+body.marketing-page .mk-trust i svg{width:20px;height:20px}
+body.marketing-page .mk-trust h3{font-size:17px;letter-spacing:-.02em;margin:0 0 6px}
+body.marketing-page .mk-trust p{margin:0;font-size:14px;line-height:1.6;color:var(--muted)}
+
+/* early partner band */
+body.marketing-page .mk-early{display:grid;grid-template-columns:1.2fr 1fr;gap:clamp(24px,4vw,56px);align-items:center;padding:clamp(28px,4vw,44px);border-radius:24px;border:1px solid #c7d7fb;background:radial-gradient(70% 120% at 100% 0%,rgba(37,99,235,.10),transparent 70%),linear-gradient(180deg,#f7f9ff,#fff)}
+body.marketing-page .mk-early .badge-new{display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 12px;border-radius:999px;background:#fff;border:1px solid #c7d7fb;font-size:12px;font-weight:600;color:var(--brand)}
+body.marketing-page .mk-early .badge-new i{width:6px;height:6px;border-radius:50%;background:var(--brand);box-shadow:0 0 0 3px rgba(37,99,235,.18)}
+body.marketing-page .mk-early h2{font-size:clamp(26px,3vw,38px);line-height:1.1;letter-spacing:-.04em;margin:14px 0 10px}
+body.marketing-page .mk-early > div > p{margin:0;color:var(--muted);font-size:16px;line-height:1.6;max-width:52ch}
+body.marketing-page .mk-early ul{list-style:none;margin:0 0 22px;padding:0;display:grid;gap:12px}
+body.marketing-page .mk-early li{display:flex;gap:10px;font-size:15px;color:var(--ink-2);line-height:1.45}
+body.marketing-page .mk-early li svg{flex:0 0 18px;width:18px;height:18px;margin-top:2px;padding:3px;border-radius:50%;background:#e8f7ee;color:var(--green)}
+body.marketing-page .mk-early .cta{display:flex;gap:10px;flex-wrap:wrap}
+
+/* support promise */
+body.marketing-page .mk-support{position:relative;background:var(--dark);color:#fff;isolation:isolate;overflow:hidden}
+body.marketing-page .mk-support:before{content:"";position:absolute;inset:0;z-index:-1;background:radial-gradient(40% 60% at 15% 20%,rgba(34,197,94,.14),transparent 70%),radial-gradient(45% 60% at 90% 80%,rgba(37,99,235,.28),transparent 70%)}
+body.marketing-page .mk-support-top{display:grid;grid-template-columns:1.1fr 1fr;gap:clamp(32px,6vw,96px);align-items:end}
+body.marketing-page .mk-support .eyebrow{color:#4ade80}
+body.marketing-page .mk-support .section-title{color:#fff;max-width:20ch;margin-bottom:0}
+body.marketing-page .mk-support-top .lead{color:var(--dark-muted)}
+body.marketing-page .mk-support-top .lead b{color:#fff;font-weight:500}
+body.marketing-page .mk-sflow{list-style:none;margin:36px 0 0;padding:0;display:grid;grid-template-columns:repeat(4,1fr);gap:12px;counter-reset:s}
+body.marketing-page .mk-sflow li{position:relative;padding:24px 22px 26px;border-radius:20px;background:rgba(255,255,255,.04);border:1px solid var(--dark-line);transition:background-color .2s ease,border-color .2s ease}
+body.marketing-page .mk-sflow li:hover{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.16)}
+body.marketing-page .mk-sflow li i{display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:rgba(74,222,128,.12);color:#4ade80;margin-bottom:22px}
+body.marketing-page .mk-sflow li i svg{width:20px;height:20px}
+body.marketing-page .mk-sflow li:before{counter-increment:s;content:"0" counter(s);position:absolute;top:24px;right:22px;font:500 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:#5b6170}
+body.marketing-page .mk-sflow h3{font-size:17px;letter-spacing:-.02em;margin:0 0 6px;color:#fff}
+body.marketing-page .mk-sflow p{margin:0;font-size:14px;line-height:1.6;color:var(--dark-muted)}
+body.marketing-page .mk-support-bar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px;margin-top:12px;padding:20px 24px;border-radius:20px;background:linear-gradient(90deg,rgba(74,222,128,.10),rgba(37,99,235,.12));border:1px solid var(--dark-line)}
+body.marketing-page .mk-support-bar p{margin:0;font-size:15px;color:#e6e8ec}
+body.marketing-page .mk-support-bar p b{color:#fff}
+body.marketing-page .mk-support-bar .live{display:inline-flex;align-items:center;gap:8px;margin-right:10px;font-size:13px;color:#4ade80}
+body.marketing-page .mk-support-bar .live i{width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 0 rgba(34,197,94,.6);}
+
+/* faq */
+body.marketing-page .mk-faq{max-width:840px;margin:0 auto}
+body.marketing-page .mk-faq-side{text-align:center;margin-bottom:32px}
+body.marketing-page .mk-faq-side .section-title{margin-left:auto;margin-right:auto}
+body.marketing-page .mk-faq-side .lead{margin:0 auto}
+body.marketing-page .mk-faq-list{display:grid;gap:10px}
+body.marketing-page .mk-faq-list details{border:1px solid var(--line);border-radius:16px;background:#fff;transition:border-color .2s ease,box-shadow .2s ease,background-color .2s ease}
+body.marketing-page .mk-faq-list details:hover{border-color:var(--line-2)}
+body.marketing-page .mk-faq-list details[open]{background:var(--soft);border-color:var(--line-2);box-shadow:0 12px 32px -20px rgba(11,13,18,.25)}
+body.marketing-page .mk-faq-list summary{list-style:none;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:20px;padding:20px 22px;font-size:16px;font-weight:500;letter-spacing:-.015em;color:var(--ink)}
+body.marketing-page .mk-faq-list summary::-webkit-details-marker{display:none}
+body.marketing-page .mk-faq-list summary:after{content:"";flex:0 0 28px;height:28px;border-radius:999px;background:var(--soft) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 6l4 4 4-4' fill='none' stroke='%233a404d' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/12px no-repeat;transition:transform .25s ease,background-color .2s ease}
+body.marketing-page .mk-faq-list details[open] summary:after{transform:rotate(180deg);background-color:#fff}
+body.marketing-page .mk-faq-list details p{margin:-4px 0 0;padding:0 70px 22px 22px;font-size:15px;line-height:1.7;color:var(--muted)}
+body.marketing-page .mk-faq-more{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:24px;padding:20px 22px;border-radius:16px;background:var(--dark);color:#fff}
+body.marketing-page .mk-faq-more b{display:block;font-size:16px;font-weight:600}
+body.marketing-page .mk-faq-more span{display:block;font-size:14px;color:var(--dark-muted);margin-top:2px}
+
+/* before → after */
+body.marketing-page .mk-swap{margin-top:32px;border:1px solid var(--line);border-radius:24px;overflow:hidden;background:#fff}
+body.marketing-page .mk-swap-head,body.marketing-page .mk-swap-row{display:grid;grid-template-columns:1fr 56px 1.15fr;align-items:center}
+body.marketing-page .mk-swap-head{padding:18px 28px;background:var(--soft);border-bottom:1px solid var(--line);font-size:13px;font-weight:600;color:var(--muted)}
+body.marketing-page .mk-swap-head span:last-child{display:flex;align-items:center;gap:8px;color:var(--ink)}
+body.marketing-page .mk-swap-head .mk-mark{width:24px}
+body.marketing-page .mk-swap-row{padding:22px 28px;border-top:1px solid var(--line);transition:background-color .2s ease}
+body.marketing-page .mk-swap-row:first-of-type{border-top:0}
+body.marketing-page .mk-swap-row:hover{background:#fbfcff}
+body.marketing-page .mk-swap-row b{display:block;font-size:16px;font-weight:600;letter-spacing:-.015em}
+body.marketing-page .mk-swap-row span{display:block;margin-top:4px;font-size:14px;line-height:1.5;color:var(--muted)}
+body.marketing-page .mk-swap-row .old b{color:#8a909b;text-decoration:line-through;text-decoration-color:rgba(229,72,77,.55);text-decoration-thickness:1.5px}
+body.marketing-page .mk-swap-row .old span{color:#9aa0aa}
+body.marketing-page .mk-swap-row > i{display:grid;place-items:center;width:32px;height:32px;border-radius:999px;background:var(--soft);border:1px solid var(--line);color:var(--muted)}
+body.marketing-page .mk-swap-row > i svg{width:14px;height:14px}
+body.marketing-page .mk-swap-row .new{display:flex;gap:12px}
+body.marketing-page .mk-swap-row .new b{color:var(--ink)}
+body.marketing-page .mk-swap-row .new em{flex:0 0 22px;height:22px;border-radius:50%;display:grid;place-items:center;background:#e8f7ee;color:var(--green);margin-top:1px}
+body.marketing-page .mk-swap-row .new em svg{width:12px;height:12px}
+
+/* compare */
+body.marketing-page .mk-compare{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:56px}
+body.marketing-page .mk-compare article{border-radius:20px;padding:32px;border:1px solid var(--line);background:#fff}
+body.marketing-page .mk-compare .old{background:var(--soft)}
+body.marketing-page .mk-compare .new{border-color:#c7d7fb;box-shadow:0 0 0 4px rgba(37,99,235,.05)}
+body.marketing-page .mk-compare h3{font-size:20px;margin:0 0 4px;display:flex;align-items:center;gap:10px}
+body.marketing-page .mk-compare h3 .mk-mark{width:26px}
+body.marketing-page .mk-compare small{display:block;color:var(--muted);font-size:14px;margin-bottom:24px}
+body.marketing-page .mk-compare ul{list-style:none;margin:0;padding:0;display:grid}
+body.marketing-page .mk-compare li{display:flex;gap:14px;align-items:flex-start;padding:16px 0;border-top:1px solid var(--line);font-size:14px;line-height:1.5;color:var(--muted)}
+body.marketing-page .mk-compare li b{display:block;color:var(--ink);font-weight:500;font-size:15px;margin-bottom:2px}
+body.marketing-page .mk-compare li i{flex:0 0 20px;height:20px;border-radius:50%;display:grid;place-items:center;font-style:normal;margin-top:1px}
+body.marketing-page .mk-compare li i svg{width:12px;height:12px}
+body.marketing-page .mk-compare .old li i{background:#eceef2;color:#7a808b}
+body.marketing-page .mk-compare .new li i{background:#e8f7ee;color:var(--green)}
+body.marketing-page .mk-facts{display:flex;flex-wrap:wrap;justify-content:center;gap:12px 32px;margin:40px 0 0;padding:0;list-style:none}
+body.marketing-page .mk-facts li{display:inline-flex;align-items:center;gap:8px;font-size:14px;color:var(--ink-2)}
+body.marketing-page .mk-facts svg{width:14px;height:14px;color:var(--green)}
+
+/* closeout + footer: one full-width dark block */
+body.marketing-page .mk-end{position:relative;background:var(--dark);color:#fff;overflow:hidden;isolation:isolate}
+body.marketing-page .mk-end:before{content:"";position:absolute;inset:0;z-index:-1;background:radial-gradient(45% 60% at 18% 0%,rgba(37,99,235,.28),transparent 70%),radial-gradient(35% 50% at 90% 10%,rgba(34,197,94,.10),transparent 70%)}
+body.marketing-page .mk-close{display:grid;grid-template-columns:1.3fr 1fr;gap:clamp(32px,5vw,80px);align-items:end;padding:clamp(56px,7vw,96px) 0 clamp(48px,5vw,72px);border-bottom:1px solid var(--dark-line)}
+body.marketing-page .mk-close .section-title{color:#fff;max-width:18ch;margin:12px 0 0;font-size:clamp(32px,4vw,52px)}
+body.marketing-page .mk-close .eyebrow{color:#7ea7ff}
+body.marketing-page .mk-close-side .lead{color:var(--dark-muted);margin:0 0 28px;max-width:44ch}
+body.marketing-page .mk-close-side .cta{display:flex;gap:10px;flex-wrap:wrap}
+body.marketing-page .mk-close-points{display:flex;flex-wrap:wrap;gap:8px 20px;margin:24px 0 0;padding:0;list-style:none;font-size:13px;color:#8b919c}
+body.marketing-page .mk-close-points li{display:inline-flex;align-items:center;gap:6px}
+body.marketing-page .mk-close-points svg{width:13px;height:13px;color:#22c55e}
+body.marketing-page footer{background:transparent;border:0;padding:clamp(56px,7vw,80px) 0 0;color:var(--dark-muted)}
+body.marketing-page .footer-grid{display:grid;grid-template-columns:1.6fr repeat(4,1fr);gap:40px;align-items:start}
+body.marketing-page footer .mk-brand{color:#fff}
+body.marketing-page .footer-brand p{margin:18px 0 20px;max-width:34ch;font-size:14px;line-height:1.65;color:var(--dark-muted)}
+body.marketing-page .footer-mail{display:inline-flex;align-items:center;gap:8px;height:38px;padding:0 14px;border:1px solid var(--dark-line);border-radius:999px;font-size:14px;color:#e6e8ec;transition:border-color .15s ease,background-color .15s ease}
+body.marketing-page .footer-mail:hover{border-color:rgba(255,255,255,.22);background:rgba(255,255,255,.04)}
+body.marketing-page .footer-mail svg{width:15px;height:15px}
+body.marketing-page .footer-col h4{margin:0 0 16px;font:500 13px/1 var(--font);color:#fff}
+body.marketing-page .footer-col a{display:block;padding:6px 0;font-size:14px;color:var(--dark-muted);transition:color .15s ease}
+body.marketing-page .footer-col a:hover{color:#fff}
+body.marketing-page .footer-word{margin:clamp(48px,6vw,72px) 0 0;font:600 clamp(80px,19vw,280px)/.8 var(--font);letter-spacing:-.07em;text-align:center;color:transparent;background:linear-gradient(180deg,rgba(255,255,255,.10),rgba(255,255,255,0) 85%);-webkit-background-clip:text;background-clip:text;user-select:none;pointer-events:none}
+body.marketing-page .footer-base{padding:22px 0 28px;border-top:1px solid var(--dark-line);font-size:13px;color:#8b919c;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+body.marketing-page .footer-base a:hover{color:#fff}
+body.marketing-page .footer-base nav{display:flex;gap:18px}
+
+/* get started (#start) — markup lives in anekio-site.ts; restyled to the same system */
+body.marketing-page #start{padding:clamp(56px,6.5vw,96px) 0;scroll-margin-top:72px;background:var(--soft);box-shadow:0 0 0 100vmax var(--soft);clip-path:inset(0 -100vmax)}
+body.marketing-page #start .start-head{max-width:640px;margin:0 auto 28px}
+body.marketing-page #start .start-head .section-title{font-size:clamp(32px,3.6vw,44px);max-width:none;margin:12px 0 10px}
+body.marketing-page #start .start-head .muted{font-size:16px;color:var(--muted)}
+body.marketing-page #start .eyebrow{font-size:13px}
+body.marketing-page #start .path-grid{max-width:960px;margin:0 auto 20px;gap:12px}
+body.marketing-page #start .path-card{min-height:0;border-radius:16px;padding:20px;background:#fff;border:1px solid var(--line);box-shadow:none;transition:border-color .15s ease,box-shadow .15s ease;animation:none;transform:none}
+body.marketing-page #start .path-card:hover{transform:none;border-color:var(--line-2);background:#fff;box-shadow:0 8px 24px -12px rgba(11,13,18,.15)}
+body.marketing-page #start .path-card.is-on,body.marketing-page #start .path-card.is-on:hover{transform:none;animation:none;border-color:var(--brand);background:#fff;box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+body.marketing-page #start .path-card .icon,body.marketing-page #start .path-card:hover .icon,body.marketing-page #start .path-card.is-on .icon{display:grid;place-items:center;width:32px;height:32px;border-radius:10px;font-size:13px;font-weight:600;transform:none;background:var(--soft);border:1px solid var(--line);color:var(--ink)}
+body.marketing-page #start .path-card b{font-size:16px;font-weight:600;letter-spacing:-.02em;margin:14px 0 4px}
+body.marketing-page #start .path-card p{font-size:14px;font-weight:400;color:var(--muted)}
+body.marketing-page #start .path-card p strong{color:var(--ink);font-weight:600}
+body.marketing-page #start .path-old{font-weight:400}
+body.marketing-page #start .path-pop,body.marketing-page #start .path-save{top:16px;right:16px;left:auto;border:0;border-radius:999px;padding:4px 9px;font-size:11px;font-weight:500;letter-spacing:0;text-transform:none;background:var(--ink);color:#fff}
+body.marketing-page #start .path-save{background:#e8f7ee;color:var(--green)}
+body.marketing-page #start .start-split{max-width:960px;margin:0 auto;grid-template-columns:.85fr 1.15fr;gap:12px;align-items:stretch}
+body.marketing-page #start .two{gap:12px;align-items:end}
+body.marketing-page #start .two > label{align-content:end}
+body.marketing-page #start .form select,body.marketing-page #start select{appearance:none;-webkit-appearance:none;padding-right:34px;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 6l4 4 4-4' fill='none' stroke='%236b7280' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") right 12px center/14px no-repeat!important}
+body.marketing-page #start input:-webkit-autofill,body.marketing-page #start select:-webkit-autofill{-webkit-box-shadow:0 0 0 40px #fff inset;-webkit-text-fill-color:var(--ink)}
+body.marketing-page #start .price-card,body.marketing-page #start .form-shell{height:100%}
+body.marketing-page #start .offer-block > .eyebrow,body.marketing-page #start .j-step > .eyebrow{display:block;margin-top:0;line-height:1.2}
+body.marketing-page #start .form-panel{padding-top:24px}
+body.marketing-page #start .price-card,body.marketing-page #start .form-shell{border-radius:20px;border:1px solid var(--line);background:#fff;box-shadow:none}
+body.marketing-page #start .price-card{padding:32px}
+body.marketing-page #start .price-card .section-title,body.marketing-page #start .start-heading{font-size:clamp(24px,2.4vw,30px);line-height:1.15;letter-spacing:-.035em;font-weight:600;margin:10px 0 8px;max-width:none}
+body.marketing-page #start .price{font-size:48px;font-weight:600;letter-spacing:-.05em}
+body.marketing-page #start .price-old{font-size:18px;font-weight:400}
+body.marketing-page #start .save{border:0;font-weight:500;font-size:13px;background:#e8f7ee;color:var(--green);padding:5px 10px}
+body.marketing-page #start .check-list{gap:12px;margin:24px 0}
+body.marketing-page #start .check-list span{font-weight:400;color:var(--ink-2);font-size:15px;align-items:center}
+body.marketing-page #start .check-list span:before{content:"";flex:0 0 18px;width:18px;height:18px;background:#e8f7ee url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4.5 8.5l2.5 2.5 4.5-5.5' fill='none' stroke='%2316a34a' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/12px no-repeat}
+body.marketing-page #start .fine{font-size:13px;color:var(--muted)}
+body.marketing-page #start .form-shell:before,body.marketing-page #start .form-shell:after{display:none}
+body.marketing-page #start .form-content{padding:8px!important}
+body.marketing-page #start .form-panel{border:0;border-radius:14px;padding:24px;box-shadow:none;background:#fff}
+body.marketing-page #start .form{gap:14px}
+body.marketing-page #start label{font-weight:500;font-size:13px;color:var(--ink-2);gap:6px}
+body.marketing-page #start input,body.marketing-page #start select,body.marketing-page #start textarea{height:42px;padding:0 12px;border:1px solid var(--line-2);border-radius:10px;font:400 15px var(--font);color:var(--ink);background:#fff;box-shadow:0 1px 2px rgba(11,13,18,.04);transition:border-color .15s ease,box-shadow .15s ease}
+body.marketing-page #start textarea{height:auto;padding:10px 12px}
+body.marketing-page #start input::placeholder{color:#a3a8b2}
+body.marketing-page #start input:focus,body.marketing-page #start select:focus,body.marketing-page #start textarea:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(37,99,235,.14)}
+body.marketing-page #start .form .btn{height:46px;margin-top:4px}
+body.marketing-page #start .cal-day{border-radius:12px;border-color:var(--line)}
+body.marketing-page #start .cal-day button{border-radius:999px;font-weight:500;border-color:var(--line-2);background:#fff}
+body.marketing-page #start .cal-day button.is-on{background:var(--brand);border-color:var(--brand);color:#fff}
+body.marketing-page #start .trial-error{border-radius:12px}
+body.marketing-page #start .contact-taken{margin:4px 0 2px;font-size:14px;line-height:1.5}
+body.marketing-page #start input.is-taken{border-color:#e5484d;box-shadow:0 0 0 3px rgba(229,72,77,.12)}
+body.marketing-page #start .section-title{max-width:none}
+
+@media(prefers-reduced-motion:reduce){body.marketing-page *{animation:none!important;transition:none!important}}
+@media(max-width:1024px){
+  body.marketing-page .mk-nav-links{display:none}
+  body.marketing-page .mk-role-grid,body.marketing-page .mk-wf-panel{grid-template-columns:1fr}
+  body.marketing-page .mk-role-shots{max-width:560px;margin:0 auto}
+  body.marketing-page .mk-grid{grid-template-columns:repeat(2,1fr)}
+  body.marketing-page .mk-stats{grid-template-columns:repeat(2,1fr)}
+  body.marketing-page .mk-role-cols{grid-template-columns:1fr}
+  body.marketing-page .mk-one{grid-template-columns:1fr}
+  body.marketing-page .mk-roles-head{grid-template-columns:1fr}
+  body.marketing-page .mk-support-top{grid-template-columns:1fr}
+  body.marketing-page .mk-sflow{grid-template-columns:1fr 1fr}
+  body.marketing-page .mk-trust{grid-template-columns:1fr 1fr}
+  body.marketing-page .mk-early{grid-template-columns:1fr}
+  body.marketing-page .mk-close{grid-template-columns:1fr;align-items:start}
+  body.marketing-page .footer-grid{grid-template-columns:repeat(2,1fr)}
+  body.marketing-page .footer-brand{grid-column:1/-1}
+}
+@media(max-width:900px){
+  body.marketing-page #start .start-split,body.marketing-page #start .path-grid{grid-template-columns:1fr!important}
+}
+@media(max-width:768px){
+  body.marketing-page .wrap{width:calc(100% - 32px)}
+  body.marketing-page .mk-login,body.marketing-page .mk-nav-actions .btn{display:none}
+  body.marketing-page .mobile-nav{display:block}
+  body.marketing-page .mk-hero h1{font-size:clamp(38px,10.5vw,56px)}
+  body.marketing-page .mk-hero h1 span{display:inline}
+  body.marketing-page .mk-hero .cta{width:100%;flex-direction:column}
+  body.marketing-page .mk-hero .cta .btn{width:100%}
+  body.marketing-page .mk-hero-phone,body.marketing-page .mk-float{display:none}
+  body.marketing-page .mk-hero-stage .mk-window{transform:none}
+  body.marketing-page .mk-window-title{margin-right:0}
+  body.marketing-page .mk-stat{padding:18px 16px 20px;min-height:150px}
+  body.marketing-page .mk-stats{gap:10px}
+  body.marketing-page .mk-flow{grid-template-columns:1fr;gap:32px}
+  body.marketing-page .mk-reel .mk-phone{flex-basis:160px;width:160px}
+  body.marketing-page .mk-reel-track{--g:18px;animation-duration:55s}
+  body.marketing-page .mk-role-shots .mk-phone:nth-child(2){margin-bottom:0}
+  body.marketing-page .mk-role-shots figcaption{display:none}
+  body.marketing-page .mk-grid,body.marketing-page .mk-compare,body.marketing-page .mk-trust{grid-template-columns:1fr}
+  body.marketing-page .mk-swap-head{display:none}
+  body.marketing-page .mk-sflow{grid-template-columns:1fr}
+  body.marketing-page .mk-faq-list details p{padding-right:22px}
+  body.marketing-page .mk-swap-row{grid-template-columns:1fr;gap:10px;padding:20px}
+  body.marketing-page .mk-swap-row > i{transform:rotate(90deg)}
+  body.marketing-page .mk-early .cta .btn{flex:1}
+  body.marketing-page .mk-compare article{padding:24px}
+  body.marketing-page .footer-grid{grid-template-columns:1fr 1fr;gap:32px}
+  body.marketing-page .footer-brand{grid-column:1/-1}
+  body.marketing-page .mk-close-side .cta .btn{flex:1}
+  body.marketing-page #start .price-card{padding:24px}
+  body.marketing-page #start .form-panel{padding:16px}
+}
+</style><script type="application/ld+json">{&quot;@context&quot;:&quot;https://schema.org&quot;,&quot;@type&quot;:&quot;SoftwareApplication&quot;,&quot;name&quot;:&quot;Anekio&quot;,&quot;applicationCategory&quot;:&quot;School management software&quot;,&quot;operatingSystem&quot;:&quot;Web, Android, iOS&quot;,&quot;offers&quot;:{&quot;@type&quot;:&quot;Offer&quot;,&quot;price&quot;:&quot;12000&quot;,&quot;priceCurrency&quot;:&quot;INR&quot;,&quot;description&quot;:&quot;₹5 per student per month, minimum ₹12,000 per year&quot;,&quot;availability&quot;:&quot;https://schema.org/InStock&quot;},&quot;audience&quot;:{&quot;@type&quot;:&quot;EducationalAudience&quot;,&quot;educationalRole&quot;:&quot;School administrator&quot;},&quot;description&quot;:&quot;School management software for Indian schools: admissions, fees with UPI and receipts, attendance, exams and report cards, timetable and a parent app, on web and Android. Book a free demo.&quot;}</script>
+</head>
+<body class="marketing-page"><nav class="nav" id="mk-nav" aria-label="Primary navigation"><div class="wrap"><a class="mk-brand " href="/" aria-label="Anekio home"><svg class="mk-mark" viewBox="0 30 200 142" aria-hidden="true" focusable="false"><path d="M100 115C65 60 15 68 15 115c0 45 50 55 85 0Z" fill="none" stroke="#3B82F6" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/><path d="M100 115c35-55 85-47 85 0 0 45-50 55-85 0Z" fill="none" stroke="#22C55E" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/><circle cx="100" cy="75" r="10" fill="#60A5FA"/><path d="M80 110c10-20 20-22 20-22s10 2 20 22" fill="none" stroke="#60A5FA" stroke-width="9" stroke-linecap="round"/><circle cx="100" cy="40" r="5" fill="#4ADE80"/><circle cx="88" cy="52" r="4.5" fill="#4ADE80"/><circle cx="112" cy="52" r="4.5" fill="#4ADE80"/></svg><span>anekio</span></a><div class="mk-nav-links"><a href="#product">Product</a><a href="#roles">Roles</a><a href="#solutions">Workflows</a><a href="#pricing" data-intent="pay">Pricing</a><a href="/blog">Blog</a></div><div class="mk-nav-actions"><a class="mk-login" href="/login" data-app-login>Log in</a><a class="btn primary sm" href="#start" data-intent="demo">Book a free demo</a></div><details class="mobile-nav"><summary aria-label="Open navigation"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 6h14M3 14h14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></summary><div class="mobile-nav-menu"><a href="#product">Product</a><a href="#roles">Roles</a><a href="#solutions">Workflows</a><a href="#pricing" data-intent="pay">Pricing</a><a href="/blog">Blog</a><a href="#pricing" data-intent="pay">See pricing</a><a href="/login" data-app-login>Log in</a><a class="btn primary" href="#start" data-intent="demo">Book a free demo</a></div></details></div></nav><main><section class="mk-hero">
+    <div class="mk-hero-bg" aria-hidden="true"></div>
+    <div class="wrap mk-hero-copy">
+      <a class="mk-pill" href="#roles"><i></i>The complete school ecosystem · built for India <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+      <h1>Run your whole school <span>from one record.</span></h1>
+      <p class="lead">Admissions, fees, attendance, exams, routine and the parent app share one student file, so nothing is retyped and nobody has to chase.</p>
+      <div class="cta"><a class="btn primary" href="#start" data-intent="demo">Book a free demo</a><a class="btn ghost" href="#pricing" data-intent="pay">See pricing</a></div>
+      <p class="mk-hero-note"><span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>20-minute online demo</span><span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>We set up your school for you</span><span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Your data stays yours</span></p>
+      
+    </div>
+    <div class="mk-hero-stage-wrap">
+      <div class="wrap mk-hero-stage">
+        <figure class="mk-window "><div class="mk-window-bar"><span class="mk-dots"><i></i><i></i><i></i></span><span class="mk-window-title">Anekio · Routine</span></div><div class="mk-window-body"><img src="/demo/shots/14-office-routine-desktop-v2.jpg" alt="Anekio office portal: drag-and-drop routine builder with teachers and the weekly grid" width="1600" height="819" fetchpriority="high" decoding="async"></div></figure>
+        <figure class="mk-phone mk-hero-phone"><div class="mk-phone-shell"><img src="/demo/shots/01-parent-home.jpg" alt="Anekio parent app home showing attendance, last result and fees due" width="720" height="1605" fetchpriority="high" decoding="async"></div></figure>
+        <div class="mk-float f1" aria-hidden="true"><i><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 3h7M4.5 6h7M6 3c3.5 0 3.5 6 0 6H4.5l5 4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></i><div><b>₹8,600 collected</b><span>Receipt sent to parent · just now</span></div></div>
+        <div class="mk-float f2" aria-hidden="true"><i><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></i><div><b>Class 1-A marked</b><span>17 present · parents notified</span></div></div>
+        <div class="mk-float f3" aria-hidden="true"><i><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 2H4.5A1.5 1.5 0 0 0 3 3.5v9A1.5 1.5 0 0 0 4.5 14h7a1.5 1.5 0 0 0 1.5-1.5V5.5z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9.5 2v3.5H13M6 9h4M6 11.5h2.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></i><div><b>Term 1 results published</b><span>Report cards ready to download</span></div></div>
+      </div>
+    </div>
+  </section><section class="mk-strip" aria-label="What Anekio covers">
+    <p class="wrap">Everything a school runs on, in one place</p>
+    <div class="mk-marquee"><ul><li><i><svg viewBox="0 0 24 24" fill="none"><circle cx="10" cy="8" r="3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.5 19.5c.8-3.3 3.4-5.2 6.5-5.2 1.4 0 2.6.4 3.6 1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="17.5" cy="17.5" r="4" fill="#22c55e"/><path d="M17.5 15.6v3.8M15.6 17.5h3.8" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg></i>Admissions</li><li><i><svg viewBox="0 0 24 24" fill="none"><path d="M6 3h12v18l-2.5-1.6L13 21l-2-1.6L8.5 21 6 19.4V3z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.5 8h5M9.5 8.1c2.6 0 3.6 1 3.6 2.2S12 12.6 9.5 12.6l4 3.4M9.5 10.3h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18.5" cy="5.5" r="2.5" fill="#22c55e"/></svg></i>Fees & receipts</li><li><i><svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="5" width="17" height="15.5" rx="3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 3v4M16 3v4M3.5 10h17" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="15.2" r="3.4" fill="#22c55e"/><path d="M10.6 15.2l1 1 1.9-2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></i>Attendance</li><li><i><svg viewBox="0 0 24 24" fill="none"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 3v5h5M8.5 12.5h4M8.5 16h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="16" cy="15.5" r="2.6" fill="#22c55e"/></svg></i>Exams & report cards</li><li><i><svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="3.5" width="17" height="17" rx="3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.5 9.2h17M3.5 14.8h17M9.2 3.5v17M14.8 3.5v17" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><rect x="10.2" y="10.2" width="3.6" height="3.6" rx="1" fill="#22c55e"/></svg></i>Routine</li><li><i><svg viewBox="0 0 24 24" fill="none"><path d="M20.5 14.5a2 2 0 0 1-2 2H9l-4.5 3.5V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.5 9h7M8.5 12h4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="19" cy="5" r="2.6" fill="#22c55e"/></svg></i>Parent app</li><li><i><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="5" width="16" height="15" rx="3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.5 5V3.5h5V5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="11" r="2.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 17c.6-1.7 2.1-2.6 4-2.6s3.4.9 4 2.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18.5" cy="5.5" r="2.5" fill="#22c55e"/></svg></i>Teacher app</li><li><i><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="5" width="16" height="15" rx="3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.5 5V3.5h5V5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="11" r="2.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 17c.6-1.7 2.1-2.6 4-2.6s3.4.9 4 2.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18.5" cy="5.5" r="2.5" fill="#22c55e"/></svg></i>Leave & payroll</li><li><i><svg viewBox="0 0 24 24" fill="none"><path d="M20.5 14.5a2 2 0 0 1-2 2H9l-4.5 3.5V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.5 9h7M8.5 12h4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="19" cy="5" r="2.6" fill="#22c55e"/></svg></i>Notices</li><li><i><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.5 12h17M12 3.5c2.4 2.3 3.5 5.2 3.5 8.5s-1.1 6.2-3.5 8.5c-2.4-2.3-3.5-5.2-3.5-8.5s1.1-6.2 3.5-8.5z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></i>School website</li><li><i><svg viewBox="0 0 24 24" fill="none"><path d="M12 21s7.5-3.6 7.5-9.4V5.6L12 3 4.5 5.6v6c0 5.8 7.5 9.4 7.5 9.4z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="11.2" r="3.2" fill="#22c55e"/><path d="M10.7 11.2l.9.9 1.7-1.8" stroke="#fff" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></i>Roles & permissions</li><li aria-hidden="true"><i><svg viewBox="0 0 24 24" fill="none"><circle cx="10" cy="8" r="3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.5 19.5c.8-3.3 3.4-5.2 6.5-5.2 1.4 0 2.6.4 3.6 1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="17.5" cy="17.5" r="4" fill="#22c55e"/><path d="M17.5 15.6v3.8M15.6 17.5h3.8" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg></i>Admissions</li><li aria-hidden="true"><i><svg viewBox="0 0 24 24" fill="none"><path d="M6 3h12v18l-2.5-1.6L13 21l-2-1.6L8.5 21 6 19.4V3z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.5 8h5M9.5 8.1c2.6 0 3.6 1 3.6 2.2S12 12.6 9.5 12.6l4 3.4M9.5 10.3h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18.5" cy="5.5" r="2.5" fill="#22c55e"/></svg></i>Fees & receipts</li><li aria-hidden="true"><i><svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="5" width="17" height="15.5" rx="3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 3v4M16 3v4M3.5 10h17" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="15.2" r="3.4" fill="#22c55e"/><path d="M10.6 15.2l1 1 1.9-2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></i>Attendance</li><li aria-hidden="true"><i><svg viewBox="0 0 24 24" fill="none"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 3v5h5M8.5 12.5h4M8.5 16h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="16" cy="15.5" r="2.6" fill="#22c55e"/></svg></i>Exams & report cards</li><li aria-hidden="true"><i><svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="3.5" width="17" height="17" rx="3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.5 9.2h17M3.5 14.8h17M9.2 3.5v17M14.8 3.5v17" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><rect x="10.2" y="10.2" width="3.6" height="3.6" rx="1" fill="#22c55e"/></svg></i>Routine</li><li aria-hidden="true"><i><svg viewBox="0 0 24 24" fill="none"><path d="M20.5 14.5a2 2 0 0 1-2 2H9l-4.5 3.5V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.5 9h7M8.5 12h4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="19" cy="5" r="2.6" fill="#22c55e"/></svg></i>Parent app</li><li aria-hidden="true"><i><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="5" width="16" height="15" rx="3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.5 5V3.5h5V5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="11" r="2.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 17c.6-1.7 2.1-2.6 4-2.6s3.4.9 4 2.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18.5" cy="5.5" r="2.5" fill="#22c55e"/></svg></i>Teacher app</li><li aria-hidden="true"><i><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="5" width="16" height="15" rx="3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.5 5V3.5h5V5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="11" r="2.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 17c.6-1.7 2.1-2.6 4-2.6s3.4.9 4 2.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18.5" cy="5.5" r="2.5" fill="#22c55e"/></svg></i>Leave & payroll</li><li aria-hidden="true"><i><svg viewBox="0 0 24 24" fill="none"><path d="M20.5 14.5a2 2 0 0 1-2 2H9l-4.5 3.5V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.5 9h7M8.5 12h4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="19" cy="5" r="2.6" fill="#22c55e"/></svg></i>Notices</li><li aria-hidden="true"><i><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.5 12h17M12 3.5c2.4 2.3 3.5 5.2 3.5 8.5s-1.1 6.2-3.5 8.5c-2.4-2.3-3.5-5.2-3.5-8.5s1.1-6.2 3.5-8.5z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></i>School website</li><li aria-hidden="true"><i><svg viewBox="0 0 24 24" fill="none"><path d="M12 21s7.5-3.6 7.5-9.4V5.6L12 3 4.5 5.6v6c0 5.8 7.5 9.4 7.5 9.4z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="11.2" r="3.2" fill="#22c55e"/><path d="M10.7 11.2l.9.9 1.7-1.8" stroke="#fff" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></i>Roles & permissions</li></ul></div>
+    <div class="wrap mk-stats">
+      <div class="mk-stat"><em><i></i>Modules</em><b>12<small>+</small></b><span>on one school record</span></div>
+      <div class="mk-stat"><em><i></i>Portals</em><b>4</b><span>office, teacher, parent and student</span></div>
+      <div class="mk-stat"><em><i></i>Attendance</em><b>60<small>s</small></b><span>to mark a whole class present</span></div>
+      <div class="mk-stat is-dark"><em><i></i>Simple pricing</em><b>₹5</b><span>per student per month, billed yearly</span></div>
+    </div>
+  </section><section id="product" class="mk-section">
+    <div class="wrap mk-one">
+      <div class="mk-one-copy">
+        <span class="eyebrow">One platform</span><h2 class="section-title">Capture once. Use everywhere.</h2>
+        <p class="lead">A student is admitted once. From then on fees, attendance, marks, documents and messages stay attached to that same record, on the office web portal and on every phone.</p>
+        <ol class="mk-steps-v">
+          <li class="s1"><span>01</span><div><strong>Admit the student</strong><p>The admission form becomes the working student file: class, parent, documents and billing month.</p></div></li>
+          <li class="s2"><span>02</span><div><strong>Every team works on it</strong><p>Fees, attendance, exams, routine and notices read and write the same record. No spreadsheets in between.</p></div></li>
+          <li class="s3"><span>03</span><div><strong>Each role sees what it needs</strong><p>Office gets control, teachers get their classes, parents get their child, with roles you decide.</p></div></li>
+        </ol>
+      </div>
+      <div class="mk-one-stage"><p class="mk-one-label"><span><i></i><b>Example:</b> one fee payment</span><span>Updates everywhere</span></p><div class="mk-live" aria-label="Example: one fee payment updating every view">
+        <div class="mk-live-card s1"><div class="mk-live-head"><span class="mk-live-tag">Office</span><span>Collect fee</span></div>
+          <div class="mk-live-row"><b>Aanya Menon</b><span>2-A · ADM-201</span></div>
+          <div class="mk-live-row"><span>October fee</span><b>₹8,600</b></div>
+          <div class="mk-live-btn"><span class="t1">Collect ₹8,600 · UPI</span><span class="t2"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg> Collected</span></div></div>
+        <div class="mk-live-link"><i></i></div>
+        <div class="mk-live-card s2"><div class="mk-live-head"><span class="mk-live-tag green">Parent app</span><span>Just now</span></div>
+          <div class="mk-live-note"><span class="mk-live-ic"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div><b>Receipt received</b><span>₹8,600 · October fee · Aanya</span></div></div>
+          <div class="mk-live-row muted"><span>Receipt RCPT-4097</span><span>Download</span></div></div>
+        <div class="mk-live-link"><i></i></div>
+        <div class="mk-live-card s3"><div class="mk-live-head"><span class="mk-live-tag dark">Fees register</span><span>Live</span></div>
+          <div class="mk-live-row"><span>Students with dues</span><b>25 <em>−1</em></b></div>
+          <div class="mk-live-row"><span>Collected this term</span><b>₹6.48L <em>+₹8,600</em></b></div>
+          <div class="mk-live-row muted"><span>Overdue list</span><span>Updated</span></div></div>
+      </div>
+      <p class="mk-live-cap">One payment, recorded once. The parent, the register and the reports all update together.</p></div>
+    </div>
+  </section><section id="roles" class="mk-section mk-roles">
+    <div class="wrap" data-tabset data-autoplay="6000">
+      <div class="mk-roles-head"><div><span class="eyebrow">For every role</span><h2 class="section-title">One school. Every role. Same truth.</h2></div><p class="lead">The same school from three different seats, on the web and in one Android app. These are real screens from the product.</p></div>
+      <div class="mk-role-grid">
+        <div class="mk-role-copy">
+          <div class="mk-seg-row"><div class="mk-seg" role="tablist" aria-label="Anekio portals"><button type="button" role="tab" data-tab="office" aria-selected="true">Office</button><button type="button" role="tab" data-tab="teacher" aria-selected="false">Teacher</button><button type="button" role="tab" data-tab="parent" aria-selected="false">Parent</button></div><div class="mk-steps"><button type="button" class="mk-step" data-step="-1" aria-label="Previous"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5L5.5 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button><button type="button" class="mk-step" data-step="1" aria-label="Next"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div></div>
+          <div class="mk-role-panel" role="tabpanel" data-panel="office"><h3>The office sees the whole day before it starts.</h3><p>Timetable gaps, absent teachers, overdue fees and today's registers, all on one desk. Collect a fee in four taps and the receipt reaches the parent.</p><ul class="mk-points"><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Fees register, UPI / cash / pay-link collection, auto receipts</span></li><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Attendance overview across every class by 10 AM</span></li><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Notices to parents, teachers or students with a preview</span></li><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Roles & permissions, area by area</span></li></ul></div><div class="mk-role-panel" role="tabpanel" data-panel="teacher" hidden><h3>Teachers lose the paperwork, not the control.</h3><p>Mark a class present in under a minute, see today's periods, hand over question papers and enter marks, all from the phone in their pocket.</p><ul class="mk-points"><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Attendance with P / L / A per student and a month register</span></li><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Own timetable with recess and rooms</span></li><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Question-paper handover and marks entry with deadlines</span></li><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Apply for leave; balance and approver shown</span></li></ul></div><div class="mk-role-panel" role="tabpanel" data-panel="parent" hidden><h3>Parents get answers without calling the school.</h3><p>Attendance, fees due, exam results and notices for each child, plus a numbered request thread so a question never gets lost on WhatsApp.</p><ul class="mk-points"><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Fees due with Pay now and downloadable receipts</span></li><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Subject-wise marks and the report card</span></li><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Attendance calendar; switch between children</span></li><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Message the office or the class teacher</span></li></ul></div>
+        </div>
+        <div><div class="mk-role-shots" data-panel="office"><figure class="mk-phone"><div class="mk-phone-shell"><img src="/demo/shots/08-office-fees-register.jpg" alt="Fees register" width="720" height="1605" loading="lazy" decoding="async"></div><figcaption>Fees register</figcaption></figure><figure class="mk-phone"><div class="mk-phone-shell"><img src="/demo/shots/12-office-dashboard-cover.jpg" alt="Office desk" width="720" height="1605" loading="lazy" decoding="async"></div><figcaption>Office desk</figcaption></figure><figure class="mk-phone"><div class="mk-phone-shell"><img src="/demo/shots/19-office-attendance-overview.jpg" alt="Attendance overview" width="720" height="1605" loading="lazy" decoding="async"></div><figcaption>Attendance overview</figcaption></figure></div><div class="mk-role-shots" data-panel="teacher" hidden><figure class="mk-phone"><div class="mk-phone-shell"><img src="/demo/shots/05-teacher-attendance.jpg" alt="Mark attendance" width="720" height="1605" loading="lazy" decoding="async"></div><figcaption>Mark attendance</figcaption></figure><figure class="mk-phone"><div class="mk-phone-shell"><img src="/demo/shots/06-teacher-timetable.jpg" alt="Today&#039;s periods" width="720" height="1605" loading="lazy" decoding="async"></div><figcaption>Today&#039;s periods</figcaption></figure><figure class="mk-phone"><div class="mk-phone-shell"><img src="/demo/shots/04-teacher-apply-leave.jpg" alt="Apply for leave" width="720" height="1605" loading="lazy" decoding="async"></div><figcaption>Apply for leave</figcaption></figure></div><div class="mk-role-shots" data-panel="parent" hidden><figure class="mk-phone"><div class="mk-phone-shell"><img src="/demo/shots/01-parent-home.jpg" alt="Parent home" width="720" height="1605" loading="lazy" decoding="async"></div><figcaption>Parent home</figcaption></figure><figure class="mk-phone"><div class="mk-phone-shell"><img src="/demo/shots/17-parent-exam-result.jpg" alt="Exam results" width="720" height="1605" loading="lazy" decoding="async"></div><figcaption>Exam results</figcaption></figure><figure class="mk-phone"><div class="mk-phone-shell"><img src="/demo/shots/02-parent-message-school.jpg" alt="Message the school" width="720" height="1605" loading="lazy" decoding="async"></div><figcaption>Message the school</figcaption></figure></div></div>
+      </div>
+    </div>
+  </section><section id="solutions" class="mk-section">
+    <div class="wrap" data-tabset data-autoplay="6000">
+      <div class="center"><span class="eyebrow">Real school workflows</span><h2 class="section-title">Built around how a school actually runs.</h2><p class="lead">Not a generic ERP with a school skin. Every screen here is the live product.</p></div>
+      <div class="mk-wf">
+        <div class="mk-seg-row"><div class="mk-seg" role="tablist" aria-label="Anekio workflows"><button type="button" role="tab" data-tab="fees" aria-selected="true">Fees & collections</button><button type="button" role="tab" data-tab="docs" aria-selected="false">Receipts & documents</button><button type="button" role="tab" data-tab="web" aria-selected="false">School website</button><button type="button" role="tab" data-tab="setup" aria-selected="false">Guided setup</button></div><div class="mk-steps"><button type="button" class="mk-step" data-step="-1" aria-label="Previous"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5L5.5 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button><button type="button" class="mk-step" data-step="1" aria-label="Next"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div></div>
+        <div class="mk-wf-panel" role="tabpanel" data-panel="fees">
+      <div class="mk-wf-copy"><span class="eyebrow">Fees & collections</span><h3>From invoice to receipt without a single register.</h3><p>Class fee structures, late rules and add-ons issue invoices on their own. Collect in cash, UPI, pay link or bank, and the receipt lands on the parent's phone.</p><ul class="mk-points"><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Outstanding, overdue and collected at a glance</span></li><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>WhatsApp reminders to every overdue parent in one tap</span></li><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Call or message a parent straight from the register</span></li></ul></div>
+      <div class="mk-wf-visual"><figure class="mk-window crop-fees"><div class="mk-window-bar"><span class="mk-dots"><i></i><i></i><i></i></span><span class="mk-window-title">Anekio · Fees</span></div><div class="mk-window-body"><img src="/demo/shots/fees-register-2026.jpg" alt="Anekio fees register: outstanding, overdue and collected totals with each student's due amount, status, fee period and last payment" width="1600" height="760" loading="lazy" decoding="async"></div></figure></div>
+    </div>
+        <div class="mk-wf-panel" role="tabpanel" data-panel="docs" hidden>
+      <div class="mk-wf-copy"><span class="eyebrow">Receipts, report cards & documents</span><h3>Documents that look like they came from your school.</h3><p>Receipts, report cards, ID cards and admission letters print with your letterhead, stamp and signature, and reach parents as a download, not a photo of a register.</p><ul class="mk-points"><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Fee receipts with stamp, signature and QR</span></li><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Report cards published once every mark is in</span></li><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Student ID cards and documents on file</span></li></ul></div>
+      <div class="mk-wf-visual"><figure class="mk-window crop-receipt"><div class="mk-window-bar"><span class="mk-dots"><i></i><i></i><i></i></span><span class="mk-window-title">Anekio · Fee receipt</span></div><div class="mk-window-body"><img src="/demo/shots/13-fee-receipt.jpg" alt="Anekio printable fee receipt with school header, payment details, signature and stamp" width="1600" height="816" loading="lazy" decoding="async"></div></figure></div>
+    </div>
+        <div class="mk-wf-panel" role="tabpanel" data-panel="web" hidden>
+      <div class="mk-wf-copy"><span class="eyebrow">Your school, online</span><h3>A school website with admissions built in.</h3><p>Every Anekio school gets a public website on its own address. Enquiries go straight into the admissions pipeline with follow-ups, calls and test schedules.</p><ul class="mk-points"><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Admission enquiries land in the office inbox</span></li><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Parent app download links and notices</span></li><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Facilities, contact and campus pages</span></li></ul></div>
+      <div class="mk-wf-visual"><figure class="mk-window "><div class="mk-window-bar"><span class="mk-dots"><i></i><i></i><i></i></span><span class="mk-window-title">yourschool.anekio.school</span></div><div class="mk-window-body"><img src="/demo/shots/16-school-website.jpg" alt="Example school website generated by Anekio with an admissions-open banner" width="1600" height="809" loading="lazy" decoding="async"></div></figure></div>
+    </div>
+        <div class="mk-wf-panel" role="tabpanel" data-panel="setup" hidden>
+      <div class="mk-wf-copy"><span class="eyebrow">Guided setup</span><h3>Live in days, not a semester.</h3><p>A step-by-step checklist walks the office through school basics, classes, bell times, fees and people, and checks each step against real data before it is ticked.</p><ul class="mk-points"><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Import students and parents from Excel</span></li><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Bell times, sessions and holidays in one place</span></li><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Setup help from the Anekio team included</span></li></ul></div>
+      <div class="mk-wf-visual"><figure class="mk-window "><div class="mk-window-bar"><span class="mk-dots"><i></i><i></i><i></i></span><span class="mk-window-title">Anekio · School setup</span></div><div class="mk-window-body"><img src="/demo/shots/15-office-school-setup.jpg" alt="Anekio school setup checklist showing progress through basics, sessions, classes and people" width="1600" height="807" loading="lazy" decoding="async"></div></figure></div>
+    </div>
+      </div>
+    </div>
+  </section><section class="mk-section" style="padding-top:0">
+    <div class="wrap">
+      <div class="center"><span class="eyebrow">Everything, connected</span><h2 class="section-title">Modules that already know each other.</h2></div>
+      <div class="mk-grid">
+        <article><span class="mk-ico"><svg viewBox="0 0 24 24" fill="none"><circle cx="10" cy="8" r="3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.5 19.5c.8-3.3 3.4-5.2 6.5-5.2 1.4 0 2.6.4 3.6 1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="17.5" cy="17.5" r="4" fill="#22c55e"/><path d="M17.5 15.6v3.8M15.6 17.5h3.8" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg></span><h3>Admissions & students</h3><p>Leads, follow-ups, entrance tests and admission in one pipeline. Excel import that follows your form.</p></article>
+        <article><span class="mk-ico"><svg viewBox="0 0 24 24" fill="none"><path d="M6 3h12v18l-2.5-1.6L13 21l-2-1.6L8.5 21 6 19.4V3z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.5 8h5M9.5 8.1c2.6 0 3.6 1 3.6 2.2S12 12.6 9.5 12.6l4 3.4M9.5 10.3h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18.5" cy="5.5" r="2.5" fill="#22c55e"/></svg></span><span class="tag">UPI ready</span><h3>Fees & reminders</h3><p>Monthly invoices, late rules, discounts, pay links and auto reminders.</p></article>
+        <article><span class="mk-ico"><svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="5" width="17" height="15.5" rx="3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 3v4M16 3v4M3.5 10h17" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="15.2" r="3.4" fill="#22c55e"/><path d="M10.6 15.2l1 1 1.9-2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span><h3>Attendance</h3><p>Class register in a minute, teacher QR check-in, month view per student.</p></article>
+        <article><span class="mk-ico"><svg viewBox="0 0 24 24" fill="none"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 3v5h5M8.5 12.5h4M8.5 16h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="16" cy="15.5" r="2.6" fill="#22c55e"/></svg></span><h3>Exams</h3><p>Dates and timings, paper handover, marks, publish once, report cards.</p></article>
+        <article><span class="mk-ico"><svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="3.5" width="17" height="17" rx="3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.5 9.2h17M3.5 14.8h17M9.2 3.5v17M14.8 3.5v17" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><rect x="10.2" y="10.2" width="3.6" height="3.6" rx="1" fill="#22c55e"/></svg></span><h3>Routine</h3><p>Drag-and-drop timetable with clash detection and PDF export.</p></article>
+        <article><span class="mk-ico"><svg viewBox="0 0 24 24" fill="none"><path d="M20.5 14.5a2 2 0 0 1-2 2H9l-4.5 3.5V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.5 9h7M8.5 12h4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="19" cy="5" r="2.6" fill="#22c55e"/></svg></span><h3>Parent inbox & notices</h3><p>Numbered request threads and circulars with a preview.</p></article>
+        <article><span class="mk-ico"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="5" width="16" height="15" rx="3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.5 5V3.5h5V5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="11" r="2.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 17c.6-1.7 2.1-2.6 4-2.6s3.4.9 4 2.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18.5" cy="5.5" r="2.5" fill="#22c55e"/></svg></span><h3>Staff, leave & payroll</h3><p>Leave balances and approvals, salary payments with proof.</p></article>
+        <article><span class="mk-ico"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21s7.5-3.6 7.5-9.4V5.6L12 3 4.5 5.6v6c0 5.8 7.5 9.4 7.5 9.4z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="11.2" r="3.2" fill="#22c55e"/><path d="M10.7 11.2l.9.9 1.7-1.8" stroke="#fff" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span><h3>Roles & permissions</h3><p>Decide who can view or edit each area. Support access is time-boxed.</p></article>
+      </div>
+    </div>
+  </section><section id="why" class="mk-section" style="padding-top:0">
+    <div class="wrap">
+      <div class="center"><span class="eyebrow">Why switch</span><h2 class="section-title">Registers and WhatsApp groups don't scale.</h2></div>
+      <div class="mk-swap">
+        <div class="mk-swap-head"><span>Today</span><span></span><span><svg class="mk-mark" viewBox="0 30 200 142" aria-hidden="true" focusable="false"><path d="M100 115C65 60 15 68 15 115c0 45 50 55 85 0Z" fill="none" stroke="#3B82F6" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/><path d="M100 115c35-55 85-47 85 0 0 45-50 55-85 0Z" fill="none" stroke="#22C55E" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/><circle cx="100" cy="75" r="10" fill="#60A5FA"/><path d="M80 110c10-20 20-22 20-22s10 2 20 22" fill="none" stroke="#60A5FA" stroke-width="9" stroke-linecap="round"/><circle cx="100" cy="40" r="5" fill="#4ADE80"/><circle cx="88" cy="52" r="4.5" fill="#4ADE80"/><circle cx="112" cy="52" r="4.5" fill="#4ADE80"/></svg>With Anekio</span></div>
+        <div class="mk-swap-row"><div class="old"><b>Fees in a notebook</b><span>Who paid, who's overdue and how much is a half-day reconciliation.</span></div><i><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></i><div class="new"><em><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></em><div><b>Fees reconcile themselves</b><span>Every receipt is attached to the student; the overdue list is live.</span></div></div></div>
+        <div class="mk-swap-row"><div class="old"><b>Attendance on paper</b><span>The office finds out about absences at month end.</span></div><i><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></i><div class="new"><em><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></em><div><b>Attendance by 10 AM</b><span>The office sees which registers are done; parents see their child's day.</span></div></div></div>
+        <div class="mk-swap-row"><div class="old"><b>Results by photo</b><span>Marks typed twice, report cards made in Word.</span></div><i><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></i><div class="new"><em><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></em><div><b>Marks entered once</b><span>Published to parents together, with a downloadable report card.</span></div></div></div>
+        <div class="mk-swap-row"><div class="old"><b>Parents call the office</b><span>The same five questions, every day, to whoever picks up.</span></div><i><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></i><div class="new"><em><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></em><div><b>Answers on the phone</b><span>Fees, results and notices in the parent app; questions in a tracked thread.</span></div></div></div>
+      </div>
+      <ul class="mk-facts" aria-label="Built for Indian schools">
+        <li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Built for Indian schools</li><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>UPI, cash and pay links</li><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Android app for parents & teachers</li><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Receipts with stamp & signature</li><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>CBSE-style exam plans</li>
+      </ul>
+    </div>
+  </section><section id="support" class="mk-section mk-support">
+    <div class="wrap">
+      <div class="mk-support-top">
+        <div><span class="eyebrow">Support that shows up</span><h2 class="section-title">Any problem, we're on it right away.</h2></div>
+        <p class="lead">A question, a doubt or something not working: tell us and a real person from our team picks it up immediately. <b>We listen, fix it fast and keep improving Anekio</b> from what your school tells us.</p>
+      </div>
+      <ol class="mk-sflow"><li><i><svg viewBox="0 0 24 24" fill="none"><path d="M20.5 14.5a2 2 0 0 1-2 2H9l-4.5 3.5V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.5 9h7M8.5 12h4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></i><h3>Tell us however is easiest</h3><p>Email, a call or your dedicated contact. No ticket forms, no waiting in a queue.</p></li><li><i><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 20c.9-3.6 3.6-5.5 7-5.5s6.1 1.9 7 5.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></i><h3>A real person picks it up</h3><p>Someone from our team who knows your school replies on the same working day, usually much sooner.</p></li><li><i><svg viewBox="0 0 24 24" fill="none"><path d="M4 19.5l6-6M14.5 4.5a4 4 0 0 0-4.6 5.4L4 15.8 8.2 20l5.9-5.9a4 4 0 0 0 5.4-4.6l-2.6 2.6-2.8-.7-.7-2.8z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></i><h3>We resolve it immediately</h3><p>Fees, attendance and exams come first. We get on a call if needed and stay with you until it's sorted.</p></li><li><i><svg viewBox="0 0 24 24" fill="none"><path d="M4.5 12a7.5 7.5 0 0 1 13-5.1M19.5 12a7.5 7.5 0 0 1-13 5.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M17.5 3.5v3.4h-3.4M6.5 20.5v-3.4h3.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></i><h3>We keep improving</h3><p>Every suggestion and issue shapes the next update, so Anekio gets better for your school every month.</p></li></ol>
+      <div class="mk-support-bar"><p><span class="live"><i></i>Our team is here</span>Have a doubt right now? <b>Write to support@anekio.com</b> and a person will reply.</p><a class="btn ghost" href="mailto:support@anekio.com">Email support</a></div>
+    </div>
+  </section><section class="mk-section" aria-label="What every school gets">
+    <div class="wrap">
+      <div class="center"><span class="eyebrow">Our promise</span><h2 class="section-title">What every school gets from day one.</h2><p class="lead">No lock-in, no hidden setup fees and no waiting on a call centre.</p></div>
+      <div class="mk-trust"><article><i class="g"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5v11M7.5 10l4.5 4.5 4.5-4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 15.5v2a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></i><h3>Your data stays yours</h3><p>Export every student, fee and mark to Excel any time. If you ever leave, you take everything with you.</p></article><article><i class=""><svg viewBox="0 0 24 24" fill="none"><path d="M4 19.5l6-6M14.5 4.5a4 4 0 0 0-4.6 5.4L4 15.8 8.2 20l5.9-5.9a4 4 0 0 0 5.4-4.6l-2.6 2.6-2.8-.7-.7-2.8z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></i><h3>Setup and training included</h3><p>Our team imports your students, sets up classes and fees, and trains the office and teachers. No extra charge.</p></article><article><i class=""><svg viewBox="0 0 24 24" fill="none"><path d="M4.5 13v-1a7.5 7.5 0 0 1 15 0v1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><rect x="3.5" y="13" width="4" height="6" rx="1.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><rect x="16.5" y="13" width="4" height="6" rx="1.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M18.5 19c0 1.2-1.5 2-4 2h-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></i><h3>Support from India</h3><p>Real people who know Indian schools. We reply within one working day, on email or WhatsApp.</p></article><article><i class="g"><svg viewBox="0 0 24 24" fill="none"><rect x="3" y="5.5" width="18" height="13" rx="2.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 10h18M7 15h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></i><h3>Payments through Razorpay</h3><p>Parents pay by UPI, card or net banking. Money goes to your school's account with a receipt carrying your stamp.</p></article><article><i class=""><svg viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5M12 14.5v2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></i><h3>Access you control</h3><p>Decide who sees fees, marks and records. Our support access is time-boxed and only when you allow it.</p></article><article><i class=""><svg viewBox="0 0 24 24" fill="none"><rect x="7" y="2.5" width="10" height="19" rx="2.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M11 18.5h2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></i><h3>Works on everyday phones</h3><p>The Android app runs on the mid-range phones teachers and parents already have, even on patchy networks.</p></article></div>
+    </div>
+  </section><section id="faq" class="mk-section" style="padding-top:0">
+    <div class="wrap mk-faq">
+      <div class="mk-faq-side"><span class="eyebrow">Questions</span><h2 class="section-title">Any doubts? Ask away.</h2><p class="lead">The things schools ask us most.</p></div>
+      <div class="mk-faq-list"><details open><summary>Do you offer a free trial?</summary><p>We start with a free 20-minute online demo on your own school's needs. When you decide to go ahead, our team sets up your school and trains your staff, so you never start with an empty system.</p></details><details><summary>How long does setup take?</summary><p>It depends on how much data you have. We import your students and parents from Excel, set up classes, fees and timetables, and train the office and teachers. We stay with you until your school is running day to day.</p></details><details><summary>What if we face a problem or have a doubt?</summary><p>Tell us by email or call your dedicated contact. A real person from our team picks it up right away, and anything touching fees, attendance or exams is resolved first. Your feedback goes straight into how we improve Anekio.</p></details><details><summary>Can we bring our existing data?</summary><p>Yes. We import students and parents from your Excel sheets, following your own admission form, along with opening fee balances so dues carry over correctly.</p></details><details><summary>How is the price worked out?</summary><p>₹5 per student per month, billed yearly, with a minimum of ₹12,000 a year. Setup, training and the parent and teacher app are included.</p></details><details><summary>How do parents pay fees?</summary><p>By UPI, card or net banking through Razorpay, straight to your school's account. Cash and cheque payments at the counter go into the same ledger, and every payment gets a receipt with your stamp.</p></details><details><summary>Who owns our school's data?</summary><p>You do. Your student, fee and exam records belong to your school, and access is limited to the people you give permission to.</p></details><details><summary>Does it work on phones?</summary><p>Yes. Teachers and parents use the Android app, and the office uses a web portal in any normal browser.</p></details></div>
+      <div class="mk-faq-more"><div><b>Still have a question?</b><span>A real person from our team will answer it.</span></div><a class="btn primary" href="mailto:support@anekio.com">Ask us</a></div>
+    </div>
+  </section><section class="mk-section" style="padding-top:0">
+    <div class="wrap"><div class="mk-early">
+      <div><span class="badge-new"><i></i>Launch offer · first 100 schools</span><h2>Your price, locked for as long as you stay.</h2><p>The first 100 schools on Anekio keep their launch price at every renewal, even when our prices go up. Each one is onboarded personally by our team.</p></div>
+      <div>
+        <ul><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Launch price locked at every renewal</span></li><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Hands-on setup with a dedicated person from our team</span></li><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Priority on the features you ask for</span></li></ul>
+        <div class="cta"><a class="btn primary" href="#start" data-intent="demo">Book a free demo</a><a class="btn light" href="mailto:support@anekio.com?subject=Launch%20offer">Talk to us</a></div>
+      </div>
+    </div></div>
+  </section>
+  <section id="start" class="sections wrap">
+    <span id="pricing"></span><span id="trial"></span><span id="enquiry"></span>
+    <div class="start-head">
+      <div class="eyebrow">Get started</div>
+      <h2 class="section-title">Choose how you want to begin</h2>
+      <p class="muted" style="margin:0">See it first, or start today. Pay only for the students you have.</p>
+    </div>
+    <div class="path-grid" role="group" aria-label="How to get started" style="grid-template-columns:repeat(2,1fr);max-width:760px;margin-left:auto;margin-right:auto">
+      <button type="button" class="path-card is-on" data-path="demo" aria-pressed="true"><span class="icon">▶</span><b>Book a demo</b><p>See Anekio in action. 20 minutes, online.</p></button>
+      <button type="button" class="path-card path-launch" data-path="pay" aria-pressed="false"><span class="icon">₹</span><b>Buy now</b><p><strong>₹5 / student / month</strong> · min ₹12,000/year</p></button>
+    </div>
+    <div class="split start-split">
+      <div class="price-card" id="start-offer">
+        <div class="offer-block" data-offer="demo">
+          <div class="eyebrow">See Anekio in action</div>
+          <h2 class="section-title">20-minute personalized demo</h2>
+          <div class="check-list">
+            <span>See the complete ERP</span>
+            <span>Web + Android walkthrough</span>
+            <span>Ask questions live</span>
+            <span>Get recommendations for your school</span>
+          </div>
+          <p class="fine">No payment required.</p>
+        </div>
+        <div class="offer-block" data-offer="pay" hidden>
+          <div class="eyebrow">Simple per-student pricing</div>
+          <h2 class="section-title">Launch plan</h2>
+          <div class="price">₹5<span class="price-unit"> / student / month</span></div>
+          <p class="fine" style="margin:4px 0 14px">Billed yearly · Minimum ₹12,000 / year (covers up to 200 students)</p>
+          <div class="calc-box">
+            <label>How many students?<input id="calc-students" type="number" min="1" step="1" inputmode="numeric" placeholder="e.g. 500"></label>
+            <div class="calc-out" id="calc-out">Enter your student count to see the yearly price.</div>
+          </div>
+          <div class="check-list">
+            <span>Web ERP + Android app</span>
+            <span>Fees, attendance, admissions, exams</span>
+            <span>Parent and teacher portals</span>
+            <span>Setup assistance</span>
+          </div>
+        </div>
+      </div>
+      <div class="form-shell">
+        <div class="form-content" style="grid-template-columns:1fr">
+          <div class="form-panel">
+            <div class="journey" data-journey="demo">
+              <form id="demo-form" class="form j-step" data-step="1">
+                <div class="eyebrow">Book a demo</div>
+                <h2 class="start-heading">See how Anekio can work for your school.</h2>
+                <label>School name<input name="schoolName" required placeholder="VidyaPith Public School"></label>
+                <label>Your name<input name="ownerName" required placeholder="Principal / Owner"></label>
+                <label>Phone<div class="two" style="grid-template-columns:110px 1fr"><select name="ownerCountryCode"><option value="+91" selected>🇮🇳 +91</option></select><input name="ownerPhone" required inputmode="tel" placeholder="98765 43210"></div></label>
+                <label>Work email<input name="ownerEmail" type="email" required placeholder="owner@school.in"></label>
+                <label>City<input name="city" required placeholder="Bengaluru"></label>
+                <label>What do you want to see?<select name="topic"><option>Full ERP</option><option>Fees and collections</option><option>Attendance</option><option>Admissions</option><option>Parent app</option></select></label>
+                <div aria-hidden="true" style="position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden"><label>Website<input name="website" type="text" tabindex="-1" autocomplete="off"></label></div>
+                <button class="btn primary" type="submit" style="width:100%">Continue →</button>
+              </form>
+              <div class="j-step" data-step="2" hidden>
+                <div class="eyebrow">Choose your demo time</div>
+                <h2 class="start-heading">Pick a 20-minute online slot.</h2>
+                <p class="fine" id="demo-month"></p>
+                <div class="cal-grid" id="demo-cal"></div>
+                <button class="btn primary" id="demo-confirm" type="button" style="width:100%;margin-top:12px" disabled>Confirm demo</button>
+              </div>
+              <div class="j-step" data-step="3" hidden>
+                <div class="eyebrow">Demo confirmed</div>
+                <h2 class="start-heading">Your Anekio demo is booked.</h2>
+                <p class="lead" id="demo-when" style="max-width:none"></p>
+                <p class="fine">20 minutes · Online. We'll send the meeting details to your email and phone.</p>
+                <a class="btn light" id="demo-ics" href="#">Add to calendar</a>
+              </div>
+            </div>
+            <div class="journey" data-journey="pay" hidden>
+              <div class="j-step form" data-step="1">
+                <div class="eyebrow">Buy Anekio</div>
+                <h2 class="start-heading">Your price, based on your students.</h2>
+                <label>Number of students<input id="pay-students" type="number" min="1" step="1" inputmode="numeric" required placeholder="e.g. 500"></label>
+                <div class="form-note" id="pay-quote" aria-live="polite">Enter your student count to see the yearly price.</div>
+                <button class="btn primary" id="pay-continue" type="button" style="width:100%" disabled>Continue →</button>
+                <p class="fine">₹5 per student per month, billed yearly. Minimum ₹12,000 / year.</p>
+              </div>
+              <form id="pay-form" class="form j-step" data-step="2" hidden method="post" action="/api/saas/payment/order">
+                <input type="hidden" name="studentCount" id="pay-form-students">
+                <div class="eyebrow">School information</div>
+                <h2 class="start-heading">Billing details</h2>
+                <label>School name<input name="schoolName" required placeholder="VidyaPith Public School"></label>
+                <label>Contact person<input name="ownerName" required placeholder="Principal / Owner"></label>
+                <label>Email<input name="ownerEmail" type="email" required placeholder="owner@school.in"></label>
+                <label>Phone<div class="two" style="grid-template-columns:110px 1fr"><select name="ownerCountryCode"><option value="+91" selected>🇮🇳 +91</option></select><input name="ownerPhone" required inputmode="tel" placeholder="98765 43210"></div></label>
+                <div class="two"><label>State<select name="state" required><option value="">Select state</option><option>Karnataka</option><option>Maharashtra</option><option>Tamil Nadu</option><option>Delhi</option><option>Telangana</option><option>Gujarat</option><option>Uttar Pradesh</option><option>West Bengal</option><option>Rajasthan</option><option>Kerala</option><option>Other</option></select></label><label><span>GSTIN <span class="fine" style="display:inline">(optional)</span></span><input name="gstin" maxlength="15" placeholder="29ABCDE1234F1Z5"></label></div>
+                <button class="btn primary" type="button" id="pay-summary" style="width:100%">Continue to payment →</button>
+              </form>
+              <div class="j-step" data-step="3" hidden>
+                <div class="eyebrow">Order summary</div>
+                <h2 class="start-heading">Launch Plan</h2>
+                <div id="pay-breakdown" class="check-list" style="margin:12px 0"></div>
+                <p class="fine">GST is applied at secure checkout if required. Total due now: <b id="pay-total"></b> / year</p>
+                <button class="btn light" type="button" id="pay-back" style="width:100%;margin-bottom:8px">← Change student count</button>
+                <button class="btn primary" type="submit" form="pay-form" style="width:100%">Pay securely →</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+<div class="mk-end">
+  <section id="close" class="wrap mk-close">
+    <div><span class="eyebrow">Bring the school together</span><h2 class="section-title">Give every team one reliable place to work.</h2></div>
+    <div class="mk-close-side">
+      <p class="lead">See Anekio in a free 20-minute demo. When you're ready, our team sets up your school and trains your staff.</p>
+      <div class="cta"><a class="btn primary" href="#start" data-intent="demo">Book a free demo</a><a class="btn ghost" href="#pricing" data-intent="pay">See pricing</a></div>
+      <ul class="mk-close-points"><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Setup included</li><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Staff training</li><li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Your data stays yours</li></ul>
+    </div>
+  </section>
+  <footer><div class="wrap"><div class="footer-grid">
+  <div class="footer-brand"><a class="mk-brand " href="/" aria-label="Anekio home"><svg class="mk-mark" viewBox="0 30 200 142" aria-hidden="true" focusable="false"><path d="M100 115C65 60 15 68 15 115c0 45 50 55 85 0Z" fill="none" stroke="#3B82F6" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/><path d="M100 115c35-55 85-47 85 0 0 45-50 55-85 0Z" fill="none" stroke="#22C55E" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/><circle cx="100" cy="75" r="10" fill="#60A5FA"/><path d="M80 110c10-20 20-22 20-22s10 2 20 22" fill="none" stroke="#60A5FA" stroke-width="9" stroke-linecap="round"/><circle cx="100" cy="40" r="5" fill="#4ADE80"/><circle cx="88" cy="52" r="4.5" fill="#4ADE80"/><circle cx="112" cy="52" r="4.5" fill="#4ADE80"/></svg><span>anekio</span></a><p>The complete school ecosystem for Indian schools. One student record for the office, teachers and parents.</p><a class="footer-mail" href="mailto:support@anekio.com"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3.5" width="12" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M2.5 4.5L8 8.5l5.5-4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>support@anekio.com</a></div>
+  <div class="footer-col"><h4>Product</h4><a href="#product">Overview</a><a href="#roles">For every role</a><a href="#solutions">Workflows</a><a href="#pricing" data-intent="pay">Pricing</a></div>
+  <div class="footer-col"><h4>Modules</h4><a href="#solutions">Fees & receipts</a><a href="#roles">Attendance</a><a href="#roles">Exams & report cards</a><a href="#roles">Parent app</a></div>
+  <div class="footer-col"><h4>Resources</h4><a href="/blog">Blog</a><a href="#support">Support</a><a href="#faq">FAQ</a><a href="#start" data-intent="demo">Book a demo</a><a href="/login" data-app-login>Log in</a></div>
+  <div class="footer-col"><h4>Company</h4><a href="mailto:support@anekio.com">Contact</a><a href="/privacy">Privacy</a></div>
+</div>
+<div class="footer-word" aria-hidden="true">anekio</div>
+<div class="footer-base"><span>© 2026 Anekio. Made in India.</span><nav><a href="/privacy">Privacy</a><a href="mailto:support@anekio.com">Contact</a></nav></div></div></footer>
+</div>
+<script>
+  (function () {
+    // Nav turns light once the dark hero scrolls away.
+    var nav = document.getElementById("mk-nav");
+    var hero = document.querySelector(".mk-hero-copy");
+    if (nav && hero && "IntersectionObserver" in window) {
+      new IntersectionObserver(function (entries) {
+        nav.classList.toggle("is-light", !entries[0].isIntersecting);
+      }, { rootMargin: "-64px 0px 0px 0px", threshold: 0 }).observe(hero);
+    }
+    // Log in links point at the app host.
+    var host = location.hostname, port = location.port, login = "/login";
+    if ((host === "localhost" || host === "127.0.0.1") && port === "4000") login = "http://localhost:8081/login";
+    else if (host === "anekio.com" || host === "www.anekio.com") login = "https://app.anekio.com/login";
+    else if (host === "staging.anekio.com") login = "https://app.staging.anekio.com/login";
+    document.querySelectorAll("[data-app-login]").forEach(function (a) { a.setAttribute("href", login); });
+    // Tabs: each [data-tabset] toggles its own [data-panel] elements.
+    // With data-autoplay, it advances like a carousel (progress bar on the active tab) while on screen.
+    // Picking a tab, an arrow or swiping jumps there and the countdown starts again from that view.
+    var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    document.querySelectorAll("[data-tabset]").forEach(function (set) {
+      var tabs = Array.prototype.slice.call(set.querySelectorAll("[data-tab]"));
+      var panels = set.querySelectorAll("[data-panel]");
+      var seg = set.querySelector(".mk-seg");
+      var delay = Number(set.getAttribute("data-autoplay")) || 0;
+      var auto = delay > 0 && !reduce, timer = null, visible = false;
+      var idx = 0;
+      if (seg && auto) seg.style.setProperty("--mk-dur", delay + "ms");
+      function restartBar() {
+        if (!seg || !auto) return;
+        seg.classList.remove("is-playing"); void seg.offsetWidth;
+        if (visible) seg.classList.add("is-playing");
+      }
+      function show(i) {
+        idx = (i + tabs.length) % tabs.length;
+        var id = tabs[idx].getAttribute("data-tab");
+        tabs.forEach(function (t) { t.setAttribute("aria-selected", t === tabs[idx] ? "true" : "false"); });
+        panels.forEach(function (p) { if (p.getAttribute("data-panel") === id) p.removeAttribute("hidden"); else p.setAttribute("hidden", ""); });
+        restartBar();
+      }
+      function run() {
+        clearInterval(timer); timer = null;
+        if (auto && visible) timer = setInterval(function () { show(idx + 1); }, delay);
+        restartBar();
+      }
+      function go(i) { show(i); run(); }
+      set.querySelectorAll("[data-step]").forEach(function (b) {
+        b.addEventListener("click", function () { go(idx + Number(b.getAttribute("data-step"))); });
+      });
+      tabs.forEach(function (t, i) {
+        t.addEventListener("click", function () { go(i); });
+        t.addEventListener("keydown", function (e) {
+          if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+          go(idx + (e.key === "ArrowRight" ? 1 : -1)); tabs[idx].focus();
+        });
+      });
+      if (delay > 0 && "IntersectionObserver" in window) {
+        new IntersectionObserver(function (entries) { visible = entries[0].isIntersecting; run(); }, { threshold: 0.35 }).observe(set);
+      }
+      // Swipe left/right on touch screens to move between views.
+      var x0 = null, y0 = 0;
+      set.addEventListener("touchstart", function (e) { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, { passive: true });
+      set.addEventListener("touchend", function (e) {
+        if (x0 === null) return;
+        var dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0; x0 = null;
+        if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5 && !e.target.closest(".mk-seg")) { go(idx + (dx < 0 ? 1 : -1)); }
+      }, { passive: true });
+    });
+    document.querySelectorAll(".mobile-nav-menu a").forEach(function (link) {
+      link.addEventListener("click", function () { var menu = link.closest("details"); if (menu) menu.removeAttribute("open"); });
+    });
+  })();
+</script>
+<script>
+  (function () {
+    var root = document.getElementById("start");
+    if (!root) return;
+    var path = "demo";
+    var demoSlot = null;
+    var demoPayload = null;
+    function show(el, on) {
+      if (!el) return;
+      if (on) el.removeAttribute("hidden");
+      else el.setAttribute("hidden", "");
+    }
+    function selectPath(next) {
+      path = next === "pay" ? "pay" : "demo";
+      root.querySelectorAll(".path-card").forEach(function (card) {
+        var isCurrent = card.getAttribute("data-path") === path;
+        card.classList.toggle("is-on", isCurrent);
+        card.setAttribute("aria-pressed", isCurrent ? "true" : "false");
+      });
+      root.querySelectorAll("[data-offer]").forEach(function (el) {
+        show(el, el.getAttribute("data-offer") === path);
+      });
+      root.querySelectorAll(".journey").forEach(function (el) {
+        show(el, el.getAttribute("data-journey") === path);
+      });
+    }
+    function journey(name) {
+      return root.querySelector('.journey[data-journey="' + name + '"]');
+    }
+    function gotoStep(name, step) {
+      var box = journey(name);
+      if (!box) return;
+      box.querySelectorAll(".j-step").forEach(function (el) {
+        show(el, Number(el.getAttribute("data-step")) === step);
+      });
+    }
+    window.selectAnekioPath = function (next) {
+      selectPath(next);
+      gotoStep(path, 1);
+    };
+    root.querySelectorAll(".path-card").forEach(function (card) {
+      card.addEventListener("click", function () {
+        selectPath(card.getAttribute("data-path"));
+        gotoStep(path, 1);
+      });
+    });
+    document.querySelectorAll("[data-intent]").forEach(function (el) {
+      el.addEventListener("click", function () {
+        var value = el.getAttribute("data-intent");
+        if (value === "pay" || value === "demo") {
+          selectPath(value);
+          gotoStep(path, 1);
+        }
+      });
+    });
+    function applyHash() {
+      var hash = (location.hash || "").replace("#", "");
+      if (hash === "trial" || hash === "enquiry" || hash === "demo") selectPath("demo");
+      if (hash === "pricing") selectPath("pay");
+    }
+    applyHash();
+    window.addEventListener("hashchange", applyHash);
+
+    // Website forms create a new school, so an email / phone already registered with Anekio is refused.
+    var contactState = new WeakMap();
+    function contactBox(form) {
+      var box = form.querySelector(".contact-taken");
+      if (!box) { box = document.createElement("div"); box.className = "trial-error contact-taken"; box.setAttribute("role", "alert"); var h = form.querySelector(".start-heading"); (h || form.firstChild).insertAdjacentElement(h ? "afterend" : "beforebegin", box); }
+      return box;
+    }
+    function checkContact(form) {
+      var emailIn = form.querySelector("[name=ownerEmail]"), phoneIn = form.querySelector("[name=ownerPhone]");
+      if (!emailIn || !phoneIn) return Promise.resolve(true);
+      var e = emailIn.value.trim(), p = phoneIn.value.replace(/[^0-9]/g, "");
+      return fetch("/api/saas/contact-check", { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ ownerEmail: e.indexOf("@") > 0 ? e : "", ownerPhone: p.length >= 10 ? p : "" }) })
+        .then(function (r) { return r.json(); }).then(function (out) {
+          var taken = (out && out.taken) || [];
+          emailIn.classList.toggle("is-taken", taken.indexOf("email") >= 0);
+          phoneIn.classList.toggle("is-taken", taken.indexOf("phone") >= 0);
+          var box = form.querySelector(".contact-taken");
+          if (taken.length) { contactBox(form).textContent = out.message; return false; }
+          if (box) box.remove();
+          return true;
+        }).catch(function () { return true; });
+    }
+    ["demo-form", "pay-form"].forEach(function (id) {
+      var form = document.getElementById(id); if (!form) return;
+      ["ownerEmail", "ownerPhone"].forEach(function (n) {
+        var el = form.querySelector("[name=" + n + "]"); if (!el) return;
+        var t = null;
+        el.addEventListener("blur", function () { checkContact(form); });
+        el.addEventListener("input", function () { el.classList.remove("is-taken"); clearTimeout(t); t = setTimeout(function () { checkContact(form); }, 700); });
+      });
+    });
+    var demoForm = document.getElementById("demo-form");
+    var demoCal = document.getElementById("demo-cal");
+    var demoMonth = document.getElementById("demo-month");
+    var demoConfirm = document.getElementById("demo-confirm");
+    function kolkataDateParts(date) {
+      var values = {};
+      new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date).forEach(function (part) {
+        if (part.type !== "literal") values[part.type] = Number(part.value);
+      });
+      return values;
+    }
+    function formatKolkataDay(day, options) {
+      return day.toLocaleDateString("en-IN", Object.assign({ timeZone: "UTC" }, options));
+    }
+    function weekdayDays() {
+      var days = [];
+      var today = kolkataDateParts(new Date());
+      var d = new Date(Date.UTC(today.year, today.month - 1, today.day));
+      while (days.length < 4) {
+        d.setUTCDate(d.getUTCDate() + 1);
+        if (d.getUTCDay() !== 0 && d.getUTCDay() !== 6) days.push(new Date(d));
+      }
+      return days;
+    }
+    var slots = ["10:00 AM", "11:30 AM", "2:00 PM", "4:00 PM"];
+    function slotTime(slot) {
+      var match = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/.exec(slot);
+      if (!match) return null;
+      var hour = Number(match[1]);
+      var minute = Number(match[2]);
+      if (match[3] === "PM" && hour !== 12) hour += 12;
+      if (match[3] === "AM" && hour === 12) hour = 0;
+      return { hour: hour, minute: minute };
+    }
+    function twoDigits(value) {
+      return String(value).padStart(2, "0");
+    }
+    function scheduledAtInKolkata(day, slot) {
+      var time = slotTime(slot);
+      if (!time) return "";
+      return day.getUTCFullYear() + "-" + twoDigits(day.getUTCMonth() + 1) + "-" + twoDigits(day.getUTCDate()) + "T" + twoDigits(time.hour) + ":" + twoDigits(time.minute) + ":00+05:30";
+    }
+    function calendarStamp(date) {
+      return date.toISOString().slice(0, 19).replace(/[-:]/g, "") + "Z";
+    }
+    function renderCal() {
+      if (!demoCal) return;
+      var days = weekdayDays();
+      demoSlot = null;
+      demoConfirm.disabled = true;
+      demoMonth.textContent = formatKolkataDay(days[0], { month: "long", year: "numeric" });
+      demoCal.innerHTML = days.map(function (day, i) {
+        var label = formatKolkataDay(day, { weekday: "short", day: "numeric", month: "short" });
+        return '<div class="cal-day" data-day="' + i + '"><strong>' + label + "</strong>" +
+          slots.map(function (slot) {
+            return '<button type="button" data-day="' + i + '" data-slot="' + slot + '">' + slot + "</button>";
+          }).join("") + "</div>";
+      }).join("");
+      demoCal.querySelectorAll("button").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          demoCal.querySelectorAll("button").forEach(function (b) { b.classList.remove("is-on"); });
+          btn.classList.add("is-on");
+          var day = days[Number(btn.getAttribute("data-day"))];
+          var slot = btn.getAttribute("data-slot") || "";
+          var scheduledAt = scheduledAtInKolkata(day, slot);
+          demoSlot = {
+            label: formatKolkataDay(day, { weekday: "long", day: "numeric", month: "long", year: "numeric" }) + " · " + slot + " IST",
+            scheduledAt: scheduledAt
+          };
+          demoConfirm.disabled = !scheduledAt;
+        });
+      });
+    }
+    if (demoForm) {
+      demoForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        checkContact(demoForm).then(function (ok) {
+          if (!ok) return;
+          demoPayload = new FormData(demoForm);
+          renderCal();
+          gotoStep("demo", 2);
+        });
+      });
+    }
+    if (demoConfirm) {
+      demoConfirm.addEventListener("click", function () {
+        if (!demoPayload || !demoSlot) return;
+        demoConfirm.disabled = true;
+        var body = new URLSearchParams();
+        demoPayload.forEach(function (value, key) { body.append(key, value); });
+        var demoTopic = String(demoPayload.get("topic") || "Full ERP");
+        body.set("demoScheduledAt", demoSlot.scheduledAt);
+        body.set("demoSlotLabel", demoSlot.label);
+        body.set("demoTopic", demoTopic);
+        body.set("notes", "Demo booked · " + demoTopic + " · " + demoSlot.label);
+        fetch("/api/saas/enquiry", {
+          method: "POST",
+          headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" },
+          body: body.toString()
+        }).then(function (res) { return res.json().then(function (data) { return { res: res, data: data }; }); })
+          .then(function (out) {
+            if (!out.res.ok) throw new Error((out.data && out.data.error) || "Could not book demo.");
+            document.getElementById("demo-when").textContent = demoSlot.label;
+            var ics = document.getElementById("demo-ics");
+            if (ics) {
+              var start = new Date(demoSlot.scheduledAt);
+              var end = new Date(start.getTime() + 20 * 60 * 1000);
+              var icsBody = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Anekio//Demo Booking//EN", "CALSCALE:GREGORIAN", "BEGIN:VEVENT", "UID:anekio-demo-" + start.getTime() + "@anekio.com", "DTSTAMP:" + calendarStamp(new Date()), "DTSTART:" + calendarStamp(start), "DTEND:" + calendarStamp(end), "SUMMARY:Anekio demo", "DESCRIPTION:Your 20-minute Anekio demo.", "END:VEVENT", "END:VCALENDAR", ""].join("\r\n");
+              ics.href = "data:text/calendar;charset=utf-8," + encodeURIComponent(icsBody);
+              ics.setAttribute("download", "anekio-demo.ics");
+            }
+            gotoStep("demo", 3);
+          })
+          .catch(function (err) {
+            demoConfirm.disabled = false;
+            alert(err.message || "Could not book demo.");
+          });
+      });
+    }
+
+    function appLoginUrl() {
+      var host = location.hostname;
+      var port = location.port;
+      if ((host === "localhost" || host === "127.0.0.1") && port === "4000") return "http://localhost:8081/login";
+      if (host === "anekio.com" || host === "www.anekio.com") return "https://app.anekio.com/login";
+      if (host === "staging.anekio.com") return "https://app.staging.anekio.com/login";
+      return "/login";
+    }
+    var payContinue = document.getElementById("pay-continue");
+    var paySummary = document.getElementById("pay-summary");
+    var payForm = document.getElementById("pay-form");
+    var payStudents = document.getElementById("pay-students");
+    var payQuote = document.getElementById("pay-quote");
+    var calcStudents = document.getElementById("calc-students");
+    var calcOut = document.getElementById("calc-out");
+    var lastQuote = null;
+    var quoteSeq = 0;
+    function inr(n) { return "₹" + Number(n || 0).toLocaleString("en-IN"); }
+    function esc(v) { return String(v).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+    function getQuote(students) {
+      return fetch("/api/saas/price-quote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ students: students })
+      }).then(function (r) { return r.json(); }).then(function (out) {
+        if (!out || !out.ok) throw new Error((out && out.error) || "Could not price this.");
+        return out.quote;
+      });
+    }
+    function quoteLines(q) {
+      var lines = [];
+      lines.push(q.students + " students × " + inr(q.rate) + " × 12 months = " + inr(q.students * q.rate * 12));
+      if (q.usedMinimum) lines.push("Minimum yearly price " + inr(q.minimumYearly) + " applies");
+      return lines;
+    }
+    var calcTimer = null;
+    if (calcStudents && calcOut) {
+      calcStudents.addEventListener("input", function () {
+        clearTimeout(calcTimer);
+        var n = Math.floor(Number(calcStudents.value) || 0);
+        if (n < 1) { calcOut.textContent = "Enter your student count to see the yearly price."; return; }
+        calcTimer = setTimeout(function () {
+          getQuote(n).then(function (q) {
+            calcOut.innerHTML = "<b style='font-size:22px'>" + inr(q.total) + " / year</b><br><span class='fine'>" + quoteLines(q).map(esc).join("<br>") + "</span>";
+            if (payStudents && !payStudents.value) payStudents.value = String(n);
+          }).catch(function () { calcOut.textContent = "Could not calculate right now."; });
+        }, 250);
+      });
+    }
+    function refreshPayQuote() {
+      if (!payStudents || !payQuote || !payContinue) return;
+      var n = Math.floor(Number(payStudents.value) || 0);
+      lastQuote = null;
+      payContinue.disabled = true;
+      if (n < 1) { payQuote.textContent = "Enter your student count to see the yearly price."; return; }
+      var seq = ++quoteSeq;
+      payQuote.textContent = "Calculating…";
+      getQuote(n).then(function (q) {
+        if (seq !== quoteSeq) return;
+        lastQuote = q;
+        var html = "<div><b style='font-size:20px'>" + inr(q.total) + " / year</b><br>" + quoteLines(q).map(esc).join("<br>");
+        payQuote.innerHTML = html + "</div>";
+        payContinue.disabled = q.total < 1;
+        if (q.total < 1) payQuote.innerHTML += "<div>Please contact us to activate this plan.</div>";
+      }).catch(function (err) {
+        if (seq !== quoteSeq) return;
+        payQuote.textContent = err.message || "Could not calculate right now.";
+      });
+    }
+    var payTimer = null;
+    if (payStudents) payStudents.addEventListener("input", function () {
+      clearTimeout(payTimer); payTimer = setTimeout(refreshPayQuote, 300);
+      if (calcStudents && calcStudents.value !== payStudents.value) { calcStudents.value = payStudents.value; calcStudents.dispatchEvent(new Event("input")); }
+    });
+    if (payContinue) payContinue.addEventListener("click", function () {
+      if (!lastQuote) return;
+      var fs = document.getElementById("pay-form-students");
+      if (fs) fs.value = String(lastQuote.students);
+      gotoStep("pay", 2);
+    });
+    if (paySummary && payForm) {
+      paySummary.addEventListener("click", function () {
+        if (!payForm.reportValidity() || !lastQuote) return;
+        var self = this;
+        if (!self.dataset.checked) { checkContact(payForm).then(function (ok) { if (ok) { self.dataset.checked = "1"; self.click(); } }); return; }
+        delete self.dataset.checked;
+        var box = document.getElementById("pay-breakdown");
+        var total = document.getElementById("pay-total");
+        if (box) box.innerHTML = quoteLines(lastQuote).map(function (l) { return "<span>" + esc(l) + "</span>"; }).join("");
+        if (total) total.textContent = inr(lastQuote.total);
+        gotoStep("pay", 3);
+      });
+    }
+    var payBack = document.getElementById("pay-back");
+    if (payBack) payBack.addEventListener("click", function () { gotoStep("pay", 1); });
+    // Pay without leaving the page: errors appear in the form so details can be corrected.
+    function payError(msg, toDetails) {
+      var host = toDetails ? payForm : document.querySelector('[data-journey="pay"] [data-step="3"]');
+      if (toDetails) gotoStep("pay", 2);
+      var box = host.querySelector(".pay-error");
+      if (!box) { box = document.createElement("div"); box.className = "trial-error pay-error"; box.setAttribute("role", "alert"); var h = host.querySelector(".start-heading"); h.insertAdjacentElement("afterend", box); }
+      box.textContent = msg;
+      box.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+    function loadRzp() {
+      return new Promise(function (resolve, reject) {
+        if (window.Razorpay) return resolve();
+        var sc = document.createElement("script"); sc.src = "https://checkout.razorpay.com/v1/checkout.js";
+        sc.onload = function () { resolve(); }; sc.onerror = function () { reject(new Error("The payment window could not load. Check your connection and try again.")); };
+        document.head.appendChild(sc);
+      });
+    }
+    if (payForm) payForm.addEventListener("submit", function (e) {
+      if (!window.fetch) return;
+      e.preventDefault();
+      if (!payForm.reportValidity()) return;
+      var btn = document.querySelector('button[form="pay-form"]'), label = btn ? btn.textContent : "";
+      document.querySelectorAll(".pay-error").forEach(function (b) { b.remove(); });
+      if (btn) { btn.disabled = true; btn.textContent = "Opening payment…"; }
+      function reset() { if (btn) { btn.disabled = false; btn.textContent = label; } }
+      Promise.all([
+        fetch(payForm.action, { method: "POST", headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(new FormData(payForm)) })
+          .then(function (r) { return r.json().then(function (d) { if (!r.ok || !d.ok) throw new Error(d.error || "Could not start the payment."); return d.order; }); }),
+        loadRzp()
+      ]).then(function (res) {
+        var order = res[0];
+        new window.Razorpay({
+          key: order.keyId, amount: order.amountPaise, currency: "INR", name: "Anekio", description: order.planName + " plan · 1 year", order_id: order.orderId,
+          prefill: { name: order.org.ownerName, email: order.org.ownerEmail, contact: order.org.ownerPhone }, theme: { color: "#2563eb" },
+          handler: function (resp) {
+            fetch("/api/saas/payment/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orgId: order.org.id, amount: order.amount, razorpay_order_id: resp.razorpay_order_id, razorpay_payment_id: resp.razorpay_payment_id, razorpay_signature: resp.razorpay_signature }) })
+              .then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || "We could not confirm the payment."); }); })
+              .then(function () {
+                var step = document.querySelector('[data-journey="pay"] [data-step="3"]');
+                step.innerHTML = '<div class="eyebrow">Payment received</div><h2 class="start-heading">Welcome to Anekio.</h2><p class="lead" style="max-width:none">A receipt is on its way to ' + esc(order.org.ownerEmail) + '. Our team will call you within one working day to set up your school.</p><p class="fine">Payment ID ' + esc(resp.razorpay_payment_id) + '</p>';
+              })
+              .catch(function (err) { reset(); payError((err.message || "We could not confirm the payment.") + " If money was deducted, write to support@anekio.com with payment ID " + resp.razorpay_payment_id + ".", false); });
+          },
+          modal: { ondismiss: reset }
+        }).open();
+      }).catch(function (err) {
+        reset();
+        var msg = err.message || "Could not start the payment.";
+        payError(msg, /already registered|email|phone|state|school name/i.test(msg));
+      });
+    });
+  })();
+</script></body>
+</html>

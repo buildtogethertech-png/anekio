@@ -2,7 +2,8 @@ import { prisma } from "./prisma";
 import { googleAdminAuthConfigured, localAdminLoginAvailable, type SaasAdminSession } from "./saas-admin-auth";
 import { PIPELINE_STAGES, firstName, greetingFor, isCustomerOrg } from "./saas-crm";
 import { getSaasEmailSettings, listSaasEmailDeliveryLogs, renderSaasEmailTemplate, type SaasEmailDeliveryLogRow } from "./saas-email";
-import { getSitePricing } from "./saas-pricing";
+import { getSitePricing, listCoupons, listPlans } from "./saas-pricing";
+import { couponLabel, couponProblem, quotePrice, validityLabel } from "./saas-quote";
 import { getAppVersionRules } from "./app-version";
 import QRCode from "qrcode";
 import { recentSupportSessions, supportUsersForOrg } from "./support-session";
@@ -91,6 +92,7 @@ function icon(name: string) {
     invoices: "🧾",
     payments: "₹",
     pricing: "🏷",
+    "payment-links": "🔗",
     onboarding: "🚀",
     followups: "🔔",
     support: "🎫",
@@ -105,7 +107,7 @@ function adminDocument(input: { title: string; basePath: string; session: SaasAd
     { label: "", items: [["dashboard", "Dashboard"]] },
     { label: "CRM", items: [["leads", "Leads"], ["demos", "Demos"], ["deals", "Deals"]] },
     { label: "Customers", items: [["organisations", "Organisations"], ["subscriptions", "Subscriptions"]] },
-    { label: "Billing", items: [["invoices", "Invoices"], ["payments", "Payments"], ["pricing", "Pricing"]] },
+    { label: "Billing", items: [["invoices", "Invoices"], ["payments", "Payments"], ["pricing", "Pricing"], ["payment-links", "Payment links"]] },
     { label: "Operations", items: [["onboarding", "Onboarding"], ["followups", "Follow-ups"], ["support", "Support"], ["app-version", "App version"]] },
     { label: "", items: [["settings", "Settings"]] },
   ];
@@ -266,6 +268,34 @@ async function supportUsersPanel(input: { basePath: string; session: SaasAdminSe
   return `${resultHtml}${usersHtml}${sessionsHtml}`;
 }
 
+/** Billing → Pricing: sellable plans used by payment links. */
+async function plansPanel(basePath: string, session: SaasAdminSession) {
+  const plans = await listPlans();
+  return `<section class="panel"><div class="panel-head"><h2>Plans for payment links</h2>${badge(`${plans.filter((pl) => pl.active).length} ACTIVE`)}</div><div class="panel-body">
+    <p class="muted">A plan is what you sell on a payment link: price per student, a minimum, and how long one payment keeps the school active. Validity sets the subscription end date automatically.</p>
+    <table class="table" style="margin:12px 0 18px"><thead><tr><th>Plan</th><th>Price</th><th>Minimum</th><th>Validity</th><th>Status</th><th></th></tr></thead><tbody>
+      ${plans
+        .map(
+          (pl) => `<tr><td><strong>${escapeHtml(pl.name)}</strong>${pl.trialDays > 0 ? ` ${badge("FREE TRIAL")}` : ""}</td><td>${pl.trialDays > 0 ? "Free" : `₹${pl.perStudentMonthly} / student / month`}</td><td>${pl.trialDays > 0 ? "—" : money(pl.minimumYearly)}</td><td>${pl.trialDays > 0 ? `${pl.trialDays} days` : validityLabel(pl.validityMonths)}</td><td>${badge(pl.active ? "ACTIVE" : "OFF")}</td>
+          <td><form method="post" action="${basePath}/settings/plans">${csrfField(session)}<input type="hidden" name="action" value="toggle"><input type="hidden" name="id" value="${escapeHtml(pl.id)}"><input type="hidden" name="active" value="${pl.active ? "false" : "true"}"><button class="btn" type="submit">${pl.active ? "Switch off" : "Switch on"}</button></form></td></tr>`
+        )
+        .join("")}
+    </tbody></table>
+    <form method="post" action="${basePath}/settings/plans">${csrfField(session)}
+      <div class="form-grid">
+        <div class="field"><label>Plan type</label><select name="planType" id="plan-type"><option value="PAID">Paid plan</option><option value="TRIAL">Free trial (no payment)</option></select></div>
+        <div class="field"><label>Plan name</label><input name="name" required maxlength="60" placeholder="Standard"></div>
+        <div class="field plan-paid"><label>₹ per student per month</label><input name="perStudentMonthly" type="number" min="0" placeholder="5"></div>
+        <div class="field plan-paid"><label>Minimum for the period (₹)</label><input name="minimumYearly" type="number" min="0" placeholder="12000"></div>
+        <div class="field plan-paid"><label>Validity</label><select name="validityMonths"><option value="12">1 year</option><option value="6">6 months</option><option value="3">3 months</option><option value="1">1 month</option><option value="24">2 years</option><option value="36">3 years</option></select></div>
+        <div class="field plan-trial" style="display:none"><label>Trial length (days)</label><input name="trialDays" type="number" min="1" max="90" value="30"><span class="muted small">The link creates the school and its login straight away — no payment.</span></div>
+      </div>
+      <script>(function(){var t=document.getElementById("plan-type");function u(){var tr=t.value==="TRIAL";document.querySelectorAll(".plan-paid").forEach(function(e){e.style.display=tr?"none":"";});document.querySelectorAll(".plan-trial").forEach(function(e){e.style.display=tr?"":"none";});var r=document.querySelector("[name=perStudentMonthly]");if(r)r.required=!tr;if(tr&&!document.querySelector("[name=name]").value)document.querySelector("[name=name]").value="Free trial";}t.addEventListener("change",u);u();})();</script>
+      <div class="form-actions"><button class="btn primary" type="submit">Add plan</button></div>
+    </form>
+  </div></section>`;
+}
+
 export async function adminPortalHtml(input: {
   basePath: string;
   session: SaasAdminSession;
@@ -277,8 +307,12 @@ export async function adminPortalHtml(input: {
   tab?: string;
   flash?: string;
   error?: string;
+  /** Marketing-site origin, for payment links. */
+  publicOrigin?: string;
+  /** Token of a payment link just created (highlighted in the list). */
+  newLink?: string;
 }) {
-  const view = input.view || "dashboard";
+  const view = input.view === "coupons" ? "payment-links" : input.view || "dashboard";
   const tab = input.tab || "overview";
   const orgs = await prisma.saasOrg.findMany({
     where: input.q
@@ -501,28 +535,101 @@ export async function adminPortalHtml(input: {
       </div></section>`;
   } else if (view === "pricing") {
     const p = await getSitePricing();
-    body = `${pageHead("Landing page pricing", "Change list price and discount here. The public website and checkout update immediately.")}
-      <section class="panel"><div class="panel-head"><h2>Public offer</h2>${badge(p.discountOn ? `${p.savePercent}% OFF` : "LIST PRICE")}</div>
+    const examples = [100, 300, 500, 1000, 2000].map((n) => ({ n, q: quotePrice(p, n) }));
+    body = `${pageHead("Pricing", "Per-student pricing shown on the website and charged at checkout. Changes apply immediately.")}
+      <section class="panel"><div class="panel-head"><h2>Current price</h2>${badge(`₹${p.perStudentMonthly}/STUDENT/MONTH`)}</div>
       <div class="panel-body">
-        <div class="form-grid" style="margin-bottom:18px">
-          <div><span class="muted small">List price</span><strong style="display:block;font-size:26px">${money(p.listPrice)}</strong></div>
-          <div><span class="muted small">Sale price on website</span><strong style="display:block;font-size:26px">${money(p.salePrice)}</strong></div>
-          <div><span class="muted small">School saves</span><strong style="display:block;font-size:26px">${p.saveAmount ? money(p.saveAmount) : "—"}</strong></div>
-          <div><span class="muted small">Trial</span><strong style="display:block;font-size:26px">${p.trialDays} days</strong></div>
-        </div>
+        <p class="muted">Yearly price = the higher of <strong>${money(p.minimumYearly)}</strong> or <strong>students × ₹${p.perStudentMonthly} × 12</strong>.</p>
+        <table class="table" style="margin:12px 0 18px"><thead><tr><th>Students</th><th>Yearly price</th><th></th></tr></thead><tbody>
+          ${examples.map(({ n, q }) => `<tr><td>${n}</td><td><strong>${money(q.total)}</strong></td><td class="muted small">${q.usedMinimum ? "minimum applies" : `${n} × ₹${p.perStudentMonthly} × 12`}</td></tr>`).join("")}
+        </tbody></table>
         <form method="post" action="${input.basePath}/settings/pricing">${csrfField(input.session)}
+          <input type="hidden" name="listPrice" value="${p.minimumYearly}"><input type="hidden" name="discountOn" value="false"><input type="hidden" name="discountType" value="AMOUNT"><input type="hidden" name="discountValue" value="0"><input type="hidden" name="billingPeriod" value="year"><input type="hidden" name="trialDays" value="${p.trialDays}">
           <div class="form-grid">
-            <div class="field"><label>Plan name</label><input name="planName" required value="${escapeHtml(p.planName)}" placeholder="Launch"></div>
-            <div class="field"><label>Billing period</label><select name="billingPeriod"><option${p.billingPeriod === "year" ? " selected" : ""} value="year">Year</option><option${p.billingPeriod === "month" ? " selected" : ""} value="month">Month</option></select></div>
-            <div class="field"><label>List price (₹)</label><input name="listPrice" type="number" min="0" required value="${p.listPrice}"></div>
-            <div class="field"><label>Offer label</label><input name="offerLabel" value="${escapeHtml(p.offerLabel)}" placeholder="Early bird"></div>
-            <div class="field"><label>Apply discount</label><select name="discountOn"><option value="true"${p.discountOn ? " selected" : ""}>Yes — show strike-through and savings</option><option value="false"${p.discountOn ? "" : " selected"}>No — show list price only</option></select></div>
-            <div class="field"><label>Discount type</label><select name="discountType"><option value="AMOUNT"${p.discountType === "AMOUNT" ? " selected" : ""}>Rupees off</option><option value="PERCENT"${p.discountType === "PERCENT" ? " selected" : ""}>Percent off</option></select></div>
-            <div class="field"><label>Discount value</label><input name="discountValue" type="number" min="0" required value="${p.discountValue}"><span class="muted small">₹ off, or % off the list price</span></div>
-            <div class="field"><label>Free trial (days)</label><input name="trialDays" type="number" min="1" required value="${p.trialDays}"></div>
+            <div class="field"><label>Plan name</label><input name="planName" required value="${escapeHtml(p.planName)}" placeholder="School"></div>
+            <div class="field"><label>Offer label (optional)</label><input name="offerLabel" value="${escapeHtml(p.offerLabel)}" placeholder="Launch offer"></div>
+            <div class="field"><label>₹ per student per month</label><input name="perStudentMonthly" type="number" min="0" required value="${p.perStudentMonthly}"></div>
+            <div class="field"><label>Minimum per year (₹)</label><input name="minimumYearly" type="number" min="0" required value="${p.minimumYearly}"><span class="muted small">Small schools pay this.</span></div>
           </div>
-          <div class="form-actions"><button class="btn primary" type="submit">Publish to landing page</button></div>
+          <div class="form-actions"><button class="btn primary" type="submit">Publish pricing</button></div>
         </form>
+      </div></section>
+      ${await plansPanel(input.basePath, input.session)}`;
+  } else if (view === "payment-links") {
+    const [links, plans] = await Promise.all([listCoupons(), listPlans()]);
+    const planById = new Map(plans.map((pl) => [pl.id, pl]));
+    const activePlans = plans.filter((pl) => pl.active);
+    const origin = (input.publicOrigin || "").replace(/\/$/, "");
+    const linkUrl = (code: string) => `${origin}/anekio/pay/${encodeURIComponent(code)}`;
+    const discountText = (c: { kind: string; value: number }) => (c.kind === "NONE" ? "No discount" : escapeHtml(couponLabel({ code: "", kind: c.kind, value: c.value })));
+    const priceText = (c: { kind: string; value: number; students: number | null; minimumYearly: number | null; planId: string | null }) => {
+      const pl = c.planId ? planById.get(c.planId) : null;
+      const base = pl || { perStudentMonthly: 5, minimumYearly: 12000, validityMonths: 12 };
+      const q = quotePrice(base, c.students || 0, { code: "", kind: c.kind, value: c.value, minimumYearly: c.minimumYearly });
+      if (pl && pl.trialDays > 0) return `Free trial<div class="muted small">${escapeHtml(pl.name)} · ${pl.trialDays} days · creates the school on submit</div>`;
+      const planLine = pl ? `${escapeHtml(pl.name)} · ${validityLabel(pl.validityMonths)}` : "Plan not set";
+      if (c.kind === "FIXED" || c.students) return `${money(q.total)}<div class="muted small">${planLine} · ${discountText(c)}${c.students ? ` · ${c.students} students` : ""}</div>`;
+      return `${planLine}<div class="muted small">${discountText(c)} · school enters student count</div>`;
+    };
+    const planOptions = activePlans.map((pl) => `<option value="${escapeHtml(pl.id)}" data-rate="${pl.perStudentMonthly}" data-min="${pl.minimumYearly}" data-months="${pl.validityMonths}" data-trial="${pl.trialDays || 0}">${escapeHtml(pl.name)} — ${pl.trialDays > 0 ? `free trial · ${pl.trialDays} days` : `₹${pl.perStudentMonthly}/student/month · ${validityLabel(pl.validityMonths)}`}</option>`).join("");
+    body = `${pageHead("Payment links", "Pick a plan, add a discount if you agreed one, and send the link. The plan sets the price and how long the school stays active — no dates to fill. The public website never shows discounts.")}
+      <section class="panel"><div class="panel-head"><h2>New payment link</h2></div><div class="panel-body">
+        <form method="post" action="${input.basePath}/settings/payment-links">${csrfField(input.session)}
+          <div class="form-grid">
+            <div class="field"><label>Link type</label><select name="purpose" id="pl-purpose"><option value="NEW">New school — signs up and pays</option><option value="RENEWAL">Renewal — existing school (incl. trial)</option></select><span class="muted small" id="pl-purpose-hint">The school fills basic details; the organisation is created when they pay.</span></div>
+            <div class="field" id="pl-school-field"><label>School</label><input name="schoolName" id="pl-school" required maxlength="120" placeholder="VidyaPith Public School, Pune"><span class="muted small">Shown on the link page and pre-filled in the form.</span></div>
+            <div class="field" id="pl-org-field" style="display:none"><label>School to renew</label><select name="orgId" id="pl-org"><option value="">Choose a school…</option>${[...orgs]
+              .sort((a, b) => a.schoolName.localeCompare(b.schoolName))
+              .map((o) => `<option value="${escapeHtml(o.id)}" data-students="${o.studentCount || ""}">${escapeHtml(o.schoolName)}${o.ownerEmail ? ` · ${escapeHtml(o.ownerEmail)}` : ""} · ${escapeHtml(o.subscriptionStatus || "")}${o.renewalOn ? ` · ends ${o.renewalOn.toISOString().slice(0, 10)}` : ""}</option>`)
+              .join("")}</select><span class="muted small">The plan period starts when their current paid plan ends, or today if it has lapsed or they are on a trial.</span></div>
+            <div class="field"><label>Plan</label><select name="planId" id="pl-plan" required>${planOptions}</select><span class="muted small">Add or change plans in <a href="${baseUrl(input.basePath, { view: "pricing" })}">Billing → Pricing</a>.</span></div>
+            <div class="field"><label>Students</label><input name="students" type="number" min="1" placeholder="e.g. 600"><span class="muted small">Fills in for renewals. Leave empty on a new-school link and the school enters it.</span></div>
+            <div class="field"><label>Discount</label><select name="kind" id="pl-kind"><option value="NONE">No discount — plan price</option><option value="RATE">Special ₹ per student per month</option><option value="PERCENT">% off</option><option value="AMOUNT">₹ off</option><option value="FIXED">Fixed total price</option></select></div>
+            <div class="field" id="pl-value-field"><label id="pl-value-label">Value</label><input name="value" id="pl-value" type="number" min="1" placeholder="2"><span class="muted small" id="pl-value-hint"></span></div>
+            <div class="field"><label>Can be paid</label><select name="maxUses"><option value="1">Once</option><option value="0">Any number of times</option></select></div>
+            <div class="field"><label>Internal note (optional)</label><input name="note" maxlength="200" placeholder="Agreed on call with principal, 1 Nov"></div>
+          </div>
+          <p class="muted" id="pl-preview" style="margin:6px 0 0"></p>
+          <div class="form-actions"><button class="btn primary" type="submit">Create payment link</button></div>
+        </form>
+        <script>(function(){var p=document.getElementById("pl-purpose"),sf=document.getElementById("pl-school-field"),si=document.getElementById("pl-school"),of=document.getElementById("pl-org-field"),os=document.getElementById("pl-org"),ph=document.getElementById("pl-purpose-hint"),st=document.querySelector("[name=students]");function v(){var r=p.value==="RENEWAL";sf.style.display=r?"none":"";si.required=!r;of.style.display=r?"":"none";os.required=r;ph.textContent=r?"No sign-up form: the school sees its plan period and pays. The subscription is extended automatically.":"The school fills basic details; the organisation is created when they pay.";}p.addEventListener("change",v);os.addEventListener("change",function(){var o=os.options[os.selectedIndex];if(o&&o.dataset.students){st.value=o.dataset.students;st.dispatchEvent(new Event("input"));}});v();})();</script>
+        <script>(function(){var k=document.getElementById("pl-kind"),vf=document.getElementById("pl-value-field"),vi=document.getElementById("pl-value"),l=document.getElementById("pl-value-label"),h=document.getElementById("pl-value-hint"),pl=document.getElementById("pl-plan"),st=document.querySelector("[name=students]"),pv=document.getElementById("pl-preview");
+          function plan(){var o=pl.options[pl.selectedIndex]||{dataset:{}};return {rate:+o.dataset.rate||0,min:+o.dataset.min||0,months:+o.dataset.months||12,trial:+o.dataset.trial||0};}
+          function dur(m){return m%12===0?(m===12?"1 year":(m/12)+" years"):(m===1?"1 month":m+" months");}
+          function inr(n){return "₹"+Math.round(n).toLocaleString("en-IN");}
+          function u(){var x=plan();
+            var pu=document.getElementById("pl-purpose"),kf=k.closest(".field"),sf2=st.closest(".field");
+            if(x.trial){if(pu.value!=="NEW"){pu.value="NEW";pu.dispatchEvent(new Event("change"));}pu.disabled=true;kf.style.display="none";vf.style.display="none";vi.required=false;sf2.style.display="none";pv.textContent="Free trial for "+x.trial+" days — the school fills its details and clicks “Create my school”. No payment.";return;}
+            pu.disabled=false;kf.style.display="";sf2.style.display="";
+            var t={NONE:["",""],RATE:["₹ per student per month","Plan price is ₹"+x.rate+"."],PERCENT:["% off","20 = 20% off the plan price."],AMOUNT:["₹ off","2000 = ₹2,000 off the plan price."],FIXED:["Total price (₹)","The school pays exactly this for "+dur(x.months)+"."]}[k.value];
+            vf.style.display=k.value==="NONE"?"none":"";vi.required=k.value!=="NONE";l.textContent=t[0];h.textContent=t[1];
+            var n=Math.floor(+st.value||0),val=+vi.value||0,rate=k.value==="RATE"&&val?val:x.rate,base=Math.max(x.min,n*rate*x.months),tot=base;
+            if(k.value==="PERCENT")tot=base-Math.round(base*Math.min(100,val)/100);if(k.value==="AMOUNT")tot=Math.max(0,base-val);if(k.value==="FIXED")tot=val;
+            pv.textContent=(k.value==="FIXED"||n)?"School pays "+inr(tot)+" for "+dur(x.months)+(n?" ("+n+" students)":"")+".":"Valid for "+dur(x.months)+" from payment (or from the end of the current plan on renewals).";}
+          [k,vi,pl,st].forEach(function(e){e.addEventListener("input",u);e.addEventListener("change",u);});u();})();</script>
+      </div></section>
+      <section class="panel"><div class="panel-head"><h2>All payment links</h2>${badge(`${links.length}`)}</div><div class="panel-body">
+        ${
+          links.length
+            ? `<table class="table"><thead><tr><th>School</th><th>Price</th><th>Link</th><th>Paid</th><th>Status</th><th></th></tr></thead><tbody>
+          ${links
+            .map((c) => {
+              const problem = couponProblem(c);
+              const url = linkUrl(c.code);
+              const fresh = input.newLink && input.newLink === c.code;
+              return `<tr${fresh ? ' style="background:#f0fdf4"' : ""}><td>${badge(c.purpose === "RENEWAL" ? "RENEWAL" : "NEW SCHOOL")} <strong>${escapeHtml(c.schoolName || c.code)}</strong>${c.note ? `<div class="muted small">${escapeHtml(c.note)}</div>` : ""}<div class="muted small">by ${escapeHtml(c.createdBy || "—")} · ${c.createdAt.toISOString().slice(0, 10)}</div></td>
+                <td>${priceText(c)}</td>
+                <td>${c.schoolName ? `<div style="display:flex;gap:6px;align-items:center"><input readonly value="${escapeHtml(url)}" style="min-width:220px;font-size:12px" onclick="this.select()"><button class="btn" type="button" data-copy="${escapeHtml(url)}">Copy</button></div>` : `<span class="muted small">Old code ${escapeHtml(c.code)} — no longer accepted on the website</span>`}</td>
+                <td>${c.usedCount}${c.maxUses ? ` / ${c.maxUses}` : ""}</td>
+
+                <td>${badge(problem ? (c.active ? (c.maxUses && c.usedCount >= c.maxUses ? "PAID" : "CLOSED") : "OFF") : "ACTIVE")}</td>
+                <td><form method="post" action="${input.basePath}/settings/payment-links">${csrfField(input.session)}<input type="hidden" name="action" value="toggle"><input type="hidden" name="id" value="${escapeHtml(c.id)}"><input type="hidden" name="active" value="${c.active ? "false" : "true"}"><button class="btn" type="submit">${c.active ? "Switch off" : "Switch on"}</button></form></td></tr>`;
+            })
+            .join("")}
+        </tbody></table>
+        <script>document.querySelectorAll("[data-copy]").forEach(function(b){b.addEventListener("click",function(){var v=b.getAttribute("data-copy");(navigator.clipboard?navigator.clipboard.writeText(v):Promise.reject()).then(function(){b.textContent="Copied";setTimeout(function(){b.textContent="Copy"},1500)}).catch(function(){window.prompt("Copy this link",v)});});});</script>`
+            : `<p class="muted">No payment links yet.</p>`
+        }
       </div></section>`;
   } else if (view === "email") {
     const [settings, deliveries] = await Promise.all([getSaasEmailSettings(), listSaasEmailDeliveryLogs(25)]);
@@ -553,7 +660,7 @@ export async function adminPortalHtml(input: {
       ${rules.map((rule) => emailRuleForm(input.basePath, input.session, rule, settings.productionFromEmail)).join("")}
       ${emailDeliveryHistory(deliveries)}`;
   } else {
-    body = `${pageHead("Settings", "Security and portal configuration.")}<section class="panel"><div class="panel-body"><h3>Landing pricing</h3><p class="muted">Set list price, discount, and trial length from <a href="${baseUrl(input.basePath, { view: "pricing" })}"><strong>Billing → Pricing</strong></a>. Those values appear on the public website.</p><h3>Email delivery</h3><p class="muted">Configure the secure Resend sender, staging allow-list, recipients, and templates used when a school books a demo or starts a trial.</p><p><a class="btn" href="${baseUrl(input.basePath, { view: "email" })}">Configure email delivery</a></p><h3>Access policy</h3><p class="muted">Allowed: exact account <strong>buildtogether.tech@gmail.com</strong>, plus verified accounts at exactly <strong>anekio.com</strong> and <strong>anekio.in</strong>.</p><h3>Signed-in operator</h3><p>${escapeHtml(input.session.email)}</p><h3>Google OAuth</h3><p>${googleAdminAuthConfigured() ? badge("ACTIVE") : `${badge("CONFIGURATION_REQUIRED")} <span class="muted">Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.</span>`}</p></div></section>`;
+    body = `${pageHead("Settings", "Security and portal configuration.")}<section class="panel"><div class="panel-body"><h3>Pricing</h3><p class="muted">Set the per-student price and yearly minimum from <a href="${baseUrl(input.basePath, { view: "pricing" })}"><strong>Billing → Pricing</strong></a>. Those values appear on the public website.</p><h3>Email delivery</h3><p class="muted">Configure the secure Resend sender, staging allow-list, recipients, and templates used when a school books a demo or starts a trial.</p><p><a class="btn" href="${baseUrl(input.basePath, { view: "email" })}">Configure email delivery</a></p><h3>Access policy</h3><p class="muted">Allowed: exact account <strong>buildtogether.tech@gmail.com</strong>, plus verified accounts at exactly <strong>anekio.com</strong> and <strong>anekio.in</strong>.</p><h3>Signed-in operator</h3><p>${escapeHtml(input.session.email)}</p><h3>Google OAuth</h3><p>${googleAdminAuthConfigured() ? badge("ACTIVE") : `${badge("CONFIGURATION_REQUIRED")} <span class="muted">Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.</span>`}</p></div></section>`;
   }
 
   return adminDocument({

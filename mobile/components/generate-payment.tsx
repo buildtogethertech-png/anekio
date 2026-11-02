@@ -6,6 +6,9 @@ import { webOrigin } from "../lib/api";
 import { act } from "../lib/mutate";
 import { useSession } from "../lib/session";
 import { Button, Field, Input, Modal } from "./ui";
+import { ProofAttach } from "./salary-pay-sheet";
+import { uploadFile, type PickedFile } from "../lib/upload";
+import { receiptMessage, receiptPdfUrl, sendReceiptOnWhatsApp, shareReceiptPdf } from "../lib/receipt-share";
 
 const PAYMENT_METHODS = [
   { id: "CASH", label: "Cash", short: "Cash", icon: "cash-outline", hint: "Collected at the desk" },
@@ -130,12 +133,22 @@ export function GeneratePayment({
   const [reference, setReference] = useState("");
   const [collectedBy, setCollectedBy] = useState("");
   const [notes, setNotes] = useState("");
+  const [proof, setProof] = useState<PickedFile | null>(null);
   const [busy, setBusy] = useState<Busy>(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
   const [showNote, setShowNote] = useState(false);
   const [editBy, setEditBy] = useState(false);
-  const [done, setDone] = useState<null | { message: string; amount: number; method: string; range: string; when: string }>(null);
+  const [done, setDone] = useState<null | {
+    message: string;
+    amount: number;
+    method: string;
+    range: string;
+    when: string;
+    receiptNo: string;
+    utr: string;
+    receiptUrl: string;
+  }>(null);
   const { width } = useWindowDimensions();
   const phone = width < 768;
   const roster = students?.length ? students : student ? [student] : [];
@@ -173,6 +186,7 @@ export function GeneratePayment({
     setPicked(months.map((m) => m.id));
     setMethod(startMethod || "CASH");
     setReference("");
+    setProof(null);
     setCollectedBy(user?.name || "");
     setNotes("");
     setBusy(null);
@@ -213,20 +227,30 @@ export function GeneratePayment({
     setBusy("collect");
     setError("");
     try {
+      // Optional UPI / bank screenshot, stored once and linked to every payment row.
+      const proofPath = proof ? (await uploadFile(token, proof, { kind: "invoiceAttachment" })).path : undefined;
       const groups = new Map<string, string[]>();
       for (const m of selected) {
         groups.set(m.studentId, [...(groups.get(m.studentId) || []), m.id]);
       }
+      const receiptNos: string[] = [];
       for (const [studentId, invoiceIds] of groups) {
-        await act(token, "collectPartialFees", {
+        const res = await act<{ ok: true; receiptNo?: string }>(token, "collectPartialFees", {
           studentId,
           invoiceIds,
           method,
           reference: reference.trim() || undefined,
           collectedBy: collectedBy.trim() || undefined,
           notes: notes.trim() || undefined,
+          proofPath,
         });
+        if (res?.receiptNo) receiptNos.push(res.receiptNo);
       }
+      // Receipt PDF link (one student at a time; a family collection shares the first child's receipt).
+      const firstStudent = [...groups.keys()][0];
+      const receiptUrl = firstStudent
+        ? await receiptPdfUrl(token, groups.get(firstStudent) || []).catch(() => "")
+        : "";
       const message = selected.length === 1 ? "Collected 1 month." : `Collected ${selected.length} months.`;
       if (phone) {
         setDone({
@@ -235,6 +259,9 @@ export function GeneratePayment({
           method: current.label,
           range: payRangeLabel(selected.map((m) => m.title)),
           when: new Date().toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }),
+          receiptNo: receiptNos.join(", "),
+          utr: reference.trim(),
+          receiptUrl,
         });
       } else {
         await onDone(message);
@@ -300,31 +327,25 @@ export function GeneratePayment({
     }
   }
 
-  async function callParent() {
-    if (!lead) return;
-    setBusy("call");
-    setError("");
-    try {
-      if (!wa) throw new Error("Add the parent phone on this student first");
-      await Linking.openURL(`tel:+${wa}`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not start call");
-    } finally {
-      setBusy(null);
-    }
-  }
-
   const monthWord = selected.length === 1 ? "month" : "months";
   const locked = busy !== null;
   const copyLabel = busy === "copy" ? "Copying" : copied ? "Copied" : "Copy";
   const waLabel = busy === "whatsapp" ? "Opening" : "WhatsApp";
-  const callLabel = busy === "call" ? "Calling" : "Call";
   const collectLabel = busy === "collect" ? "Collecting…" : `Collect ${selected.length} ${monthWord}`;
   const manualReady = method === "RAZORPAY" || Boolean(collectedBy.trim());
 
   if (phone) {
     const receiptText = done
-      ? `Dear Parent,\n\nWe have received ${rupees(done.amount)} towards the school fee for ${lead?.name || "your child"} (${done.range}).\n\nMode: ${done.method}\nDate: ${done.when}\n\nThank you.`
+      ? receiptMessage({
+          studentName: lead?.name || "your child",
+          amount: rupees(done.amount),
+          range: done.range,
+          method: done.method,
+          when: done.when,
+          receiptNo: done.receiptNo,
+          utr: done.utr,
+          url: done.receiptUrl,
+        })
       : "";
     const finish = async () => {
       const message = done?.message || "";
@@ -359,25 +380,32 @@ export function GeneratePayment({
                   <Text className="mt-0.5 text-xs text-ink-500">
                     {done.range} · {done.method} · {done.when}
                   </Text>
+                  {done.receiptNo ? (
+                    <Text className="mt-1 text-xs font-semibold text-ink-700">Receipt No. {done.receiptNo}</Text>
+                  ) : null}
                   <View className="mt-6 w-full gap-2">
                     {wa ? (
                       <Pressable
                         accessibilityRole="button"
-                        onPress={() => void Linking.openURL(`https://wa.me/${wa}?text=${encodeURIComponent(receiptText)}`)}
+                        onPress={() => void sendReceiptOnWhatsApp(wa, receiptText)}
                         className="h-12 flex-row items-center justify-center gap-2 rounded-xl bg-green-600"
                       >
                         <Ionicons name="logo-whatsapp" size={18} color="#fff" />
                         <Text className="text-[15px] font-semibold text-white">Send receipt on WhatsApp</Text>
                       </Pressable>
                     ) : null}
-                    {Platform.OS !== "web" || (typeof navigator !== "undefined" && "share" in navigator) ? (
+                    {done.receiptUrl || Platform.OS !== "web" || (typeof navigator !== "undefined" && "share" in navigator) ? (
                       <Pressable
                         accessibilityRole="button"
-                        onPress={() => void Share.share({ message: receiptText }).catch(() => undefined)}
+                        onPress={() =>
+                          done.receiptUrl
+                            ? void shareReceiptPdf(done.receiptUrl, `Receipt-${(done.receiptNo || "fee").replace(/[^A-Za-z0-9-]+/g, "-")}.pdf`, receiptText)
+                            : void Share.share({ message: receiptText }).catch(() => undefined)
+                        }
                         className="h-12 flex-row items-center justify-center gap-2 rounded-xl border border-ink-200"
                       >
                         <Ionicons name="share-outline" size={18} color="#1F45C7" />
-                        <Text className="text-[15px] font-semibold text-[#1F45C7]">Share receipt</Text>
+                        <Text className="text-[15px] font-semibold text-[#1F45C7]">{done.receiptUrl ? "Share receipt PDF" : "Share receipt"}</Text>
                       </Pressable>
                     ) : null}
                     <Pressable
@@ -488,17 +516,39 @@ export function GeneratePayment({
                           />
                         ) : null}
 
+                        {method !== "RAZORPAY" && method !== "CASH" ? (
+                          <View className="mt-3">
+                            <ProofAttach mode={method} file={proof} onChange={setProof} disabled={locked} />
+                          </View>
+                        ) : null}
+
                         {method === "RAZORPAY" ? (
-                          <View className="mt-3 gap-2 rounded-xl border border-ink-100 bg-ink-50 p-3">
-                            <Text className="text-sm text-ink-800">
-                              Parent pays the {selected.length} {monthWord} ticked above.
-                            </Text>
-                            <View className="flex-row gap-2">
-                              <PayLinkAction icon={copied ? "checkmark" : "copy-outline"} label={copyLabel} disabled={!selected.length || locked} onPress={copyLink} />
-                              <PayLinkAction icon="logo-whatsapp" label={waLabel} disabled={!selected.length || locked || !wa} onPress={sendWhatsApp} color="#16a34a" />
-                              <PayLinkAction icon="call-outline" label={callLabel} disabled={locked || !wa} onPress={callParent} />
-                            </View>
-                            {!wa ? <Text className="text-[11px] text-ink-600">{channelHint({ wa: false })}</Text> : null}
+                          <View className="mt-3 gap-2.5">
+                            {wa ? (
+                              <Pressable
+                                accessibilityRole="button"
+                                accessibilityLabel="Send pay link on WhatsApp"
+                                disabled={!selected.length || locked}
+                                onPress={sendWhatsApp}
+                                className={`h-12 flex-row items-center justify-center gap-2 rounded-xl bg-[#16a34a] active:opacity-80 ${!selected.length || locked ? "opacity-50" : ""}`}
+                              >
+                                <Ionicons name="logo-whatsapp" size={19} color="#fff" />
+                                <Text className="text-[15px] font-semibold text-white">Send on WhatsApp</Text>
+                              </Pressable>
+                            ) : (
+                              <Text className="text-[12px] text-ink-600">{channelHint({ wa: false })}</Text>
+                            )}
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel="Copy pay link"
+                              hitSlop={8}
+                              disabled={!selected.length || locked}
+                              onPress={copyLink}
+                              className={`flex-row items-center justify-center gap-1.5 py-1 ${!selected.length || locked ? "opacity-50" : ""}`}
+                            >
+                              <Ionicons name={copied ? "checkmark" : "copy-outline"} size={15} color="#1F45C7" />
+                              <Text className="text-[13px] font-medium text-[#1F45C7]">{copied ? "Link copied" : "Copy link instead"}</Text>
+                            </Pressable>
                           </View>
                         ) : (
                           <View className="mt-3 gap-2">
@@ -687,6 +737,9 @@ export function GeneratePayment({
               />
             </Field>
           ) : null}
+          {method !== "RAZORPAY" && method !== "CASH" ? (
+            <ProofAttach mode={method} file={proof} onChange={setProof} disabled={locked} />
+          ) : null}
           {method === "RAZORPAY" ? (
             <View className="gap-2 rounded-md border border-ink-100 bg-white px-3 py-2.5">
               <Text className="text-sm text-ink-800">
@@ -706,7 +759,6 @@ export function GeneratePayment({
                   onPress={sendWhatsApp}
                   color="#16a34a"
                 />
-                <PayLinkAction icon="call-outline" label={callLabel} disabled={locked || !wa} onPress={callParent} />
               </View>
               <Text className="text-[11px] text-ink-700">
                 {channelHint({ wa: Boolean(wa) })}

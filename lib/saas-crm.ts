@@ -265,6 +265,24 @@ async function issuePaidInvoice(orgId: string, amount: number, plan: string, act
   return invoice;
 }
 
+/**
+ * The year a payment buys. Paid time is never lost: if the current paid plan is still running, the new
+ * year starts when it ends; if it has lapsed (or the school is on a trial / brand new), it starts today.
+ */
+export async function nextSubscriptionPeriod(orgId: string | null | undefined, now = new Date(), validityMonths = 12) {
+  const current = orgId
+    ? await prisma.saasSubscription.findFirst({
+        where: { orgId, status: "ACTIVE", paymentStatus: "PAID", renewsAt: { not: null } },
+        orderBy: { renewsAt: "desc" },
+      })
+    : null;
+  const runningUntil = current?.renewsAt && current.renewsAt.getTime() > now.getTime() ? current.renewsAt : null;
+  const startedAt = runningUntil ? new Date(runningUntil) : new Date(now);
+  const renewsAt = new Date(startedAt);
+  renewsAt.setMonth(renewsAt.getMonth() + Math.max(1, Math.round(validityMonths || 12)));
+  return { startedAt, renewsAt, extendsCurrent: Boolean(runningUntil), previousEnd: current?.renewsAt ?? null };
+}
+
 export async function fulfillPaidSubscription(input: {
   orgId: string;
   amount: number;
@@ -272,14 +290,15 @@ export async function fulfillPaidSubscription(input: {
   actorEmail: string;
   paymentId?: string;
   invoiceId?: string;
+  /** Plan validity in months (default 12). */
+  validityMonths?: number;
 }) {
   const org = await prisma.saasOrg.findUnique({ where: { id: input.orgId } });
   if (!org) throw new Error("Organisation not found.");
   const pricing = await getSitePricing();
   const plan = input.plan || org.plan || pricing.planName;
   const amount = input.amount || pricing.salePrice;
-  const startedAt = new Date();
-  const renewsAt = addOneYear(startedAt);
+  const { startedAt, renewsAt, extendsCurrent, previousEnd } = await nextSubscriptionPeriod(org.id, new Date(), input.validityMonths || 12);
   await prisma.saasSubscription.updateMany({
     where: { orgId: org.id, status: { in: ["TRIAL", "ACTIVE"] } },
     data: { status: "SUPERSEDED" },
@@ -294,7 +313,12 @@ export async function fulfillPaidSubscription(input: {
       paymentStatus: "PAID",
       startedAt,
       renewsAt,
-      history: org.subscriptionStatus === "TRIAL" ? "Trial → Launch Plan → Payment successful → Activated" : "Payment successful → Activated",
+      history:
+        org.subscriptionStatus === "TRIAL"
+          ? `Trial → ${plan} → Payment successful → Activated`
+          : previousEnd
+            ? `Renewal → Payment successful → ${extendsCurrent ? "Extended from the current end date" : "Restarted from payment date"}`
+            : "Payment successful → Activated",
     },
   });
   let invoiceId = input.invoiceId;

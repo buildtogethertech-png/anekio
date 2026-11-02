@@ -60,6 +60,7 @@ import { withPublicRequestOrigin } from "../lib/utils";
 import { hasHostnamePrefix, normalizeHostname, schoolSlugFromHostname } from "../lib/host-routing";
 import { runWithoutTenant, setTenantOrg } from "../lib/tenant-context";
 import { renderInvoicePage, renderPayPage, renderStudentPayPage } from "./pay-html";
+import { feeReceiptPdf } from "../lib/fee-receipt-pdf";
 import {
   createAdmissionLeadFromWebsite,
   prepareAdmissionFileUpload,
@@ -70,6 +71,8 @@ import {
   createSaasEnquiry,
   createSaasRazorpayOrder,
   createSaasTrial,
+  existingContactFields,
+  existingContactMessage,
   ExistingTrialSignupError,
   marketingHtml,
   robotsTxt,
@@ -81,6 +84,7 @@ import {
   trialStartedHtml,
   verifySaasRazorpayPayment,
 } from "../lib/anekio-site";
+import { blogIndexHtml, blogPostHtml, blogRssXml } from "../lib/anekio-blog";
 import {
   adminInvoicePrintHtml,
   adminLoginHtml,
@@ -96,7 +100,8 @@ import {
 } from "../lib/saas-admin";
 import { adminInvoicePdf } from "../lib/saas-invoice-pdf";
 import { sendSaasEmailEvent } from "../lib/saas-email";
-import { updateSitePricing } from "../lib/saas-pricing";
+import { createPaymentLink, createPlan, getPaymentLink, markCouponUsed, quoteForSchool, setCouponActive, setPlanActive, updateSitePricing } from "../lib/saas-pricing";
+import { paymentLinkHtml } from "../lib/anekio-paylink";
 import { appPlatform, saveAppVersionRules, updateStatusFor } from "../lib/app-version";
 import { privacyPolicyHtml } from "../lib/privacy-policy";
 import {
@@ -245,6 +250,12 @@ function requestOrigin(req: express.Request) {
   const protocol = forwardedProto || req.protocol;
   const host = String(req.headers["x-forwarded-host"] || req.headers.host || "localhost:4000").split(",")[0].trim();
   return `${protocol}://${host}`;
+}
+
+/** Marketing-site origin for links made in the admin portal (admin.anekio.com → anekio.com). */
+function publicSiteOrigin(req: express.Request) {
+  const origin = requestOrigin(req);
+  return isAdminHost(req) ? origin.replace(/:\/\/admin\./, "://") : origin;
 }
 
 function adminSecureCookie(req: express.Request) {
@@ -867,6 +878,8 @@ async function renderAdminPage(req: express.Request, res: express.Response) {
       userQ: typeof req.query.uq === "string" ? req.query.uq : "",
       flash: typeof req.query.saved === "string" ? req.query.saved : "",
       error: typeof req.query.error === "string" ? req.query.error : "",
+      publicOrigin: publicSiteOrigin(req),
+      newLink: typeof req.query.new === "string" ? req.query.new : "",
     })
   );
 }
@@ -973,6 +986,24 @@ app.get("/", async (req, res, next) => {
 
 app.get(["/features", "/pricing"], async (_req, res) => {
   res.type("html").send(await marketingHtml());
+});
+
+app.get("/blog", (req, res, next) => {
+  if (isAdminHost(req) || isAppHost(req) || isConnectHost(req) || schoolSlugHost(req)) return next();
+  res.setHeader("Cache-Control", "public, max-age=600");
+  res.type("html").send(blogIndexHtml());
+});
+
+app.get("/blog/rss.xml", (_req, res) => {
+  res.type("application/rss+xml").send(blogRssXml());
+});
+
+app.get("/blog/:slug", (req, res, next) => {
+  if (isAdminHost(req) || isAppHost(req) || isConnectHost(req) || schoolSlugHost(req)) return next();
+  const html = blogPostHtml(req.params.slug);
+  if (!html) return sendError(res, 404, "Article not found");
+  res.setHeader("Cache-Control", "public, max-age=600");
+  res.type("html").send(html);
 });
 
 app.get("/privacy", (_req, res) => {
@@ -1154,6 +1185,42 @@ app.post(["/settings/pricing", "/anekio-admin/settings/pricing"], async (req, re
   }
 });
 
+app.post(["/settings/plans", "/anekio-admin/settings/plans"], async (req, res, next) => {
+  if (!adminRouteRequest(req)) return next();
+  const session = requireAdminAction(req, res);
+  if (!session) return;
+  const basePath = adminBase(req);
+  try {
+    const body = req.body || {};
+    if (body.action === "toggle") {
+      const row = await setPlanActive(String(body.id || ""), body.active === "true", session.email);
+      return res.redirect(303, `${basePath || "/"}?view=pricing&saved=${encodeURIComponent(`${row.name} ${row.active ? "switched on" : "switched off"}.`)}`);
+    }
+    const row = await createPlan(body, session.email);
+    res.redirect(303, `${basePath || "/"}?view=pricing&saved=${encodeURIComponent(`Plan ${row.name} added.`)}`);
+  } catch (e) {
+    res.redirect(303, `${basePath || "/"}?view=pricing&error=${encodeURIComponent(e instanceof Error ? e.message : "Could not save the plan.")}`);
+  }
+});
+
+app.post(["/settings/payment-links", "/anekio-admin/settings/payment-links", "/settings/coupons", "/anekio-admin/settings/coupons"], async (req, res, next) => {
+  if (!adminRouteRequest(req)) return next();
+  const session = requireAdminAction(req, res);
+  if (!session) return;
+  const basePath = adminBase(req);
+  try {
+    const body = req.body || {};
+    if (body.action === "toggle") {
+      const row = await setCouponActive(String(body.id || ""), body.active === "true", session.email);
+      return res.redirect(303, `${basePath || "/"}?view=payment-links&saved=${encodeURIComponent(`Link for ${row.schoolName || row.code} ${row.active ? "switched on" : "switched off"}.`)}`);
+    }
+    const row = await createPaymentLink(body, session.email);
+    res.redirect(303, `${basePath || "/"}?view=payment-links&new=${encodeURIComponent(row.code)}&saved=${encodeURIComponent(`Payment link for ${row.schoolName} created. Copy it below and send it to the school.`)}`);
+  } catch (e) {
+    res.redirect(303, `${basePath || "/"}?view=payment-links&error=${encodeURIComponent(e instanceof Error ? e.message : "Could not create the payment link.")}`);
+  }
+});
+
 app.post(["/settings/app-version", "/anekio-admin/settings/app-version"], async (req, res, next) => {
   if (!adminRouteRequest(req)) return next();
   const session = requireAdminAction(req, res);
@@ -1309,7 +1376,61 @@ app.post("/api/saas/enquiry", async (req, res) => {
   }
 });
 
+/** Sends the trial welcome email (password link + lead alert). Never throws. */
+async function sendTrialWelcome(req: express.Request, org: { id: string; schoolName: string; ownerName: string; ownerEmail: string; ownerPhone: string; city: string; plan: string }, loginUrl: string) {
+  try {
+    const leadUrl = `${requestOrigin(req).replace(/\/$/, "")}/anekio-admin?view=lead&id=${encodeURIComponent(org.id)}`;
+    const emailOrigins = trialEmailOrigins(hostName(req));
+    const passwordResetUrl = await createTrialWelcomeResetLink(org.id, org.ownerEmail, emailOrigins.site);
+    await sendSaasEmailEvent({
+      event: "TRIAL_STARTED",
+      orgId: org.id,
+      idempotencyKey: `trial:${org.id}`,
+      host: hostName(req),
+      variables: {
+        schoolName: org.schoolName,
+        ownerName: org.ownerName,
+        ownerEmail: org.ownerEmail,
+        ownerPhone: org.ownerPhone,
+        city: org.city,
+        trialDays: String(org.plan.match(/\d+/)?.[0] || "7"),
+        loginUrl: `${emailOrigins.app}${loginUrl || "/login"}`,
+        leadUrl,
+      },
+      customerVariables: { passwordResetUrl },
+    });
+  } catch (error) {
+    console.error("Trial onboarding email delivery setup failed", error instanceof Error ? error.message : error);
+  }
+}
+
+// Free-trial link from the admin portal: creates the school and its login straight away (no payment).
+app.post("/api/saas/paylink-trial", async (req, res) => {
+  try {
+    const { link, problem } = await getPaymentLink(req.body?.link);
+    if (!link || problem) throw new Error(`${problem || "This link is not valid."} Please ask us for a new link.`);
+    const plan = link.planId ? await prisma.saasPlan.findUnique({ where: { id: link.planId } }) : null;
+    if (!plan || !(plan.trialDays > 0)) throw new Error("This link is not a free-trial link.");
+    const taken = await existingContactFields({ ownerEmail: req.body?.ownerEmail, ownerPhone: req.body?.ownerPhone });
+    if (taken.length) throw new Error(existingContactMessage(taken));
+    const { login, loginUrl, ...org } = await createSaasTrial(req.body || {}, { trialDays: plan.trialDays, source: "PAYMENT_LINK", note: `link ${link.code} · ${plan.name}` });
+    await markCouponUsed(link.code);
+    await sendTrialWelcome(req, org, loginUrl);
+    const sub = await prisma.saasSubscription.findFirst({ where: { orgId: org.id }, orderBy: { createdAt: "desc" } });
+    res.json({ ok: true, schoolName: org.schoolName, ownerEmail: org.ownerEmail, login, loginUrl: `${trialEmailOrigins(hostName(req)).app}${loginUrl || "/login"}`, trialEnds: sub?.renewsAt || null });
+  } catch (e) {
+    sendError(res, e instanceof ExistingTrialSignupError ? 409 : 400, e instanceof Error ? e.message : "Could not create the school.");
+  }
+});
+
 app.post("/api/saas/trial", async (req, res) => {
+  // No self-serve free trials: every school starts with a demo and an assisted setup, so no login is
+  // handed out from the website. Set ANEKIO_PUBLIC_TRIAL=on to bring the old trial signup back.
+  if (process.env.ANEKIO_PUBLIC_TRIAL !== "on") {
+    const message = "We don't offer self-serve trials. Book a free demo and our team will set up your school.";
+    if (!String(req.headers.accept || "").includes("application/json")) return res.status(403).type("html").send(await marketingHtml(message));
+    return sendError(res, 403, message);
+  }
   try {
     const { login, loginUrl, ...org } = await createSaasTrial(req.body || {});
     const leadUrl = `${requestOrigin(req).replace(/\/$/, "")}/anekio-admin?view=lead&id=${encodeURIComponent(org.id)}`;
@@ -1354,6 +1475,36 @@ app.post("/api/saas/trial", async (req, res) => {
   }
 });
 
+// Website demo / buy forms: is this email or phone already a school on Anekio?
+app.post("/api/saas/contact-check", async (req, res) => {
+  try {
+    const taken = await existingContactFields({ ownerEmail: req.body?.ownerEmail, ownerPhone: req.body?.ownerPhone });
+    res.json({ ok: true, taken, message: taken.length ? existingContactMessage(taken) : "" });
+  } catch {
+    res.json({ ok: true, taken: [] });
+  }
+});
+
+// Payment link page: tell a new school straight away if its email / phone already belongs to a school.
+app.post("/api/saas/paylink-contact", async (req, res) => {
+  try {
+    const { link, problem } = await getPaymentLink(req.body?.link);
+    if (!link || problem || link.purpose === "RENEWAL") return res.json({ ok: true, taken: [] });
+    const taken = await existingContactFields({ ownerEmail: req.body?.ownerEmail, ownerPhone: req.body?.ownerPhone });
+    res.json({ ok: true, taken, message: taken.length ? existingContactMessage(taken) : "" });
+  } catch {
+    res.json({ ok: true, taken: [] });
+  }
+});
+
+// Private payment link made in the admin portal (Billing → Payment links).
+app.get("/anekio/pay/:token", async (req, res, next) => {
+  if (isAdminHost(req) || isAppHost(req) || isConnectHost(req) || schoolSlugHost(req)) return next();
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("X-Robots-Tag", "noindex, nofollow");
+  res.type("html").send(await paymentLinkHtml(req.params.token));
+});
+
 app.get("/anekio/renew", async (req, res) => {
   res.type("html").send(await saasRenewalHtml({ orgId: req.query.org, contact: req.query.contact }));
 });
@@ -1369,11 +1520,35 @@ async function createSaasPaymentOrder(req: express.Request, res: express.Respons
   } catch (e) {
     const message = e instanceof Error ? e.message : "Could not create payment order.";
     if (!String(req.headers.accept || "").includes("application/json")) {
+      const link = String(req.body?.link || "");
+      if (link) return res.status(400).type("html").send(await paymentLinkHtml(link, message, req.body || {}));
       return res.status(400).type("html").send(await marketingHtml(message));
     }
     sendError(res, 400, message);
   }
 }
+
+// Live price for the marketing page calculator: student count only. Codes are never accepted here.
+app.post("/api/saas/price-quote", async (req, res) => {
+  try {
+    const students = Math.min(100000, Math.max(0, Math.floor(Number(req.body?.students) || 0)));
+    const quote = await quoteForSchool({ students });
+    res.json({ ok: true, quote });
+  } catch (e) {
+    sendError(res, 400, e instanceof Error ? e.message : "Could not price this.");
+  }
+});
+
+// Live price on a private payment link page (admin-made link token + student count).
+app.post("/api/saas/paylink-quote", async (req, res) => {
+  try {
+    const students = Math.min(100000, Math.max(0, Math.floor(Number(req.body?.students) || 0)));
+    const quote = await quoteForSchool({ students, link: req.body?.link, strict: true });
+    res.json({ ok: true, quote: { total: quote.total, usedMinimum: quote.usedMinimum, minimumYearly: quote.minimumYearly, students: quote.students } });
+  } catch (e) {
+    sendError(res, 400, e instanceof Error ? e.message : "Could not price this.");
+  }
+});
 
 app.post("/api/saas/payment/order", createSaasPaymentOrder);
 app.post("/api/saas/razorpay/order", createSaasPaymentOrder);
@@ -1580,6 +1755,16 @@ app.get("/pay/s/:token", async (req, res) => {
   );
   if (!html) return res.status(404).send("Not found");
   res.type("html").send(html);
+});
+
+app.get("/pay/receipt/:tokens", async (req, res) => {
+  const tokens = String(req.params.tokens || "").replace(/\.pdf$/i, "").split(",");
+  const pdf = await feeReceiptPdf(tokens);
+  if (!pdf) return res.status(404).send("Receipt not found");
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `inline; filename="${pdf.filename}"`);
+  res.setHeader("Cache-Control", "no-store");
+  res.send(pdf.buffer);
 });
 
 app.get("/pay/:token/return", async (req, res) => {

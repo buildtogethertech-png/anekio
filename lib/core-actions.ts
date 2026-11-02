@@ -2973,6 +2973,14 @@ export async function collectFeeCore(
   });
 }
 
+/** Only accept proofs uploaded through the fee upload kinds (private/.../fees/...). */
+function feeProofPath(value: unknown) {
+  const path = String(value || "").replace(/^\/+/, "").trim();
+  if (!path) return null;
+  if (!path.startsWith("private/") || !path.includes("/fees/")) throw new Error("Upload the payment screenshot again.");
+  return path.slice(0, 300);
+}
+
 export async function collectPartialFeesCore(
   user: AccessUser,
   input: {
@@ -3013,10 +3021,11 @@ export async function collectPartialFeesCore(
       amount: row.dueNow,
       method,
       reference: `${receiptBase}:${row.inv.id.slice(-8)}`,
-      proofPath: String(input.proofPath || "").trim() || null,
+      proofPath: feeProofPath(input.proofPath),
       notes,
     });
   }
+  return { receiptNo: receiptBase.toUpperCase() };
 }
 
 export async function issueDueFeesCoreApi(user: AccessUser, input: { classId?: string }) {

@@ -12,6 +12,7 @@ import { Select } from "./form/select";
 import { FeeReport } from "./fee-report";
 import { act } from "../lib/mutate";
 import { webOrigin } from "../lib/api";
+import { receiptMessage, receiptPdfUrl, sendReceiptOnWhatsApp, shareReceiptPdf } from "../lib/receipt-share";
 import { datesForSessionYear, ordinalDay, SESSION_YEAR_OPTIONS, sessionYearId } from "../lib/fee-setup";
 import { useRecord } from "../lib/record";
 import { AdhocInvoiceModal } from "./adhoc-invoice";
@@ -1619,6 +1620,51 @@ export function FeesBoard() {
   const sessionPaid = moneyNumber(selectedDueStudent?.paid);
   const sessionAhead = upcomingMonths.reduce((sum, row) => sum + row.amount, 0);
   const lastPay = selectedDueStudent ? lastPaymentOf(selectedDueStudent) : null;
+  const firstDue = (() => {
+    const MON: Record<string, number> = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+    const parse = (raw: string) => {
+      const text = raw.trim();
+      const named = /^(\d{1,2})\s+([A-Za-z]{3})\w*,?\s+(\d{4})$/.exec(text);
+      if (named && MON[named[2].toLowerCase()] !== undefined) return new Date(Number(named[3]), MON[named[2].toLowerCase()], Number(named[1]));
+      const slash = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/.exec(text);
+      if (slash) return new Date(Number(slash[3]), Number(slash[2]) - 1, Number(slash[1]));
+      const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(text);
+      if (iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+      return null;
+    };
+    const dates = selectedOpen
+      .map((inv) => parse(String(inv.due || "")))
+      .filter((d): d is Date => Boolean(d && !Number.isNaN(d.getTime())))
+      .sort((a, b) => a.getTime() - b.getTime());
+    return dates[0] ?? null;
+  })();
+  const daysLate = firstDue ? Math.floor((new Date().setHours(0, 0, 0, 0) - firstDue.getTime()) / 86400000) : 0;
+  const isOverdue = selectedDue > 0 && (daysLate > 0 || selectedOpen.some((inv) => inv.status === "overdue"));
+  const dueLabel = firstDue ? firstDue.toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "";
+  const paidShare = sessionBilled > 0 ? Math.min(1, sessionPaid / sessionBilled) : 0;
+
+  /** Re-send a paid month's receipt PDF (with receipt no. and UTR) to the parent. */
+  async function reshareReceipt(inv: (typeof selectedMonths)[number], via: "whatsapp" | "share") {
+    if (!selectedDueStudent) return;
+    const latest = [...(inv.payments ?? [])].sort((a, b) => String(b.paidAt || "").localeCompare(String(a.paidAt || "")))[0];
+    const ref = String(latest?.reference || "").split(":")[0];
+    try {
+      const url = await receiptPdfUrl(token, [inv.id]);
+      const text = receiptMessage({
+        studentName: selectedDueStudent.name,
+        amount: String(inv.paid || inv.amount),
+        range: shortMonth(inv.period, inv.title),
+        method: latest ? paymentMethodLabel(latest.method) : undefined,
+        when: latest?.paidAt ? new Date(latest.paidAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : undefined,
+        receiptNo: ref.toUpperCase() || undefined,
+        url,
+      });
+      if (via === "whatsapp" && parentDigits) await sendReceiptOnWhatsApp(parentDigits, text);
+      else await shareReceiptPdf(url, `Receipt-${(ref || inv.id.slice(-8)).replace(/[^A-Za-z0-9-]+/g, "-")}.pdf`, text);
+    } catch (error) {
+      toast.show(error instanceof Error ? error.message : "Could not share the receipt.");
+    }
+  }
 
   const phoneDuePanel = selectedDueStudent ? (
     <View className="min-h-0 flex-1 bg-white">
@@ -1639,68 +1685,78 @@ export function FeesBoard() {
       </View>
       <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 24 }}>
         <View className="flex-row items-center gap-3 px-4 pt-4">
-          <View className="h-12 w-12 items-center justify-center rounded-full bg-[#EEF3FF]">
-            <Text className="text-base font-semibold text-[#1F45C7]">
-              {selectedDueStudent.name
-                .split(/\s+/)
-                .filter(Boolean)
-                .slice(0, 2)
-                .map((part) => part[0])
-                .join("")
-                .toUpperCase()}
-            </Text>
-          </View>
-          <View className="min-w-0 flex-1">
-            <Text className="text-lg font-bold text-ink-900" numberOfLines={1}>
-              {selectedDueStudent.name}
-            </Text>
-            <Text className="text-xs text-ink-500" numberOfLines={1}>
-              {selectedDueStudent.classLabel}
-              {selectedDueStudent.admissionNo ? ` · ${selectedDueStudent.admissionNo}` : ""}
-            </Text>
-          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Open ${selectedDueStudent.name}'s profile`}
+            onPress={() => router.push({ pathname: "/people", params: { student: selectedDueStudent.id } } as never)}
+            className="min-w-0 flex-1 flex-row items-center gap-3 active:opacity-70"
+          >
+            <View className="h-12 w-12 items-center justify-center rounded-full bg-[#EEF3FF]">
+              <Text className="text-base font-semibold text-[#1F45C7]">
+                {selectedDueStudent.name
+                  .split(/\s+/)
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .map((part) => part[0])
+                  .join("")
+                  .toUpperCase()}
+              </Text>
+            </View>
+            <View className="min-w-0 flex-1">
+              <Text className="text-lg font-bold text-ink-900" numberOfLines={1}>
+                {selectedDueStudent.name}
+              </Text>
+              <Text className="mt-0.5 text-[13px] text-ink-500" numberOfLines={1}>
+                {selectedDueStudent.classLabel}
+                {selectedDueStudent.admissionNo ? ` · ${selectedDueStudent.admissionNo}` : ""}
+              </Text>
+              {selectedDueStudent.parent ? (
+                <Text className="text-[13px] text-ink-500" numberOfLines={1}>
+                  Parent · <Text className="font-medium text-ink-700">{selectedDueStudent.parent}</Text>
+                </Text>
+              ) : null}
+            </View>
+          </Pressable>
+          {parentDigits ? (
+            <View className="flex-row gap-2">
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Call parent"
+                hitSlop={4}
+                onPress={() => void Linking.openURL(`tel:+${parentDigits}`)}
+                className="h-10 w-10 items-center justify-center rounded-full border border-ink-100 bg-white active:opacity-70"
+              >
+                <Ionicons name="call-outline" size={18} color="#334155" />
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="WhatsApp parent"
+                hitSlop={4}
+                onPress={() => void Linking.openURL(`https://wa.me/${parentDigits}`)}
+                className="h-10 w-10 items-center justify-center rounded-full border border-ink-100 bg-white active:opacity-70"
+              >
+                <Ionicons name="logo-whatsapp" size={19} color="#16a34a" />
+              </Pressable>
+            </View>
+          ) : null}
         </View>
 
-        {selectedDueStudent.parent || parentDigits ? (
-          <View className="mx-4 mt-3 flex-row items-center gap-3 rounded-xl border border-ink-100 px-3 py-2.5">
-            <Ionicons name="people-outline" size={18} color="#64748b" />
-            <View className="min-w-0 flex-1">
-              <Text className="text-sm font-medium text-ink-900" numberOfLines={1}>
-                {selectedDueStudent.parent || "Parent"}
-              </Text>
-              <Text className="text-xs text-ink-500">{selectedDueStudent.parentPhone || "No phone saved"}</Text>
-            </View>
-            {parentDigits ? (
-              <>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Call parent"
-                  onPress={() => void Linking.openURL(`tel:+${parentDigits}`)}
-                  className="h-10 w-10 items-center justify-center rounded-full bg-[#EEF3FF]"
-                >
-                  <Ionicons name="call" size={17} color="#1F45C7" />
-                </Pressable>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="WhatsApp parent"
-                  onPress={() => void Linking.openURL(`https://wa.me/${parentDigits}`)}
-                  className="h-10 w-10 items-center justify-center rounded-full bg-green-50"
-                >
-                  <Ionicons name="logo-whatsapp" size={18} color="#16a34a" />
-                </Pressable>
-              </>
-            ) : null}
-          </View>
-        ) : null}
-
-        <View className={`mx-4 mt-3 rounded-2xl px-4 py-4 ${selectedDue ? "bg-amber-50" : "bg-green-50"}`}>
+        <View
+          className={`mx-4 mt-4 rounded-2xl border px-4 py-4 ${
+            !selectedDue ? "border-green-100 bg-green-50" : isOverdue ? "border-red-100 bg-red-50" : "border-amber-100 bg-amber-50"
+          }`}
+        >
           {selectedDue ? (
             <>
-              <Text className="text-xs font-medium text-amber-800">Due now</Text>
-              <Text className="mt-0.5 text-[30px] font-bold leading-9 text-ink-900">{inr(selectedDue)}</Text>
-              <Text className="mt-0.5 text-xs text-ink-600">
-                {openRange}
-                {selectedLate ? ` · includes ${inr(selectedLate)} late` : ""}
+              <View className="flex-row items-center gap-2">
+                <View className={`h-2 w-2 rounded-full ${isOverdue ? "bg-red-500" : "bg-amber-500"}`} />
+                <Text className={`text-[13px] font-semibold ${isOverdue ? "text-red-700" : "text-amber-800"}`}>
+                  {isOverdue ? (daysLate > 0 ? `Overdue · ${daysLate} ${daysLate === 1 ? "day" : "days"} late` : "Overdue") : "Due now"}
+                </Text>
+              </View>
+              <Text className="mt-1 text-[36px] font-bold leading-[42px] text-ink-900">{inr(selectedDue)}</Text>
+              <Text className="mt-0.5 text-[13px] text-ink-600">
+                {[openRange, dueLabel ? `due ${dueLabel}` : "", selectedLate ? `includes ${inr(selectedLate)} late fee` : ""].filter(Boolean).join(" · ")}
               </Text>
             </>
           ) : (
@@ -1716,11 +1772,11 @@ export function FeesBoard() {
                 onPress={() => setIncludedOpen((v) => !v)}
                 className="mt-3 flex-row items-center gap-1 self-start"
               >
-                <Text className="text-xs font-semibold text-[#1F45C7]">What's included</Text>
+                <Text className="text-[13px] font-semibold text-[#1F45C7]">What's included</Text>
                 <Ionicons name={includedOpen ? "chevron-up" : "chevron-down"} size={14} color="#1F45C7" />
               </Pressable>
               {includedOpen ? (
-                <View className="mt-2 gap-1.5 border-t border-amber-100 pt-2">
+                <View className={`mt-2 gap-1.5 border-t pt-2 ${isOverdue ? "border-red-100" : "border-amber-100"}`}>
                   {chargeList.map((row) => (
                     <View key={`${row.label}-${row.rate}-${row.late}`} className="flex-row justify-between gap-3">
                       <Text className={`text-sm ${row.late ? "text-amber-800" : "text-ink-700"}`}>
@@ -1736,49 +1792,22 @@ export function FeesBoard() {
           ) : null}
         </View>
 
-        <View className="mx-4 mt-3 flex-row gap-4">
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => router.push({ pathname: "/people", params: { student: selectedDueStudent.id } } as never)}
-            className="flex-row items-center gap-1"
-          >
-            <Ionicons name="person-outline" size={15} color="#1F45C7" />
-            <Text className="text-sm font-medium text-[#1F45C7]">Student profile</Text>
-          </Pressable>
-          {collect && selectedDue > 0 ? (
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => {
-                setPayStartMethod("RAZORPAY");
-                setPayDueStudentId(selectedDueStudent.id);
-              }}
-              className="flex-row items-center gap-1"
-            >
-              <Ionicons name="link-outline" size={15} color="#1F45C7" />
-              <Text className="text-sm font-medium text-[#1F45C7]">Send pay link</Text>
-            </Pressable>
-          ) : null}
+        <View className="mx-4 mt-3 rounded-2xl border border-ink-100 px-3.5 py-3">
+          <View className="flex-row items-baseline justify-between gap-3">
+            <Text className="text-[15px] text-ink-700">
+              <Text className="font-semibold text-green-700">{compactInr(sessionPaid)}</Text> paid of {compactInr(sessionBilled)} billed
+            </Text>
+            {sessionAhead > 0 ? <Text className="text-[13px] text-ink-500">+{compactInr(sessionAhead)} to bill</Text> : null}
+          </View>
+          <View className="mt-2 h-1.5 overflow-hidden rounded-full bg-ink-100">
+            <View className="h-full rounded-full bg-green-500" style={{ width: `${Math.round(paidShare * 100)}%` }} />
+          </View>
+          <Text className="mt-2 text-[13px] text-ink-500">
+            {lastPay ? `Last paid ${lastPay.amount} on ${lastPay.date} · ${lastPay.mode}` : "No payment yet this session"}
+          </Text>
         </View>
 
-        <View className="mx-4 mt-4 flex-row overflow-hidden rounded-xl border border-ink-100">
-          {(
-            [
-              ["Billed", sessionBilled, "text-ink-900"],
-              ["Paid", sessionPaid, "text-green-700"],
-              ["Still to bill", sessionAhead, "text-ink-500"],
-            ] as const
-          ).map(([label, value, tone], i) => (
-            <View key={label} className={`flex-1 px-3 py-2.5 ${i ? "border-l border-ink-100" : ""}`}>
-              <Text className="text-[11px] text-ink-500">{label}</Text>
-              <Text className={`mt-0.5 text-sm font-semibold ${tone}`}>{compactInr(value)}</Text>
-            </View>
-          ))}
-        </View>
-        <Text className="mx-4 mt-2 text-xs text-ink-500">
-          {lastPay ? `Last paid ${lastPay.amount} on ${lastPay.date} · ${lastPay.mode}` : "No payment yet this session"}
-        </Text>
-
-        <Text className="mx-4 mb-1 mt-5 text-xs font-semibold uppercase tracking-wide text-ink-500">This session</Text>
+        <Text className="mx-4 mb-2 mt-5 text-[12px] font-semibold uppercase tracking-wide text-ink-500">This session</Text>
         <View className="mx-4 overflow-hidden rounded-xl border border-ink-100">
           {selectedMonths.map((inv, i) => {
             const parts = invoiceDueParts(inv);
@@ -1812,13 +1841,25 @@ export function FeesBoard() {
                   <Text className={`text-sm font-semibold ${paid ? "text-green-700" : "text-ink-900"}`}>
                     {paid ? inv.paid || inv.amount : inr(parts.dueNow)}
                   </Text>
-                  <Pressable
-                    accessibilityRole="button"
-                    hitSlop={6}
-                    onPress={() => void openDueFeeDocument(inv, paid)}
-                  >
-                    <Text className="mt-0.5 text-xs font-medium text-[#1F45C7]">{paid ? "Receipt" : "Invoice"}</Text>
-                  </Pressable>
+                  <View className="mt-0.5 flex-row items-center gap-3">
+                    {paid ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={parentDigits ? "Send receipt on WhatsApp" : "Share receipt PDF"}
+                        hitSlop={8}
+                        onPress={() => void reshareReceipt(inv, parentDigits ? "whatsapp" : "share")}
+                      >
+                        <Ionicons name={parentDigits ? "logo-whatsapp" : "share-outline"} size={15} color={parentDigits ? "#16a34a" : "#1F45C7"} />
+                      </Pressable>
+                    ) : null}
+                    <Pressable
+                      accessibilityRole="button"
+                      hitSlop={6}
+                      onPress={() => void openDueFeeDocument(inv, paid)}
+                    >
+                      <Text className="text-xs font-medium text-[#1F45C7]">{paid ? "Receipt" : "Invoice"}</Text>
+                    </Pressable>
+                  </View>
                 </View>
               </View>
             );
@@ -1850,7 +1891,7 @@ export function FeesBoard() {
               setPayStartMethod("CASH");
               setPayDueStudentId(selectedDueStudent.id);
             }}
-            className="h-12 flex-row items-center justify-center gap-2 rounded-xl bg-[#1F45C7]"
+            className="h-12 flex-row items-center justify-center gap-2 rounded-xl bg-[#1F45C7] active:opacity-80"
           >
             <Ionicons name="cash-outline" size={18} color="#fff" />
             <Text className="text-[15px] font-semibold text-white">Collect {inr(selectedDue)}</Text>

@@ -245,6 +245,11 @@ export const DOCUMENT_FIELDS = [
   { group: "Exam", id: "exam.name", label: "Exam name" },
   { group: "Exam", id: "exam.rollNo", label: "Exam roll number" },
   { group: "Exam", id: "exam.schedule", label: "Exam schedule table" },
+  { group: "Exam", id: "admit.rollNo", label: "Admit card roll number" },
+  { group: "Exam", id: "admit.centre", label: "Exam centre" },
+  { group: "Exam", id: "admit.reporting", label: "Reporting time" },
+  { group: "Exam", id: "admit.sessionLine", label: "Academic session line" },
+  { group: "Exam", id: "admit.signLine", label: "Principal signature line" },
   { group: "Results", id: "results.marks", label: "Marks and grades table" },
   { group: "Results", id: "results.activities", label: "Co-scholastic table" },
   { group: "Results", id: "results.attendance", label: "Attendance" },
@@ -280,6 +285,15 @@ export const DOCUMENT_FIELDS = [
   { group: "Fees", id: "fees.bankName", label: "Bank name" },
   { group: "Fees", id: "fees.account", label: "Bank account" },
   { group: "Fees", id: "fees.paymentUrl", label: "Payment link" },
+  { group: "Fees", id: "fees.amountWords", label: "Amount in words" },
+  { group: "Fees", id: "fees.payQr", label: "UPI pay QR link" },
+  { group: "Fees", id: "fees.payHint", label: "Pay hint" },
+  { group: "Fees", id: "fees.accountName", label: "Account name" },
+  { group: "Fees", id: "fees.accountNumber", label: "Account number" },
+  { group: "Fees", id: "fees.ifscBank", label: "IFSC and bank" },
+  { group: "Fees", id: "fees.forSchool", label: "For school (signature line)" },
+  { group: "Fees", id: "fees.thanksLine", label: "Receipt summary line" },
+  { group: "School", id: "school.gstinLine", label: "GSTIN line" },
   { group: "Document", id: "document.number", label: "Document number" },
   { group: "Document", id: "document.issueDate", label: "Issue date" },
   { group: "Document", id: "document.dueDate", label: "Due date" },
@@ -752,43 +766,8 @@ export function defaultLayout(type: string): DocumentLayout {
       ],
     };
   }
-  if (type === "ADMIT_CARD") {
-    const ink = "#0F172A";
-    const muted = "#475569";
-    const blue = "#1D4ED8";
-    return {
-      elements: [
-        element("page-bg", "SHAPE", 0, 0, 100, 100, { background: "#FFFFFF", locked: true }),
-        element("header", "SHAPE", 0, 0, 100, 22, { background: blue, locked: true }),
-        element("school-logo", "IMAGE", 2.4, 3, 8.5, 16, { field: "school.logoPath", label: "Logo", locked: true }),
-        element("school-name", "FIELD", 12.4, 3.2, 54, 8.4, { field: "school.name", label: "School name", fontSize: 18, fontWeight: "bold", color: "#FFFFFF", locked: true }),
-        element("school-address", "FIELD", 12.4, 12.2, 54, 7.4, { field: "school.address", label: "School address", fontSize: 10, color: "#DBEAFE" }),
-        element("title", "TEXT", 68, 3.6, 29.5, 8, { value: "ADMIT CARD", fontSize: 18, fontWeight: "bold", align: "right", color: "#FFFFFF" }),
-        element("exam-name", "FIELD", 68, 12.2, 29.5, 7.4, { field: "exam.name", label: "Exam name", fontSize: 12, fontWeight: "bold", align: "right", color: "#FFFFFF" }),
-        element("photo", "PHOTO", 2.4, 26, 14, 36, { field: "student.photo", label: "Photo", borderColor: blue }),
-        element("name-l", "TEXT", 18.4, 26, 28, 3.2, { value: "CANDIDATE", fontSize: 8, fontWeight: "bold", color: muted }),
-        element("student-name", "FIELD", 18.4, 29.2, 52, 7.2, { field: "student.name", label: "Student name", fontSize: 18, fontWeight: "bold", color: ink }),
-        element("class-l", "TEXT", 18.4, 37.2, 12, 3, { value: "CLASS", fontSize: 8, fontWeight: "bold", color: muted }),
-        element("class", "FIELD", 18.4, 40.2, 13, 5.2, { field: "student.classLabel", label: "Class", fontSize: 13, fontWeight: "bold", color: ink }),
-        element("roll-l", "TEXT", 33, 37.2, 12, 3, { value: "ROLL NO", fontSize: 8, fontWeight: "bold", color: muted }),
-        element("roll", "FIELD", 33, 40.2, 12, 5.2, { field: "student.rollNo", label: "Roll number", fontSize: 13, fontWeight: "bold", color: ink }),
-        element("adm-l", "TEXT", 47, 37.2, 18, 3, { value: "ADMISSION NO", fontSize: 8, fontWeight: "bold", color: muted }),
-        element("admission", "FIELD", 47, 40.2, 20, 5.2, { field: "student.admissionNo", label: "Admission number", fontSize: 12, fontWeight: "bold", color: ink }),
-        element("dob-l", "TEXT", 69, 37.2, 16, 3, { value: "DATE OF BIRTH", fontSize: 8, fontWeight: "bold", color: muted }),
-        element("dob", "FIELD", 69, 40.2, 16, 5.2, { field: "student.born", label: "Date of birth", fontSize: 12, fontWeight: "bold", color: ink }),
-        element("centre-l", "TEXT", 18.4, 46.4, 12, 3, { value: "CENTRE", fontSize: 8, fontWeight: "bold", color: muted }),
-        element("centre", "FIELD", 18.4, 49.4, 48, 5.2, { field: "school.name", label: "Exam centre", fontSize: 12, fontWeight: "bold", color: ink }),
-        element("card-l", "TEXT", 69, 46.4, 28, 3, { value: "CARD NO", fontSize: 8, fontWeight: "bold", color: muted }),
-        element("document-number", "FIELD", 69, 49.4, 28, 5.2, { field: "document.number", label: "Admit card no.", fontSize: 11, fontWeight: "bold", color: blue }),
-        element("sheet-l", "TEXT", 2.4, 64.2, 30, 3.4, { value: "DATE SHEET", fontSize: 10, fontWeight: "bold", color: blue }),
-        element("data-table", "TABLE", 2.4, 67.8, 68, 19, { field: "exam.schedule", label: "Exam schedule table", fontSize: 11, background: blue }),
-        element("note", "TEXT", 2.4, 88, 68, 9.6, { value: "Carry this card and school ID. Reach 30 minutes early. Phones and smart watches are not allowed.", fontSize: 10, color: "#334155" }),
-        element("signature", "SIGNATURE", 72, 67.8, 12, 14, { field: "school.signPath", label: "Principal signature" }),
-        element("sign-l", "TEXT", 72, 82.2, 12, 3.2, { value: "Principal", fontSize: 8, align: "center", color: muted }),
-        element("verify", "VERIFY_QR", 86, 67.8, 11.6, 24, { label: "Verification QR", locked: true }),
-      ],
-    };
-  }
+  if (type === "ADMIT_CARD") return admitCardLayout();
+
   if (type === "ADMISSION_FORM") {
     return {
       elements: [
@@ -836,104 +815,7 @@ export function defaultLayout(type: string): DocumentLayout {
     };
   }
   if (type === "FEE_INVOICE" || type === "PAYMENT_RECEIPT") {
-    const paid = type === "PAYMENT_RECEIPT";
-    const brand = paid ? "#B45309" : "#0369A1";
-    const header = paid ? "#D97706" : "#0284C7";
-    const ink = "#0F172A";
-    const muted = paid ? "#92400E" : "#075985";
-    const wash = paid ? "#FEF3C7" : "#E0F2FE";
-    const line = paid ? "#FCD34D" : "#7DD3FC";
-    const page = paid ? "#FFFBEB" : "#F0F9FF";
-    const onHeaderMuted = paid ? "#FEF3C7" : "#BAE6FD";
-    const e = element;
-    const label = (id: string, x: number, y: number, w: number, value: string) =>
-      e(id, "TEXT", x, y, w, 1.3, { value, fontSize: 7, fontWeight: "bold", color: muted });
-    const value = (id: string, x: number, y: number, w: number, field: string, name: string, extra: Partial<DocumentElement> = {}) =>
-      e(id, "FIELD", x, y, w, 2, { field, label: name, fontSize: 11, fontWeight: "bold", color: ink, ...extra });
-    return {
-      elements: [
-        e("page-bg", "SHAPE", 0, 0, 100, 100, { background: page, locked: true }),
-        e("rail", "SHAPE", 0, 0, 1.2, 100, { background: header, locked: true }),
-        e("paper", "SHAPE", 3.6, 1.8, 93.8, 96.2, { background: "#FFFFFF", borderColor: line, locked: true }),
-        e("header", "SHAPE", 3.6, 1.8, 93.8, 11, { background: header, locked: true }),
-        e("school-logo", "IMAGE", 6, 3.2, 7, 7.4, { field: "school.logoPath", label: "Logo" }),
-        e("school-name", "FIELD", 15, 3.2, 50, 3.6, { field: "school.name", label: "School name", fontSize: 20, fontWeight: "bold", color: "#FFFFFF", locked: true }),
-        e("school-address", "FIELD", 15, 7, 50, 1.6, { field: "school.address", label: "School address", fontSize: 8, color: onHeaderMuted }),
-        e("school-contact", "FIELD", 15, 8.8, 50, 1.6, { field: "school.contact", label: "School contact", fontSize: 8, color: onHeaderMuted }),
-        e("doc-kind", "TEXT", 68, 3.4, 26.2, 1.4, { value: paid ? "OFFICIAL RECEIPT" : "TAX / FEE INVOICE", fontSize: 7, fontWeight: "bold", align: "right", color: onHeaderMuted }),
-        e("document-number", "FIELD", 68, 5, 26.2, 2.2, { field: "document.number", label: "Document number", fontSize: 11, fontWeight: "bold", align: "right", color: "#FFFFFF" }),
-        e("academic-year", "FIELD", 68, 7.6, 26.2, 1.6, { field: "school.academicYear", label: "Academic year", fontSize: 8, align: "right", color: onHeaderMuted }),
-        e("header-rule", "SHAPE", 3.6, 12.8, 93.8, 0.28, { background: header, locked: true }),
-        e("title", "TEXT", 6, 13.6, 88, 2.6, { value: paid ? "PAYMENT RECEIPT" : "FEE INVOICE", fontSize: 18, fontWeight: "bold", align: "center", color: brand }),
-        e("bill-card", "SHAPE", 6, 17, 57.4, 16.4, { background: wash, borderColor: line, locked: true }),
-        label("bill-l", 7.4, 17.6, 20, "BILL TO"),
-        e("student-name", "FIELD", 7.4, 19, 36, 2.6, { field: "student.name", label: "Student name", fontSize: 16, fontWeight: "bold", color: ink }),
-        label("class-l", 7.4, 22, 12, "CLASS"),
-        value("class", 7.4, 23.2, 14, "student.classLabel", "Class", { fontSize: 11 }),
-        label("adm-l", 23, 22, 16, "ADMISSION NO"),
-        value("admission", 23, 23.2, 18, "student.admissionNo", "Admission number", { fontSize: 11 }),
-        label("parent-l", 7.4, 26, 16, "PARENT / GUARDIAN"),
-        value("parent", 7.4, 27.2, 26, "student.parent", "Guardian", { fontSize: 11 }),
-        label("phone-l", 35, 26, 12, "PHONE"),
-        value("phone", 35, 27.2, 26, "student.parentPhone", "Guardian phone", { fontSize: 11 }),
-        e("meta-card", "SHAPE", 64.4, 17, 29.4, 16.4, { background: "#FFFFFF", borderColor: line, locked: true }),
-        label("date-l", 66, 17.6, 12, "ISSUE DATE"),
-        value("date", 66, 18.8, 25.4, "document.issueDate", "Issue date"),
-        label("due-l", 66, 21.4, 12, paid ? "PAID ON" : "DUE DATE"),
-        value("due", 66, 22.6, 25.4, paid ? "fees.receivedAt" : "document.dueDate", paid ? "Received at" : "Due date"),
-        label("term-l", 66, 25.2, 12, "FEE TERM"),
-        value("term", 66, 26.4, 25.4, "fees.term", "Fee term"),
-        label("status-l", 66, 29, 12, "STATUS"),
-        value("status", 66, 30.2, 25.4, "fees.status", "Fee status", { color: brand }),
-        e("table-head", "SHAPE", 6, 34.4, 87.8, 2.2, { background: header, locked: true }),
-        e("table-title", "TEXT", 7.4, 34.6, 50, 1.8, { value: paid ? "PAYMENTS RECORDED" : "FEE PARTICULARS", fontSize: 9, fontWeight: "bold", color: "#FFFFFF" }),
-        e("data-table", "TABLE", 6, 36.6, 87.8, 20.4, { field: "fees.lines", label: "Fee line items", fontSize: 10, background: header }),
-        e("sum-1", "SHAPE", 6, 58.2, 28.4, 7.2, { background: "#FFFFFF", borderColor: line, locked: true }),
-        label("sum-1-l", 7.4, 58.6, 25, "TOTAL BILLED"),
-        value("amount", 7.4, 60.4, 25, "fees.amount", "Amount", { fontSize: 16, color: brand }),
-        e("sum-2", "SHAPE", 35.6, 58.2, 28.4, 7.2, { background: "#FFFFFF", borderColor: line, locked: true }),
-        label("sum-2-l", 37, 58.6, 25, "AMOUNT PAID"),
-        value("paid", 37, 60.4, 25, "fees.paid", "Amount paid", { fontSize: 16, color: brand }),
-        e("sum-3", "SHAPE", 65.2, 58.2, 28.6, 7.2, { background: header, locked: true }),
-        e("sum-3-l", "TEXT", 66.6, 58.6, 25.4, 1.3, { value: paid ? "RECEIPT TOTAL" : "AMOUNT DUE", fontSize: 7, fontWeight: "bold", color: onHeaderMuted }),
-        e("balance", "FIELD", 66.6, 60.4, 25.4, 3.4, { field: paid ? "fees.paid" : "fees.due", label: paid ? "Amount paid" : "Amount due", fontSize: 18, fontWeight: "bold", color: "#FFFFFF" }),
-        ...(paid
-          ? [
-              e("audit-card", "SHAPE", 6, 66.6, 87.8, 10.8, { background: wash, borderColor: line, locked: true }),
-              label("method-l", 7.4, 67.2, 18, "PAYMENT METHOD"),
-              value("audit-method", 7.4, 68.5, 18, "fees.method", "Payment method"),
-              label("ref-l", 28, 67.2, 22, "REFERENCE"),
-              value("audit-ref", 28, 68.5, 22, "fees.reference", "Payment reference"),
-              label("by-l", 53, 67.2, 18, "RECEIVED BY"),
-              value("audit-by", 53, 68.5, 18, "fees.receivedBy", "Received by"),
-              label("at-l", 74, 67.2, 17, "RECEIVED AT"),
-              value("audit-at", 74, 68.5, 17.4, "fees.receivedAt", "Received at"),
-              label("note-l", 7.4, 71.4, 12, "NOTE"),
-              e("audit-note", "FIELD", 7.4, 72.8, 84, 3.4, { field: "fees.receivedNote", label: "Payment note", fontSize: 10, color: "#334155" }),
-              e("legal", "TEXT", 6, 78.2, 62, 3.2, { value: "This receipt is an official acknowledgement of payment recorded in the school fee ledger. Keep it for your records.", fontSize: 8, color: "#475569" }),
-            ]
-          : [
-              e("pay-card", "SHAPE", 6, 66.6, 87.8, 10.8, { background: wash, borderColor: line, locked: true }),
-              label("upi-l", 7.4, 67.2, 18, "UPI ID"),
-              value("upi", 7.4, 68.5, 26, "fees.upiId", "UPI ID"),
-              label("bank-l", 36, 67.2, 22, "BANK"),
-              value("bank", 36, 68.5, 26, "fees.bankName", "Bank name"),
-              label("acct-l", 65, 67.2, 26, "ACCOUNT"),
-              value("account", 65, 68.5, 26.4, "fees.account", "Bank account", { fontSize: 9 }),
-              label("receipt-l", 7.4, 71.4, 22, "LAST RECEIPT"),
-              value("receipt-no", 7.4, 72.8, 26, "fees.receiptNumber", "Receipt number"),
-              e("pay-note", "TEXT", 36, 71.6, 55, 4.6, { value: "Pay the amount due using the school UPI or bank details above. Fee lines and due dates follow the Fees register.", fontSize: 8, color: "#475569" }),
-            ]),
-        e("sign", "SIGNATURE", 6, 82.4, 22, 6.4, { field: "school.signPath", label: "Authorised signature" }),
-        e("sign-l", "TEXT", 6, 89, 22, 1.4, { value: "Authorised signatory", fontSize: 7, align: "center", color: muted }),
-        e("stamp", "STAMP", 32, 82.4, 12, 8, { field: "school.stampPath", label: "School stamp" }),
-        e("verify", "VERIFY_QR", 82.4, 82.2, 8.8, 8.8, { label: "Verification QR", locked: true }),
-        e("qr-l", "TEXT", 80.6, 91.2, 12.4, 1.4, { value: "VERIFY", fontSize: 7, fontWeight: "bold", align: "center", color: muted }),
-        e("footer-line", "LINE", 6, 93.4, 87.8, 0.2, { color: header }),
-        e("footer", "FIELD", 6, 94, 50, 1.6, { field: "school.contact", label: "School contact", fontSize: 8, color: muted }),
-        e("footer-web", "FIELD", 56, 94, 38, 1.6, { field: "school.website", label: "School website", fontSize: 8, align: "right", color: muted }),
-      ],
-    };
+    return feeDocumentLayout(type === "PAYMENT_RECEIPT");
   }
   if (type === "BONAFIDE" || type === "TRANSFER_CERTIFICATE" || type === "EXPERIENCE_CERTIFICATE") {
     const bonafide = type === "BONAFIDE";
@@ -1287,7 +1169,7 @@ export async function documentStudioBundle(user: AccessUser) {
       activeVersion: row.activeVersion,
       hasDraft: Boolean(row.activeVersion && row.versions[0] && row.draftJson !== row.versions[0].layoutJson),
       updatedAt: row.updatedAt.toISOString(),
-      layout: withRequiredOfficialElements(row.type, parseDocumentLayout(row.draftJson)),
+      layout: withRequiredOfficialElements(row.type, upgradeLegacyFeeLayout(row.type, parseDocumentLayout(row.draftJson))),
     })),
     issued: issued.map((row) => {
       const snapshot = safeObject(row.dataJson);
@@ -1513,19 +1395,31 @@ function gradeBadgeHtml(grade: unknown) {
   return `<span style="position:relative;display:inline-block;overflow:hidden;padding:1px 7px;border-radius:2px;color:${color};font-weight:700;font-size:8px;letter-spacing:.04em;${printFillStyle(bg)}">${printFillLayer(bg)}<span style="position:relative;z-index:1">${escapeHtml(text)}</span></span>`;
 }
 
-function tableHtml(value: unknown, label: string, headerColor = "#2563EB") {
+function isLightColor(color: string) {
+  const hex = color.replace("#", "");
+  if (!/^[0-9a-f]{6}$/i.test(hex)) return false;
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  return 0.299 * r + 0.587 * g + 0.114 * b > 170;
+}
+
+function tableHtml(value: unknown, label: string, headerColor = "#2563EB", total?: { label: string; value: string }) {
   if (!Array.isArray(value) || !value.length) return `<div class="empty-table">${escapeHtml(label)}</div>`;
   const rows = value.filter((row) => row && typeof row === "object") as Record<string, unknown>[];
   if (!rows.length) return `<div class="empty-table">${escapeHtml(label)}</div>`;
   const keys = Object.keys(rows[0]).slice(0, 8);
-  return `<table><thead><tr>${keys.map((key) => `<th style="position:relative;overflow:hidden;color:#fff;${printFillStyle(headerColor)}">${printFillLayer(headerColor)}<span style="position:relative;z-index:1">${escapeHtml(key.replace(/([A-Z])/g, " $1").trim())}</span></th>`).join("")}</tr></thead><tbody>${rows.map((row, index) => `<tr class="${index % 2 ? "alt" : ""}">${keys.map((key) => {
+  const light = isLightColor(headerColor);
+  const headText = light ? "#334155" : "#fff";
+  const money = (key: string) => /amount|paid|due|total|balance/.test(key.toLowerCase());
+  const table = `<table><thead><tr>${keys.map((key) => `<th class="${money(key) ? "amt" : ""}" style="position:relative;overflow:hidden;color:${headText};${printFillStyle(headerColor)}">${printFillLayer(headerColor)}<span style="position:relative;z-index:1">${escapeHtml(key.replace(/([A-Z])/g, " $1").trim())}</span></th>`).join("")}</tr></thead><tbody>${rows.map((row, index) => `<tr class="${index % 2 ? "alt" : ""}">${keys.map((key) => {
     const cell = row[key];
     const header = key.toLowerCase();
-    const align = /mark|max|percent|point|grade/.test(header) ? "num" : "";
+    const align = money(key) ? "amt" : /mark|max|percent|point|grade/.test(header) ? "num" : "";
     const body = /grade/.test(header) && !/point/.test(header) ? gradeBadgeHtml(cell) : escapeHtml(cell);
     const alt = index % 2 ? `position:relative;overflow:hidden;${printFillStyle("#F8FAFC")}` : "";
     return `<td class="${align}" style="${alt}">${index % 2 ? printFillLayer("#F8FAFC") : ""}<span style="position:relative;z-index:1">${body}</span></td>`;
   }).join("")}</tr>`).join("")}</tbody></table>`;
+  if (!total) return table;
+  return `<div class="framed-table"><div>${table}</div><div class="table-total"><span>${escapeHtml(total.label)}</span><b>${escapeHtml(total.value)}</b></div></div>`;
 }
 
 function attendanceBarHtml(value: unknown) {
@@ -1544,6 +1438,398 @@ function promotionTone(value: unknown) {
   return { color: "#1B365D", background: "#F1F5F9" };
 }
 
+/* ---------------------------------------------------------------------------
+ * Fee invoice + payment receipt: default design and data helpers.
+ * One calm brand colour, readable sizes, amount in words, UPI pay QR,
+ * status badge, and a single "Amount due / Amount received" highlight.
+ * ------------------------------------------------------------------------- */
+
+const FEE_THEME = {
+  invoice: { brand: "#1E40AF", soft: "#EFF4FF", line: "#C7D7FE" },
+  receipt: { brand: "#047857", soft: "#ECFDF5", line: "#A7F3D0" },
+};
+
+function feeDocumentLayout(paid: boolean): DocumentLayout {
+  const t = paid ? FEE_THEME.receipt : FEE_THEME.invoice;
+  const ink = "#0F172A";
+  const slate = "#475569";
+  const muted = "#64748B";
+  const rule = "#E2E8F0";
+  const panel = "#F8FAFC";
+  const e = element;
+  const cap = (id: string, x: number, y: number, w: number, value: string, extra: Partial<DocumentElement> = {}) =>
+    e(id, "TEXT", x, y, w, 1.3, { value, fontSize: 7.5, fontWeight: "bold", color: muted, ...extra });
+  const val = (id: string, x: number, y: number, w: number, field: string, name: string, extra: Partial<DocumentElement> = {}) =>
+    e(id, "FIELD", x, y, w, 1.8, { field, label: name, fontSize: 10.5, fontWeight: "bold", color: ink, ...extra });
+  const metaRow = (n: number, y: number, key: string, field: string, name: string) => [
+    e(`meta-${n}-k`, "TEXT", 61.6, y, 14, 1.7, { value: key, fontSize: 8.5, color: slate }),
+    e(`meta-${n}-v`, "FIELD", 74, y, 18.6, 1.7, { field, label: name, fontSize: 9.5, fontWeight: "bold", align: "right", color: ink }),
+  ];
+  const sumRow = (n: number, y: number, key: string, field: string, name: string) => [
+    e(`sum-${n}-k`, "TEXT", 60, y, 18, 1.8, { value: key, fontSize: 9.5, color: slate }),
+    e(`sum-${n}-v`, "FIELD", 76, y, 18, 1.8, { field, label: name, fontSize: 10.5, fontWeight: "bold", align: "right", color: ink }),
+  ];
+  const kv = (n: number, y: number, key: string, field: string, name: string) => [
+    e(`pay-${n}-k`, "TEXT", 8, y, 13, 1.7, { value: key, fontSize: 8.5, color: slate }),
+    e(`pay-${n}-v`, "FIELD", 21, y, 36, 1.7, { field, label: name, fontSize: 9.5, fontWeight: "bold", color: ink }),
+  ];
+  return {
+    elements: [
+      e("page-bg", "SHAPE", 0, 0, 100, 100, { background: "#FFFFFF", locked: true }),
+      e("top-bar", "SHAPE", 0, 0, 100, 0.9, { background: t.brand, locked: true }),
+      // Header: school on the left, document identity on the right.
+      e("school-logo", "IMAGE", 6, 3.2, 8, 5.66, { field: "school.logoPath", label: "Logo", background: t.brand }),
+      e("school-name", "FIELD", 16.5, 3.3, 43, 2.4, { field: "school.name", label: "School name", fontSize: 17, fontWeight: "bold", color: ink, locked: true }),
+      e("school-address", "FIELD", 16.5, 5.9, 43, 1.5, { field: "school.address", label: "School address", fontSize: 8.5, color: slate }),
+      e("school-contact", "FIELD", 16.5, 7.4, 43, 1.5, { field: "school.contact", label: "School contact", fontSize: 8.5, color: slate }),
+      e("school-gstin", "FIELD", 16.5, 8.9, 43, 1.4, { field: "school.gstinLine", label: "GSTIN", fontSize: 8, color: muted }),
+      e("title", "TEXT", 58, 3.1, 36, 2.7, { value: paid ? "PAYMENT RECEIPT" : "FEE INVOICE", fontSize: 19, fontWeight: "bold", align: "right", color: t.brand }),
+      cap("number-l", 58, 6.2, 36, paid ? "RECEIPT NO." : "INVOICE NO.", { align: "right" }),
+      e("document-number", "FIELD", 58, 7.5, 36, 1.8, { field: "document.number", label: "Document number", fontSize: 11.5, fontWeight: "bold", align: "right", color: ink }),
+      e("status", "FIELD", 74, 9.7, 20, 1.9, { field: "fees.status", label: "Fee status", fontSize: 8.5, fontWeight: "bold", align: "right" }),
+      e("head-rule", "LINE", 6, 12.4, 88, 0.2, { color: rule }),
+      // Who it is for.
+      cap("party-l", 6, 13.8, 40, paid ? "RECEIVED FROM" : "BILLED TO"),
+      e("student-name", "FIELD", 6, 15.2, 50, 2.3, { field: "student.name", label: "Student name", fontSize: 15, fontWeight: "bold", color: ink }),
+      cap("class-l", 6, 18.2, 12, "CLASS"),
+      val("class", 6, 19.4, 12, "student.classLabel", "Class"),
+      cap("adm-l", 19, 18.2, 18, "ADMISSION NO."),
+      val("admission", 19, 19.4, 20, "student.admissionNo", "Admission number"),
+      cap("parent-l", 6, 21.6, 22, "PARENT / GUARDIAN"),
+      val("parent", 6, 22.8, 24, "student.parent", "Guardian"),
+      cap("phone-l", 31, 21.6, 16, "PHONE"),
+      val("phone", 31, 22.8, 20, "student.parentPhone", "Guardian phone"),
+      e("meta-card", "SHAPE", 60, 13.6, 34, 11.4, { background: panel, borderColor: rule, locked: true }),
+      ...(paid
+        ? [
+            ...metaRow(1, 14.6, "Payment date", "fees.receivedAt", "Received at"),
+            ...metaRow(2, 17.1, "Mode", "fees.method", "Payment method"),
+            ...metaRow(3, 19.6, "Fee term", "fees.term", "Fee term"),
+            ...metaRow(4, 22.1, "Academic year", "school.academicYear", "Academic year"),
+          ]
+        : [
+            ...metaRow(1, 14.6, "Issue date", "document.issueDate", "Issue date"),
+            ...metaRow(2, 17.1, "Due date", "document.dueDate", "Due date"),
+            ...metaRow(3, 19.6, "Fee term", "fees.term", "Fee term"),
+            ...metaRow(4, 22.1, "Academic year", "school.academicYear", "Academic year"),
+          ]),
+      // Line items with the total pinned to the bottom of the box.
+      cap("table-l", 6, 26.8, 40, paid ? "PAYMENT TOWARDS" : "FEE DETAILS"),
+      e("data-table", "TABLE", 6, 28.4, 88, 21.4, { field: "fees.lines", label: "Fee line items", fontSize: 10, background: t.soft }),
+      // Totals.
+      cap("words-l", 6, 52, 46, "AMOUNT IN WORDS"),
+      e("amount-words", "FIELD", 6, 53.2, 48, 4, { field: "fees.amountWords", label: "Amount in words", fontSize: 10.5, fontWeight: "bold", color: ink }),
+      ...(paid
+        ? [...sumRow(1, 51.8, "Total fees", "fees.amount", "Amount"), ...sumRow(2, 54, "Balance due", "fees.due", "Amount due")]
+        : [...sumRow(1, 51.8, "Total fees", "fees.amount", "Amount"), ...sumRow(2, 54, "Amount paid", "fees.paid", "Amount paid")]),
+      e("total-box", "SHAPE", 58.4, 56.6, 35.6, 4.8, { background: t.brand, locked: true }),
+      e("total-l", "TEXT", 60, 57.5, 16, 3, { value: paid ? "AMOUNT\nRECEIVED" : "AMOUNT\nDUE", fontSize: 8, fontWeight: "bold", color: "#FFFFFF" }),
+      e("total", "FIELD", 72, 57.2, 20.4, 3.6, { field: paid ? "fees.paid" : "fees.due", label: paid ? "Amount paid" : "Amount due", fontSize: 20, fontWeight: "bold", align: "right", color: "#FFFFFF" }),
+      // How to pay (invoice) or payment details (receipt).
+      e("pay-card", "SHAPE", 6, 66, 88, 12.6, { background: panel, borderColor: rule, locked: true }),
+      cap("pay-title", 8, 67, 40, paid ? "PAYMENT DETAILS" : "HOW TO PAY", { color: t.brand, fontSize: 8 }),
+      ...(paid
+        ? [
+            ...kv(1, 68.8, "Mode", "fees.method", "Payment method"),
+            ...kv(2, 70.8, "Reference", "fees.reference", "Payment reference"),
+            ...kv(3, 72.8, "Received by", "fees.receivedBy", "Received by"),
+            ...kv(4, 74.8, "Note", "fees.receivedNote", "Payment note"),
+            e("thanks", "TEXT", 62, 68.6, 30, 2.2, { value: "Thank you for your payment", fontSize: 12, fontWeight: "bold", align: "right", color: t.brand }),
+            e("thanks-line", "FIELD", 60, 71.2, 32, 5, { field: "fees.thanksLine", label: "Receipt summary", fontSize: 9, align: "right", color: slate }),
+          ]
+        : [
+            ...kv(1, 68.8, "UPI ID", "fees.upiId", "UPI ID"),
+            ...kv(2, 70.8, "Account name", "fees.accountName", "Account name"),
+            ...kv(3, 72.8, "Account no.", "fees.accountNumber", "Account number"),
+            ...kv(4, 74.8, "IFSC · Bank", "fees.ifscBank", "IFSC and bank"),
+            e("pay-qr", "CUSTOM_QR", 82.6, 67.2, 9.6, 6.8, { field: "fees.payQr", label: "Pay QR" }),
+            e("pay-qr-l", "TEXT", 60, 68.6, 21.6, 2, { value: "Scan to pay", fontSize: 11, fontWeight: "bold", align: "right", color: t.brand }),
+            e("pay-qr-s", "FIELD", 60, 70.8, 21.6, 4.6, { field: "fees.payHint", label: "Pay hint", fontSize: 8.5, align: "right", color: slate }),
+          ]),
+      // Verification, stamp and signature.
+      e("verify", "VERIFY_QR", 6, 81.2, 8.4, 5.94, { label: "Verification QR", locked: true }),
+      e("verify-l", "TEXT", 15.6, 81.9, 28, 1.7, { value: "Scan to verify", fontSize: 9.5, fontWeight: "bold", color: ink }),
+      e("verify-s", "TEXT", 15.6, 83.6, 28, 4, { value: paid ? "Scan with any phone camera to confirm this receipt is genuine." : "Scan with any phone camera to confirm this invoice is genuine.", fontSize: 8, color: slate }),
+      e("stamp", "STAMP", 49, 80.6, 13, 6.6, { field: "school.stampPath", label: "School stamp" }),
+      e("sign", "SIGNATURE", 68, 80.8, 26, 5.2, { field: "school.signPath", label: "Authorised signature" }),
+      e("sign-line", "LINE", 68, 86.4, 26, 0.2, { color: "#CBD5E1" }),
+      e("sign-l", "TEXT", 68, 86.9, 26, 1.5, { value: "Authorised signatory", fontSize: 8, align: "center", color: slate }),
+      e("sign-for", "FIELD", 68, 88.4, 26, 1.5, { field: "fees.forSchool", label: "For school", fontSize: 8, fontWeight: "bold", align: "center", color: ink }),
+      // Footer.
+      e("footer-line", "LINE", 6, 93.6, 88, 0.2, { color: rule }),
+      e("footer", "TEXT", 6, 94.3, 60, 1.5, { value: paid ? "Computer-generated receipt. Please keep it for your records." : "Computer-generated invoice. Fees once paid are subject to the school's fee policy.", fontSize: 7.5, color: muted }),
+      e("footer-web", "FIELD", 66, 94.3, 28, 1.5, { field: "school.footerContact", label: "School website", fontSize: 7.5, align: "right", color: muted }),
+      e("bottom-bar", "SHAPE", 0, 99.1, 100, 0.9, { background: t.brand, locked: true }),
+    ],
+  };
+}
+
+/** Old built-in fee designs (before the 2026-11 redesign) are swapped for the current default. */
+function upgradeLegacyFeeLayout(type: string, layout: DocumentLayout): DocumentLayout {
+  const ids = new Set(layout.elements.map((item) => item.id));
+  if (type === "ADMIT_CARD") {
+    return ids.has("header") && ids.has("sheet-l") && ids.has("centre-l") && ids.has("card-l") && !ids.has("roll-card") ? defaultLayout(type) : layout;
+  }
+  if (!isFeeDocumentType(type)) return layout;
+  if (ids.has("bill-card") && ids.has("sum-3") && ids.has("rail") && ids.has("header")) return defaultLayout(type);
+  return layout;
+}
+
+const WORD_ONES = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
+const WORD_TENS = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
+
+function wordsBelowHundred(n: number) {
+  if (n < 20) return WORD_ONES[n];
+  return `${WORD_TENS[Math.floor(n / 10)]}${n % 10 ? ` ${WORD_ONES[n % 10]}` : ""}`;
+}
+
+function wordsBelowThousand(n: number) {
+  const hundred = Math.floor(n / 100);
+  const rest = n % 100;
+  return [hundred ? `${WORD_ONES[hundred]} Hundred` : "", rest ? wordsBelowHundred(rest) : ""].filter(Boolean).join(" ");
+}
+
+/** Indian numbering: 1,23,45,678 → "One Crore Twenty Three Lakh Forty Five Thousand Six Hundred Seventy Eight". */
+export function rupeesInWords(amount: number) {
+  const n = Math.round(Math.abs(Number(amount) || 0));
+  if (!n) return "Rupees Zero Only";
+  const crore = Math.floor(n / 10000000);
+  const lakh = Math.floor((n % 10000000) / 100000);
+  const thousand = Math.floor((n % 100000) / 1000);
+  const rest = n % 1000;
+  const parts = [
+    crore ? `${crore >= 100 ? wordsBelowThousand(crore) : wordsBelowHundred(crore)} Crore` : "",
+    lakh ? `${wordsBelowHundred(lakh)} Lakh` : "",
+    thousand ? `${wordsBelowHundred(thousand)} Thousand` : "",
+    rest ? wordsBelowThousand(rest) : "",
+  ].filter(Boolean);
+  return `Rupees ${parts.join(" ")} Only`;
+}
+
+function moneyNumber(value: unknown) {
+  if (typeof value === "number") return value;
+  const n = Number(String(value ?? "").replace(/[^\d.-]/g, ""));
+  return Number.isFinite(n) ? n : 0;
+}
+
+function niceDate(value: unknown) {
+  const raw = String(value ?? "").trim();
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
+  if (!m) return raw;
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const day = `${m[3]} ${months[Number(m[2]) - 1] || m[2]} ${m[1]}`;
+  return m[4] ? `${day}, ${m[4]}:${m[5]}` : day;
+}
+
+function feeStatusTone(status: string) {
+  const s = status.toLowerCase();
+  if (s.includes("overdue")) return { bg: "#FEE2E2", fg: "#B91C1C" };
+  if (s.includes("part")) return { bg: "#FEF3C7", fg: "#B45309" };
+  if (s === "paid" || s.includes("received")) return { bg: "#D1FAE5", fg: "#047857" };
+  return { bg: "#E0E7FF", fg: "#3730A3" };
+}
+
+/** Fills the derived fields the fee designs use. Safe to run on preview, live and issued data. */
+function feeDocumentData(type: string, data: Record<string, unknown>): Record<string, unknown> {
+  const paid = type === "PAYMENT_RECEIPT";
+  const obj = (key: string) => ((data[key] && typeof data[key] === "object" ? data[key] : {}) as Record<string, unknown>);
+  const school = { ...obj("school") };
+  const student = obj("student");
+  const fees = { ...obj("fees") };
+  const document = { ...obj("document") };
+  const str = (value: unknown) => (typeof value === "string" || typeof value === "number" ? String(value) : "");
+
+  const address = str(school.address);
+  const extra = [school.city, school.state, school.pincode].map(str).filter((part) => part && !address.includes(part));
+  school.address = [address, ...extra].filter(Boolean).join(", ");
+  school.contact = str(school.contact) || [str(school.phone), str(school.email)].filter(Boolean).join(" • ");
+  if (!str(school.academicYear) && school.sessionStart && school.sessionEnd) {
+    school.academicYear = academicYearLabel(str(school.sessionStart), str(school.sessionEnd));
+  }
+  school.website = str(school.website);
+  school.gstinLine = str(school.gstin) ? `GSTIN ${str(school.gstin)}` : "";
+  school.footerContact = school.website || str(school.email);
+
+  const amount = moneyNumber(fees.amount);
+  const paidAmount = moneyNumber(fees.paid);
+  const due = moneyNumber(fees.due);
+  let status = str(fees.status) || (paid ? "Paid" : due > 0 ? "Unpaid" : "Paid");
+  const dueTime = Date.parse(str(document.dueDate));
+  if (!paid && due > 0 && Number.isFinite(dueTime) && dueTime < Date.now() - 86400000 && !/overdue/i.test(status)) status = "Overdue";
+  fees.status = status;
+  fees.linesTotal = paid ? str(fees.paid) : str(fees.amount);
+  fees.amountWords = rupeesInWords(paid ? paidAmount : due > 0 ? due : amount);
+
+  const accountParts = str(fees.account).split(" · ").map((part) => part.trim()).filter(Boolean);
+  fees.accountName = str(fees.accountName) || str(school.bankAccountName) || (accountParts.length >= 2 ? accountParts[0] : "");
+  fees.accountNumber = str(fees.accountNumber) || str(school.bankAccountNumber) || accountParts.find((part) => /^\d{6,}$/.test(part.replace(/\s/g, ""))) || "";
+  fees.ifsc = str(fees.ifsc) || str(school.bankIfsc) || accountParts.find((part) => /^[A-Z]{4}0[A-Z0-9]{6}$/.test(part)) || "";
+  fees.ifscBank = [str(fees.ifsc), str(fees.bankName)].filter(Boolean).join(" · ");
+  fees.upiId = str(fees.upiId) || str(school.upiId);
+
+  const docNo = str(document.number);
+  const upi = str(fees.upiId);
+  if (!paid && upi && due > 0) {
+    const params = new URLSearchParams({ pa: upi, pn: str(school.name).slice(0, 40), am: String(Math.round(due)), cu: "INR", tn: `Fees ${docNo}`.slice(0, 40) });
+    fees.payQr = `upi://pay?${params.toString().replace(/\+/g, "%20")}`;
+    fees.payHint = `Any UPI app. ${str(fees.due)} is filled in for you.`;
+  } else if (!paid && str(fees.paymentUrl)) {
+    fees.payQr = str(fees.paymentUrl);
+    fees.payHint = "Opens the secure online payment page.";
+  } else {
+    fees.payQr = "";
+    fees.payHint = due > 0 ? "Pay at the school office or with the details on the left." : "Nothing is due on this invoice.";
+  }
+  fees.forSchool = str(school.name) ? `For ${str(school.name)}` : "";
+  fees.thanksLine = `Received ${str(fees.paid)} for ${str(student.name) || "the student"}${str(fees.term) ? ` towards ${str(fees.term)}` : ""}.${due > 0 ? ` Balance still due: ${str(fees.due)}.` : " No balance is due."}`;
+  fees.receivedAt = niceDate(fees.receivedAt);
+  if (paid) fees.receivedNote = str(fees.receivedNote) || "—";
+
+  document.issueDate = niceDate(document.issueDate);
+  document.dueDate = niceDate(document.dueDate);
+  return { ...data, school, fees, document };
+}
+
+function feeStatusPillHtml(base: string, align: string | undefined, status: string) {
+  const tone = feeStatusTone(status);
+  const justify = align === "center" ? "center" : align === "right" ? "flex-end" : "flex-start";
+  return `<div style="${base}display:flex;align-items:center;justify-content:${justify}"><span style="position:relative;display:inline-flex;align-items:center;gap:5px;overflow:hidden;padding:2px 10px;border-radius:999px;color:${tone.fg};letter-spacing:.06em;text-transform:uppercase;${printFillStyle(tone.bg)}">${printFillLayer(tone.bg)}<span style="position:relative;z-index:1;width:6px;height:6px;border-radius:50%;background:${tone.fg}"></span><span style="position:relative;z-index:1">${escapeHtml(status)}</span></span></div>`;
+}
+
+/* ---------------------------------------------------------------------------
+ * Admit card (A5 landscape): default design + data normaliser.
+ * ------------------------------------------------------------------------- */
+
+function admitCardLayout(): DocumentLayout {
+  const brand = "#1D4ED8";
+  const soft = "#EFF4FF";
+  const ink = "#0F172A";
+  const slate = "#475569";
+  const muted = "#64748B";
+  const rule = "#E2E8F0";
+  const e = element;
+  const cap = (id: string, x: number, y: number, w: number, value: string, extra: Partial<DocumentElement> = {}) =>
+    e(id, "TEXT", x, y, w, 2.8, { value, fontSize: 7, fontWeight: "bold", color: muted, ...extra });
+  const val = (id: string, x: number, y: number, w: number, field: string, name: string, extra: Partial<DocumentElement> = {}) =>
+    e(id, "FIELD", x, y, w, 3.8, { field, label: name, fontSize: 10.5, fontWeight: "bold", color: ink, ...extra });
+  return {
+    elements: [
+      e("page-bg", "SHAPE", 0, 0, 100, 100, { background: "#FFFFFF", locked: true }),
+      e("top-bar", "SHAPE", 0, 0, 100, 1.6, { background: brand, locked: true }),
+      // Header.
+      e("school-logo", "IMAGE", 3, 4.6, 7, 10, { field: "school.logoPath", label: "Logo", background: brand }),
+      e("school-name", "FIELD", 11.6, 4.4, 50, 5.4, { field: "school.name", label: "School name", fontSize: 15, fontWeight: "bold", color: ink, locked: true }),
+      e("school-address", "FIELD", 11.6, 10.2, 50, 3.4, { field: "school.address", label: "School address", fontSize: 8, color: slate }),
+      e("school-contact", "FIELD", 11.6, 13.6, 50, 3.2, { field: "school.contact", label: "School contact", fontSize: 7.5, color: muted }),
+      e("title", "TEXT", 60, 4.2, 37, 5.6, { value: "ADMIT CARD", fontSize: 17, fontWeight: "bold", align: "right", color: brand }),
+      e("exam-name", "FIELD", 52, 10.2, 45, 3.8, { field: "exam.name", label: "Exam name", fontSize: 10.5, fontWeight: "bold", align: "right", color: ink }),
+      e("session", "FIELD", 52, 14, 45, 3.2, { field: "admit.sessionLine", label: "Session", fontSize: 8, align: "right", color: slate }),
+      e("head-rule", "LINE", 3, 19.6, 94, 0.3, { color: rule }),
+      // Photo and candidate signature.
+      e("photo-frame", "SHAPE", 3, 22.4, 13.4, 22.6, { background: "#FFFFFF", borderColor: "#CBD5E1", locked: true }),
+      e("photo", "PHOTO", 3.6, 23.3, 12.2, 20.8, { field: "student.photo", label: "Photo" }),
+      e("cand-sign", "SHAPE", 3, 46.2, 13.4, 5.6, { background: "#FFFFFF", borderColor: "#CBD5E1", locked: true }),
+      e("cand-sign-l", "TEXT", 2, 52, 15.4, 2.6, { value: "Candidate's signature", fontSize: 6.5, align: "center", color: muted }),
+      // Candidate details.
+      cap("name-l", 19.4, 22.4, 30, "CANDIDATE"),
+      e("student-name", "FIELD", 19.4, 25.2, 52, 6, { field: "student.name", label: "Student name", fontSize: 17, fontWeight: "bold", color: ink }),
+      cap("class-l", 19.4, 32.8, 12, "CLASS"),
+      val("class", 19.4, 35.4, 12, "student.classLabel", "Class"),
+      cap("adm-l", 32.4, 32.8, 19, "ADMISSION NO."),
+      val("admission", 32.4, 35.4, 20, "student.admissionNo", "Admission number"),
+      cap("dob-l", 54, 32.8, 17, "DATE OF BIRTH"),
+      val("dob", 54, 35.4, 17, "student.born", "Date of birth"),
+      cap("centre-l", 19.4, 41.2, 30, "EXAM CENTRE"),
+      val("centre", 19.4, 43.8, 33, "admit.centre", "Exam centre"),
+      cap("report-l", 54, 41.2, 20, "REPORTING TIME"),
+      val("report", 54, 43.8, 20, "admit.reporting", "Reporting time"),
+      e("roll-card", "SHAPE", 75, 22.4, 22, 14.6, { background: soft, borderColor: "#C7D7FE", locked: true }),
+      cap("roll-l", 76.6, 23.8, 19, "ROLL NO.", { color: brand }),
+      e("roll", "FIELD", 76.6, 27, 19, 8.2, { field: "admit.rollNo", label: "Roll number", fontSize: 26, fontWeight: "bold", color: brand }),
+      cap("card-l", 75, 39.2, 22, "CARD NO."),
+      val("document-number", 75, 41.8, 22, "document.number", "Admit card no.", { fontSize: 8.5, fontWeight: "normal", color: slate }),
+      // Date sheet with a sign column for the invigilator.
+      cap("sheet-l", 3, 55, 40, "DATE SHEET", { color: brand, fontSize: 7.5 }),
+      e("data-table", "TABLE", 3, 58, 94, 28.4, { field: "exam.schedule", label: "Exam schedule table", fontSize: 9, background: soft }),
+      // Instructions, principal, verification.
+      e("rules", "TEXT", 3, 87.6, 52, 10.8, { value: "• Carry this card and your school ID card to every paper.\n• Report at the time shown above; late entry may be refused.\n• Phones, smart watches and calculators are not allowed.\n• Valid only with the principal's signature or QR verification.", fontSize: 7, color: slate }),
+      e("signature", "SIGNATURE", 58, 86.4, 20, 7.4, { field: "school.signPath", label: "Principal signature" }),
+      e("sign-line", "LINE", 58, 94, 20, 0.3, { color: "#CBD5E1" }),
+      e("sign-l", "FIELD", 56, 94.8, 24, 3, { field: "admit.signLine", label: "Principal", fontSize: 7.5, align: "center", color: slate }),
+      e("verify-l", "TEXT", 80, 89.4, 6.4, 6, { value: "Scan to\nverify", fontSize: 7, fontWeight: "bold", align: "right", color: muted }),
+      e("verify", "VERIFY_QR", 87, 85.2, 9.6, 13.7, { label: "Verification QR", locked: true }),
+      e("bottom-bar", "SHAPE", 0, 99, 100, 1, { background: brand, locked: true }),
+    ],
+  };
+}
+
+function prettyClock(h: number, m: number) {
+  const suffix = h >= 12 ? "PM" : "AM";
+  const hour = h % 12 || 12;
+  return `${hour}:${String(m).padStart(2, "0")} ${suffix}`;
+}
+
+function clockParts(value: string) {
+  return [...value.matchAll(/(\d{1,2})[:.](\d{2})\s*(am|pm)?/gi)].map((m) => {
+    let h = Number(m[1]);
+    const ap = (m[3] || "").toLowerCase();
+    if (ap === "pm" && h < 12) h += 12;
+    if (ap === "am" && h === 12) h = 0;
+    return { h, m: Number(m[2]) };
+  });
+}
+
+/** Normalises exam.schedule rows to Date · Subject · Time · Invigilator sign, and fills admit.* helpers. */
+function admitCardData(data: Record<string, unknown>): Record<string, unknown> {
+  const obj = (key: string) => ((data[key] && typeof data[key] === "object" ? data[key] : {}) as Record<string, unknown>);
+  const str = (value: unknown) => (typeof value === "string" || typeof value === "number" ? String(value) : "");
+  const school = { ...obj("school") };
+  const student = obj("student");
+  const exam = { ...obj("exam") };
+  const staff = obj("staff");
+  const pick = (row: Record<string, unknown>, ...names: string[]) => {
+    for (const key of Object.keys(row)) if (names.includes(key.toLowerCase().replace(/[^a-z]/g, ""))) return str(row[key]);
+    return "";
+  };
+  let earliest: number | null = null;
+  const rows = (Array.isArray(exam.schedule) ? exam.schedule : []).filter((row) => row && typeof row === "object") as Record<string, unknown>[];
+  exam.schedule = rows.map((row) => {
+    const rawDate = pick(row, "date", "day", "examdate");
+    const parsed = Date.parse(rawDate);
+    const date = Number.isFinite(parsed) && !/^[A-Za-z]{3},/.test(rawDate)
+      ? (() => {
+          const d = new Date(parsed);
+          const utc = /^\d{4}-\d{2}-\d{2}/.test(rawDate);
+          const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+          const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+          const [wd, dd, mm, yy] = utc ? [d.getUTCDay(), d.getUTCDate(), d.getUTCMonth(), d.getUTCFullYear()] : [d.getDay(), d.getDate(), d.getMonth(), d.getFullYear()];
+          return `${days[wd]}, ${String(dd).padStart(2, "0")} ${months[mm]} ${yy}`;
+        })()
+      : rawDate;
+    const start = pick(row, "starttime", "start");
+    const end = pick(row, "endtime", "end");
+    const clocks = clockParts(start || end ? `${start} ${end}` : pick(row, "time", "timing", "slot"));
+    if (clocks[0]) {
+      const minutes = clocks[0].h * 60 + clocks[0].m;
+      earliest = earliest === null ? minutes : Math.min(earliest, minutes);
+    }
+    const time = clocks.length >= 2
+      ? `${prettyClock(clocks[0].h, clocks[0].m)} – ${prettyClock(clocks[1].h, clocks[1].m)}`
+      : clocks.length === 1 ? prettyClock(clocks[0].h, clocks[0].m) : pick(row, "time", "timing", "slot") || "—";
+    return { Date: date || "—", Subject: pick(row, "subject", "paper") || "—", Time: time, "Invigilator sign": "" };
+  });
+  const year = str(school.academicYear) || (school.sessionStart && school.sessionEnd ? academicYearLabel(str(school.sessionStart), str(school.sessionEnd)) : "");
+  const admit = {
+    sessionLine: year ? `Academic session ${year}` : "",
+    rollNo: str(exam.rollNo) || str(student.rollNo) || "—",
+    centre: str(exam.centre) || str(school.name),
+    reporting: str(exam.reportingTime) || (earliest !== null ? `${prettyClock(Math.floor(Math.max(0, earliest - 30) / 60), Math.max(0, earliest - 30) % 60)} (30 min early)` : "30 min before each paper"),
+    signLine: `Principal${str(staff.principalName) && str(staff.principalName) !== "Principal" ? ` · ${str(staff.principalName)}` : str(school.signatory) && str(school.signatory) !== "Principal" ? ` · ${str(school.signatory)}` : ""}`,
+  };
+  school.contact = str(school.contact) || [str(school.phone), str(school.email)].filter(Boolean).join(" • ");
+  return { ...data, school, exam, admit };
+}
+
 function pageDimensions(pageSize: string, orientation: string) {
   const sizes: Record<string, [number, number]> = {
     A4: [210, 297],
@@ -1558,6 +1844,14 @@ function pageDimensions(pageSize: string, orientation: string) {
 
 async function renderIssuedHtml(layout: DocumentLayout, data: Record<string, unknown>, verifyUrl: string, pageSize: string, orientation: string) {
   const [pageWidth, pageHeight] = pageDimensions(pageSize, orientation);
+  const docType = String(atPath(data, "document.type") || "");
+  const feeDoc = isFeeDocumentType(docType);
+  const isPreview = verifyUrl === DESIGNER_QR_PREVIEW_URL;
+  const admitDoc = docType === "ADMIT_CARD";
+  const designedDoc = feeDoc || admitDoc;
+  if (designedDoc) layout = upgradeLegacyFeeLayout(docType, layout);
+  if (feeDoc) data = feeDocumentData(docType, data);
+  if (admitDoc) data = admitCardData(data);
   const content = (await Promise.all(layout.elements.map(async (item) => {
     const maxFont = Math.max(7, Math.round((item.height / 100) * pageHeight * 3.2));
     const fontSize = Math.min(item.fontSize || 14, maxFont);
@@ -1568,7 +1862,7 @@ async function renderIssuedHtml(layout: DocumentLayout, data: Record<string, unk
       const url = item.type === "VERIFY_QR"
         ? issuedQrUrl(documentType, verifyUrl)
         : String((item.field ? atPath(data, item.field) : "") || item.value || "");
-      if (!/^https?:\/\//i.test(url)) return `<div style="${base}border:1px dashed #bcccdc;display:flex;align-items:center;justify-content:center">QR URL missing</div>`;
+      if (!/^(https?:\/\/|upi:\/\/pay\?)/i.test(url)) return designedDoc && !isPreview ? "" : `<div style="${base}border:1px dashed #bcccdc;display:flex;align-items:center;justify-content:center">QR URL missing</div>`;
       const image = await QRCode.toDataURL(url, { errorCorrectionLevel: "Q", margin: 4, width: 320, color: { dark: "#000000", light: "#ffffff" } });
       const isIdentityQr = documentType === "STUDENT_ID" || documentType === "EMPLOYEE_ID";
       return `<img alt="${item.type === "VERIFY_QR" ? (isIdentityQr ? "Identity verification QR" : "Document verification QR") : "QR code"}" src="${image}" style="${base}object-fit:contain;background:#ffffff">`;
@@ -1582,9 +1876,24 @@ async function renderIssuedHtml(layout: DocumentLayout, data: Record<string, unk
       const field = item.field || (item.type === "SIGNATURE" ? "school.signPath" : item.type === "STAMP" ? "school.stampPath" : item.type === "IMAGE" ? "school.logoPath" : "student.photo");
       const src = await assetSrc(atPath(data, field));
       const round = item.type === "PHOTO" ? "border-radius:8px;" : item.type === "IMAGE" ? "border-radius:10px;" : "";
+      if (!src && admitDoc && !isPreview && item.type === "PHOTO") {
+        return `<div style="${base}border:1px dashed #94A3B8;display:flex;align-items:center;justify-content:center;text-align:center;font-size:8px;color:#64748B;padding:4px">Affix recent passport-size photograph</div>`;
+      }
+      if (!src && designedDoc && item.type === "IMAGE" && item.field === "school.logoPath") {
+        const name = String(atPath(data, "school.name") || "");
+        const initials = name.split(/\s+/).filter((w) => /^[A-Za-z]/.test(w)).slice(0, 2).map((w) => w[0].toUpperCase()).join("") || "S";
+        const fill = item.background || "#1E40AF";
+        return `<div style="${base}border-radius:12px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:22px;font-weight:800;letter-spacing:.02em;${printFillStyle(fill)}">${printFillLayer(fill)}<span style="position:relative;z-index:1">${escapeHtml(initials)}</span></div>`;
+      }
+      if (!src && designedDoc && !isPreview && (item.type === "SIGNATURE" || item.type === "STAMP" || item.type === "IMAGE")) return "";
       return src ? `<img alt="${escapeHtml(item.label || item.type)}" src="${escapeHtml(src)}" style="${base}${round}object-fit:${item.type === "PHOTO" ? "cover" : "contain"}">` : `<div style="${base}${round}border:1px dashed #bcccdc;display:flex;align-items:center;justify-content:center">${escapeHtml(item.label || item.type)}</div>`;
     }
-    if (item.type === "TABLE") return `<div style="${base}">${tableHtml(atPath(data, item.field || ""), item.label || "Table", item.background || "#2563EB")}</div>`;
+    if (item.type === "TABLE") {
+      const linesTotal = feeDoc && item.field === "fees.lines" ? String(atPath(data, "fees.linesTotal") || "") : "";
+      const tableRows = atPath(data, item.field || "");
+      const tableClass = admitDoc && item.field === "exam.schedule" ? `admit-table${Array.isArray(tableRows) && tableRows.length > 6 ? " tight" : ""}` : "";
+      return `<div class="${tableClass}" style="${base}">${tableHtml(tableRows, item.label || "Table", item.background || "#2563EB", linesTotal ? { label: "Total", value: linesTotal } : undefined)}</div>`;
+    }
     if (item.type === "LINE") {
       const lineColor = item.borderColor || item.color || "#102a43";
       return `<div style="${base}height:1px;overflow:hidden;${printFillStyle(lineColor)}">${printFillLayer(lineColor)}</div>`;
@@ -1598,7 +1907,12 @@ async function renderIssuedHtml(layout: DocumentLayout, data: Record<string, unk
     if (item.type === "FIELD" && item.field === "results.attendanceBar") {
       return `<div style="${base}">${attendanceBarHtml(atPath(data, "results.attendanceBar") ?? atPath(data, "results.attendancePercentage"))}</div>`;
     }
-    const value = item.type === "FIELD" ? atPath(data, item.field || "") : item.type === "PAGE_NUMBER" ? (item.value || "1") : item.value || item.label || "";
+    if (item.type === "FIELD" && item.field === "fees.status" && feeDoc) {
+      const status = String(atPath(data, "fees.status") || "");
+      return status ? feeStatusPillHtml(base, item.align, status) : "";
+    }
+    const rawValue = item.type === "FIELD" ? atPath(data, item.field || "") : item.type === "PAGE_NUMBER" ? (item.value || "1") : item.value || item.label || "";
+    const value = rawValue && typeof rawValue === "object" ? "" : rawValue;
     const display = item.field === "results.percentage" || item.field === "results.attendancePercentage"
       ? (String(value || "").includes("%") ? String(value || "") : value === "" || value == null ? "" : `${value}%`)
       : value;
@@ -1614,7 +1928,7 @@ async function renderIssuedHtml(layout: DocumentLayout, data: Record<string, unk
     return `<div style="${base}display:flex;align-items:center;justify-content:${justify};padding:0 2px;line-height:1.15;white-space:${wrap};${fill}${item.borderColor ? `border:1px solid ${item.borderColor};` : ""}color:${color}">${background ? printFillLayer(background) : ""}<span style="position:relative;z-index:1">${escapeHtml(display)}</span></div>`;
   }))).join("");
   const previewScale = pageSize === "CR80" ? 3.2 : 1;
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(atPath(data, "document.number"))}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800&display=swap" rel="stylesheet"><style>@page{size:${pageWidth}mm ${pageHeight}mm;margin:0}html,body,.page,table,th,td,div,span,svg{${PRINT_COLOR_CSS}}body{margin:0;background:#e8edf2;font-family:Inter,system-ui,"Segoe UI",sans-serif;color:#0f172a}.toolbar{position:sticky;top:0;z-index:2;padding:12px;text-align:center;background:#eef2f7}.page-wrap{display:flex;justify-content:center;padding:24px}.page{position:relative;width:${pageWidth}mm;height:${pageHeight}mm;background:white;box-shadow:0 2px 18px #102a4322;overflow:hidden;transform:scale(${previewScale});transform-origin:top center;margin-bottom:${pageSize === "CR80" ? "260px" : "24px"}}table{width:100%;height:auto;border-collapse:collapse;font-size:inherit}th{color:#fff;padding:6px 8px;font-size:8px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;border:none;text-align:left}td{padding:5px 8px;border-bottom:1px solid #E2E8F0;color:#0f172a;font-weight:600;vertical-align:middle}td.num,th.num{text-align:center}.empty-table{border:1px dashed #E2E8F0;border-radius:8px;padding:8px;color:#64748b;font-size:8px}@media print{html,body,.page,*{${PRINT_COLOR_CSS_IMPORTANT}}body{background:white}.toolbar{display:none}.page-wrap{display:block;padding:0}.page{margin:0;box-shadow:none;transform:none}}</style></head><body><div class="toolbar"><button onclick="window.print()">Print / Save PDF</button></div><div class="page-wrap"><main class="page">${content}</main></div></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(atPath(data, "document.number"))}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800&display=swap" rel="stylesheet"><style>@page{size:${pageWidth}mm ${pageHeight}mm;margin:0}html,body,.page,table,th,td,div,span,svg{${PRINT_COLOR_CSS}}body{margin:0;background:#e8edf2;font-family:Inter,system-ui,"Segoe UI",sans-serif;color:#0f172a}.toolbar{position:sticky;top:0;z-index:2;padding:12px;text-align:center;background:#eef2f7}.page-wrap{display:flex;justify-content:center;padding:24px}.page{position:relative;width:${pageWidth}mm;height:${pageHeight}mm;background:white;box-shadow:0 2px 18px #102a4322;overflow:hidden;transform:scale(${previewScale});transform-origin:top center;margin-bottom:${pageSize === "CR80" ? "260px" : "24px"}}table{width:100%;height:auto;border-collapse:collapse;font-size:inherit}th{color:#fff;padding:6px 8px;font-size:8px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;border:none;text-align:left}td{padding:5px 8px;border-bottom:1px solid #E2E8F0;color:#0f172a;font-weight:600;vertical-align:middle}td.num,th.num{text-align:center}td.amt,th.amt{text-align:right;font-variant-numeric:tabular-nums}.admit-table table{border:1px solid #E2E8F0}.admit-table th{padding:5px 8px;font-size:7px}.admit-table td{padding:6px 8px;border-right:1px solid #EEF2F7}.admit-table td:last-child{width:22%}.admit-table th:first-child,.admit-table td:first-child{width:24%;white-space:nowrap}.admit-table.tight td{padding:3px 8px;font-size:8px}.framed-table{display:flex;flex-direction:column;justify-content:space-between;height:100%;box-sizing:border-box;border:1px solid #E2E8F0;border-radius:8px;overflow:hidden}.framed-table th{padding:7px 10px}.framed-table td{padding:6px 10px}.table-total{display:flex;justify-content:space-between;align-items:center;padding:7px 10px;border-top:1px solid #CBD5E1;font-size:11px;color:#0F172A;font-weight:700;font-variant-numeric:tabular-nums}.table-total b{font-size:12px}.empty-table{border:1px dashed #E2E8F0;border-radius:8px;padding:8px;color:#64748b;font-size:8px}@media print{html,body,.page,*{${PRINT_COLOR_CSS_IMPORTANT}}body{background:white}.toolbar{display:none}.page-wrap{display:block;padding:0}.page{margin:0;box-shadow:none;transform:none}}</style></head><body><div class="toolbar"><button onclick="window.print()">Print / Save PDF</button></div><div class="page-wrap"><main class="page">${content}</main></div></body></html>`;
 }
 
 function schoolContactLine(school: Record<string, unknown>) {

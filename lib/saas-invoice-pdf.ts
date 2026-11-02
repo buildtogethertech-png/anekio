@@ -1,19 +1,19 @@
 import { prisma } from "./prisma";
 
-type PdfCommand = string;
+export type PdfCommand = string;
 
-const PAGE_WIDTH = 595.28;
-const PAGE_HEIGHT = 841.89;
-const MARGIN = 42;
-const INK = "0.07 0.12 0.20";
-const MUTED = "0.36 0.43 0.53";
-const BLUE = "0.07 0.23 0.40";
-const LINE = "0.83 0.87 0.92";
-const SOFT = "0.95 0.97 0.99";
-const GREEN = "0.04 0.46 0.28";
-const GREEN_SOFT = "0.92 0.99 0.95";
+export const PAGE_WIDTH = 595.28;
+export const PAGE_HEIGHT = 841.89;
+export const MARGIN = 42;
+export const INK = "0.07 0.12 0.20";
+export const MUTED = "0.36 0.43 0.53";
+export const BLUE = "0.07 0.23 0.40";
+export const LINE = "0.83 0.87 0.92";
+export const SOFT = "0.95 0.97 0.99";
+export const GREEN = "0.04 0.46 0.28";
+export const GREEN_SOFT = "0.92 0.99 0.95";
 
-function cleanText(value: unknown) {
+export function cleanText(value: unknown) {
   return String(value ?? "")
     .replace(/₹/g, "Rs.")
     .replace(/[–—]/g, "-")
@@ -25,7 +25,7 @@ function pdfEscape(value: unknown) {
   return cleanText(value).replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
 }
 
-function money(value: number) {
+export function money(value: number) {
   return `Rs. ${Math.round(value).toLocaleString("en-IN")}`;
 }
 
@@ -33,7 +33,7 @@ function tableMoney(value: number) {
   return Math.round(value).toLocaleString("en-IN");
 }
 
-function dateLabel(value: Date | string | null | undefined) {
+export function dateLabel(value: Date | string | null | undefined) {
   if (!value) return "Not recorded";
   return new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Kolkata" }).format(new Date(value));
 }
@@ -48,7 +48,7 @@ function stateCodeFor(state: string) {
   return "";
 }
 
-function wrapText(value: string, maxChars: number, maxLines = 2) {
+export function wrapText(value: string, maxChars: number, maxLines = 2) {
   const words = cleanText(value).split(/\s+/).filter(Boolean);
   const lines: string[] = [];
   let line = "";
@@ -78,7 +78,7 @@ function fitForWidth(value: unknown, size: number, maxWidth?: number) {
   return ellipsize(content, maxChars);
 }
 
-function text(commands: PdfCommand[], value: unknown, x: number, y: number, size = 10, options?: { bold?: boolean; color?: string; align?: "left" | "right" | "center"; maxWidth?: number }) {
+export function text(commands: PdfCommand[], value: unknown, x: number, y: number, size = 10, options?: { bold?: boolean; color?: string; align?: "left" | "right" | "center"; maxWidth?: number }) {
   const font = options?.bold ? "F2" : "F1";
   const content = fitForWidth(value, size, options?.maxWidth);
   const width = options?.maxWidth ?? content.length * size * 0.48;
@@ -87,21 +87,21 @@ function text(commands: PdfCommand[], value: unknown, x: number, y: number, size
   commands.push(`${options?.color ?? INK} rg BT /${font} ${size} Tf ${tx.toFixed(2)} ${y.toFixed(2)} Td (${pdfEscape(content)}) Tj ET`);
 }
 
-function line(commands: PdfCommand[], x1: number, y1: number, x2: number, y2: number, color = LINE, width = 1) {
+export function line(commands: PdfCommand[], x1: number, y1: number, x2: number, y2: number, color = LINE, width = 1) {
   commands.push(`${color} RG ${width} w ${x1.toFixed(2)} ${y1.toFixed(2)} m ${x2.toFixed(2)} ${y2.toFixed(2)} l S`);
 }
 
-function rect(commands: PdfCommand[], x: number, y: number, w: number, h: number, options?: { stroke?: string; fill?: string; width?: number }) {
+export function rect(commands: PdfCommand[], x: number, y: number, w: number, h: number, options?: { stroke?: string; fill?: string; width?: number }) {
   if (options?.fill) commands.push(`${options.fill} rg ${x.toFixed(2)} ${y.toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)} re f`);
   if (options?.stroke !== undefined) commands.push(`${options.stroke} RG ${options.width ?? 1} w ${x.toFixed(2)} ${y.toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)} re S`);
 }
 
-function row(commands: PdfCommand[], label: string, value: string, x: number, y: number, width: number) {
+export function row(commands: PdfCommand[], label: string, value: string, x: number, y: number, width: number) {
   text(commands, label, x, y, 9, { color: MUTED });
   text(commands, value, x, y, 9, { bold: true, align: "right", maxWidth: width });
 }
 
-function makePdf(stream: string) {
+export function makePdf(stream: string) {
   const objects = [
     "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n",
     "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n",

@@ -85,20 +85,28 @@ restore_local_client() {
 }
 trap restore_local_client EXIT
 
-echo "==> [1/4] prisma generate"
+echo "==> [1/5] prisma generate"
 "$PRISMA" generate --schema "$SCHEMA"
 
 # Must run BEFORE db push: the schema adds @@unique([classId, code]) and every
 # existing Subject would otherwise get code "" and the push would fail.
-echo "==> [2/4] Subject codes: add column, backfill, dedupe, unique indexes"
+echo "==> [2/5] Subject codes: add column, backfill, dedupe, unique indexes"
 "$TSX" scripts/ensure-subject-code.ts
 
-echo "==> [3/4] prisma db push"
+# Additive SaaS billing changes (per-student pricing, payment links, plans). Safe to re-run.
+echo "==> [3/5] Payment links, plans and per-student pricing"
+if [[ $IS_POSTGRES -eq 1 ]]; then
+  "$PRISMA" db execute --url "$DATABASE_URL" --file scripts/sql/2026-11-01-payment-links-plans.sql
+else
+  echo "    (SQLite: applied by prisma db push below)"
+fi
+
+echo "==> [4/5] prisma db push"
 PUSH_ARGS=(db push --schema "$SCHEMA" --skip-generate)
 [[ $DATA_LOSS -eq 1 ]] && PUSH_ARGS+=(--accept-data-loss)
 "$PRISMA" "${PUSH_ARGS[@]}"
 
-echo "==> [4/4] Backfill employee orgs"
+echo "==> [5/5] Backfill employee orgs"
 "$TSX" scripts/backfill-employee-orgs.ts
 
 echo "==> Migration finished for $TARGET"

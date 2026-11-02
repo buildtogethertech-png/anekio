@@ -1688,7 +1688,7 @@ export function TeacherClassBoard() {
 
 export function TeacherAttendanceBoard() {
   const { data, reload } = useRecord();
-  const { token } = useSession();
+  const { token, user } = useSession();
   const toast = useToast();
   const { width } = useWindowDimensions();
   const phone = width < 768;
@@ -1721,6 +1721,16 @@ export function TeacherAttendanceBoard() {
   const dayFuture = date > today;
   const locked = Boolean(dayClosed || dayFuture);
   const lockedNote = dayFuture ? "That day has not come yet." : closedCaption(dayClosed);
+
+  function absentWa(s: (typeof roster)[number]) {
+    const teacher = user?.name || "the class teacher";
+    const cls = data?.classLabel || "this section";
+    const when = date === today ? "today" : `on ${new Date(date).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}`;
+    return parentWa(
+      s.phone,
+      `Namaste, this is ${teacher}, class teacher of ${cls}. ${s.name} is marked absent ${when}. Is everything okay? Please share the reason when you can. Thank you.`
+    );
+  }
 
   function statusOf(s: (typeof roster)[number]) {
     const hit = s.days?.find((d) => d.date === date);
@@ -2027,7 +2037,7 @@ export function TeacherAttendanceBoard() {
                   <View className="min-w-0 flex-1 flex-row flex-wrap items-center gap-x-3 gap-y-0.5">
                     {[
                       { n: yes, label: "P", dot: "#10B981" },
-                      { n: late, label: "L", dot: "#F59E0B" },
+                      ...(late ? [{ n: late, label: "L", dot: "#F59E0B" }] : []),
                       { n: no, label: "A", dot: "#EF4444" },
                       ...(onLeave ? [{ n: onLeave, label: "leave", dot: "#6366F1" }] : []),
                     ].map((row) => (
@@ -2156,9 +2166,22 @@ export function TeacherAttendanceBoard() {
                       name={[rollLabel(s.rollNumber), s.name].filter(Boolean).join(" ")}
                       status={st}
                       disabled={locked}
+                      allowLate={false}
                       onChange={(next) => setMarks((m) => ({ ...m, [s.id]: next }))}
                     />
                   );
+                const wa = st === "ABSENT" ? absentWa(s) : "";
+                const waButton = wa ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`WhatsApp parent of ${s.name}`}
+                    hitSlop={6}
+                    onPress={() => void Linking.openURL(wa)}
+                    className="h-9 w-9 items-center justify-center rounded-full bg-[#E8F8EE] active:opacity-70"
+                  >
+                    <Ionicons name="logo-whatsapp" size={19} color="#25D366" />
+                  </Pressable>
+                ) : null;
                 const who = (
                   <View className={phone ? "min-w-0 flex-1" : "w-52 shrink-0"}>
                     <Text className="text-sm font-medium text-ink-900" numberOfLines={1}>
@@ -2187,13 +2210,17 @@ export function TeacherAttendanceBoard() {
                         })}
                       </View>
                     </View>
+                    {waButton}
                     {mark}
                   </View>
                 ) : (
                   <View key={s.id} className="flex-row items-center gap-4 border-t border-ink-100 px-4 py-3">
                     {who}
                     <AttendanceDots dots={dots} activeDate={locked ? undefined : date} />
-                    <View className="ml-auto">{mark}</View>
+                    <View className="ml-auto flex-row items-center gap-2">
+                      {waButton}
+                      {mark}
+                    </View>
                   </View>
                 );
               })

@@ -1575,6 +1575,9 @@ model SaasPayment {
   paymentId String?
   status    String       @default("CREATED")
   notes     String       @default("")
+  /// Checkout details: coupon used and students priced, for audit and coupon counting.
+  couponCode   String    @default("")
+  studentCount Int?
   createdAt DateTime     @default(now())
   paidAt    DateTime?
 
@@ -1636,7 +1639,60 @@ model SaasSitePricing {
   offerLabel    String   @default("Early bird")
   billingPeriod String   @default("year")
   trialDays     Int      @default(7)
+  /// Per-student pricing: max(minimumYearly, students x perStudentMonthly x 12) per year.
+  perStudentMonthly Int  @default(5)
+  minimumYearly     Int  @default(12000)
   updatedAt     DateTime @updatedAt
+}
+
+/// Sellable Anekio plans (admin → Pricing). A plan sets the price and how long a payment keeps the school active.
+model SaasPlan {
+  id                String   @id @default(cuid())
+  name              String
+  /// ₹ per student per month.
+  perStudentMonthly Int      @default(5)
+  /// Lowest price for the whole plan period (₹).
+  minimumYearly     Int      @default(12000)
+  /// How long one payment keeps the school active.
+  validityMonths    Int      @default(12)
+  /// > 0 = a free-trial plan of this many days: no payment, the link creates the school straight away.
+  trialDays         Int      @default(0)
+  active            Boolean  @default(true)
+  createdBy         String   @default("")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+/// Private pricing for the Anekio subscription, created in the admin portal.
+/// Each row is a payment link (/pay/<code>) sent to one school; the public checkout never accepts codes.
+model SaasCoupon {
+  id            String    @id @default(cuid())
+  /// Random link token for payment links (older rows may hold a typed code).
+  code          String    @unique
+  /// PERCENT (% off) | AMOUNT (₹ off per year) | RATE (₹ per student per month) | FIXED (₹ per year, any student count)
+  kind          String    @default("PERCENT")
+  value         Int
+  /// Optional yearly minimum for this coupon; empty = the standard minimum.
+  minimumYearly Int?
+  /// 0 = unlimited.
+  maxUses       Int       @default(0)
+  usedCount     Int       @default(0)
+  validUntil    DateTime?
+  active        Boolean   @default(true)
+  note          String    @default("")
+  /// Payment link: school it was made for (pre-filled on the link page).
+  schoolName    String    @default("")
+  /// Payment link: agreed student count. Set = locked on the link page; empty = the school enters it.
+  students      Int?
+  /// Payment link: NEW (school signs up and the organisation is created on payment) | RENEWAL (existing organisation).
+  purpose       String    @default("NEW")
+  /// Payment link: the existing organisation a RENEWAL link pays for.
+  orgId         String?
+  /// Payment link: the plan sold (price + validity). Discount = kind/value on top of it.
+  planId        String?
+  createdBy     String    @default("")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 }
 
 model SaasEmailConfig {

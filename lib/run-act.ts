@@ -475,8 +475,7 @@ export async function runAct(
       await collectFeeCore(user, body as never);
       break;
     case "collectPartialFees":
-      await collectPartialFeesCore(user, body as never);
-      break;
+      return { ok: true, ...(await collectPartialFeesCore(user, body as never)) };
     case "collectAllStudentFees":
       await collectAllStudentFeesCore(user, body as never);
       break;

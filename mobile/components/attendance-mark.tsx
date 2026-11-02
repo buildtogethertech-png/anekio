@@ -85,18 +85,21 @@ export function DayMark({
   disabled,
   onChange,
   name,
+  allowLate = true,
 }: {
   status: string;
   disabled?: boolean;
   onChange: (status: "PRESENT" | "ABSENT" | "LATE") => void;
   name: string;
+  /** Students are P/A only; staff keep Late. An already-saved LATE still shows so it can be changed. */
+  allowLate?: boolean;
 }) {
   const st = status.toUpperCase();
   const choices = [
     { value: "PRESENT" as const, letter: "P", label: "present", on: "bg-emerald-600" },
     { value: "LATE" as const, letter: "L", label: "late", on: "bg-amber-500" },
     { value: "ABSENT" as const, letter: "A", label: "absent", on: "bg-red-600" },
-  ];
+  ].filter((c) => c.value !== "LATE" || allowLate || st === "LATE");
   return (
     <View className="flex-row overflow-hidden rounded-full border border-ink-200">
       {choices.map((c) => {
