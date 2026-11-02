@@ -116,7 +116,7 @@ export async function emptyUnusedBakedSubjectCatalog(orgId?: string | null) {
   if (!isBakedDefaultCatalog(catalog)) return;
   const used = await prisma.subject.count({ where: { orgId } });
   if (used) return;
-  await prisma.schoolConfig.update({ where: { id: config.id }, data: { subjectCatalog: "[]" } });
+  await prisma.schoolConfig.update({ where: { id: config.id }, data: { subjectCatalog: "[]" }, select: { id: true } });
 }
 
 export async function subjectCatalogForSchool(config?: { id?: string; orgId?: string | null; subjectCatalog?: string } | null) {
@@ -126,7 +126,7 @@ export async function subjectCatalogForSchool(config?: { id?: string; orgId?: st
   const used = await prisma.subject.count({ where: { orgId: config.orgId } });
   if (used) return catalog;
   if (config.id) {
-    await prisma.schoolConfig.update({ where: { id: config.id }, data: { subjectCatalog: "[]" } });
+    await prisma.schoolConfig.update({ where: { id: config.id }, data: { subjectCatalog: "[]" }, select: { id: true } });
   }
   return [];
 }
@@ -460,6 +460,8 @@ export async function ensureSubjectCodeSchema() {
     await prisma.schoolConfig.update({
       where: { id: config.id },
       data: { subjectCatalog: JSON.stringify(entries) },
+      // Only return the id: this runs before `db push`, when newer SchoolConfig columns may not exist yet.
+      select: { id: true },
     });
   }
   await prisma.$executeRawUnsafe(

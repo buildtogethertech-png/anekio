@@ -1,6 +1,6 @@
 -- Anekio: per-student pricing, payment links (new / renewal / free trial) and plans.
 -- Postgres. Safe to run more than once: only adds tables, columns and indexes; nothing is dropped or rewritten.
--- Run with:  bash scripts/migrate-payment-links.sh --env .env.production
+-- Run with:  bash scripts/releases/migrate-r1.sh --env .env.production
 
 -- 1) Checkout audit on payments
 ALTER TABLE "SaasPayment" ADD COLUMN IF NOT EXISTS "couponCode"   TEXT NOT NULL DEFAULT '';
