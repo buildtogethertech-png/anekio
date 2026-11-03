@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, Text, TextInput, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Button, Card, Field, Input } from "./ui";
 import { act } from "../lib/mutate";
@@ -45,59 +45,132 @@ export function AdmissionNoPreview({ compact = false }: { compact?: boolean }) {
   );
 }
 
+type NoCheck = { state: "idle" | "same" | "checking" | "free" | "taken" | "error"; text?: string };
+
+/** A pending admission-number correction, saved together with the rest of the student by the parent form. */
+export type AdmissionNoDraft = { admissionNo: string; reason: string; problem: string };
+
 /** Edit student: number is read-only; the school admin can correct it with a reason (logged). */
-export function AdmissionNoField({ studentId, admissionNo, canChange, onChanged }: { studentId: string; admissionNo: string; canChange: boolean; onChanged: () => void | Promise<void> }) {
+export function AdmissionNoField({ studentId, admissionNo, canChange, onDraft }: { studentId: string; admissionNo: string; canChange: boolean; onDraft: (draft: AdmissionNoDraft | null) => void }) {
   const { token } = useSession();
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState(admissionNo);
   const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [check, setCheck] = useState<NoCheck>({ state: "idle" });
   useEffect(() => {
     setValue(admissionNo);
     setReason("");
-    setError("");
     setOpen(false);
+    setCheck({ state: "idle" });
   }, [studentId, admissionNo]);
-  async function save() {
-    setBusy(true);
-    setError("");
-    try {
-      await act(token, "changeAdmissionNumber", { studentId, admissionNo: value, reason });
-      setOpen(false);
-      await onChanged();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not change the admission number.");
-    } finally {
-      setBusy(false);
-    }
-  }
+  // Closing the edit form drops any unsaved correction.
+  useEffect(() => () => onDraft(null), []);
+  // Tell the form what Save changes should do with the number.
+  useEffect(() => {
+    const next = value.replace(/\s+/g, " ").trim();
+    if (!open || !next || next === admissionNo) return onDraft(null);
+    const problem =
+      check.state === "taken" ? check.text || "That admission number already exists."
+      : check.state === "checking" ? "Still checking the admission number. Try again in a moment."
+      : check.state === "error" ? "Could not check the admission number."
+      : "";
+    onDraft({ admissionNo: next, reason: reason.trim(), problem });
+  }, [open, value, reason, check, admissionNo]);
+  // Live "already exists" check while the admin types.
+  useEffect(() => {
+    if (!open) return;
+    const next = value.replace(/\s+/g, " ").trim();
+    if (!next) return setCheck({ state: "idle" });
+    if (next === admissionNo) return setCheck({ state: "same" });
+    setCheck({ state: "checking" });
+    let live = true;
+    const t = setTimeout(() => {
+      act<{ available: boolean; holder: { name: string; classLabel: string } | null }>(token, "checkAdmissionNumber", { studentId, admissionNo: next })
+        .then((row) => {
+          if (!live) return;
+          setCheck(row.available ? { state: "free", text: `${next} is available` } : { state: "taken", text: `Already exists: ${row.holder?.name || "another student"}${row.holder?.classLabel ? ` (${row.holder.classLabel})` : ""}` });
+        })
+        .catch(() => live && setCheck({ state: "error", text: "Could not check right now." }));
+    }, 350);
+    return () => { live = false; clearTimeout(t); };
+  }, [value, open, studentId, admissionNo, token]);
+  const tone =
+    check.state === "taken" ? { border: "border-red-300", icon: "close-circle" as const, color: "#b91c1c", text: "text-red-700" }
+    : check.state === "free" ? { border: "border-emerald-300", icon: "checkmark-circle" as const, color: "#047857", text: "text-emerald-700" }
+    : { border: "border-ink-200", icon: null, color: "#64748b", text: "text-ink-600" };
   return (
-    <Field label="Admission no.">
-      <View className="h-11 flex-row items-center gap-2 rounded-lg border border-ink-200 bg-ink-50 px-3">
-        <Ionicons name="lock-closed-outline" size={14} color="#64748b" />
-        <Text className="flex-1 text-sm font-semibold text-ink-900" numberOfLines={1}>{admissionNo}</Text>
-        {canChange && !open ? (
-          <Pressable accessibilityRole="button" onPress={() => setOpen(true)} hitSlop={8}>
-            <Text className="text-xs font-semibold text-blue-700">Change</Text>
-          </Pressable>
-        ) : null}
-      </View>
-      {open ? (
-        <View className="mt-2 gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
-          <Text className="text-xs leading-4 text-amber-900">Only correct a mistake. The change is logged with your name and reason.</Text>
-          <Input value={value} onChangeText={setValue} placeholder="New admission number" autoCapitalize="characters" />
-          <Input value={reason} onChangeText={setReason} placeholder="Reason, e.g. matches paper register" />
-          {error ? <Text className="text-xs text-red-700">{error}</Text> : null}
-          <View className="flex-row justify-end gap-2">
-            <Button variant="ghost" onPress={() => setOpen(false)} disabled={busy}>Cancel</Button>
-            <Button onPress={save} disabled={busy || !value.trim() || !reason.trim()}>{busy ? "Saving…" : "Save number"}</Button>
+    <View className="gap-1.5">
+      <Text className="text-xs font-medium text-ink-700">Admission no.</Text>
+      {!open ? (
+        <>
+          <View className="h-11 flex-row items-center gap-2 rounded-lg border border-ink-200 bg-ink-50 pl-3 pr-1.5">
+            <Ionicons name="lock-closed-outline" size={14} color="#64748b" />
+            <Text className="min-w-0 flex-1 text-sm font-semibold text-ink-900" numberOfLines={1}>{admissionNo}</Text>
+            {canChange ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Correct admission number"
+                onPress={() => setOpen(true)}
+                className="h-8 flex-row items-center gap-1 rounded-md px-2.5 hover:bg-blue-50"
+              >
+                <Ionicons name="create-outline" size={14} color="#1d4ed8" />
+                <Text className="text-xs font-semibold text-blue-700">Correct</Text>
+              </Pressable>
+            ) : null}
+          </View>
+          <Text className="text-[11px] leading-4 text-ink-600">{canChange ? "Set automatically. Correct it only if it is wrong." : "Set automatically. Only the school admin can correct it."}</Text>
+        </>
+      ) : (
+        <View className="overflow-hidden rounded-xl border border-ink-200 bg-white">
+          <View className="flex-row items-center gap-2 border-b border-ink-100 bg-ink-50 px-3 py-2.5">
+            <Ionicons name="lock-closed-outline" size={13} color="#64748b" />
+            <Text className="min-w-0 flex-1 text-xs text-ink-700" numberOfLines={1}>
+              Current <Text className="font-semibold text-ink-900">{admissionNo}</Text>
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Keep the current admission number"
+              onPress={() => { setOpen(false); setValue(admissionNo); setReason(""); setCheck({ state: "idle" }); }}
+              hitSlop={8}
+            >
+              <Text className="text-xs font-semibold text-ink-700">Keep current</Text>
+            </Pressable>
+          </View>
+          <View className="gap-3 p-3">
+            <View className="gap-1">
+              <Text className="text-xs font-medium text-ink-700">New admission no.</Text>
+              <View className={`h-11 flex-row items-center rounded-lg border bg-white pr-3 ${tone.border}`}>
+                <TextInput
+                  value={value}
+                  onChangeText={setValue}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  autoFocus
+                  placeholder="e.g. 1532"
+                  placeholderTextColor="#94a3b8"
+                  className="h-full min-w-0 flex-1 px-3 text-sm font-semibold text-ink-900"
+                  style={{ outlineStyle: "none" } as object}
+                />
+                {check.state === "checking" ? <ActivityIndicator size="small" color="#64748b" /> : tone.icon ? <Ionicons name={tone.icon} size={18} color={tone.color} /> : null}
+              </View>
+              {check.text ? (
+                <Text className={`text-xs ${tone.text}`}>{check.text}</Text>
+              ) : check.state === "same" ? (
+                <Text className="text-xs text-ink-600">This is the current number.</Text>
+              ) : null}
+            </View>
+            <View className="gap-1">
+              <Text className="text-xs font-medium text-ink-700">Reason <Text className="font-normal text-ink-500">(optional)</Text></Text>
+              <Input value={reason} onChangeText={setReason} placeholder="e.g. Matches the paper register" />
+            </View>
+            <View className="flex-row items-center gap-1.5">
+              <Ionicons name="shield-checkmark-outline" size={13} color="#64748b" />
+              <Text className="flex-1 text-[11px] leading-4 text-ink-600">Saved when you press Save changes. Logged with your name.</Text>
+            </View>
           </View>
         </View>
-      ) : (
-        <Text className="text-[11px] leading-4 text-ink-600">{canChange ? "Set automatically. Change only to correct a mistake." : "Set automatically. Only the school admin can correct it."}</Text>
       )}
-    </Field>
+    </View>
   );
 }
 

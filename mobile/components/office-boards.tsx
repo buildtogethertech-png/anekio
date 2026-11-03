@@ -1,4 +1,4 @@
-import { AdmissionNoField } from "./admission-number";
+import { AdmissionNoField, type AdmissionNoDraft } from "./admission-number";
 import { createElement, useMemo, useState, useEffect, useRef } from "react";
 import { SetPasswordModal } from "./set-password-modal";
 import type { ViewStyle } from "react-native";
@@ -1379,6 +1379,8 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   const [fileEdit, setFileEdit] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
   const [edit, setEdit] = useState<Record<string, any>>({});
+  const admNoDraft = useRef<AdmissionNoDraft | null>(null);
+  const [fileError, setFileError] = useState("");
   const [editTags, setEditTags] = useState<string[]>([]);
   const [idCardPending, setIdCardPending] = useState(false);
   const [documentUploadPending, setDocumentUploadPending] = useState("");
@@ -1691,8 +1693,18 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   }
 
   async function saveFile() {
+    setFileError("");
     try {
       if (kind === "student" && selected) {
+        const draft = admNoDraft.current;
+        if (draft?.problem) {
+          setFileError(draft.problem);
+          return;
+        }
+        if (draft) {
+          await act(token, "changeAdmissionNumber", { studentId: selected.id, admissionNo: draft.admissionNo, reason: draft.reason });
+          admNoDraft.current = null;
+        }
         await act(token, "updateStudent", {
           studentId: selected.id,
           name: edit.name || selected.name,
@@ -1740,7 +1752,9 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       toast.show("Saved.");
       await reload();
     } catch (e) {
-      toast.show(e instanceof Error ? e.message : "Could not save.");
+      const message = e instanceof Error ? e.message : "Could not save.";
+      if (fileEdit) setFileError(message);
+      else toast.show(message);
     }
   }
 
@@ -2003,7 +2017,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                   />
                 </View>
                 <View className={half}>
-                  <AdmissionNoField studentId={selected.id} admissionNo={selected.admissionNo} canChange={can(user, "school.edit")} onChanged={reload} />
+                  <AdmissionNoField studentId={selected.id} admissionNo={selected.admissionNo} canChange={can(user, "school.edit")} onDraft={(d) => { admNoDraft.current = d; }} />
                 </View>
               </>
             ) : (
@@ -2543,11 +2557,18 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
         <Modal
           open={fileEdit}
           title={`Edit ${selected.name}`}
-          onClose={() => setFileEdit(false)}
+          onClose={() => { setFileEdit(false); setFileError(""); }}
           wide
           sheetOnPhone
           footer={
-            wide ? (
+            <View className="gap-2">
+            {fileError ? (
+              <View className="flex-row items-start gap-2 rounded-lg bg-red-50 px-3 py-2">
+                <Ionicons name="alert-circle" size={15} color="#b91c1c" style={{ marginTop: 1 }} />
+                <Text className="min-w-0 flex-1 text-xs leading-4 text-red-800">{fileError}</Text>
+              </View>
+            ) : null}
+            {wide ? (
               <View className="flex-row justify-end gap-2">
                 <Button variant="ghost" onPress={() => setFileEdit(false)}>
                   Cancel
@@ -2558,7 +2579,8 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
               <Button onPress={saveFile} className="h-12 justify-center">
                 Save changes
               </Button>
-            )
+            )}
+            </View>
           }
         >
           {editForm}

@@ -4782,6 +4782,23 @@ export async function saveAdmissionNumberSettingsCore(user: AccessUser, input: {
   return admissionNumberInfoCore(user);
 }
 
+/** School admin: is this admission number free? Used while typing a correction. */
+export async function checkAdmissionNumberCore(user: AccessUser, input: { studentId?: string; admissionNo?: string }) {
+  need(user, "school.edit");
+  const studentId = String(input.studentId || "");
+  const no = String(input.admissionNo || "").replace(/\s+/g, " ").trim().slice(0, 40);
+  if (!no) return { admissionNo: no, available: false, holder: null };
+  const holder = await prisma.student.findFirst({
+    where: { admissionNo: no, NOT: { id: studentId } },
+    select: { id: true, name: true, class: { select: { name: true, section: true } } },
+  });
+  return {
+    admissionNo: no,
+    available: !holder,
+    holder: holder ? { id: holder.id, name: holder.name, classLabel: `${holder.class.name}-${holder.class.section}` } : null,
+  };
+}
+
 /** School admin only: correct one student's admission number. Logged with who, from, to and why. */
 export async function changeAdmissionNumberCore(user: AccessUser, input: { studentId?: string; admissionNo?: string; reason?: string }) {
   need(user, "school.edit");
@@ -4789,7 +4806,6 @@ export async function changeAdmissionNumberCore(user: AccessUser, input: { stude
   const toNo = String(input.admissionNo || "").replace(/\s+/g, " ").trim().slice(0, 40);
   const reason = String(input.reason || "").trim().slice(0, 300);
   if (!toNo) throw new Error("Enter the new admission number.");
-  if (!reason) throw new Error("Add a reason for the change.");
   const student = await prisma.student.findUnique({ where: { id: studentId }, select: { id: true, admissionNo: true, orgId: true } });
   if (!student) throw new Error("Student missing");
   if (student.admissionNo === toNo) return { admissionNo: toNo };
@@ -4797,7 +4813,7 @@ export async function changeAdmissionNumberCore(user: AccessUser, input: { stude
     where: { admissionNo: toNo, NOT: { id: studentId } },
     select: { name: true, class: { select: { name: true, section: true } } },
   });
-  if (holder) throw new Error(`${toNo} is already ${holder.name} (${holder.class.name}-${holder.class.section}).`);
+  if (holder) throw new Error(`Admission no. ${toNo} already exists: ${holder.name} (${holder.class.name}-${holder.class.section}).`);
   await prisma.$transaction(async (tx) => {
     await tx.student.update({ where: { id: studentId }, data: { admissionNo: toNo } });
     await tx.admissionNumberChange.create({
@@ -4806,7 +4822,7 @@ export async function changeAdmissionNumberCore(user: AccessUser, input: { stude
         studentId,
         fromNo: student.admissionNo,
         toNo,
-        reason,
+        reason: reason || "Corrected from Edit student",
         changedById: user.id,
         changedByName: user.name || "",
       },

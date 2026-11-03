@@ -1,0 +1,106 @@
+﻿Admission number,Student name,Class,Date of birth,Parent name,Parent mobile,WhatsApp,Check,What to check
+333,Roshni Kumari,4,2015-06-01,Raju Prasad Verma,9006062044,Yes,OK,
+16,Rashi Kumari,4,2015-10-22,Ajay Verma,7061974355,Yes,OK,
+318,Sajan,4,,,,,CHECK,"No DOB, parent or mobile on sheet"
+401,Shantanu Pandey,4,2015-12-15,Bablu Pandey,6206407020,Yes,OK,
+63,Sufiyan,4,2015-03-01,Shakir Ansari,6202441062,Yes,CHECK,Admission no. overwritten on sheet
+263,Sonakshi Gupta,4,2015-11-04,Sanjay Gupta,7979744285,Yes,OK,
+349,Shivani Kumari,4,2017-01-12,Ajit Yadav,8084596471,Yes,OK,
+350,Sonali Kumari,4,2018-03-14,Ajit Yadav,8084596471,Yes,CHECK,DOB 2018 looks young for class 4
+268,Suman,4,2016-04-15,Sambhu Vishwakarma,6202243095,Yes,CHECK,Mobile last digit unclear
+39,Jashmine Rani,4,2014-09-08,Lt. Mantu Prasad,7481833196,Yes,OK,
+21,Zaid,4,2018-08-08,Md Masood,8540273667,Yes,CHECK,Mobile hard to read; DOB year 2018?
+408,Altamas,4,2015-08-11,Md Salim Alam,6205466691,Yes,CHECK,Mobile hard to read
+286,Deepanshi,4,2014-06-27,Pritam Madheshiya,6204015843,Yes,CHECK,Adm no. 286 also used for Soumya Parvin (class 8)
+427,Sachin,4,2011-02-28,Rajesh Yadav,8340214771,Yes,OK,
+289,Aryan,4,2013-09-29,Baijnath Turiya,9296222747,Yes,CHECK,Mobile hard to read
+165,Abutalib,4,2014-11-13,Tahir Ansari,8809742289,Yes,CHECK,Admission no. first digit unclear
+393,Ansh Raj,4,2016-04-28,Satish Soni,8797792330,No,CHECK,Admission no. unclear
+143,Arfa Naaz,4,2016-09-05,Irfan Warsi,9835026421,Yes,OK,
+250,Aradhaya Kumari,4,2015-12-14,Shashi Verma,8969558517,Yes,OK,
+304,Guru Bhaskar,4,2016-07-30,Raj Kumar,8340536482,Yes,CHECK,Admission no. overwritten
+125,Hussain Raza,4,2015-07-19,Tofik Alam,7061282693,Yes,OK,
+191,Mayank,4,2015-11-03,Mukesh Pandey,8540979990,Yes,CHECK,Mobile hard to read
+149,Pratigya Branwal,4,2015-11-10,Gopal Prasad,8862941469,Yes,OK,
+188,Randir Kumar,4,2015-02-25,Anil Kumar,7258899607,Yes,OK,
+134,Rehmat Raza,4,2015-01-01,Md Rafique Siddique,9709011307,Yes,CHECK,Admission no. first digit unclear
+272,Paras Kashyap,5,2014-02-17,Rakesh Pandit,9708902904,Yes,OK,
+381,Shivam Kumar,5,2015-12-22,Loknath Verma,8618500799,Yes,CHECK,Mobile last digits unclear
+276,Lakshya Rajak,5,2013-05-19,Vicky Kr. Rajak,7543008968,Yes,CHECK,Second number on sheet: 9065b0737 (incomplete)
+141,Rohit Yadav,5,2014-11-09,Suresh Yadav,8051015259,Yes,CHECK,Admission no. overwritten
+105,Parteek Yadav,5,2014-12-02,Ranjit Yadav,6200501907,Yes,OK,
+13,Aartiyush Kumar,5,2017-06-05,Neha Sinha,6206069003,Yes,CHECK,Name spelling unclear
+144,Navya Kri. Singh,5,2015-03-27,Vishwas Singh,9142678965,Yes,CHECK,Parent name and mobile first digit unclear
+395,Shristi Kumari,5,,Arun Kumar,9113316003,Yes,CHECK,No DOB
+424,Astha Tiwari,5,2017-02-15,Shankarji Tiwari,6207248543,Yes,OK,
+448,Aruhi Saw,5,2015-06-13,Dhaneshwar Saw,9204262822,Yes,OK,
+25,Manshi Kumari Paswan,5,2015-09-21,Ramesh Kumar,9060857800,Yes,CHECK,DOB year partly hidden
+375,Sonam Kumari,5,2016-03-12,Anil Yadav,6299568843,Yes,OK,
+301,Chinmay Gupta,5,2015-02-17,Chetlal Saw,7482824132,Yes,OK,
+335,Aryan Kumar,5,2015-06-19,Jitendra Pandit,8920026236,No,OK,
+100,Simpy Kumari,5,2014-06-07,Bablu Ravidas,8789135686,Yes,OK,
+86,Ratan Priya,5,2013-05-21,Ramanand,7292871736,Yes,OK,
+173,Priyanshu Kumari,5,2014-03-27,Pintu Saw,6203108911,Yes,OK,
+438,Ritik Kumar,5,2014-10-18,Rajender K Saw,8210611697,No,CHECK,Name written RITI K KUMAR
+132,Abhijeet Saw,5,2016-03-12,Murad Saw,8539818921,Yes,CHECK,"Admission no., DOB and parent name unclear"
+115,Ankit Kumar Rajak,5,2015-03-08,Binod Rajak,9973082035,Yes,CHECK,Same parent as Krishna/Vikram Rajak with 9973022035 - one is wrong
+162,Rolly Kumari,6,,Pawan Kumar Mahto,6209283369,Yes,CHECK,No DOB
+123,Ritik Raj,6,,Ravi Shaw,8294077511,Yes,CHECK,No DOB
+44,Sashikant,6,,Sanjay Kumar Yadav,9241455789,Yes,CHECK,No DOB; name spelling unclear
+348,Jyoti Kumari,6,2015-10-13,Ajit Yadav,8084596471,Yes,OK,
+30,Kundan Kumar,6,2012-11-15,Suresh Kumar,8863893351,Yes,OK,
+138,Md Yazdan,6,2014-07-11,Md Washim,8369467201,Yes,CHECK,Name spelling unclear
+156,Md Ayan,6,2015-05-23,Md Imtiyaz,9341195254,Yes,CHECK,Admission no. overwritten (156/136)
+254,Rajveer Kumar,6,2014-03-24,Rajesh,7870426228,Yes,OK,
+118,Ranveer Kumar,6,2014-04-04,Upendra Kumar,9570104702,Yes,CHECK,Adm no. 118 also used for Rishu Kumar (class 7)
+84,Rishika Sharma,6,2014-05-21,Rani Sharma,9241208758,Yes,CHECK,Admission no. 84 or 840
+201,Rohit Sinha,6,2014-10-22,Rinki Devi,8340157596,Yes,CHECK,Mobile hard to read
+272,Shivanya Gupta,6,2016-03-22,Dilip Kumar,7004265489,Yes,CHECK,Admission no. overwritten; 272 also used for Paras Kashyap
+121,Vasu Dev Prasad,6,2014-05-01,Vishnu Dev,9608007399,Yes,OK,
+267,Bhanu Shukla,7,2015-01-13,Rajiv Ranjan Shukla,6205797966,Yes,OK,
+444,Md Afzal,7,2013-12-27,Md Parwez Alam,9113735145,Yes,CHECK,Name spelling unclear
+280,Mayank Kumar,7,2012-07-13,Mahesh Kushwaha,9798417180,Yes,OK,
+412,Md Shami Ali,7,2014-12-01,Md Aslam Ali,8809053532,Yes,OK,
+510,Md Saif,7,2011-09-19,Nasim,7903808604,Yes,CHECK,Admission no. overwritten
+118,Rishu Kumar,7,2012-01-13,Ajay Verma,8294317164,Yes,CHECK,Adm no. 118 also used for Ranveer Kumar (class 6)
+38,Himanshu Raj,7,2011-06-27,Mantu Prasad,9263531170,Yes,OK,
+27,Aryan Kumar,7,2011-07-02,Bablu Ravidas,8789135686,Yes,CHECK,Second number 8271386215
+88,Zishan Khan,7,2017-09-23,Md Alam Khan,6201592089,Yes,CHECK,DOB 2017 looks wrong for class 7
+99,Ras Kumar,7,2012-06-14,Lawkesh Pandit,8409253594,Yes,CHECK,Name may be Raj Kumar
+106,Priya Kumari,7,2013-03-29,Mrs Ranjeet Yadav,6200501907,Yes,CHECK,DOB overwritten
+200,Priya Kumari,7,2013-03-11,Mrs Surendra Yadav,9162278230,Yes,OK,
+364,Sakshi Gupta,7,2013-06-27,Mrs Sanjay Gupta,7979744285,Yes,OK,
+394,Aaksha,7,2013-08-23,Md Sarafat,9798867716,Yes,CHECK,Name and parent name unclear
+66,Farman Khan,7,2012-01-15,Washim Khan,8294224653,Yes,OK,
+324,Abhinav Sharma,7,2011-01-13,Ritu Sharma,9749965476,Yes,CHECK,Admission no. 324 or 394
+56,Pari Sharma,7,2013-10-20,Rajender Sharma,7654452903,Yes,CHECK,Sheet shows 11 digits 76544529036
+114,Kahkasha Naaz,7,,Alimuddin,8363127531,Yes,CHECK,No DOB; name spelling unclear
+104,Rituraj Yadav,8,2012-08-07,Ranjeet Yadav,6200501907,Yes,OK,
+281,Maikal Kumar,8,2010-10-24,Mahesh Kumar,7481074097,Yes,CHECK,Mobile digit overwritten
+303,Aditya Kashyap,8,2012-05-29,Rakesh Kumar Pandit,9708902904,Yes,CHECK,DOB year unclear
+70,Krishna Kumar Rajak,8,2012-11-18,Binod Rajak,9973022035,Yes,OK,
+40,Sunil Kumar,8,2011-08-26,Dharmendra Verma,8809600524,Yes,OK,
+442,Md Ali Hasan,8,,Md Mustak Alam,6200479716,Yes,CHECK,DOB written 27/7/26 - not valid
+43,Satyam Kumar,8,,Sanjay Yadav,7970848130,Yes,CHECK,DOB written 14/2/24 - not valid
+124,Ranveer Kumar,8,,Munna Saw,9835520139,Yes,CHECK,DOB written 13/3/24 - not valid
+251,Afreen Parvin,8,,Bhola Quraishi,8863839157,Yes,CHECK,Name unclear; DOB written 7/4/25 - not valid
+286,Soumya Parvin,8,,Bholu Quraishi,8863839157,Yes,CHECK,DOB 7/4/25 not valid; adm no. 286 also used for Deepanshi (class 4)
+12,Pratyush Raj,9,2013-10-12,Dhirendra Kr. Sinha,6200968431,Yes,OK,
+418,Shivani Kumari,9,2010-05-10,Pradeep Kr. Singh,7781016692,Yes,OK,
+410,Kalpana Kumari,9,2011-10-12,Shiva Kr. Das,8757879943,Yes,OK,
+96,Sanskar Kumar,9,2011-03-09,Manisha Devi,9199696719,Yes,OK,
+82,Sakshi Kumari,9,2010-10-25,Binod Modi,9835546183,,OK,
+78,Tanuja Bharti,9,2011-12-19,Chandan Kr. Singh,8271922185,Yes,OK,
+69,Vikram Kumar Rajak,9,2011-06-19,Binod Rajak,9973022035,Yes,OK,
+279,Anand Kumar Verma,9,2011-09-21,Shashi Kumar Verma,8969558517,Yes,CHECK,Admission no. 279 or 229
+396,Raj Nandani,9,,Kishor Pandey,8789563821,Yes,CHECK,Rows below are not aligned on sheet - parent/mobile may belong to a different row
+404,Kaushal Kumar,9,2011-06-23,Ravi Shaw,8506851483,Yes,CHECK,Row alignment unclear
+298,Roshni Kumari,9,,Rakesh Pandit,9708902904,Yes,CHECK,Row alignment unclear
+428,Siddharth Kumar,9,2010-10-03,Shafiq Khan,9525781408,Yes,CHECK,Row alignment unclear
+06,Neha Khan,9,,Washim Khan,8294224653,Yes,CHECK,Row alignment unclear
+65,Aman Khan,9,2009-08-20,,,,CHECK,Row alignment unclear; no parent on its line
+74,Sanit Kumar,10,2010-08-25,Jitender Kumar,6207458441,Yes,CHECK,Name first letter unclear
+57,Aman Kumar,10,2010-04-16,Pradeep Kumar,9798755834,Yes,OK,
+10,Ashif Khan,10,,Shahnawaz,6201593489,Yes,CHECK,DOB written 16/1/24 - not valid
+08,Khushi Khan,10,,Shahnawaz,6201593489,Yes,CHECK,DOB written 16/1/24 - not valid
+258,Muskan Praveen,10,,Bholu Quraishi,8863839157,Yes,CHECK,Adm no. 258 or 288; DOB 7/4/25 not valid
