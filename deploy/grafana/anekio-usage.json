@@ -18,7 +18,8 @@
         "label": "Logs",
         "type": "datasource",
         "query": "loki",
-        "current": {}
+        "current": {},
+        "regex": "/-logs$/"
       }
     ]
   },

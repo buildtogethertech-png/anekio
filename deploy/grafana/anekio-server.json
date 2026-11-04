@@ -18,14 +18,16 @@
         "label": "Metrics",
         "type": "datasource",
         "query": "prometheus",
-        "current": {}
+        "current": {},
+        "regex": "/-prom$/"
       },
       {
         "name": "loki",
         "label": "Logs",
         "type": "datasource",
         "query": "loki",
-        "current": {}
+        "current": {},
+        "regex": "/-logs$/"
       }
     ]
   },
