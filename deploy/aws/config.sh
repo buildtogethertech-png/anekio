@@ -19,8 +19,8 @@ DB_USER="anekio"
 BUDGET_USD=40
 
 # S3 buckets the app uses (from .env.local). The server gets access through an IAM role, not keys.
-PUBLIC_BUCKET="${AWS_S3_PUBLIC_BUCKET:-anekio-school-public-staging-440427555457-ap-south-1}"
-PRIVATE_BUCKET="${AWS_S3_PRIVATE_BUCKET:-anekio-staging-uploads-440427555457-ap-south-1-an}"
+PUBLIC_BUCKET="${AWS_S3_PUBLIC_BUCKET:-anekio-school-public-prod-440427555457-ap-south-1}"
+PRIVATE_BUCKET="${AWS_S3_PRIVATE_BUCKET:-anekio-school-uploads-prod-440427555457-ap-south-1-an}"
 
 DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STATE="$DEPLOY_DIR/.state"   # ids + secrets written by the scripts (git-ignored)
