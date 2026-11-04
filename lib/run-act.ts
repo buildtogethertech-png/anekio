@@ -12,7 +12,7 @@ import {
   switchToNextYearCore,
   undoYearSwitchCore,
 } from "./promotion";
-import { setStaffTeachingCore } from "./staff-teaching";
+import { setStaffClassTeacherCore, setStaffTeachingCore } from "./staff-teaching";
 import {
   addPeriodCore,
   addRoomCore,
@@ -602,6 +602,8 @@ export async function runAct(
       return { ok: true, ...(await editPublishedMarksCore(user, body as never)) };
     case "setStaffTeaching":
       return { ok: true, ...(await setStaffTeachingCore(user, body as never)) };
+    case "setStaffClassTeacher":
+      return { ok: true, ...(await setStaffClassTeacherCore(user, body as never)) };
     case "reassignExamRole":
       return { ok: true, ...(await reassignExamRoleCore(user, body as never)) };
     case "scheduleExamForClasses":

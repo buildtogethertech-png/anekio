@@ -69,6 +69,7 @@ function emptyForm(roles: StaffAdmitRole[], managers: ManagerOption[]): StaffAdm
 }
 
 export function StaffAdmitForm({
+  alsoTeaches = false,
   roles,
   managers,
   classes = [],
@@ -86,6 +87,8 @@ export function StaffAdmitForm({
   salaryEditable?: boolean;
   /** Editing an existing employee: prefill form answers, count saved documents, show pay & reporting. */
   editing?: boolean;
+  /** Office employee with "Also a teacher" on: they can be a class teacher whatever their office role. */
+  alsoTeaches?: boolean;
   /** Phone: full-screen steps (Details · Documents) driven by the staff onboarding form. */
   wizard?: boolean;
   /** The school's staff onboarding form (School setup → Forms & Templates). */
@@ -109,7 +112,7 @@ export function StaffAdmitForm({
   const [error, setError] = useState("");
   const picked = roles.find((r) => r.id === form.roleId);
   const showManager = needsManager(picked);
-  const showClassTeacher = picked?.portal === "TEACHER";
+  const showClassTeacher = picked?.portal === "TEACHER" || alsoTeaches;
 
   function patch(part: Partial<StaffAdmitPayload>) {
     setForm((prev) => ({ ...prev, ...part }));
@@ -265,7 +268,7 @@ export function StaffAdmitForm({
                   return (
                     <Pressable
                       key={r.id}
-                      onPress={() => patch({ roleId: r.id, classId: r.portal === "TEACHER" ? form.classId : "" })}
+                      onPress={() => patch({ roleId: r.id, classId: r.portal === "TEACHER" || alsoTeaches ? form.classId : "" })}
                       className={`h-9 justify-center rounded-full border px-4 ${on ? "border-[#1F45C7] bg-[#1F45C7]" : "border-ink-200 bg-white"}`}
                     >
                       <Text className={`text-sm font-semibold ${on ? "text-white" : "text-ink-800"}`}>{r.name}</Text>
@@ -637,7 +640,7 @@ export function StaffAdmitForm({
               value={form.roleId}
               options={roles.map((r) => ({ id: r.id, label: r.name, group: r.portal || "Role" }))}
               onChange={(roleId) =>
-                patch({ roleId, classId: roles.find((r) => r.id === roleId)?.portal === "TEACHER" ? form.classId : "" })
+                patch({ roleId, classId: roles.find((r) => r.id === roleId)?.portal === "TEACHER" || alsoTeaches ? form.classId : "" })
               }
               placeholder="Pick a role"
             />

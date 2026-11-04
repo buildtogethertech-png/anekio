@@ -5141,6 +5141,10 @@ export function StaffBoard() {
         customValues,
         managerId: values.managerId || null,
       });
+      // "Also a teacher": class teacher lives on their teaching profile.
+      if (editFor.teaches && (values.classId || "") !== (editFor.teachClassId || "")) {
+        await act(token, "setStaffClassTeacher", { staffId: editFor.id, classId: values.classId || "" });
+      }
     }
     const failed: string[] = [];
     for (const [fieldId, file] of Object.entries(files)) {
@@ -5184,7 +5188,7 @@ export function StaffBoard() {
         name: editFor.name,
         phone: editFor.phone || "",
         roleId: editFor.roleId || editRoleOptions[0]?.id || "",
-        classId: editFor.classId || "",
+        classId: editFor.classId || editFor.teachClassId || "",
         joinedOn: editFor.joinedOn || today,
         email: editFor.email || "",
         address: editFor.address || "",
@@ -6046,6 +6050,7 @@ export function StaffBoard() {
               <StaffAdmitForm
                 wizard
                 editing
+                alsoTeaches={editFor?.kind === "staff" && Boolean(editFor?.teaches)}
                 salaryEditable={salaryAccess.approve}
                 staffForm={data?.school?.staffOnboardingForm ?? []}
                 roles={editRoleOptions}
@@ -6072,6 +6077,7 @@ export function StaffBoard() {
         {editFor ? (
           <StaffAdmitForm
             editing
+            alsoTeaches={editFor?.kind === "staff" && Boolean(editFor?.teaches)}
             salaryEditable={salaryAccess.approve}
             staffForm={data?.school?.staffOnboardingForm ?? []}
             roles={editRoleOptions}

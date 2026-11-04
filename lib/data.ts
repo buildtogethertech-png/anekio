@@ -988,9 +988,11 @@ export async function getStaffRoster(date = startOfDay()) {
     prisma.staffSalaryPayment.findMany({ orderBy: [{ paidOn: "desc" }, { createdAt: "desc" }], take: 3000 }),
   ]);
   // Office employees marked "Also a teacher" (their teachingOnly Teacher rows point back at the staff row).
-  const teaching = await prisma.teacher.findMany({ where: { teachingOnly: true, staffMemberId: { not: null } }, select: { staffMemberId: true } });
+  const teaching = await prisma.teacher.findMany({ where: { teachingOnly: true, staffMemberId: { not: null } }, select: { staffMemberId: true, classId: true } });
   const teachingStaffIds = new Set(teaching.map((t) => t.staffMemberId as string));
-  return { teachers, staff, days, leave, payrollRuns, audits, salaryPayments, date, teachingStaffIds };
+  /** staffId → class they are class teacher of (via their teaching profile). */
+  const teachingClassByStaff = new Map(teaching.filter((t) => t.classId).map((t) => [t.staffMemberId as string, t.classId as string]));
+  return { teachers, staff, days, leave, payrollRuns, audits, salaryPayments, date, teachingStaffIds, teachingClassByStaff };
 }
 
 export async function getDeskPulse() {

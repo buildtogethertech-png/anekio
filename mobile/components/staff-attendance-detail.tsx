@@ -19,7 +19,8 @@ import {
   type PayrollMark,
   type PayrollRules,
 } from "../lib/payroll";
-import type { RecordPayload } from "../lib/record";
+import { useOptionalRecord, type RecordPayload } from "../lib/record";
+import { Select } from "./form";
 import type { IoniconName } from "../lib/nav-icons";
 import { EmployeeLeaveCard } from "./leave-balances";
 import { SalaryPayCard } from "./salary-pay-card";
@@ -229,6 +230,31 @@ export function StaffAttendanceDetail({
       toast.show(e instanceof Error ? e.message : "Could not change teaching.");
     }
   }
+  const record = useOptionalRecord();
+  const classOptions = [{ id: "", label: "Not a class teacher" }, ...(record?.data?.classes ?? []).map((c) => ({ id: c.id, label: c.label }))];
+  const classTeacherLabel = classOptions.find((c) => c.id && c.id === person.teachClassId)?.label || "";
+  const canPickClass = Boolean(onEditSalary && person.kind === "staff" && person.teaches);
+  const [classBusy, setClassBusy] = useState(false);
+  /** Class teacher for an office employee who also teaches. */
+  async function pickClassTeacher(classId: string) {
+    if (classId === (person.teachClassId || "")) return;
+    setClassBusy(true);
+    try {
+      const res = await act<{ classLabel: string; replaced: string }>(token, "setStaffClassTeacher", { staffId: person.id, classId });
+      toast.show(
+        !classId
+          ? `${person.name} is no longer a class teacher.`
+          : res.replaced
+            ? `${person.name} is now class teacher of ${res.classLabel} (was ${res.replaced}).`
+            : `${person.name} is now class teacher of ${res.classLabel}.`
+      );
+      await onSaved();
+    } catch (e) {
+      toast.show(e instanceof Error ? e.message : "Could not set the class teacher.");
+    } finally {
+      setClassBusy(false);
+    }
+  }
   const split = width >= 960;
   const now = ymd(new Date());
   const [month, setMonth] = useState(initialMonth || now.slice(0, 7));
@@ -314,7 +340,7 @@ export function StaffAttendanceDetail({
   }, [rows]);
   const inspect = rows.find((r) => r.date === inspectDate) || null;
   const monthTrail = (audits ?? []).filter((row) => row.personKey === key && row.date.startsWith(month));
-  const roleLine = [person.employeeId || "—", person.kind === "teacher" ? "Teacher" : person.role || "Employee", person.teaches ? "Also teaches" : "", person.department || "Academic"]
+  const roleLine = [person.employeeId || "—", person.kind === "teacher" ? "Teacher" : person.role || "Employee", person.teaches ? (classTeacherLabel ? `Class teacher ${classTeacherLabel}` : "Also teaches") : "", person.department || "Academic"]
     .filter(Boolean)
     .join(" · ");
 
@@ -725,6 +751,19 @@ export function StaffAttendanceDetail({
               </View>
             </Pressable>
           ) : null}
+          {canPickClass ? (
+            <View className="w-[220px]" style={{ opacity: classBusy ? 0.6 : 1 }}>
+              <Select label="Class teacher of" value={person.teachClassId || ""} options={classOptions} onChange={(id) => void pickClassTeacher(id)} placeholder="Not a class teacher" />
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
+      {/* Phone: class teacher picker for office staff who also teach (the switch lives in More). */}
+      {phone && canPickClass ? (
+        <View className="mb-4 rounded-2xl border border-ink-100 bg-white px-4 py-3" style={{ opacity: classBusy ? 0.6 : 1 }}>
+          <Select label="Class teacher of" value={person.teachClassId || ""} options={classOptions} onChange={(id) => void pickClassTeacher(id)} placeholder="Not a class teacher" />
+          <Text className="mt-1.5 text-[11px] leading-4 text-ink-500">They mark this class's attendance from Teacher mode.</Text>
         </View>
       ) : null}
 

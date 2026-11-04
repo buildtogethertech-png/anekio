@@ -563,6 +563,8 @@ export type RecordPayload = {
     kind?: "teacher" | "staff";
     /** Office employee marked "Also a teacher". */
     teaches?: boolean;
+    /** Office employee who also teaches: the class they are class teacher of. */
+    teachClassId?: string;
     name: string;
     email?: string;
     employeeId?: string;

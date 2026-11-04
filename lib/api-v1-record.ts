@@ -1370,6 +1370,7 @@ async function officePayload(user: AccessUser) {
           name: s.name,
           email: s.user?.email || "",
           teaches: staff.teachingStaffIds.has(s.id),
+          teachClassId: staff.teachingClassByStaff.get(s.id) || "",
           employeeId: s.employeeId,
           roleId: s.roleId || "",
           role: s.role?.name || s.title || "Staff",

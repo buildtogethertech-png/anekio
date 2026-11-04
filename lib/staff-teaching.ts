@@ -62,3 +62,44 @@ export async function setStaffTeachingCore(user: AccessUser, input: { staffId?: 
   await prisma.teacher.delete({ where: { id } });
   return { on: false };
 }
+
+/**
+ * Class teacher for an office employee who is "Also a teacher". Sets the class on their teaching profile.
+ * A class keeps one class teacher: whoever had it before is cleared, and named in the reply.
+ */
+export async function setStaffClassTeacherCore(user: AccessUser, input: { staffId?: string; classId?: string | null }) {
+  if (!can(user, "staff.edit")) throw new Error("You need permission to manage employees.");
+  const staff = await prisma.staffMember.findUnique({
+    where: { id: String(input.staffId || "") },
+    select: { id: true, name: true, userId: true, archivedAt: true },
+  });
+  if (!staff || staff.archivedAt) throw new Error("Employee not found.");
+  const teacher = await prisma.teacher.findFirst({
+    where: { OR: [{ staffMemberId: staff.id }, ...(staff.userId ? [{ userId: staff.userId }] : [])] },
+    select: { id: true, classId: true },
+  });
+  if (!teacher) throw new Error(`Turn on "Also a teacher" for ${staff.name} first.`);
+  const classId = String(input.classId || "").trim();
+  if (!classId) {
+    await prisma.teacher.update({ where: { id: teacher.id }, data: { classId: null } });
+    return { classId: "", classLabel: "", replaced: "" };
+  }
+  const klass = await prisma.class.findFirst({ where: { id: classId, archivedAt: null }, select: { id: true, name: true, section: true } });
+  if (!klass) throw new Error("Class not found.");
+  const classLabel = `${klass.name}-${klass.section}`;
+  if (teacher.classId === klass.id) return { classId: klass.id, classLabel, replaced: "" };
+  const previous = await prisma.teacher.findMany({
+    where: { classId: klass.id, NOT: { id: teacher.id } },
+    select: { id: true, user: { select: { name: true } } },
+  });
+  await prisma.$transaction([
+    ...previous.map((row) => prisma.teacher.update({ where: { id: row.id }, data: { classId: null } })),
+    prisma.teacher.update({ where: { id: teacher.id }, data: { classId: klass.id } }),
+    prisma.teacherClass.upsert({
+      where: { teacherId_classId: { teacherId: teacher.id, classId: klass.id } },
+      update: {},
+      create: { teacherId: teacher.id, classId: klass.id },
+    }),
+  ]);
+  return { classId: klass.id, classLabel, replaced: previous.map((row) => row.user.name).join(", ") };
+}
