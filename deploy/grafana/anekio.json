@@ -46,7 +46,7 @@
       "gridPos": {
         "x": 0,
         "y": 0,
-        "w": 4,
+        "w": 3,
         "h": 4
       },
       "targets": [
@@ -127,7 +127,7 @@
         "uid": "${prom}"
       },
       "gridPos": {
-        "x": 4,
+        "x": 3,
         "y": 0,
         "w": 4,
         "h": 4
@@ -192,9 +192,9 @@
         "uid": "${prom}"
       },
       "gridPos": {
-        "x": 8,
+        "x": 7,
         "y": 0,
-        "w": 4,
+        "w": 3,
         "h": 4
       },
       "targets": [
@@ -257,9 +257,9 @@
         "uid": "${prom}"
       },
       "gridPos": {
-        "x": 12,
+        "x": 10,
         "y": 0,
-        "w": 4,
+        "w": 3,
         "h": 4
       },
       "targets": [
@@ -322,9 +322,9 @@
         "uid": "${prom}"
       },
       "gridPos": {
-        "x": 16,
+        "x": 13,
         "y": 0,
-        "w": 4,
+        "w": 3,
         "h": 4
       },
       "targets": [
@@ -381,6 +381,71 @@
               }
             }
           ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      }
+    },
+    {
+      "id": 26,
+      "title": "DB CPU",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prom}"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prom}"
+          },
+          "expr": "max(aws_rds_cpuutilization_average{dimension_DBInstanceIdentifier=\"anekio-prod-db\"})",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "percent",
+          "decimals": 0
         },
         "overrides": []
       },
@@ -662,6 +727,257 @@
       },
       "panels": [
         {
+          "id": 27,
+          "title": "DB CPU %",
+          "type": "timeseries",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prom}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 6,
+            "w": 16,
+            "h": 7
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${prom}"
+              },
+              "expr": "max(aws_rds_cpuutilization_average{dimension_DBInstanceIdentifier=\"anekio-prod-db\"})",
+              "legendFormat": "CPU"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "max": 100,
+              "custom": {
+                "fillOpacity": 15,
+                "lineWidth": 2,
+                "showPoints": "never"
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "showLegend": false
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          }
+        },
+        {
+          "id": 28,
+          "title": "CPU credits left",
+          "type": "stat",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prom}"
+          },
+          "gridPos": {
+            "x": 16,
+            "y": 6,
+            "w": 8,
+            "h": 7
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${prom}"
+              },
+              "expr": "max(aws_rds_cpucredit_balance_average{dimension_DBInstanceIdentifier=\"anekio-prod-db\"})",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 20
+                  },
+                  {
+                    "color": "green",
+                    "value": 60
+                  }
+                ]
+              },
+              "color": {
+                "mode": "thresholds"
+              },
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value",
+            "justifyMode": "center"
+          }
+        },
+        {
+          "id": 29,
+          "title": "DB free memory",
+          "type": "stat",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prom}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 13,
+            "w": 12,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${prom}"
+              },
+              "expr": "max(aws_rds_freeable_memory_average{dimension_DBInstanceIdentifier=\"anekio-prod-db\"})",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 104857600
+                  },
+                  {
+                    "color": "green",
+                    "value": 209715200
+                  }
+                ]
+              },
+              "color": {
+                "mode": "thresholds"
+              },
+              "unit": "bytes"
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value",
+            "justifyMode": "center"
+          }
+        },
+        {
+          "id": 30,
+          "title": "DB free storage",
+          "type": "stat",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prom}"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 13,
+            "w": 12,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${prom}"
+              },
+              "expr": "max(aws_rds_free_storage_space_average{dimension_DBInstanceIdentifier=\"anekio-prod-db\"})",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 3221225472
+                  },
+                  {
+                    "color": "green",
+                    "value": 5368709120
+                  }
+                ]
+              },
+              "color": {
+                "mode": "thresholds"
+              },
+              "unit": "bytes"
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value",
+            "justifyMode": "center"
+          }
+        },
+        {
           "id": 11,
           "title": "Connections",
           "type": "stat",
@@ -671,7 +987,7 @@
           },
           "gridPos": {
             "x": 0,
-            "y": 6,
+            "y": 17,
             "w": 6,
             "h": 4
           },
@@ -734,7 +1050,7 @@
           },
           "gridPos": {
             "x": 6,
-            "y": 6,
+            "y": 17,
             "w": 6,
             "h": 4
           },
@@ -790,7 +1106,7 @@
           },
           "gridPos": {
             "x": 12,
-            "y": 6,
+            "y": 17,
             "w": 6,
             "h": 4
           },
@@ -847,7 +1163,7 @@
           },
           "gridPos": {
             "x": 18,
-            "y": 6,
+            "y": 17,
             "w": 6,
             "h": 4
           },
@@ -906,7 +1222,7 @@
           },
           "gridPos": {
             "x": 0,
-            "y": 10,
+            "y": 21,
             "w": 24,
             "h": 6
           },

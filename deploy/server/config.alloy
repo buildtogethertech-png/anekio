@@ -58,6 +58,53 @@ prometheus.relabel "postgres" {
   }
 }
 
+// RDS host metrics Postgres itself cannot see (CPU, free memory/storage, CPU credits) from CloudWatch.
+// Needs the server role's read-only cloudwatch-read-metrics policy (deploy/aws/1-ec2.sh). ~$0.50/month in API calls.
+prometheus.exporter.cloudwatch "rds" {
+  sts_region = "ap-south-1"
+
+  static "rds" {
+    regions    = ["ap-south-1"]
+    namespace  = "AWS/RDS"
+    dimensions = { "DBInstanceIdentifier" = "anekio-prod-db" }
+
+    metric {
+      name       = "CPUUtilization"
+      statistics = ["Average"]
+      period     = "5m"
+    }
+    metric {
+      name       = "FreeableMemory"
+      statistics = ["Average"]
+      period     = "5m"
+    }
+    metric {
+      name       = "FreeStorageSpace"
+      statistics = ["Average"]
+      period     = "5m"
+    }
+    metric {
+      name       = "CPUCreditBalance"
+      statistics = ["Average"]
+      period     = "5m"
+    }
+  }
+}
+
+prometheus.scrape "cloudwatch" {
+  targets         = prometheus.exporter.cloudwatch.rds.targets
+  forward_to      = [prometheus.relabel.cloudwatch.receiver]
+  scrape_interval = "5m"
+}
+
+prometheus.relabel "cloudwatch" {
+  forward_to = [prometheus.remote_write.cloud.receiver]
+  rule {
+    target_label = "instance"
+    replacement  = "anekio-prod-db"
+  }
+}
+
 // ---------- Logs ----------
 local.file_match "anekio" {
   path_targets = [

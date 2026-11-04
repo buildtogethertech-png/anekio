@@ -44,6 +44,8 @@ aws iam put-role-policy --role-name "$ROLE" --policy-name s3-uploads --policy-do
   \"Version\":\"2012-10-17\",\"Statement\":[
    {\"Effect\":\"Allow\",\"Action\":[\"s3:GetObject\",\"s3:PutObject\",\"s3:DeleteObject\"],\"Resource\":[\"arn:aws:s3:::$PUBLIC_BUCKET/*\",\"arn:aws:s3:::$PRIVATE_BUCKET/*\"]},
    {\"Effect\":\"Allow\",\"Action\":[\"s3:ListBucket\"],\"Resource\":[\"arn:aws:s3:::$PUBLIC_BUCKET\",\"arn:aws:s3:::$PRIVATE_BUCKET\"]}]}"
+# Read-only CloudWatch metrics for the Grafana dashboard (RDS CPU, memory, storage, CPU credits).
+aws iam put-role-policy --role-name "$ROLE" --policy-name cloudwatch-read-metrics --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["cloudwatch:GetMetricData","cloudwatch:GetMetricStatistics","cloudwatch:ListMetrics"],"Resource":"*"}]}'
 aws iam attach-role-policy --role-name "$ROLE" --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore 2>/dev/null || true
 if ! aws iam get-instance-profile --instance-profile-name "$ROLE" >/dev/null 2>&1; then
   aws iam create-instance-profile --instance-profile-name "$ROLE" >/dev/null
