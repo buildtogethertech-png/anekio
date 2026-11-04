@@ -77,4 +77,5 @@ active users today / 7 / 30 days per school, roles, web vs Android, most used ac
 3. `cp deploy/aws/grafana.env.example deploy/aws/.grafana.env`, fill it in (git-ignored), then `bash deploy/push.sh`.
    This installs Grafana Alloy (EC2 metrics, Postgres metrics, app + Nginx logs) and the `monitoring.anekio.com` redirect.
 4. In Grafana Cloud: install the **Linux Server** and **PostgreSQL** integrations (dashboards + alerts; job names already match),
-   import `deploy/grafana/anekio-usage.json`, and point alerts at support@anekio.com.
+   import `deploy/grafana/anekio-server.json` (machine, database, access logs) and `deploy/grafana/anekio-usage.json`,
+   and point alerts at support@anekio.com.
