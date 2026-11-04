@@ -80,6 +80,12 @@ loki.process "anekio" {
     values = { host = "anekio-prod" }
   }
 
+  // PM2 may prefix "2026-11-05T02:31:33: " (older process started with time: true): keep pure JSON.
+  stage.replace {
+    expression = `^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}: )`
+    replace    = ""
+  }
+
   // Only the log level becomes a label; everything else stays in the JSON line (query with | json).
   stage.json {
     expressions = { level = "lvl" }

@@ -12,13 +12,13 @@ SSH=(ssh -i "$KEY_FILE" -o StrictHostKeyChecking=accept-new "ubuntu@$EIP")
 
 case "${1:-app}" in
   app)
-    "${SSH[@]}" "tail -n 40 -F /var/log/anekio/out.log | jq -cR 'fromjson? // .'" ;;
+    "${SSH[@]}" "tail -n 40 -F /var/log/anekio/out.log | sed -u 's/^[^{]*//' | jq -cR 'fromjson? // .'" ;;
   errors)
-    "${SSH[@]}" "tail -n 400 /var/log/anekio/error.log | jq -cR 'fromjson? | select(.lvl==\"error\" or .lvl==\"warn\") | {t,msg,err,path,user,org}' | tail -n 50" ;;
+    "${SSH[@]}" "tail -n 400 /var/log/anekio/error.log | sed 's/^[^{]*//' | jq -cR 'fromjson? | select(.lvl==\"error\" or .lvl==\"warn\") | {t,msg,err,path,user,org}' | tail -n 50" ;;
   nginx)
     "${SSH[@]}" "sudo tail -n 40 -F /var/log/nginx/anekio-access.log | jq -c '{t,status,method,host,path,rt,ip}'" ;;
   slow)
-    "${SSH[@]}" "jq -cR 'fromjson? | select(.msg==\"req\")' /var/log/anekio/out.log | jq -cs 'sort_by(-.ms) | .[:20][] | {ms,method,path,op,status,org}'" ;;
+    "${SSH[@]}" "sed 's/^[^{]*//' /var/log/anekio/out.log | jq -cR 'fromjson? | select(.msg==\"req\")' | jq -cs 'sort_by(-.ms) | .[:20][] | {ms,method,path,op,status,org}'" ;;
   usage)
     "${SSH[@]}" bash -s <<'REMOTE'
 URL=$(grep -E '^DATABASE_URL=' /srv/anekio/shared/.env | cut -d= -f2- | tr -d '"')
