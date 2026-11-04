@@ -38,7 +38,7 @@ if [[ "${1:-}" == "--ssl" && -n "$(state_get ZONE_ID)" ]]; then
 fi
 
 say "Install, generate Prisma (Postgres), switch, reload"
-$SSH bash -s -- "$REL" "$DOMAIN" "$EXTRA_DOMAINS" "$WILDCARD_DOMAIN" <<'REMOTE'
+$SSH bash -s -- $(printf '%q ' "$REL" "$DOMAIN" "$EXTRA_DOMAINS" "$WILDCARD_DOMAIN") <<'REMOTE'   # ssh re-splits args: quote them
 set -euo pipefail
 REL=$1; DOMAIN=$2; EXTRA_DOMAINS=$3; CERT=$4; R=/srv/anekio/releases/$REL
 chmod 600 /srv/anekio/shared/.env
