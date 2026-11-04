@@ -82,7 +82,8 @@ release_init() {
 }
 
 restore_local_client() {
-  if [[ $IS_POSTGRES -eq 1 ]]; then
+  # On the EC2 server (/srv/anekio/releases/…) the running app needs the Postgres client: keep it.
+  if [[ $IS_POSTGRES -eq 1 && "$(pwd -P)" != /srv/anekio/* ]]; then
     echo "==> Restoring local SQLite Prisma client"
     "$PRISMA" generate --schema prisma/schema.prisma >/dev/null || true
   fi
