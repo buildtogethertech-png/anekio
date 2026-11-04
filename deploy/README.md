@@ -76,6 +76,6 @@ active users today / 7 / 30 days per school, roles, web vs Android, most used ac
 2. Create the read-only DB login: run `deploy/db/monitor-user.sql` on RDS from the server.
 3. `cp deploy/aws/grafana.env.example deploy/aws/.grafana.env`, fill it in (git-ignored), then `bash deploy/push.sh`.
    This installs Grafana Alloy (EC2 metrics, Postgres metrics, app + Nginx logs) and the `monitoring.anekio.com` redirect.
-4. In Grafana Cloud: install the **Linux Server** and **PostgreSQL** integrations (dashboards + alerts; job names already match),
-   import `deploy/grafana/anekio-server.json` (machine, database, access logs) and `deploy/grafana/anekio-usage.json`,
-   and point alerts at support@anekio.com.
+4. In Grafana: Dashboards → New → Import → `deploy/grafana/anekio.json` — one page: Server / CPU / RAM / Disk /
+   Database / 5xx at the top, then EC2, RDS, Traffic and App sections that open on click.
+   No-menu view: https://stoutgrotto3198.grafana.net/d/anekio-server?kiosk
