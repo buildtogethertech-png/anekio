@@ -58,3 +58,23 @@ Cron on the server (IST): leave job 01:00 (same as Vercel's 19:30 UTC), DB backu
 Add an S3 lifecycle rule on `backups/` to expire after 30 days.
 
 **Before 4 Mar 2027:** upgrade the AWS account from the Free plan, or AWS stops the account.
+
+## Logs, usage and monitoring
+**Logs (3 days on the server).** The app writes one JSON line per API request and per event (`lib/logger.ts`).
+```bash
+bash deploy/logs.sh            # live app log
+bash deploy/logs.sh errors     # recent errors and warnings
+bash deploy/logs.sh nginx      # live requests (Nginx JSON log)
+bash deploy/logs.sh slow       # slowest API calls today
+bash deploy/logs.sh usage      # who used Anekio today, per school
+```
+**Usage history.** `UsageDaily` (one row per user, day, platform; `lib/usage.ts`) feeds **admin → Usage**:
+active users today / 7 / 30 days per school, roles, web vs Android, most used actions. Release `r2` adds the table.
+
+**Grafana Cloud (free) at monitoring.anekio.com.**
+1. Create a free Grafana Cloud stack; make an Access Policy token with `metrics:write` and `logs:write`.
+2. Create the read-only DB login: run `deploy/db/monitor-user.sql` on RDS from the server.
+3. `cp deploy/aws/grafana.env.example deploy/aws/.grafana.env`, fill it in (git-ignored), then `bash deploy/push.sh`.
+   This installs Grafana Alloy (EC2 metrics, Postgres metrics, app + Nginx logs) and the `monitoring.anekio.com` redirect.
+4. In Grafana Cloud: install the **Linux Server** and **PostgreSQL** integrations (dashboards + alerts; job names already match),
+   import `deploy/grafana/anekio-usage.json`, and point alerts at support@anekio.com.

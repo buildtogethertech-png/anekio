@@ -15,7 +15,7 @@ module.exports = {
       max_memory_restart: "1100M",
       out_file: "/var/log/anekio/out.log",
       error_file: "/var/log/anekio/error.log",
-      time: true,
+      time: false, // lib/logger.ts writes its own IST timestamp; keep lines pure JSON
     },
   ],
 };

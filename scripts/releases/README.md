@@ -18,3 +18,4 @@ and put new SQL in `scripts/sql/<date>-<topic>.sql` written with `IF NOT EXISTS`
 | Release | Date | What |
 |---|---|---|
 | r1 | 2026-11-02 | Per-student pricing, coupons, payment links, plans; automatic admission numbers |
+| r2 | 2026-11-05 | Usage tracking (`UsageDaily`) for the admin Usage page |

@@ -1,0 +1,101 @@
+// Grafana Alloy on the EC2 box → Grafana Cloud (free). Installed by deploy/server/alloy-setup.sh.
+// Env (from /etc/default/alloy): GRAFANA_PROM_URL, GRAFANA_PROM_USER, GRAFANA_LOKI_URL, GRAFANA_LOKI_USER,
+// GRAFANA_TOKEN, MONITOR_DB_URL. Job names match Grafana Cloud's Linux and PostgreSQL integrations,
+// so their ready-made dashboards and alerts work as they are.
+
+// ---------- Metrics ----------
+prometheus.remote_write "cloud" {
+  endpoint {
+    url = sys.env("GRAFANA_PROM_URL")
+    basic_auth {
+      username = sys.env("GRAFANA_PROM_USER")
+      password = sys.env("GRAFANA_TOKEN")
+    }
+  }
+}
+
+// EC2 health: CPU, memory, swap, disk, network, load.
+prometheus.exporter.unix "node" { }
+
+prometheus.scrape "node" {
+  targets         = prometheus.exporter.unix.node.targets
+  forward_to      = [prometheus.relabel.node.receiver]
+  scrape_interval = "60s"
+}
+
+prometheus.relabel "node" {
+  forward_to = [prometheus.remote_write.cloud.receiver]
+  rule {
+    target_label = "job"
+    replacement  = "integrations/node_exporter"
+  }
+  rule {
+    target_label = "instance"
+    replacement  = "anekio-prod"
+  }
+}
+
+// RDS health: connections, size, cache hit, locks, long queries (read-only pg_monitor login).
+prometheus.exporter.postgres "rds" {
+  data_source_names = [sys.env("MONITOR_DB_URL")]
+}
+
+prometheus.scrape "postgres" {
+  targets         = prometheus.exporter.postgres.rds.targets
+  forward_to      = [prometheus.relabel.postgres.receiver]
+  scrape_interval = "60s"
+}
+
+prometheus.relabel "postgres" {
+  forward_to = [prometheus.remote_write.cloud.receiver]
+  rule {
+    target_label = "job"
+    replacement  = "integrations/postgres_exporter"
+  }
+  rule {
+    target_label = "instance"
+    replacement  = "anekio-prod-db"
+  }
+}
+
+// ---------- Logs ----------
+local.file_match "anekio" {
+  path_targets = [
+    {"__path__" = "/var/log/anekio/out.log", "job" = "anekio-app"},
+    {"__path__" = "/var/log/anekio/error.log", "job" = "anekio-app-error"},
+    {"__path__" = "/var/log/anekio/cron.log", "job" = "anekio-cron"},
+    {"__path__" = "/var/log/nginx/anekio-access.log", "job" = "anekio-nginx"},
+  ]
+}
+
+loki.source.file "anekio" {
+  targets    = local.file_match.anekio.targets
+  forward_to = [loki.process.anekio.receiver]
+}
+
+loki.process "anekio" {
+  forward_to = [loki.write.cloud.receiver]
+
+  stage.static_labels {
+    values = { host = "anekio-prod" }
+  }
+
+  // Only the log level becomes a label; everything else stays in the JSON line (query with | json).
+  stage.json {
+    expressions = { level = "lvl" }
+  }
+
+  stage.labels {
+    values = { level = "" }
+  }
+}
+
+loki.write "cloud" {
+  endpoint {
+    url = sys.env("GRAFANA_LOKI_URL")
+    basic_auth {
+      username = sys.env("GRAFANA_LOKI_USER")
+      password = sys.env("GRAFANA_TOKEN")
+    }
+  }
+}

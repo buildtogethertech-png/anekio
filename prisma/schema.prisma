@@ -1885,3 +1885,21 @@ model AdmissionNumberChange {
 
   @@index([orgId, studentId])
 }
+
+/// Who uses Anekio: one row per user, IST day (YYYY-MM-DD) and platform (web/android/ios). Written by lib/usage.ts.
+model UsageDaily {
+  id          String   @id @default(cuid())
+  day         String
+  orgId       String?
+  userId      String
+  role        String   @default("")
+  platform    String   @default("web")
+  requests    Int      @default(0)
+  opsJson     String   @default("{}")
+  firstSeenAt DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+
+  @@unique([day, userId, platform])
+  @@index([orgId, day])
+  @@index([day])
+}

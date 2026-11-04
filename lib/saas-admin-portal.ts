@@ -5,6 +5,7 @@ import { getSaasEmailSettings, listSaasEmailDeliveryLogs, renderSaasEmailTemplat
 import { getSitePricing, listCoupons, listPlans } from "./saas-pricing";
 import { couponLabel, couponProblem, quotePrice, validityLabel } from "./saas-quote";
 import { getAppVersionRules } from "./app-version";
+import { usageSummary } from "./usage";
 import QRCode from "qrcode";
 import { recentSupportSessions, supportUsersForOrg } from "./support-session";
 function escapeHtml(value: unknown) {
@@ -97,6 +98,7 @@ function icon(name: string) {
     followups: "🔔",
     support: "🎫",
     "app-version": "📱",
+    usage: "📈",
     settings: "⚙",
   };
   return icons[name] || "•";
@@ -108,7 +110,7 @@ function adminDocument(input: { title: string; basePath: string; session: SaasAd
     { label: "CRM", items: [["leads", "Leads"], ["demos", "Demos"], ["deals", "Deals"]] },
     { label: "Customers", items: [["organisations", "Organisations"], ["subscriptions", "Subscriptions"]] },
     { label: "Billing", items: [["invoices", "Invoices"], ["payments", "Payments"], ["pricing", "Pricing"], ["payment-links", "Payment links"]] },
-    { label: "Operations", items: [["onboarding", "Onboarding"], ["followups", "Follow-ups"], ["support", "Support"], ["app-version", "App version"]] },
+    { label: "Operations", items: [["onboarding", "Onboarding"], ["followups", "Follow-ups"], ["usage", "Usage"], ["support", "Support"], ["app-version", "App version"]] },
     { label: "", items: [["settings", "Settings"]] },
   ];
   const mobile: [string, string][] = [
@@ -509,6 +511,37 @@ export async function adminPortalHtml(input: {
   } else if (view === "support") {
     const tickets = await prisma.saasSupportTicket.findMany({ orderBy: { createdAt: "desc" }, include: { org: true }, take: 80 });
     body = `${pageHead("Support", "Internal tickets against customer organisations.")}<section class="panel"><div class="panel-body"><form method="post" action="${input.basePath}/crm/support" class="form-grid">${csrfField(input.session)}<div class="field"><label>Organisation</label><select name="orgId">${customers.map((o) => `<option value="${o.id}">${escapeHtml(o.schoolName)}</option>`).join("")}</select></div><div class="field"><label>Subject</label><input name="subject" required></div><div class="field full"><label>Details</label><textarea name="body"></textarea></div><div class="form-actions"><button class="btn primary">Open ticket</button></div></form></div></section><section class="panel"><div class="table-wrap">${tickets.length ? `<table><thead><tr><th>School</th><th>Subject</th><th>Status</th><th>Opened</th></tr></thead><tbody>${tickets.map((t) => `<tr><td>${escapeHtml(t.org.schoolName)}</td><td>${escapeHtml(t.subject)}</td><td>${badge(t.status)}</td><td>${dateLabel(t.createdAt)}</td></tr>`).join("")}</tbody></table>` : empty("No tickets", "Open a ticket for a customer school.")}</div></section>`;
+  } else if (view === "usage") {
+    const u = await usageSummary();
+    const peak = Math.max(1, ...u.daily.map((d) => d.users));
+    const chips = (counts: Record<string, number>) =>
+      Object.entries(counts)
+        .sort((a, b) => b[1] - a[1])
+        .map(([k, n]) => `<span class="badge">${escapeHtml(k)} ${n}</span>`)
+        .join(" ") || '<span class="muted small">—</span>';
+    const health = (s: (typeof u.schools)[number]) =>
+      s.week ? badge("ACTIVE") : s.month ? `<span class="badge warning">Quiet this week</span>` : `<span class="badge danger">No use in 30 days</span>`;
+    body = `${pageHead("Usage", "Who is using Anekio. Counted per person per day (IST); support logins are not counted. Updates every 5 minutes.")}
+      <div class="grid4">
+        <div class="metric"><span>Active schools today</span><strong>${u.activeSchoolsToday}</strong></div>
+        <div class="metric"><span>Active schools · 7 days</span><strong>${u.activeSchoolsWeek}</strong></div>
+        <div class="metric"><span>Active users today / 7 days</span><strong>${u.usersToday} / ${u.usersWeek}</strong></div>
+        <div class="metric"><span>Active users · 30 days</span><strong>${u.usersMonth}</strong></div>
+      </div>
+      <section class="panel"><div class="panel-head"><h2>Daily active users · last 14 days</h2><span class="muted small">${u.requestsToday} requests today</span></div>
+        <div class="panel-body stack">${u.daily
+          .map((d) => `<div style="display:grid;grid-template-columns:92px 1fr 120px;gap:10px;align-items:center"><span class="muted small">${escapeHtml(dateLabel(d.day))}</span><div class="progress"><b style="width:${Math.round((d.users / peak) * 100)}%"></b></div><span class="small num">${d.users} users · ${d.schools} schools</span></div>`)
+          .join("")}</div></section>
+      <section class="panel"><div class="panel-head"><h2>Schools</h2><span class="muted small">Users = different people who opened the app</span></div>
+        ${u.schools.length ? `<div class="table-wrap"><table><thead><tr><th>School</th><th>Status</th><th class="num">Today</th><th class="num">7 days</th><th class="num">30 days</th><th>Last seen</th><th>Roles · 7 days</th><th>Platform · 7 days</th></tr></thead><tbody>${u.schools
+          .map((s) => `<tr><td><a href="${baseUrl(input.basePath, { view: "org", id: s.orgId })}"><b>${escapeHtml(s.name)}</b></a></td><td>${health(s)}</td><td class="num">${s.today}</td><td class="num">${s.week}</td><td class="num">${s.month}</td><td class="small">${s.lastSeenAt ? escapeHtml(dateTimeLabel(s.lastSeenAt)) : '<span class="muted">Never</span>'}</td><td>${chips(s.roles)}</td><td>${chips(s.platforms)}</td></tr>`)
+          .join("")}</tbody></table></div>` : empty("No schools yet", "Customer schools show here once they exist.")}
+      </section>
+      <section class="panel"><div class="panel-head"><h2>Most used actions · 7 days</h2></div>
+        ${u.topOps.length ? `<div class="table-wrap"><table><thead><tr><th>Action</th><th class="num">Times</th></tr></thead><tbody>${u.topOps
+          .map((o) => `<tr><td><code>${escapeHtml(o.op)}</code></td><td class="num">${o.count}</td></tr>`)
+          .join("")}</tbody></table></div>` : empty("No activity yet", "Actions appear after people use the app.")}
+      </section>`;
   } else if (view === "app-version") {
     const rules = await getAppVersionRules("android", true);
     const state = rules.minBuild ? `FORCING BELOW BUILD ${rules.minBuild}` : rules.latestBuild ? `SUGGESTING BUILD ${rules.latestBuild}` : "OFF";

@@ -28,6 +28,9 @@ import { noticesForUser } from "../lib/data";
 import { inboxRecipients, inboxThreadDetail, listInboxThreads } from "../lib/inbox";
 import { parentDetailsFor, pendingProfileRequests } from "../lib/profile-requests";
 import { actOp, runAct } from "../lib/run-act";
+import { errorFields, logger } from "../lib/logger";
+import { requestLogFields, requestPlatform, routeKey, shouldLogRequest } from "../lib/request-log";
+import { recordUsage, startUsageFlusher } from "../lib/usage";
 import {
   SUPPORT_BLOCKED_OPS,
   SupportSessionError,
@@ -170,6 +173,19 @@ app.use(express.json({ limit: "4mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use((_req, _res, next) => runWithoutTenant(() => next()));
 app.use((req, _res, next) => withPublicRequestOrigin(requestOrigin(req), next));
+// One JSON log line per API request, and per-user daily usage for the admin Usage page.
+app.use((req, res, next) => {
+  if (!shouldLogRequest(req.path)) return next();
+  const started = process.hrtime.bigint();
+  res.on("finish", () => {
+    const user = res.locals.anekioUser as Parameters<typeof requestLogFields>[0]["user"];
+    const op = req.path === "/api/v1/act" ? actOp((req.body || {}) as Record<string, unknown>) : undefined;
+    const platformHeader = req.header("x-app-platform");
+    logger.info("req", requestLogFields({ method: req.method, path: req.path, status: res.statusCode, ms: Number(process.hrtime.bigint() - started) / 1e6, op, platformHeader, buildHeader: req.header("x-app-build"), user }));
+    if (user && res.statusCode < 500) recordUsage({ user, platform: requestPlatform(platformHeader), op: op || routeKey(req.method, req.path) });
+  });
+  next();
+});
 
 /** Public: the mobile app asks whether its build must / should update. */
 app.get("/api/v1/app-version", async (req, res) => {
@@ -205,7 +221,7 @@ function sendError(res: express.Response, status: number, error: string) {
 }
 
 function sendUnexpectedError(res: express.Response, error: unknown, fallback = "Something went wrong. Please try again shortly.") {
-  console.error("Unexpected API error", error);
+  logger.error("api_unexpected_error", errorFields(error));
   const message = process.env.NODE_ENV === "production" ? fallback : error instanceof Error ? error.message : fallback;
   return sendError(res, 500, message);
 }
@@ -299,6 +315,7 @@ async function requireUser(req: express.Request, res: express.Response) {
     return null;
   }
   setTenantOrg(user.orgId);
+  res.locals.anekioUser = user;
   return user;
 }
 
@@ -356,7 +373,7 @@ function parseAccountChoice(value: string) {
 
 function sendAuthFlowError(res: express.Response, error: unknown) {
   if (error instanceof AuthFlowError) return sendError(res, error.status, error.message);
-  console.error("Authentication flow failed", error);
+  logger.error("auth_flow_failed", errorFields(error));
   return sendError(res, 500, "Secure sign-in is temporarily unavailable.");
 }
 
@@ -401,7 +418,7 @@ app.post("/api/v1/login/google", async (req, res) => {
     res.json(await loginSession((picked || rows[0]).id, { as: choice.as }));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Google sign-in could not be completed.";
-    console.error("Google sign-in failed", error);
+    logger.error("google_signin_failed", errorFields(error));
     sendError(res, 401, message);
   }
 });
@@ -1370,7 +1387,7 @@ app.post("/api/saas/enquiry", async (req, res) => {
       // Saving a legitimate lead must not turn into a failed booking if a mail
       // provider or mail table is temporarily unavailable. Delivery records
       // retain configuration/provider failures when the email layer is reached.
-      console.error("Demo email delivery setup failed", error instanceof Error ? error.message : error);
+      logger.error("demo_email_setup_failed", errorFields(error));
     }
     res.json({ ok: true, org: booking.org, demo: booking.demo });
   } catch (e) {
@@ -1402,7 +1419,7 @@ async function sendTrialWelcome(req: express.Request, org: { id: string; schoolN
       customerVariables: { passwordResetUrl },
     });
   } catch (error) {
-    console.error("Trial onboarding email delivery setup failed", error instanceof Error ? error.message : error);
+    logger.error("trial_email_setup_failed", errorFields(error));
   }
 }
 
@@ -1457,7 +1474,7 @@ app.post("/api/saas/trial", async (req, res) => {
         customerVariables: { passwordResetUrl },
       });
     } catch (error) {
-      console.error("Trial onboarding email delivery setup failed", error instanceof Error ? error.message : error);
+      logger.error("trial_email_setup_failed", errorFields(error));
     }
     if (!String(req.headers.accept || "").includes("application/json")) {
       return res.type("html").send(trialStartedHtml({ ...org, login, loginUrl }));
@@ -1921,7 +1938,7 @@ app.use((req, res, next) => {
 app.use((error: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {
   if (res.headersSent) return next(error);
   if (req.path.startsWith("/api/")) return sendUnexpectedError(res, error);
-  console.error("Unexpected web error", error);
+  logger.error("web_unexpected_error", { path: req.path, ...errorFields(error) });
   res.status(500).type("html").send("<h1>Something went wrong</h1><p>Please wait a moment and try again.</p>");
 });
 
@@ -1929,7 +1946,8 @@ export default app;
 
 if (!process.env.VERCEL && (process.env.NODE_ENV !== "test" || process.env.TEST_SERVER_LISTEN === "1")) {
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Anekio API on http://localhost:${PORT}`);
+    logger.info("server_start", { port: PORT });
+    startUsageFlusher();
   });
 }
 

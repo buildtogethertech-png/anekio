@@ -94,6 +94,7 @@ echo "==> [2/5] Additive SQL: payment links, plans, per-student pricing, admissi
 if [[ $IS_POSTGRES -eq 1 ]]; then
   "$PRISMA" db execute --url "$DATABASE_URL" --file scripts/sql/2026-11-01-payment-links-plans.sql
   "$PRISMA" db execute --url "$DATABASE_URL" --file scripts/sql/2026-11-02-admission-numbers.sql
+  "$PRISMA" db execute --url "$DATABASE_URL" --file scripts/sql/2026-11-05-usage-daily.sql
 else
   echo "    (SQLite: applied by prisma db push below)"
 fi

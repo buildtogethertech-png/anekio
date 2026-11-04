@@ -34,4 +34,5 @@ maestro-results/
 # AWS deploy state (ids + DB password) and production env
 deploy/aws/.state
 deploy/aws/.env*
+deploy/aws/.grafana.env
 dist/

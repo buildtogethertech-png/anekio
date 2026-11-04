@@ -26,9 +26,10 @@ $SSH "mkdir -p /srv/anekio/releases/$REL /srv/anekio/shared"
 rsync -az --delete -e "ssh -i $KEY_FILE" \
   --include='/mobile/' --include='/mobile/dist/***' --exclude='/mobile/*' \
   --exclude='node_modules/' --exclude='.git/' --exclude='*.db' --exclude='*.db-journal' --exclude='/uploads/' \
-  --exclude='.vercel*' --exclude='coverage/' --exclude='deploy/aws/.state' --exclude='deploy/aws/.env*' --exclude='.env*' \
+  --exclude='.vercel*' --exclude='coverage/' --exclude='deploy/aws/.state' --exclude='deploy/aws/.env*' --exclude='deploy/aws/.grafana.env' --exclude='.env*' \
   ./ "ubuntu@$EIP:/srv/anekio/releases/$REL/"
 scp -i "$KEY_FILE" -q "$ENVF" "ubuntu@$EIP:/srv/anekio/shared/.env"
+[[ -f deploy/aws/.grafana.env ]] && scp -i "$KEY_FILE" -q deploy/aws/.grafana.env "ubuntu@$EIP:/srv/anekio/shared/grafana.env"
 
 if [[ "${1:-}" == "--ssl" && -n "$(state_get ZONE_ID)" ]]; then
   say "Wildcard certificate $WILDCARD_DOMAIN + *.$WILDCARD_DOMAIN (DNS-01 via Route 53)"
@@ -62,8 +63,18 @@ for FROM in $REDIRECTS; do
   if sudo test -d "/etc/letsencrypt/live/$FROM"; then sudo sed -i 's/^#SSL //' "$SITE"; fi
   sudo ln -sf "$SITE" /etc/nginx/sites-enabled/
 done
+GRAFANA_ENV=/srv/anekio/shared/grafana.env
+STACK=$( [[ -f $GRAFANA_ENV ]] && grep -E '^GRAFANA_STACK_URL=' $GRAFANA_ENV | cut -d= -f2- | tr -d '"' || true )
+if [[ -n "$STACK" ]] && sudo test -d "/etc/letsencrypt/live/$CERT"; then   # monitoring.<domain> → Grafana Cloud stack
+  printf 'server {\n  listen 80;\n  listen 443 ssl http2;\n  server_name monitoring.%s;\n  ssl_certificate /etc/letsencrypt/live/%s/fullchain.pem;\n  ssl_certificate_key /etc/letsencrypt/live/%s/privkey.pem;\n  include /etc/letsencrypt/options-ssl-nginx.conf;\n  return 302 %s;\n}\n' \
+    "$CERT" "$CERT" "$CERT" "$STACK" | sudo tee /etc/nginx/sites-available/anekio-monitoring >/dev/null
+  sudo ln -sf /etc/nginx/sites-available/anekio-monitoring /etc/nginx/sites-enabled/
+fi
 sudo nginx -t && sudo systemctl reload nginx
 bash deploy/server/cron.sh
+sudo install -m 644 deploy/server/logrotate.conf /etc/logrotate.d/anekio
+sudo sed -i 's/^\(\s*\)rotate 14$/\1rotate 3/' /etc/logrotate.d/nginx   # 3 days of Nginx logs
+bash deploy/server/alloy-setup.sh || echo "(Grafana Alloy setup failed; the app is unaffected)"
 for i in $(seq 1 20); do curl -fsS http://127.0.0.1:4000/health >/dev/null && break; sleep 1; done
 curl -fsS http://127.0.0.1:4000/health && echo
 ls -1dt /srv/anekio/releases/* | tail -n +4 | xargs -r rm -rf   # keep last 3
