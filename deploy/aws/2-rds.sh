@@ -23,7 +23,7 @@ if ! aws rds describe-db-instances --db-instance-identifier "$DB_ID" >/dev/null 
     --db-instance-class "$DB_CLASS" --allocated-storage "$DB_STORAGE_GB" --max-allocated-storage "$DB_MAX_STORAGE_GB" \
     --storage-type gp3 --db-name "$DB_NAME" --master-username "$DB_USER" --master-user-password "$PASS" \
     --vpc-security-group-ids "$DB_SG" --no-publicly-accessible --no-multi-az \
-    --backup-retention-period 7 --preferred-backup-window "20:30-21:00" \
+    --backup-retention-period "$DB_BACKUP_DAYS" --preferred-backup-window "20:30-21:00" \
     --deletion-protection --storage-encrypted --copy-tags-to-snapshot \
     --tags Key=Name,Value="$NAME" >/dev/null
 fi

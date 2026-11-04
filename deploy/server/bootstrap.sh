@@ -12,7 +12,7 @@ fi
 timedatectl set-timezone Asia/Kolkata
 
 apt-get update -y
-apt-get install -y ca-certificates curl gnupg nginx certbot python3-certbot-nginx postgresql-client-16 rsync unzip jq
+apt-get install -y ca-certificates curl gnupg nginx certbot python3-certbot-nginx python3-certbot-dns-route53 postgresql-client-16 rsync unzip jq
 curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
 apt-get install -y nodejs
 npm install -g pm2@latest

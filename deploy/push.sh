@@ -30,10 +30,17 @@ rsync -az --delete -e "ssh -i $KEY_FILE" \
   ./ "ubuntu@$EIP:/srv/anekio/releases/$REL/"
 scp -i "$KEY_FILE" -q "$ENVF" "ubuntu@$EIP:/srv/anekio/shared/.env"
 
+if [[ "${1:-}" == "--ssl" && -n "$(state_get ZONE_ID)" ]]; then
+  say "Wildcard certificate $WILDCARD_DOMAIN + *.$WILDCARD_DOMAIN (DNS-01 via Route 53)"
+  $SSH "sudo apt-get install -y python3-certbot-dns-route53 >/dev/null && sudo certbot certonly --dns-route53 \
+    -d $WILDCARD_DOMAIN -d '*.$WILDCARD_DOMAIN' --cert-name $WILDCARD_DOMAIN --keep-until-expiring \
+    --non-interactive --agree-tos -m $ALERT_EMAIL --deploy-hook 'systemctl reload nginx'"
+fi
+
 say "Install, generate Prisma (Postgres), switch, reload"
-$SSH bash -s -- "$REL" "$DOMAIN" "$EXTRA_DOMAINS" <<'REMOTE'
+$SSH bash -s -- "$REL" "$DOMAIN" "$EXTRA_DOMAINS" "$WILDCARD_DOMAIN" <<'REMOTE'
 set -euo pipefail
-REL=$1; DOMAIN=$2; EXTRA_DOMAINS=$3; R=/srv/anekio/releases/$REL
+REL=$1; DOMAIN=$2; EXTRA_DOMAINS=$3; CERT=$4; R=/srv/anekio/releases/$REL
 chmod 600 /srv/anekio/shared/.env
 cd "$R"
 ln -sf /srv/anekio/shared/.env .env
@@ -42,8 +49,12 @@ set -a; . ./.env; set +a
 PATH="$R/node_modules/.bin:$PATH" node scripts/vercel-prisma.mjs
 ln -sfn "$R" /srv/anekio/current
 pm2 startOrReload deploy/server/ecosystem.config.cjs --update-env && pm2 save
-sed -e "s/__DOMAIN__/$DOMAIN/" -e "s/__EXTRA_DOMAINS__/$EXTRA_DOMAINS/" deploy/server/nginx.conf | sudo tee /etc/nginx/sites-available/anekio >/dev/null
-if sudo test -d "/etc/letsencrypt/live/$DOMAIN"; then sudo certbot install --nginx -d "$DOMAIN" --cert-name "$DOMAIN" --redirect --non-interactive >/dev/null 2>&1 || true; fi
+if [[ ( "$DOMAIN" == "$CERT" || "${DOMAIN#*.}" == "$CERT" ) ]] && sudo test -d "/etc/letsencrypt/live/$CERT"; then
+  sed -e "s/__DOMAIN__/$DOMAIN/" -e "s/__EXTRA_DOMAINS__/$EXTRA_DOMAINS/" -e "s/__CERT__/$CERT/g" deploy/server/nginx-ssl.conf | sudo tee /etc/nginx/sites-available/anekio >/dev/null
+else
+  sed -e "s/__DOMAIN__/$DOMAIN/" -e "s/__EXTRA_DOMAINS__/$EXTRA_DOMAINS/" deploy/server/nginx.conf | sudo tee /etc/nginx/sites-available/anekio >/dev/null
+  if sudo test -d "/etc/letsencrypt/live/$DOMAIN"; then sudo certbot install --nginx -d "$DOMAIN" --cert-name "$DOMAIN" --redirect --non-interactive >/dev/null 2>&1 || true; fi
+fi
 sudo nginx -t && sudo systemctl reload nginx
 bash deploy/server/cron.sh
 for i in $(seq 1 20); do curl -fsS http://127.0.0.1:4000/health >/dev/null && break; sleep 1; done
@@ -51,7 +62,7 @@ curl -fsS http://127.0.0.1:4000/health && echo
 ls -1dt /srv/anekio/releases/* | tail -n +4 | xargs -r rm -rf   # keep last 3
 REMOTE
 
-if [[ "${1:-}" == "--ssl" ]]; then
+if [[ "${1:-}" == "--ssl" && -z "$(state_get ZONE_ID)" ]]; then
   say "HTTPS certificate for $DOMAIN"
   $SSH "sudo certbot --nginx -d $DOMAIN --non-interactive --agree-tos -m $ALERT_EMAIL --redirect"
 fi
