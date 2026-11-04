@@ -31,6 +31,7 @@ import { actOp, runAct } from "../lib/run-act";
 import { errorFields, logger } from "../lib/logger";
 import { requestLogFields, requestPlatform, routeKey, shouldLogRequest } from "../lib/request-log";
 import { recordUsage, startUsageFlusher } from "../lib/usage";
+import { orgName, refreshOrgNames } from "../lib/org-names";
 import {
   SUPPORT_BLOCKED_OPS,
   SupportSessionError,
@@ -181,7 +182,7 @@ app.use((req, res, next) => {
     const user = res.locals.anekioUser as Parameters<typeof requestLogFields>[0]["user"];
     const op = req.path === "/api/v1/act" ? actOp((req.body || {}) as Record<string, unknown>) : undefined;
     const platformHeader = req.header("x-app-platform");
-    logger.info("req", requestLogFields({ method: req.method, path: req.path, status: res.statusCode, ms: Number(process.hrtime.bigint() - started) / 1e6, op, platformHeader, buildHeader: req.header("x-app-build"), user }));
+    logger.info("req", requestLogFields({ method: req.method, path: req.path, status: res.statusCode, ms: Number(process.hrtime.bigint() - started) / 1e6, op, platformHeader, buildHeader: req.header("x-app-build"), user, school: orgName(user?.orgId) }));
     if (user && res.statusCode < 500) recordUsage({ user, platform: requestPlatform(platformHeader), op: op || routeKey(req.method, req.path) });
   });
   next();
@@ -1948,6 +1949,7 @@ if (!process.env.VERCEL && (process.env.NODE_ENV !== "test" || process.env.TEST_
   app.listen(PORT, "0.0.0.0", () => {
     logger.info("server_start", { port: PORT });
     startUsageFlusher();
+    void refreshOrgNames();
   });
 }
 

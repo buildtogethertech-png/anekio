@@ -145,9 +145,15 @@ def check():
 
 
 def test_email():
-    body = {"receivers": [{"name": CONTACT, "grafana_managed_receiver_configs": [{"uid": "", "name": CONTACT, "type": "email", "settings": {"addresses": EMAIL, "singleEmail": True}}]}]}
-    code, res = api("POST", "/api/alertmanager/grafana/config/api/v1/receivers/test", body)
-    print(f"test email to {EMAIL}: HTTP {code} {json.dumps(res)[:300] if res else ''}")
+    _, settings = api("GET", "/api/frontend/settings")
+    ns = settings.get("namespace", "default")
+    base = f"/apis/notifications.alerting.grafana.app/v1beta1/namespaces/{ns}/receivers"
+    _, receivers = api("GET", base)
+    rec = next((r for r in receivers.get("items", []) if r["spec"]["title"] == CONTACT), None)
+    if not rec:
+        sys.exit("Run apply first: contact point not found.")
+    code, res = api("POST", f"{base}/{rec['metadata']['name']}/test", {"integration": rec["spec"]["integrations"][0]})
+    print(f"test email to {EMAIL}: HTTP {code} {json.dumps(res)[:200] if res else ''}")
 
 
 def wait_state(uid, want, timeout=240):

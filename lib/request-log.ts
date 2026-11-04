@@ -7,6 +7,7 @@ export type RequestLogInput = {
   op?: string;
   platformHeader?: string | null;
   buildHeader?: string | null;
+  school?: string;
   user?: { id: string; orgId?: string | null; role?: string | null; support?: unknown } | null;
 };
 
@@ -37,6 +38,7 @@ export function requestLogFields(input: RequestLogInput) {
     status: input.status,
     ms: Math.round(input.ms),
     org: input.user?.orgId || undefined,
+    school: input.school || undefined,
     user: input.user?.id,
     role: input.user?.role || undefined,
     support: input.user?.support ? true : undefined,

@@ -51,8 +51,9 @@ describe("request log", () => {
       platformHeader: "android",
       buildHeader: "42",
       user: { id: "u1", orgId: "o1", role: "teacher" },
+      school: "Alpha School",
     });
-    expect(fields).toEqual({ method: "POST", path: "/api/v1/act", op: "markAttendance", status: 200, ms: 84, org: "o1", user: "u1", role: "teacher", support: undefined, platform: "android", build: 42 });
+    expect(fields).toEqual({ method: "POST", path: "/api/v1/act", op: "markAttendance", status: 200, ms: 84, org: "o1", school: "Alpha School", user: "u1", role: "teacher", support: undefined, platform: "android", build: 42 });
   });
 });
 
@@ -112,5 +113,15 @@ describe("usage tracking", () => {
     expect(alpha).toMatchObject({ name: "Alpha", today: 2, week: 2, month: 2, roles: { teacher: 1, parent: 1 }, platforms: { web: 1, android: 1 } });
     expect(beta).toMatchObject({ name: "Beta", week: 0, month: 1 });
     expect(gamma).toMatchObject({ name: "Gamma", month: 0, lastSeenAt: null });
+  });
+});
+
+describe("org names for logs", () => {
+  it("returns cached school names without waiting for the database", async () => {
+    const { orgName, setOrgNamesForTest } = await import("../../lib/org-names");
+    setOrgNamesForTest([["o1", "Alpha School"]]);
+    expect(orgName("o1")).toBe("Alpha School");
+    expect(orgName("unknown")).toBeUndefined();
+    expect(orgName(null)).toBeUndefined();
   });
 });

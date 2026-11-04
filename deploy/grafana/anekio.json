@@ -1454,13 +1454,286 @@
       ]
     },
     {
+      "id": 31,
+      "type": "row",
+      "title": "\ud83c\udfeb  Schools activity (their own actions, support logins excluded)",
+      "collapsed": true,
+      "gridPos": {
+        "x": 0,
+        "y": 7,
+        "w": 24,
+        "h": 1
+      },
+      "panels": [
+        {
+          "id": 32,
+          "title": "Active schools",
+          "type": "stat",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 8,
+            "w": 6,
+            "h": 5
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "loki",
+                "uid": "${loki}"
+              },
+              "expr": "count(sum by (school) (count_over_time({job=\"anekio-app\"} | json msg=\"msg\", school=\"school\", support=\"support\" | msg=\"req\" | school!=\"\" | support!=\"true\" [$__range])))",
+              "queryType": "instant"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "color": {
+                "mode": "thresholds"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value",
+            "justifyMode": "center"
+          }
+        },
+        {
+          "id": 33,
+          "title": "Activity by school",
+          "type": "table",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "gridPos": {
+            "x": 6,
+            "y": 8,
+            "w": 18,
+            "h": 5
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "loki",
+                "uid": "${loki}"
+              },
+              "expr": "sum by (school) (count_over_time({job=\"anekio-app\"} | json msg=\"msg\", school=\"school\", support=\"support\" | msg=\"req\" | school!=\"\" | support!=\"true\" [$__range]))",
+              "queryType": "instant"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "color": {
+                "mode": "thresholds"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "sm"
+          },
+          "transformations": [
+            {
+              "id": "reduce",
+              "options": {
+                "reducers": [
+                  "lastNotNull"
+                ],
+                "labelsToFields": true
+              }
+            },
+            {
+              "id": "organize",
+              "options": {
+                "renameByName": {
+                  "Last *": "Actions",
+                  "Field": "Detail"
+                }
+              }
+            },
+            {
+              "id": "sortBy",
+              "options": {
+                "sort": [
+                  {
+                    "field": "Last *",
+                    "desc": true
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": 34,
+          "title": "What each school did",
+          "type": "table",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 13,
+            "w": 24,
+            "h": 10
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "loki",
+                "uid": "${loki}"
+              },
+              "expr": "topk(50, sum by (school, op) (count_over_time({job=\"anekio-app\"} | json msg=\"msg\", school=\"school\", support=\"support\", op=\"op\" | msg=\"req\" | school!=\"\" | support!=\"true\" | op!=\"\" [$__range])))",
+              "queryType": "instant"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "color": {
+                "mode": "thresholds"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "sm"
+          },
+          "transformations": [
+            {
+              "id": "reduce",
+              "options": {
+                "reducers": [
+                  "lastNotNull"
+                ],
+                "labelsToFields": true
+              }
+            },
+            {
+              "id": "organize",
+              "options": {
+                "renameByName": {
+                  "Last *": "Actions",
+                  "Field": "Detail"
+                }
+              }
+            },
+            {
+              "id": "sortBy",
+              "options": {
+                "sort": [
+                  {
+                    "field": "Last *",
+                    "desc": true
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": 35,
+          "title": "Recent changes (create / edit / delete)",
+          "type": "logs",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 23,
+            "w": 24,
+            "h": 10
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "loki",
+                "uid": "${loki}"
+              },
+              "expr": "{job=\"anekio-app\"} | json msg=\"msg\", school=\"school\", support=\"support\", method=\"method\", op=\"op\", role=\"role\", status=\"status\", path=\"path\" | msg=\"req\" | school!=\"\" | support!=\"true\" | method!=\"GET\" | path!~\"/api/v1/(login|me|app-version).*\" | line_format \"{{.school}} \u00b7 {{.role}} \u00b7 {{if .op}}{{.op}}{{else}}{{.method}} {{.path}}{{end}} \u00b7 {{.status}}\"",
+              "queryType": "range"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "color": {
+                "mode": "thresholds"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "showTime": true,
+            "wrapLogMessage": true,
+            "sortOrder": "Descending",
+            "enableLogDetails": true
+          }
+        }
+      ]
+    },
+    {
       "id": 25,
       "type": "row",
       "title": "\ud83d\udcf1  App usage & errors",
       "collapsed": true,
       "gridPos": {
         "x": 0,
-        "y": 7,
+        "y": 8,
         "w": 24,
         "h": 1
       },
@@ -1475,7 +1748,7 @@
           },
           "gridPos": {
             "x": 0,
-            "y": 8,
+            "y": 9,
             "w": 8,
             "h": 4
           },
@@ -1529,7 +1802,7 @@
           },
           "gridPos": {
             "x": 8,
-            "y": 8,
+            "y": 9,
             "w": 8,
             "h": 4
           },
@@ -1583,7 +1856,7 @@
           },
           "gridPos": {
             "x": 16,
-            "y": 8,
+            "y": 9,
             "w": 8,
             "h": 4
           },
@@ -1641,7 +1914,7 @@
           },
           "gridPos": {
             "x": 0,
-            "y": 12,
+            "y": 13,
             "w": 24,
             "h": 8
           },
