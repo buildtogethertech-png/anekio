@@ -39,7 +39,7 @@ cd "$R"
 ln -sf /srv/anekio/shared/.env .env
 npm ci --no-audit --no-fund --loglevel=error
 set -a; . ./.env; set +a
-node scripts/vercel-prisma.mjs
+PATH="$R/node_modules/.bin:$PATH" node scripts/vercel-prisma.mjs
 ln -sfn "$R" /srv/anekio/current
 pm2 startOrReload deploy/server/ecosystem.config.cjs --update-env && pm2 save
 sed -e "s/__DOMAIN__/$DOMAIN/" -e "s/__EXTRA_DOMAINS__/$EXTRA_DOMAINS/" deploy/server/nginx.conf | sudo tee /etc/nginx/sites-available/anekio >/dev/null
