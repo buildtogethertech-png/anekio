@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "scheme": "anekio",
     "userInterfaceStyle": "light",
-    "icon": "./assets/anekio-option-a-square.png",
+    "icon": "./assets/anekio-icon-white.png",
     "splash": {
       "backgroundColor": "#0B132B",
       "image": "./assets/anekio-option-a-square.png"
@@ -25,9 +25,9 @@
       "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "foregroundImage": "./assets/anekio-mark-adaptive.png",
-        "backgroundColor": "#0B132B"
+        "backgroundColor": "#FFFFFF"
       },
-      "versionCode": 18
+      "versionCode": 19
     },
     "web": {
       "bundler": "metro",
