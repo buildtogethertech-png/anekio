@@ -30,3 +30,8 @@ playwright-report/
 test-results/
 maestro-results/
 .env.test
+
+# AWS deploy state (ids + DB password) and production env
+deploy/aws/.state
+deploy/aws/.env*
+dist/

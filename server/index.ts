@@ -121,6 +121,8 @@ dotenv.config({ path: ".env.local" });
 dotenv.config();
 
 const app = express();
+// Behind Nginx (EC2) or Vercel: trust the first proxy so req.protocol / req.ip use X-Forwarded-* headers.
+app.set("trust proxy", 1);
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 12 * 1024 * 1024 } });
 const PORT = Number(process.env.PORT || 4000);
 // Vercel bundles this entrypoint as CommonJS, where ESM-only import.meta is invalid.
