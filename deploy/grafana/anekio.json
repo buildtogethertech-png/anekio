@@ -822,11 +822,11 @@
                   },
                   {
                     "color": "orange",
-                    "value": 20
+                    "value": 2
                   },
                   {
                     "color": "green",
-                    "value": 60
+                    "value": 10
                   }
                 ]
               },
@@ -847,7 +847,8 @@
             "graphMode": "none",
             "textMode": "value",
             "justifyMode": "center"
-          }
+          },
+          "description": "RDS t4g runs in unlimited mode: below 0 it keeps full speed but AWS bills extra CPU."
         },
         {
           "id": 29,
@@ -886,11 +887,11 @@
                   },
                   {
                     "color": "orange",
-                    "value": 104857600
+                    "value": 52428800
                   },
                   {
                     "color": "green",
-                    "value": 209715200
+                    "value": 104857600
                   }
                 ]
               },
@@ -911,7 +912,8 @@
             "graphMode": "none",
             "textMode": "value",
             "justifyMode": "center"
-          }
+          },
+          "description": "1 GB instance; Postgres keeps most of it as cache, so ~100 MB free is normal."
         },
         {
           "id": 30,
