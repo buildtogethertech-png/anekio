@@ -4,6 +4,7 @@
 set -euo pipefail
 ENV_FILE=/srv/anekio/shared/grafana.env
 [[ -f "$ENV_FILE" ]] || { echo "No $ENV_FILE: Grafana monitoring stays off."; exit 0; }
+grep -qE '^GRAFANA_TOKEN="?glc_' "$ENV_FILE" || { echo "GRAFANA_TOKEN not set in deploy/aws/.grafana.env: Grafana monitoring stays off."; exit 0; }
 cd "$(dirname "$0")"
 
 if ! command -v alloy >/dev/null; then
