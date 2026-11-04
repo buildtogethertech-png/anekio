@@ -7,6 +7,7 @@ NAME="anekio-prod"
 DOMAIN="${DOMAIN:-app.anekio.com}"           # app + API domain (DNS A record → Elastic IP)
 EXTRA_DOMAINS="${EXTRA_DOMAINS:-anekio.com www.anekio.com admin.anekio.com connect.anekio.com *.anekio.com}" # marketing, admin, school sites
 WILDCARD_DOMAIN="anekio.com"                 # Route 53 zone; one cert covers it + *.anekio.com (DNS-01)
+REDIRECT_DOMAINS="${REDIRECT_DOMAINS:-anekio.in}" # 301 to WILDCARD_DOMAIN; zone via 4-redirect-dns.sh, cert via HTTP-01
 ALERT_EMAIL="${ALERT_EMAIL:-support@anekio.com}" # budget alerts + Let's Encrypt
 INSTANCE_TYPE="t4g.small"                     # 2 vCPU / 2 GB, ARM
 DISK_GB=20

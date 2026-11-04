@@ -38,9 +38,9 @@ if [[ "${1:-}" == "--ssl" && -n "$(state_get ZONE_ID)" ]]; then
 fi
 
 say "Install, generate Prisma (Postgres), switch, reload"
-$SSH bash -s -- $(printf '%q ' "$REL" "$DOMAIN" "$EXTRA_DOMAINS" "$WILDCARD_DOMAIN") <<'REMOTE'   # ssh re-splits args: quote them
+$SSH bash -s -- $(printf '%q ' "$REL" "$DOMAIN" "$EXTRA_DOMAINS" "$WILDCARD_DOMAIN" "$REDIRECT_DOMAINS") <<'REMOTE'   # ssh re-splits args: quote them
 set -euo pipefail
-REL=$1; DOMAIN=$2; EXTRA_DOMAINS=$3; CERT=$4; R=/srv/anekio/releases/$REL
+REL=$1; DOMAIN=$2; EXTRA_DOMAINS=$3; CERT=$4; REDIRECTS=$5; R=/srv/anekio/releases/$REL
 chmod 600 /srv/anekio/shared/.env
 cd "$R"
 ln -sf /srv/anekio/shared/.env .env
@@ -55,6 +55,13 @@ else
   sed -e "s/__DOMAIN__/$DOMAIN/" -e "s/__EXTRA_DOMAINS__/$EXTRA_DOMAINS/" deploy/server/nginx.conf | sudo tee /etc/nginx/sites-available/anekio >/dev/null
   if sudo test -d "/etc/letsencrypt/live/$DOMAIN"; then sudo certbot install --nginx -d "$DOMAIN" --cert-name "$DOMAIN" --redirect --non-interactive >/dev/null 2>&1 || true; fi
 fi
+sudo mkdir -p /var/www/letsencrypt
+for FROM in $REDIRECTS; do
+  SITE=/etc/nginx/sites-available/anekio-redirect-$FROM
+  sed -e "s/__FROM_RE__/${FROM//./\\\\.}/g" -e "s/__FROM__/$FROM/g" -e "s/__TO__/$CERT/g" deploy/server/nginx-redirect.conf | sudo tee "$SITE" >/dev/null
+  if sudo test -d "/etc/letsencrypt/live/$FROM"; then sudo sed -i 's/^#SSL //' "$SITE"; fi
+  sudo ln -sf "$SITE" /etc/nginx/sites-enabled/
+done
 sudo nginx -t && sudo systemctl reload nginx
 bash deploy/server/cron.sh
 for i in $(seq 1 20); do curl -fsS http://127.0.0.1:4000/health >/dev/null && break; sleep 1; done
@@ -65,5 +72,13 @@ REMOTE
 if [[ "${1:-}" == "--ssl" && -z "$(state_get ZONE_ID)" ]]; then
   say "HTTPS certificate for $DOMAIN"
   $SSH "sudo certbot --nginx -d $DOMAIN --non-interactive --agree-tos -m $ALERT_EMAIL --redirect"
+fi
+if [[ "${1:-}" == "--ssl" ]]; then
+  for FROM in $REDIRECT_DOMAINS; do
+    say "HTTPS certificate for redirect domain $FROM + www.$FROM (HTTP-01)"
+    $SSH "sudo certbot certonly --webroot -w /var/www/letsencrypt -d $FROM -d www.$FROM --cert-name $FROM --keep-until-expiring \
+      --non-interactive --agree-tos -m $ALERT_EMAIL --deploy-hook 'systemctl reload nginx' \
+      && sudo sed -i 's/^#SSL //' /etc/nginx/sites-available/anekio-redirect-$FROM && sudo nginx -t && sudo systemctl reload nginx"
+  done
 fi
 say "Deployed $REL → http://$EIP  (https://$DOMAIN once DNS + --ssl are done)"
