@@ -170,7 +170,13 @@ export function NoticeInboxProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!token || !userId) return;
     const tick = () => refresh().catch(() => undefined);
-    const id = setInterval(tick, NOTICE_POLL_MS);
+    // Skip timer ticks while the tab is hidden or the app is in the background.
+    const visibleTick = () => {
+      if (Platform.OS === "web" && typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      if (Platform.OS !== "web" && AppState.currentState !== "active") return;
+      tick();
+    };
+    const id = setInterval(visibleTick, NOTICE_POLL_MS);
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active") tick();
     });

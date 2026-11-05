@@ -101,6 +101,7 @@ describe("StaffBoard leave requests", () => {
       setChildId: jest.fn(),
       reload,
       reloadSilently: reload,
+      reloadInBackground: reload,
     }));
     mockUseSession.mockReturnValue({
       token: "office-token",
@@ -621,6 +622,7 @@ describe("RolesBoard permission scopes", () => {
       setChildId: jest.fn(),
       reload: jest.fn().mockResolvedValue(undefined),
       reloadSilently: jest.fn().mockResolvedValue(undefined),
+      reloadInBackground: jest.fn().mockResolvedValue(undefined),
     });
     mockUseSession.mockReturnValue({
       token: "office-token",

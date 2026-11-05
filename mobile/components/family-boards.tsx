@@ -216,7 +216,7 @@ function friendlyHint(text?: string) {
 }
 
 export function TeacherDeskBoard() {
-  const { data, reload, reloadSilently } = useRecord();
+  const { data, reload, reloadSilently, reloadInBackground } = useRecord();
   const { token, user } = useSession();
   const router = useRouter();
   const toast = useToast();
@@ -484,7 +484,7 @@ export function TeacherDeskBoard() {
                 token={token}
                 disabled={Boolean(todayClosed)}
                 alreadyMarked={Boolean(data.staffAttendanceSelf.today?.marked)}
-                onRefresh={reloadSilently}
+                onRefresh={reloadInBackground}
                 onMessage={toast.show}
               />
             </View>
@@ -608,7 +608,7 @@ export function TeacherDeskBoard() {
             token={token}
             disabled={Boolean(todayClosed)}
             alreadyMarked={Boolean(data.staffAttendanceSelf.today?.marked)}
-            onRefresh={reloadSilently}
+            onRefresh={reloadInBackground}
             tile
             round
             onMessage={toast.show}

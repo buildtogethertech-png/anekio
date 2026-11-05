@@ -4946,7 +4946,7 @@ function leaveRange(from: string, to: string) {
 }
 
 export function StaffBoard() {
-  const { data, reload, reloadSilently } = useRecord();
+  const { data, reload, reloadInBackground } = useRecord();
   const { token, user } = useSession();
   const toast = useToast();
   const router = useRouter();
@@ -5521,7 +5521,7 @@ export function StaffBoard() {
               token={token}
               disabled={locked || Boolean(data.staffAttendanceSelf.today?.marked)}
               alreadyMarked={Boolean(data.staffAttendanceSelf.today?.marked)}
-              onRefresh={reloadSilently}
+              onRefresh={reloadInBackground}
               onMessage={toast.show}
             />
           ) : null}

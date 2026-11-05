@@ -55,6 +55,7 @@ function mockToday(today: { marked: boolean; date: string; inAt?: string } | nul
     setChildId: jest.fn(),
     reload: jest.fn(),
     reloadSilently,
+    reloadInBackground: jest.fn().mockResolvedValue(undefined),
   } as unknown as ReturnType<typeof useOptionalRecord>);
   return reloadSilently;
 }
@@ -104,13 +105,15 @@ describe("teacher attendance QR", () => {
     expect(screen.getByRole("button", { name: "Attendance already marked for today" })).toBeDisabled();
   });
 
-  it("refetches server state on an interval", () => {
+  it("refreshes in the background every 30 s, not on mount (RecordProvider already loaded)", () => {
     jest.useFakeTimers();
     const onRefresh = jest.fn();
     render(<StaffAttendanceQrButton token="tok" alreadyMarked={false} onRefresh={onRefresh} onMessage={jest.fn()} />);
-    expect(onRefresh).toHaveBeenCalled();
+    expect(onRefresh).not.toHaveBeenCalled();
     jest.advanceTimersByTime(15000);
-    expect(onRefresh.mock.calls.length).toBeGreaterThan(1);
+    expect(onRefresh).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(15000);
+    expect(onRefresh).toHaveBeenCalledTimes(1);
     jest.useRealTimers();
   });
 

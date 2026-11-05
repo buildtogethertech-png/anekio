@@ -1,4 +1,5 @@
-export const NOTICE_POLL_MS = 5_000;
+/** Background check for new notices. Push delivers them at once on phones; opening/focusing the app checks too. */
+export const NOTICE_POLL_MS = 60_000;
 
 export function initialSeenNoticeIds(stored: string[] | null, noticeIds: string[]) {
   return stored ? [...stored] : [...noticeIds];

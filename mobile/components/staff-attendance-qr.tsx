@@ -26,6 +26,11 @@ type ScanResult = {
 
 type ResultTone = "idle" | "success" | "warn" | "danger";
 
+/** Background ticks; RecordProvider still loads at most every BACKGROUND_REFRESH_MS. */
+const BACKGROUND_TICK_MS = 30_000;
+/** While a QR sheet is open, refresh this often so a scan elsewhere shows up quickly. */
+const QR_OPEN_REFRESH_MS = 10_000;
+
 function ResultPanel({ tone, title, body }: { tone: ResultTone; title: string; body: string }) {
   const classes =
     tone === "success"
@@ -228,6 +233,10 @@ export function StaffAttendanceQrButton({
   const onRefreshRef = useRef(onRefresh);
   onRefreshRef.current = onRefresh;
   const autoRefresh = Boolean(onRefresh);
+  const recordCtx = useOptionalRecord();
+  const liveReloadRef = useRef(recordCtx?.reloadSilently);
+  liveReloadRef.current = recordCtx?.reloadSilently;
+  const liveReload = Boolean(recordCtx);
 
   useEffect(() => {
     if (!autoRefresh) return;
@@ -243,8 +252,8 @@ export function StaffAttendanceQrButton({
     if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
       document.addEventListener("visibilitychange", onVis);
     }
-    const id = setInterval(refresh, 15000);
-    refresh();
+    // RecordProvider already loads on mount; callers pass its throttled reloadInBackground.
+    const id = setInterval(refresh, BACKGROUND_TICK_MS);
     return () => {
       if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
         window.removeEventListener("focus", refresh);
@@ -255,6 +264,14 @@ export function StaffAttendanceQrButton({
       clearInterval(id);
     };
   }, [autoRefresh]);
+
+  // While the QR sheet is open, keep "marked" status live (a scan on another device). Uses the
+  // unthrottled reload; the background timer above is throttled by RecordProvider.
+  useEffect(() => {
+    if (!open || !liveReload) return;
+    const id = setInterval(() => void liveReloadRef.current?.(), QR_OPEN_REFRESH_MS);
+    return () => clearInterval(id);
+  }, [open, liveReload]);
 
   async function generate() {
     if (blocked) {
@@ -853,8 +870,11 @@ export function QrDockButton({
   const [qrOpen, setQrOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [qr, setQr] = useState<StaffQrResult | null>(null);
-  const reloadRef = useRef(record?.reloadSilently);
-  reloadRef.current = record?.reloadSilently;
+  const reloadRef = useRef(record?.reloadInBackground);
+  reloadRef.current = record?.reloadInBackground;
+  const liveReloadRef = useRef(record?.reloadSilently);
+  liveReloadRef.current = record?.reloadSilently;
+  const liveReload = Boolean(record);
 
   useEffect(() => {
     if (!hasSelfQr) return;
@@ -870,8 +890,8 @@ export function QrDockButton({
     if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
       document.addEventListener("visibilitychange", onVis);
     }
-    const id = setInterval(refresh, 15000);
-    refresh();
+    // Throttled by RecordProvider: several dock buttons and focus events share one /record load.
+    const id = setInterval(refresh, BACKGROUND_TICK_MS);
     return () => {
       if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
         window.removeEventListener("focus", refresh);
@@ -882,6 +902,14 @@ export function QrDockButton({
       clearInterval(id);
     };
   }, [hasSelfQr]);
+
+  // While the QR sheet is open, keep "marked" status live (a scan on another device). Uses the
+  // unthrottled reload; the background timer above is throttled by RecordProvider.
+  useEffect(() => {
+    if (!qrOpen || !liveReload) return;
+    const id = setInterval(() => void liveReloadRef.current?.(), QR_OPEN_REFRESH_MS);
+    return () => clearInterval(id);
+  }, [qrOpen, liveReload]);
 
   async function showMine() {
     if (alreadyMarked) {

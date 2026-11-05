@@ -9,7 +9,7 @@ import {
 } from "../notice-seen";
 describe("local notice seen state", () => {
   it("uses a 5-second poll interval so the bell badge updates without opening the panel", () => {
-    expect(NOTICE_POLL_MS).toBe(5_000);
+    expect(NOTICE_POLL_MS).toBe(60_000);
   });
 
   it("marks the first snapshot as seen so historical notices do not badge", () => {

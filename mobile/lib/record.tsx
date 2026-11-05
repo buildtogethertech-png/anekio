@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "./api";
 import { useSession } from "./session";
 import { getChildId, setChildId as persistChildId } from "./storage";
@@ -992,9 +992,16 @@ type Ctx = {
   setChildId: (id: string) => void;
   /** Pull-to-refresh style: shows the refresh spinner while loading. */
   reload: () => Promise<void>;
-  /** Background refresh (timers, focus): updates the data without the spinner. */
+  /** Refresh after the user's own action (save, edit): always loads, without the spinner. */
   reloadSilently: () => Promise<void>;
+  /**
+   * Timers and window focus only: skipped when the data loaded less than BACKGROUND_REFRESH_MS ago, and
+   * callers that fire together share one request. Never use it after a save — use reloadSilently.
+   */
+  reloadInBackground: () => Promise<void>;
 };
+
+export const BACKGROUND_REFRESH_MS = 30_000;
 
 const RecordContext = createContext<Ctx | null>(null);
 
@@ -1005,6 +1012,8 @@ export function RecordProvider({ children }: { children: ReactNode }) {
   const [refreshing, setRefreshing] = useState(false);
   const [childId, setChildId] = useState<string | undefined>();
   const [childReady, setChildReady] = useState(false);
+  const lastLoadedAt = useRef(0);
+  const backgroundLoad = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
     getChildId()
@@ -1018,6 +1027,7 @@ export function RecordProvider({ children }: { children: ReactNode }) {
     if (!token) return;
     const q = childId ? `?childId=${encodeURIComponent(childId)}` : "";
     const next = await api<RecordPayload>(`/record${q}`, token);
+    lastLoadedAt.current = Date.now();
     setData(next);
   }, [token, childId]);
 
@@ -1053,9 +1063,18 @@ export function RecordProvider({ children }: { children: ReactNode }) {
     }
   }, [reload]);
 
+  const reloadInBackground = useCallback(async () => {
+    if (backgroundLoad.current) return backgroundLoad.current;
+    if (Date.now() - lastLoadedAt.current < BACKGROUND_REFRESH_MS) return;
+    backgroundLoad.current = reloadSilently().finally(() => {
+      backgroundLoad.current = null;
+    });
+    return backgroundLoad.current;
+  }, [reloadSilently]);
+
   const value = useMemo<Ctx>(
-    () => ({ data, error, refreshing, childId, setChildId: onSetChild, reload: reloadWithSpinner, reloadSilently }),
-    [data, error, refreshing, childId, onSetChild, reloadWithSpinner, reloadSilently]
+    () => ({ data, error, refreshing, childId, setChildId: onSetChild, reload: reloadWithSpinner, reloadSilently, reloadInBackground }),
+    [data, error, refreshing, childId, onSetChild, reloadWithSpinner, reloadSilently, reloadInBackground]
   );
 
   return (
