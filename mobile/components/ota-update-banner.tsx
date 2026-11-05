@@ -40,7 +40,7 @@ export function OtaUpdateBanner() {
   if (hidden) return null;
   if (!PREVIEW && (!enabled || !isUpdatePending || critical)) return null;
   return (
-    <View pointerEvents="box-none" className="absolute inset-x-0 top-0 px-3 pt-12">
+    <View pointerEvents="box-none" className="absolute inset-x-0 bottom-0 px-3 pb-24">
       <View className="flex-row items-center gap-3 rounded-2xl bg-ink-900 px-4 py-3" style={{ elevation: 12 }}>
         <Ionicons name="sparkles-outline" size={18} color="#fff" />
         <Text className="min-w-0 flex-1 text-[13px] text-white">Anekio has been updated.</Text>
