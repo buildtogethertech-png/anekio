@@ -50,6 +50,7 @@ bash deploy/push.sh
 | Task | Command |
 |---|---|
 | Deploy | `npm run deploy:prod` (same as `bash deploy/push.sh`; switches to Node 20 itself) |
+| Only the env changed | Edit `deploy/aws/.env.production`, then `npm run deploy:env` (~5 s, no build). `EXPO_PUBLIC_*` still needs `deploy:prod` |
 | SSH into the server | `ssh anekio` (add the `Host anekio` block from below to `~/.ssh/config`) |
 | SSH times out (your IP changed) | `bash deploy/aws/ssh-allow-my-ip.sh` |
 | Logs | `ssh anekio 'pm2 logs anekio --lines 100'` |

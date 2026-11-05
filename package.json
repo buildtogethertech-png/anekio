@@ -9,6 +9,7 @@
     "api": "tsx watch server/index.ts",
     "start": "tsx server/index.ts",
     "deploy:prod": "bash deploy/push.sh",
+    "deploy:env": "bash deploy/env.sh",
     "deploy:logs": "bash deploy/logs.sh",
     "typecheck:server": "tsc --noEmit",
     "typecheck:mobile": "npm --prefix mobile run typecheck",
