@@ -9,7 +9,7 @@
  */
 const VARIANTS = {
   development: { name: "Anekio Dev", id: "in.anekio.school.dev", scheme: "anekio-dev" },
-  preview: { name: "Anekio Preview", id: "in.anekio.school.preview", scheme: "anekio-preview" },
+  preview: { name: "Anekio Preview", id: "in.anekio.school.preview", scheme: "anekio-preview", channel: "preview" },
 };
 
 module.exports = ({ config: base }) => {
@@ -23,5 +23,8 @@ module.exports = ({ config: base }) => {
     scheme: variant.scheme,
     android: { ...config.android, package: variant.id },
     ios: { ...config.ios, bundleIdentifier: variant.id },
+    // EAS builds get their channel from eas.json; local test APKs (npm run build-apk:quick) need it here
+    // so `npm run update:preview` reaches them.
+    ...(variant.channel ? { updates: { ...config.updates, requestHeaders: { "expo-channel-name": variant.channel } } } : {}),
   };
 };
