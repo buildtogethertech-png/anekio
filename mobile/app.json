@@ -55,6 +55,15 @@
           "microphonePermission": false,
           "recordAudioAndroid": false
         }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableMinifyInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true
+          }
+        }
       ]
     ],
     "experiments": {
@@ -66,6 +75,14 @@
         "projectId": "c81e3cb5-d728-4ac2-b626-718b3efc2b53"
       }
     },
-    "owner": "buildtogether"
+    "owner": "buildtogether",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/c81e3cb5-d728-4ac2-b626-718b3efc2b53",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    }
   }
 }

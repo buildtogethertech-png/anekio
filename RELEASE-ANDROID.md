@@ -216,3 +216,18 @@ Test the blocker in Dev: set minimum to `20` in the admin console, then
 | Play: "another user has installed an incompatible version" | A local build with the store ID is on the phone (maybe in a second profile). `adb uninstall in.anekio.school` |
 | Expo: "used its Android builds from the Free plan" | Use the `:local` commands until the monthly reset. |
 | Works in Expo Go, crashes in the APK | Reproduce with `--no-dev --minify` and read `adb logcat`. Never put CSS `animation`/`transition` rules in `global.css` (they live in `web-effects.css`). |
+
+## Over-the-air (OTA) updates — no Play review
+Builds from **build 20** onward include `expo-updates`. JS/UI changes can go straight to installed apps:
+
+```bash
+npm run update:preview -- "What changed"              # test APKs first (production-test / preview builds)
+npm run update:prod    -- "What changed"              # everyone: "Tap to refresh" banner, applies on next open
+npm run update:prod    -- --critical "Fee total fix"  # installs as soon as it downloads
+```
+- Needs an Expo login once: `cd mobile && npx eas-cli login`.
+- Still needs a Play build: new native packages, permissions, icon/splash/name, `app.json` native settings, Expo SDK upgrades.
+  `runtimeVersion` uses a fingerprint, so an update never reaches a build with different native code.
+- Undo: `cd mobile && npx eas-cli update:republish` and pick the previous update.
+- Release builds use R8 (minify + shrink resources) via `expo-build-properties`. Test a release APK
+  (`npm run build:apk:prod`) after adding a native library, in case it needs a ProGuard keep rule.

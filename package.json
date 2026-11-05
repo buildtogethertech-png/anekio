@@ -10,6 +10,8 @@
     "start": "tsx server/index.ts",
     "deploy:prod": "bash deploy/push.sh",
     "deploy:env": "bash deploy/env.sh",
+    "update:prod": "bash scripts/ota-update.sh production",
+    "update:preview": "bash scripts/ota-update.sh preview",
     "deploy:logs": "bash deploy/logs.sh",
     "typecheck:server": "tsc --noEmit",
     "typecheck:mobile": "npm --prefix mobile run typecheck",

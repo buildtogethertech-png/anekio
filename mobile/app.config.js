@@ -12,7 +12,9 @@ const VARIANTS = {
   preview: { name: "Anekio Preview", id: "in.anekio.school.preview", scheme: "anekio-preview" },
 };
 
-module.exports = ({ config }) => {
+module.exports = ({ config: base }) => {
+  // OTA_CRITICAL=1 (npm run update:prod -- --critical) marks an update that installs as soon as it downloads.
+  const config = { ...base, extra: { ...base.extra, otaCritical: process.env.OTA_CRITICAL === "1" } };
   const variant = VARIANTS[process.env.APP_VARIANT || ""];
   if (!variant) return config;
   return {

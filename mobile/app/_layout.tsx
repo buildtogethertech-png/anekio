@@ -7,6 +7,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { NoticeInboxProvider } from "../lib/notice-inbox";
 import { UpdateGate } from "../components/update-gate";
+import { OtaUpdateBanner } from "../components/ota-update-banner";
 import { GlobalDocViewer } from "../components/doc-viewer";
 import { SessionProvider } from "../lib/session";
 import { KeyboardProvider } from "../lib/keyboard";
@@ -34,6 +35,7 @@ export default function RootLayout() {
             />
             <GlobalDocViewer />
             <UpdateGate />
+            <OtaUpdateBanner />
           </NoticeInboxProvider>
         </SessionProvider>
         </KeyboardProvider>
