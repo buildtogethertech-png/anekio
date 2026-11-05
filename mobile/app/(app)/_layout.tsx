@@ -12,6 +12,8 @@ import { ProfileMenuButton } from "../../components/profile-menu";
 import { KioskTopButton } from "../../components/staff-attendance-qr";
 import { OnboardingBoard } from "../../components/onboarding-board";
 import { RecordProvider, useRecord } from "../../lib/record";
+import { FocusDayProvider } from "../../lib/class-focus";
+import { FocusBreakSheet } from "../../components/focus-day-bar";
 import { useSession } from "../../lib/session";
 import { useAssetUrl } from "../../lib/assets";
 import { api } from "../../lib/api";
@@ -419,6 +421,7 @@ export default function AppLayout() {
 
   return (
     <RecordProvider>
+      <FocusDayProvider>
       {scanOnly ? (
         <View className="min-h-0 flex-1 overflow-hidden bg-ink-900">
           <Slot />
@@ -479,6 +482,8 @@ export default function AppLayout() {
           <SupportBanner />
         </View>
       )}
+      <FocusBreakSheet />
+      </FocusDayProvider>
     </RecordProvider>
   );
 }

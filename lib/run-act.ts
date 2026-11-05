@@ -452,6 +452,18 @@ export async function runAct(
       const { markTeacherOut } = await import("./timetable-day");
       return await markTeacherOut(user, body as never);
     }
+    case "logSchoolDay": {
+      const { logSchoolDayCore } = await import("./school-day");
+      return await logSchoolDayCore(user, body as never);
+    }
+    case "schoolDayReport": {
+      const { schoolDayReportCore } = await import("./school-day");
+      return await schoolDayReportCore(user, body as never);
+    }
+    case "saveSchoolDay": {
+      const { saveSchoolDayCore } = await import("./school-day");
+      return await saveSchoolDayCore(user, body as never);
+    }
     case "saveActivityCatalog": {
       const { saveActivityCatalogCore } = await import("./school-activities");
       return await saveActivityCatalogCore(user, body as never);

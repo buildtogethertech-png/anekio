@@ -983,6 +983,8 @@ model SchoolConfig {
   /// Routine auto-fill rules (JSON): class teacher period 1, same period daily, heavy subjects in the morning,
   /// double periods per subject, teacher unavailable periods. Empty = no rules.
   timetableRulesJson      String                    @default("")
+  /// Teachers' phones during the school day (Settings → HR & Payroll → Teacher phones). "" = off.
+  schoolDayJson           String                    @default("")
   /// Admission number look for new students: {N} = serial, {YYYY}/{YY} = session year. Empty = copy the last number.
   admissionNoFormat       String                    @default("")
   /// Zero padding for {N}. 0 = copy the last number's padding.
@@ -1285,6 +1287,26 @@ model ClassAttendanceCover {
 
   @@unique([date, classId])
   @@index([teacherId, date])
+}
+
+/// Teachers' school-day phone log (Settings → HR & Payroll → Teacher phones): day start, breaks with
+/// their reason, back to focus, guard turned off, day end. Sent by the teacher's Android app.
+model StaffPhoneEvent {
+  id         String   @id @default(cuid())
+  orgId      String?
+  userId     String
+  /// The school date (YYYY-MM-DD) of the event.
+  date       String
+  /// start | break | resume | class_started | guard_off | end | auto_end
+  type       String
+  at         DateTime
+  reason     String   @default("")
+  /// Id the phone gave the event, so a resend is not stored twice.
+  clientId   String
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, clientId])
+  @@index([date])
 }
 
 model SchoolHoliday {

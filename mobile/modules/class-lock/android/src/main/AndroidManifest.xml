@@ -1,0 +1,26 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!-- School day guard: covers other apps while the day is in focus and Anekio is not on screen. -->
+  <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+  <application>
+    <service
+      android:name="expo.modules.classlock.FocusDayService"
+      android:exported="false"
+      android:foregroundServiceType="specialUse">
+      <property
+        android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+        android:value="School day focus: keeps the teacher's phone on the school app during class hours, set by the school." />
+    </service>
+    <receiver
+      android:name="expo.modules.classlock.FocusDayBootReceiver"
+      android:exported="false">
+      <intent-filter>
+        <action android:name="android.intent.action.BOOT_COMPLETED" />
+        <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+      </intent-filter>
+    </receiver>
+  </application>
+</manifest>
