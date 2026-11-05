@@ -2,22 +2,26 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Updates from "expo-updates";
 import { useEffect, useRef, useState } from "react";
 import { AppState, Platform, Pressable, Text, View } from "react-native";
-import { isCriticalUpdate, shouldCheckAgain } from "../lib/ota";
+import { canAutoReload, isCriticalUpdate, shouldCheckAgain } from "../lib/ota";
 
 /** Dev only: EXPO_PUBLIC_OTA_BANNER_PREVIEW=1 shows the banner with a fake update, to check how it looks. */
 const PREVIEW = __DEV__ && process.env.EXPO_PUBLIC_OTA_BANNER_PREVIEW === "1";
 
+/** When this JS bundle started; a critical update that arrives soon after reloads without asking. */
+const LAUNCHED_AT = Date.now();
+
 /**
  * Mounted once in the root layout (Android/iOS release builds only).
  * The app checks for an update on launch (app.json updates.checkAutomatically) and again when it returns to
- * the foreground after 30 min. A downloaded update shows a small "Tap to refresh" banner; a critical one
- * reloads straight away.
+ * the foreground after 30 min. A downloaded update shows a small "Tap to refresh" banner. A critical one
+ * reloads straight away if it arrived within 5 s of launch; later it shows a banner that cannot be dismissed.
  */
 
 export function OtaUpdateBanner() {
   const enabled = Platform.OS !== "web" && !__DEV__ && Updates.isEnabled;
   const { isUpdatePending, downloadedUpdate } = Updates.useUpdates();
   const [hidden, setHidden] = useState(false);
+  const [autoReloading, setAutoReloading] = useState(false);
   const lastCheck = useRef(Date.now());
   const critical = isCriticalUpdate(downloadedUpdate?.manifest);
 
@@ -34,22 +38,28 @@ export function OtaUpdateBanner() {
   }, [enabled]);
 
   useEffect(() => {
-    if (enabled && isUpdatePending && critical) void Updates.reloadAsync().catch(() => undefined);
+    if (!enabled || !isUpdatePending || !critical || !canAutoReload(LAUNCHED_AT, Date.now())) return;
+    setAutoReloading(true);
+    void Updates.reloadAsync().catch(() => setAutoReloading(false));
   }, [enabled, isUpdatePending, critical]);
 
-  if (hidden) return null;
-  if (!PREVIEW && (!enabled || !isUpdatePending || critical)) return null;
+  if (autoReloading || (hidden && !critical)) return null;
+  if (!PREVIEW && (!enabled || !isUpdatePending)) return null;
   return (
     <View pointerEvents="box-none" className="absolute inset-x-0 bottom-0 px-3 pb-24">
       <View className="flex-row items-center gap-3 rounded-2xl bg-ink-900 px-4 py-3" style={{ elevation: 12 }}>
-        <Ionicons name="sparkles-outline" size={18} color="#fff" />
-        <Text className="min-w-0 flex-1 text-[13px] text-white">Anekio has been updated.</Text>
+        <Ionicons name={critical ? "alert-circle-outline" : "sparkles-outline"} size={18} color="#fff" />
+        <Text className="min-w-0 flex-1 text-[13px] text-white">
+          {critical ? "Important update. Save your work, then refresh." : "Anekio has been updated."}
+        </Text>
         <Pressable accessibilityRole="button" onPress={() => (PREVIEW ? setHidden(true) : void Updates.reloadAsync().catch(() => undefined))} hitSlop={6}>
-          <Text className="text-[13px] font-semibold text-[#93B4FF]">Tap to refresh</Text>
+          <Text className="text-[13px] font-semibold text-[#93B4FF]">{critical ? "Refresh" : "Tap to refresh"}</Text>
         </Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="Dismiss" onPress={() => setHidden(true)} hitSlop={8}>
-          <Ionicons name="close" size={18} color="#CBD5E1" />
-        </Pressable>
+        {critical ? null : (
+          <Pressable accessibilityRole="button" accessibilityLabel="Dismiss" onPress={() => setHidden(true)} hitSlop={8}>
+            <Ionicons name="close" size={18} color="#CBD5E1" />
+          </Pressable>
+        )}
       </View>
     </View>
   );

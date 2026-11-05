@@ -19,7 +19,8 @@ if [ ! -d android ] || [ app.json -nt android/build.gradle ] || [ app.config.js 
 fi
 
 cd android
-./gradlew assembleRelease
+rm -rf app/build/generated/assets/createReleaseUpdatesResources   # Gradle can reuse a stale OTA fingerprint; force a fresh one
+./gradlew assembleRelease -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g"   # R8 needs more than the default 512m metaspace
 
 APK="$MOBILE_DIR/android/app/build/outputs/apk/release/app-release.apk"
 OUT="$MOBILE_DIR/anekio-test-$(date +%Y%m%d-%H%M).apk"

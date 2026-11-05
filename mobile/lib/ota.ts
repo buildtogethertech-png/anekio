@@ -10,6 +10,16 @@ export function isCriticalUpdate(manifest: unknown): boolean {
 /** Re-check for an update when the app comes back to the foreground, at most this often. */
 export const OTA_RECHECK_MS = 30 * 60_000;
 
+/**
+ * A critical update reloads by itself only right after launch, before the user has started doing anything.
+ * Later (e.g. it arrived while they were filling a form) it asks instead, so no unsaved work is lost.
+ */
+export const CRITICAL_AUTO_RELOAD_MS = 5_000;
+
+export function canAutoReload(launchedAt: number, now: number, within = CRITICAL_AUTO_RELOAD_MS) {
+  return now - launchedAt <= within;
+}
+
 export function shouldCheckAgain(lastCheckedAt: number, now: number, every = OTA_RECHECK_MS) {
   return now - lastCheckedAt >= every;
 }
