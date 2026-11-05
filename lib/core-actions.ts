@@ -30,6 +30,7 @@ import { closedReason, paperDates, parseHolidayText, snapToSchoolDay, type Paper
 import { classifyFromIn, normalizeHHmm, parsePayrollRules, personKey, type PayrollRules } from "./payroll";
 import { hasLiveSalaryPayments } from "./salary-payments";
 import { loadSchoolCalendar } from "./leave";
+import { cleanActivity } from "./timetable-activity";
 import { earliestStaffInAt, staffAttendanceInMark, staffDayInstant, staffDayWindow, staffDayYmd } from "./staff-day";
 import { addDays, examPlanWeight, effectiveExamPlan, DEFAULT_EXAM_PLAN, parseExamPlan, ymd } from "./exams";
 import { teacherCanEditMarks, teacherMayEnterMarks, teacherMarksBlock } from "./exam-workflow";
@@ -1392,6 +1393,8 @@ export async function markAttendanceCore(
       /off$/i.test(closed) ? `${closed}. Attendance is not marked.` : `${closed} — school closed. Attendance is not marked.`
     );
   }
+  const { assertAttendanceClasses } = await import("./class-attendance-cover");
+  await assertAttendanceClasses(user, stamp, input.rows.map((row) => row.studentId));
   const day = new Date(input.date);
   day.setHours(0, 0, 0, 0);
   for (const row of input.rows) {
@@ -1462,6 +1465,24 @@ async function writeStaffDayOnStamp(
   }
 }
 
+/**
+ * Today's staff attendance for a teacher also drives the day's routine: absent / leave puts their
+ * periods into "needs cover", present again takes them (and any class attendance hand-over) back.
+ * Never blocks the attendance save.
+ */
+async function syncTeacherDayFromStaffMark(authorId: string, kind: "teacher" | "staff", id: string, stamp: string, out: boolean) {
+  if (stamp !== staffDayYmd(new Date())) return;
+  try {
+    const teacherId =
+      kind === "teacher" ? id : (await prisma.teacher.findFirst({ where: { staffMemberId: id }, select: { id: true } }))?.id;
+    if (!teacherId) return;
+    const { syncTeacherOutFromStaffDay } = await import("./timetable-day");
+    await syncTeacherOutFromStaffDay(authorId, teacherId, stamp, out);
+  } catch (error) {
+    console.error("[staff-attendance] could not update the day's routine", error);
+  }
+}
+
 export async function markStaffAttendanceCore(
   user: AccessUser,
   input: {
@@ -1495,6 +1516,7 @@ export async function markStaffAttendanceCore(
     if (row.clear) {
       await deleteStaffDaysOnStamp(row.kind, row.id, stamp);
       written.push({ kind: row.kind, id: row.id, date: stamp, status: "ABSENT", inAt: "" });
+      await syncTeacherDayFromStaffMark(user.id, row.kind, row.id, stamp, false);
       continue;
     }
     const next = classifyStaffDay(row.status, row.inAt, row.outAt, rules);
@@ -1507,6 +1529,7 @@ export async function markStaffAttendanceCore(
       computedStatus: next.computedStatus,
     });
     written.push({ kind: row.kind, id: row.id, date: stamp, status: next.status, inAt: next.inAt });
+    await syncTeacherDayFromStaffMark(user.id, row.kind, row.id, stamp, next.status === "ABSENT" || next.status === "LEAVE");
   }
   return { days: written };
 }
@@ -1589,6 +1612,7 @@ export async function scanStaffAttendanceQrCore(user: AccessUser, input: { code:
     computedStatus: next.computedStatus,
     remark: "Marked by attendance QR scan.",
   });
+  await syncTeacherDayFromStaffMark(user.id, ticket.kind, ticket.id, stamp, false);
   ticket.usedAt = Date.now();
   staffAttendanceQrTokens.set(token, ticket);
   return {
@@ -1700,6 +1724,7 @@ export async function correctStaffAttendanceCore(
     startTimeUsed: existing?.startTimeUsed || "",
   });
   if (fromStatus !== status) {
+    await syncTeacherDayFromStaffMark(user.id, input.kind, input.id, stamp, status === "ABSENT" || status === "LEAVE");
     await prisma.staffAttendanceAudit.create({
       data: {
         personKey: key,
@@ -2688,6 +2713,8 @@ export async function saveTimetableSlotCore(
     teacherId?: string | null;
     subjectId?: string | null;
     subjectName?: string;
+    /** Non-exam period (Games, Library…) instead of a subject. */
+    activity?: string;
     clear?: boolean;
   }
 ) {
@@ -2705,11 +2732,13 @@ export async function saveTimetableSlotCore(
   if (!days.includes(weekday)) throw new Error("School is closed that day");
   const period = await prisma.period.findUnique({ where: { id: periodId } });
   if (!period) throw new Error("Period missing");
-  if (input.clear || (!subjectId && !input.subjectName && !teacherId)) {
+  const activity = cleanActivity(input.activity);
+  if (input.clear || (!subjectId && !input.subjectName && !teacherId && !activity)) {
     await prisma.timetableSlot.deleteMany({ where: { classId, periodId, weekday } });
     return { ok: true as const };
   }
   if (period.isBreak) throw new Error("A break cannot take a lesson.");
+  if (activity) return saveActivitySlot({ classId, periodId, weekday, teacherId, activity, periodName: period.name });
   if (!teacherId) throw new Error("Pick a teacher assigned to this subject.");
   const klass = await prisma.class.findUnique({ where: { id: classId } });
   if (!klass) throw new Error("Class required");
@@ -2782,13 +2811,50 @@ export async function saveTimetableSlotCore(
   if (existing) {
     await prisma.timetableSlot.update({
       where: { id: existing.id },
-      data: { subjectId, teacherId },
+      data: { subjectId, teacherId, activity: "" },
     });
   } else {
     await prisma.timetableSlot.create({
       data: { classId, periodId, weekday, subjectId, teacherId },
     });
   }
+  return { ok: true as const };
+}
+
+/** A period with an activity (no subject, never in exams). The teacher is optional, e.g. Assembly. */
+async function saveActivitySlot(input: { classId: string; periodId: string; weekday: number; teacherId: string | null; activity: string; periodName: string }) {
+  const { classId, periodId, weekday, teacherId } = input;
+  const klass = await prisma.class.findUnique({ where: { id: classId }, select: { id: true, name: true, section: true, activityPlan: true } });
+  if (!klass) throw new Error("Class required");
+  const classLabel = `${klass.name}-${klass.section}`;
+  const { planActivity } = await import("./school-activities");
+  const planned = planActivity(klass.activityPlan, input.activity);
+  if (!planned) throw new Error(`${input.activity} is not set for ${classLabel}. Add it under Settings → Subjects → Activities first.`);
+  const activity = planned.name;
+  const config = await prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { weekdays: true } });
+  const already = await prisma.timetableSlot.count({
+    where: { classId, activity, weekday: { in: parseWeekdays(config?.weekdays) }, NOT: { periodId, weekday } },
+  });
+  if (planned.perWeek > 0 && already >= planned.perWeek) {
+    throw new Error(`${activity} is already ${planned.perWeek}/${planned.perWeek} a week for ${classLabel}.`);
+  }
+  if (teacherId) {
+    const teacher = await prisma.teacher.findUnique({ where: { id: teacherId }, include: { user: { select: { name: true } } } });
+    if (!teacher) throw new Error("Teacher required");
+    const busy = await prisma.timetableSlot.findFirst({
+      where: { teacherId, periodId, weekday, NOT: { classId } },
+      include: { class: { select: { name: true, section: true } } },
+    });
+    if (busy) {
+      throw new Error(`${teacher.user.name} is already in ${busy.class.name}-${busy.class.section} in ${input.periodName}. Pick another teacher.`);
+    }
+  }
+  const data = { subjectId: null, teacherId, activity };
+  await prisma.timetableSlot.upsert({
+    where: { classId_periodId_weekday: { classId, periodId, weekday } },
+    update: data,
+    create: { classId, periodId, weekday, ...data },
+  });
   return { ok: true as const };
 }
 
@@ -2815,8 +2881,10 @@ export async function copyTimetableDayCore(
   if (!open.includes(from)) throw new Error("Pick a school day to copy from.");
   if (!targets.length) throw new Error("Pick at least one day to copy to.");
   const replace = input.mode === "replace";
-  const klass = await prisma.class.findUnique({ where: { id: classId }, select: { id: true } });
+  const klass = await prisma.class.findUnique({ where: { id: classId }, select: { id: true, activityPlan: true } });
   if (!klass) throw new Error("Class required");
+  const { parseActivityPlan } = await import("./school-activities");
+  const activityTarget = new Map(parseActivityPlan(klass.activityPlan).map((row) => [row.name, row.perWeek]));
 
   const [periods, mine, subjects] = await Promise.all([
     prisma.period.findMany({ select: { id: true, name: true, isBreak: true, sortOrder: true }, orderBy: { sortOrder: "asc" } }),
@@ -2826,10 +2894,10 @@ export async function copyTimetableDayCore(
   const periodById = new Map(periods.map((p) => [p.id, p]));
   const subjectById = new Map(subjects.map((x) => [x.id, x]));
   const source = mine
-    .filter((x) => x.weekday === from && x.subjectId && x.teacherId && !periodById.get(x.periodId)?.isBreak)
+    .filter((x) => x.weekday === from && ((x.subjectId && x.teacherId) || x.activity) && !periodById.get(x.periodId)?.isBreak)
     .sort((a, b) => (periodById.get(a.periodId)?.sortOrder ?? 0) - (periodById.get(b.periodId)?.sortOrder ?? 0));
   if (!source.length) throw new Error("That day has nothing to copy yet.");
-  const teacherIds = [...new Set(source.map((x) => x.teacherId!))];
+  const teacherIds = [...new Set(source.map((x) => x.teacherId).filter((id): id is string => Boolean(id)))];
   const elsewhere = await prisma.timetableSlot.findMany({
     where: { teacherId: { in: teacherIds }, weekday: { in: targets }, NOT: { classId } },
     select: { teacherId: true, weekday: true, periodId: true, class: { select: { name: true, section: true } } },
@@ -2842,6 +2910,9 @@ export async function copyTimetableDayCore(
   // Periods per subject this week, updated as the plan is made.
   const count = new Map<string, number>();
   for (const x of mine) if (x.subjectId) count.set(x.subjectId, (count.get(x.subjectId) ?? 0) + 1);
+  // Same for activities, keyed by name.
+  const activityCount = new Map<string, number>();
+  for (const x of mine) if (x.activity) activityCount.set(x.activity, (activityCount.get(x.activity) ?? 0) + 1);
 
   type Skip = { period: string; subject: string; reason: string };
   const days: { weekday: number; copy: typeof source; clear: string[]; skipped: Skip[]; kept: number }[] = [];
@@ -2852,6 +2923,7 @@ export async function copyTimetableDayCore(
     if (replace) {
       // The whole day is rebuilt: what is there now stops counting.
       for (const x of existing) if (x.subjectId) count.set(x.subjectId, (count.get(x.subjectId) ?? 1) - 1);
+      for (const x of existing) if (x.activity) activityCount.set(x.activity, (activityCount.get(x.activity) ?? 1) - 1);
       const sourcePeriods = new Set(source.map((x) => x.periodId));
       plan.clear = existing.filter((x) => !sourcePeriods.has(x.periodId)).map((x) => x.periodId);
     }
@@ -2859,28 +2931,39 @@ export async function copyTimetableDayCore(
       const here = at.get(slot.periodId);
       const subj = subjectById.get(slot.subjectId!);
       const periodName = periodById.get(slot.periodId)?.name || "Period";
-      if (!replace && here && (here.subjectId || here.teacherId)) {
+      if (!replace && here && (here.subjectId || here.teacherId || here.activity)) {
         plan.kept += 1;
         continue;
       }
-      if (replace && here && here.subjectId === slot.subjectId && here.teacherId === slot.teacherId) {
-        count.set(slot.subjectId!, (count.get(slot.subjectId!) ?? 0) + 1);
+      if (replace && here && here.subjectId === slot.subjectId && here.teacherId === slot.teacherId && here.activity === slot.activity) {
+        if (slot.subjectId) count.set(slot.subjectId, (count.get(slot.subjectId) ?? 0) + 1);
+        if (slot.activity) activityCount.set(slot.activity, (activityCount.get(slot.activity) ?? 0) + 1);
         plan.kept += 1;
         continue;
       }
-      const clash = busyAt.get(`${slot.teacherId}:${d}:${slot.periodId}`);
+      const clash = slot.teacherId ? busyAt.get(`${slot.teacherId}:${d}:${slot.periodId}`) : undefined;
       if (clash) {
-        plan.skipped.push({ period: periodName, subject: subj?.name || "", reason: `${teacherNames.get(slot.teacherId!) || "Teacher"} is in ${clash} then` });
+        plan.skipped.push({ period: periodName, subject: subj?.name || slot.activity, reason: `${teacherNames.get(slot.teacherId!) || "Teacher"} is in ${clash} then` });
         if (replace && here) plan.clear.push(slot.periodId);
         continue;
       }
-      const n = count.get(slot.subjectId!) ?? 0;
+      const n = slot.subjectId ? count.get(slot.subjectId) ?? 0 : 0;
       if (subj && subj.weightage > 0 && n >= subj.weightage) {
         plan.skipped.push({ period: periodName, subject: subj.name, reason: `${subj.name} is already ${subj.weightage}/${subj.weightage} a week` });
         if (replace && here) plan.clear.push(slot.periodId);
         continue;
       }
-      count.set(slot.subjectId!, n + 1);
+      if (slot.activity) {
+        const target = activityTarget.get(slot.activity) ?? 0;
+        const done = activityCount.get(slot.activity) ?? 0;
+        if (target > 0 && done >= target) {
+          plan.skipped.push({ period: periodName, subject: slot.activity, reason: `${slot.activity} is already ${target}/${target} a week` });
+          if (replace && here) plan.clear.push(slot.periodId);
+          continue;
+        }
+        activityCount.set(slot.activity, done + 1);
+      }
+      if (slot.subjectId) count.set(slot.subjectId, n + 1);
       plan.copy.push(slot);
     }
     days.push(plan);
@@ -2894,8 +2977,8 @@ export async function copyTimetableDayCore(
       for (const slot of plan.copy) {
         await prisma.timetableSlot.upsert({
           where: { classId_periodId_weekday: { classId, periodId: slot.periodId, weekday: plan.weekday } },
-          update: { subjectId: slot.subjectId, teacherId: slot.teacherId, roomId: slot.roomId },
-          create: { classId, periodId: slot.periodId, weekday: plan.weekday, subjectId: slot.subjectId, teacherId: slot.teacherId, roomId: slot.roomId },
+          update: { subjectId: slot.subjectId, teacherId: slot.teacherId, roomId: slot.roomId, activity: slot.activity },
+          create: { classId, periodId: slot.periodId, weekday: plan.weekday, subjectId: slot.subjectId, teacherId: slot.teacherId, roomId: slot.roomId, activity: slot.activity },
         });
       }
     }
@@ -3682,6 +3765,8 @@ export async function setTeacherResourcesCore(
     qualification?: string[] | string;
     qualificationNotes?: string;
     offers?: { subjectName?: string; subjectCode?: string; classId: string }[];
+    /** Activities they take, per class (Games in 1-A…), like subject offers. Left as they are when not sent. */
+    activities?: { name: string; classId: string }[];
   }
 ) {
   need(user, "staff.edit");
@@ -3697,7 +3782,9 @@ export async function setTeacherResourcesCore(
       ? [input.qualification]
       : [];
   const qualification = formatQualification(tags, input.qualificationNotes || "");
-  await prisma.teacher.update({ where: { id: teacherId }, data: { qualification } });
+  const { cleanTeacherActivities } = await import("./school-activities");
+  const activities = await cleanTeacherActivities(input.activities);
+  await prisma.teacher.update({ where: { id: teacherId }, data: { qualification, ...(activities != null ? { activities } : {}) } });
   const offers = await catalogTeacherOffers(input.offers);
   const classIds = [...new Set(offers.map((o) => o.classId))];
   await prisma.teacherSkill.deleteMany({ where: { teacherId } });

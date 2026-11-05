@@ -2603,7 +2603,19 @@ export function SchoolBoard() {
                     name: c.name,
                     subjects: c.subjects ?? [],
                     slots: c.slots ?? [],
+                    activities: c.activities ?? [],
                   }))}
+                activityCatalog={s?.activityCatalog ?? []}
+                onSaveActivityCatalog={async (entries) => {
+                  await act(token, "saveActivityCatalog", { entries });
+                  toast.show("Activities saved.");
+                  await reload();
+                }}
+                onSaveClassActivities={async (classId, activities) => {
+                  await act(token, "saveClassActivities", { classId, activities });
+                  toast.show("Saved successfully.");
+                  await reload();
+                }}
                 onSaveCatalog={async (entries, applyToAllClasses) => {
                   await act(token, "saveSchoolSubjects", { entries, applyToAllClasses });
                   toast.show("Saved successfully.");

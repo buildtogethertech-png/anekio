@@ -274,6 +274,8 @@ model Teacher {
   /// Such rows are left out of HR lists (staff directory, payroll, staff attendance, leave balances): the person
   /// stays one employee, on their StaffMember row.
   teachingOnly          Boolean                @default(false)
+  /// Activities this teacher takes per class, JSON [{ "name": "Games", "classId": "…" }], like subject assignments. Only suggests them in the routine; never used by exams.
+  activities            String                 @default("[]")
   /// The StaffMember this teaching profile belongs to (teachingOnly rows only).
   staffMemberId         String?                @unique
   qualification         String?
@@ -288,6 +290,7 @@ model Teacher {
   staffDays             StaffDay[]
   leaveRequests         LeaveRequest[]
   substituteAssignments SubstituteAssignment[] @relation("SubstituteTeacher")
+  attendanceCovers      ClassAttendanceCover[]
   exams                 Exam[]                 @relation("ExamEvaluator")
   setExams              Exam[]                 @relation("ExamSetter")
   examGrants            ExamEvaluator[]
@@ -349,6 +352,9 @@ model Class {
   slots             TimetableSlot[]
   teacherLinks      TeacherClass[]
   teacherSkills     TeacherSkill[]
+  attendanceCovers  ClassAttendanceCover[]
+  /// Activities this class has in a week, JSON [{ "name": "Games", "perWeek": 2 }]. Never part of exams.
+  activityPlan      String                 @default("[]")
   whatsappGroupUrl  String                   @default("")
   noticeLinks       NoticeClass[]
 
@@ -972,6 +978,8 @@ model SchoolConfig {
   admitCardPendingMonths  Int                       @default(0)
   whatsappCommunityUrl    String                    @default("")
   subjectCatalog          String                    @default("[]")
+  /// Non-exam periods the school uses (Games, Library…), a JSON list of names. "" = never set (defaults apply).
+  activityCatalog         String                    @default("")
   /// Routine auto-fill rules (JSON): class teacher period 1, same period daily, heavy subjects in the morning,
   /// double periods per subject, teacher unavailable periods. Empty = no rules.
   timetableRulesJson      String                    @default("")
@@ -1221,6 +1229,7 @@ model LeaveRequest {
   decidedAt        DateTime?
   createdAt        DateTime               @default(now())
   coverAssignments SubstituteAssignment[]
+  attendanceCovers ClassAttendanceCover[]
 }
 
 /// A one-day change to the weekly timetable (substitute, free period, or a period still needing cover).
@@ -1253,6 +1262,29 @@ model SubstituteAssignment {
   @@unique([date, slotId])
   @@index([leaveRequestId])
   @@index([substituteId, date])
+}
+
+/// One day, one class: who marks student attendance when the class teacher is out.
+/// Only works on `date`; the next day the class teacher's register is back to normal.
+model ClassAttendanceCover {
+  id              String        @id @default(cuid())
+  orgId           String?
+  date            String
+  classId         String
+  class           Class         @relation(fields: [classId], references: [id], onDelete: Cascade)
+  /// Teacher who marks attendance that day.
+  teacherId       String
+  teacher         Teacher       @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  /// The class teacher who is out.
+  absentTeacherId String?
+  /// Set when the class teacher is out on approved leave; the row goes away if the leave is cancelled.
+  leaveRequestId  String?
+  leaveRequest    LeaveRequest? @relation(fields: [leaveRequestId], references: [id], onDelete: Cascade)
+  assignedById    String
+  createdAt       DateTime      @default(now())
+
+  @@unique([date, classId])
+  @@index([teacherId, date])
 }
 
 model SchoolHoliday {
@@ -1418,6 +1450,8 @@ model TimetableSlot {
   weekday               Int
   subjectId             String?
   subject               Subject?               @relation(fields: [subjectId], references: [id])
+  /// A non-exam period such as Games, Library or Assembly (set instead of a subject). Never part of exams or report cards.
+  activity              String                 @default("")
   teacherId             String?
   teacher               Teacher?               @relation(fields: [teacherId], references: [id])
   roomId                String?

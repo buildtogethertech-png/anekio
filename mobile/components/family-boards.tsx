@@ -1692,10 +1692,20 @@ export function TeacherAttendanceBoard() {
   const toast = useToast();
   const { width } = useWindowDimensions();
   const phone = width < 768;
+  // A class handed to me for today's attendance (its class teacher is out); "" = my own class.
+  const covers = data?.attendanceCovers ?? [];
+  const [coverId, setCoverId] = useState("");
+  const cover = covers.find((row) => row.classId === coverId) || null;
+  const ownRosterEmpty = !(data?.roster ?? []).length;
+  useEffect(() => {
+    if (!coverId && ownRosterEmpty && covers.length) setCoverId(covers[0].classId);
+    if (coverId && !covers.some((row) => row.classId === coverId)) setCoverId("");
+  }, [coverId, ownRosterEmpty, covers]);
   const roster = useMemo(
-    () => [...(data?.roster ?? [])].sort(compareByRollThenName),
-    [data?.roster]
+    () => [...(cover ? cover.roster : data?.roster ?? [])].sort(compareByRollThenName),
+    [data?.roster, cover]
   );
+  const classLabel = cover ? cover.classLabel : data?.classLabel || "";
   const [q, setQ] = useState("");
   const [monthly, setMonthly] = useState(false);
   const calendar = useMemo(
@@ -1719,12 +1729,17 @@ export function TeacherAttendanceBoard() {
   const scanBusyRef = useRef(false);
   const dayClosed = closedReason(date, calendar);
   const dayFuture = date > today;
-  const locked = Boolean(dayClosed || dayFuture);
-  const lockedNote = dayFuture ? "That day has not come yet." : closedCaption(dayClosed);
+  const coverOtherDay = Boolean(cover && date !== cover.date);
+  const locked = Boolean(dayClosed || dayFuture || coverOtherDay);
+  const lockedNote = coverOtherDay
+    ? `${cover?.classLabel} is given to you for today only.`
+    : dayFuture
+      ? "That day has not come yet."
+      : closedCaption(dayClosed);
 
   function absentWa(s: (typeof roster)[number]) {
     const teacher = user?.name || "the class teacher";
-    const cls = data?.classLabel || "this section";
+    const cls = classLabel || "this section";
     const when = date === today ? "today" : `on ${new Date(date).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}`;
     return parentWa(
       s.phone,
@@ -1889,7 +1904,8 @@ export function TeacherAttendanceBoard() {
   const marked = roster.length - onLeave;
   const pctToday = marked > 0 ? Math.round(((yes + late) / marked) * 100) : null;
   const dirty = Object.keys(marks).length > 0;
-  const savedForDate = date === today ? Boolean(data?.markedToday) : roster.some((s) => s.days?.some((d) => d.date === date));
+  const savedForDate =
+    date === today ? Boolean(cover ? cover.markedToday : data?.markedToday) : roster.some((s) => s.days?.some((d) => d.date === date));
   const [searchOpen, setSearchOpen] = useState(false);
 
   // The 3 school days before the selected date, oldest first (per-student history on phone).
@@ -1929,7 +1945,7 @@ export function TeacherAttendanceBoard() {
     <View className="min-h-0 flex-1">
       {monthly && roster.length ? (
         <TeacherMonthlyRegister
-          classLabel={data?.classLabel || ""}
+          classLabel={classLabel}
           roster={roster}
           people={data?.people}
           calendar={calendar}
@@ -1945,9 +1961,9 @@ export function TeacherAttendanceBoard() {
         <View className="mb-2 flex-row items-center justify-between gap-3 px-1">
           <Text className="min-w-0 flex-1 text-lg font-bold text-ink-900" numberOfLines={1}>
             Attendance
-            <Text className="text-sm font-normal text-ink-700">{`  ${data?.classLabel ? `${data.classLabel} · ` : ""}${roster.length} students`}</Text>
+            <Text className="text-sm font-normal text-ink-700">{`  ${classLabel ? `${classLabel} · ` : ""}${roster.length} students`}</Text>
           </Text>
-          {roster.length ? (
+          {roster.length && !cover ? (
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Monthly attendance"
@@ -1965,10 +1981,10 @@ export function TeacherAttendanceBoard() {
           <PageHeader
             kicker="Class teacher"
             title="Attendance"
-            lede={data?.classLabel ? `Mark P, A or late · ${data.classLabel}.` : "Mark P, A or late."}
+            lede={classLabel ? `Mark P, A or late · ${classLabel}.` : "Mark P, A or late."}
           />
         </View>
-        {roster.length ? (
+        {roster.length && !cover ? (
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="View Monthly Attendance"
@@ -1991,6 +2007,32 @@ export function TeacherAttendanceBoard() {
         }}
         onError={(msg) => toast.show(msg)}
       />
+      {covers.length ? (
+        <View className="mb-2 flex-row flex-wrap gap-2" testID="attendance-cover-switch">
+          {[
+            ...(ownRosterEmpty ? [] : [{ id: "", label: data?.classLabel || "My class", hint: "My class" }]),
+            ...covers.map((row) => ({ id: row.classId, label: row.classLabel, hint: row.forTeacher ? `Today · for ${row.forTeacher}` : "Today only" })),
+          ].map((opt) => {
+            const on = opt.id === coverId;
+            return (
+              <Pressable
+                key={opt.id || "own"}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: on }}
+                onPress={() => {
+                  setCoverId(opt.id);
+                  setDate(today);
+                  setMarks({});
+                }}
+                className={`rounded-xl border px-3 py-1.5 ${on ? "border-[#2855F6] bg-[#EEF3FF]" : "border-ink-200 bg-white"}`}
+              >
+                <Text className={`text-[13px] font-semibold ${on ? "text-[#1F45C7]" : "text-ink-900"}`}>{opt.label}</Text>
+                <Text className="text-[11px] text-ink-500">{opt.hint}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
       {!roster.length ? (
         <Empty title="No class teacher section" body="When you are class teacher, the register is here." />
       ) : (

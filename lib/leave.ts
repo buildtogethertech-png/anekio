@@ -387,7 +387,7 @@ async function upcomingTeacherLeave(requestIds: string[], cal: SchoolCalendar): 
             startsAt: slot.period.startsAt,
             endsAt: slot.period.endsAt,
             classLabel: `${slot.class.name}-${slot.class.section}`,
-            subject: slot.subject?.name || "Class",
+            subject: slot.subject?.name || slot.activity || "Class",
             room: slot.room?.name || "",
             substituteId: assignment?.substituteId || "",
             substituteName: assignment?.substitute?.user.name || "",

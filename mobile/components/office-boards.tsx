@@ -24,6 +24,7 @@ import { act } from "../lib/mutate";
 import { openMarksheetPdf } from "../lib/print-html";
 import { pickFile, uploadFile } from "../lib/upload";
 import { ParentUpdatesReview } from "./parent-details";
+import { DayGapsCard } from "./day-gaps-card";
 import { webOrigin } from "../lib/api";
 import { useRecord, type AdmissionFormField } from "../lib/record";
 import { useSession } from "../lib/session";
@@ -637,6 +638,7 @@ export function DeskBoard() {
         </Button>
       </View>
       <MyTeachingCard />
+      <DayGapsCard />
       <ParentUpdatesReview />
 
       <View className="flex-row flex-wrap gap-3">

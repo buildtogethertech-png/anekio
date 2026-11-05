@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button, Card, Chip, ChipScroller, Empty, Field, Input, Modal, PageHeader, Sheet, Toast, useToast } from "./ui";
 import { TeacherForm } from "./teacher-form";
 import { DayTimetable } from "./routine-day";
+import { ActivityPicker, AssignTabs } from "./activity-picker";
 import { ClearSheet, FillAllSheet, IconButton, MenuButton, type ClearSnapshot } from "./routine-fill";
 import { formatSubjectLabel, labeledTeacherSkills } from "../lib/subject-label";
 import { act } from "../lib/mutate";
@@ -71,7 +72,8 @@ function jsToWeekday(jsDay: number) {
 /** Routine: the weekly timetable, or how it runs on one date (with one-day changes). */
 export function WeekBoard() {
   const { data } = useRecord();
-  const [view, setView] = useState<"week" | "date">("week");
+  const params = useLocalSearchParams<{ view?: string }>();
+  const [view, setView] = useState<"week" | "date">(params.view === "date" ? "date" : "week");
   if (data?.teamWeek) return <WeeklyBoard />;
   return (
     <View className="min-h-0 flex-1">
@@ -155,6 +157,7 @@ function WeeklyBoard() {
     periodName: string;
     current?: { subject: string; teacher: string };
   } | null>(null);
+  const [assignTab, setAssignTab] = useState<"subjects" | "activities">("subjects");
   const [loadOpen, setLoadOpen] = useState(false);
   const [focus, setFocus] = useState("");
   const [fillOpen, setFillOpen] = useState(false);
@@ -363,12 +366,44 @@ function WeeklyBoard() {
     const period = periods.find((p) => p.id === periodId);
     const slot = findSlot(slots, period ?? { id: periodId, name: "" }, weekday);
     // Filled cell → open the same popup with "Now: …", Change and Clear period.
+    setAssignTab((slot as { activity?: boolean } | undefined)?.activity ? "activities" : "subjects");
     setAssign({
       periodId,
       weekday,
       periodName: period?.name || "Period",
       current: slotFilled(slot) ? { subject: slotSubject(slot), teacher: slot?.teacher || "" } : undefined,
     });
+  }
+
+  async function saveActivity(periodId: string, weekday: number, payload: { activity: string; teacherId: string | null }) {
+    if (!klass?.id) return;
+    setError("");
+    try {
+      await act(token, "saveTimetableSlot", { classId: klass.id, periodId, weekday, activity: payload.activity, teacherId: payload.teacherId });
+      setAssign(null);
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save.");
+      toast.show(e instanceof Error ? e.message : "Could not save.");
+    }
+  }
+
+  /** This class's activities with how many periods of each are already in the routine. */
+  const classActivities = (klass?.activities ?? []).map((row) => ({
+    ...row,
+    placed: (klass?.slots ?? []).filter((slot) => (slot as { activity?: boolean }).activity && slot.subject === row.name).length,
+  }));
+
+  /** Teachers already in another class in the period being filled. */
+  function busyTeachersFor(periodId: string, periodName: string, weekday: number) {
+    const ids = new Set<string>();
+    for (const c of classes) {
+      if (c.id === klass?.id) continue;
+      for (const o of c.slots as (WeekSlot & { teacherId?: string })[]) {
+        if (o.weekday === weekday && (o.periodId === periodId || o.period === periodName) && o.teacherId) ids.add(o.teacherId);
+      }
+    }
+    return ids;
   }
 
   async function clearCell(periodId: string, weekday: number) {
@@ -777,19 +812,34 @@ function WeeklyBoard() {
                   </Pressable>
                 </View>
                 <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 12 }}>
-                  <Text className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-500">
-                    {assign?.current ? "Change to" : "Who takes this period"}
-                  </Text>
-                  <PhoneAssignList
-                    teachers={teachers}
-                    classId={klass?.id}
-                    current={assign?.current}
-                    onPick={async (payload) => {
-                      if (!assign) return;
-                      await dropOn(assign.periodId, assign.weekday, payload);
-                      setAssign(null);
-                    }}
-                  />
+                  <AssignTabs tab={assignTab} onChange={setAssignTab} />
+                  {assignTab === "subjects" ? (
+                    <>
+                      <Text className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-500">
+                        {assign?.current ? "Change to" : "Who takes this period"}
+                      </Text>
+                      <PhoneAssignList
+                        teachers={teachers}
+                        classId={klass?.id}
+                        current={assign?.current}
+                        onPick={async (payload) => {
+                          if (!assign) return;
+                          await dropOn(assign.periodId, assign.weekday, payload);
+                          setAssign(null);
+                        }}
+                      />
+                    </>
+                  ) : assign ? (
+                    <ActivityPicker
+                      classId={klass?.id || ""}
+                      classLabel={klass?.label || ""}
+                      activities={classActivities}
+                      teachers={teachers}
+                      busyTeacherIds={busyTeachersFor(assign.periodId, assign.periodName, assign.weekday)}
+                      current={assign.current}
+                      onPick={(payload) => saveActivity(assign.periodId, assign.weekday, payload)}
+                    />
+                  ) : null}
                 </ScrollView>
                 {assign?.current ? (
                   <View className="border-t border-ink-100 px-5 pb-2 pt-3">
@@ -970,7 +1020,8 @@ function WeeklyBoard() {
           ) : null
         }
       >
-        {assign && klass ? (
+        {assign && klass ? <AssignTabs tab={assignTab} onChange={setAssignTab} /> : null}
+        {assign && klass && assignTab === "subjects" ? (
           <DeskAssignPanel
             teachers={teachers}
             classId={klass.id}
@@ -985,6 +1036,17 @@ function WeeklyBoard() {
               await dropOn(assign.periodId, assign.weekday, payload);
               setAssign(null);
             }}
+          />
+        ) : null}
+        {assign && klass && assignTab === "activities" ? (
+          <ActivityPicker
+            classId={klass.id || ""}
+            classLabel={klass.label || ""}
+            activities={classActivities}
+            teachers={teachers}
+            busyTeacherIds={busyTeachersFor(assign.periodId, assign.periodName, assign.weekday)}
+            current={assign.current}
+            onPick={(payload) => saveActivity(assign.periodId, assign.weekday, payload)}
           />
         ) : null}
       </Modal>
@@ -1053,8 +1115,9 @@ function WeeklyBoard() {
             focusClassId={teacherFocusClass || undefined}
             teacher={rawTeachers.find((t) => t.id === teacherId)}
             catalog={data?.school?.subjectCatalog ?? []}
-            others={rawTeachers.map((t) => ({ id: t.id, name: t.name, skills: t.skills ?? [] }))}
-            classes={rawClasses.map((c) => ({ id: c.id || "", label: c.label, name: c.name, subjects: c.subjects ?? [] }))}
+            activityCatalog={data?.school?.activityCatalog ?? []}
+            others={rawTeachers.map((t) => ({ id: t.id, name: t.name, skills: t.skills ?? [], activities: t.activities ?? [] }))}
+            classes={rawClasses.map((c) => ({ id: c.id || "", label: c.label, name: c.name, subjects: c.subjects ?? [], activities: c.activities ?? [] }))}
             onCancel={() => setModal(null)}
             onSave={async (payload) => {
               await act(token, "setTeacherResources", { ...payload, teacherId });

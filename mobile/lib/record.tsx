@@ -24,6 +24,33 @@ export type DocumentElement = {
 };
 export type DocumentLayout = { elements: DocumentElement[] };
 
+export type RosterStudent = {
+  id: string;
+  name: string;
+  admissionNo?: string;
+  rollNumber?: number | null;
+  today: string;
+  dateOfBirth?: string;
+  parentName?: string;
+  phone?: string;
+  days?: { date: string; status: string }[];
+};
+
+export type DayGap = {
+  teacherId: string;
+  teacherName: string;
+  why: string;
+  periods: number;
+  openPeriods: number;
+  classId: string;
+  classLabel: string;
+  attendanceBy: { id: string; name: string } | null;
+  attendanceDone: boolean;
+  candidates: { id: string; name: string; hint: string }[];
+};
+
+export type DayGaps = { date: string; closed: string; gaps: DayGap[] };
+
 export type FeeRow = {
   id: string;
   title: string;
@@ -278,6 +305,8 @@ export type RecordPayload = {
       idle?: boolean;
       team?: boolean;
       skills: { subjectName: string; classId: string }[];
+      /** Activities they take, per class (Games in 1-A…). */
+      activities?: { name: string; classId: string }[];
     }[];
     weekCapacity?: number;
     slots?: {
@@ -295,6 +324,8 @@ export type RecordPayload = {
       name?: string;
       section?: string;
       subjects?: { id: string; code?: string; name: string; weightage?: number; label?: string }[];
+      /** Non-exam periods and how many a week (Games 2, Library 1…). */
+      activities?: { name: string; perWeek: number }[];
       slots: {
         id?: string;
         weekday: number;
@@ -305,6 +336,8 @@ export type RecordPayload = {
         teacherId?: string;
         teacher: string;
         room: string;
+        /** True when the period holds an activity (subject is then the activity name). */
+        activity?: boolean;
         covers?: { date: string; status?: string; substituteId: string; substitute: string; absentTeacher: string }[];
       }[];
     }[];
@@ -379,17 +412,18 @@ export type RecordPayload = {
   needsAttention?: string[];
   breakout?: number;
   subjects?: { id: string; name: string }[];
-  roster?: {
-    id: string;
-    name: string;
-    admissionNo?: string;
-    rollNumber?: number | null;
-    today: string;
-    dateOfBirth?: string;
-    parentName?: string;
-    phone?: string;
-    days?: { date: string; status: string }[];
+  roster?: RosterStudent[];
+  /** Teacher: classes handed to me for today's attendance (their class teacher is out). */
+  attendanceCovers?: {
+    date: string;
+    classId: string;
+    classLabel: string;
+    forTeacher: string;
+    markedToday: boolean;
+    roster: RosterStudent[];
   }[];
+  /** Office: teachers out today and what still needs doing (periods to cover, class attendance). */
+  dayGaps?: DayGaps | null;
   exams?: { id: string; title: string; hint?: string; label?: string; students?: number; examId?: string; kind?: string }[];
   desk?: {
     label?: string;
@@ -741,6 +775,8 @@ export type RecordPayload = {
       }[];
     }[];
     subjectCatalog?: { code: string; name: string }[];
+    /** School's activity list (Games, Library…): never part of exams. */
+    activityCatalog?: string[];
     sessions?: { id: string; label: string; startsOn: string; endsOn: string; current: boolean }[];
     holidays?: { id: string; sessionId?: string; date: string; name: string }[];
     policy?: { bands: { min: number; grade: string }[]; passPercent: number; showRank: boolean; reportCardPaidMonths?: number; reportCardUnpaidMonths?: number; admitCardPendingMonths?: number };

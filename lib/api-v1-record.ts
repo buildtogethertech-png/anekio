@@ -18,6 +18,8 @@ import {
   getUpcomingExams,
   noticesForUser,
 } from "./data";
+import { slotLabel } from "./timetable-activity";
+import { parseActivityCatalog, parseActivityPlan, parseTeacherActivities } from "./school-activities";
 import { isCircularNotice } from "./notices";
 import { ensureStaffRecord, leaveBundleFor } from "./leave";
 import { gradePolicyFrom, marksVisible, effectiveExamPlan, parseExamPlan, timetableVisible, ymd, addDays } from "./exams";
@@ -329,7 +331,8 @@ async function timetableForClass(classId: string) {
       weekday: s.weekday,
       periodId: s.periodId,
       period: s.period.name,
-      subject: s.subject ? formatSubjectLabel(s.subject.code, s.subject.name) : "—",
+      subject: slotLabel(s),
+      activity: Boolean(!s.subject && s.activity),
       teacher: s.teacher?.user.name || "",
       room: s.room?.name || "",
       classLabel: s.class ? `${s.class.name}-${s.class.section}` : "",
@@ -729,6 +732,7 @@ async function teacherPayload(user: AccessUser) {
     classStudents,
     staffAttendanceSelf: await staffAttendanceSelf(user),
     dayChanges: teacher ? await (await import("./timetable-day")).teacherDayChanges(teacher.id) : [],
+    attendanceCovers: teacher ? await attendanceCoverRosters(teacher.id, today) : [],
     classId: teacher?.classId || "",
     classLabel: desk?.classLabel || "",
     classTeacher: Boolean(desk?.classTeacher),
@@ -845,6 +849,44 @@ async function teacherPayload(user: AccessUser) {
   };
 }
 
+/** Classes handed to this teacher for today's attendance, with the register in the same shape as `roster`. */
+async function attendanceCoverRosters(teacherId: string, today: string) {
+  const { attendanceCoversFor } = await import("./class-attendance-cover");
+  const covers = await attendanceCoversFor(teacherId, today);
+  return Promise.all(
+    covers.map(async (cover) => {
+      const [students, classTeacher] = await Promise.all([
+        getClassRoster(cover.classId),
+        cover.absentTeacherId
+          ? prisma.teacher.findUnique({ where: { id: cover.absentTeacherId }, select: { user: { select: { name: true } } } })
+          : null,
+      ]);
+      const roster = students.map((s) => {
+        const todayRow = s.attendance.find((a) => ymd(a.date) === today);
+        return {
+          id: s.id,
+          name: s.name,
+          admissionNo: s.admissionNo,
+          rollNumber: currentRoll(s),
+          today: todayRow ? todayRow.status.toLowerCase() : "not marked",
+          dateOfBirth: s.dateOfBirth ? ymd(s.dateOfBirth) : "",
+          parentName: s.parent?.user.name || "",
+          phone: s.parent?.phone || s.parent?.user.phone || "",
+          days: s.attendance.map((a) => ({ date: ymd(a.date), status: a.status })),
+        };
+      });
+      return {
+        date: cover.date,
+        classId: cover.classId,
+        classLabel: `${cover.class.name}-${cover.class.section}`,
+        forTeacher: classTeacher?.user.name || "",
+        markedToday: roster.some((s) => s.today !== "not marked"),
+        roster,
+      };
+    })
+  );
+}
+
 async function teacherRecordExtras(
   user: AccessUser,
   weekdays: number[],
@@ -856,7 +898,8 @@ async function teacherRecordExtras(
     weekday: s.weekday,
     periodId: s.periodId,
     period: s.period.name,
-    subject: s.subject ? formatSubjectLabel(s.subject.code, s.subject.name) : "—",
+    subject: slotLabel(s),
+      activity: Boolean(!s.subject && s.activity),
     teacher: s.teacher?.user.name || "",
     room: s.room?.name || "",
     classLabel: s.class ? `${s.class.name}-${s.class.section}` : "",
@@ -953,6 +996,7 @@ async function teacherTeamExtras(
               qualification: t.qualification || "",
               idle: idleNow.some((i) => i.id === t.id),
               team: reportTeacherIds.has(t.id),
+              activities: parseTeacherActivities(t.activities),
               skills: labeledTeacherSkills(
                 t.skills.map((s) => ({ subjectName: s.subjectName, classId: s.classId })),
                 klasses,
@@ -966,12 +1010,14 @@ async function teacherTeamExtras(
               name: c.name,
               section: c.section,
               subjects: (c.subjects || []).map((s) => subjectDto(s)),
+              activities: parseActivityPlan(c.activityPlan),
               slots: c.slots.filter((s) => weekdays.includes(s.weekday)).map((s) => ({
                 weekday: s.weekday,
                 periodId: s.periodId,
                 period: s.period.name,
                 subjectId: s.subject?.id || "",
-                subject: s.subject ? formatSubjectLabel(s.subject.code, s.subject.name) : "—",
+                subject: slotLabel(s),
+      activity: Boolean(!s.subject && s.activity),
                 teacherId: s.teacherId || "",
                 teacher: s.teacher?.user.name || "",
                 room: s.room?.name || "",
@@ -1179,6 +1225,7 @@ async function officePayload(user: AccessUser) {
 
   return {
     kind: "OFFICE" as const,
+    dayGaps: can(user, "timetable.edit") ? await (await import("./class-attendance-cover")).dayGaps(user).catch(() => null) : null,
     staffAttendanceSelf: await staffAttendanceSelf(user),
     myTeaching: await myTeachingToday(user),
     onboarding: can(user, "onboarding.manage") && user.orgId ? await onboardingBundle(user) : null,
@@ -1505,6 +1552,7 @@ async function officePayload(user: AccessUser) {
         })),
       })),
       subjectCatalog: await subjectCatalogForSchool(config),
+      activityCatalog: parseActivityCatalog(config?.activityCatalog),
       sessions: sessions.map((s) => ({
         id: s.id,
         label: s.label,
@@ -1638,6 +1686,7 @@ async function officePayload(user: AccessUser) {
         qualification: t.qualification || "",
         idle: idleIds.has(t.id),
         team: reportTeacherIds.has(t.id),
+        activities: parseTeacherActivities(t.activities),
         skills: labeledTeacherSkills(
           t.skills.map((s) => ({ subjectName: s.subjectName, classId: s.classId })),
           weekClasses,
@@ -1651,13 +1700,15 @@ async function officePayload(user: AccessUser) {
         name: c.name,
         section: c.section,
         subjects: (c.subjects || []).map((s) => subjectDto(s)),
+        activities: parseActivityPlan(c.activityPlan),
         slots: c.slots.map((s) => ({
           id: s.id,
           weekday: s.weekday,
           periodId: s.periodId,
           period: s.period.name,
           subjectId: s.subject?.id || "",
-          subject: s.subject ? formatSubjectLabel(s.subject.code, s.subject.name) : "—",
+          subject: slotLabel(s),
+      activity: Boolean(!s.subject && s.activity),
           teacherId: s.teacherId || "",
           teacher: s.teacher?.user.name || "",
           room: s.room?.name || "",

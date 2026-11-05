@@ -15,7 +15,8 @@ import { teamClassIds } from "./reports";
 import { loadSchoolCalendar } from "./leave";
 import { closedReason, prettyDay, weekdayOfYmd } from "./calendar";
 import { ymd } from "./exams";
-import { formatSubjectLabel, skillMatchesSubject } from "./subject-code";
+import { skillMatchesSubject } from "./subject-code";
+import { slotLabel } from "./timetable-activity";
 import { notifyNoticeRecipients } from "./push";
 
 export type DayChangeStatus = "COVERED" | "FREE" | "OPEN";
@@ -176,7 +177,7 @@ function rowFor(ctx: Ctx, slot: Ctx["slots"][number]) {
     endsAt: slot.period.endsAt,
     sortOrder: slot.period.sortOrder,
     subjectId: slot.subjectId || "",
-    subject: slot.subject ? formatSubjectLabel(slot.subject.code, slot.subject.name) : "—",
+    subject: slotLabel(slot),
     room: slot.room?.name || "",
     weeklyTeacherId: slot.teacherId || "",
     weeklyTeacher: slot.teacher?.user.name || "",
@@ -318,7 +319,7 @@ export async function saveDayChange(
     create: { ...data, date, slotId },
   });
 
-  const label = `${slot.period.name} · ${slot.class.name}-${slot.class.section}${slot.subject ? ` ${slot.subject.name}` : ""}`;
+  const label = `${slot.period.name} · ${slot.class.name}-${slot.class.section}${slot.subject ? ` ${slot.subject.name}` : slot.activity ? ` ${slot.activity}` : ""}`;
   if (substituteId && before?.substituteId !== substituteId) {
     await noticeTo(
       user.id,
@@ -367,18 +368,28 @@ export async function markTeacherOut(user: AccessUser, input: { date?: string; t
   const slots = await prisma.timetableSlot.findMany({ where: { teacherId, weekday }, include: { period: true } });
   await needEdit(user, [...new Set(slots.map((s) => s.classId))]);
   if (!can(user, "timetable.edit")) throw new Error("No access.");
-  const reason = cleanReason(input.reason, "ABSENT");
-  const note = String(input.note || "").slice(0, 200);
+  const added = await openTeacherPeriods(user.id, teacherId, date, slots, cleanReason(input.reason, "ABSENT"), String(input.note || "").slice(0, 200));
+  return { ok: true as const, periods: added };
+}
+
+async function openTeacherPeriods(
+  authorId: string,
+  teacherId: string,
+  date: string,
+  slots: { id: string; period: { isBreak: boolean } }[],
+  reason: Reason,
+  note: string
+) {
   let added = 0;
   for (const slot of slots.filter((s) => !s.period.isBreak)) {
     const existing = await prisma.substituteAssignment.findUnique({ where: { date_slotId: { date, slotId: slot.id } } });
     if (existing) continue;
     await prisma.substituteAssignment.create({
-      data: { date, slotId: slot.id, status: "OPEN", reason, note, absentTeacherId: teacherId, assignedById: user.id },
+      data: { date, slotId: slot.id, status: "OPEN", reason, note, absentTeacherId: teacherId, assignedById: authorId },
     });
     added += 1;
   }
-  return { ok: true as const, periods: added };
+  return added;
 }
 
 /** Teacher is back: remove the day's changes that came from marking them out (not leave). */
@@ -390,14 +401,50 @@ export async function clearTeacherOut(user: AccessUser, input: { date?: string; 
     include: { slot: { include: { period: true, class: true } } },
   });
   await needEdit(user, [...new Set(rows.map((r) => r.slot.classId))]);
+  await removeOutRows(user.id, date, rows);
+  const { clearAttendanceCoversFor } = await import("./class-attendance-cover");
+  await clearAttendanceCoversFor(user.id, teacherId, date);
+  return { ok: true as const, removed: rows.length };
+}
+
+async function removeOutRows(
+  authorId: string,
+  date: string,
+  rows: { id: string; slotId: string; substituteId: string | null; slot: { period: { name: string }; class: { name: string; section: string } } }[]
+) {
   for (const row of rows) {
     await prisma.substituteAssignment.delete({ where: { id: row.id } });
     if (row.substituteId) {
       const label = `${row.slot.period.name} · ${row.slot.class.name}-${row.slot.class.section}`;
-      await noticeTo(user.id, row.substituteId, `Cover cancelled: ${label}`, `You no longer take ${label} ${whenText(date)}.`, `${row.slotId}:${date}:cancel`);
+      await noticeTo(authorId, row.substituteId, `Cover cancelled: ${label}`, `You no longer take ${label} ${whenText(date)}.`, `${row.slotId}:${date}:cancel`);
     }
   }
-  return { ok: true as const, removed: rows.length };
+}
+
+/**
+ * Staff attendance changed for a teacher on a date (system call, no timetable permission needed).
+ * Absent / leave: their periods that day go to "needs cover". Present again: those periods and the
+ * day's class attendance hand-over go back. Teachers on approved leave are left to the leave.
+ */
+export async function syncTeacherOutFromStaffDay(authorId: string, teacherId: string, date: string, out: boolean) {
+  const { weekday, closed } = await openDay(date);
+  if (closed) return;
+  const onLeave = await prisma.leaveRequest.count({
+    where: { status: "ACTIVE", teacherId, from: { lte: date }, to: { gte: date } },
+  });
+  if (onLeave) return;
+  if (out) {
+    const slots = await prisma.timetableSlot.findMany({ where: { teacherId, weekday }, include: { period: true } });
+    await openTeacherPeriods(authorId, teacherId, date, slots, "ABSENT", "Marked absent in staff attendance");
+    return;
+  }
+  const rows = await prisma.substituteAssignment.findMany({
+    where: { date, absentTeacherId: teacherId, leaveRequestId: null, reason: "ABSENT" },
+    include: { slot: { include: { period: true, class: true } } },
+  });
+  await removeOutRows(authorId, date, rows);
+  const { clearAttendanceCoversFor } = await import("./class-attendance-cover");
+  await clearAttendanceCoversFor(authorId, teacherId, date);
 }
 
 /** Give every period that needs cover on this date to the best free teacher. */
@@ -444,7 +491,7 @@ export async function teacherDayChanges(teacherId: string) {
       startsAt: row.slot.period.startsAt,
       sortOrder: row.slot.period.sortOrder,
       classLabel: `${row.slot.class.name}-${row.slot.class.section}`,
-      subject: row.slot.subject?.name || "",
+      subject: row.slot.subject?.name || row.slot.activity || "",
       kind: row.substituteId === teacherId ? ("COVER" as const) : ("AWAY" as const),
       /** For COVER: whose period. For AWAY: who takes it ("" = free / not yet). */
       other: row.substituteId === teacherId ? row.slot.teacher?.user.name || "" : row.substitute?.user.name || "",

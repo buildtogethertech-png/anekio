@@ -452,6 +452,26 @@ export async function runAct(
       const { markTeacherOut } = await import("./timetable-day");
       return await markTeacherOut(user, body as never);
     }
+    case "saveActivityCatalog": {
+      const { saveActivityCatalogCore } = await import("./school-activities");
+      return await saveActivityCatalogCore(user, body as never);
+    }
+    case "saveClassActivities": {
+      const { saveClassActivitiesCore } = await import("./school-activities");
+      return await saveClassActivitiesCore(user, body as never);
+    }
+    case "assignAttendanceCover": {
+      const { assignAttendanceCover } = await import("./class-attendance-cover");
+      return await assignAttendanceCover(user, body as never);
+    }
+    case "clearAttendanceCover": {
+      const { clearAttendanceCover } = await import("./class-attendance-cover");
+      return await clearAttendanceCover(user, body as never);
+    }
+    case "loadDayGaps": {
+      const { dayGaps } = await import("./class-attendance-cover");
+      return { ok: true, ...(await dayGaps(user, body as never)) };
+    }
     case "clearTeacherOut": {
       const { clearTeacherOut } = await import("./timetable-day");
       return await clearTeacherOut(user, body as never);

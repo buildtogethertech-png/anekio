@@ -131,7 +131,7 @@ function slotsFromRows(
     weekday: row.weekday,
     periodId: row.periodId,
     period: row.period.name,
-    subject: row.subject?.name || "—",
+    subject: row.subject?.name || row.activity || "—",
     teacher: row.teacher?.user.name || "",
     room: row.room?.name || "",
     classLabel: row.class ? classLabel(row.class) : "",

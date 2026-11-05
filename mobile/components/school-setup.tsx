@@ -3,6 +3,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { Modal as RnModal, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { Button, Chip, ChipScroller, Field, Input, Modal } from "./ui";
 import { UploadCsvPanel } from "./upload-csv-panel";
+import { ActivityCatalogModal, ClassActivitiesSection, type ClassActivity } from "./school-activities";
 import { pickFile, type PickedFile } from "../lib/upload";
 import { formatSubjectLabel, normalizeSubjectCode } from "../lib/subject-label";
 
@@ -59,7 +60,7 @@ function catalogFitsGrade(entry: SubjectCatalogEntry, grade: string, all: Subjec
   return !all.some((other) => other.name.trim().toLowerCase() === name && sameGrade(codeGradeSuffix(other.code) || "-", grade));
 }
 
-function PeriodStepper({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+export function PeriodStepper({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   const n = parsePeriods(value) || 0;
   return (
     <View className="flex-row items-center justify-center gap-1">
@@ -1032,8 +1033,15 @@ export function SchoolSubjectsForm({
   onSaveCatalog,
   onSaveClass,
   weeklyPeriods,
+  activityCatalog,
+  onSaveActivityCatalog,
+  onSaveClassActivities,
 }: {
   catalog: (string | SubjectCatalogEntry)[];
+  /** School's activity list (Games, Library…). The Activities section shows only when the save handlers are given. */
+  activityCatalog?: string[];
+  onSaveActivityCatalog?: (entries: { name: string; previousName?: string }[]) => Promise<void>;
+  onSaveClassActivities?: (classId: string, activities: ClassActivity[]) => Promise<void>;
   /** Teaching periods a class can hold in a week (school days × non-break periods). Optional. */
   weeklyPeriods?: number;
   classes: {
@@ -1041,7 +1049,8 @@ export function SchoolSubjectsForm({
     label: string;
     name?: string;
     subjects: { id?: string; code?: string; name: string; label?: string; weightage?: number }[];
-    slots?: { subjectId?: string }[];
+    slots?: { subjectId?: string; subject?: string; activity?: boolean }[];
+    activities?: ClassActivity[];
   }[];
   onSaveCatalog: (entries: SubjectCatalogEntry[], applyToAllClasses: boolean) => Promise<void>;
   onSaveClass: (
@@ -1098,7 +1107,10 @@ export function SchoolSubjectsForm({
   const selectedGrade = selected ? classGrade(selected) : "";
   const gradeSections = classes.filter((klass) => classGrade(klass) === selectedGrade);
   const unsaved = !!selected && draftSignature(selectedRows) !== draftSignature(savedSubjects[selected.id]);
-  const plannedPeriods = selectedRows.reduce((sum, row) => sum + (parsePeriods(row.periods) || 0), 0);
+  const [activityCatalogOpen, setActivityCatalogOpen] = useState(false);
+  const plannedPeriods =
+    selectedRows.reduce((sum, row) => sum + (parsePeriods(row.periods) || 0), 0) +
+    (onSaveClassActivities ? (selected?.activities ?? []).reduce((sum, row) => sum + row.perWeek, 0) : 0);
   const capacity = weeklyPeriods && weeklyPeriods > 0 ? weeklyPeriods : 0;
   const codesOnOtherGrades = new Set<string>();
   const usedNames = new Set(selectedRows.map((row) => row.name.trim().toLowerCase()).filter(Boolean));
@@ -1666,6 +1678,30 @@ export function SchoolSubjectsForm({
               </View>
             ) : null}
           </View>
+          {onSaveClassActivities && onSaveActivityCatalog ? (
+            <>
+              <ClassActivitiesSection
+                key={`${selected.id}:${JSON.stringify(selected.activities ?? [])}`}
+                classLabel={selected.label}
+                catalog={activityCatalog ?? []}
+                plan={selected.activities ?? []}
+                placed={(selected.slots ?? []).reduce<Record<string, number>>((acc, slot) => {
+                  if (slot.activity && slot.subject) acc[slot.subject.toLowerCase()] = (acc[slot.subject.toLowerCase()] || 0) + 1;
+                  return acc;
+                }, {})}
+                onSave={(plan) => onSaveClassActivities(selected.id, plan)}
+                onManage={() => setActivityCatalogOpen(true)}
+              />
+              {activityCatalogOpen ? (
+                <ActivityCatalogModal
+                  open
+                  catalog={activityCatalog ?? []}
+                  onClose={() => setActivityCatalogOpen(false)}
+                  onSave={onSaveActivityCatalog}
+                />
+              ) : null}
+            </>
+          ) : null}
         </View>
       ) : (
         <View className="gap-2">

@@ -23,7 +23,11 @@ type TeacherClassRow = {
   label: string;
   name?: string;
   subjects?: { id?: string; code?: string; name: string; weightage?: number }[];
+  /** Non-exam periods on this class (Games 2 a week…). */
+  activities?: { name: string; perWeek: number }[];
 };
+
+type TeacherActivityPick = { name: string; classId: string };
 
 function classGrade(klass: TeacherClassRow) {
   return (klass.name || klass.label.split("-")[0] || "").trim();
@@ -67,16 +71,19 @@ export function TeacherForm({
   catalog = [],
   others = [],
   focusClassId,
+  activityCatalog,
   onCancel,
   onSave,
 }: {
+  /** School's activities (Games, Library…). When given, the form shows "Activities they take". */
+  activityCatalog?: string[];
   /** Open with this class ready to pick subjects in (Timetable → "Add to 1-A"). */
   focusClassId?: string;
-  teacher?: { id: string; name: string; qualification?: string; skills: { subjectName: string; classId: string }[] };
+  teacher?: { id: string; name: string; qualification?: string; skills: { subjectName: string; classId: string }[]; activities?: TeacherActivityPick[] };
   classes: TeacherClassRow[];
   catalog?: { code: string; name: string }[];
   /** Other teachers, to show who already teaches a subject ("Also: Ravi"). */
-  others?: { id: string; name: string; skills: { subjectName: string; classId: string }[] }[];
+  others?: { id: string; name: string; skills: { subjectName: string; classId: string }[]; activities?: TeacherActivityPick[] }[];
   onCancel: () => void;
   onSave: (payload: {
     name: string;
@@ -87,6 +94,7 @@ export function TeacherForm({
     qualification: string[];
     qualificationNotes: string;
     offers: { subjectName: string; subjectCode?: string; classId: string }[];
+    activities?: TeacherActivityPick[];
   }) => Promise<void>;
 }) {
   const parsed = parseQualification(teacher?.qualification);
@@ -101,6 +109,31 @@ export function TeacherForm({
   const [tags, setTags] = useState<string[]>(parsed.tags);
   const [notes, setNotes] = useState(parsed.notes);
   const [picked, setPicked] = useState<Record<string, string[]>>(startPicked);
+  // Activities work like subjects: tick one, then pick the classes (only classes that have it).
+  const [activityPicks, setActivityPicks] = useState<TeacherActivityPick[]>(teacher?.activities ?? []);
+  const [activitiesOn, setActivitiesOn] = useState<string[]>(() => [...new Set((teacher?.activities ?? []).map((a) => a.name))]);
+  const activityClasses = (name: string) =>
+    classes
+      .filter((klass) => klass.id)
+      .flatMap((klass) => {
+        const row = (klass.activities ?? []).find((a) => a.name === name);
+        return row ? [{ klass, perWeek: row.perWeek }] : [];
+      });
+  const hasActivity = (name: string, classId: string) => activityPicks.some((p) => p.name === name && p.classId === classId);
+  function toggleActivity(name: string) {
+    if (activitiesOn.includes(name)) {
+      setActivitiesOn(activitiesOn.filter((a) => a !== name));
+      setActivityPicks((cur) => cur.filter((p) => p.name !== name));
+      return;
+    }
+    setActivitiesOn([...activitiesOn, name]);
+    const only = activityClasses(name);
+    // One class has it: pick it straight away.
+    if (only.length === 1) setActivityPicks((cur) => [...cur, { name, classId: only[0].klass.id }]);
+  }
+  function setActivityClass(name: string, classId: string, on: boolean) {
+    setActivityPicks((cur) => (on ? [...cur.filter((p) => !(p.name === name && p.classId === classId)), { name, classId }] : cur.filter((p) => !(p.name === name && p.classId === classId))));
+  }
   // Classes shown as cards: every class with picks, plus ones the user just added.
   const focus = focusClassId && teachable.some((klass) => klass.id === focusClassId) ? focusClassId : "";
   const [shown, setShown] = useState<string[]>(() => {
@@ -559,6 +592,104 @@ export function TeacherForm({
           </Text>
         </View>
       ) : null}
+      {activityCatalog?.length ? (
+        <View className="gap-3" testID="teacher-activities">
+          <View>
+            <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">Activities they take</Text>
+            <Text className="mt-0.5 text-[12px] text-ink-500">Optional. Games, Library… They show first for these periods in the routine. Not part of exams.</Text>
+          </View>
+          <View className="flex-row flex-wrap gap-1.5">
+            {activityCatalog.map((activity) => {
+              const on = activitiesOn.includes(activity);
+              return (
+                <Pressable
+                  key={activity}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: on }}
+                  onPress={() => toggleActivity(activity)}
+                  className={`h-8 flex-row items-center gap-1 rounded-full border px-3 ${on ? "border-clay-500 bg-[#EEF3FF]" : "border-ink-200 bg-white"}`}
+                >
+                  {on ? <Ionicons name="checkmark" size={13} color="#1F45C7" /> : null}
+                  <Text className={`text-[13px] ${on ? "font-semibold text-[#1F45C7]" : "text-ink-700"}`}>{activity}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          {activitiesOn.length ? <Text className="text-[12px] text-ink-600">In which classes?</Text> : null}
+          {activitiesOn.map((name) => {
+            const rows = activityClasses(name);
+            const chosen = rows.filter(({ klass }) => hasActivity(name, klass.id));
+            const all = rows.length > 0 && chosen.length === rows.length;
+            const periods = chosen.reduce((n, { perWeek }) => n + perWeek, 0);
+            const byTeacher = new Map<string, string[]>();
+            for (const o of others) {
+              if (o.id === teacher?.id) continue;
+              for (const a of o.activities ?? []) {
+                if (a.name !== name) continue;
+                const label = rows.find(({ klass }) => klass.id === a.classId)?.klass.label;
+                if (label) byTeacher.set(o.name, [...(byTeacher.get(o.name) || []), label]);
+              }
+            }
+            return (
+              <View key={name} className="overflow-hidden rounded-xl border border-ink-200 bg-white">
+                <View className="flex-row items-center gap-2 border-b border-ink-100 bg-ink-50 px-3.5 py-2.5">
+                  <Text className="text-[15px] font-semibold text-ink-900">{name}</Text>
+                  <Text className="min-w-0 flex-1 text-[12px] text-ink-500" numberOfLines={1}>
+                    {chosen.length ? `${chosen.length} ${chosen.length === 1 ? "class" : "classes"} · ${periods} periods/week` : rows.length ? "Pick classes" : ""}
+                  </Text>
+                  {rows.length ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() =>
+                        setActivityPicks((cur) => [
+                          ...cur.filter((p) => p.name !== name),
+                          ...(all ? [] : rows.map(({ klass }) => ({ name, classId: klass.id }))),
+                        ])
+                      }
+                      className="rounded-md px-2 py-1"
+                    >
+                      <Text className="text-[12px] font-semibold text-clay-600">{all ? "Clear" : "All classes"}</Text>
+                    </Pressable>
+                  ) : null}
+                  <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${name}`} hitSlop={8} onPress={() => toggleActivity(name)} className="h-7 w-7 items-center justify-center">
+                    <Ionicons name="close" size={15} color="#64748b" />
+                  </Pressable>
+                </View>
+                <View className="gap-2 px-3.5 py-3">
+                  {rows.length ? (
+                    <View className="flex-row flex-wrap gap-1.5">
+                      {rows.map(({ klass, perWeek }) => {
+                        const on = hasActivity(name, klass.id);
+                        return (
+                          <Pressable
+                            key={klass.id}
+                            accessibilityRole="checkbox"
+                            accessibilityState={{ checked: on }}
+                            accessibilityLabel={`${name} in ${klass.label}`}
+                            onPress={() => setActivityClass(name, klass.id, !on)}
+                            className={`h-9 min-w-[56px] flex-row items-center justify-center gap-1 rounded-md border px-3 ${on ? "border-clay-500 bg-clay-500" : "border-ink-200 bg-white"}`}
+                          >
+                            {on ? <Ionicons name="checkmark" size={13} color="#fff" /> : null}
+                            <Text className={`text-[13px] font-medium ${on ? "text-white" : "text-ink-800"}`}>{klass.label}</Text>
+                            <Text className={`text-[11px] ${on ? "text-white/80" : "text-ink-400"}`}>{`${perWeek}`}</Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  ) : (
+                    <Text className="text-[12px] text-ink-500">{`No class has ${name} yet. Add it to a class in Settings → Subjects → Activities.`}</Text>
+                  )}
+                  {byTeacher.size ? (
+                    <Text className="text-[11px] text-amber-700">
+                      {`Also taking ${name}: ${[...byTeacher].map(([n, labels]) => `${n} (${labels.join(", ")})`).join(", ")}`}
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
+            );
+          })}
+        </View>
+      ) : null}
       {error ? <Text className="text-sm text-red-700">{error}</Text> : null}
       <View className="flex-row justify-end gap-2">
         <Button variant="ghost" onPress={onCancel}>
@@ -597,6 +728,9 @@ export function TeacherForm({
                 qualification: tags,
                 qualificationNotes: notes,
                 offers,
+                ...(activityCatalog?.length
+                  ? { activities: activityPicks.filter((p) => activitiesOn.includes(p.name)) }
+                  : {}),
               });
             } catch (e) {
               setError(e instanceof Error ? e.message : "Could not save.");
