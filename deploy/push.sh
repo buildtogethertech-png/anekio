@@ -5,6 +5,11 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"
 source deploy/aws/config.sh
+# The web build (Expo 54) needs Node 20+; switch via nvm when the shell default is older.
+if [[ "$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)" -lt 20 ]]; then
+  export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"; [[ -s "$NVM_DIR/nvm.sh" ]] && source "$NVM_DIR/nvm.sh" && nvm use 20 >/dev/null
+  [[ "$(node -p 'process.versions.node.split(".")[0]')" -ge 20 ]] || { echo "Node 20+ needed: nvm install 20"; exit 1; }
+fi
 EIP=$(state_get EIP); [[ -n "$EIP" ]] || { echo "Run deploy/aws/1-ec2.sh first."; exit 1; }
 ENVF=deploy/aws/.env.production
 [[ -f "$ENVF" ]] || { echo "Missing $ENVF (see deploy/README.md)."; exit 1; }

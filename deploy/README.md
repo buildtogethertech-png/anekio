@@ -49,7 +49,7 @@ bash deploy/push.sh
 ## Day to day
 | Task | Command |
 |---|---|
-| Deploy | `bash deploy/push.sh` |
+| Deploy | `npm run deploy:prod` (same as `bash deploy/push.sh`; switches to Node 20 itself) |
 | SSH into the server | `ssh anekio` (add the `Host anekio` block from below to `~/.ssh/config`) |
 | SSH times out (your IP changed) | `bash deploy/aws/ssh-allow-my-ip.sh` |
 | Logs | `ssh anekio 'pm2 logs anekio --lines 100'` |
