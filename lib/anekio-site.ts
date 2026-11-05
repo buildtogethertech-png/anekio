@@ -7,6 +7,7 @@ import { roleIdBySlug } from "./roles";
 import { captureWebsiteLead, createDemo, createTrialSubscription, ensureOnboardingTasks, fulfillPaidSubscription, startOnboarding } from "./saas-crm";
 import { getPaymentLink, getSitePricing, markCouponUsed, quoteForSchool } from "./saas-pricing";
 import { marketingBottom, marketingCss, marketingHead, marketingScript, marketingTop } from "./anekio-marketing";
+import { birthdayBanner } from "./birthday-banner";
 import { blogSitemapPaths } from "./anekio-blog";
 import { emptyUnusedBakedSubjectCatalog } from "./subject-code";
 
@@ -419,7 +420,7 @@ export async function marketingHtml(message = "") {
   return shell(
     title,
     description,
-    `${marketingTop(ctx)}
+    `${birthdayBanner()}${marketingTop(ctx)}
   <section id="start" class="sections wrap">
     <span id="pricing"></span><span id="trial"></span><span id="enquiry"></span>
     <div class="start-head">
