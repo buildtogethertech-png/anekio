@@ -27,6 +27,10 @@ rsync -az --delete -e "ssh -i $KEY_FILE" \
   --include='/mobile/' --include='/mobile/dist/***' --exclude='/mobile/*' \
   --exclude='node_modules/' --exclude='.git/' --exclude='*.db' --exclude='*.db-journal' --exclude='/uploads/' \
   --exclude='.vercel*' --exclude='coverage/' --exclude='deploy/aws/.state' --exclude='deploy/aws/.env*' --exclude='deploy/aws/.grafana.env' --exclude='.env*' \
+  --exclude='/infra/' --exclude='/marketing/' --exclude='/Claude outputs/' --exclude='/.agents/' --exclude='/_to_delete/' \
+  --exclude='/tests/' --exclude='/test-results/' --exclude='/playwright-report/' --exclude='/docs/' --exclude='*.tfvars' --exclude='*.tfstate*' \
+  --exclude='/Anekio-demo-logins.*' --exclude='/*.csv' --exclude='/neodove-engineering-docs/' --exclude='/setup_neodove_claude.sh' \
+  --exclude='/_bmad/' --exclude='/_bmad-output/' --exclude='/store-assets/' --exclude='/body.txt' --exclude='/MIGRATION.local.md' --exclude='/system-design.html' \
   ./ "ubuntu@$EIP:/srv/anekio/releases/$REL/"
 scp -i "$KEY_FILE" -q "$ENVF" "ubuntu@$EIP:/srv/anekio/shared/.env"
 [[ -f deploy/aws/.grafana.env ]] && scp -i "$KEY_FILE" -q deploy/aws/.grafana.env "ubuntu@$EIP:/srv/anekio/shared/grafana.env"
