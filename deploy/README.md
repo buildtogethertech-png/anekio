@@ -50,7 +50,9 @@ bash deploy/push.sh
 | Task | Command |
 |---|---|
 | Deploy | `bash deploy/push.sh` |
-| Logs | `ssh -i ~/.ssh/anekio-prod.pem ubuntu@<ip> 'pm2 logs anekio --lines 100'` |
+| SSH into the server | `ssh anekio` (add the `Host anekio` block from below to `~/.ssh/config`) |
+| SSH times out (your IP changed) | `bash deploy/aws/ssh-allow-my-ip.sh` |
+| Logs | `ssh anekio 'pm2 logs anekio --lines 100'` |
 | Save credit while idle | `bash deploy/aws/power.sh stop` / `start` / `status` |
 | Roll back | on the server: `ln -sfn /srv/anekio/releases/<previous> /srv/anekio/current && pm2 reload anekio` |
 
@@ -79,3 +81,13 @@ active users today / 7 / 30 days per school, roles, web vs Android, most used ac
 4. In Grafana: Dashboards → New → Import → `deploy/grafana/anekio.json` — one page: Server / CPU / RAM / Disk /
    Database / 5xx at the top, then EC2, RDS, Traffic and App sections that open on click.
    No-menu view: https://stoutgrotto3198.grafana.net/d/anekio-server?kiosk
+
+### `~/.ssh/config`
+```
+Host anekio
+  HostName 13.204.123.9
+  User ubuntu
+  IdentityFile ~/.ssh/anekio-prod.pem
+  IdentitiesOnly yes
+  ServerAliveInterval 30
+```
