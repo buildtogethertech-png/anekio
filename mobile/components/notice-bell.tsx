@@ -8,6 +8,7 @@ import { useNoticeInbox } from "../lib/notice-inbox";
 import { useSession } from "../lib/session";
 import { NoticeList } from "./notice-list";
 import { QrDockButton } from "./staff-attendance-qr";
+import { MarkHereButton } from "./attendance-geo";
 import { ProfileMenuButton } from "./profile-menu";
 import { useRecord } from "../lib/record";
 import { visibleTabs } from "../lib/nav-icons";
@@ -134,8 +135,13 @@ export function PhoneTopBar() {
   const { width } = useWindowDimensions();
   const router = useRouter();
   const { user, nav, token } = useSession();
-  const { data, reload } = useRecord();
+  const { data, reload, reloadSilently } = useRecord();
   if (width >= 768) return null;
+  // Teachers mark from the dashboard tile; office staff from here.
+  const office = user?.portal === "OFFICE";
+  const self = data?.staffAttendanceSelf;
+  const setup = self?.attendanceSetup ?? data?.staffAttendanceSetup;
+  const canScan = office && (user?.permissions ?? []).some((p) => p === "staff.attendance" || p === "staff.edit");
   const schoolName = data?.school?.name || "Anekio";
   // Portals without a "More" tab reach Inbox from here.
   const tabs = visibleTabs(user?.portal, nav);
@@ -162,12 +168,12 @@ export function PhoneTopBar() {
             <Ionicons name="chatbubble-ellipses-outline" size={21} color="#0f2744" />
           </Pressable>
         ) : null}
-        <QrDockButton
-          token={token}
-          hasSelfQr={false}
-          canScan={user?.portal === "OFFICE" && (user?.permissions ?? []).some((p) => p === "staff.attendance" || p === "staff.edit")}
-          onScanned={() => void reload()}
-        />
+        {office && self && setup?.location ? (
+          <MarkHereButton icon token={token} today={self.today} onDone={() => void reloadSilently()} />
+        ) : null}
+        {office && self && !setup?.location ? <QrDockButton token={token} hasSelfQr /> : null}
+        {/* The scan desk stays after the scanner marks their own attendance (QR schools only). */}
+        <QrDockButton token={token} hasSelfQr={false} canScan={canScan} onScanned={() => void reload()} />
         <NoticeBell />
         <ProfileMenuButton compact />
       </View>

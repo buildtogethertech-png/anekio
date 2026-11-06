@@ -138,6 +138,14 @@ describe("Attendance tile (location schools)", () => {
   });
 });
 
+describe("Header Mark in (office staff, location schools)", () => {
+  it("is a small round button that opens the same sheet", async () => {
+    render(<MarkHereButton icon token="t" today={{ marked: false }} onDone={jest.fn()} />);
+    fireEvent.press(screen.getByLabelText("Attendance. Not marked yet"));
+    expect(await screen.findByTestId("mark-here-sheet")).toBeTruthy();
+  });
+});
+
 describe("Header dock", () => {
   function withSetup(setup: { qr: boolean; location: boolean }) {
     mockUseOptionalRecord.mockReturnValue({

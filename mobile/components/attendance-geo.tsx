@@ -549,12 +549,15 @@ export function MarkHereButton({
   token,
   today,
   tile,
+  icon,
   disabled,
   onDone,
 }: {
   token: string | null;
   today?: { marked?: boolean; inAt?: string; outAt?: string };
   tile?: boolean;
+  /** Small round button for the phone header (office staff). */
+  icon?: boolean;
   disabled?: boolean;
   onDone: () => void;
 }) {
@@ -563,7 +566,22 @@ export function MarkHereButton({
   const label = checkedIn ? `Attendance. In at ${clock(today?.inAt)}` : "Attendance. Not marked yet";
   return (
     <>
-      {tile ? (
+      {icon ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={label}
+          disabled={disabled}
+          onPress={() => setOpen(true)}
+          className="h-10 w-10 items-center justify-center rounded-full bg-white"
+        >
+          <Ionicons name="location-outline" size={21} color="#0f2744" />
+          {checkedIn ? (
+            <View className="absolute right-1 top-1 h-3.5 w-3.5 items-center justify-center rounded-full border-2 border-white bg-[#22C55E]" />
+          ) : (
+            <View className="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-[#F59E0B]" />
+          )}
+        </Pressable>
+      ) : tile ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={label}
