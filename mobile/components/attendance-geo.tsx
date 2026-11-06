@@ -126,14 +126,12 @@ export function MarkHereSheet({
   open,
   token,
   today,
-  radiusM,
   onClose,
   onDone,
 }: {
   open: boolean;
   token: string | null;
   today?: { marked?: boolean; inAt?: string; outAt?: string };
-  radiusM?: number;
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -287,16 +285,18 @@ export function MarkHereSheet({
               accessibilityLabel="Mark out here"
               disabled={locating}
               onPress={() => void mark()}
-              className="flex-row items-center justify-center gap-2 rounded-2xl border border-white/15 px-4 py-3.5 active:bg-white/10"
+              className="flex-row items-center gap-3.5 rounded-2xl bg-white px-4 py-3.5 active:opacity-90"
             >
-              <Ionicons name="exit-outline" size={18} color="#BFD0FF" />
-              <Text className="text-[15px] font-semibold text-[#BFD0FF]">{outAt ? "Leaving now? Update out time" : "Leaving school? Mark out"}</Text>
+              <View className="h-11 w-11 items-center justify-center rounded-full bg-[#FFF1E8]">
+                <Ionicons name="exit-outline" size={22} color="#EA580C" />
+              </View>
+              <View className="min-w-0 flex-1">
+                <Text className="text-[16px] font-semibold text-ink-900">{outAt ? "Update out time" : "Mark out"}</Text>
+                <Text className="mt-0.5 text-[13px] text-ink-500">{outAt ? `Out at ${clock(outAt)} · tap if you're leaving now` : "Tap when you leave school"}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#94A3B8" />
             </Pressable>
           ) : null}
-          <View className="flex-row items-center justify-center gap-1.5">
-            <Ionicons name="shield-checkmark-outline" size={13} color="rgba(255,255,255,0.4)" />
-            <Text className="text-[12px] text-white/40">Works only inside the school{radiusM ? ` (${radiusM} m)` : ""} · Fake GPS is blocked</Text>
-          </View>
         </View>
       </View>
     </RnModal>
@@ -503,14 +503,12 @@ export function StaffAttendanceSettings({
 export function MarkHereButton({
   token,
   today,
-  radiusM,
   tile,
   disabled,
   onDone,
 }: {
   token: string | null;
   today?: { marked?: boolean; inAt?: string; outAt?: string };
-  radiusM?: number;
   tile?: boolean;
   disabled?: boolean;
   onDone: () => void;
@@ -546,7 +544,7 @@ export function MarkHereButton({
           {checkedIn ? `✓ In at ${clock(today?.inAt)}` : "📍 Mark attendance"}
         </Button>
       )}
-      <MarkHereSheet open={open} token={token} today={today} radiusM={radiusM} onClose={() => setOpen(false)} onDone={onDone} />
+      <MarkHereSheet open={open} token={token} today={today} onClose={() => setOpen(false)} onDone={onDone} />
     </>
   );
 }

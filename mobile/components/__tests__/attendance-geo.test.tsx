@@ -45,7 +45,7 @@ describe("MarkHereSheet", () => {
     mockReadFix.mockResolvedValue({ lat: 28.6143, lng: 77.209, accuracy: 12, mocked: false });
     mockAct.mockResolvedValue({ ok: true, inAt: "08:52", outAt: "", checkedOut: false, meters: 46, accuracy: 12 } as never);
     const onDone = jest.fn();
-    render(<MarkHereSheet open token="t" today={{ marked: false }} radiusM={150} onClose={jest.fn()} onDone={onDone} />);
+    render(<MarkHereSheet open token="t" today={{ marked: false }} onClose={jest.fn()} onDone={onDone} />);
     expect(screen.getByText("Mark your attendance")).toBeTruthy();
     expect(screen.queryByLabelText("Mark out here")).toBeNull();
     fireEvent.press(screen.getByLabelText("Mark in here"));
@@ -60,6 +60,7 @@ describe("MarkHereSheet", () => {
     mockAct.mockResolvedValue({ ok: true, inAt: "08:52", outAt: "15:10", checkedOut: true } as never);
     render(<MarkHereSheet open token="t" today={{ marked: true, inAt: "08:52" }} onClose={jest.fn()} onDone={jest.fn()} />);
     expect(screen.getByText("You're in since 8:52 AM")).toBeTruthy();
+    expect(screen.getByText("Tap when you leave school")).toBeTruthy();
     expect(screen.queryByLabelText("Mark in here")).toBeNull();
     fireEvent.press(screen.getByLabelText("Mark out here"));
     expect(await screen.findByText("Out at 3:10 PM")).toBeTruthy();
@@ -69,6 +70,8 @@ describe("MarkHereSheet", () => {
     render(<MarkHereSheet open token="t" today={{ marked: true, inAt: "08:52", outAt: "15:10" }} onClose={jest.fn()} onDone={jest.fn()} />);
     expect(screen.getByText("Done for today")).toBeTruthy();
     expect(screen.getByText("In 8:52 AM · Out 3:10 PM")).toBeTruthy();
+    expect(screen.getByText("Update out time")).toBeTruthy();
+    expect(screen.queryByText(/Fake GPS/)).toBeNull();
   });
 
   it("shows the server's reason and lets them try again", async () => {

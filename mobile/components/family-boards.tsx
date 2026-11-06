@@ -485,7 +485,6 @@ export function TeacherDeskBoard() {
                 token={token}
                 disabled={Boolean(todayClosed)}
                 today={data.staffAttendanceSelf.today}
-                radiusM={data.staffAttendanceSelf.attendanceSetup.radiusM}
                 onDone={() => void reloadInBackground()}
               />
             </View>
@@ -620,7 +619,6 @@ export function TeacherDeskBoard() {
             tile
             disabled={Boolean(todayClosed)}
             today={data.staffAttendanceSelf.today}
-            radiusM={data.staffAttendanceSelf.attendanceSetup.radiusM}
             onDone={() => void reloadInBackground()}
           />
         ) : data?.staffAttendanceSelf ? (
