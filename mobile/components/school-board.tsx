@@ -1,3 +1,4 @@
+import { SchoolDaySettingsForm } from "./school-day-settings";
 import { useEffect, useState, type ReactNode } from "react";
 import { SchoolYearPanel, YearSummaryModal } from "./school-year-panel";
 import { Image, KeyboardAvoidingView, Linking, Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
@@ -41,6 +42,7 @@ const TABS = [
   { id: "exams", label: "Exams", hint: "Grade scale and this year's sittings. Every class follows this.", group: "Academics" },
   { id: "leave", label: "Leave", hint: "Leave types, who can apply, notice, and how leave builds up.", group: "HR & Payroll" },
   { id: "payroll", label: "Payroll rules", hint: "Salary day basis, paid offs, sandwich rule, half days, timing and lates.", group: "HR & Payroll" },
+  { id: "phones", label: "Teacher phones", hint: "Keep teachers' phones on Anekio during the school day, and when breaks are allowed.", group: "HR & Payroll" },
   { id: "feeClasses", label: "Class fees", hint: "Monthly and admission fee for each class", group: "Fees" },
   { id: "feeAddons", label: "Add-ons", hint: "Optional charges like transport or meals", group: "Fees" },
   { id: "feeLate", label: "Late fee & due date", hint: "When fees are due and the late charge", group: "Fees" },
@@ -61,7 +63,7 @@ const TAB_GROUPS = ["School Setup", "Academics", "HR & Payroll", "Fees", "Docume
 const DOOR_LEDE: Record<Door, string> = {
   "School Setup": "Identity, sessions, classes, calendar, and days.",
   Academics: "Subjects and this year's exams.",
-  "HR & Payroll": "Leave rules and how attendance turns into salary.",
+  "HR & Payroll": "Leave rules, how attendance turns into salary, and teacher phones.",
   Fees: "Fee structure, add-ons, late fee, and how parents pay.",
   Documents: "Design report cards, IDs, receipts, certificates, and letters.",
   Admissions: "Admissions website and incoming enquiries.",
@@ -197,6 +199,7 @@ const TAB_ICONS: Record<Tab, { icon: keyof typeof Ionicons.glyphMap; tone: strin
   exams: { icon: "clipboard-outline", tone: "#9333ea" },
   leave: { icon: "airplane-outline", tone: "#0284c7" },
   payroll: { icon: "calculator-outline", tone: "#b45309" },
+  phones: { icon: "phone-portrait-outline", tone: "#1F45C7" },
   collect: { icon: "wallet-outline", tone: "#059669" },
   feeClasses: { icon: "cash-outline", tone: "#059669" },
   feeAddons: { icon: "add-circle-outline", tone: "#0d9488" },
@@ -2127,7 +2130,7 @@ export function SchoolBoard() {
   const savedWebsite = (s as unknown as { website?: { slug?: string; enabled?: boolean } } | undefined)?.website;
   const slugIsOwn = Boolean(form.websiteSlug && savedWebsite?.slug && form.websiteSlug.trim() === savedWebsite.slug);
   const websiteDirtyHint = Boolean(savedWebsite) && Boolean(savedWebsite?.enabled) !== form.websiteEnabled;
-  const showSave = tab !== "forms" && tab !== "calendar" && tab !== "exams" && tab !== "clock" && tab !== "subjects" && tab !== "sessions" && tab !== "classes" && tab !== "leave" && tab !== "documents" && tab !== "payroll";
+  const showSave = tab !== "forms" && tab !== "calendar" && tab !== "exams" && tab !== "clock" && tab !== "subjects" && tab !== "sessions" && tab !== "classes" && tab !== "leave" && tab !== "documents" && tab !== "payroll" && tab !== "phones";
   const showPreview = false;
 
   function showSchool(next: { tab?: Tab; group?: Door } = {}) {
@@ -2627,6 +2630,21 @@ export function SchoolBoard() {
                   await reload();
                 }}
               />
+            ) : null}
+
+            {tab === "phones" ? (
+              <View className={phone ? "" : "mt-4"}>
+                <SchoolDaySettingsForm
+                  key={JSON.stringify(data?.school?.schoolDay ?? null)}
+                  value={data?.school?.schoolDay}
+                  canEdit={edit}
+                  onSave={async (next) => {
+                    await act(token, "saveSchoolDay", next);
+                    toast.show("Teacher phone rules saved.");
+                    await reload();
+                  }}
+                />
+              </View>
             ) : null}
 
             {tab === "payroll" ? (

@@ -51,6 +51,15 @@ export type DayGap = {
 
 export type DayGaps = { date: string; closed: string; gaps: DayGap[] };
 
+/** Teachers' phones during the school day (Settings → HR & Payroll → Teacher phones). */
+export type SchoolDaySettings = {
+  enabled: boolean;
+  breakDuringClass: "never" | "with_reason";
+  /** "last_period" or a fixed "HH:MM". */
+  endsAt: string;
+  breakReasons: string[];
+};
+
 export type FeeRow = {
   id: string;
   title: string;
@@ -422,6 +431,8 @@ export type RecordPayload = {
     markedToday: boolean;
     roster: RosterStudent[];
   }[];
+  /** Teacher: the school's phone rules for the school day. */
+  schoolDay?: SchoolDaySettings;
   /** Office: teachers out today and what still needs doing (periods to cover, class attendance). */
   dayGaps?: DayGaps | null;
   exams?: { id: string; title: string; hint?: string; label?: string; students?: number; examId?: string; kind?: string }[];
@@ -777,6 +788,7 @@ export type RecordPayload = {
     subjectCatalog?: { code: string; name: string }[];
     /** School's activity list (Games, Library…): never part of exams. */
     activityCatalog?: string[];
+    schoolDay?: SchoolDaySettings;
     sessions?: { id: string; label: string; startsOn: string; endsOn: string; current: boolean }[];
     holidays?: { id: string; sessionId?: string; date: string; name: string }[];
     policy?: { bands: { min: number; grade: string }[]; passPercent: number; showRank: boolean; reportCardPaidMonths?: number; reportCardUnpaidMonths?: number; admitCardPendingMonths?: number };

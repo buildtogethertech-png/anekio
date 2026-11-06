@@ -20,6 +20,7 @@ import {
 } from "./data";
 import { slotLabel } from "./timetable-activity";
 import { parseActivityCatalog, parseActivityPlan, parseTeacherActivities } from "./school-activities";
+import { loadSchoolDay, parseSchoolDay } from "./school-day";
 import { isCircularNotice } from "./notices";
 import { ensureStaffRecord, leaveBundleFor } from "./leave";
 import { gradePolicyFrom, marksVisible, effectiveExamPlan, parseExamPlan, timetableVisible, ymd, addDays } from "./exams";
@@ -733,6 +734,7 @@ async function teacherPayload(user: AccessUser) {
     staffAttendanceSelf: await staffAttendanceSelf(user),
     dayChanges: teacher ? await (await import("./timetable-day")).teacherDayChanges(teacher.id) : [],
     attendanceCovers: teacher ? await attendanceCoverRosters(teacher.id, today) : [],
+    schoolDay: await loadSchoolDay(),
     classId: teacher?.classId || "",
     classLabel: desk?.classLabel || "",
     classTeacher: Boolean(desk?.classTeacher),
@@ -1553,6 +1555,7 @@ async function officePayload(user: AccessUser) {
       })),
       subjectCatalog: await subjectCatalogForSchool(config),
       activityCatalog: parseActivityCatalog(config?.activityCatalog),
+      schoolDay: parseSchoolDay(config?.schoolDayJson),
       sessions: sessions.map((s) => ({
         id: s.id,
         label: s.label,

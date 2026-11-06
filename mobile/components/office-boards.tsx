@@ -37,6 +37,7 @@ import { QuickDocumentButton } from "./document-studio";
 import { cloneFields, FormBuilderModal } from "./form-builder";
 import { StaffTimesheet } from "./staff-timesheet";
 import { StaffSalaryBoard } from "./staff-salary-board";
+import { StaffPhoneReport } from "./staff-phone-report";
 import { OnboardingBoard } from "./onboarding-board";
 import { StaffAttendanceQrButton, StaffAttendanceQrScanButton } from "./staff-attendance-qr";
 import { studentMetaLine } from "../lib/student-label";
@@ -4960,7 +4961,9 @@ export function StaffBoard() {
   const [times, setTimes] = useState<Record<string, string>>({});
   const staffParams = useLocalSearchParams<{ view?: string | string[] }>();
   const viewParam = Array.isArray(staffParams.view) ? staffParams.view[0] : staffParams.view;
-  const [staffView, setStaffView] = useState<"today" | "directory" | "salary">(viewParam === "salary" ? "salary" : "today");
+  const [staffView, setStaffView] = useState<"today" | "directory" | "salary" | "phone">(
+    viewParam === "salary" ? "salary" : viewParam === "phone" ? "phone" : "today"
+  );
   useEffect(() => {
     if (viewParam === "salary") setStaffView("salary");
   }, [viewParam]);
@@ -5211,6 +5214,7 @@ export function StaffBoard() {
       ["today", "Today", canMark],
       ["timesheet", "Timesheet", canMark],
       ["salary", "Salary", salaryAccess.view],
+      ["phone", "Phone use", Boolean(data?.school?.schoolDay?.enabled)],
       ["directory", phone ? "Directory" : `Directory · ${staff.length}`, canDirectory],
     ] as const
   ).filter(([, , on]) => on);
@@ -5770,7 +5774,12 @@ export function StaffBoard() {
         }
       />
       )}
-      {staffView === "salary" && salaryAccess.view ? (
+      {staffView === "phone" && data?.school?.schoolDay?.enabled ? (
+        <Card className="min-h-0 flex-1">
+          {tabsBar}
+          <StaffPhoneReport token={token} phone={phone} />
+        </Card>
+      ) : staffView === "salary" && salaryAccess.view ? (
         <Card className="min-h-0 flex-1">
           {tabsBar}
           <StaffSalaryBoard

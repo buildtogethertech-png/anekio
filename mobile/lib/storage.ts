@@ -118,3 +118,14 @@ export async function getLastWorkspaceRoute(userId: string) {
 export async function setLastWorkspaceRoute(userId: string, route: string) {
   await writeStore(workspaceKey(userId), route);
 }
+
+const FOCUS_DAY_KEY = "anekio.focusDay";
+
+/** Focus day (screen pinning) state for today, kept on the phone. */
+export async function getFocusDay() {
+  return readStore(FOCUS_DAY_KEY);
+}
+
+export async function setFocusDay(value: string | null) {
+  await writeStore(FOCUS_DAY_KEY, value ?? "");
+}
