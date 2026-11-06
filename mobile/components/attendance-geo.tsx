@@ -70,7 +70,12 @@ export function MarkHereSheet({
       );
       onDone();
     } catch (error) {
-      setNote({ tone: "danger", title: "Not marked", body: errorText(error) });
+      const text = errorText(error);
+      setNote(
+        /Mark again when leaving/.test(text)
+          ? { tone: "warn", title: `Already in at ${clock(today?.inAt)}`, body: "Mark out when you leave school." }
+          : { tone: "danger", title: "Not marked", body: text }
+      );
     } finally {
       setBusy(false);
     }
