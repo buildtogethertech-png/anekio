@@ -85,7 +85,7 @@ describe("MarkHereSheet", () => {
     expect(screen.queryByTestId("mark-steps")).toBeNull();
   });
 
-  it("once in: In / Out / Hours, and one big Mark out button", async () => {
+  it("once in, the same middle button turns into Mark out", async () => {
     mockReadFix.mockResolvedValue({ lat: 28.6143, lng: 77.209, accuracy: 12, mocked: false });
     mockAct.mockResolvedValue({ ok: true, inAt: "08:52", outAt: "15:10", checkedOut: true } as never);
     render(<MarkHereSheet open token="t" today={{ marked: true, inAt: "08:52" }} onClose={jest.fn()} onDone={jest.fn()} />);
@@ -101,9 +101,20 @@ describe("MarkHereSheet", () => {
   it("a day with an out time reads Done for today, and the out can be updated", () => {
     render(<MarkHereSheet open token="t" today={{ marked: true, inAt: "08:52", outAt: "15:10" }} onClose={jest.fn()} onDone={jest.fn()} />);
     expect(screen.getByText("Done for today")).toBeTruthy();
-    expect(screen.getByText("In 8:52 AM · Out 3:10 PM")).toBeTruthy();
-    expect(screen.getByText("Mark out again")).toBeTruthy();
+    expect(screen.getByText("In 8:52 AM · Out 3:10 PM. Leaving later? Tap again.")).toBeTruthy();
+    expect(screen.getByText("Out again")).toBeTruthy();
+    expect(screen.getByLabelText("Mark out here")).toBeTruthy();
   });
+
+  it("after the tick, Mark in becomes Mark out in the same place", async () => {
+    mockReadFix.mockResolvedValue({ lat: 28.6143, lng: 77.209, accuracy: 12, mocked: false });
+    mockAct.mockResolvedValue({ ok: true, inAt: "08:52", outAt: "", checkedOut: false } as never);
+    render(<MarkHereSheet open token="t" today={{ marked: false }} onClose={jest.fn()} onDone={jest.fn()} />);
+    fireEvent.press(screen.getByLabelText("Mark in here"));
+    expect(await screen.findByTestId("attendance-done")).toBeTruthy();
+    await waitFor(() => expect(screen.getByLabelText("Mark out here")).toBeTruthy(), { timeout: 4000 });
+    expect(screen.getByText("You're checked in")).toBeTruthy();
+  }, 10000);
 
   it("lists earlier outs when out was marked more than once", () => {
     render(

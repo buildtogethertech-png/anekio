@@ -40,6 +40,8 @@ function errorText(error: unknown) {
 
 const NATIVE_DRIVER = Platform.OS !== "web";
 const BLUE = "#2855F6";
+const ORANGE = "#EA580C";
+type Tone = "blue" | "green" | "slate" | "red" | "orange";
 const GREEN = "#22C55E";
 const RING = 236;
 const STROKE = 10;
@@ -83,8 +85,8 @@ function greeting(d: Date) {
 }
 
 /** Full-screen soft gradient with a glow behind the ring (SVG: works the same on phone and web). */
-function Backdrop({ tone }: { tone: "blue" | "green" | "slate" | "red" }) {
-  const glow = tone === "green" ? GREEN : tone === "red" ? "#EF4444" : tone === "slate" ? "#8B5CF6" : "#3B82F6";
+function Backdrop({ tone }: { tone: Tone }) {
+  const glow = tone === "green" ? GREEN : tone === "red" ? "#EF4444" : tone === "slate" ? "#8B5CF6" : tone === "orange" ? "#F97316" : "#3B82F6";
   return (
     <Svg pointerEvents="none" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} width="100%" height="100%">
       <Defs>
@@ -105,7 +107,7 @@ function Backdrop({ tone }: { tone: "blue" | "green" | "slate" | "red" }) {
 }
 
 /** The big ring: spinning arc while marking, fills green on success. */
-function StatusRing({ phase, tone, children }: { phase: Phase; tone: "blue" | "green" | "slate" | "red"; children: ReactNode }) {
+function StatusRing({ phase, tone, children }: { phase: Phase; tone: Tone; children: ReactNode }) {
   const spin = useRef(new Animated.Value(0)).current;
   const fill = useRef(new Animated.Value(0)).current;
   const pop = useRef(new Animated.Value(1)).current;
@@ -133,7 +135,7 @@ function StatusRing({ phase, tone, children }: { phase: Phase; tone: "blue" | "g
   }, [phase, breathe]);
 
   useEffect(() => {
-    const full = tone === "green" || tone === "slate";
+    const full = tone === "green" || tone === "slate" || tone === "orange";
     if (phase === "done") {
       fill.setValue(0);
       pop.setValue(0.4);
@@ -149,7 +151,7 @@ function StatusRing({ phase, tone, children }: { phase: Phase; tone: "blue" | "g
     }
   }, [phase, tone, fill, pop, burst]);
 
-  const stroke = tone === "green" ? GREEN : tone === "red" ? "#F87171" : tone === "slate" ? "#A78BFA" : "#7C9BFF";
+  const stroke = tone === "green" ? GREEN : tone === "red" ? "#F87171" : tone === "slate" ? "#A78BFA" : tone === "orange" ? "#FDBA74" : "#7C9BFF";
   return (
     <View style={{ width: RING + 40, height: RING + 40, alignItems: "center", justifyContent: "center" }}>
       <Animated.View
@@ -245,24 +247,6 @@ function StatsCard({ inAt, outAt, now }: { inAt: string; outAt: string; now: Dat
   );
 }
 
-/** One big, plain button for marking out: clear for every teacher, no gestures to learn. */
-function MarkOutButton({ again, disabled, onPress }: { again: boolean; disabled?: boolean; onPress: () => void }) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel="Mark out here"
-      accessibilityState={{ disabled }}
-      disabled={disabled}
-      onPress={onPress}
-      className={`h-16 w-full flex-row items-center justify-center gap-3 rounded-2xl active:opacity-85 ${disabled ? "opacity-50" : ""}`}
-      style={{ backgroundColor: "#EA580C", shadowColor: "#F97316", shadowOpacity: 0.5, shadowRadius: 18, elevation: 10 }}
-    >
-      <Ionicons name="exit-outline" size={28} color="#fff" />
-      <Text className="text-[19px] font-bold text-white">{again ? "Mark out again" : "Mark out"}</Text>
-    </Pressable>
-  );
-}
-
 /**
  * "Mark in": staff mark their own attendance from their phone while at school. One big button; once in,
  * a big "Mark out" button (any number of times: the last out counts). The server checks distance, GPS
@@ -323,6 +307,7 @@ export function MarkHereSheet({
       setDone({ kind: res.checkedOut ? "out" : "in", inAt: res.inAt, outAt: res.outAt });
       setPhase("done");
       onDone();
+      setTimeout(() => setPhase((p) => (p === "done" ? "idle" : p)), 2200);
     } catch (e) {
       setError(errorText(e));
       setPhase("error");
@@ -331,52 +316,67 @@ export function MarkHereSheet({
 
   const inAt = done?.inAt || today?.inAt || "";
   const outAt = done?.outAt || today?.outAt || "";
-  const dayDone = done ? done.kind === "out" : Boolean(outAt);
-  const showIn = phase === "done" || (checkedIn && phase !== "locating" && phase !== "error");
+  // The screen may be a step behind the server right after marking: what we just did counts.
+  const isIn = checkedIn || Boolean(done);
+  const flash = phase === "done";
   const locating = phase === "locating";
   const log = today?.outLog ?? [];
   const earlierOuts = (done?.kind === "out" && log.at(-1)?.at !== done.outAt ? log : log.slice(0, -1)).filter((o) => o.at !== outAt);
-  const tone: "blue" | "green" | "slate" | "red" = phase === "error" ? "red" : showIn ? (dayDone ? "slate" : "green") : "blue";
+  const tone: Tone =
+    phase === "error" ? "red" : flash ? (done?.kind === "out" ? "slate" : "green") : isIn && !locating ? "orange" : "blue";
 
   let title = "Ready to mark in?";
-  let sub = "Tap the button once you're inside school.";
+  let sub = "Tap Mark in once you're inside school.";
   if (locating) {
-    title = checkedIn ? "Marking you out…" : "Marking you in…";
+    title = isIn ? "Marking you out…" : "Marking you in…";
     sub = step === 0 ? "Finding your location" : "Checking you're at school";
   } else if (phase === "error") {
     title = "Couldn't mark you";
     sub = error;
-  } else if (done?.kind === "out") {
+  } else if (flash && done?.kind === "out") {
     title = `Out at ${clock(done.outAt)}`;
-    sub = "See you tomorrow! Tap Mark out again if you leave later.";
-  } else if (done?.kind === "in") {
+    sub = "See you tomorrow!";
+  } else if (flash) {
     title = "You're in! 🎉";
     sub = `Checked in at ${clock(inAt)}. Have a great day.`;
-  } else if (showIn && dayDone) {
+  } else if (isIn && outAt) {
     title = "Done for today";
-    sub = `In ${clock(inAt)} · Out ${clock(outAt)}`;
-  } else if (showIn) {
+    sub = `In ${clock(inAt)} · Out ${clock(outAt)}. Leaving later? Tap again.`;
+  } else if (isIn) {
     title = "You're checked in";
     sub = `Since ${clock(inAt)}. Tap Mark out when you leave.`;
   }
 
-  const ringFace = showIn ? (
+  // One button in the middle: Mark in (blue), then Mark out (orange). A short tick / moon after each mark.
+  const face = flash ? (
     <View
       testID="attendance-done"
       className="h-[180px] w-[180px] items-center justify-center rounded-full"
-      style={{ backgroundColor: dayDone ? "#4C3A9E" : "#16A34A", shadowColor: dayDone ? "#8B5CF6" : GREEN, shadowOpacity: 0.7, shadowRadius: 36, elevation: 18 }}
+      style={{
+        backgroundColor: done?.kind === "out" ? "#4C3A9E" : "#16A34A",
+        shadowColor: done?.kind === "out" ? "#8B5CF6" : GREEN,
+        shadowOpacity: 0.7,
+        shadowRadius: 36,
+        elevation: 18,
+      }}
     >
-      <Ionicons name={dayDone ? "moon" : "checkmark"} size={dayDone ? 64 : 84} color="#fff" />
+      <Ionicons name={done?.kind === "out" ? "moon" : "checkmark"} size={done?.kind === "out" ? 64 : 84} color="#fff" />
     </View>
   ) : (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel="Mark in here"
+      accessibilityLabel={isIn ? "Mark out here" : "Mark in here"}
       accessibilityState={{ disabled: locating, busy: locating }}
       disabled={locating}
       onPress={() => void mark()}
       className="h-[180px] w-[180px] items-center justify-center rounded-full active:opacity-90"
-      style={{ backgroundColor: phase === "error" ? "#DC2626" : BLUE, shadowColor: phase === "error" ? "#EF4444" : BLUE, shadowOpacity: 0.75, shadowRadius: 36, elevation: 18 }}
+      style={{
+        backgroundColor: phase === "error" ? "#DC2626" : isIn ? ORANGE : BLUE,
+        shadowColor: phase === "error" ? "#EF4444" : isIn ? "#F97316" : BLUE,
+        shadowOpacity: 0.75,
+        shadowRadius: 36,
+        elevation: 18,
+      }}
     >
       {locating ? (
         <>
@@ -390,8 +390,8 @@ export function MarkHereSheet({
         </>
       ) : (
         <>
-          <Ionicons name={checkedIn ? "exit-outline" : "enter-outline"} size={56} color="#fff" />
-          <Text className="mt-1 text-[24px] font-extrabold text-white">{checkedIn ? "Mark out" : "Mark in"}</Text>
+          <Ionicons name={isIn ? "exit-outline" : "enter-outline"} size={56} color="#fff" />
+          <Text className="mt-1 text-[24px] font-extrabold text-white">{isIn ? (outAt ? "Out again" : "Mark out") : "Mark in"}</Text>
         </>
       )}
     </Pressable>
@@ -432,7 +432,7 @@ export function MarkHereSheet({
 
         <View className="flex-1 items-center justify-center px-6">
           <StatusRing phase={phase} tone={tone}>
-            {ringFace}
+            {face}
           </StatusRing>
           <Text className="mt-3 text-center text-[26px] font-bold text-white">{title}</Text>
           <Text className={`mt-1.5 text-center text-[15px] leading-5 ${phase === "error" ? "text-red-200" : "text-white/65"}`}>{sub}</Text>
@@ -440,13 +440,12 @@ export function MarkHereSheet({
         </View>
 
         <View className="gap-3 px-5">
-          {showIn ? <StatsCard inAt={inAt} outAt={outAt} now={now} /> : null}
+          {isIn ? <StatsCard inAt={inAt} outAt={outAt} now={now} /> : null}
           {earlierOuts.length ? (
             <Text testID="earlier-outs" className="text-center text-[12px] text-white/45">
               {`Earlier out ${earlierOuts.map((o) => clock(o.at)).join(", ")} · the last one counts`}
             </Text>
           ) : null}
-          {showIn ? <MarkOutButton again={Boolean(outAt)} disabled={locating} onPress={() => void mark()} /> : null}
           <View className="mt-1 flex-row items-center justify-center gap-1.5">
             <Ionicons name="flash" size={12} color="rgba(191,208,255,0.55)" />
             <Text className="text-[12px] font-medium tracking-wide text-white/40">
