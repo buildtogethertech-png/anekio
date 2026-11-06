@@ -256,6 +256,8 @@ export function StaffAttendanceQrButton({
   const [busy, setBusy] = useState(false);
   const [qr, setQr] = useState<StaffQrResult | null>(null);
   const blocked = Boolean(disabled);
+  const setup = useOptionalRecord()?.data;
+  const qrOff = (setup?.staffAttendanceSelf?.attendanceSetup ?? setup?.staffAttendanceSetup)?.qr === false;
 
   // Read the latest callback from a ref so the timer is set up once, not again on every render
   // (re-running this effect called refresh() immediately each time, which looped).
@@ -322,6 +324,8 @@ export function StaffAttendanceQrButton({
     }
   }
 
+  // Settings → Staff attendance has QR off: the school does not use it.
+  if (qrOff) return null;
   return (
     <>
       {tile && round ? (
