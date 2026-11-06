@@ -26,6 +26,7 @@ import { gradePolicyFrom, marksVisible, effectiveExamPlan, parseExamPlan, timeta
 import { parentMaySeeExamResult } from "./exam-marks";
 import { teacherClassTestChoices } from "./exam-evaluators";
 import { parsePayrollRules } from "./payroll";
+import { loadAttendanceGeo } from "./staff-geo";
 import { collapseStaffDaysByDate, staffAttendanceInMark, staffDayWindow, staffDayYmd } from "./staff-day";
 import { feeLineTotal, invoiceBalance, parseFeeCatalogState, parseFeeLines, reportCardFeeHoldFromConfig } from "./fees";
 import { studentLetter } from "./letter";
@@ -188,6 +189,8 @@ function mapPersonStaffDays(
     outAt: string;
     startTimeUsed: string;
     computedStatus: string | null;
+    inVia?: string;
+    outVia?: string;
   }[],
   kind: "teacher" | "staff",
   id: string
@@ -201,6 +204,8 @@ function mapPersonStaffDays(
     outAt: d.outAt || "",
     startTimeUsed: d.startTimeUsed || "",
     computedStatus: d.computedStatus || "",
+    inVia: d.inVia || "",
+    outVia: d.outVia || "",
   }));
 }
 
@@ -294,6 +299,7 @@ async function staffAttendanceSelf(user: AccessUser) {
       inAt: todayRow?.inAt || "",
       outAt: todayRow?.outAt || "",
     },
+    attendanceGeo: await loadAttendanceGeo(),
   };
 }
 
@@ -1228,6 +1234,7 @@ async function officePayload(user: AccessUser) {
     kind: "OFFICE" as const,
     dayGaps: can(user, "timetable.edit") ? await (await import("./class-attendance-cover")).dayGaps(user).catch(() => null) : null,
     staffAttendanceSelf: await staffAttendanceSelf(user),
+    attendanceGeo: can(user, "school.edit") ? await loadAttendanceGeo() : null,
     myTeaching: await myTeachingToday(user),
     onboarding: can(user, "onboarding.manage") && user.orgId ? await onboardingBundle(user) : null,
     desk: {

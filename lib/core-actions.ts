@@ -1450,6 +1450,9 @@ async function writeStaffDayOnStamp(
     startTimeUsed: string;
     computedStatus: AttendanceStatus | null;
     remark?: string;
+    inVia?: string;
+    outVia?: string;
+    geoJson?: string;
   }
 ) {
   const instant = staffDayInstant(stamp);
@@ -1592,6 +1595,44 @@ export async function scanStaffAttendanceQrCore(user: AccessUser, input: { code:
     throw new Error("This staff attendance QR has expired.");
   }
 
+  const result = await stampStaffInOut(ticket, user.id, "qr", "Marked by attendance QR scan.", () => {
+    ticket.usedAt = Date.now();
+    staffAttendanceQrTokens.set(token, ticket);
+  });
+  if (!result.checkedOut) {
+    ticket.usedAt = Date.now();
+    staffAttendanceQrTokens.set(token, ticket);
+  }
+  return result;
+}
+
+type StaffPerson = { kind: "teacher" | "staff"; id: string; name: string; employeeId: string };
+type StaffFix = { lat: number; lng: number; acc: number; m: number };
+
+function mergeGeo(raw: string | null | undefined, side: "in" | "out", fix?: StaffFix) {
+  let prev: Record<string, unknown> = {};
+  try {
+    prev = raw ? JSON.parse(raw) : {};
+  } catch {
+    prev = {};
+  }
+  if (fix) prev[side] = fix;
+  else delete prev[side];
+  return Object.keys(prev).length ? JSON.stringify(prev) : "";
+}
+
+/**
+ * Today's in / out for one person: the first mark of the day is the entry, any later one (10+ minutes on)
+ * is the exit, and the last exit wins. Shared by the QR desk and "Mark here" by location.
+ */
+async function stampStaffInOut(
+  person: StaffPerson,
+  markerId: string,
+  via: "qr" | "location",
+  remark: string,
+  onRepeat: () => void,
+  fix?: StaffFix
+) {
   const stamp = staffDayYmd(new Date());
   const cal = await loadSchoolCalendar();
   const closed = closedReason(stamp, cal);
@@ -1604,58 +1645,55 @@ export async function scanStaffAttendanceQrCore(user: AccessUser, input: { code:
   const config = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
   const rules = parsePayrollRules(config?.payrollJson);
   const inAt = currentSchoolTime();
-  const existing = await findStaffDayOnStamp(ticket.kind, ticket.id, stamp);
+  const existing = await findStaffDayOnStamp(person.kind, person.id, stamp);
+  const who = { kind: person.kind, id: person.id, name: person.name, employeeId: person.employeeId };
   if (existing && staffAttendanceInMark(existing)) {
-    // Already in: a later scan is the exit. The last scan of the day wins; entry never changes.
-    ticket.usedAt = Date.now();
-    staffAttendanceQrTokens.set(token, ticket);
+    // Already in: a later mark is the exit. The last one of the day wins; entry never changes.
+    onRepeat();
     if (existing.inAt && minutesBetween(existing.inAt, inAt) < STAFF_OUT_AFTER_MINUTES) {
-      throw new Error(`${ticket.name} checked in at ${existing.inAt}. Scan again when leaving.`);
+      throw new Error(
+        via === "qr"
+          ? `${person.name} checked in at ${existing.inAt}. Scan again when leaving.`
+          : `You checked in at ${existing.inAt}. Mark again when leaving.`
+      );
     }
-    await writeStaffDayOnStamp(ticket.kind, ticket.id, stamp, {
+    await writeStaffDayOnStamp(person.kind, person.id, stamp, {
       status: existing.status,
-      markedById: existing.markedById || user.id,
+      markedById: existing.markedById || markerId,
       inAt: existing.inAt,
       outAt: inAt,
       startTimeUsed: existing.startTimeUsed,
       computedStatus: existing.computedStatus,
+      outVia: via,
+      geoJson: mergeGeo(existing.geoJson, "out", fix),
     });
-    return {
-      person: { kind: ticket.kind, id: ticket.id, name: ticket.name, employeeId: ticket.employeeId },
-      date: stamp,
-      status: existing.status,
-      inAt: existing.inAt,
-      outAt: inAt,
-      checkedOut: true,
-    };
+    return { person: who, date: stamp, status: existing.status, inAt: existing.inAt, outAt: inAt, checkedOut: true };
   }
   const preservedInAt = earliestStaffInAt(existing?.inAt, inAt) || inAt;
   const next = classifyStaffDay("PRESENT", preservedInAt, "", rules);
-  await writeStaffDayOnStamp(ticket.kind, ticket.id, stamp, {
+  await writeStaffDayOnStamp(person.kind, person.id, stamp, {
     status: next.status,
-    markedById: user.id,
+    markedById: markerId,
     inAt: next.inAt,
     outAt: next.outAt,
     startTimeUsed: next.startTimeUsed,
     computedStatus: next.computedStatus,
-    remark: "Marked by attendance QR scan.",
+    remark,
+    inVia: via,
+    outVia: "",
+    geoJson: mergeGeo("", "in", fix),
   });
-  await syncTeacherDayFromStaffMark(user.id, ticket.kind, ticket.id, stamp, false);
-  ticket.usedAt = Date.now();
-  staffAttendanceQrTokens.set(token, ticket);
-  return {
-    person: {
-      kind: ticket.kind,
-      id: ticket.id,
-      name: ticket.name,
-      employeeId: ticket.employeeId,
-    },
-    date: stamp,
-    status: next.status,
-    inAt: next.inAt,
-    outAt: "",
-    checkedOut: false,
-  };
+  await syncTeacherDayFromStaffMark(markerId, person.kind, person.id, stamp, false);
+  return { person: who, date: stamp, status: next.status, inAt: next.inAt, outAt: "", checkedOut: false };
+}
+
+/** "Mark here": staff mark their own in / out from their phone when it is at school. */
+export async function markStaffAttendanceHereCore(user: AccessUser, input: { lat?: number; lng?: number; accuracy?: number; mocked?: boolean }) {
+  const self = await resolveStaffAttendanceSelf(user);
+  if (!self) throw new Error("No staff profile is linked to this account.");
+  const { loadAttendanceGeo, checkAtSchool } = await import("./staff-geo");
+  const fix = checkAtSchool(await loadAttendanceGeo(), input);
+  return stampStaffInOut(self, user.id, "location", "Marked by location at school.", () => {}, fix);
 }
 
 function classifyStaffDay(

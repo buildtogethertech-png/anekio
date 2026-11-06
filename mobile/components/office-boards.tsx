@@ -39,6 +39,7 @@ import { StaffTimesheet } from "./staff-timesheet";
 import { StaffSalaryBoard } from "./staff-salary-board";
 import { OnboardingBoard } from "./onboarding-board";
 import { StaffAttendanceQrButton, StaffAttendanceQrScanButton } from "./staff-attendance-qr";
+import { AttendanceGeoSetupButton } from "./attendance-geo";
 import { studentMetaLine } from "../lib/student-label";
 import { FeesBoard as RefactoredFeesBoard } from "./fees-board";
 import { ManageFeeBody, MonthlyFeeBillSummary, feeAssignmentFromStudent } from "./manage-fee";
@@ -5419,6 +5420,11 @@ export function StaffBoard() {
                 <Text className="text-xs font-medium text-[#1F45C7]">Leave requests ({pendingLeave.length})</Text>
               </Pressable>
             ) : null}
+            {data?.attendanceGeo ? (
+              <View className="self-start">
+                <AttendanceGeoSetupButton token={token} geo={data.attendanceGeo} onSaved={reload} onMessage={toast.show} />
+              </View>
+            ) : null}
             {!canMark ? (
               <View className="flex-row items-center gap-2 rounded-xl bg-ink-50 px-3 py-2.5">
                 <Ionicons name="eye-outline" size={15} color="#64748b" />
@@ -5607,8 +5613,10 @@ export function StaffBoard() {
                     {(() => {
                       const inAt = timesOf(p);
                       if (st === "LEAVE") return null;
-                      const outAt = inAt ? dayOn(p.days, date)?.outAt : "";
-                      if (inAt) return <Text className={st === "LATE" ? "text-amber-700" : "text-emerald-700"}>{` · ${st === "LATE" ? "Late, in" : "In"} ${inAt}${outAt ? ` · Out ${outAt}` : ""}`}</Text>;
+                      const day = inAt ? dayOn(p.days, date) : undefined;
+                      const outAt = day?.outAt || "";
+                      const pin = (via?: string) => (via === "location" ? " 📍" : "");
+                      if (inAt) return <Text className={st === "LATE" ? "text-amber-700" : "text-emerald-700"}>{` · ${st === "LATE" ? "Late, in" : "In"} ${inAt}${pin(day?.inVia)}${outAt ? ` · Out ${outAt}${pin(day?.outVia)}` : ""}`}</Text>;
                       if (!locked && !isMarked(p)) return <Text className="text-ink-400"> · Not marked</Text>;
                       return null;
                     })()}
@@ -5763,10 +5771,17 @@ export function StaffBoard() {
               : "Mark Present, Late, or Absent, then Save the day. Optional In time lives on Timesheet."
         }
         action={
-          pendingLeave.length ? (
-            <Button variant="ghost" onPress={() => setLeaveOpen(true)}>
-              {`Leave requests (${pendingLeave.length})`}
-            </Button>
+          pendingLeave.length || data?.attendanceGeo ? (
+            <View className="flex-row gap-2">
+              {data?.attendanceGeo ? (
+                <AttendanceGeoSetupButton token={token} geo={data.attendanceGeo} onSaved={reload} onMessage={toast.show} />
+              ) : null}
+              {pendingLeave.length ? (
+                <Button variant="ghost" onPress={() => setLeaveOpen(true)}>
+                  {`Leave requests (${pendingLeave.length})`}
+                </Button>
+              ) : null}
+            </View>
           ) : undefined
         }
       />

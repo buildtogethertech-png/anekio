@@ -622,6 +622,8 @@ export type RecordPayload = {
       outAt?: string;
       startTimeUsed?: string;
       computedStatus?: string;
+      inVia?: string;
+      outVia?: string;
     }[];
     leaveDays?: { date: string; reason: string; paid: boolean; typeName: string }[];
     salary?: number;
@@ -639,7 +641,11 @@ export type RecordPayload = {
     name: string;
     employeeId: string;
     today?: { date: string; marked: boolean; status?: string; inAt?: string; outAt?: string };
+    /** The school's "mark from your phone at school" setting. */
+    attendanceGeo?: { enabled: boolean; lat: number; lng: number; radiusM: number };
   } | null;
+  /** Office users who can edit school settings: the location attendance setup. */
+  attendanceGeo?: { enabled: boolean; lat: number; lng: number; radiusM: number } | null;
   payrollRules?: {
     presentCredit: number;
     absentCredit: number;
