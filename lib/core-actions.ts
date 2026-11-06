@@ -1695,7 +1695,8 @@ export async function markStaffAttendanceHereCore(user: AccessUser, input: { lat
   if (!self) throw new Error("No staff profile is linked to this account.");
   const { loadStaffAttendanceSetup, checkAtSchool } = await import("./staff-attendance-setup");
   const fix = checkAtSchool(await loadStaffAttendanceSetup(), input);
-  return stampStaffInOut(self, user.id, "location", "Marked by location at school.", () => {}, fix);
+  const result = await stampStaffInOut(self, user.id, "location", "Marked by location at school.", () => {}, fix);
+  return { ...result, meters: fix.m, accuracy: fix.acc };
 }
 
 function classifyStaffDay(

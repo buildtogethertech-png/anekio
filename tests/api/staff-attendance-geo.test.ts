@@ -95,7 +95,8 @@ describe.sequential("staff attendance by location", () => {
   it("marks the entry at school, then a double tap is refused", async () => {
     const res = await act(teacherToken, "markStaffAttendanceHere", INSIDE);
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ checkedOut: false, outAt: "" });
+    expect(res.body).toMatchObject({ checkedOut: false, outAt: "", accuracy: 15 });
+    expect(res.body.meters).toBeGreaterThan(40);
     expect(res.body.inAt).toMatch(/^\d{2}:\d{2}$/);
     const day = await prisma.staffDay.findFirstOrThrow({ where: { teacherId: "teacher-tara" } });
     expect(day.inVia).toBe("location");

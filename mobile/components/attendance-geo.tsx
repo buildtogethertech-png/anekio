@@ -1,9 +1,11 @@
-import { useState, type ReactNode } from "react";
-import { ActivityIndicator, Platform, Pressable, Text, View } from "react-native";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { ActivityIndicator, Animated, Easing, Modal as RnModal, Platform, Pressable, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { StatusBar } from "expo-status-bar";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { distanceMeters, GEO_MAX_ACCURACY_M, GEO_RADIUS_CHOICES, readFix, type Fix, type StaffAttendanceSetup } from "../lib/attendance-geo";
 import { act } from "../lib/mutate";
-import { Badge, Button, Modal, Segmented } from "./ui";
+import { Badge, Button, Segmented } from "./ui";
 
 type Note = { tone: "success" | "warn" | "danger"; title: string; body: string };
 
@@ -34,90 +36,270 @@ function errorText(error: unknown) {
   return error instanceof Error ? error.message : "Could not mark attendance.";
 }
 
+const NATIVE_DRIVER = Platform.OS !== "web";
+const BLUE = "#2855F6";
+const GREEN = "#22C55E";
+
+type Phase = "idle" | "locating" | "done" | "error";
+type Done = { kind: "in" | "out" | "already"; inAt: string; outAt: string; meters?: number; accuracy?: number };
+
+function useClock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 15_000);
+    return () => clearInterval(id);
+  }, []);
+  return now;
+}
+
+/** Soft rings around the big button: slow while waiting for a tap, quick while finding the location. */
+function PulseRings({ color, fast, active }: { color: string; fast: boolean; active: boolean }) {
+  const a = useRef(new Animated.Value(0)).current;
+  const b = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!active) return;
+    const duration = fast ? 1100 : 2400;
+    const ring = (v: Animated.Value) =>
+      Animated.loop(Animated.timing(v, { toValue: 1, duration, easing: Easing.out(Easing.quad), useNativeDriver: NATIVE_DRIVER }));
+    const one = ring(a);
+    const two = ring(b);
+    one.start();
+    const t = setTimeout(() => two.start(), duration / 2);
+    return () => {
+      clearTimeout(t);
+      one.stop();
+      two.stop();
+      a.setValue(0);
+      b.setValue(0);
+    };
+  }, [active, fast, a, b]);
+  if (!active) return null;
+  return (
+    <>
+      {[a, b].map((v, i) => (
+        <Animated.View
+          key={i}
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            width: 200,
+            height: 200,
+            borderRadius: 100,
+            borderWidth: 2,
+            borderColor: color,
+            opacity: v.interpolate({ inputRange: [0, 1], outputRange: [0.55, 0] }),
+            transform: [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [1, 1.55] }) }],
+          }}
+        />
+      ))}
+    </>
+  );
+}
+
+function TimelineCard({ inAt, outAt }: { inAt?: string; outAt?: string }) {
+  const stop = (label: string, value: string, on: boolean, icon: keyof typeof Ionicons.glyphMap) => (
+    <View className="flex-1 flex-row items-center gap-3">
+      <View className={`h-10 w-10 items-center justify-center rounded-full ${on ? "bg-white/15" : "border border-dashed border-white/25"}`}>
+        <Ionicons name={icon} size={18} color={on ? "#fff" : "rgba(255,255,255,0.35)"} />
+      </View>
+      <View>
+        <Text className="text-[11px] font-semibold uppercase tracking-wider text-white/45">{label}</Text>
+        <Text className={`text-[17px] font-semibold tabular-nums ${on ? "text-white" : "text-white/35"}`}>{value}</Text>
+      </View>
+    </View>
+  );
+  return (
+    <View testID="attendance-timeline" className="w-full flex-row items-center rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3.5">
+      {stop("In", inAt ? clock(inAt) : "—", Boolean(inAt), "enter-outline")}
+      <View className="mx-2 h-px w-6 bg-white/20" />
+      {stop("Out", outAt ? clock(outAt) : "—", Boolean(outAt), "exit-outline")}
+    </View>
+  );
+}
+
 /**
- * "Mark here": staff mark their own in / out from their phone while at school. The first mark is the
- * entry, a later one is the exit (the server decides and checks distance, GPS accuracy and fake location).
+ * "Mark in": staff mark their own attendance from their phone while at school. One big button; once in,
+ * marking out is a small optional link (the server keeps the last out of the day). The server checks
+ * distance, GPS accuracy and fake location.
  */
 export function MarkHereSheet({
   open,
   token,
   today,
+  radiusM,
   onClose,
   onDone,
-  onUseQr,
 }: {
   open: boolean;
   token: string | null;
   today?: { marked?: boolean; inAt?: string; outAt?: string };
+  radiusM?: number;
   onClose: () => void;
   onDone: () => void;
-  onUseQr?: () => void;
 }) {
-  const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState<Note | null>(null);
+  const insets = useSafeAreaInsets();
+  const now = useClock();
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [done, setDone] = useState<Done | null>(null);
+  const [error, setError] = useState("");
   const checkedIn = Boolean(today?.marked && today?.inAt);
 
+  function close() {
+    setPhase("idle");
+    setDone(null);
+    setError("");
+    onClose();
+  }
+
   async function mark() {
-    setBusy(true);
-    setNote(null);
+    setPhase("locating");
+    setError("");
     try {
       const fix = await readFix();
-      const res = await act<{ ok: true; inAt: string; outAt: string; checkedOut: boolean }>(token, "markStaffAttendanceHere", fix);
-      setNote(
-        res.checkedOut
-          ? { tone: "success", title: `Out at ${clock(res.outAt)}`, body: `In ${clock(res.inAt)} · Out ${clock(res.outAt)}. Mark again if you leave later.` }
-          : { tone: "success", title: `In at ${clock(res.inAt)}`, body: "Mark again when you leave school." }
+      const res = await act<{ ok: true; inAt: string; outAt: string; checkedOut: boolean; meters?: number; accuracy?: number }>(
+        token,
+        "markStaffAttendanceHere",
+        fix
       );
+      setDone({ kind: res.checkedOut ? "out" : "in", inAt: res.inAt, outAt: res.outAt, meters: res.meters, accuracy: res.accuracy });
+      setPhase("done");
       onDone();
-    } catch (error) {
-      const text = errorText(error);
-      setNote(
-        /Mark again when leaving/.test(text)
-          ? { tone: "warn", title: `Already in at ${clock(today?.inAt)}`, body: "Mark out when you leave school." }
-          : { tone: "danger", title: "Not marked", body: text }
-      );
-    } finally {
-      setBusy(false);
+    } catch (e) {
+      const text = errorText(e);
+      if (/Mark again when leaving/.test(text)) {
+        setDone({ kind: "already", inAt: today?.inAt || "", outAt: today?.outAt || "" });
+        setPhase("done");
+        return;
+      }
+      setError(text);
+      setPhase("error");
     }
   }
 
-  const status = checkedIn
-    ? today?.outAt
-      ? `In ${clock(today.inAt)} · Out ${clock(today.outAt)}`
-      : `Checked in today at ${clock(today?.inAt)}`
-    : "Not marked yet today";
+  const inAt = done?.inAt || today?.inAt || "";
+  const outAt = done?.outAt || today?.outAt || "";
+  const dayDone = done ? done.kind === "out" : Boolean(outAt);
+  const showIn = phase === "done" || (checkedIn && phase !== "locating" && phase !== "error");
+  const locating = phase === "locating";
+  const ringColor = phase === "error" ? "#F87171" : BLUE;
+
+  let title = "Mark your attendance";
+  let sub = "Tap when you are inside the school.";
+  if (locating) {
+    title = "Checking you're at school…";
+    sub = "Hold on, finding your location.";
+  } else if (phase === "error") {
+    title = "Not marked";
+    sub = error;
+  } else if (done?.kind === "out") {
+    title = `Out at ${clock(done.outAt)}`;
+    sub = "Have a good evening. Mark out again if you leave later.";
+  } else if (showIn && dayDone && !done) {
+    title = "Done for today";
+    sub = `In ${clock(inAt)} · Out ${clock(outAt)}`;
+  } else if (done?.kind === "already") {
+    title = `Already in at ${clock(done.inAt)}`;
+    sub = "You're all set. Mark out only when you leave school.";
+  } else if (showIn) {
+    title = phase === "done" ? `You're in · ${clock(inAt)}` : `You're in since ${clock(inAt)}`;
+    sub = phase === "done" ? "Have a great day." : "Nothing else to do.";
+  }
+  const where =
+    done?.meters != null ? `${done.meters} m from school${done.accuracy ? ` · GPS ±${done.accuracy} m` : ""}` : "";
 
   return (
-    <Modal
-      open={open}
-      title="My attendance"
-      onClose={() => {
-        setNote(null);
-        onClose();
-      }}
-    >
-      <View testID="mark-here-sheet" className="gap-3">
-        <Text className="text-sm text-ink-600">{status}</Text>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={checkedIn ? "Mark out here" : "Mark in here"}
-          accessibilityState={{ disabled: busy }}
-          disabled={busy}
-          onPress={() => void mark()}
-          className={`items-center gap-1 rounded-xl px-4 py-5 ${checkedIn ? "bg-[#0f2744]" : "bg-clay-500"} ${busy ? "opacity-80" : ""}`}
-        >
-          {busy ? <ActivityIndicator color="#fff" /> : <Ionicons name={checkedIn ? "log-out-outline" : "location"} size={26} color="#fff" />}
-          <Text className="text-base font-semibold text-white">{busy ? "Finding your location…" : checkedIn ? "Mark out here" : "Mark in here"}</Text>
-          {!busy ? <Text className="text-xs text-white/80">Works only inside the school</Text> : null}
-        </Pressable>
-        {note ? <NotePanel note={note} /> : null}
-        {onUseQr ? (
-          <Button variant="ghost" accessibilityLabel="Use QR instead" onPress={onUseQr}>
-            Use QR instead
-          </Button>
-        ) : null}
+    <RnModal visible={open} animationType="slide" onRequestClose={close} statusBarTranslucent>
+      <View testID="mark-here-sheet" className="flex-1 bg-[#0B1530]" style={{ paddingTop: insets.top + 8, paddingBottom: insets.bottom + 16 }}>
+        <StatusBar style="light" />
+        {/* Soft glow: stacked faint circles (native has no blur). */}
+        {[520, 400, 290].map((size) => (
+          <View
+            key={size}
+            pointerEvents="none"
+            style={{ position: "absolute", top: -size / 2, left: "50%", marginLeft: -size / 2, width: size, height: size, borderRadius: size / 2, backgroundColor: "rgba(40,85,246,0.07)" }}
+          />
+        ))}
+
+        <View className="flex-row items-start justify-between px-5">
+          <View>
+            <View className="flex-row items-center gap-2">
+              <View className="h-6 w-6 items-center justify-center rounded-md bg-[#2855F6]">
+                <Ionicons name="location" size={13} color="#fff" />
+              </View>
+              <Text className="text-[12px] font-semibold uppercase tracking-[2px] text-white/60">My attendance</Text>
+            </View>
+            <Text className="mt-2 text-[40px] font-bold leading-[44px] tabular-nums text-white">
+              {clock(`${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`)}
+            </Text>
+            <Text className="text-[14px] text-white/60">{now.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })}</Text>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close"
+            onPress={close}
+            className="h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/10 active:bg-white/20"
+          >
+            <Ionicons name="close" size={20} color="#fff" />
+          </Pressable>
+        </View>
+
+        <View className="flex-1 items-center justify-center px-6">
+          <View className="h-[300px] w-[300px] items-center justify-center">
+            {showIn ? (
+              <View
+                testID="attendance-done"
+                className="h-[200px] w-[200px] items-center justify-center rounded-full"
+                style={{ backgroundColor: dayDone ? "rgba(255,255,255,0.08)" : "rgba(34,197,94,0.16)", borderWidth: 2, borderColor: dayDone ? "rgba(255,255,255,0.22)" : GREEN }}
+              >
+                <View className="h-[120px] w-[120px] items-center justify-center rounded-full" style={{ backgroundColor: dayDone ? "#334155" : GREEN }}>
+                  <Ionicons name={dayDone ? "exit-outline" : "checkmark"} size={64} color="#fff" />
+                </View>
+              </View>
+            ) : (
+              <>
+                <PulseRings color={ringColor} fast={locating} active />
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Mark in here"
+                  accessibilityState={{ disabled: locating, busy: locating }}
+                  disabled={locating}
+                  onPress={() => void mark()}
+                  className="h-[200px] w-[200px] items-center justify-center rounded-full active:opacity-90"
+                  style={{ backgroundColor: phase === "error" ? "#DC2626" : BLUE, shadowColor: BLUE, shadowOpacity: 0.6, shadowRadius: 30, elevation: 16 }}
+                >
+                  {locating ? <ActivityIndicator size="large" color="#fff" /> : <Ionicons name={phase === "error" ? "refresh" : "finger-print"} size={56} color="#fff" />}
+                  <Text className="mt-2 text-[20px] font-bold text-white">{locating ? "Checking…" : phase === "error" ? "Try again" : "Mark in"}</Text>
+                </Pressable>
+              </>
+            )}
+          </View>
+
+          <Text className="mt-2 text-center text-[24px] font-bold text-white">{title}</Text>
+          <Text className={`mt-1.5 text-center text-[15px] leading-5 ${phase === "error" ? "text-red-200" : "text-white/65"}`}>{sub}</Text>
+          {where ? <Text className="mt-2 text-center text-[13px] text-white/45">{where}</Text> : null}
+        </View>
+
+        <View className="gap-3 px-5">
+          <TimelineCard inAt={inAt} outAt={outAt} />
+          {showIn ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Mark out here"
+              disabled={locating}
+              onPress={() => void mark()}
+              className="flex-row items-center justify-center gap-2 rounded-2xl border border-white/15 px-4 py-3.5 active:bg-white/10"
+            >
+              <Ionicons name="exit-outline" size={18} color="#BFD0FF" />
+              <Text className="text-[15px] font-semibold text-[#BFD0FF]">{outAt ? "Leaving now? Update out time" : "Leaving school? Mark out"}</Text>
+            </Pressable>
+          ) : null}
+          <View className="flex-row items-center justify-center gap-1.5">
+            <Ionicons name="shield-checkmark-outline" size={13} color="rgba(255,255,255,0.4)" />
+            <Text className="text-[12px] text-white/40">Works only inside the school{radiusM ? ` (${radiusM} m)` : ""} · Fake GPS is blocked</Text>
+          </View>
+        </View>
       </View>
-    </Modal>
+    </RnModal>
   );
 }
 
@@ -315,25 +497,27 @@ export function StaffAttendanceSettings({
 }
 
 /**
- * "Mark in" / "Mark out" for schools that take staff attendance by location: a round tile in the phone
- * dashboard's quick actions (next to My class), or a plain button on wider screens. Opens MarkHereSheet.
+ * "Attendance" for schools that take it by location: a round tile in the phone dashboard's quick
+ * actions (next to My class), or a plain button on wider screens. Opens MarkHereSheet.
  */
 export function MarkHereButton({
   token,
   today,
+  radiusM,
   tile,
   disabled,
   onDone,
 }: {
   token: string | null;
   today?: { marked?: boolean; inAt?: string; outAt?: string };
+  radiusM?: number;
   tile?: boolean;
   disabled?: boolean;
   onDone: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const checkedIn = Boolean(today?.marked && today?.inAt);
-  const label = checkedIn ? "Mark out" : "Mark in";
+  const label = checkedIn ? `Attendance. In at ${clock(today?.inAt)}` : "Attendance. Not marked yet";
   return (
     <>
       {tile ? (
@@ -346,16 +530,23 @@ export function MarkHereButton({
           className={`flex-1 items-center gap-1.5 active:opacity-70 ${disabled ? "opacity-50" : ""}`}
         >
           <View className="h-12 w-12 items-center justify-center rounded-2xl bg-[#EEF3FF]">
-            <Ionicons name={checkedIn ? "log-out-outline" : "location-outline"} size={22} color="#1F45C7" />
+            <Ionicons name="location-outline" size={22} color="#1F45C7" />
+            {checkedIn ? (
+              <View className="absolute -right-1 -top-1 h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-[#22C55E]">
+                <Ionicons name="checkmark" size={11} color="#fff" />
+              </View>
+            ) : (
+              <View className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full border-2 border-white bg-[#F59E0B]" />
+            )}
           </View>
-          <Text className="text-xs font-medium text-ink-800">{label}</Text>
+          <Text className="text-xs font-medium text-ink-800">Attendance</Text>
         </Pressable>
       ) : (
         <Button variant="ghost" accessibilityLabel={label} disabled={disabled} onPress={() => setOpen(true)}>
-          {checkedIn ? "Mark out here" : "📍 Mark in here"}
+          {checkedIn ? `✓ In at ${clock(today?.inAt)}` : "📍 Mark attendance"}
         </Button>
       )}
-      <MarkHereSheet open={open} token={token} today={today} onClose={() => setOpen(false)} onDone={onDone} />
+      <MarkHereSheet open={open} token={token} today={today} radiusM={radiusM} onClose={() => setOpen(false)} onDone={onDone} />
     </>
   );
 }
