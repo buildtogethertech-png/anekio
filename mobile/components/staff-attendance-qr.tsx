@@ -7,7 +7,6 @@ import jsQR from "jsqr";
 import { act } from "../lib/mutate";
 import { useOptionalRecord } from "../lib/record";
 import { canOpenStaffScan, openStaffScanRoute } from "../lib/staff-attendance-scan";
-import { MarkHereSheet } from "./attendance-geo";
 import { Badge, Button, Field, Input, Modal, Toast, useToast } from "./ui";
 
 type StaffQrResult = {
@@ -987,10 +986,7 @@ export function QrDockButton({
   const markedLabel = markedText(today);
   const setup = record?.data?.staffAttendanceSelf?.attendanceSetup ?? record?.data?.staffAttendanceSetup;
   const qrOn = setup?.qr !== false;
-  const geoOn = Boolean(setup?.location) && Platform.OS !== "web";
   const selfQr = hasSelfQr && qrOn;
-  const selfMark = hasSelfQr && (qrOn || geoOn);
-  const [hereOpen, setHereOpen] = useState(false);
   const [kiosk, setKiosk] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -1054,11 +1050,10 @@ export function QrDockButton({
   }
 
   const scanDesk = canScan && qrOn;
-  if (!selfMark && !scanDesk) return null;
+  if (!selfQr && !scanDesk) return null;
 
   function press() {
-    if (hasSelfQr && geoOn) setHereOpen(true);
-    else if (selfQr) void showMine();
+    if (selfQr) void showMine();
     else setKiosk(true);
   }
 
@@ -1067,15 +1062,7 @@ export function QrDockButton({
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={
-          selfMark
-            ? geoOn
-              ? `Mark my attendance. ${alreadyMarked ? markedLabel : "Not marked yet"}`
-              : alreadyMarked
-                ? `Show my check-out QR. ${markedLabel}`
-                : "Show my attendance QR"
-            : "Scan staff attendance"
-        }
+        accessibilityLabel={selfQr ? (alreadyMarked ? `Show my check-out QR. ${markedLabel}` : "Show my attendance QR") : "Scan staff attendance"}
         accessibilityState={{ disabled: busy }}
         onPress={press}
         disabled={busy}
@@ -1085,7 +1072,7 @@ export function QrDockButton({
           <ActivityIndicator size="small" color="#0f2744" />
         ) : (
           <Ionicons
-            name={selfMark ? (alreadyMarked ? "log-out-outline" : geoOn ? "location-outline" : "qr-code-outline") : "scan-outline"}
+            name={selfQr ? (alreadyMarked ? "log-out-outline" : "qr-code-outline") : "scan-outline"}
             size={20}
             color="#0f2744"
           />
@@ -1093,23 +1080,6 @@ export function QrDockButton({
       </Pressable>
 
 
-      {geoOn ? (
-        <MarkHereSheet
-          open={hereOpen}
-          token={token}
-          today={today}
-          onClose={() => setHereOpen(false)}
-          onDone={() => void liveReloadRef.current?.()}
-          onUseQr={
-            qrOn
-              ? () => {
-                  setHereOpen(false);
-                  void showMine();
-                }
-              : undefined
-          }
-        />
-      ) : null}
       <QrSheet
         open={qrOpen}
         qr={qr}

@@ -8,20 +8,20 @@ jest.mock("expo-location", () => ({
 }));
 
 const originalOs = Platform.OS;
-const originalGeo = Object.getOwnPropertyDescriptor(navigator, "geolocation");
+const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
 
 function setOs(os: typeof Platform.OS) {
   Object.defineProperty(Platform, "OS", { configurable: true, writable: true, value: os });
 }
 
 function setGeo(getCurrentPosition: jest.Mock) {
-  Object.defineProperty(navigator, "geolocation", { configurable: true, value: { getCurrentPosition } });
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { geolocation: { getCurrentPosition } } });
 }
 
 afterEach(() => {
   setOs(originalOs);
-  if (originalGeo) Object.defineProperty(navigator, "geolocation", originalGeo);
-  else delete (navigator as { geolocation?: unknown }).geolocation;
+  if (originalNavigator) Object.defineProperty(globalThis, "navigator", originalNavigator);
+  else delete (globalThis as { navigator?: unknown }).navigator;
 });
 
 describe("readFix on web", () => {

@@ -164,7 +164,7 @@ export function PhoneTopBar() {
         ) : null}
         <QrDockButton
           token={token}
-          hasSelfQr={Boolean(data?.staffAttendanceSelf)}
+          hasSelfQr={false}
           canScan={user?.portal === "OFFICE" && (user?.permissions ?? []).some((p) => p === "staff.attendance" || p === "staff.edit")}
           onScanned={() => void reload()}
         />

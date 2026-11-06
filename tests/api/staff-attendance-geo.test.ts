@@ -71,12 +71,12 @@ describe.sequential("staff attendance by location", () => {
   });
 
   it("only the office can save it, with a known distance", async () => {
-    expect((await act(teacherToken, "saveStaffAttendanceSetup", { location: true, ...SCHOOL, radiusM: 150 })).status).toBe(400);
-    const odd = await act(officeToken, "saveStaffAttendanceSetup", { location: true, ...SCHOOL, radiusM: 37 });
+    expect((await act(teacherToken, "saveStaffAttendanceSetup", { qr: false, location: true, ...SCHOOL, radiusM: 150 })).status).toBe(400);
+    const odd = await act(officeToken, "saveStaffAttendanceSetup", { qr: false, location: true, ...SCHOOL, radiusM: 37 });
     expect(odd.status).toBe(400);
-    const saved = await act(officeToken, "saveStaffAttendanceSetup", { location: true, ...SCHOOL, radiusM: 150 });
+    const saved = await act(officeToken, "saveStaffAttendanceSetup", { qr: false, location: true, ...SCHOOL, radiusM: 150 });
     expect(saved.status).toBe(200);
-    expect(saved.body.staffAttendanceSetup).toEqual({ qr: true, location: true, ...SCHOOL, radiusM: 150 });
+    expect(saved.body.staffAttendanceSetup).toEqual({ qr: false, location: true, ...SCHOOL, radiusM: 150 });
     expect((await record(officeToken)).body.staffAttendanceSetup).toMatchObject({ location: true, radiusM: 150 });
     expect((await record(teacherToken)).body.staffAttendanceSelf.attendanceSetup).toMatchObject({ location: true, radiusM: 150 });
   });
@@ -121,6 +121,14 @@ describe.sequential("staff attendance by location", () => {
     const off = await act(officeToken, "saveStaffAttendanceSetup", { qr: true, location: false, ...SCHOOL, radiusM: 150 });
     expect(off.body.staffAttendanceSetup).toMatchObject({ location: false, ...SCHOOL });
     expect((await act(teacherToken, "markStaffAttendanceHere", INSIDE)).body.error).toMatch(/off for your school/);
+  });
+
+  it("takes one way only: QR or location, never both or neither", async () => {
+    const both = await act(officeToken, "saveStaffAttendanceSetup", { qr: true, location: true, ...SCHOOL, radiusM: 150 });
+    expect(both.status).toBe(400);
+    expect(both.body.error).toMatch(/Pick one way/);
+    const none = await act(officeToken, "saveStaffAttendanceSetup", { qr: false, location: false, ...SCHOOL, radiusM: 150 });
+    expect(none.body.error).toMatch(/Pick one way/);
   });
 
   it("with QR off, no QR is made or scanned", async () => {

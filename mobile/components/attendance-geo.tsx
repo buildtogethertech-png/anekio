@@ -3,7 +3,7 @@ import { ActivityIndicator, Platform, Pressable, Text, View } from "react-native
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { distanceMeters, GEO_MAX_ACCURACY_M, GEO_RADIUS_CHOICES, readFix, type Fix, type StaffAttendanceSetup } from "../lib/attendance-geo";
 import { act } from "../lib/mutate";
-import { Badge, Button, Modal, Segmented, Switch } from "./ui";
+import { Badge, Button, Modal, Segmented } from "./ui";
 
 type Note = { tone: "success" | "warn" | "danger"; title: string; body: string };
 
@@ -131,7 +131,7 @@ function MethodRow({
   body,
   on,
   soon,
-  onToggle,
+  onSelect,
   children,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
@@ -139,12 +139,19 @@ function MethodRow({
   body: string;
   on?: boolean;
   soon?: boolean;
-  onToggle?: () => void;
+  onSelect?: () => void;
   children?: ReactNode;
 }) {
   return (
     <View className={`gap-3 rounded-xl border p-4 ${on ? "border-clay-500 bg-white" : "border-ink-200 bg-white"} ${soon ? "opacity-60" : ""}`}>
-      <View className="flex-row items-center gap-3">
+      <Pressable
+        accessibilityRole="radio"
+        accessibilityLabel={title}
+        accessibilityState={{ checked: Boolean(on), disabled: soon }}
+        disabled={soon}
+        onPress={() => onSelect?.()}
+        className="flex-row items-center gap-3"
+      >
         <View className="h-10 w-10 items-center justify-center rounded-full bg-ink-50">
           <Ionicons name={icon} size={20} color="#0f2744" />
         </View>
@@ -155,9 +162,11 @@ function MethodRow({
         {soon ? (
           <Badge>Coming soon</Badge>
         ) : (
-          <Switch on={Boolean(on)} onPress={() => onToggle?.()} />
+          <View className={`h-5 w-5 items-center justify-center rounded-full border-2 ${on ? "border-clay-500" : "border-ink-300"}`}>
+            {on ? <View className="h-2.5 w-2.5 rounded-full bg-clay-500" /> : null}
+          </View>
         )}
-      </View>
+      </Pressable>
       {on && children ? <View className="gap-3 border-t border-ink-100 pt-3">{children}</View> : null}
     </View>
   );
@@ -243,22 +252,22 @@ export function StaffAttendanceSettings({
     }
   }
 
-  const toggle = (key: "qr" | "location") => {
+  const choose = (key: "qr" | "location") => {
     if (!canEdit) return;
     setNote(null);
-    setDraft((d) => ({ ...d, [key]: !d[key] }));
+    setDraft((d) => ({ ...d, qr: key === "qr", location: key === "location" }));
   };
 
   return (
     <View testID="staff-attendance-settings" className="gap-3">
-      <Text className="text-sm text-ink-600">Pick how staff mark their attendance. Only what is on shows in the app. The office can always mark by hand on Staff → Today.</Text>
-      <MethodRow icon="qr-code-outline" title="QR code" body="Staff show their QR from the app; the office scans it at the desk." on={draft.qr} onToggle={() => toggle("qr")} />
+      <Text className="text-sm text-ink-600">Pick one way staff mark their attendance. Only that way shows in the app. The office can always mark by hand on Staff → Today.</Text>
+      <MethodRow icon="qr-code-outline" title="QR code" body="Staff show their QR from the app; the office scans it at the desk." on={draft.qr} onSelect={() => choose("qr")} />
       <MethodRow
         icon="location-outline"
         title="Location"
         body="Staff tap “Mark in here” on their phone. Works only inside the school."
         on={draft.location}
-        onToggle={() => toggle("location")}
+        onSelect={() => choose("location")}
       >
         <View className="gap-2">
           <Text className="text-sm font-semibold text-ink-900">School point</Text>
@@ -302,5 +311,51 @@ export function StaffAttendanceSettings({
         </View>
       ) : null}
     </View>
+  );
+}
+
+/**
+ * "Mark in" / "Mark out" for schools that take staff attendance by location: a round tile in the phone
+ * dashboard's quick actions (next to My class), or a plain button on wider screens. Opens MarkHereSheet.
+ */
+export function MarkHereButton({
+  token,
+  today,
+  tile,
+  disabled,
+  onDone,
+}: {
+  token: string | null;
+  today?: { marked?: boolean; inAt?: string; outAt?: string };
+  tile?: boolean;
+  disabled?: boolean;
+  onDone: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const checkedIn = Boolean(today?.marked && today?.inAt);
+  const label = checkedIn ? "Mark out" : "Mark in";
+  return (
+    <>
+      {tile ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={label}
+          accessibilityState={{ disabled }}
+          disabled={disabled}
+          onPress={() => setOpen(true)}
+          className={`flex-1 items-center gap-1.5 active:opacity-70 ${disabled ? "opacity-50" : ""}`}
+        >
+          <View className="h-12 w-12 items-center justify-center rounded-2xl bg-[#EEF3FF]">
+            <Ionicons name={checkedIn ? "log-out-outline" : "location-outline"} size={22} color="#1F45C7" />
+          </View>
+          <Text className="text-xs font-medium text-ink-800">{label}</Text>
+        </Pressable>
+      ) : (
+        <Button variant="ghost" accessibilityLabel={label} disabled={disabled} onPress={() => setOpen(true)}>
+          {checkedIn ? "Mark out here" : "📍 Mark in here"}
+        </Button>
+      )}
+      <MarkHereSheet open={open} token={token} today={today} onClose={() => setOpen(false)} onDone={onDone} />
+    </>
   );
 }

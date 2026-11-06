@@ -1,9 +1,10 @@
 /**
  * How a school takes staff attendance (Settings → Staff attendance), in SchoolConfig.staffAttendanceJson:
- * - QR: staff show their QR at the check-in desk (on unless the school turns it off).
+ * one way at a time, never both:
+ * - QR (default): staff show their QR at the check-in desk.
  * - Location: staff mark in / out from their own phone at school; the server checks the distance from the
  *   saved school point, the GPS accuracy and the phone's fake-location flag.
- * The office can always mark by hand. A method that is off is hidden in the app and refused here.
+ * The office can always mark by hand. The way not chosen is hidden in the app and refused here.
  */
 import { prisma } from "./prisma";
 import { can, type AccessUser } from "./permissions";
@@ -28,9 +29,10 @@ export function parseStaffAttendanceSetup(raw: string | null | undefined): Staff
     const lat = Number(v?.lat);
     const lng = Number(v?.lng);
     const point = validPoint(lat, lng);
+    const location = point && Boolean(v?.location);
     return {
-      qr: v?.qr !== false,
-      location: point && Boolean(v?.location),
+      qr: !location,
+      location,
       lat: point ? lat : 0,
       lng: point ? lng : 0,
       radiusM: GEO_RADIUS_CHOICES.includes(Number(v?.radiusM)) ? Number(v.radiusM) : GEO_DEFAULT_RADIUS,
@@ -68,11 +70,12 @@ export async function saveStaffAttendanceSetupCore(
   const lng = Number(input.lng);
   const point = validPoint(lat, lng);
   const location = Boolean(input.location);
+  if (location === (input.qr !== false)) throw new Error("Pick one way: QR or location.");
   if (location && !point) throw new Error("Set the school location first.");
   const radiusM = Number(input.radiusM ?? GEO_DEFAULT_RADIUS);
   if (!GEO_RADIUS_CHOICES.includes(radiusM)) throw new Error(`Pick a distance: ${GEO_RADIUS_CHOICES.join(", ")} m.`);
   const setup: StaffAttendanceSetup = {
-    qr: input.qr !== false,
+    qr: !location,
     location,
     lat: point ? Math.round(lat * 1e6) / 1e6 : 0,
     lng: point ? Math.round(lng * 1e6) / 1e6 : 0,
