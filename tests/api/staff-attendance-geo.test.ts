@@ -92,7 +92,7 @@ describe.sequential("staff attendance by location", () => {
     expect(await prisma.staffDay.count({ where: { teacherId: "teacher-tara" } })).toBe(0);
   });
 
-  it("marks the entry at school, then a double tap is refused", async () => {
+  it("marks the entry at school, and the very next mark is an out (no minimum gap)", async () => {
     const res = await act(teacherToken, "markStaffAttendanceHere", INSIDE);
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ checkedOut: false, outAt: "", accuracy: 15 });
@@ -103,8 +103,11 @@ describe.sequential("staff attendance by location", () => {
     expect(JSON.parse(day.geoJson).in).toMatchObject({ acc: 15 });
 
     const again = await act(teacherToken, "markStaffAttendanceHere", INSIDE);
-    expect(again.status).toBe(400);
-    expect(again.body.error).toMatch(/Mark again when leaving/);
+    expect(again.status).toBe(200);
+    expect(again.body).toMatchObject({ checkedOut: true, inAt: res.body.inAt });
+    const after = await prisma.staffDay.findFirstOrThrow({ where: { teacherId: "teacher-tara" } });
+    expect(after.inAt).toBe(res.body.inAt);
+    expect(JSON.parse(after.outLogJson)).toHaveLength(1);
   });
 
   it("a later mark is the exit, and the office board says how", async () => {
@@ -124,7 +127,7 @@ describe.sequential("staff attendance by location", () => {
     expect(again.body).toMatchObject({ checkedOut: true, inAt: "00:00" });
     let day = await prisma.staffDay.findFirstOrThrow({ where: { teacherId: "teacher-tara" } });
     expect(day.inAt).toBe("00:00");
-    expect(JSON.parse(day.outLogJson)).toHaveLength(2);
+    expect(JSON.parse(day.outLogJson)).toHaveLength(3);
     expect(JSON.parse(day.outLogJson).every((o: { via: string }) => o.via === "location")).toBe(true);
 
     const stamp = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(day.date);
@@ -136,10 +139,10 @@ describe.sequential("staff attendance by location", () => {
     day = await prisma.staffDay.findFirstOrThrow({ where: { teacherId: "teacher-tara" } });
     expect(day).toMatchObject({ inAt: "00:00", outAt: "23:00" });
     const log = JSON.parse(day.outLogJson);
-    expect(log).toHaveLength(3);
-    expect(log[2]).toEqual({ at: "23:00", via: "office" });
+    expect(log).toHaveLength(4);
+    expect(log[3]).toEqual({ at: "23:00", via: "office" });
     const me = await record(teacherToken);
-    expect(me.body.staffAttendanceSelf.today.outLog).toHaveLength(3);
+    expect(me.body.staffAttendanceSelf.today.outLog).toHaveLength(4);
   });
 
   it("office Save the day keeps a time staff marked themselves, and Absent clears in and out", async () => {

@@ -123,25 +123,6 @@ describe("MarkHereSheet", () => {
     expect(screen.getByText("Try again")).toBeTruthy();
   });
 
-  it("a second tap right after check-in is a gentle note, not an error", async () => {
-    mockReadFix.mockResolvedValue({ lat: 28.6143, lng: 77.209, accuracy: 12, mocked: false });
-    mockAct.mockRejectedValue(new Error("You checked in at 08:52. Mark again when leaving."));
-    render(<MarkHereSheet open token="t" today={{ marked: true, inAt: "08:52" }} onClose={jest.fn()} onDone={jest.fn()} />);
-    fireEvent.press(screen.getByLabelText("Mark out here"));
-    expect(await screen.findByText("Already in at 8:52 AM")).toBeTruthy();
-    expect(screen.queryByText("Not marked")).toBeNull();
-  });
-
-  it("when the screen is behind the server, shows the server's in time and refreshes", async () => {
-    mockReadFix.mockResolvedValue({ lat: 28.6143, lng: 77.209, accuracy: 12, mocked: false });
-    mockAct.mockRejectedValue(new Error("You checked in at 08:52. Mark again when leaving."));
-    const onDone = jest.fn();
-    render(<MarkHereSheet open token="t" today={{ marked: false }} onClose={jest.fn()} onDone={onDone} />);
-    fireEvent.press(screen.getByLabelText("Mark in here"));
-    expect(await screen.findByText("Already in at 8:52 AM")).toBeTruthy();
-    expect(onDone).toHaveBeenCalled();
-  });
-
   it("says what to do when location is not allowed", async () => {
     mockReadFix.mockRejectedValue(new Error("Allow location for Anekio to mark attendance here."));
     render(<MarkHereSheet open token="t" today={{ marked: false }} onClose={jest.fn()} onDone={jest.fn()} />);

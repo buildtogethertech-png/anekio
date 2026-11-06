@@ -97,14 +97,13 @@ describe.sequential("staff attendance QR", () => {
     expect(record.body.staffAttendanceSelf.today.date).toBe(staffDayYmd(new Date()));
   });
 
-  it("takes a scan right after check-in as a double scan, and a later one as the exit (last scan wins)", async () => {
+  it("takes any scan after check-in as the exit, even right away (last scan wins)", async () => {
+    const before = await prisma.staffDay.findFirstOrThrow({ where: { teacherId: "teacher-tara" } });
     const quick = await act(teacherToken, "generateStaffAttendanceQr");
-    const double = await act(officeToken, "scanStaffAttendanceQr", { code: quick.body.qrText });
-    expect(double.status).toBe(400);
-    expect(double.body.error).toMatch(/Scan again when leaving/);
+    const right = await act(officeToken, "scanStaffAttendanceQr", { code: quick.body.qrText });
+    expect(right.status).toBe(200);
+    expect(right.body).toMatchObject({ checkedOut: true, inAt: before.inAt });
 
-    const now = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date());
-    if (Number(now.slice(0, 2)) * 60 + Number(now.slice(3)) < 15) return; // just after midnight: no earlier check-in to fake
     const day = await prisma.staffDay.findFirstOrThrow({ where: { teacherId: "teacher-tara" } });
     await prisma.staffDay.update({ where: { id: day.id }, data: { inAt: "00:00" } });
 

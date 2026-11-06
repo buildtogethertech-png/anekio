@@ -103,17 +103,6 @@ function staffAttendanceTokenFromCode(code: string) {
   return path ? path[1] : raw;
 }
 
-/** A second scan sooner than this after check-in is taken as a double scan, not the exit. */
-const STAFF_OUT_AFTER_MINUTES = 10;
-
-function minutesBetween(from: string, to: string) {
-  const m = (t: string) => {
-    const [h, mm] = t.split(":").map(Number);
-    return h * 60 + mm;
-  };
-  return m(to) - m(from);
-}
-
 function currentSchoolTime() {
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: "Asia/Kolkata",
@@ -1621,14 +1610,9 @@ export async function scanStaffAttendanceQrCore(user: AccessUser, input: { code:
     throw new Error("This staff attendance QR has expired.");
   }
 
-  const result = await stampStaffInOut(ticket, user.id, "qr", "Marked by attendance QR scan.", () => {
-    ticket.usedAt = Date.now();
-    staffAttendanceQrTokens.set(token, ticket);
-  });
-  if (!result.checkedOut) {
-    ticket.usedAt = Date.now();
-    staffAttendanceQrTokens.set(token, ticket);
-  }
+  const result = await stampStaffInOut(ticket, user.id, "qr", "Marked by attendance QR scan.");
+  ticket.usedAt = Date.now();
+  staffAttendanceQrTokens.set(token, ticket);
   return result;
 }
 
@@ -1660,7 +1644,6 @@ async function stampStaffInOut(
   markerId: string,
   via: "qr" | "location",
   remark: string,
-  onRepeat: () => void,
   fix?: StaffFix
 ) {
   const stamp = staffDayYmd(new Date());
@@ -1678,15 +1661,7 @@ async function stampStaffInOut(
   const existing = await findStaffDayOnStamp(person.kind, person.id, stamp);
   const who = { kind: person.kind, id: person.id, name: person.name, employeeId: person.employeeId };
   if (existing && staffAttendanceInMark(existing)) {
-    // Already in: a later mark is the exit. The last one of the day wins; entry never changes.
-    onRepeat();
-    if (existing.inAt && minutesBetween(existing.inAt, inAt) < STAFF_OUT_AFTER_MINUTES) {
-      throw new Error(
-        via === "qr"
-          ? `${person.name} checked in at ${existing.inAt}. Scan again when leaving.`
-          : `You checked in at ${existing.inAt}. Mark again when leaving.`
-      );
-    }
+    // Already in: any later mark is an out (no minimum gap). The last one of the day wins; entry never changes.
     await writeStaffDayOnStamp(person.kind, person.id, stamp, {
       status: existing.status,
       markedById: existing.markedById || markerId,
@@ -1725,7 +1700,7 @@ export async function markStaffAttendanceHereCore(user: AccessUser, input: { lat
   if (!self) throw new Error("No staff profile is linked to this account.");
   const { loadStaffAttendanceSetup, checkAtSchool } = await import("./staff-attendance-setup");
   const fix = checkAtSchool(await loadStaffAttendanceSetup(), input);
-  const result = await stampStaffInOut(self, user.id, "location", "Marked by location at school.", () => {}, fix);
+  const result = await stampStaffInOut(self, user.id, "location", "Marked by location at school.", fix);
   return { ...result, meters: fix.m, accuracy: fix.acc };
 }
 

@@ -41,7 +41,7 @@ const BLUE = "#2855F6";
 const GREEN = "#22C55E";
 
 type Phase = "idle" | "locating" | "done" | "error";
-type Done = { kind: "in" | "out" | "already"; inAt: string; outAt: string; meters?: number; accuracy?: number };
+type Done = { kind: "in" | "out"; inAt: string; outAt: string; meters?: number; accuracy?: number };
 
 function useClock() {
   const [now, setNow] = useState(() => new Date());
@@ -207,16 +207,7 @@ export function MarkHereSheet({
       setPhase("done");
       onDone();
     } catch (e) {
-      const text = errorText(e);
-      if (/Mark again when leaving/.test(text)) {
-        // The screen may be behind the server: take the time from the reply and refresh.
-        const serverIn = /checked in at (\d{1,2}:\d{2})/.exec(text)?.[1] || "";
-        setDone({ kind: "already", inAt: serverIn || today?.inAt || "", outAt: today?.outAt || "" });
-        setPhase("done");
-        onDone();
-        return;
-      }
-      setError(text);
+      setError(errorText(e));
       setPhase("error");
     }
   }
@@ -245,9 +236,6 @@ export function MarkHereSheet({
   } else if (showIn && dayDone && !done) {
     title = "Done for today";
     sub = `In ${clock(inAt)} · Out ${clock(outAt)}`;
-  } else if (done?.kind === "already") {
-    title = `Already in at ${clock(done.inAt)}`;
-    sub = "You're all set. Mark out only when you leave school.";
   } else if (showIn) {
     title = phase === "done" ? `You're in · ${clock(inAt)}` : `You're in since ${clock(inAt)}`;
     sub = phase === "done" ? "Have a great day." : "Nothing else to do.";
