@@ -991,8 +991,8 @@ model SchoolConfig {
   admissionNoFloor        Int                       @default(0)
   payrollJson             String                    @default("{\"presentCredit\":1,\"absentCredit\":0,\"paidLeaveCredit\":1,\"unpaidLeaveCredit\":0,\"halfDayCredit\":0.5,\"lateCredit\":1}")
   feeCatalogJson           String                    @default("{\"items\":[],\"late\":{\"enabled\":false,\"amount\":0,\"graceDays\":0}}")
-  /// Staff mark attendance from their own phone at school: {"enabled":true,"lat":..,"lng":..,"radiusM":150}. "" = off.
-  attendanceGeoJson       String                    @default("")
+  /// How staff attendance is taken: {"qr":true,"location":false,"lat":..,"lng":..,"radiusM":150}. "" = QR only.
+  staffAttendanceJson     String                    @default("")
   documentTemplates       DocumentTemplate[]
   documentVersions        DocumentTemplateVersion[]
   issuedDocuments         IssuedDocument[]

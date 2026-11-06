@@ -15,6 +15,7 @@ import { ClockForm, SchoolSubjectsForm } from "./school-setup";
 import { useAssetUrl } from "../lib/assets";
 import { act, saveLateTiming } from "../lib/mutate";
 import { PayrollRulesForm } from "./payroll-rules-form";
+import { StaffAttendanceSettings } from "./attendance-geo";
 import { calendarFrom } from "../lib/calendar";
 import { parsePayrollRules } from "../lib/payroll";
 import { webOrigin } from "../lib/api";
@@ -41,6 +42,7 @@ const TABS = [
   { id: "exams", label: "Exams", hint: "Grade scale and this year's sittings. Every class follows this.", group: "Academics" },
   { id: "leave", label: "Leave", hint: "Leave types, who can apply, notice, and how leave builds up.", group: "HR & Payroll" },
   { id: "payroll", label: "Payroll rules", hint: "Salary day basis, paid offs, sandwich rule, half days, timing and lates.", group: "HR & Payroll" },
+  { id: "staffAttendance", label: "Staff attendance", hint: "How staff mark in and out: QR, location, RFID card, fingerprint.", group: "HR & Payroll" },
   { id: "feeClasses", label: "Class fees", hint: "Monthly and admission fee for each class", group: "Fees" },
   { id: "feeAddons", label: "Add-ons", hint: "Optional charges like transport or meals", group: "Fees" },
   { id: "feeLate", label: "Late fee & due date", hint: "When fees are due and the late charge", group: "Fees" },
@@ -197,6 +199,7 @@ const TAB_ICONS: Record<Tab, { icon: keyof typeof Ionicons.glyphMap; tone: strin
   exams: { icon: "clipboard-outline", tone: "#9333ea" },
   leave: { icon: "airplane-outline", tone: "#0284c7" },
   payroll: { icon: "calculator-outline", tone: "#b45309" },
+  staffAttendance: { icon: "finger-print-outline", tone: "#0f766e" },
   collect: { icon: "wallet-outline", tone: "#059669" },
   feeClasses: { icon: "cash-outline", tone: "#059669" },
   feeAddons: { icon: "add-circle-outline", tone: "#0d9488" },
@@ -2127,7 +2130,7 @@ export function SchoolBoard() {
   const savedWebsite = (s as unknown as { website?: { slug?: string; enabled?: boolean } } | undefined)?.website;
   const slugIsOwn = Boolean(form.websiteSlug && savedWebsite?.slug && form.websiteSlug.trim() === savedWebsite.slug);
   const websiteDirtyHint = Boolean(savedWebsite) && Boolean(savedWebsite?.enabled) !== form.websiteEnabled;
-  const showSave = tab !== "forms" && tab !== "calendar" && tab !== "exams" && tab !== "clock" && tab !== "subjects" && tab !== "sessions" && tab !== "classes" && tab !== "leave" && tab !== "documents" && tab !== "payroll";
+  const showSave = tab !== "forms" && tab !== "calendar" && tab !== "exams" && tab !== "clock" && tab !== "subjects" && tab !== "sessions" && tab !== "classes" && tab !== "leave" && tab !== "documents" && tab !== "payroll" && tab !== "staffAttendance";
   const showPreview = false;
 
   function showSchool(next: { tab?: Tab; group?: Door } = {}) {
@@ -2208,6 +2211,11 @@ export function SchoolBoard() {
     {
       const pr = parsePayrollRules(data?.payrollRules ? JSON.stringify(data.payrollRules) : null);
       out.payroll = { text: pr.salaryBasis === "FIXED" ? `Fixed ${pr.fixedMonthDays} days` : pr.salaryBasis === "WORKING" ? "Working days" : "Calendar days" };
+    }
+    {
+      const sa = data?.staffAttendanceSetup;
+      const ways = [sa?.qr !== false ? "QR" : "", sa?.location ? "Location" : ""].filter(Boolean);
+      out.staffAttendance = { text: ways.length ? ways.join(" + ") : "By hand only" };
     }
     const pay = [s?.upiId ? "UPI" : "", s?.pay?.gateway && s.pay.gateway !== "NONE" ? s.pay.gateway.charAt(0) + s.pay.gateway.slice(1).toLowerCase() : ""].filter(Boolean);
     out.collect = pay.length ? { text: `Cash, ${pay.join(", ")}` } : { text: "Cash only" };
@@ -2627,6 +2635,21 @@ export function SchoolBoard() {
                   await reload();
                 }}
               />
+            ) : null}
+
+            {tab === "staffAttendance" ? (
+              <View className={phone ? "" : "mt-4"}>
+                <StaffAttendanceSettings
+                  key={JSON.stringify(data?.staffAttendanceSetup ?? null)}
+                  token={token}
+                  setup={data?.staffAttendanceSetup ?? { qr: true, location: false, lat: 0, lng: 0, radiusM: 150 }}
+                  canEdit={edit}
+                  onSaved={async (message) => {
+                    toast.show(message);
+                    await reload();
+                  }}
+                />
+              </View>
             ) : null}
 
             {tab === "payroll" ? (

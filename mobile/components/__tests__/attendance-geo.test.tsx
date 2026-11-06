@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { Platform } from "react-native";
-import { AttendanceGeoSetupButton, MarkHereSheet } from "../attendance-geo";
+import { MarkHereSheet, StaffAttendanceSettings } from "../attendance-geo";
 import { QrDockButton } from "../staff-attendance-qr";
 import { act as mutate } from "../../lib/mutate";
 import { readFix } from "../../lib/attendance-geo";
@@ -27,7 +27,7 @@ jest.mock("@expo/vector-icons/Ionicons", () => {
 const mockAct = mutate as jest.MockedFunction<typeof mutate>;
 const mockReadFix = readFix as jest.MockedFunction<typeof readFix>;
 const mockUseOptionalRecord = useOptionalRecord as jest.MockedFunction<typeof useOptionalRecord>;
-const SCHOOL = { enabled: true, lat: 28.6139, lng: 77.209, radiusM: 150 };
+const SCHOOL = { qr: true, location: true, lat: 28.6139, lng: 77.209, radiusM: 150 };
 const originalOs = Platform.OS;
 
 function setOs(os: typeof Platform.OS) {
@@ -72,54 +72,83 @@ describe("MarkHereSheet", () => {
   });
 });
 
-describe("QrDockButton with location attendance", () => {
-  function withGeo(enabled: boolean) {
+describe("QrDockButton follows Settings → Staff attendance", () => {
+  function withSetup(setup: { qr: boolean; location: boolean }, extra: Record<string, unknown> = {}) {
     mockUseOptionalRecord.mockReturnValue({
-      data: { staffAttendanceSelf: { today: { date: "2026-11-06", marked: false }, attendanceGeo: { ...SCHOOL, enabled } } },
+      data: { staffAttendanceSelf: { today: { date: "2026-11-06", marked: false }, attendanceSetup: { ...SCHOOL, ...setup } }, ...extra },
       reloadSilently: jest.fn().mockResolvedValue(undefined),
       reloadInBackground: jest.fn().mockResolvedValue(undefined),
     } as unknown as ReturnType<typeof useOptionalRecord>);
   }
 
-  it("opens Mark here instead of the QR when the school has it on", async () => {
-    withGeo(true);
+  it("opens Mark here when location is on, with QR as the other way", async () => {
+    withSetup({ qr: true, location: true });
     render(<QrDockButton token="t" />);
     fireEvent.press(screen.getByLabelText("Mark my attendance. Not marked yet"));
     expect(await screen.findByTestId("mark-here-sheet")).toBeTruthy();
+    expect(screen.getByLabelText("Use QR instead")).toBeTruthy();
     expect(mockAct).not.toHaveBeenCalled();
   });
 
-  it("keeps the QR when it is off", async () => {
-    withGeo(false);
+  it("location only: no QR anywhere", async () => {
+    withSetup({ qr: false, location: true });
+    render(<QrDockButton token="t" />);
+    fireEvent.press(screen.getByLabelText("Mark my attendance. Not marked yet"));
+    expect(await screen.findByTestId("mark-here-sheet")).toBeTruthy();
+    expect(screen.queryByLabelText("Use QR instead")).toBeNull();
+  });
+
+  it("QR only: never asks for location", async () => {
+    withSetup({ qr: true, location: false });
     mockAct.mockResolvedValue({ ok: true, qrText: "x", qrDataUrl: "", expiresAt: new Date(Date.now() + 60_000).toISOString(), ttlSeconds: 60, person: {} } as never);
     render(<QrDockButton token="t" />);
     fireEvent.press(screen.getByLabelText("Show my attendance QR"));
     await waitFor(() => expect(mockAct).toHaveBeenCalledWith("t", "generateStaffAttendanceQr"));
+    expect(mockReadFix).not.toHaveBeenCalled();
+  });
+
+  it("both off: no button", () => {
+    withSetup({ qr: false, location: false });
+    render(<QrDockButton token="t" canScan />);
+    expect(screen.queryByRole("button")).toBeNull();
   });
 });
 
-describe("AttendanceGeoSetupButton", () => {
-  it("takes the school point from the phone and saves it with the distance", async () => {
+describe("StaffAttendanceSettings", () => {
+  const QR_ONLY = { qr: true, location: false, lat: 0, lng: 0, radiusM: 150 };
+
+  it("lists every way, with RFID and fingerprint not ready yet", () => {
+    render(<StaffAttendanceSettings token="t" setup={QR_ONLY} canEdit onSaved={jest.fn()} />);
+    expect(screen.getByText("QR code")).toBeTruthy();
+    expect(screen.getByText("Location")).toBeTruthy();
+    expect(screen.getByText("RFID card")).toBeTruthy();
+    expect(screen.getByText("Fingerprint")).toBeTruthy();
+    expect(screen.getAllByText("Coming soon")).toHaveLength(2);
+    expect(screen.queryByText("School point")).toBeNull();
+  });
+
+  it("turning location on asks for the school point, then saves it with the distance", async () => {
     mockReadFix.mockResolvedValue({ lat: 28.6139, lng: 77.209, accuracy: 9, mocked: false });
     mockAct.mockResolvedValue({ ok: true } as never);
     const onSaved = jest.fn();
-    render(<AttendanceGeoSetupButton token="t" geo={{ enabled: false, lat: 0, lng: 0, radiusM: 150 }} onSaved={onSaved} onMessage={jest.fn()} />);
-    fireEvent.press(screen.getByLabelText("Location attendance"));
+    render(<StaffAttendanceSettings token="t" setup={QR_ONLY} canEdit onSaved={onSaved} />);
+    fireEvent.press(screen.getAllByRole("switch")[1]);
     expect(screen.getByText(/Not set/)).toBeTruthy();
+    expect(screen.getByText("Set the school point to save")).toBeTruthy();
     fireEvent.press(screen.getByLabelText("Use my current location"));
     expect(await screen.findByText("School point taken (±9 m)")).toBeTruthy();
     fireEvent.press(screen.getByText("200 m"));
-    fireEvent.press(screen.getByLabelText("Save location attendance"));
+    fireEvent.press(screen.getAllByRole("switch")[0]);
+    fireEvent.press(screen.getByLabelText("Save staff attendance"));
     await waitFor(() =>
-      expect(mockAct).toHaveBeenCalledWith("t", "saveAttendanceGeo", { enabled: true, lat: 28.6139, lng: 77.209, radiusM: 200 })
+      expect(mockAct).toHaveBeenCalledWith("t", "saveStaffAttendanceSetup", { qr: false, location: true, lat: 28.6139, lng: 77.209, radiusM: 200 })
     );
     expect(onSaved).toHaveBeenCalled();
   });
 
   it("Test here tells how far the phone is and whether marking works", async () => {
     mockReadFix.mockResolvedValue({ lat: 28.6184, lng: 77.209, accuracy: 10, mocked: false });
-    render(<AttendanceGeoSetupButton token="t" geo={SCHOOL} onSaved={jest.fn()} onMessage={jest.fn()} />);
-    fireEvent.press(screen.getByLabelText("Location attendance"));
+    render(<StaffAttendanceSettings token="t" setup={SCHOOL} canEdit onSaved={jest.fn()} />);
     fireEvent.press(screen.getByLabelText("Test here"));
     expect(await screen.findByText(/^5\d\d m from the school point$/)).toBeTruthy();
     expect(screen.getByText(/marking would be refused here/)).toBeTruthy();

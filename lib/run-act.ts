@@ -245,9 +245,9 @@ export async function runAct(
       return { ok: true, ...(await scanStaffAttendanceQrCore(user, body as never)) };
     case "markStaffAttendanceHere":
       return { ok: true, ...(await markStaffAttendanceHereCore(user, body as never)) };
-    case "saveAttendanceGeo": {
-      const { saveAttendanceGeoCore } = await import("./staff-geo");
-      return await saveAttendanceGeoCore(user, body as never);
+    case "saveStaffAttendanceSetup": {
+      const { saveStaffAttendanceSetupCore } = await import("./staff-attendance-setup");
+      return await saveStaffAttendanceSetupCore(user, body as never);
     }
     case "correctStaffAttendance":
       await correctStaffAttendanceCore(user, body as never);

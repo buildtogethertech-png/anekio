@@ -1,7 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import type { Express } from "express";
 import request from "supertest";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { seedPortalFixture, type PortalFixture } from "../support/factories";
 import { createPushedTestDatabase, type TestDatabase } from "../support/test-database";
 
@@ -35,6 +35,9 @@ async function record(token: string) {
 
 describe.sequential("staff attendance by location", () => {
   beforeAll(async () => {
+    // Noon in India today, so "in at 00:00, out now" is always more than 10 minutes apart.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(`${new Date().toISOString().slice(0, 10)}T06:30:00Z`));
     process.env.NODE_ENV = "test";
     delete process.env.VERCEL;
     process.env.JWT_SECRET = "staff-attendance-geo-test-secret-long-one";
@@ -48,13 +51,14 @@ describe.sequential("staff attendance by location", () => {
   }, 90_000);
 
   afterAll(async () => {
+    vi.useRealTimers();
     await prisma?.$disconnect();
     database?.cleanup();
   });
 
   it("measures distance in metres", async () => {
-    // Imported here: lib/staff-geo loads prisma, which must see the test database first.
-    const { distanceMeters } = await import("../../lib/staff-geo");
+    // Imported here: lib/staff-attendance-setup loads prisma, which must see the test database first.
+    const { distanceMeters } = await import("../../lib/staff-attendance-setup");
     expect(Math.round(distanceMeters(SCHOOL, INSIDE))).toBeGreaterThan(45);
     expect(Math.round(distanceMeters(SCHOOL, INSIDE))).toBeLessThan(55);
   });
@@ -63,18 +67,18 @@ describe.sequential("staff attendance by location", () => {
     const res = await act(teacherToken, "markStaffAttendanceHere", INSIDE);
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/off for your school/);
-    expect((await record(teacherToken)).body.staffAttendanceSelf.attendanceGeo.enabled).toBe(false);
+    expect((await record(teacherToken)).body.staffAttendanceSelf.attendanceSetup).toMatchObject({ qr: true, location: false });
   });
 
   it("only the office can save it, with a known distance", async () => {
-    expect((await act(teacherToken, "saveAttendanceGeo", { enabled: true, ...SCHOOL, radiusM: 150 })).status).toBe(400);
-    const odd = await act(officeToken, "saveAttendanceGeo", { enabled: true, ...SCHOOL, radiusM: 37 });
+    expect((await act(teacherToken, "saveStaffAttendanceSetup", { location: true, ...SCHOOL, radiusM: 150 })).status).toBe(400);
+    const odd = await act(officeToken, "saveStaffAttendanceSetup", { location: true, ...SCHOOL, radiusM: 37 });
     expect(odd.status).toBe(400);
-    const saved = await act(officeToken, "saveAttendanceGeo", { enabled: true, ...SCHOOL, radiusM: 150 });
+    const saved = await act(officeToken, "saveStaffAttendanceSetup", { location: true, ...SCHOOL, radiusM: 150 });
     expect(saved.status).toBe(200);
-    expect(saved.body.attendanceGeo).toEqual({ enabled: true, ...SCHOOL, radiusM: 150 });
-    expect((await record(officeToken)).body.attendanceGeo).toMatchObject({ enabled: true, radiusM: 150 });
-    expect((await record(teacherToken)).body.staffAttendanceSelf.attendanceGeo).toMatchObject({ enabled: true, radiusM: 150 });
+    expect(saved.body.staffAttendanceSetup).toEqual({ qr: true, location: true, ...SCHOOL, radiusM: 150 });
+    expect((await record(officeToken)).body.staffAttendanceSetup).toMatchObject({ location: true, radiusM: 150 });
+    expect((await record(teacherToken)).body.staffAttendanceSelf.attendanceSetup).toMatchObject({ location: true, radiusM: 150 });
   });
 
   it("refuses far away, a rough fix and a fake location", async () => {
@@ -113,9 +117,20 @@ describe.sequential("staff attendance by location", () => {
     expect(Object.keys(JSON.parse(day.geoJson))).toEqual(["in", "out"]);
   });
 
-  it("turning it off keeps the saved point", async () => {
-    const off = await act(officeToken, "saveAttendanceGeo", { enabled: false, ...SCHOOL, radiusM: 150 });
-    expect(off.body.attendanceGeo).toMatchObject({ enabled: false, ...SCHOOL });
+  it("turning location off keeps the saved point", async () => {
+    const off = await act(officeToken, "saveStaffAttendanceSetup", { qr: true, location: false, ...SCHOOL, radiusM: 150 });
+    expect(off.body.staffAttendanceSetup).toMatchObject({ location: false, ...SCHOOL });
     expect((await act(teacherToken, "markStaffAttendanceHere", INSIDE)).body.error).toMatch(/off for your school/);
+  });
+
+  it("with QR off, no QR is made or scanned", async () => {
+    const qr = await act(teacherToken, "generateStaffAttendanceQr");
+    expect(qr.status).toBe(200);
+    await act(officeToken, "saveStaffAttendanceSetup", { qr: false, location: true, ...SCHOOL, radiusM: 150 });
+    const none = await act(teacherToken, "generateStaffAttendanceQr");
+    expect(none.status).toBe(400);
+    expect(none.body.error).toMatch(/QR attendance is off/);
+    const scan = await act(officeToken, "scanStaffAttendanceQr", { code: qr.body.qrText });
+    expect(scan.body.error).toMatch(/QR attendance is off/);
   });
 });

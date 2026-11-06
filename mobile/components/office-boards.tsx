@@ -39,7 +39,6 @@ import { StaffTimesheet } from "./staff-timesheet";
 import { StaffSalaryBoard } from "./staff-salary-board";
 import { OnboardingBoard } from "./onboarding-board";
 import { StaffAttendanceQrButton, StaffAttendanceQrScanButton } from "./staff-attendance-qr";
-import { AttendanceGeoSetupButton } from "./attendance-geo";
 import { studentMetaLine } from "../lib/student-label";
 import { FeesBoard as RefactoredFeesBoard } from "./fees-board";
 import { ManageFeeBody, MonthlyFeeBillSummary, feeAssignmentFromStudent } from "./manage-fee";
@@ -4950,6 +4949,7 @@ function leaveRange(from: string, to: string) {
 
 export function StaffBoard() {
   const { data, reload, reloadInBackground } = useRecord();
+  const qrOn = data?.staffAttendanceSetup?.qr !== false;
   const { token, user } = useSession();
   const toast = useToast();
   const router = useRouter();
@@ -5420,11 +5420,6 @@ export function StaffBoard() {
                 <Text className="text-xs font-medium text-[#1F45C7]">Leave requests ({pendingLeave.length})</Text>
               </Pressable>
             ) : null}
-            {data?.attendanceGeo ? (
-              <View className="self-start">
-                <AttendanceGeoSetupButton token={token} geo={data.attendanceGeo} onSaved={reload} onMessage={toast.show} />
-              </View>
-            ) : null}
             {!canMark ? (
               <View className="flex-row items-center gap-2 rounded-xl bg-ink-50 px-3 py-2.5">
                 <Ionicons name="eye-outline" size={15} color="#64748b" />
@@ -5523,8 +5518,8 @@ export function StaffBoard() {
             </Button>
           ) : null}
 
-          {canMark ? <StaffAttendanceQrScanButton token={token} disabled={locked} onMessage={toast.show} onDone={reload} /> : null}
-          {data?.staffAttendanceSelf ? (
+          {canMark && qrOn ? <StaffAttendanceQrScanButton token={token} disabled={locked} onMessage={toast.show} onDone={reload} /> : null}
+          {data?.staffAttendanceSelf && qrOn ? (
             <StaffAttendanceQrButton
               token={token}
               disabled={locked || Boolean(data.staffAttendanceSelf.today?.marked)}
@@ -5771,17 +5766,10 @@ export function StaffBoard() {
               : "Mark Present, Late, or Absent, then Save the day. Optional In time lives on Timesheet."
         }
         action={
-          pendingLeave.length || data?.attendanceGeo ? (
-            <View className="flex-row gap-2">
-              {data?.attendanceGeo ? (
-                <AttendanceGeoSetupButton token={token} geo={data.attendanceGeo} onSaved={reload} onMessage={toast.show} />
-              ) : null}
-              {pendingLeave.length ? (
-                <Button variant="ghost" onPress={() => setLeaveOpen(true)}>
-                  {`Leave requests (${pendingLeave.length})`}
-                </Button>
-              ) : null}
-            </View>
+          pendingLeave.length ? (
+            <Button variant="ghost" onPress={() => setLeaveOpen(true)}>
+              {`Leave requests (${pendingLeave.length})`}
+            </Button>
           ) : undefined
         }
       />

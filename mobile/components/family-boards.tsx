@@ -478,7 +478,7 @@ export function TeacherDeskBoard() {
             </Text>
             <Text className="mt-1 text-sm leading-5 text-ink-700">{scheduleText}</Text>
           </View>
-          {data?.staffAttendanceSelf ? (
+          {data?.staffAttendanceSelf && data.staffAttendanceSelf.attendanceSetup?.qr !== false ? (
             <View className={phoneDashboard ? "w-full" : "shrink-0"}>
               <StaffAttendanceQrButton
                 token={token}

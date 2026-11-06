@@ -59,8 +59,8 @@ function resumableRoute(pathname: string, params: Record<string, string | string
 
 function DeskKioskButton() {
   const { user, token } = useSession();
-  const { reload } = useRecord();
-  if (user?.portal !== "OFFICE") return null;
+  const { data, reload } = useRecord();
+  if (user?.portal !== "OFFICE" || data?.staffAttendanceSetup?.qr === false) return null;
   return <KioskTopButton token={token} permissions={user?.permissions} onScanned={() => void reload()} />;
 }
 

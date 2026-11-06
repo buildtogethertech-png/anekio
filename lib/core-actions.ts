@@ -1551,6 +1551,7 @@ export async function markStaffAttendanceCore(
 export async function generateStaffAttendanceQrCore(user: AccessUser) {
   const self = await resolveStaffAttendanceSelf(user);
   if (!self) throw new Error("No staff profile is linked to this account.");
+  await (await import("./staff-attendance-setup")).assertQrAttendanceOn();
   const stamp = staffDayYmd(new Date());
   const token = randomUUID().replace(/-/g, "");
   const expiresAt = Date.now() + STAFF_ATTENDANCE_QR_TTL_MS;
@@ -1584,6 +1585,7 @@ export async function generateStaffAttendanceQrCore(user: AccessUser) {
 
 export async function scanStaffAttendanceQrCore(user: AccessUser, input: { code: string }) {
   need(user, "staff.edit", "staff.attendance");
+  await (await import("./staff-attendance-setup")).assertQrAttendanceOn();
   const token = staffAttendanceTokenFromCode(String(input.code || ""));
   if (!token) throw new Error("Scan a staff attendance QR.");
   const ticket = staffAttendanceQrTokens.get(token);
@@ -1691,8 +1693,8 @@ async function stampStaffInOut(
 export async function markStaffAttendanceHereCore(user: AccessUser, input: { lat?: number; lng?: number; accuracy?: number; mocked?: boolean }) {
   const self = await resolveStaffAttendanceSelf(user);
   if (!self) throw new Error("No staff profile is linked to this account.");
-  const { loadAttendanceGeo, checkAtSchool } = await import("./staff-geo");
-  const fix = checkAtSchool(await loadAttendanceGeo(), input);
+  const { loadStaffAttendanceSetup, checkAtSchool } = await import("./staff-attendance-setup");
+  const fix = checkAtSchool(await loadStaffAttendanceSetup(), input);
   return stampStaffInOut(self, user.id, "location", "Marked by location at school.", () => {}, fix);
 }
 

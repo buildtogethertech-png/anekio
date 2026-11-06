@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { StaffAttendanceSetup } from "./attendance-geo";
 import { api } from "./api";
 import { useSession } from "./session";
 import { getChildId, setChildId as persistChildId } from "./storage";
@@ -641,11 +642,11 @@ export type RecordPayload = {
     name: string;
     employeeId: string;
     today?: { date: string; marked: boolean; status?: string; inAt?: string; outAt?: string };
-    /** The school's "mark from your phone at school" setting. */
-    attendanceGeo?: { enabled: boolean; lat: number; lng: number; radiusM: number };
+    /** How the school takes staff attendance (QR, location). */
+    attendanceSetup?: StaffAttendanceSetup;
   } | null;
-  /** Office users who can edit school settings: the location attendance setup. */
-  attendanceGeo?: { enabled: boolean; lat: number; lng: number; radiusM: number } | null;
+  /** Settings → Staff attendance. */
+  staffAttendanceSetup?: StaffAttendanceSetup;
   payrollRules?: {
     presentCredit: number;
     absentCredit: number;

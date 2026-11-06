@@ -1,6 +1,7 @@
 import * as Location from "expo-location";
 
-export type AttendanceGeo = { enabled: boolean; lat: number; lng: number; radiusM: number };
+/** Settings → Staff attendance: which ways the school takes it, and the school point for location. */
+export type StaffAttendanceSetup = { qr: boolean; location: boolean; lat: number; lng: number; radiusM: number };
 export type Fix = { lat: number; lng: number; accuracy: number; mocked: boolean };
 
 export const GEO_RADIUS_CHOICES = [100, 150, 200, 300];
