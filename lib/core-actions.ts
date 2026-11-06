@@ -127,10 +127,13 @@ function currentSchoolTime() {
 }
 
 async function resolveStaffAttendanceSelf(user: AccessUser) {
-  const teacher = await prisma.teacher.findUnique({
+  // Same person as the record's staffAttendanceSelf: an office employee who also teaches (teachingOnly)
+  // keeps ONE attendance record, their StaffMember row, so QR / location marks land where the board reads.
+  const teacherRow = await prisma.teacher.findUnique({
     where: { userId: user.id },
-    select: { id: true, orgId: true, employeeId: true, user: { select: { name: true } } },
+    select: { id: true, orgId: true, employeeId: true, teachingOnly: true, user: { select: { name: true } } },
   });
+  const teacher = teacherRow && !teacherRow.teachingOnly ? teacherRow : null;
   if (teacher) {
     return {
       kind: "teacher" as const,
@@ -1533,7 +1536,20 @@ export async function markStaffAttendanceCore(
       await syncTeacherDayFromStaffMark(user.id, row.kind, row.id, stamp, false);
       continue;
     }
-    const next = classifyStaffDay(row.status, row.inAt, row.outAt, rules);
+    let inAt = row.inAt;
+    let outAt = row.outAt;
+    if (row.status === "ABSENT") {
+      inAt = "";
+      outAt = "";
+    } else if (row.status !== "LEAVE" && !String(row.inAt || "").trim()) {
+      // "Save the day" with no time typed: keep the time staff marked themselves (QR / location).
+      const existing = await findStaffDayOnStamp(row.kind, row.id, stamp);
+      if (existing?.inAt) {
+        inAt = existing.inAt;
+        if (!String(row.outAt || "").trim()) outAt = existing.outAt;
+      }
+    }
+    const next = classifyStaffDay(row.status, inAt, outAt, rules);
     await writeStaffDayOnStamp(row.kind, row.id, stamp, {
       status: next.status,
       markedById: user.id,

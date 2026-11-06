@@ -485,7 +485,7 @@ export function TeacherDeskBoard() {
                 token={token}
                 disabled={Boolean(todayClosed)}
                 today={data.staffAttendanceSelf.today}
-                onDone={() => void reloadInBackground()}
+                onDone={() => void reloadSilently()}
               />
             </View>
           ) : data?.staffAttendanceSelf && data.staffAttendanceSelf.attendanceSetup?.qr !== false ? (
@@ -619,7 +619,7 @@ export function TeacherDeskBoard() {
             tile
             disabled={Boolean(todayClosed)}
             today={data.staffAttendanceSelf.today}
-            onDone={() => void reloadInBackground()}
+            onDone={() => void reloadSilently()}
           />
         ) : data?.staffAttendanceSelf ? (
           <StaffAttendanceQrButton

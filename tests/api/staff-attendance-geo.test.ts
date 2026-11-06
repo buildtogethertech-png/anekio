@@ -118,6 +118,32 @@ describe.sequential("staff attendance by location", () => {
     expect(Object.keys(JSON.parse(day.geoJson))).toEqual(["in", "out"]);
   });
 
+  it("office Save the day keeps a time staff marked themselves, and Absent clears in and out", async () => {
+    const today = (await prisma.staffDay.findFirstOrThrow({ where: { teacherId: "teacher-tara" } })).date;
+    const stamp = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(today);
+    const save = (status: string) =>
+      act(officeToken, "markStaffAttendance", { date: stamp, rows: [{ kind: "teacher", id: "teacher-tara", status, inAt: "", outAt: "" }] });
+    expect((await save("PRESENT")).status).toBe(200);
+    const kept = await prisma.staffDay.findFirstOrThrow({ where: { teacherId: "teacher-tara" } });
+    expect(kept.inAt).toBe("00:00");
+    expect(kept.outAt).toMatch(/^\d{2}:\d{2}$/);
+    expect((await save("ABSENT")).status).toBe(200);
+    expect(await prisma.staffDay.findFirstOrThrow({ where: { teacherId: "teacher-tara" } })).toMatchObject({ status: "ABSENT", inAt: "", outAt: "" });
+  });
+
+  it("an office employee who also teaches is marked on their staff record, where the board reads it", async () => {
+    const officeUser = await prisma.user.findFirstOrThrow({ where: { email: fixture.users.office.email } });
+    const staff =
+      (await prisma.staffMember.findFirst({ where: { userId: officeUser.id } })) ||
+      (await prisma.staffMember.create({ data: { name: officeUser.name, title: "Admin", employeeId: "S-GEO-1", userId: officeUser.id } }));
+    await prisma.teacher.create({ data: { employeeId: "T-GEO-1", userId: officeUser.id, teachingOnly: true, staffMemberId: staff.id } });
+    const res = await act(officeToken, "markStaffAttendanceHere", INSIDE);
+    expect(res.status).toBe(200);
+    expect(res.body.person).toMatchObject({ kind: "staff", id: staff.id });
+    expect(await prisma.staffDay.count({ where: { staffId: staff.id, inVia: "location" } })).toBe(1);
+    expect((await record(officeToken)).body.staffAttendanceSelf).toMatchObject({ kind: "staff", id: staff.id, today: { marked: true } });
+  });
+
   it("turning location off keeps the saved point", async () => {
     const off = await act(officeToken, "saveStaffAttendanceSetup", { qr: true, location: false, ...SCHOOL, radiusM: 150 });
     expect(off.body.staffAttendanceSetup).toMatchObject({ location: false, ...SCHOOL });

@@ -4973,6 +4973,12 @@ export function StaffBoard() {
   const timesRef = useRef(times);
   const marksRef = useRef(marks);
   timesRef.current = times;
+  // Times kept on screen after a save are only a bridge until the reload lands: fresh data wins, so a
+  // QR / location mark made since then shows here (and is never saved back as blank).
+  useEffect(() => {
+    setTimes({});
+    setSavedTimes({});
+  }, [data?.staff]);
   marksRef.current = marks;
   const [timesheetOpen, setTimesheetOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
@@ -5054,7 +5060,7 @@ export function StaffBoard() {
           id: p.id,
           status: (status === "LATE" ? "LATE" : status === "ABSENT" ? "ABSENT" : "PRESENT") as "PRESENT" | "ABSENT" | "LATE",
           inAt,
-          outAt: hit?.outAt || "",
+          outAt: status === "ABSENT" ? "" : hit?.outAt || "",
         };
       });
       const saved = await act<{ ok: true; days?: { kind: string; id: string; inAt?: string; status?: string }[] }>(

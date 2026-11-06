@@ -209,8 +209,11 @@ export function MarkHereSheet({
     } catch (e) {
       const text = errorText(e);
       if (/Mark again when leaving/.test(text)) {
-        setDone({ kind: "already", inAt: today?.inAt || "", outAt: today?.outAt || "" });
+        // The screen may be behind the server: take the time from the reply and refresh.
+        const serverIn = /checked in at (\d{1,2}:\d{2})/.exec(text)?.[1] || "";
+        setDone({ kind: "already", inAt: serverIn || today?.inAt || "", outAt: today?.outAt || "" });
         setPhase("done");
+        onDone();
         return;
       }
       setError(text);
