@@ -44,7 +44,7 @@ function cellFor(day: DayRow | undefined, future: boolean, off: string, rules: P
   const inAt = overlayInAt || day?.inAt || "";
   if (inAt) {
     const status = liveMarkFromIn(day?.status || "PRESENT", inAt, rules.startTime, rules.graceMinutes);
-    return { text: inAt, tone: status === "LATE" ? ("late" as const) : ("ok" as const) };
+    return { text: inAt, out: day?.outAt || "", tone: status === "LATE" ? ("late" as const) : ("ok" as const) };
   }
   if ((day?.status || "").toUpperCase() === "ABSENT") return { text: "A", tone: "absent" as const };
   if ((day?.status || "").toUpperCase() === "LEAVE") return { text: "Lv", tone: "muted" as const };
@@ -64,16 +64,23 @@ const TONE: Record<Tone, { fg: string; bg: string } | null> = {
   muted: null,
 };
 
-function Cell({ text, tone }: { text: string; tone: Tone }) {
+function Cell({ text, out, tone }: { text: string; out?: string; tone: Tone }) {
   const t = TONE[tone];
   if (!t) {
     return text === "—" ? <View className="h-1.5 w-1.5 rounded-full bg-ink-200" /> : <Text className="text-[12px] font-semibold text-ink-500">{text}</Text>;
   }
   return (
-    <View className="min-w-[34px] items-center rounded-full px-1.5 py-1" style={{ backgroundColor: t.bg }}>
-      <Text className="text-[11px] font-semibold" style={{ color: t.fg }} numberOfLines={1}>
-        {text}
-      </Text>
+    <View className="items-center gap-0.5">
+      <View className="min-w-[34px] items-center rounded-full px-1.5 py-1" style={{ backgroundColor: t.bg }}>
+        <Text className="text-[11px] font-semibold" style={{ color: t.fg }} numberOfLines={1}>
+          {text}
+        </Text>
+      </View>
+      {out ? (
+        <Text accessibilityLabel={`Out ${out}`} className="text-[10px] font-medium text-ink-500" numberOfLines={1}>
+          {out}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -108,7 +115,7 @@ export function StaffTimesheet({
   const toast = useToast();
   const teachers = useMemo(() => staff.filter((p) => p.kind === "teacher"), [staff]);
   const [month, setMonth] = useState(today.slice(0, 7));
-  const [edit, setEdit] = useState<{ person: Person; date: string; inAt: string } | null>(null);
+  const [edit, setEdit] = useState<{ person: Person; date: string; inAt: string; outAt: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const dates = useMemo(() => daysInMonth(month), [month]);
   const { width: screenW } = useWindowDimensions();
@@ -138,7 +145,7 @@ export function StaffTimesheet({
     }
     const byDate = new Map((person.days ?? []).map((d) => [dateKey(d.date), d]));
     const overlayInAt = overlayDate === today ? overlayTimes?.[`${person.kind}:${person.id}`] : undefined;
-    setEdit({ person, date: today, inAt: overlayInAt || byDate.get(today)?.inAt || "" });
+    setEdit({ person, date: today, inAt: overlayInAt || byDate.get(today)?.inAt || "", outAt: byDate.get(today)?.outAt || "" });
   }
 
   async function saveIn(clear = false) {
@@ -146,6 +153,15 @@ export function StaffTimesheet({
     const inAt = clear ? "" : normalizeHHmm(edit.inAt.replace(".", ":"));
     if (!clear && edit.inAt.trim() && !inAt) {
       toast.show("Use HH:mm, for example 08:15.");
+      return;
+    }
+    const outAt = clear || !inAt ? "" : normalizeHHmm(edit.outAt.replace(".", ":"));
+    if (!clear && inAt && edit.outAt.trim() && !outAt) {
+      toast.show("Out time: use HH:mm, for example 15:30.");
+      return;
+    }
+    if (outAt && outAt <= inAt) {
+      toast.show("Out time must be after In time.");
       return;
     }
     setBusy(true);
@@ -158,13 +174,13 @@ export function StaffTimesheet({
             id: edit.person.id,
             status: inAt ? "PRESENT" : "ABSENT",
             inAt: inAt || "",
-            outAt: inAt ? new Map((edit.person.days ?? []).map((d) => [dateKey(d.date), d])).get(today)?.outAt || "" : "",
+            outAt,
             clear: false,
           },
         ],
       });
       onStamp?.(edit.person.kind || "teacher", edit.person.id, inAt || "");
-      toast.show(inAt ? "In time saved." : "In time cleared.");
+      toast.show(inAt ? (outAt ? "In and Out time saved." : "In time saved.") : "In time cleared.");
       setEdit(null);
       await onSaved();
     } catch (e) {
@@ -229,7 +245,7 @@ export function StaffTimesheet({
                   className={`items-center justify-center ${date === today ? "bg-[#F5F8FF]" : ""}`}
                   style={{ width: DAY_W, minHeight: 52 }}
                 >
-                  <Cell text={hit.text} tone={hit.tone} />
+                  <Cell text={hit.text} out={"out" in hit ? hit.out : ""} tone={hit.tone} />
                 </Pressable>
               );
             })}
@@ -293,7 +309,7 @@ export function StaffTimesheet({
         {(
           [
             ["P", "Present", "ok"],
-            ["08:20", "In time", "ok"],
+            ["08:20", "In time (Out below)", "ok"],
             ["L", "Late", "late"],
             ["A", "Absent", "absent"],
             ["Off", "Off day", "off"],
@@ -306,7 +322,7 @@ export function StaffTimesheet({
         ))}
       </View>
       {canEdit ? (
-        <Text className="mb-2 shrink-0 text-[12px] leading-[17px] text-ink-600">Tap a teacher to set today's In time. Past days fill in after Save the day.</Text>
+        <Text className="mb-2 shrink-0 text-[12px] leading-[17px] text-ink-600">Tap a teacher to set today's In and Out time. Past days fill in after Save the day.</Text>
       ) : null}
       <View className="min-h-0 flex-1">{scroller}</View>
       <Modal
@@ -322,13 +338,13 @@ export function StaffTimesheet({
               Clear In
             </Button>
             <Button onPress={() => void saveIn()} disabled={busy}>
-              {busy ? "Saving…" : "Save In time"}
+              {busy ? "Saving…" : "Save times"}
             </Button>
           </View>
         }
       >
         <View className="gap-3">
-          <Text className="text-sm text-ink-700">Today’s In time. This is saved to the register.</Text>
+          <Text className="text-sm text-ink-700">Today’s In and Out time. This is saved to the register.</Text>
           <Field label="In time">
             <Input
               value={edit?.inAt || ""}
@@ -337,6 +353,16 @@ export function StaffTimesheet({
               autoCapitalize="none"
               autoCorrect={false}
               accessibilityLabel="In time"
+            />
+          </Field>
+          <Field label="Out time" hint="Optional. When they left school.">
+            <Input
+              value={edit?.outAt || ""}
+              onChangeText={(value) => setEdit((cur) => (cur ? { ...cur, outAt: value } : cur))}
+              placeholder="15:30"
+              autoCapitalize="none"
+              autoCorrect={false}
+              accessibilityLabel="Out time"
             />
           </Field>
           {preview ? (

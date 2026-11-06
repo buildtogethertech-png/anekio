@@ -388,7 +388,7 @@ describe("StaffBoard leave requests", () => {
     fireEvent.press(screen.getByRole("tab", { name: "Timesheet" }));
     fireEvent.press(screen.getByLabelText("Edit Sandeep Gill in times"));
     fireEvent.changeText(screen.getByLabelText("In time"), "08:05");
-    fireEvent.press(screen.getByRole("button", { name: "Save In time" }));
+    fireEvent.press(screen.getByRole("button", { name: "Save times" }));
     await waitFor(() =>
       expect(mockAct).toHaveBeenCalledWith("office-token", "markStaffAttendance", {
         date: "2026-09-09",

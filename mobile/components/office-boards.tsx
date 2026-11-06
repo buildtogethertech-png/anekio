@@ -5763,7 +5763,7 @@ export function StaffBoard() {
             ? "Approve each month's salary, pay it, and keep proof of every payment."
             : staffView === "directory" && !timesheetOpen
               ? "Profiles, roles, documents and who reports to whom."
-              : "Mark Present, Late, or Absent, then Save the day. Optional In time lives on Timesheet."
+              : "Mark Present, Late, or Absent, then Save the day. In and Out times live on Timesheet."
         }
         action={
           pendingLeave.length ? (
