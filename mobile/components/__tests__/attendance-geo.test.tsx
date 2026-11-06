@@ -49,9 +49,6 @@ beforeEach(() => {
 });
 afterAll(() => setOs(originalOs));
 
-const slide = (label = "Mark out here") =>
-  fireEvent(screen.getByLabelText(label), "accessibilityAction", { nativeEvent: { actionName: "activate" } });
-
 describe("MarkHereSheet", () => {
   it("one big Mark in, then You're in", async () => {
     mockReadFix.mockResolvedValue({ lat: 28.6143, lng: 77.209, accuracy: 12, mocked: false });
@@ -86,15 +83,15 @@ describe("MarkHereSheet", () => {
     expect(screen.queryByTestId("mark-steps")).toBeNull();
   });
 
-  it("once in: In / Out / Hours, and Slide to mark out", async () => {
+  it("once in: In / Out / Hours, and one big Mark out button", async () => {
     mockReadFix.mockResolvedValue({ lat: 28.6143, lng: 77.209, accuracy: 12, mocked: false });
     mockAct.mockResolvedValue({ ok: true, inAt: "08:52", outAt: "15:10", checkedOut: true } as never);
     render(<MarkHereSheet open token="t" today={{ marked: true, inAt: "08:52" }} onClose={jest.fn()} onDone={jest.fn()} />);
     expect(screen.getByText("You're checked in")).toBeTruthy();
-    expect(screen.getByText("Slide to mark out")).toBeTruthy();
+    expect(screen.getByText("Mark out")).toBeTruthy();
     expect(screen.getByText("Hours")).toBeTruthy();
     expect(screen.queryByLabelText("Mark in here")).toBeNull();
-    slide();
+    fireEvent.press(screen.getByLabelText("Mark out here"));
     expect(await screen.findByText("Out at 3:10 PM")).toBeTruthy();
     expect(screen.getByText("6h 18m")).toBeTruthy();
   });
@@ -103,7 +100,7 @@ describe("MarkHereSheet", () => {
     render(<MarkHereSheet open token="t" today={{ marked: true, inAt: "08:52", outAt: "15:10" }} onClose={jest.fn()} onDone={jest.fn()} />);
     expect(screen.getByText("Done for today")).toBeTruthy();
     expect(screen.getByText("In 8:52 AM · Out 3:10 PM")).toBeTruthy();
-    expect(screen.getByText("Slide to update out time")).toBeTruthy();
+    expect(screen.getByText("Mark out again")).toBeTruthy();
   });
 
   it("lists earlier outs when out was marked more than once", () => {

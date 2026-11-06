@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Animated, Easing, Modal as RnModal, PanResponder, Platform, Pressable, Text, View } from "react-native";
+import { Animated, Easing, Modal as RnModal, Platform, Pressable, Text, View } from "react-native";
 import Svg, { Circle, Defs, LinearGradient as SvgLinearGradient, RadialGradient, Rect, Stop } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
@@ -245,96 +245,27 @@ function StatsCard({ inAt, outAt, now }: { inAt: string; outAt: string; now: Dat
   );
 }
 
-/**
- * "Slide to mark out": drag the knob to the end. Hard to trigger by accident, fun to do. Screen readers
- * get it as one button ("activate" marks out).
- */
-function SlideToConfirm({ label, disabled, onConfirm }: { label: string; disabled?: boolean; onConfirm: () => void }) {
-  const KNOB = 56;
-  const PAD = 4;
-  const [width, setWidth] = useState(0);
-  const x = useRef(new Animated.Value(0)).current;
-  const max = useRef(0);
-  max.current = Math.max(0, width - KNOB - PAD * 2);
-  const confirm = useRef(onConfirm);
-  confirm.current = onConfirm;
-  const off = useRef(disabled);
-  off.current = disabled;
-
-  const pan = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => !off.current,
-      onMoveShouldSetPanResponder: (_e, g) => !off.current && Math.abs(g.dx) > 2,
-      onPanResponderTerminationRequest: () => false,
-      onPanResponderMove: (_e, g) => x.setValue(Math.max(0, Math.min(max.current, g.dx))),
-      onPanResponderRelease: (_e, g) => {
-        if (max.current > 0 && g.dx >= max.current * 0.8) {
-          Animated.timing(x, { toValue: max.current, duration: 120, useNativeDriver: false }).start(() => {
-            confirm.current();
-            Animated.timing(x, { toValue: 0, duration: 350, delay: 600, useNativeDriver: false }).start();
-          });
-        } else {
-          Animated.spring(x, { toValue: 0, friction: 6, useNativeDriver: false }).start();
-        }
-      },
-    })
-  ).current;
-
+/** One big, plain button for marking out: clear for every teacher, no gestures to learn. */
+function MarkOutButton({ again, disabled, onPress }: { again: boolean; disabled?: boolean; onPress: () => void }) {
   return (
-    <View
-      accessible
+    <Pressable
       accessibilityRole="button"
       accessibilityLabel="Mark out here"
-      accessibilityHint="Slide right to mark out"
       accessibilityState={{ disabled }}
-      accessibilityActions={[{ name: "activate" }]}
-      onAccessibilityAction={(e) => {
-        if (e.nativeEvent.actionName === "activate" && !disabled) onConfirm();
-      }}
-      onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
-      className={`h-16 w-full justify-center overflow-hidden rounded-full border border-white/15 bg-white/[0.08] ${disabled ? "opacity-50" : ""}`}
+      disabled={disabled}
+      onPress={onPress}
+      className={`h-16 w-full flex-row items-center justify-center gap-3 rounded-2xl active:opacity-85 ${disabled ? "opacity-50" : ""}`}
+      style={{ backgroundColor: "#EA580C", shadowColor: "#F97316", shadowOpacity: 0.5, shadowRadius: 18, elevation: 10 }}
     >
-      <Animated.View
-        pointerEvents="none"
-        style={{ position: "absolute", left: 0, top: 0, bottom: 0, borderRadius: 999, backgroundColor: "rgba(251,146,60,0.28)", width: Animated.add(x, KNOB + PAD * 2) }}
-      />
-      <Animated.View
-        pointerEvents="none"
-        style={{
-          paddingLeft: KNOB + PAD * 2,
-          opacity: width ? x.interpolate({ inputRange: [0, Math.max(1, max.current * 0.6)], outputRange: [1, 0], extrapolate: "clamp" }) : 1,
-        }}
-      >
-        <Text className="text-center text-[16px] font-semibold text-white">{label}</Text>
-      </Animated.View>
-      <Animated.View
-        {...pan.panHandlers}
-        style={{
-          position: "absolute",
-          left: PAD,
-          top: PAD,
-          width: KNOB,
-          height: KNOB,
-          borderRadius: KNOB / 2,
-          backgroundColor: "#fff",
-          alignItems: "center",
-          justifyContent: "center",
-          shadowColor: "#000",
-          shadowOpacity: 0.25,
-          shadowRadius: 8,
-          elevation: 6,
-          transform: [{ translateX: x }],
-        }}
-      >
-        <Ionicons name="chevron-forward" size={26} color="#EA580C" />
-      </Animated.View>
-    </View>
+      <Ionicons name="exit-outline" size={28} color="#fff" />
+      <Text className="text-[19px] font-bold text-white">{again ? "Mark out again" : "Mark out"}</Text>
+    </Pressable>
   );
 }
 
 /**
  * "Mark in": staff mark their own attendance from their phone while at school. One big button; once in,
- * "Slide to mark out" (any number of times: the last out counts). The server checks distance, GPS
+ * a big "Mark out" button (any number of times: the last out counts). The server checks distance, GPS
  * accuracy and fake location.
  */
 export function MarkHereSheet({
@@ -417,7 +348,7 @@ export function MarkHereSheet({
     sub = error;
   } else if (done?.kind === "out") {
     title = `Out at ${clock(done.outAt)}`;
-    sub = "See you tomorrow! Slide again if you leave later.";
+    sub = "See you tomorrow! Tap Mark out again if you leave later.";
   } else if (done?.kind === "in") {
     title = "You're in! 🎉";
     sub = `Checked in at ${clock(inAt)}. Have a great day.`;
@@ -426,7 +357,7 @@ export function MarkHereSheet({
     sub = `In ${clock(inAt)} · Out ${clock(outAt)}`;
   } else if (showIn) {
     title = "You're checked in";
-    sub = `Since ${clock(inAt)}. Slide below when you leave.`;
+    sub = `Since ${clock(inAt)}. Tap Mark out when you leave.`;
   }
 
   const ringFace = showIn ? (
@@ -505,7 +436,7 @@ export function MarkHereSheet({
               {`Earlier out ${earlierOuts.map((o) => clock(o.at)).join(", ")} · the last one counts`}
             </Text>
           ) : null}
-          {showIn ? <SlideToConfirm label={outAt ? "Slide to update out time" : "Slide to mark out"} disabled={locating} onConfirm={() => void mark()} /> : null}
+          {showIn ? <MarkOutButton again={Boolean(outAt)} disabled={locating} onPress={() => void mark()} /> : null}
           <View className="mt-1 flex-row items-center justify-center gap-1.5">
             <Ionicons name="flash" size={12} color="rgba(191,208,255,0.55)" />
             <Text className="text-[12px] font-medium tracking-wide text-white/40">
