@@ -1,4 +1,5 @@
 import * as Location from "expo-location";
+import { Platform } from "react-native";
 
 /** Settings → Staff attendance: which ways the school takes it, and the school point for location. */
 export type StaffAttendanceSetup = { qr: boolean; location: boolean; lat: number; lng: number; radiusM: number };
@@ -31,6 +32,7 @@ function toFix(p: Location.LocationObject): Fix {
  * `waitMs` and keeps the best one, stopping early once it is good enough.
  */
 export async function readFix(waitMs = 12_000): Promise<Fix> {
+  if (Platform.OS === "web") return readWebFix(waitMs);
   const perm = await Location.requestForegroundPermissionsAsync();
   if (perm.status !== "granted") throw new Error("Allow location for Anekio to mark attendance here.");
   if (!(await Location.hasServicesEnabledAsync())) throw new Error("Turn on Location on your phone and try again.");
@@ -41,7 +43,11 @@ export async function readFix(waitMs = 12_000): Promise<Fix> {
     const done = () => {
       finished = true;
       clearTimeout(timer);
-      sub?.remove();
+      try {
+        sub?.remove();
+      } catch {
+        // already stopped
+      }
       resolve();
     };
     const timer = setTimeout(done, waitMs);
@@ -52,10 +58,39 @@ export async function readFix(waitMs = 12_000): Promise<Fix> {
     })
       .then((s) => {
         sub = s;
-        if (finished) s.remove();
+        if (finished) {
+          try {
+            s.remove();
+          } catch {
+            // already stopped
+          }
+        }
       })
       .catch(done);
   });
   if (!best) best = toFix(await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest }));
   return best;
+}
+
+/** Browser: expo-location's web watcher cannot be stopped (removeSubscription is missing), so ask the browser directly. */
+function readWebFix(waitMs: number): Promise<Fix> {
+  return new Promise((resolve, reject) => {
+    const geo = typeof navigator !== "undefined" ? navigator.geolocation : undefined;
+    if (!geo) {
+      reject(new Error("This browser cannot share its location."));
+      return;
+    }
+    geo.getCurrentPosition(
+      (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: Math.round(p.coords.accuracy ?? 9999), mocked: false }),
+      (error) =>
+        reject(
+          new Error(
+            error.code === error.PERMISSION_DENIED
+              ? "Allow location for this site in the browser, then try again."
+              : "Could not read your location. Try again."
+          )
+        ),
+      { enableHighAccuracy: true, timeout: waitMs, maximumAge: 0 }
+    );
+  });
 }
