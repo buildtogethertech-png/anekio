@@ -82,3 +82,15 @@ export function collapseStaffDaysByDate<T extends { date: Date | string; inAt?: 
   }
   return out;
 }
+
+/** Out marks of a day, oldest first. In is set once; out can be marked again (the last one is outAt). */
+export function parseOutLog(raw: string | null | undefined): { at: string; via: string }[] {
+  try {
+    const list = JSON.parse(raw || "[]");
+    return Array.isArray(list)
+      ? list.filter((o) => o && typeof o.at === "string").map((o) => ({ at: String(o.at), via: String(o.via || "") }))
+      : [];
+  } catch {
+    return [];
+  }
+}

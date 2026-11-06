@@ -100,6 +100,19 @@ describe("MarkHereSheet", () => {
     expect(screen.queryByText(/Fake GPS/)).toBeNull();
   });
 
+  it("lists earlier outs when out was marked more than once", () => {
+    render(
+      <MarkHereSheet
+        open
+        token="t"
+        today={{ marked: true, inAt: "08:52", outAt: "17:05", outLog: [{ at: "13:00" }, { at: "17:05" }] }}
+        onClose={jest.fn()}
+        onDone={jest.fn()}
+      />
+    );
+    expect(screen.getByTestId("earlier-outs").props.children).toBe("Earlier out 1:00 PM · the last one counts");
+  });
+
   it("shows the server's reason and lets them try again", async () => {
     mockReadFix.mockResolvedValue({ lat: 28.62, lng: 77.209, accuracy: 12, mocked: false });
     mockAct.mockRejectedValue(new Error("You are 680 m from school. Mark when you are inside (within 150 m)."));

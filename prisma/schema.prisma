@@ -1367,6 +1367,8 @@ model StaffDay {
   outVia         String            @default("")
   /// Where a location mark was made: {"in":{lat,lng,acc,m},"out":{...}}.
   geoJson        String            @default("")
+  /// Every out of the day, oldest first: [{"at":"13:00","via":"location"}, …]. outAt is the last one.
+  outLogJson     String            @default("")
 
   @@unique([teacherId, date])
   @@unique([staffId, date])

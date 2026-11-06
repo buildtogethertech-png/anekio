@@ -155,7 +155,7 @@ export function MarkHereSheet({
 }: {
   open: boolean;
   token: string | null;
-  today?: { marked?: boolean; inAt?: string; outAt?: string };
+  today?: { marked?: boolean; inAt?: string; outAt?: string; outLog?: { at: string }[] };
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -224,6 +224,9 @@ export function MarkHereSheet({
   const inAt = done?.inAt || today?.inAt || "";
   const outAt = done?.outAt || today?.outAt || "";
   const dayDone = done ? done.kind === "out" : Boolean(outAt);
+  // Outs before the last one (the screen may be one out behind right after marking).
+  const log = today?.outLog ?? [];
+  const earlierOuts = (done?.kind === "out" && log.at(-1)?.at !== done.outAt ? log : log.slice(0, -1)).filter((o) => o.at !== outAt);
   const showIn = phase === "done" || (checkedIn && phase !== "locating" && phase !== "error");
   const locating = phase === "locating";
   const ringColor = phase === "error" ? "#F87171" : BLUE;
@@ -327,6 +330,11 @@ export function MarkHereSheet({
 
         <View className="gap-3 px-5">
           <TimelineCard inAt={inAt} outAt={outAt} />
+          {earlierOuts.length ? (
+            <Text testID="earlier-outs" className="text-center text-[13px] text-white/50">
+              {`Earlier out ${earlierOuts.map((o) => clock(o.at)).join(", ")} · the last one counts`}
+            </Text>
+          ) : null}
           {showIn ? (
             <Pressable
               accessibilityRole="button"
@@ -557,7 +565,7 @@ export function MarkHereButton({
   onDone,
 }: {
   token: string | null;
-  today?: { marked?: boolean; inAt?: string; outAt?: string };
+  today?: { marked?: boolean; inAt?: string; outAt?: string; outLog?: { at: string }[] };
   tile?: boolean;
   /** Small round button for the phone header (office staff). */
   icon?: boolean;

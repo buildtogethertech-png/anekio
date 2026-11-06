@@ -31,7 +31,7 @@ import { classifyFromIn, normalizeHHmm, parsePayrollRules, personKey, type Payro
 import { hasLiveSalaryPayments } from "./salary-payments";
 import { loadSchoolCalendar } from "./leave";
 import { cleanActivity } from "./timetable-activity";
-import { earliestStaffInAt, staffAttendanceInMark, staffDayInstant, staffDayWindow, staffDayYmd } from "./staff-day";
+import { earliestStaffInAt, parseOutLog, staffAttendanceInMark, staffDayInstant, staffDayWindow, staffDayYmd } from "./staff-day";
 import { addDays, examPlanWeight, effectiveExamPlan, DEFAULT_EXAM_PLAN, parseExamPlan, ymd } from "./exams";
 import { teacherCanEditMarks, teacherMayEnterMarks, teacherMarksBlock } from "./exam-workflow";
 import { teacherIdsBySubjectName, teacherMayHostClassTest } from "./exam-evaluators";
@@ -1456,6 +1456,7 @@ async function writeStaffDayOnStamp(
     inVia?: string;
     outVia?: string;
     geoJson?: string;
+    outLogJson?: string;
   }
 ) {
   const instant = staffDayInstant(stamp);
@@ -1538,19 +1539,26 @@ export async function markStaffAttendanceCore(
     }
     let inAt = row.inAt;
     let outAt = row.outAt;
+    const existing = await findStaffDayOnStamp(row.kind, row.id, stamp);
     if (row.status === "ABSENT") {
       inAt = "";
       outAt = "";
     } else if (row.status !== "LEAVE" && !String(row.inAt || "").trim()) {
       // "Save the day" with no time typed: keep the time staff marked themselves (QR / location).
-      const existing = await findStaffDayOnStamp(row.kind, row.id, stamp);
       if (existing?.inAt) {
         inAt = existing.inAt;
         if (!String(row.outAt || "").trim()) outAt = existing.outAt;
       }
     }
     const next = classifyStaffDay(row.status, inAt, outAt, rules);
+    // A changed out time from the office is one more out of the day.
+    const outLogJson = !next.outAt
+      ? ""
+      : next.outAt !== (existing?.outAt || "")
+        ? withOut(existing?.outLogJson, next.outAt, "office")
+        : existing?.outLogJson || "";
     await writeStaffDayOnStamp(row.kind, row.id, stamp, {
+      outLogJson,
       status: next.status,
       markedById: user.id,
       inAt: next.inAt,
@@ -1625,6 +1633,10 @@ export async function scanStaffAttendanceQrCore(user: AccessUser, input: { code:
 }
 
 type StaffPerson = { kind: "teacher" | "staff"; id: string; name: string; employeeId: string };
+
+function withOut(raw: string | null | undefined, at: string, via: string) {
+  return JSON.stringify([...parseOutLog(raw), { at, via }].slice(-20));
+}
 type StaffFix = { lat: number; lng: number; acc: number; m: number };
 
 function mergeGeo(raw: string | null | undefined, side: "in" | "out", fix?: StaffFix) {
@@ -1684,6 +1696,7 @@ async function stampStaffInOut(
       computedStatus: existing.computedStatus,
       outVia: via,
       geoJson: mergeGeo(existing.geoJson, "out", fix),
+      outLogJson: withOut(existing.outLogJson, inAt, via),
     });
     return { person: who, date: stamp, status: existing.status, inAt: existing.inAt, outAt: inAt, checkedOut: true };
   }
@@ -1700,6 +1713,7 @@ async function stampStaffInOut(
     inVia: via,
     outVia: "",
     geoJson: mergeGeo("", "in", fix),
+    outLogJson: "",
   });
   await syncTeacherDayFromStaffMark(markerId, person.kind, person.id, stamp, false);
   return { person: who, date: stamp, status: next.status, inAt: next.inAt, outAt: "", checkedOut: false };

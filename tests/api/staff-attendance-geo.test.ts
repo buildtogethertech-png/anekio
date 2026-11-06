@@ -118,6 +118,30 @@ describe.sequential("staff attendance by location", () => {
     expect(Object.keys(JSON.parse(day.geoJson))).toEqual(["in", "out"]);
   });
 
+  it("in is set once; out can be marked again and every out is kept", async () => {
+    const again = await act(teacherToken, "markStaffAttendanceHere", INSIDE);
+    expect(again.status).toBe(200);
+    expect(again.body).toMatchObject({ checkedOut: true, inAt: "00:00" });
+    let day = await prisma.staffDay.findFirstOrThrow({ where: { teacherId: "teacher-tara" } });
+    expect(day.inAt).toBe("00:00");
+    expect(JSON.parse(day.outLogJson)).toHaveLength(2);
+    expect(JSON.parse(day.outLogJson).every((o: { via: string }) => o.via === "location")).toBe(true);
+
+    const stamp = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(day.date);
+    const office = await act(officeToken, "markStaffAttendance", {
+      date: stamp,
+      rows: [{ kind: "teacher", id: "teacher-tara", status: "PRESENT", inAt: "00:00", outAt: "23:00" }],
+    });
+    expect(office.status).toBe(200);
+    day = await prisma.staffDay.findFirstOrThrow({ where: { teacherId: "teacher-tara" } });
+    expect(day).toMatchObject({ inAt: "00:00", outAt: "23:00" });
+    const log = JSON.parse(day.outLogJson);
+    expect(log).toHaveLength(3);
+    expect(log[2]).toEqual({ at: "23:00", via: "office" });
+    const me = await record(teacherToken);
+    expect(me.body.staffAttendanceSelf.today.outLog).toHaveLength(3);
+  });
+
   it("office Save the day keeps a time staff marked themselves, and Absent clears in and out", async () => {
     const today = (await prisma.staffDay.findFirstOrThrow({ where: { teacherId: "teacher-tara" } })).date;
     const stamp = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(today);

@@ -27,7 +27,7 @@ import { parentMaySeeExamResult } from "./exam-marks";
 import { teacherClassTestChoices } from "./exam-evaluators";
 import { parsePayrollRules } from "./payroll";
 import { loadStaffAttendanceSetup } from "./staff-attendance-setup";
-import { collapseStaffDaysByDate, staffAttendanceInMark, staffDayWindow, staffDayYmd } from "./staff-day";
+import { collapseStaffDaysByDate, parseOutLog, staffAttendanceInMark, staffDayWindow, staffDayYmd } from "./staff-day";
 import { feeLineTotal, invoiceBalance, parseFeeCatalogState, parseFeeLines, reportCardFeeHoldFromConfig } from "./fees";
 import { studentLetter } from "./letter";
 import { payFormFromSecrets, paySecretsFromRow } from "./pay-config";
@@ -191,6 +191,7 @@ function mapPersonStaffDays(
     computedStatus: string | null;
     inVia?: string;
     outVia?: string;
+    outLogJson?: string;
   }[],
   kind: "teacher" | "staff",
   id: string
@@ -206,6 +207,7 @@ function mapPersonStaffDays(
     computedStatus: d.computedStatus || "",
     inVia: d.inVia || "",
     outVia: d.outVia || "",
+    outLog: parseOutLog(d.outLogJson),
   }));
 }
 
@@ -298,6 +300,7 @@ async function staffAttendanceSelf(user: AccessUser) {
       status: todayRow?.status || "",
       inAt: todayRow?.inAt || "",
       outAt: todayRow?.outAt || "",
+      outLog: parseOutLog(todayRow?.outLogJson),
     },
     attendanceSetup: await loadStaffAttendanceSetup(),
   };
