@@ -1,8 +1,9 @@
 import { createElement, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Animated, Easing, Image, Linking, Modal as RnModal, Platform, Pressable, Text, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Animated, Easing, Image, Linking, Modal as RnModal, Platform, Pressable, Text, TextInput, useWindowDimensions, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
+import jsQR from "jsqr";
 import { act } from "../lib/mutate";
 import { useOptionalRecord } from "../lib/record";
 import { canOpenStaffScan, openStaffScanRoute } from "../lib/staff-attendance-scan";
@@ -485,11 +486,55 @@ const KIOSK_STEPS: { icon: keyof typeof Ionicons.glyphMap; text: string }[] = [
   { icon: "scan-outline", text: "Hold it in the frame" },
 ];
 
+/** Web: BarcodeDetector where the browser has it (Chrome), jsQR on a canvas everywhere else. */
+function webQrReader() {
+  const Detector = (window as unknown as { BarcodeDetector?: new (o: { formats: string[] }) => { detect: (s: unknown) => Promise<{ rawValue?: string }[]> } }).BarcodeDetector;
+  let detector: { detect: (s: unknown) => Promise<{ rawValue?: string }[]> } | null = null;
+  try {
+    detector = Detector ? new Detector({ formats: ["qr_code"] }) : null;
+  } catch {
+    detector = null;
+  }
+  const canvas = document.createElement("canvas");
+  return async (video: HTMLVideoElement) => {
+    if (detector) {
+      try {
+        return (await detector.detect(video))[0]?.rawValue || "";
+      } catch {
+        /* fall through to jsQR */
+      }
+    }
+    const width = video.videoWidth;
+    const height = video.videoHeight;
+    if (!width || !height) return "";
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return "";
+    ctx.drawImage(video, 0, 0, width, height);
+    const image = ctx.getImageData(0, 0, width, height);
+    return jsQR(image.data, image.width, image.height)?.data || "";
+  };
+}
+
 /**
- * Full-screen check-in desk: put a phone/tablet on a tripod at the gate and staff
- * hold up their own attendance QR. Scans continuously; each result shows big, then resets.
+ * Full-screen check-in desk: put a phone/tablet on a tripod at the gate (or open /staff/scan on a
+ * laptop) and staff hold up their own attendance QR. Scans continuously; each result shows big, then
+ * resets. `inline` renders it as the page itself instead of a modal.
  */
-export function AttendanceKiosk({ token, open, onClose, onScanned }: { token: string | null; open: boolean; onClose: () => void; onScanned?: () => void }) {
+export function AttendanceKiosk({
+  token,
+  open,
+  onClose,
+  onScanned,
+  inline,
+}: {
+  token: string | null;
+  open: boolean;
+  onClose: () => void;
+  onScanned?: () => void;
+  inline?: boolean;
+}) {
   const { width, height } = useWindowDimensions();
   const wide = width > height && width >= 700;
   const videoRef = useRef<unknown>(null);
@@ -503,6 +548,7 @@ export function AttendanceKiosk({ token, open, onClose, onScanned }: { token: st
   const [log, setLog] = useState<KioskEntry[]>([]);
   const [count, setCount] = useState(0);
   const [now, setNow] = useState(new Date());
+  const [typed, setTyped] = useState("");
   // Android / iOS: the native camera (expo-camera) scans QR codes; the web uses getUserMedia + BarcodeDetector.
   const native = Platform.OS !== "web";
   const [permission, requestPermission] = useCameraPermissions();
@@ -583,9 +629,8 @@ export function AttendanceKiosk({ token, open, onClose, onScanned }: { token: st
     setCamReady(false);
     (async () => {
       const nav = typeof navigator !== "undefined" ? navigator : null;
-      const Detector = (window as unknown as { BarcodeDetector?: new (o: { formats: string[] }) => { detect: (s: unknown) => Promise<{ rawValue?: string }[]> } }).BarcodeDetector;
-      if (!nav?.mediaDevices?.getUserMedia || !Detector) {
-        setCamError("This browser can't scan QR codes. Use Chrome on Android or a laptop.");
+      if (!nav?.mediaDevices?.getUserMedia) {
+        setCamError("This browser can't open the camera. Type or paste the QR code below.");
         return;
       }
       try {
@@ -596,14 +641,14 @@ export function AttendanceKiosk({ token, open, onClose, onScanned }: { token: st
         video.srcObject = stream;
         await video.play?.();
         setCamReady(true);
-        const detector = new Detector({ formats: ["qr_code"] });
+        const read = webQrReader();
         const tick = async () => {
           if (stopped) return;
-          const v = videoRef.current as { readyState?: number } | null;
+          const v = videoRef.current as HTMLVideoElement | null;
           if (v?.readyState && v.readyState >= 2 && !busyRef.current) {
             busyRef.current = true;
             try {
-              const hit = (await detector.detect(v))[0]?.rawValue || "";
+              const hit = await read(v);
               if (hit) await handle(hit);
             } catch {
               /* keep scanning */
@@ -779,8 +824,44 @@ export function AttendanceKiosk({ token, open, onClose, onScanned }: { token: st
     </View>
   );
 
-  return (
-    <RnModal visible={open} animationType="fade" presentationStyle="fullScreen" onRequestClose={onClose}>
+  // Web desk: a USB scanner gun types the code here; anyone can also paste it.
+  const typeIn =
+    Platform.OS === "web" ? (
+      <View className="w-full flex-row items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] py-1 pl-4 pr-1">
+        <Ionicons name="keypad-outline" size={16} color="rgba(255,255,255,0.5)" />
+        <TextInput
+          value={typed}
+          onChangeText={setTyped}
+          onSubmitEditing={() => {
+            const code = typed;
+            setTyped("");
+            void handle(code);
+          }}
+          placeholder="Type or paste QR code"
+          placeholderTextColor="rgba(255,255,255,0.35)"
+          autoCapitalize="none"
+          autoCorrect={false}
+          accessibilityLabel="QR code"
+          className="min-w-0 flex-1 py-2 text-[14px] text-white"
+          style={{ outlineStyle: "none" } as object}
+        />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Mark from code"
+          disabled={!typed.trim()}
+          onPress={() => {
+            const code = typed;
+            setTyped("");
+            void handle(code);
+          }}
+          className={`rounded-xl bg-[#2855F6] px-3 py-2 ${typed.trim() ? "" : "opacity-40"}`}
+        >
+          <Text className="text-[13px] font-semibold text-white">Mark</Text>
+        </Pressable>
+      </View>
+    ) : null;
+
+  const body = (
       <View className="flex-1 bg-[#0B1530]">
         {/* decorative glow */}
         <View pointerEvents="none" className="absolute -top-40 left-1/2 h-96 w-96 rounded-full" style={{ marginLeft: -192, backgroundColor: "rgba(40,85,246,0.22)", filter: "blur(80px)" } as object} />
@@ -821,10 +902,11 @@ export function AttendanceKiosk({ token, open, onClose, onScanned }: { token: st
             <View className="w-96 gap-4">
               <View>
                 <Text className="text-[26px] font-bold text-white">Show your attendance QR</Text>
-                <Text className="mt-1 text-[15px] text-white/60">Your in-time is marked the moment it's read.</Text>
+                <Text className="mt-1 text-[15px] text-white/60">First scan is your in-time. Scan again when you leave.</Text>
               </View>
               {steps}
               {recent}
+              {typeIn}
             </View>
           </View>
         ) : (
@@ -833,10 +915,17 @@ export function AttendanceKiosk({ token, open, onClose, onScanned }: { token: st
             <View className="w-full items-center gap-4" style={{ maxWidth: camW }}>
               <Text className="text-center text-[22px] font-bold text-white">Show your attendance QR</Text>
               {log.length ? recent : steps}
+              {typeIn}
             </View>
           </View>
         )}
       </View>
+  );
+
+  if (inline) return open ? body : null;
+  return (
+    <RnModal visible={open} animationType="fade" presentationStyle="fullScreen" onRequestClose={onClose}>
+      {body}
     </RnModal>
   );
 }

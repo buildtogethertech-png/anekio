@@ -4,7 +4,7 @@ import { StaffAttendanceScanBoard } from "../../../components/staff-attendance-s
 
 export default function StaffScanScreen() {
   return (
-    <SafeAreaView className="min-h-0 flex-1 bg-ink-900" edges={["top", "bottom"]} testID="staff-scan-screen">
+    <SafeAreaView className="min-h-0 flex-1 bg-[#0B1530]" edges={["top", "bottom"]} testID="staff-scan-screen">
       <View className="min-h-0 flex-1">
         <StaffAttendanceScanBoard />
       </View>
