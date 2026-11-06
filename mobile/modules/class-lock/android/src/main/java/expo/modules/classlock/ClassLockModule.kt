@@ -41,6 +41,9 @@ class ClassLockModule : Module() {
     /** The phone's view of the day, including `changedByPhone` ("class" / "closed") when it changed it. */
     Function("getDay") { FocusDayState.toJson() }
 
+    /** JS logged the "opened from Anekio" times up to `upTo` (epoch ms). */
+    Function("clearOutside") { upTo: Double -> FocusDayState.clearOutside(context, upTo.toLong()) }
+
     OnActivityEntersForeground {
       if (ClassLockOverlay.breakRequested) {
         ClassLockOverlay.breakRequested = false

@@ -23,6 +23,9 @@ import android.widget.TextView
  * The line never takes touches (everything underneath works); only the small "12m · End break" tag
  * does: tapping it ends the break right there. The details ("2-A class · Admin is watching", live
  * break timer) are in the ongoing notification.
+ *
+ * Same line in blue while Anekio opened another app (WhatsApp, call, camera…): "From Anekio · 2:45 ·
+ * Back" — the short pass before the guard comes back.
  */
 object ClassLockBreakChip {
   private var view: View? = null
@@ -31,12 +34,25 @@ object ClassLockBreakChip {
   private var time: TextView? = null
   private var pulse: ObjectAnimator? = null
   private var missing: Boolean? = null
+  /** "break" or "pass" while shown. */
+  private var mode: String? = null
   private val handler = Handler(Looper.getMainLooper())
 
   fun refresh(context: Context, appVisible: Boolean) {
     val app = context.applicationContext
-    val on = FocusDayState.status == "break" && !appVisible && ClassLockOverlay.canDraw(app)
-    if (on) show(app) else hide(app)
+    val want = when {
+      appVisible || !ClassLockOverlay.canDraw(app) -> null
+      FocusDayState.status == "break" -> "break"
+      FocusDayState.passActive() -> "pass"
+      else -> null
+    }
+    if (want == null) {
+      hide(app)
+      return
+    }
+    if (view != null && mode != want) hide(app)
+    mode = want
+    show(app)
   }
 
   private fun dp(context: Context, v: Float) =
@@ -52,7 +68,32 @@ object ClassLockBreakChip {
     return if (m >= 60) "${m / 60}h${m % 60}" else "${m}m"
   }
 
+  private fun passLeft(): String {
+    val s = ((FocusDayState.passUntil - System.currentTimeMillis()) / 1000).coerceAtLeast(0)
+    return String.format("%d:%02d", s / 60, s % 60)
+  }
+
+  private fun openAnekio(context: Context) {
+    val launch = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: return
+    launch.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+    context.startActivity(launch)
+  }
+
   private fun render(context: Context) {
+    if (mode == "pass") {
+      if (missing != false) {
+        missing = false
+        val blue = Color.parseColor("#2855F6")
+        line?.setBackgroundColor(blue)
+        time?.background = GradientDrawable().apply {
+          cornerRadii = floatArrayOf(0f, 0f, 0f, 0f, dp(context, 8f).toFloat(), dp(context, 8f).toFloat(), dp(context, 8f).toFloat(), dp(context, 8f).toFloat())
+          setColor(blue)
+        }
+      }
+      time?.text = "From Anekio · ${passLeft()} · Back"
+      if (!FocusDayState.passActive()) ClassLockOverlay.refresh(context)
+      return
+    }
     val isMissing = FocusDayState.classNow() != null
     if (missing != isMissing) {
       missing = isMissing
@@ -82,7 +123,7 @@ object ClassLockBreakChip {
     override fun run() {
       val v = view ?: return
       render(v.context)
-      handler.postDelayed(this, 5_000)
+      handler.postDelayed(this, 1_000)
     }
   }
 
@@ -100,7 +141,7 @@ object ClassLockBreakChip {
       setPadding(dp(context, 7f), dp(context, 2f), dp(context, 7f), dp(context, 3f))
     }
     time?.setPadding(dp(context, 10f), dp(context, 4f), dp(context, 10f), dp(context, 5f))
-    time?.setOnClickListener { FocusDayState.endBreakFromPhone(context) }
+    time?.setOnClickListener { if (mode == "pass") openAnekio(context) else FocusDayState.endBreakFromPhone(context) }
     missing = null
     render(context)
 
@@ -134,7 +175,7 @@ object ClassLockBreakChip {
       view = root
       time?.let { t -> runCatching { wm.addView(t, tagParams) }.onSuccess { tagView = t } }
       handler.removeCallbacks(tick)
-      handler.postDelayed(tick, 5_000)
+      handler.postDelayed(tick, 1_000)
     } catch (_: Exception) {
       view = null
     }
@@ -146,6 +187,7 @@ object ClassLockBreakChip {
     pulse = null
     val v = view ?: return
     view = null
+    mode = null
     val tag = tagView
     tagView = null
     line = null

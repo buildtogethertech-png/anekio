@@ -17,7 +17,7 @@ import { useSession } from "./session";
 import { getFocusDay, setFocusDay } from "./storage";
 
 export type FocusEvent = {
-  type: "start" | "break" | "resume" | "class_started" | "guard_off" | "end" | "auto_end";
+  type: "start" | "break" | "resume" | "class_started" | "guard_off" | "outside" | "end" | "auto_end";
   at: number;
   reason?: string;
 };
@@ -255,6 +255,17 @@ export function FocusDayProvider({ children }: { children: ReactNode }) {
     if (!ClassLock.available) return;
     const sync = () => {
       const phone = ClassLock.getDay();
+      // Anekio opened another app (WhatsApp, call, camera…): a short pass, logged (not a break).
+      const outside = (phone?.outside ?? []).filter((t) => typeof t === "number");
+      if (outside.length) {
+        update((cur) => {
+          const have = new Set(cur.log.filter((e) => e.type === "outside").map((e) => e.at));
+          const add = outside.filter((t) => !have.has(t)).map((at) => ({ type: "outside" as const, at, reason: "Opened from Anekio" }));
+          // Appended (not sorted in): the server sync sends the log from where it left off; the report orders by time.
+          return add.length ? { ...cur, log: [...cur.log, ...add] } : cur;
+        });
+        ClassLock.clearOutside(Math.max(...outside));
+      }
       if (!phone?.changedByPhone) return;
       if (phone.changedByPhone === "class") update((cur) => focusDay.resume(cur, phone.since, "class_started"));
       if (phone.changedByPhone === "closed") update((cur) => focusDay.end(cur, phone.since, "auto_end"));

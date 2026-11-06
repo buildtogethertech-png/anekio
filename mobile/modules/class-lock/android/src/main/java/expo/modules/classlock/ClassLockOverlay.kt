@@ -37,6 +37,9 @@ object ClassLockOverlay {
   private var timer: TextView? = null
   private val handler = Handler(Looper.getMainLooper())
 
+  /** Set by ClassLockPackage when the teacher leaves with Home / Recents (not when Anekio opens an app). */
+  @Volatile var userLeft = false
+
   /** "Take a break" was tapped on the guard; the module reports it once Anekio is back. */
   @Volatile var breakRequested = false
 
@@ -57,11 +60,19 @@ object ClassLockOverlay {
     app.registerActivityLifecycleCallbacks(object : android.app.Application.ActivityLifecycleCallbacks {
       override fun onActivityStarted(activity: android.app.Activity) {
         started += 1
+        userLeft = false
+        FocusDayState.endPass()
         setAppVisible(app, true)
       }
       override fun onActivityStopped(activity: android.app.Activity) {
         started = (started - 1).coerceAtLeast(0)
-        if (started == 0) setAppVisible(app, false)
+        if (started == 0) {
+          val power = app.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+          // Anekio opened another app (no Home/Recents, screen still on): a short pass, not the guard.
+          if (!userLeft && power.isInteractive) FocusDayState.startPass(app)
+          userLeft = false
+          setAppVisible(app, false)
+        }
       }
       override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) {}
       override fun onActivityResumed(activity: android.app.Activity) {}
@@ -80,7 +91,7 @@ object ClassLockOverlay {
       return
     }
     ClassLockBreakChip.refresh(app, appVisible)
-    val on = FocusDayState.status == "focus" && !appVisible && canDraw(app)
+    val on = FocusDayState.status == "focus" && !FocusDayState.passActive() && !appVisible && canDraw(app)
     if (!on) {
       hide(app)
       return

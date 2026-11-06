@@ -17,6 +17,8 @@ export type NativeDay = {
   breakInClass: boolean;
   classes: { start: number; end: number; title: string; subtitle: string }[];
   changedByPhone?: "class" | "closed" | "resumed" | null;
+  /** When Anekio opened another app (WhatsApp, call, camera…), not yet logged by JS. */
+  outside?: number[];
 };
 
 type Native = {
@@ -24,6 +26,7 @@ type Native = {
   openOverlaySettings(): void;
   setDay(json: string): void;
   getDay(): string;
+  clearOutside(upTo: number): void;
   addListener(event: "onBreakRequest", listener: () => void): { remove(): void };
 };
 
@@ -42,5 +45,6 @@ export const ClassLock = {
       return null;
     }
   },
+  clearOutside: (upTo: number) => native?.clearOutside(upTo),
   onBreakRequest: (listener: () => void) => native?.addListener("onBreakRequest", listener) ?? { remove() {} },
 };

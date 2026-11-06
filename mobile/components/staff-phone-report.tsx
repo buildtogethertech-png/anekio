@@ -15,6 +15,7 @@ type Row = {
   breaks: Break[];
   breakMinutes: number;
   guardOff: number;
+  outside: number;
   timeline: { type: string; at: string; reason: string }[];
 };
 
@@ -40,6 +41,7 @@ const EVENT_LABEL: Record<string, string> = {
   resume: "Back from break",
   class_started: "Break ended by class",
   guard_off: "Turned the guard off",
+  outside: "Opened another app from Anekio (WhatsApp, call, camera…)",
   end: "Day ended",
   auto_end: "Day ended (school closed)",
 };
@@ -178,6 +180,9 @@ export function StaffPhoneReport({ token, phone }: { token: string | null; phone
                     <Text className="rounded-full bg-amber-50 px-2.5 py-1 text-[12px] font-semibold text-amber-800">
                       {`${r.breaks.length} break${r.breaks.length === 1 ? "" : "s"} · ${duration(r.breakMinutes)}`}
                     </Text>
+                    {r.outside ? (
+                      <Text className="rounded-full bg-ink-100 px-2.5 py-1 text-[12px] font-semibold text-ink-700">{`From Anekio ×${r.outside}`}</Text>
+                    ) : null}
                     {r.guardOff ? (
                       <Text className="rounded-full bg-red-50 px-2.5 py-1 text-[12px] font-semibold text-red-700">{`Guard off ×${r.guardOff}`}</Text>
                     ) : null}

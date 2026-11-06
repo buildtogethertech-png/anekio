@@ -36,6 +36,34 @@ object FocusDayState {
   var date = ""
   /** School setting: a break may be taken (and kept) while a class is on. */
   var breakInClass = false
+  /** Anekio itself opened another app (WhatsApp, call, camera…): no guard until this time. */
+  var passUntil = 0L
+  /** When Anekio opened another app today (sent to JS for the log, then cleared). */
+  val outside = mutableListOf<Long>()
+
+  private const val PASS_MS = 3 * 60_000L
+
+  fun passActive(now: Long = System.currentTimeMillis()) = status == "focus" && now < passUntil
+
+  /** Anekio opened another app: let it through for a few minutes, and note it. */
+  fun startPass(context: Context) {
+    if (status != "focus") return
+    val now = System.currentTimeMillis()
+    passUntil = now + PASS_MS
+    outside.add(now)
+    save(context)
+    handler.postDelayed({ ClassLockOverlay.refresh(context) }, PASS_MS + 500)
+  }
+
+  fun endPass() {
+    passUntil = 0L
+  }
+
+  /** JS has logged these "opened from Anekio" times. */
+  fun clearOutside(context: Context, upTo: Long) {
+    outside.removeAll { it <= upTo }
+    save(context)
+  }
   var classes: List<ClassSlot> = emptyList()
 
   /** Set when native changed the state on its own; JS reads it with getDay(). */
@@ -51,6 +79,7 @@ object FocusDayState {
   fun toJson(): String = JSONObject()
     .put("status", status).put("focusMs", focusMs).put("since", since).put("closesAt", closesAt).put("date", date)
     .put("breakInClass", breakInClass)
+    .put("outside", JSONArray(outside))
     .put("classes", JSONArray(classes.map { JSONObject().put("start", it.start).put("end", it.end).put("title", it.title).put("subtitle", it.subtitle) }))
     .put("changedByPhone", changedByPhone ?: JSONObject.NULL)
     .toString()
@@ -63,6 +92,11 @@ object FocusDayState {
     closesAt = o.optLong("closesAt", 0)
     date = o.optString("date", "")
     breakInClass = o.optBoolean("breakInClass", false)
+    val out = o.optJSONArray("outside")
+    if (out != null) {
+      outside.clear()
+      for (i in 0 until out.length()) outside.add(out.optLong(i))
+    }
     val arr = o.optJSONArray("classes") ?: JSONArray()
     classes = (0 until arr.length()).map {
       val c = arr.getJSONObject(it)

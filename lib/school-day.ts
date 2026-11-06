@@ -74,7 +74,7 @@ export async function saveSchoolDayCore(user: AccessUser, input: Partial<SchoolD
   return { ok: true as const, schoolDay: next };
 }
 
-const EVENT_TYPES = new Set(["start", "break", "resume", "class_started", "guard_off", "end", "auto_end"]);
+const EVENT_TYPES = new Set(["start", "break", "resume", "class_started", "guard_off", "outside", "end", "auto_end"]);
 
 /** Teacher app → server: the school-day log. Safe to resend (the phone's event id is kept once). */
 export async function logSchoolDayCore(
@@ -136,6 +136,8 @@ export async function schoolDayReportCore(user: AccessUser, input: { date?: stri
       breaks,
       breakMinutes: breaks.reduce((n, b) => n + b.minutes, 0),
       guardOff: list.filter((e) => e.type === "guard_off").length,
+      /** Times Anekio opened another app (WhatsApp, call, camera…) — allowed, shown separately from breaks. */
+      outside: list.filter((e) => e.type === "outside").length,
       timeline: list.map((e) => ({ type: e.type, at: e.at.toISOString(), reason: e.reason })),
     };
   });

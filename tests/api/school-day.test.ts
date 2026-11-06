@@ -80,22 +80,23 @@ describe.sequential("teacher phones setting", () => {
       { id: "a5", type: "break", at: at(12, 0), date, reason: "Personal call" },
       { id: "a6", type: "class_started", at: at(12, 5), date },
       { id: "a7", type: "end", at: at(14, 30), date },
+      { id: "a8", type: "outside", at: at(9, 30), date, reason: "Opened from Anekio" },
       { id: "bad", type: "hack", at: at(9, 0), date },
     ];
-    expect((await act(teacherToken, "logSchoolDay", { events })).body.saved).toBe(7);
+    expect((await act(teacherToken, "logSchoolDay", { events })).body.saved).toBe(8);
     // Sent again (phone retry): nothing is stored twice.
     expect((await act(teacherToken, "logSchoolDay", { events })).status).toBe(200);
-    expect(await prisma.staffPhoneEvent.count()).toBe(7);
+    expect(await prisma.staffPhoneEvent.count()).toBe(8);
 
     const report = await act(officeToken, "schoolDayReport", { date });
     expect(report.status).toBe(200);
     const tara = report.body.rows.find((r: { name: string }) => r.name === "Tara Teacher");
-    expect(tara).toMatchObject({ breakMinutes: 25, guardOff: 1, endedBy: "end" });
+    expect(tara).toMatchObject({ breakMinutes: 25, guardOff: 1, outside: 1, endedBy: "end" });
     expect(tara.breaks.map((b: { reason: string; minutes: number; endedBy: string }) => [b.reason, b.minutes, b.endedBy])).toEqual([
       ["Lunch", 20, "resume"],
       ["Personal call", 5, "class_started"],
     ]);
-    expect(tara.timeline).toHaveLength(7);
+    expect(tara.timeline).toHaveLength(8);
   });
 
   it("only the office can see the report, only teachers can log", async () => {
