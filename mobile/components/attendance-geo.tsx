@@ -390,11 +390,8 @@ export function MarkHereSheet({
         </>
       ) : (
         <>
-          <Text className="text-[30px] font-extrabold tracking-wide text-white">{checkedIn ? "Mark out" : "Mark in"}</Text>
-          <View className="mt-2 flex-row items-center gap-1 rounded-full bg-white/15 px-2.5 py-1">
-            <Ionicons name="shield-checkmark" size={13} color="#fff" />
-            <Text className="text-[12px] font-semibold text-white/90">{checkedIn ? "Secure check-out" : "Secure check-in"}</Text>
-          </View>
+          <Ionicons name={checkedIn ? "exit-outline" : "enter-outline"} size={56} color="#fff" />
+          <Text className="mt-1 text-[24px] font-extrabold text-white">{checkedIn ? "Mark out" : "Mark in"}</Text>
         </>
       )}
     </Pressable>

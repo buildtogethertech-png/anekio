@@ -57,7 +57,7 @@ describe("MarkHereSheet", () => {
     render(<MarkHereSheet open token="t" today={{ marked: false }} onClose={jest.fn()} onDone={onDone} />);
     expect(screen.getByText("Ready to mark in?")).toBeTruthy();
     expect(screen.getByText("Mark in")).toBeTruthy();
-    expect(screen.getByText("Secure check-in")).toBeTruthy();
+    expect(screen.queryByText(/Secure/)).toBeNull();
     expect(screen.queryByLabelText("Mark out here")).toBeNull();
     fireEvent.press(screen.getByLabelText("Mark in here"));
     expect(await screen.findByText("You're in! 🎉")).toBeTruthy();
