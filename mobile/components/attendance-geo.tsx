@@ -4,7 +4,7 @@ import Svg, { Circle, Defs, LinearGradient as SvgLinearGradient, RadialGradient,
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { createFixWatcher, distanceMeters, GEO_MAX_ACCURACY_M, GEO_RADIUS_CHOICES, readFix, waitForFix, type Fix, type FixWatcher, type StaffAttendanceSetup } from "../lib/attendance-geo";
+import { createFixWatcher, distanceMeters, formatDistance, GEO_MAX_ACCURACY_M, GEO_RADIUS_CHOICES, readFix, waitForFix, type Fix, type FixWatcher, type StaffAttendanceSetup } from "../lib/attendance-geo";
 import { act } from "../lib/mutate";
 import { useOptionalRecord } from "../lib/record";
 import { Badge, Button, Segmented } from "./ui";
@@ -563,10 +563,10 @@ export function StaffAttendanceSettings({
       const ok = m <= draft.radiusM && fix.accuracy <= GEO_MAX_ACCURACY_M && !fix.mocked;
       setNote(
         ok
-          ? { tone: "success", title: `${m} m from the school point`, body: `Marking works here (±${fix.accuracy} m).` }
+          ? { tone: "success", title: `${formatDistance(m)} from the school point`, body: `Marking works here (±${fix.accuracy} m).` }
           : {
               tone: "warn",
-              title: `${m} m from the school point`,
+              title: `${formatDistance(m)} from the school point`,
               body:
                 fix.accuracy > GEO_MAX_ACCURACY_M
                   ? `GPS is rough here (±${fix.accuracy} m), so marking would be refused.`

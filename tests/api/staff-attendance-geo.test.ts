@@ -56,6 +56,11 @@ describe.sequential("staff attendance by location", () => {
     database?.cleanup();
   });
 
+  it("says metres under a kilometre and kilometres after", async () => {
+    const { formatDistance } = await import("../../lib/staff-attendance-setup");
+    expect([9, 450, 999, 1000, 1234, 5040, 12_600].map(formatDistance)).toEqual(["9 m", "450 m", "999 m", "1 km", "1.2 km", "5 km", "13 km"]);
+  });
+
   it("measures distance in metres", async () => {
     // Imported here: lib/staff-attendance-setup loads prisma, which must see the test database first.
     const { distanceMeters } = await import("../../lib/staff-attendance-setup");

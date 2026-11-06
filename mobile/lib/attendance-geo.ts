@@ -9,6 +9,14 @@ export const GEO_RADIUS_CHOICES = [100, 150, 200, 300];
 /** Same limit as the server: a rougher fix cannot tell inside from outside the school. */
 export const GEO_MAX_ACCURACY_M = 50;
 
+/** "9 m", "450 m", then "1.2 km", "5 km": metres under a kilometre, kilometres after. */
+export function formatDistance(meters: number) {
+  const m = Math.max(0, Math.round(meters));
+  if (m < 1000) return `${m} m`;
+  const km = m / 1000;
+  return `${km >= 10 ? Math.round(km) : Number(km.toFixed(1))} km`;
+}
+
 export function distanceMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
   const r = 6_371_000;
   const rad = (d: number) => (d * Math.PI) / 180;

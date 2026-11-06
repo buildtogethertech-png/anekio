@@ -51,6 +51,14 @@ export async function assertQrAttendanceOn() {
   if (!(await loadStaffAttendanceSetup()).qr) throw new Error("QR attendance is off for your school.");
 }
 
+/** "9 m", "450 m", then "1.2 km", "5 km": metres under a kilometre, kilometres after. */
+export function formatDistance(meters: number) {
+  const m = Math.max(0, Math.round(meters));
+  if (m < 1000) return `${m} m`;
+  const km = m / 1000;
+  return `${km >= 10 ? Math.round(km) : Number(km.toFixed(1))} km`;
+}
+
 /** Straight-line distance in metres (haversine). */
 export function distanceMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
   const r = 6_371_000;
@@ -98,6 +106,6 @@ export function checkAtSchool(setup: StaffAttendanceSetup, fix: { lat?: number; 
     throw new Error("Weak GPS signal. Step near a window or outside and try again.");
   }
   const meters = Math.round(distanceMeters(setup, { lat, lng }));
-  if (meters > setup.radiusM) throw new Error(`You are ${meters} m from school. Mark when you are inside (within ${setup.radiusM} m).`);
+  if (meters > setup.radiusM) throw new Error(`You are ${formatDistance(meters)} from school. Mark when you are inside (within ${setup.radiusM} m).`);
   return { lat: Math.round(lat * 1e6) / 1e6, lng: Math.round(lng * 1e6) / 1e6, acc: accuracy, m: meters };
 }
