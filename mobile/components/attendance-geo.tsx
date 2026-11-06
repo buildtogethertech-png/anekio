@@ -379,11 +379,24 @@ export function MarkHereSheet({
       style={{ backgroundColor: phase === "error" ? "#DC2626" : BLUE, shadowColor: phase === "error" ? "#EF4444" : BLUE, shadowOpacity: 0.75, shadowRadius: 36, elevation: 18 }}
     >
       {locating ? (
-        <Ionicons name="navigate" size={52} color="#fff" />
+        <>
+          <Ionicons name="navigate" size={48} color="#fff" />
+          <Text className="mt-1.5 text-[18px] font-bold text-white">Hold on</Text>
+        </>
+      ) : phase === "error" ? (
+        <>
+          <Ionicons name="refresh" size={48} color="#fff" />
+          <Text className="mt-1.5 text-[18px] font-bold text-white">Try again</Text>
+        </>
       ) : (
-        <Ionicons name={phase === "error" ? "refresh" : "finger-print"} size={60} color="#fff" />
+        <>
+          <Text className="text-[30px] font-extrabold tracking-wide text-white">{checkedIn ? "Mark out" : "Mark in"}</Text>
+          <View className="mt-2 flex-row items-center gap-1 rounded-full bg-white/15 px-2.5 py-1">
+            <Ionicons name="shield-checkmark" size={13} color="#fff" />
+            <Text className="text-[12px] font-semibold text-white/90">{checkedIn ? "Secure check-out" : "Secure check-in"}</Text>
+          </View>
+        </>
       )}
-      <Text className="mt-1.5 text-[18px] font-bold text-white">{locating ? "Hold on" : phase === "error" ? "Try again" : checkedIn ? "Mark out" : "Mark in"}</Text>
     </Pressable>
   );
 
