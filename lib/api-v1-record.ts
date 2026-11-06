@@ -292,6 +292,7 @@ async function staffAttendanceSelf(user: AccessUser) {
       marked: staffAttendanceInMark(todayRow),
       status: todayRow?.status || "",
       inAt: todayRow?.inAt || "",
+      outAt: todayRow?.outAt || "",
     },
   };
 }

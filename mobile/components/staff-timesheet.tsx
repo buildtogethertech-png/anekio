@@ -158,7 +158,7 @@ export function StaffTimesheet({
             id: edit.person.id,
             status: inAt ? "PRESENT" : "ABSENT",
             inAt: inAt || "",
-            outAt: "",
+            outAt: inAt ? new Map((edit.person.days ?? []).map((d) => [dateKey(d.date), d])).get(today)?.outAt || "" : "",
             clear: false,
           },
         ],

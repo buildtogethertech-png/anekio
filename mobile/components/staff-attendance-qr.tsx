@@ -14,6 +14,7 @@ type StaffQrResult = {
   expiresAt: string;
   ttlSeconds: number;
   checkedInAt?: string;
+  checkedOutAt?: string;
   person: { kind: "teacher" | "staff"; id: string; name: string; employeeId: string };
 };
 
@@ -22,6 +23,8 @@ type ScanResult = {
   date: string;
   status: string;
   inAt: string;
+  outAt?: string;
+  checkedOut?: boolean;
 };
 
 type ResultTone = "idle" | "success" | "warn" | "danger";
@@ -69,6 +72,29 @@ function clockLabel(value?: string) {
 }
 
 /** Bottom sheet (phone) / centred card (wide) with a big QR, a live countdown and auto refresh. */
+/** "Checked in today at 8:52 AM", or "In 8:52 AM · Out 3:10 PM" once there is an exit scan. */
+function markedText(today?: { inAt?: string; outAt?: string }) {
+  if (!today?.inAt) return "Attendance marked for today";
+  return today.outAt ? `In ${clockLabel(today.inAt)} · Out ${clockLabel(today.outAt)}` : `Checked in today at ${clockLabel(today.inAt)}`;
+}
+
+/** Closes the open QR sheet once the scan lands (check-in, or a new exit time). */
+function useCloseOnScan(open: boolean, key: string, close: () => void) {
+  const seen = useRef(key);
+  const closeRef = useRef(close);
+  closeRef.current = close;
+  useEffect(() => {
+    if (!open) {
+      seen.current = key;
+      return;
+    }
+    if (key !== seen.current) {
+      seen.current = key;
+      closeRef.current();
+    }
+  }, [open, key]);
+}
+
 function QrSheet({
   open,
   qr,
@@ -123,7 +149,7 @@ function QrSheet({
         <View className={`w-full bg-white px-5 ${phone ? "rounded-t-3xl pb-8 pt-3" : "max-w-[420px] rounded-3xl pb-6 pt-4"}`}>
           {phone ? <View className="mx-auto mb-3 h-1 w-10 rounded-full bg-ink-200" /> : null}
           <View className="flex-row items-center justify-between">
-            <Text className="text-[18px] font-semibold text-ink-900">My attendance QR</Text>
+            <Text className="text-[18px] font-semibold text-ink-900">{qr?.checkedInAt ? "Check-out QR" : "My attendance QR"}</Text>
             <Pressable onPress={onClose} hitSlop={10} className="h-8 w-8 items-center justify-center rounded-full bg-ink-100">
               <Ionicons name="close" size={18} color="#334155" />
             </Pressable>
@@ -132,7 +158,7 @@ function QrSheet({
           {qr?.checkedInAt ? (
             <View className="mt-3 flex-row items-center gap-2 rounded-xl bg-[#ECF8F0] px-3 py-2.5">
               <Ionicons name="checkmark-circle" size={18} color="#18794E" />
-              <Text className="text-[13px] font-semibold text-[#18794E]">Checked in today at {clockLabel(qr.checkedInAt)}</Text>
+              <Text className="text-[13px] font-semibold text-[#18794E]">{markedText({ inAt: qr.checkedInAt, outAt: qr.checkedOutAt })}</Text>
             </View>
           ) : null}
 
@@ -163,7 +189,9 @@ function QrSheet({
               {qr.person.employeeId ? <Text className="text-ink-500"> · {qr.person.employeeId}</Text> : null}
             </Text>
           ) : null}
-          <Text className="mt-1 text-center text-[12px] text-ink-500">Hold your phone up to the school's scanner.</Text>
+          <Text className="mt-1 text-center text-[12px] text-ink-500">
+            {qr?.checkedInAt ? "Scan when you leave. Your last scan is your out time." : "Hold your phone up to the school's scanner."}
+          </Text>
 
           <Pressable onPress={onRefresh} disabled={busy} className="mt-4 flex-row items-center justify-center gap-1.5 self-center px-3 py-1.5" hitSlop={8}>
             <Ionicons name="refresh" size={15} color={busy ? "#94A3B8" : "#1F45C7"} />
@@ -225,8 +253,7 @@ export function StaffAttendanceQrButton({
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [qr, setQr] = useState<StaffQrResult | null>(null);
-  const blocked = Boolean(disabled || alreadyMarked);
-  const status = alreadyMarked ? markedLabel || "Attendance already marked for today" : "";
+  const blocked = Boolean(disabled);
 
   // Read the latest callback from a ref so the timer is set up once, not again on every render
   // (re-running this effect called refresh() immediately each time, which looped).
@@ -237,6 +264,12 @@ export function StaffAttendanceQrButton({
   const liveReloadRef = useRef(recordCtx?.reloadSilently);
   liveReloadRef.current = recordCtx?.reloadSilently;
   const liveReload = Boolean(recordCtx);
+  const selfToday = recordCtx?.data?.staffAttendanceSelf?.today;
+  const status = alreadyMarked ? markedLabel || markedText(selfToday) : "";
+  useCloseOnScan(open, `${Boolean(alreadyMarked)}|${selfToday?.outAt || ""}`, () => {
+    setOpen(false);
+    setQr(null);
+  });
 
   useEffect(() => {
     if (!autoRefresh) return;
@@ -274,23 +307,14 @@ export function StaffAttendanceQrButton({
   }, [open, liveReload]);
 
   async function generate() {
-    if (blocked) {
-      onMessage(status || "Attendance already marked for today");
-      return;
-    }
+    if (blocked) return;
     setBusy(true);
     try {
       const result = await act<{ ok: true } & StaffQrResult>(token, "generateStaffAttendanceQr");
       setQr(result);
       setOpen(true);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not generate attendance QR.";
-      onMessage(message);
-      if (/already marked/i.test(message)) {
-        setQr(null);
-        setOpen(false);
-        await onRefresh?.();
-      }
+      onMessage(error instanceof Error ? error.message : "Could not generate attendance QR.");
     } finally {
       setBusy(false);
     }
@@ -301,26 +325,26 @@ export function StaffAttendanceQrButton({
       {tile && round ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={alreadyMarked ? "Attendance already marked for today" : "Show my attendance QR"}
+          accessibilityLabel={alreadyMarked ? "Show my check-out QR" : "Show my attendance QR"}
           disabled={blocked || busy}
           onPress={() => void generate()}
           className={`flex-1 items-center gap-1.5 active:opacity-70 ${blocked || busy ? "opacity-50" : ""}`}
         >
           <View className="h-12 w-12 items-center justify-center rounded-2xl bg-[#EEF3FF]">
-            <Ionicons name={alreadyMarked ? "checkmark-circle-outline" : "qr-code-outline"} size={22} color="#1F45C7" />
+            <Ionicons name={alreadyMarked ? "log-out-outline" : "qr-code-outline"} size={22} color="#1F45C7" />
           </View>
-          <Text className="text-xs font-medium text-ink-800">{alreadyMarked ? "Marked" : busy ? "Wait…" : "My QR"}</Text>
+          <Text className="text-xs font-medium text-ink-800">{busy ? "Wait…" : alreadyMarked ? "Out QR" : "My QR"}</Text>
         </Pressable>
       ) : tile ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={alreadyMarked ? "Attendance already marked for today" : "Show attendance QR"}
+          accessibilityLabel={alreadyMarked ? "Show check-out QR" : "Show attendance QR"}
           disabled={blocked || busy}
           onPress={() => void generate()}
           className={`min-w-[72px] flex-1 items-center rounded-md border border-ink-100 bg-white px-2 py-3 ${blocked || busy ? "opacity-50" : ""}`}
         >
-          <Ionicons name="qr-code-outline" size={20} color="#2855F6" />
-          <Text className="mt-1 text-xs font-medium text-ink-900">{alreadyMarked ? "Done" : busy ? "Wait" : "QR"}</Text>
+          <Ionicons name={alreadyMarked ? "log-out-outline" : "qr-code-outline"} size={20} color="#2855F6" />
+          <Text className="mt-1 text-xs font-medium text-ink-900">{busy ? "Wait" : alreadyMarked ? "Out" : "QR"}</Text>
         </Pressable>
       ) : (
         <View className="items-end gap-1">
@@ -329,15 +353,15 @@ export function StaffAttendanceQrButton({
             disabled={blocked || busy}
             onPress={() => void generate()}
             className={compact ? "shrink-0 px-2 py-2" : undefined}
-            accessibilityLabel={alreadyMarked ? "Attendance already marked for today" : compact ? "Show QR" : "Show attendance QR"}
+            accessibilityLabel={alreadyMarked ? "Show check-out QR" : compact ? "Show QR" : "Show attendance QR"}
           >
-            {alreadyMarked ? "Attendance marked" : busy ? "Generating..." : compact ? "Show QR" : "Show attendance QR"}
+            {busy ? "Generating..." : alreadyMarked ? (compact ? "Out QR" : "Check-out QR") : compact ? "Show QR" : "Show attendance QR"}
           </Button>
           {alreadyMarked ? <Text className="text-[11px] text-ink-700">{status}</Text> : null}
         </View>
       )}
       <QrSheet
-        open={open && !alreadyMarked}
+        open={open}
         qr={qr}
         busy={busy}
         onRefresh={() => void generate()}
@@ -532,11 +556,12 @@ export function AttendanceKiosk({ token, open, onClose, onScanned }: { token: st
     try {
       const res = await act<{ ok: true } & ScanResult>(token, "scanStaffAttendanceQr", { code: clean });
       const late = String(res.status).toUpperCase() === "LATE";
+      const first = res.person.name.split(" ")[0];
       entry = {
         id: `${t}`,
         tone: "success",
-        title: `${late ? "Checked in late" : "Welcome"}, ${res.person.name.split(" ")[0]}`,
-        body: `In at ${res.inAt}${res.person.employeeId ? ` · ${res.person.employeeId}` : ""}`,
+        title: res.checkedOut ? `Bye, ${first}` : `${late ? "Checked in late" : "Welcome"}, ${first}`,
+        body: `${res.checkedOut ? `In ${res.inAt} · Out ${res.outAt}` : `In at ${res.inAt}`}${res.person.employeeId ? ` · ${res.person.employeeId}` : ""}`,
         name: res.person.name,
         at: stamp,
       };
@@ -865,7 +890,7 @@ export function QrDockButton({
   const record = useOptionalRecord();
   const today = record?.data?.staffAttendanceSelf?.today;
   const alreadyMarked = Boolean(today?.marked);
-  const markedLabel = today?.inAt ? `Checked in today at ${clockLabel(today.inAt)}` : "Attendance already marked for today";
+  const markedLabel = markedText(today);
   const [kiosk, setKiosk] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -875,6 +900,10 @@ export function QrDockButton({
   const liveReloadRef = useRef(record?.reloadSilently);
   liveReloadRef.current = record?.reloadSilently;
   const liveReload = Boolean(record);
+  useCloseOnScan(qrOpen, `${alreadyMarked}|${today?.outAt || ""}`, () => {
+    setQrOpen(false);
+    setQr(null);
+  });
 
   useEffect(() => {
     if (!hasSelfQr) return;
@@ -912,25 +941,13 @@ export function QrDockButton({
   }, [qrOpen, liveReload]);
 
   async function showMine() {
-    if (alreadyMarked) {
-      toast.show(markedLabel);
-      setQrOpen(false);
-      setQr(null);
-      return;
-    }
     setBusy(true);
     try {
       const result = await act<{ ok: true } & StaffQrResult>(token, "generateStaffAttendanceQr");
       setQr(result);
       setQrOpen(true);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not generate attendance QR.";
-      toast.show(message);
-      if (/already marked/i.test(message)) {
-        setQr(null);
-        setQrOpen(false);
-        await reloadRef.current?.();
-      }
+      toast.show(error instanceof Error ? error.message : "Could not generate attendance QR.");
     } finally {
       setBusy(false);
     }
@@ -948,26 +965,26 @@ export function QrDockButton({
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={alreadyMarked ? "Attendance already marked for today" : hasSelfQr ? "Show my attendance QR" : "Scan staff attendance"}
-        accessibilityState={{ disabled: busy || alreadyMarked }}
+        accessibilityLabel={hasSelfQr ? (alreadyMarked ? `Show my check-out QR. ${markedLabel}` : "Show my attendance QR") : "Scan staff attendance"}
+        accessibilityState={{ disabled: busy }}
         onPress={press}
-        disabled={busy || alreadyMarked}
-        className={`h-10 w-10 items-center justify-center rounded-full bg-white ${alreadyMarked ? "opacity-70" : ""}`}
+        disabled={busy}
+        className="h-10 w-10 items-center justify-center rounded-full bg-white"
       >
         {busy ? (
           <ActivityIndicator size="small" color="#0f2744" />
         ) : (
           <Ionicons
-            name={alreadyMarked ? "checkmark-circle" : hasSelfQr ? "qr-code-outline" : "scan-outline"}
+            name={hasSelfQr ? (alreadyMarked ? "log-out-outline" : "qr-code-outline") : "scan-outline"}
             size={20}
-            color={alreadyMarked ? "#18794E" : "#0f2744"}
+            color="#0f2744"
           />
         )}
       </Pressable>
 
 
       <QrSheet
-        open={qrOpen && !alreadyMarked}
+        open={qrOpen}
         qr={qr}
         busy={busy}
         onRefresh={() => void showMine()}

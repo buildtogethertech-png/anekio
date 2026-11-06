@@ -638,7 +638,7 @@ export type RecordPayload = {
     id: string;
     name: string;
     employeeId: string;
-    today?: { date: string; marked: boolean; status?: string; inAt?: string };
+    today?: { date: string; marked: boolean; status?: string; inAt?: string; outAt?: string };
   } | null;
   payrollRules?: {
     presentCredit: number;

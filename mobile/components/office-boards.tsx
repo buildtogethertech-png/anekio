@@ -5607,7 +5607,8 @@ export function StaffBoard() {
                     {(() => {
                       const inAt = timesOf(p);
                       if (st === "LEAVE") return null;
-                      if (inAt) return <Text className={st === "LATE" ? "text-amber-700" : "text-emerald-700"}>{` · ${st === "LATE" ? "Late, in" : "In"} ${inAt}`}</Text>;
+                      const outAt = inAt ? dayOn(p.days, date)?.outAt : "";
+                      if (inAt) return <Text className={st === "LATE" ? "text-amber-700" : "text-emerald-700"}>{` · ${st === "LATE" ? "Late, in" : "In"} ${inAt}${outAt ? ` · Out ${outAt}` : ""}`}</Text>;
                       if (!locked && !isMarked(p)) return <Text className="text-ink-400"> · Not marked</Text>;
                       return null;
                     })()}

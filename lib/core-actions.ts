@@ -103,6 +103,17 @@ function staffAttendanceTokenFromCode(code: string) {
   return path ? path[1] : raw;
 }
 
+/** A second scan sooner than this after check-in is taken as a double scan, not the exit. */
+const STAFF_OUT_AFTER_MINUTES = 10;
+
+function minutesBetween(from: string, to: string) {
+  const m = (t: string) => {
+    const [h, mm] = t.split(":").map(Number);
+    return h * 60 + mm;
+  };
+  return m(to) - m(from);
+}
+
 function currentSchoolTime() {
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: "Asia/Kolkata",
@@ -1538,16 +1549,13 @@ export async function generateStaffAttendanceQrCore(user: AccessUser) {
   const self = await resolveStaffAttendanceSelf(user);
   if (!self) throw new Error("No staff profile is linked to this account.");
   const stamp = staffDayYmd(new Date());
-  const existing = await findStaffDayOnStamp(self.kind, self.id, stamp);
-  if (staffAttendanceInMark(existing)) {
-    throw new Error("Attendance already marked for today");
-  }
   const token = randomUUID().replace(/-/g, "");
   const expiresAt = Date.now() + STAFF_ATTENDANCE_QR_TTL_MS;
   staffAttendanceQrTokens.set(token, { ...self, expiresAt });
   const qrText = staffAttendanceQrPayload(token);
   const todayRows = await staffDaysOnStamp(self.kind, self.id, staffDayYmd(new Date())).catch(() => []);
   const checkedInAt = todayRows.find((row) => row.inAt)?.inAt || "";
+  const checkedOutAt = todayRows.find((row) => row.inAt)?.outAt || "";
   const qrDataUrl = await QRCode.toDataURL(qrText, {
     errorCorrectionLevel: "M",
     margin: 2,
@@ -1561,6 +1569,7 @@ export async function generateStaffAttendanceQrCore(user: AccessUser) {
     expiresAt: new Date(expiresAt).toISOString(),
     ttlSeconds: Math.floor(STAFF_ATTENDANCE_QR_TTL_MS / 1000),
     checkedInAt,
+    checkedOutAt,
     person: {
       kind: self.kind,
       id: self.id,
@@ -1596,10 +1605,29 @@ export async function scanStaffAttendanceQrCore(user: AccessUser, input: { code:
   const rules = parsePayrollRules(config?.payrollJson);
   const inAt = currentSchoolTime();
   const existing = await findStaffDayOnStamp(ticket.kind, ticket.id, stamp);
-  if (staffAttendanceInMark(existing)) {
+  if (existing && staffAttendanceInMark(existing)) {
+    // Already in: a later scan is the exit. The last scan of the day wins; entry never changes.
     ticket.usedAt = Date.now();
     staffAttendanceQrTokens.set(token, ticket);
-    throw new Error("Attendance already marked for today");
+    if (existing.inAt && minutesBetween(existing.inAt, inAt) < STAFF_OUT_AFTER_MINUTES) {
+      throw new Error(`${ticket.name} checked in at ${existing.inAt}. Scan again when leaving.`);
+    }
+    await writeStaffDayOnStamp(ticket.kind, ticket.id, stamp, {
+      status: existing.status,
+      markedById: existing.markedById || user.id,
+      inAt: existing.inAt,
+      outAt: inAt,
+      startTimeUsed: existing.startTimeUsed,
+      computedStatus: existing.computedStatus,
+    });
+    return {
+      person: { kind: ticket.kind, id: ticket.id, name: ticket.name, employeeId: ticket.employeeId },
+      date: stamp,
+      status: existing.status,
+      inAt: existing.inAt,
+      outAt: inAt,
+      checkedOut: true,
+    };
   }
   const preservedInAt = earliestStaffInAt(existing?.inAt, inAt) || inAt;
   const next = classifyStaffDay("PRESENT", preservedInAt, "", rules);
@@ -1625,6 +1653,8 @@ export async function scanStaffAttendanceQrCore(user: AccessUser, input: { code:
     date: stamp,
     status: next.status,
     inAt: next.inAt,
+    outAt: "",
+    checkedOut: false,
   };
 }
 

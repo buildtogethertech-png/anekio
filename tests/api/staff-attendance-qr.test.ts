@@ -58,7 +58,7 @@ describe.sequential("staff attendance QR", () => {
     database?.cleanup();
   });
 
-  it("lets a teacher generate a QR before they are marked, then rejects generate after the scan", async () => {
+  it("lets a teacher generate a QR before they are marked, and again after the scan (for the exit)", async () => {
     const generated = await act(teacherToken, "generateStaffAttendanceQr");
     expect(generated.status).toBe(200);
     expect(generated.body.qrText).toMatch(/^anekio:staff-attendance:/);
@@ -70,12 +70,12 @@ describe.sequential("staff attendance QR", () => {
     expect(firstInAt).toMatch(/^\d{2}:\d{2}$/);
 
     const again = await act(teacherToken, "generateStaffAttendanceQr");
-    expect(again.status).toBe(400);
-    expect(again.body.error).toMatch(/already marked for today/i);
+    expect(again.status).toBe(200);
+    expect(again.body.checkedInAt).toBe(firstInAt);
 
     const reused = await act(officeToken, "scanStaffAttendanceQr", { code: generated.body.qrText });
     expect(reused.status).toBe(400);
-    expect(reused.body.error).toMatch(/already used|already marked/i);
+    expect(reused.body.error).toMatch(/already used/i);
 
     const day = await prisma.staffDay.findFirst({ where: { teacherId: "teacher-tara" } });
     expect(staffAttendanceInMark(day)).toBe(true);
@@ -95,6 +95,31 @@ describe.sequential("staff attendance QR", () => {
     expect(record.status).toBe(200);
     expect(record.body.staffAttendanceSelf.today.marked).toBe(true);
     expect(record.body.staffAttendanceSelf.today.date).toBe(staffDayYmd(new Date()));
+  });
+
+  it("takes a scan right after check-in as a double scan, and a later one as the exit (last scan wins)", async () => {
+    const quick = await act(teacherToken, "generateStaffAttendanceQr");
+    const double = await act(officeToken, "scanStaffAttendanceQr", { code: quick.body.qrText });
+    expect(double.status).toBe(400);
+    expect(double.body.error).toMatch(/Scan again when leaving/);
+
+    const now = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date());
+    if (Number(now.slice(0, 2)) * 60 + Number(now.slice(3)) < 15) return; // just after midnight: no earlier check-in to fake
+    const day = await prisma.staffDay.findFirstOrThrow({ where: { teacherId: "teacher-tara" } });
+    await prisma.staffDay.update({ where: { id: day.id }, data: { inAt: "00:00" } });
+
+    for (let i = 0; i < 2; i++) {
+      const qr = await act(teacherToken, "generateStaffAttendanceQr");
+      const out = await act(officeToken, "scanStaffAttendanceQr", { code: qr.body.qrText });
+      expect(out.status).toBe(200);
+      expect(out.body).toMatchObject({ checkedOut: true, inAt: "00:00", outAt: expect.stringMatching(/^\d{2}:\d{2}$/) });
+    }
+    const after = await prisma.staffDay.findUniqueOrThrow({ where: { id: day.id } });
+    expect(after).toMatchObject({ inAt: "00:00", outAt: expect.stringMatching(/^\d{2}:\d{2}$/), status: day.status });
+    expect(await prisma.staffDay.count({ where: { teacherId: "teacher-tara" } })).toBe(1);
+
+    const record = await request(app).get("/api/v1/record").set({ Authorization: `Bearer ${teacherToken}` });
+    expect(record.body.staffAttendanceSelf.today).toMatchObject({ inAt: "00:00", outAt: expect.stringMatching(/^\d{2}:\d{2}$/) });
   });
 
   it("marks a second teacher without changing the first teacher's in time", async () => {
