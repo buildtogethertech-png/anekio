@@ -7,10 +7,19 @@ import { readFix } from "../../lib/attendance-geo";
 import { useOptionalRecord } from "../../lib/record";
 
 jest.mock("../../lib/mutate", () => ({ act: jest.fn() }));
-jest.mock("../../lib/attendance-geo", () => ({
-  ...jest.requireActual("../../lib/attendance-geo"),
-  readFix: jest.fn(),
-}));
+jest.mock("../../lib/attendance-geo", () => {
+  const readFix = jest.fn();
+  return {
+    ...jest.requireActual("../../lib/attendance-geo"),
+    readFix,
+    createFixWatcher: () => ({ start: () => Promise.resolve(), best: () => null, since: () => 0, subscribe: () => () => undefined, stop: () => undefined }),
+    waitForFix: (_w: unknown, onProgress?: (f: unknown) => void) =>
+      readFix().then((f: unknown) => {
+        onProgress?.(f);
+        return f;
+      }),
+  };
+});
 jest.mock("expo-location", () => ({}));
 jest.mock("expo-router", () => ({ useRouter: () => ({ push: jest.fn(), replace: jest.fn() }) }));
 jest.mock("../../lib/record", () => ({ useRecord: jest.fn(), useOptionalRecord: jest.fn() }));
@@ -53,6 +62,23 @@ describe("MarkHereSheet", () => {
     expect(screen.getByText("46 m from school · GPS ±12 m")).toBeTruthy();
     expect(mockAct).toHaveBeenCalledWith("t", "markStaffAttendanceHere", { lat: 28.6143, lng: 77.209, accuracy: 12, mocked: false });
     expect(onDone).toHaveBeenCalled();
+  });
+
+  it("shows what is happening while it marks", async () => {
+    let found: (f: unknown) => void = () => undefined;
+    mockReadFix.mockReturnValue(new Promise((r) => (found = r)) as never);
+    let saved: (v: unknown) => void = () => undefined;
+    mockAct.mockReturnValue(new Promise((r) => (saved = r)) as never);
+    render(<MarkHereSheet open token="t" today={{ marked: false }} onClose={jest.fn()} onDone={jest.fn()} />);
+    fireEvent.press(screen.getByLabelText("Mark in here"));
+    expect(await screen.findByText("Marking you in…")).toBeTruthy();
+    expect(screen.getByText("Finding your location")).toBeTruthy();
+    found({ lat: 28.6143, lng: 77.209, accuracy: 18, mocked: false });
+    expect(await screen.findByText("Location found")).toBeTruthy();
+    expect(screen.getByText("±18 m")).toBeTruthy();
+    saved({ ok: true, inAt: "08:52", outAt: "", checkedOut: false });
+    expect(await screen.findByText("You're in · 8:52 AM")).toBeTruthy();
+    expect(screen.queryByTestId("mark-steps")).toBeNull();
   });
 
   it("once in, marking out is a small optional link", async () => {

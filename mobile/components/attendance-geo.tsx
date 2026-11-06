@@ -3,7 +3,7 @@ import { ActivityIndicator, Animated, Easing, Modal as RnModal, Platform, Pressa
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { distanceMeters, GEO_MAX_ACCURACY_M, GEO_RADIUS_CHOICES, readFix, type Fix, type StaffAttendanceSetup } from "../lib/attendance-geo";
+import { createFixWatcher, distanceMeters, GEO_MAX_ACCURACY_M, GEO_RADIUS_CHOICES, readFix, waitForFix, type Fix, type FixWatcher, type StaffAttendanceSetup } from "../lib/attendance-geo";
 import { act } from "../lib/mutate";
 import { Badge, Button, Segmented } from "./ui";
 
@@ -117,6 +117,30 @@ function TimelineCard({ inAt, outAt }: { inAt?: string; outAt?: string }) {
   );
 }
 
+/** What is happening while marking, so the wait never feels stuck. */
+function MarkSteps({ step, accuracy }: { step: "gps" | "check"; accuracy: number | null }) {
+  const row = (label: string, state: "active" | "done" | "next", detail?: string) => (
+    <View className="flex-row items-center gap-3 py-2">
+      <View className={`h-7 w-7 items-center justify-center rounded-full ${state === "done" ? "bg-[#22C55E]" : state === "active" ? "bg-[#2855F6]" : "border border-white/20"}`}>
+        {state === "done" ? (
+          <Ionicons name="checkmark" size={16} color="#fff" />
+        ) : state === "active" ? (
+          <ActivityIndicator size="small" color="#fff" />
+        ) : null}
+      </View>
+      <Text className={`flex-1 text-[15px] ${state === "next" ? "text-white/40" : "font-semibold text-white"}`}>{label}</Text>
+      {detail ? <Text className="text-[13px] tabular-nums text-white/55">{detail}</Text> : null}
+    </View>
+  );
+  const gpsDetail = accuracy == null ? "" : accuracy <= GEO_MAX_ACCURACY_M ? `±${accuracy} m` : `±${accuracy} m · improving`;
+  return (
+    <View testID="mark-steps" className="mt-5 w-full max-w-[340px] rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-2">
+      {row(step === "gps" ? "Finding your location" : "Location found", step === "gps" ? "active" : "done", gpsDetail)}
+      {row("Checking you're at school", step === "check" ? "active" : "next")}
+    </View>
+  );
+}
+
 /**
  * "Mark in": staff mark their own attendance from their phone while at school. One big button; once in,
  * marking out is a small optional link (the server keeps the last out of the day). The server checks
@@ -140,7 +164,22 @@ export function MarkHereSheet({
   const [phase, setPhase] = useState<Phase>("idle");
   const [done, setDone] = useState<Done | null>(null);
   const [error, setError] = useState("");
+  const [step, setStep] = useState<"gps" | "check">("gps");
+  const [liveAcc, setLiveAcc] = useState<number | null>(null);
   const checkedIn = Boolean(today?.marked && today?.inAt);
+  const watcher = useRef<FixWatcher | null>(null);
+
+  // Start GPS as soon as the sheet opens (only if already allowed), so the tap is usually instant.
+  useEffect(() => {
+    if (!open || Platform.OS === "web") return;
+    const w = createFixWatcher();
+    watcher.current = w;
+    void w.start(false).catch(() => undefined);
+    return () => {
+      w.stop();
+      watcher.current = null;
+    };
+  }, [open]);
 
   function close() {
     setPhase("idle");
@@ -151,9 +190,14 @@ export function MarkHereSheet({
 
   async function mark() {
     setPhase("locating");
+    setStep("gps");
+    setLiveAcc(null);
     setError("");
     try {
-      const fix = await readFix();
+      const fix =
+        Platform.OS === "web" || !watcher.current ? await readFix() : await waitForFix(watcher.current, (f) => setLiveAcc(f.accuracy));
+      setLiveAcc(fix.accuracy);
+      setStep("check");
       const res = await act<{ ok: true; inAt: string; outAt: string; checkedOut: boolean; meters?: number; accuracy?: number }>(
         token,
         "markStaffAttendanceHere",
@@ -184,8 +228,8 @@ export function MarkHereSheet({
   let title = "Mark your attendance";
   let sub = "Tap when you are inside the school.";
   if (locating) {
-    title = "Checking you're at school…";
-    sub = "Hold on, finding your location.";
+    title = checkedIn ? "Marking you out…" : "Marking you in…";
+    sub = "";
   } else if (phase === "error") {
     title = "Not marked";
     sub = error;
@@ -273,8 +317,9 @@ export function MarkHereSheet({
           </View>
 
           <Text className="mt-2 text-center text-[24px] font-bold text-white">{title}</Text>
-          <Text className={`mt-1.5 text-center text-[15px] leading-5 ${phase === "error" ? "text-red-200" : "text-white/65"}`}>{sub}</Text>
+          {sub ? <Text className={`mt-1.5 text-center text-[15px] leading-5 ${phase === "error" ? "text-red-200" : "text-white/65"}`}>{sub}</Text> : null}
           {where ? <Text className="mt-2 text-center text-[13px] text-white/45">{where}</Text> : null}
+          {locating ? <MarkSteps step={step} accuracy={liveAcc} /> : null}
         </View>
 
         <View className="gap-3 px-5">
