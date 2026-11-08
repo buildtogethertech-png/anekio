@@ -235,3 +235,15 @@ describe("teacher QR dock", () => {
     await waitFor(() => expect(mockAct).toHaveBeenCalledWith("tok", "generateStaffAttendanceQr"));
   });
 });
+
+describe("QR quick action wording", () => {
+  it("says Check in, then Check out (like location schools)", () => {
+    mockToday({ marked: false, date: "2026-11-06" });
+    const { rerender } = render(<StaffAttendanceQrButton token="t" tile round onMessage={jest.fn()} />);
+    expect(screen.getByText("Check in")).toBeTruthy();
+    expect(screen.queryByText("My QR")).toBeNull();
+    rerender(<StaffAttendanceQrButton token="t" tile round alreadyMarked onMessage={jest.fn()} />);
+    expect(screen.getByText("Check out")).toBeTruthy();
+    expect(screen.queryByText("Out QR")).toBeNull();
+  });
+});
