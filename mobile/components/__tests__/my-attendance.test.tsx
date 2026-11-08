@@ -31,14 +31,14 @@ beforeEach(() => {
     ok: true,
     month: "2026-11",
     days: [
-      day("2026-11-07", { inAt: "08:52", outAt: "15:10", inVia: "location", outVia: "location", minutes: 378, outs: [{ at: "13:00", via: "location" }, { at: "15:10", via: "location" }] }),
+      day("2026-11-07", { inAt: "08:52", outAt: "15:10", inVia: "location", outVia: "location", minutes: 378, outs: [{ at: "13:00", via: "location" }, { at: "15:10", via: "location" }], breaks: [{ from: "12:00", to: "12:25", reason: "Lunch", minutes: 25 }] }),
       day("2026-11-06", { status: "LATE", inAt: "09:12", outAt: "11:20", minutes: 128, lateMin: 12, early: "Not well" }),
       day("2026-11-05", { status: "LEAVE", note: "Sick" }),
       day("2026-11-04", { status: "PRESENT" }),
       day("2026-11-03", { status: "LATE", inAt: "16:57", lateMin: 477 }),
       day("2026-11-01", { status: "OFF", note: "Sunday off" }),
     ],
-    summary: { present: 2, late: 1, early: 1, leave: 1, absent: 0, avgMinutes: 253 },
+    summary: { present: 2, late: 1, early: 1, leave: 1, absent: 0, avgMinutes: 253, breakMinutes: 25 },
   } as never);
 });
 
@@ -49,17 +49,18 @@ describe("MyAttendanceSheet", () => {
     expect(screen.getAllByText("Left early")).toHaveLength(2);
     expect(screen.getByText("Sick")).toBeTruthy();
     expect(screen.getByText("Sunday off")).toBeTruthy();
-    expect(screen.getByText("Average 4h 13m a day at school")).toBeTruthy();
+    expect(screen.getByText("Average 4h 13m a day at school · ☕ Breaks 25m this month")).toBeTruthy();
     expect(screen.getByText(/Left early · Not well/)).toBeTruthy();
     expect(screen.getByText("Marked present by office")).toBeTruthy();
     expect(screen.getByText("Late 7h 57m")).toBeTruthy();
   });
 
-  it("lists every out of a day when tapped", async () => {
+  it("lists every out and break of a day when tapped", async () => {
     render(<MyAttendanceSheet open token="t" onClose={jest.fn()} />);
     fireEvent.press(await screen.findByLabelText("2026-11-07 On time"));
     expect(screen.getByText("Out 1:00 PM")).toBeTruthy();
     expect(screen.getByText("Out 3:10 PM · counts")).toBeTruthy();
+    expect(screen.getByText("☕ Lunch · 12:00 PM – 12:25 PM · 25m")).toBeTruthy();
   });
 
   it("goes to the previous month", async () => {

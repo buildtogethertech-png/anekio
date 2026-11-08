@@ -102,6 +102,21 @@ export async function logSchoolDayCore(
 
 export type PhoneBreak = { from: string; to: string | null; reason: string; minutes: number; endedBy: string };
 
+/** Breaks from a day's phone events (oldest first): a break ends at resume, a class start or the day's end. */
+export function phoneBreaks(list: { type: string; at: Date; reason: string }[], now = Date.now()): PhoneBreak[] {
+  const breaks: PhoneBreak[] = [];
+  let open: (typeof list)[number] | null = null;
+  for (const e of list) {
+    if (e.type === "break") open = e;
+    else if (open && (e.type === "resume" || e.type === "class_started" || e.type === "end" || e.type === "auto_end")) {
+      breaks.push({ from: open.at.toISOString(), to: e.at.toISOString(), reason: open.reason, minutes: Math.round((+e.at - +open.at) / 60_000), endedBy: e.type });
+      open = null;
+    }
+  }
+  if (open) breaks.push({ from: open.at.toISOString(), to: null, reason: open.reason, minutes: Math.round((now - +open.at) / 60_000), endedBy: "" });
+  return breaks;
+}
+
 /** Admin report: each teacher's school day on a date — start, breaks with reasons, end, guard off. */
 export async function schoolDayReportCore(user: AccessUser, input: { date?: string }) {
   if (!can(user, "staff.view") && !can(user, "staff.attendance") && !can(user, "staff.edit")) throw new Error("No access.");
@@ -117,16 +132,7 @@ export async function schoolDayReportCore(user: AccessUser, input: { date?: stri
     const list = byUser.get(t.userId) || [];
     const start = list.find((e) => e.type === "start");
     const end = [...list].reverse().find((e) => e.type === "end" || e.type === "auto_end");
-    const breaks: PhoneBreak[] = [];
-    let open: (typeof list)[number] | null = null;
-    for (const e of list) {
-      if (e.type === "break") open = e;
-      else if (open && (e.type === "resume" || e.type === "class_started" || e.type === "end" || e.type === "auto_end")) {
-        breaks.push({ from: open.at.toISOString(), to: e.at.toISOString(), reason: open.reason, minutes: Math.round((+e.at - +open.at) / 60_000), endedBy: e.type });
-        open = null;
-      }
-    }
-    if (open) breaks.push({ from: open.at.toISOString(), to: null, reason: open.reason, minutes: Math.round((now - +open.at) / 60_000), endedBy: "" });
+    const breaks = phoneBreaks(list, now);
     return {
       teacherId: t.id,
       name: t.user.name,

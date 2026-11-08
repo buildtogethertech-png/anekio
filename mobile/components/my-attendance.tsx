@@ -16,11 +16,12 @@ type Day = {
   early: string;
   note: string;
   outs: { at: string; via: string }[];
+  breaks?: { from: string; to: string; reason: string; minutes: number }[];
 };
 type Month = {
   month: string;
   days: Day[];
-  summary: { present: number; late: number; early: number; leave: number; absent: number; avgMinutes: number };
+  summary: { present: number; late: number; early: number; leave: number; absent: number; avgMinutes: number; breakMinutes?: number };
 };
 
 function clock(value?: string) {
@@ -72,11 +73,14 @@ function DayRow({ day }: { day: Day }) {
   const c = chip(day);
   const quiet = day.status === "OFF" || day.status === "NONE";
   const moreOuts = day.outs.length > 1;
+  const breaks = day.breaks ?? [];
+  const breakMin = breaks.reduce((n, b) => n + b.minutes, 0);
+  const canOpen = moreOuts || breaks.length > 0;
   return (
     <Pressable
-      accessibilityRole={moreOuts ? "button" : undefined}
+      accessibilityRole={canOpen ? "button" : undefined}
       accessibilityLabel={`${day.date} ${c.text}`}
-      disabled={!moreOuts}
+      disabled={!canOpen}
       onPress={() => setOpen((v) => !v)}
       className={`flex-row gap-3 border-b border-ink-100 px-4 py-3 ${quiet ? "opacity-60" : ""}`}
     >
@@ -112,16 +116,31 @@ function DayRow({ day }: { day: Day }) {
                     : "Marked present by office"}
           </Text>
         )}
-        {day.minutes || day.early || (moreOuts && !open) ? (
+        {day.minutes || day.early || canOpen ? (
           <Text className="mt-0.5 text-[12px] text-ink-500" numberOfLines={2}>
-            {[hours(day.minutes), day.early ? `Left early · ${day.early}` : "", moreOuts ? `${day.outs.length} outs${open ? "" : " · tap to see"}` : ""].filter(Boolean).join(" · ")}
+            {[
+              hours(day.minutes),
+              day.early ? `Left early · ${day.early}` : "",
+              breaks.length ? `☕ ${breaks.length} break${breaks.length === 1 ? "" : "s"} · ${hours(breakMin) || "0m"}` : "",
+              moreOuts ? `${day.outs.length} outs` : "",
+              canOpen && !open ? "tap to see" : "",
+            ]
+              .filter(Boolean)
+              .join(" · ")}
           </Text>
         ) : null}
         {open ? (
           <View className="mt-1.5 gap-0.5">
-            {day.outs.map((o, i) => (
-              <Text key={`${o.at}-${i}`} className="text-[12px] tabular-nums text-ink-600">{`Out ${clock(o.at)}${o.via === "office" ? " · by office" : ""}${i === day.outs.length - 1 ? " · counts" : ""}`}</Text>
+            {breaks.map((b, i) => (
+              <Text key={`b-${b.from}-${i}`} className="text-[12px] tabular-nums text-amber-800">
+                {`☕ ${b.reason || "Break"} · ${clock(b.from)}${b.to ? ` – ${clock(b.to)}` : " – now"} · ${hours(b.minutes) || "0m"}`}
+              </Text>
             ))}
+            {moreOuts
+              ? day.outs.map((o, i) => (
+                  <Text key={`${o.at}-${i}`} className="text-[12px] tabular-nums text-ink-600">{`Out ${clock(o.at)}${o.via === "office" ? " · by office" : ""}${i === day.outs.length - 1 ? " · counts" : ""}`}</Text>
+                ))
+              : null}
           </View>
         ) : null}
       </View>
@@ -205,8 +224,12 @@ export function MyAttendanceSheet({ open, token, onClose }: { open: boolean; tok
             {stat(s?.early, "Left early", "#C2410C")}
             {stat(s?.leave, "Leave", "#0369A1")}
           </View>
-          {s?.avgMinutes ? (
-            <Text className="mt-2 text-center text-[12px] text-ink-600">{`Average ${hours(s.avgMinutes)} a day at school`}</Text>
+          {s?.avgMinutes || s?.breakMinutes ? (
+            <Text className="mt-2 text-center text-[12px] text-ink-600">
+              {[s?.avgMinutes ? `Average ${hours(s.avgMinutes)} a day at school` : "", s?.breakMinutes ? `☕ Breaks ${hours(s.breakMinutes)} this month` : ""]
+                .filter(Boolean)
+                .join(" · ")}
+            </Text>
           ) : null}
         </View>
 

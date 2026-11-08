@@ -151,12 +151,21 @@ describe.sequential("staff attendance by location", () => {
   });
 
   it("My attendance: the teacher sees their own month, newest first, with a summary", async () => {
+    // A phone break on the same day: Lunch 12:00 → 12:25 IST.
+    await prisma.staffPhoneEvent.createMany({
+      data: [
+        { userId: "user-teacher", date: "2026-11-04", type: "break", reason: "Lunch", at: new Date("2026-11-04T06:30:00Z"), clientId: "b1" },
+        { userId: "user-teacher", date: "2026-11-04", type: "resume", reason: "", at: new Date("2026-11-04T06:55:00Z"), clientId: "r1" },
+      ],
+    });
     const res = await act(teacherToken, "myAttendanceMonth", {});
     expect(res.status).toBe(200);
     expect(res.body.month).toBe("2026-11");
     const day = res.body.days.find((d: { date: string }) => d.date === "2026-11-04");
     expect(day).toMatchObject({ inAt: "00:00", outAt: "23:00", inVia: "location", minutes: 23 * 60 });
     expect(day.outs).toHaveLength(4);
+    expect(day.breaks).toEqual([{ from: "12:00", to: "12:25", reason: "Lunch", minutes: 25 }]);
+    expect(res.body.summary.breakMinutes).toBe(25);
     expect(res.body.days[0].date >= res.body.days.at(-1).date).toBe(true);
     expect(res.body.days.some((d: { date: string }) => d.date > "2026-11-04")).toBe(false);
     expect(res.body.summary.present).toBeGreaterThanOrEqual(1);

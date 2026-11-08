@@ -1735,6 +1735,18 @@ export async function myAttendanceMonthCore(user: AccessUser, input: { month?: s
   const leaveOn = (date: string) => leaves.find((l) => l.from.slice(0, 10) <= date && l.to.slice(0, 10) >= date);
   const cal = await loadSchoolCalendar();
   const { minutesLate } = await import("./payroll");
+  // Phone school-day breaks (teachers' phones), per date.
+  const { phoneBreaks } = await import("./school-day");
+  const events = await prisma.staffPhoneEvent.findMany({
+    where: { userId: user.id, date: { gte: first, lte: last } },
+    orderBy: { at: "asc" },
+  });
+  const eventsOn = new Map<string, typeof events>();
+  for (const e of events) eventsOn.set(e.date, [...(eventsOn.get(e.date) || []), e]);
+  const istTime = (iso: string | null) =>
+    iso ? new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso)) : "";
+  const breaksOn = (date: string) =>
+    phoneBreaks(eventsOn.get(date) || []).map((b) => ({ from: istTime(b.from), to: istTime(b.to), reason: b.reason, minutes: b.minutes }));
   const span = (a: string, b: string) => {
     const t = (x: string) => Number(x.slice(0, 2)) * 60 + Number(x.slice(3, 5));
     return a && b ? Math.max(0, t(b) - t(a)) : 0;
@@ -1752,6 +1764,7 @@ export async function myAttendanceMonthCore(user: AccessUser, input: { month?: s
     early: string;
     note: string;
     outs: { at: string; via: string }[];
+    breaks: { from: string; to: string; reason: string; minutes: number }[];
   };
   const days: Day[] = [];
   for (let d = lastDay; d >= 1; d -= 1) {
@@ -1761,7 +1774,7 @@ export async function myAttendanceMonthCore(user: AccessUser, input: { month?: s
     const leave = leaveOn(date);
     const off = closedReason(date, cal);
     if (!row && !leave && off) {
-      days.push({ date, status: "OFF", inAt: "", outAt: "", inVia: "", outVia: "", minutes: 0, lateMin: 0, early: "", note: off, outs: [] });
+      days.push({ date, status: "OFF", inAt: "", outAt: "", inVia: "", outVia: "", minutes: 0, lateMin: 0, early: "", note: off, outs: [], breaks: breaksOn(date) });
       continue;
     }
     const inAt = row?.inAt || "";
@@ -1782,6 +1795,7 @@ export async function myAttendanceMonthCore(user: AccessUser, input: { month?: s
       early,
       note: status === "LEAVE" ? leave?.type.name || "Leave" : early || remark.startsWith("Marked by") ? "" : remark,
       outs: parseOutLog(row?.outLogJson),
+      breaks: breaksOn(date),
     });
   }
   const worked = days.filter((d) => d.minutes > 0);
@@ -1795,6 +1809,7 @@ export async function myAttendanceMonthCore(user: AccessUser, input: { month?: s
       leave: days.filter((d) => d.status === "LEAVE").length,
       absent: days.filter((d) => d.status === "ABSENT").length,
       avgMinutes: worked.length ? Math.round(worked.reduce((t, d) => t + d.minutes, 0) / worked.length) : 0,
+      breakMinutes: days.reduce((t, d) => t + d.breaks.reduce((n, b) => n + b.minutes, 0), 0),
     },
   };
 }
