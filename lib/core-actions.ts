@@ -1695,13 +1695,72 @@ async function stampStaffInOut(
 }
 
 /** "Mark here": staff mark their own in / out from their phone when it is at school. */
-export async function markStaffAttendanceHereCore(user: AccessUser, input: { lat?: number; lng?: number; accuracy?: number; mocked?: boolean }) {
+export async function markStaffAttendanceHereCore(
+  user: AccessUser,
+  input: { lat?: number; lng?: number; accuracy?: number; mocked?: boolean; earlyReason?: string }
+) {
   const self = await resolveStaffAttendanceSelf(user);
   if (!self) throw new Error("No staff profile is linked to this account.");
   const { loadStaffAttendanceSetup, checkAtSchool } = await import("./staff-attendance-setup");
   const fix = checkAtSchool(await loadStaffAttendanceSetup(), input);
   const result = await stampStaffInOut(self, user.id, "location", "Marked by location at school.", fix);
-  return { ...result, meters: fix.m, accuracy: fix.acc };
+  const reason = String(input.earlyReason || "").trim().slice(0, 120);
+  const early = result.checkedOut && reason ? await leftEarly(user, self, result.date, result.outAt, reason) : null;
+  return { ...result, meters: fix.m, accuracy: fix.acc, early };
+}
+
+/**
+ * Marked out before the school day was over, with a reason: noted on the day, the rest of their periods
+ * go to "needs cover", and the office is told. Pay is not touched (the office decides half day / leave).
+ */
+async function leftEarly(user: AccessUser, self: StaffPerson, stamp: string, outAt: string, reason: string) {
+  const row = await findStaffDayOnStamp(self.kind, self.id, stamp);
+  if (row) await prisma.staffDay.update({ where: { id: row.id }, data: { remark: `Left early ${outAt} · ${reason}` } });
+  const teacherId =
+    self.kind === "teacher" ? self.id : (await prisma.teacher.findFirst({ where: { staffMemberId: self.id }, select: { id: true } }))?.id;
+  let periods = 0;
+  if (teacherId) {
+    try {
+      const { openTeacherPeriodsFrom } = await import("./timetable-day");
+      periods = await openTeacherPeriodsFrom(user.id, teacherId, stamp, outAt, `Left early: ${reason}`);
+    } catch (error) {
+      console.error("[staff-attendance] could not open periods for cover", error);
+    }
+  }
+  try {
+    const office = await prisma.user.findMany({
+      where: {
+        role: {
+          portal: "OFFICE",
+          OR: [{ slug: "ADMIN" }, { grants: { some: { permission: { in: ["staff.attendance", "staff.edit", "timetable.edit"] } } } }],
+        },
+      },
+      select: { id: true },
+    });
+    const userIds = office.map((u) => u.id).filter((id) => id !== user.id);
+    if (userIds.length) {
+      const title = `${self.name} left early at ${outAt}`;
+      const body = periods
+        ? `${reason}. ${periods} period${periods === 1 ? "" : "s"} today need cover.`
+        : `${reason}.`;
+      const notice = await prisma.notice.create({
+        data: {
+          eventKey: `LEFT_EARLY:${self.kind}:${self.id}:${stamp}:${outAt}`,
+          title,
+          body,
+          kind: "OFFICE",
+          priority: "ACTION",
+          authorId: user.id,
+          recipients: { create: userIds.map((userId) => ({ userId })) },
+        },
+      });
+      const { notifyNoticeRecipients } = await import("./push");
+      void notifyNoticeRecipients({ noticeId: notice.id, title, body, userIds }).catch(() => undefined);
+    }
+  } catch (error) {
+    console.error("[staff-attendance] could not tell the office", error);
+  }
+  return { reason, periods };
 }
 
 function classifyStaffDay(

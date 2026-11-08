@@ -5,6 +5,7 @@ import { QrDockButton } from "../staff-attendance-qr";
 import { act as mutate } from "../../lib/mutate";
 import { readFix } from "../../lib/attendance-geo";
 import { useOptionalRecord } from "../../lib/record";
+import { useFocusDay } from "../../lib/class-focus";
 
 jest.mock("../../lib/mutate", () => ({ act: jest.fn() }));
 jest.mock("../../lib/attendance-geo", () => {
@@ -21,6 +22,10 @@ jest.mock("../../lib/attendance-geo", () => {
   };
 });
 jest.mock("expo-location", () => ({}));
+jest.mock("../../lib/class-focus", () => ({
+  ...jest.requireActual("../../lib/class-focus"),
+  useFocusDay: jest.fn(() => null),
+}));
 jest.mock("expo-router", () => ({ useRouter: () => ({ push: jest.fn(), replace: jest.fn() }) }));
 jest.mock("../../lib/record", () => ({ useRecord: jest.fn(), useOptionalRecord: jest.fn() }));
 jest.mock("expo-camera", () => ({
@@ -36,6 +41,7 @@ jest.mock("@expo/vector-icons/Ionicons", () => {
 const mockAct = mutate as jest.MockedFunction<typeof mutate>;
 const mockReadFix = readFix as jest.MockedFunction<typeof readFix>;
 const mockUseOptionalRecord = useOptionalRecord as jest.MockedFunction<typeof useOptionalRecord>;
+const mockUseFocusDay = useFocusDay as jest.MockedFunction<typeof useFocusDay>;
 const SCHOOL = { qr: false, location: true, lat: 28.6139, lng: 77.209, radiusM: 150 };
 const originalOs = Platform.OS;
 
@@ -145,6 +151,92 @@ describe("MarkHereSheet", () => {
     fireEvent.press(screen.getByLabelText("Mark in here"));
     expect(await screen.findByText(/Allow location/)).toBeTruthy();
     expect(mockAct).not.toHaveBeenCalled();
+  });
+});
+
+describe("Leaving early and breaks", () => {
+  // A teacher with one more class later today; the school day ends at 23:59.
+  function teacherDay() {
+    const later = new Date(Date.now() + 60 * 60_000);
+    const hh = (d: Date) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    const end = new Date(later.getTime() + 40 * 60_000);
+    const js = later.getDay();
+    mockUseOptionalRecord.mockReturnValue({
+      data: {
+        kind: "TEACHER",
+        schoolDay: { enabled: true, endsAt: "23:59" },
+        staffAttendanceSelf: { name: "Kavita Joshi" },
+        timetable: {
+          periods: [{ id: "p5", name: "P5", start: hh(later), end: hh(end) }],
+          slots: [{ weekday: js === 0 ? 7 : js, periodId: "p5", period: "P5", classLabel: "2-A", subject: "Maths" }],
+        },
+      },
+    } as unknown as ReturnType<typeof useOptionalRecord>);
+  }
+
+  function phoneDay(status: "focus" | "break", extra: Record<string, unknown> = {}) {
+    const focus = {
+      enabled: true,
+      day: { status, since: Date.now() - 65_000, breakReason: status === "break" ? "Lunch" : undefined },
+      now: Date.now(),
+      inClass: null,
+      breakInClass: false,
+      reasons: ["Free period", "Lunch", "Other"],
+      guardAllowed: true,
+      allowGuard: jest.fn(),
+      takeBreak: jest.fn(),
+      resume: jest.fn(),
+      goHome: jest.fn(),
+      ...extra,
+    };
+    mockUseFocusDay.mockReturnValue(focus as never);
+    return focus;
+  }
+
+  afterEach(() => {
+    mockUseFocusDay.mockReturnValue(null);
+    mockUseOptionalRecord.mockReset();
+  });
+
+  it("Mark out before the day ends asks why, shows classes left, then goes home", async () => {
+    teacherDay();
+    const focus = phoneDay("focus");
+    mockReadFix.mockResolvedValue({ lat: 28.6143, lng: 77.209, accuracy: 12, mocked: false });
+    mockAct.mockResolvedValue({ ok: true, inAt: "08:52", outAt: "11:20", checkedOut: true } as never);
+    render(<MarkHereSheet open token="t" today={{ marked: true, inAt: "08:52" }} onClose={jest.fn()} onDone={jest.fn()} />);
+    fireEvent.press(screen.getByLabelText("Mark out here"));
+    expect(screen.getByText("Leaving early?")).toBeTruthy();
+    expect(screen.getByText("2-A Maths")).toBeTruthy();
+    expect(screen.getByLabelText("Mark out and go home").props.accessibilityState.disabled).toBe(true);
+    fireEvent.press(screen.getByLabelText("Not well"));
+    fireEvent.press(screen.getByLabelText("Mark out and go home"));
+    expect(await screen.findByText("Out at 11:20 AM")).toBeTruthy();
+    expect(mockAct).toHaveBeenCalledWith("t", "markStaffAttendanceHere", expect.objectContaining({ earlyReason: "Not well" }));
+    expect(focus.goHome).toHaveBeenCalledWith("Not well");
+  });
+
+  it("Take a break needs a reason; on break, Resume is right there", () => {
+    teacherDay();
+    const focus = phoneDay("focus");
+    const { rerender } = render(<MarkHereSheet open token="t" today={{ marked: true, inAt: "08:52" }} onClose={jest.fn()} onDone={jest.fn()} />);
+    fireEvent.press(screen.getByLabelText("Take a break"));
+    fireEvent.press(screen.getByLabelText("Lunch"));
+    fireEvent.press(screen.getByLabelText("Start break"));
+    expect(focus.takeBreak).toHaveBeenCalledWith("Lunch");
+
+    const onBreak = phoneDay("break");
+    rerender(<MarkHereSheet open token="t" today={{ marked: true, inAt: "08:52" }} onClose={jest.fn()} onDone={jest.fn()} />);
+    expect(screen.getByText("On break · Lunch")).toBeTruthy();
+    fireEvent.press(screen.getByLabelText("Resume"));
+    expect(onBreak.resume).toHaveBeenCalled();
+  });
+
+  it("no break while a class is on (unless the school allows it)", () => {
+    teacherDay();
+    phoneDay("focus", { inClass: { classLabel: "2-A", subject: "Maths" } });
+    render(<MarkHereSheet open token="t" today={{ marked: true, inAt: "08:52" }} onClose={jest.fn()} onDone={jest.fn()} />);
+    expect(screen.getByLabelText("Take a break").props.accessibilityState.disabled).toBe(true);
+    expect(screen.getByText("2-A Maths is on now · after it")).toBeTruthy();
   });
 });
 

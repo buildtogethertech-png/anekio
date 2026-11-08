@@ -150,6 +150,17 @@ describe.sequential("staff attendance by location", () => {
     expect(me.body.staffAttendanceSelf.today.outLog).toHaveLength(4);
   });
 
+  it("leaving early with a reason: noted on the day and the office is told", async () => {
+    const out = await act(teacherToken, "markStaffAttendanceHere", { ...INSIDE, earlyReason: "Not well" });
+    expect(out.status).toBe(200);
+    expect(out.body).toMatchObject({ checkedOut: true, early: { reason: "Not well" } });
+    const day = await prisma.staffDay.findFirstOrThrow({ where: { teacherId: "teacher-tara" } });
+    expect(day.remark).toBe(`Left early ${out.body.outAt} · Not well`);
+    const notice = await prisma.notice.findFirst({ where: { eventKey: { startsWith: "LEFT_EARLY:teacher:teacher-tara:" } }, include: { recipients: true } });
+    expect(notice?.title).toMatch(/left early at/);
+    expect(notice?.recipients.length).toBeGreaterThan(0);
+  });
+
   it("office Save the day keeps a time staff marked themselves, and Absent clears in and out", async () => {
     const today = (await prisma.staffDay.findFirstOrThrow({ where: { teacherId: "teacher-tara" } })).date;
     const stamp = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(today);

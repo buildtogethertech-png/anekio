@@ -124,10 +124,10 @@ export const focusDay = {
     if (day.status !== "break") return day;
     return { ...day, status: "focus", breakReason: undefined, since: now, log: [...day.log, { type: why, at: now }] };
   },
-  end(day: FocusDay, now: number, why: "end" | "auto_end" = "end"): FocusDay {
+  end(day: FocusDay, now: number, why: "end" | "auto_end" = "end", reason?: string): FocusDay {
     if (day.status === "ended") return day;
     const focusMs = day.focusMs + (day.status === "focus" ? now - day.since : 0);
-    return { ...day, status: "ended", breakReason: undefined, focusMs, since: now, log: [...day.log, { type: why, at: now }] };
+    return { ...day, status: "ended", breakReason: undefined, focusMs, since: now, log: [...day.log, { type: why, at: now, ...(reason ? { reason } : {}) }] };
   },
   guardOff(day: FocusDay, now: number): FocusDay {
     return { ...day, log: [...day.log, { type: "guard_off", at: now }] };
@@ -153,6 +153,8 @@ type FocusCtx = {
   takeBreak: (reason: string) => void;
   resume: () => void;
   endDay: () => void;
+  /** Marked out: the school day ends now, even during a class (an early out carries its reason). */
+  goHome: (reason?: string) => void;
 };
 
 const Ctx = createContext<FocusCtx | null>(null);
@@ -356,6 +358,7 @@ export function FocusDayProvider({ children }: { children: ReactNode }) {
     endDay: () => {
       if (!inClass) update((cur) => focusDay.end(cur, Date.now()));
     },
+    goHome: (reason) => update((cur) => focusDay.end(cur, Date.now(), "end", reason ? `Left early: ${reason}` : undefined)),
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

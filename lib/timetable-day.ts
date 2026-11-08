@@ -447,6 +447,15 @@ export async function syncTeacherOutFromStaffDay(authorId: string, teacherId: st
   await clearAttendanceCoversFor(authorId, teacherId, date);
 }
 
+/** Teacher left school early: their periods still to come (or on now) from `fromHHmm` need cover. */
+export async function openTeacherPeriodsFrom(authorId: string, teacherId: string, date: string, fromHHmm: string, note: string) {
+  const { weekday, closed } = await openDay(date);
+  if (closed) return 0;
+  const slots = await prisma.timetableSlot.findMany({ where: { teacherId, weekday }, include: { period: true } });
+  const left = slots.filter((s) => s.subjectId || s.activity).filter((s) => (s.period.endsAt || "") > fromHHmm);
+  return openTeacherPeriods(authorId, teacherId, date, left, "ABSENT", note);
+}
+
 /** Give every period that needs cover on this date to the best free teacher. */
 export async function autoCoverDay(user: AccessUser, input: { date?: string }) {
   const date = cleanDate(input.date);
