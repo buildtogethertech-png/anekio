@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useRef } from "react";
-import { KeyboardAvoidingView, Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { Keyboard, Modal as RnModal, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -220,6 +220,20 @@ export function LeaveApplyCard({
   const noteNeeded = picked?.noteRequired !== false;
   const noteMissing = noteNeeded && reason.trim().length < 3;
   const scrollRef = useRef<ScrollView | null>(null);
+  // Android modals do not resize for the keyboard (edge-to-edge): leave its height free at the bottom
+  // and bring the note up, so what you type stays in view.
+  const [keyboardH, setKeyboardH] = useState(0);
+  useEffect(() => {
+    const show = Keyboard.addListener("keyboardDidShow", (e) => {
+      setKeyboardH(e.endCoordinates.height);
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 60);
+    });
+    const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboardH(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
   const earliest = picked ? earliestLeaveStart(picked.noticeDays, schoolCalendar) : "";
   const leaveClosedReason = (value: string) => {
     const closed = closedReason(value, schoolCalendar);
@@ -487,8 +501,7 @@ export function LeaveApplyCard({
           value={reason}
           onChangeText={setReason}
           accessibilityLabel="Note to approver"
-          // Keep the note in view above the keyboard (phone sheet scrolls it up).
-          onFocus={() => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 250)}
+
           placeholder="e.g. Family function, doctor's appointment"
           placeholderTextColor="#94A3B8"
           multiline
@@ -527,12 +540,12 @@ export function LeaveApplyCard({
           <Text className="flex-1 text-center text-[17px] font-semibold text-ink-900">Apply leave</Text>
           <View className="w-11" />
         </View>
-        <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === "ios" ? "padding" : "height"}>
+        <View className="flex-1" style={{ paddingBottom: keyboardH }}>
           <ScrollView ref={scrollRef} className="flex-1" contentContainerStyle={{ padding: 16, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
             {formBody}
           </ScrollView>
           <View className="border-t border-ink-100 px-4 pb-3 pt-3">{footer}</View>
-        </KeyboardAvoidingView>
+        </View>
       </SafeAreaView>
     </RnModal>
   ) : (
