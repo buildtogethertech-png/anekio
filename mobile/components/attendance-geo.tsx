@@ -9,6 +9,7 @@ import { act } from "../lib/mutate";
 import { useOptionalRecord } from "../lib/record";
 import { closingMinute, hms, teacherPeriodsOn, useFocusDay } from "../lib/class-focus";
 import { useRouter } from "expo-router";
+import { MyAttendanceSheet } from "./my-attendance";
 import { Badge, Button, Segmented } from "./ui";
 
 type Note = { tone: "success" | "warn" | "danger"; title: string; body: string };
@@ -532,6 +533,7 @@ export function MarkHereSheet({
   const [leaveNote, setLeaveNote] = useState("");
   const [breakOpen, setBreakOpen] = useState(false);
   const [breakNote, setBreakNote] = useState("");
+  const [historyOpen, setHistoryOpen] = useState(false);
   const checkedIn = Boolean(today?.marked && today?.inAt);
   const watcher = useRef<FixWatcher | null>(null);
   const router = useRouter();
@@ -782,6 +784,16 @@ export function MarkHereSheet({
               {`Earlier out ${earlierOuts.map((o) => clock(o.at)).join(", ")} · the last one counts`}
             </Text>
           ) : null}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="My attendance"
+            onPress={() => setHistoryOpen(true)}
+            className="flex-row items-center justify-center gap-1.5 self-center rounded-full border border-white/15 bg-white/[0.06] px-4 py-2"
+          >
+            <Ionicons name="calendar-outline" size={15} color="#BFD0FF" />
+            <Text className="text-[14px] font-semibold text-[#BFD0FF]">My attendance</Text>
+            <Ionicons name="chevron-forward" size={14} color="#BFD0FF" />
+          </Pressable>
           <View className="mt-1 flex-row items-center justify-center gap-1.5">
             <Ionicons name="flash" size={12} color="rgba(191,208,255,0.55)" />
             <Text className="text-[12px] font-medium tracking-wide text-white/40">
@@ -791,6 +803,7 @@ export function MarkHereSheet({
         </View>
           </>
         )}
+        <MyAttendanceSheet open={historyOpen} token={token} onClose={() => setHistoryOpen(false)} />
       </View>
     </RnModal>
   );

@@ -150,6 +150,20 @@ describe.sequential("staff attendance by location", () => {
     expect(me.body.staffAttendanceSelf.today.outLog).toHaveLength(4);
   });
 
+  it("My attendance: the teacher sees their own month, newest first, with a summary", async () => {
+    const res = await act(teacherToken, "myAttendanceMonth", {});
+    expect(res.status).toBe(200);
+    expect(res.body.month).toBe("2026-11");
+    const day = res.body.days.find((d: { date: string }) => d.date === "2026-11-04");
+    expect(day).toMatchObject({ inAt: "00:00", outAt: "23:00", inVia: "location", minutes: 23 * 60 });
+    expect(day.outs).toHaveLength(4);
+    expect(res.body.days[0].date >= res.body.days.at(-1).date).toBe(true);
+    expect(res.body.days.some((d: { date: string }) => d.date > "2026-11-04")).toBe(false);
+    expect(res.body.summary.present).toBeGreaterThanOrEqual(1);
+    const future = await act(teacherToken, "myAttendanceMonth", { month: "2027-01" });
+    expect(future.status).toBe(400);
+  });
+
   it("leaving early with a reason: noted on the day and the office is told", async () => {
     const out = await act(teacherToken, "markStaffAttendanceHere", { ...INSIDE, earlyReason: "Not well" });
     expect(out.status).toBe(200);

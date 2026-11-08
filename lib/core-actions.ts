@@ -31,7 +31,7 @@ import { classifyFromIn, normalizeHHmm, parsePayrollRules, personKey, type Payro
 import { hasLiveSalaryPayments } from "./salary-payments";
 import { loadSchoolCalendar } from "./leave";
 import { cleanActivity } from "./timetable-activity";
-import { earliestStaffInAt, parseOutLog, staffAttendanceInMark, staffDayInstant, staffDayWindow, staffDayYmd } from "./staff-day";
+import { collapseStaffDaysByDate, earliestStaffInAt, parseOutLog, staffAttendanceInMark, staffDayInstant, staffDayWindow, staffDayYmd } from "./staff-day";
 import { addDays, examPlanWeight, effectiveExamPlan, DEFAULT_EXAM_PLAN, parseExamPlan, ymd } from "./exams";
 import { teacherCanEditMarks, teacherMayEnterMarks, teacherMarksBlock } from "./exam-workflow";
 import { teacherIdsBySubjectName, teacherMayHostClassTest } from "./exam-evaluators";
@@ -1707,6 +1707,96 @@ export async function markStaffAttendanceHereCore(
   const reason = String(input.earlyReason || "").trim().slice(0, 120);
   const early = result.checkedOut && reason ? await leftEarly(user, self, result.date, result.outAt, reason) : null;
   return { ...result, meters: fix.m, accuracy: fix.acc, early };
+}
+
+/**
+ * "My attendance": one month of the signed-in staff member's own days, newest first, with a summary.
+ * Same record the office sees (in / out, how it was marked, late, left early, leave, closed days).
+ */
+export async function myAttendanceMonthCore(user: AccessUser, input: { month?: string }) {
+  const self = await resolveStaffAttendanceSelf(user);
+  if (!self) throw new Error("No staff profile is linked to this account.");
+  const today = staffDayYmd(new Date());
+  const month = /^\d{4}-\d{2}$/.test(String(input.month || "")) ? String(input.month) : today.slice(0, 7);
+  if (month > today.slice(0, 7)) throw new Error("That month has not started yet.");
+  const [y, m] = month.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const first = `${month}-01`;
+  const last = `${month}-${String(lastDay).padStart(2, "0")}`;
+  const where = self.kind === "teacher" ? { teacherId: self.id } : { staffId: self.id };
+  const rows = await prisma.staffDay.findMany({
+    where: { ...where, date: { gte: staffDayWindow(first).from, lte: staffDayWindow(last).to } },
+  });
+  const byDate = collapseStaffDaysByDate(rows);
+  const leaves = await prisma.leaveRequest.findMany({
+    where: { ...where, status: "ACTIVE", from: { lte: last }, to: { gte: first } },
+    include: { type: { select: { name: true } } },
+  });
+  const leaveOn = (date: string) => leaves.find((l) => l.from.slice(0, 10) <= date && l.to.slice(0, 10) >= date);
+  const cal = await loadSchoolCalendar();
+  const { minutesLate } = await import("./payroll");
+  const span = (a: string, b: string) => {
+    const t = (x: string) => Number(x.slice(0, 2)) * 60 + Number(x.slice(3, 5));
+    return a && b ? Math.max(0, t(b) - t(a)) : 0;
+  };
+
+  type Day = {
+    date: string;
+    status: "PRESENT" | "LATE" | "HALF_DAY" | "ABSENT" | "LEAVE" | "OFF" | "NONE";
+    inAt: string;
+    outAt: string;
+    inVia: string;
+    outVia: string;
+    minutes: number;
+    lateMin: number;
+    early: string;
+    note: string;
+    outs: { at: string; via: string }[];
+  };
+  const days: Day[] = [];
+  for (let d = lastDay; d >= 1; d -= 1) {
+    const date = `${month}-${String(d).padStart(2, "0")}`;
+    if (date > today) continue;
+    const row = byDate.get(date);
+    const leave = leaveOn(date);
+    const off = closedReason(date, cal);
+    if (!row && !leave && off) {
+      days.push({ date, status: "OFF", inAt: "", outAt: "", inVia: "", outVia: "", minutes: 0, lateMin: 0, early: "", note: off, outs: [] });
+      continue;
+    }
+    const inAt = row?.inAt || "";
+    const outAt = row?.outAt || "";
+    const late = row && (row.status === "LATE" || row.computedStatus === "LATE") ? minutesLate(inAt, row.startTimeUsed || "") : 0;
+    const remark = row?.remark || "";
+    const early = remark.startsWith("Left early") ? remark.split("·").slice(1).join("·").trim() : "";
+    const status: Day["status"] = row ? (row.status as Day["status"]) : leave ? "LEAVE" : "NONE";
+    days.push({
+      date,
+      status,
+      inAt,
+      outAt,
+      inVia: row?.inVia || "",
+      outVia: row?.outVia || "",
+      minutes: span(inAt, outAt),
+      lateMin: late,
+      early,
+      note: status === "LEAVE" ? leave?.type.name || "Leave" : early || remark.startsWith("Marked by") ? "" : remark,
+      outs: parseOutLog(row?.outLogJson),
+    });
+  }
+  const worked = days.filter((d) => d.minutes > 0);
+  return {
+    month,
+    days,
+    summary: {
+      present: days.filter((d) => d.status === "PRESENT" || d.status === "LATE" || d.status === "HALF_DAY").length,
+      late: days.filter((d) => d.lateMin > 0 || d.status === "LATE").length,
+      early: days.filter((d) => d.early).length,
+      leave: days.filter((d) => d.status === "LEAVE").length,
+      absent: days.filter((d) => d.status === "ABSENT").length,
+      avgMinutes: worked.length ? Math.round(worked.reduce((t, d) => t + d.minutes, 0) / worked.length) : 0,
+    },
+  };
 }
 
 /**

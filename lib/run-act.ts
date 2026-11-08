@@ -90,6 +90,7 @@ import {
   saveSchoolSubjectsCore,
   scanStaffAttendanceQrCore,
   markStaffAttendanceHereCore,
+  myAttendanceMonthCore,
   saveTimetableSlotCore,
   sendStudentPayLinkCore,
   sendBulkPayLinksCore,
@@ -243,6 +244,8 @@ export async function runAct(
       return { ok: true, ...(await generateStaffAttendanceQrCore(user)) };
     case "scanStaffAttendanceQr":
       return { ok: true, ...(await scanStaffAttendanceQrCore(user, body as never)) };
+    case "myAttendanceMonth":
+      return { ok: true, ...(await myAttendanceMonthCore(user, body as never)) };
     case "markStaffAttendanceHere":
       return { ok: true, ...(await markStaffAttendanceHereCore(user, body as never)) };
     case "saveStaffAttendanceSetup": {
