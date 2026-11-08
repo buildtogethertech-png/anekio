@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { StaffAttendanceSetup } from "./attendance-geo";
 import { api } from "./api";
 import { useSession } from "./session";
 import { getChildId, setChildId as persistChildId } from "./storage";
@@ -633,6 +634,9 @@ export type RecordPayload = {
       outAt?: string;
       startTimeUsed?: string;
       computedStatus?: string;
+      inVia?: string;
+      outVia?: string;
+      outLog?: { at: string; via: string }[];
     }[];
     leaveDays?: { date: string; reason: string; paid: boolean; typeName: string }[];
     salary?: number;
@@ -649,8 +653,13 @@ export type RecordPayload = {
     id: string;
     name: string;
     employeeId: string;
-    today?: { date: string; marked: boolean; status?: string; inAt?: string };
+    /** outLog: every out of the day, oldest first (outAt is the last). */
+    today?: { date: string; marked: boolean; status?: string; inAt?: string; outAt?: string; outLog?: { at: string; via: string }[] };
+    /** How the school takes staff attendance (QR, location). */
+    attendanceSetup?: StaffAttendanceSetup;
   } | null;
+  /** Settings → Staff attendance. */
+  staffAttendanceSetup?: StaffAttendanceSetup;
   payrollRules?: {
     presentCredit: number;
     absentCredit: number;

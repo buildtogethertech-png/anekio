@@ -1,13 +1,19 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { Platform } from "react-native";
 import { StaffAttendanceScanBoard } from "../staff-attendance-scan-board";
 import { act as mutate } from "../../lib/mutate";
 import { useRecord } from "../../lib/record";
 import { useSession } from "../../lib/session";
 
+const mockReplace = jest.fn();
 jest.mock("../../lib/mutate", () => ({ act: jest.fn() }));
 jest.mock("../../lib/session", () => ({ useSession: jest.fn() }));
-jest.mock("../../lib/record", () => ({ useRecord: jest.fn() }));
-jest.mock("expo-router", () => ({ useRouter: () => ({ push: jest.fn(), replace: jest.fn() }) }));
+jest.mock("../../lib/record", () => ({ useRecord: jest.fn(), useOptionalRecord: jest.fn() }));
+jest.mock("expo-router", () => ({ useRouter: () => ({ push: jest.fn(), replace: mockReplace }) }));
+jest.mock("expo-camera", () => ({
+  CameraView: () => null,
+  useCameraPermissions: () => [{ granted: true, canAskAgain: true }, jest.fn()],
+}));
 jest.mock("jsqr", () => jest.fn());
 jest.mock("@expo/vector-icons/Ionicons", () => {
   return function MockIonicon() {
@@ -19,117 +25,91 @@ const mockAct = mutate as jest.MockedFunction<typeof mutate>;
 const mockUseSession = useSession as jest.MockedFunction<typeof useSession>;
 const mockUseRecord = useRecord as jest.MockedFunction<typeof useRecord>;
 const mockReload = jest.fn().mockResolvedValue(undefined);
+const originalOs = Platform.OS;
 
-describe("staff attendance scan board", () => {
+function setOs(os: typeof Platform.OS) {
+  Object.defineProperty(Platform, "OS", { configurable: true, writable: true, value: os });
+}
+
+function session(permissions: string[]) {
+  mockUseSession.mockReturnValue({ token: "office-token", user: { permissions } } as unknown as ReturnType<typeof useSession>);
+}
+
+function typeCode(code: string) {
+  fireEvent.changeText(screen.getByLabelText("QR code"), code);
+  fireEvent.press(screen.getByRole("button", { name: "Mark from code" }));
+}
+
+const tara = { kind: "teacher", id: "t1", name: "Tara Teacher", employeeId: "T-1" };
+
+describe("staff attendance scan page", () => {
   beforeEach(() => {
     mockAct.mockReset();
     mockReload.mockClear();
+    mockReplace.mockClear();
     mockUseRecord.mockReturnValue({ reload: mockReload } as unknown as ReturnType<typeof useRecord>);
-    mockUseSession.mockReturnValue({
-      token: "office-token",
-      user: { permissions: ["staff.edit"] },
-    } as unknown as ReturnType<typeof useSession>);
+    session(["staff.edit"]);
+    setOs("web");
   });
+
+  afterEach(() => setOs(originalOs));
 
   it("blocks users without staff.attendance or staff.edit", () => {
-    mockUseSession.mockReturnValue({
-      token: "office-token",
-      user: { permissions: ["desk.view"] },
-    } as unknown as ReturnType<typeof useSession>);
+    session(["desk.view"]);
     render(<StaffAttendanceScanBoard />);
     expect(screen.getByText("No access")).toBeTruthy();
-    expect(screen.getByText("Staff attendance scanning needs staff.attendance or staff.edit.")).toBeTruthy();
-    expect(screen.queryByText("Mark attendance")).toBeNull();
+    expect(screen.queryByText("Staff check-in")).toBeNull();
   });
 
-  it("lets staff.attendance open the scanner", () => {
-    mockUseSession.mockReturnValue({
-      token: "office-token",
-      user: { permissions: ["staff.attendance"] },
-    } as unknown as ReturnType<typeof useSession>);
+  it("shows the same check-in desk as the phone for staff.attendance", () => {
+    session(["staff.attendance"]);
     render(<StaffAttendanceScanBoard />);
-    expect(screen.getByTestId("staff-scan-board")).toBeTruthy();
+    expect(screen.getByText("Staff check-in")).toBeTruthy();
+    expect(screen.getByText("Show your attendance QR")).toBeTruthy();
     expect(screen.queryByText("No access")).toBeNull();
-    expect(screen.getByText("Mark attendance")).toBeTruthy();
   });
 
-  it("marks a pasted QR and stays on the scanner", async () => {
-    mockAct.mockResolvedValue({
-      ok: true,
-      person: { kind: "teacher", id: "t1", name: "Tara Teacher", employeeId: "T-1" },
-      date: "2026-10-12",
-      status: "PRESENT",
-      inAt: "08:55",
-    } as never);
+  it("marks a typed or pasted code (USB scanner) and refreshes the record", async () => {
+    mockAct.mockResolvedValue({ ok: true, person: tara, date: "2026-11-06", status: "PRESENT", inAt: "08:52" } as never);
     render(<StaffAttendanceScanBoard />);
-    fireEvent.changeText(screen.getByPlaceholderText("Scan or paste attendance QR code"), "anekio:staff-attendance:one");
-    fireEvent.press(screen.getByText("Mark attendance"));
-    await waitFor(() => expect(screen.getByText("Attendance marked")).toBeTruthy());
-    expect(screen.getByText(/Keep scanning/)).toBeTruthy();
-    expect(screen.getByText("Scan attendance")).toBeTruthy();
-    expect(screen.getByTestId("staff-scan-board")).toBeTruthy();
-    expect(screen.queryByText("Employees")).toBeNull();
-    expect(screen.getByLabelText("Close scanner")).toBeTruthy();
+    typeCode("anekio:staff-attendance:abc");
+    await waitFor(() => expect(mockAct).toHaveBeenCalledWith("office-token", "scanStaffAttendanceQr", { code: "anekio:staff-attendance:abc" }));
+    expect(await screen.findByText("Welcome, Tara")).toBeTruthy();
     expect(mockReload).toHaveBeenCalled();
   });
 
-  it("does not send the same QR twice during the cooldown", async () => {
-    mockAct.mockResolvedValue({
-      ok: true,
-      person: { kind: "teacher", id: "t1", name: "Tara Teacher", employeeId: "T-1" },
-      date: "2026-10-12",
-      status: "PRESENT",
-      inAt: "08:55",
-    } as never);
+  it("says bye with in and out on a check-out scan", async () => {
+    mockAct.mockResolvedValue({ ok: true, person: tara, date: "2026-11-06", status: "PRESENT", inAt: "08:52", outAt: "15:10", checkedOut: true } as never);
     render(<StaffAttendanceScanBoard />);
-    fireEvent.changeText(screen.getByPlaceholderText("Scan or paste attendance QR code"), "anekio:staff-attendance:one");
-    fireEvent.press(screen.getByText("Mark attendance"));
-    fireEvent.press(screen.getByText("Mark attendance"));
+    typeCode("anekio:staff-attendance:out");
+    expect(await screen.findByText("Bye, Tara")).toBeTruthy();
+    expect(screen.getAllByText("In 08:52 · Out 15:10 · T-1").length).toBeGreaterThan(0);
+  });
+
+  it("does not send the same code twice within a few seconds", async () => {
+    mockAct.mockResolvedValue({ ok: true, person: tara, date: "2026-11-06", status: "PRESENT", inAt: "08:52" } as never);
+    render(<StaffAttendanceScanBoard />);
+    typeCode("anekio:staff-attendance:same");
     await waitFor(() => expect(mockAct).toHaveBeenCalledTimes(1));
+    typeCode("anekio:staff-attendance:same");
+    await waitFor(() => expect(screen.getByLabelText("QR code").props.value).toBe(""));
+    expect(mockAct).toHaveBeenCalledTimes(1);
   });
 
-  it("scans a different teacher after the first mark", async () => {
-    mockAct
-      .mockResolvedValueOnce({
-        ok: true,
-        person: { kind: "teacher", id: "t1", name: "Tara Teacher", employeeId: "T-1" },
-        date: "2026-10-12",
-        status: "PRESENT",
-        inAt: "08:55",
-      } as never)
-      .mockResolvedValueOnce({
-        ok: true,
-        person: { kind: "teacher", id: "t2", name: "Rhea DSouza", employeeId: "T-2" },
-        date: "2026-10-12",
-        status: "PRESENT",
-        inAt: "08:56",
-      } as never);
+  it("shows the error and keeps scanning", async () => {
+    mockAct.mockRejectedValueOnce(new Error("This staff attendance QR has expired."));
+    mockAct.mockResolvedValueOnce({ ok: true, person: tara, date: "2026-11-06", status: "PRESENT", inAt: "08:52" } as never);
     render(<StaffAttendanceScanBoard />);
-    fireEvent.changeText(screen.getByPlaceholderText("Scan or paste attendance QR code"), "anekio:staff-attendance:one");
-    fireEvent.press(screen.getByText("Mark attendance"));
-    await waitFor(() => expect(screen.getByText(/Tara Teacher/)).toBeTruthy());
-    fireEvent.changeText(screen.getByPlaceholderText("Scan or paste attendance QR code"), "anekio:staff-attendance:two");
-    await new Promise((resolve) => setTimeout(resolve, 1600));
-    fireEvent.press(screen.getByText("Mark attendance"));
-    await waitFor(() => expect(screen.getByText(/Rhea DSouza/)).toBeTruthy());
-    expect(mockAct).toHaveBeenCalledTimes(2);
+    typeCode("anekio:staff-attendance:old");
+    expect((await screen.findAllByText("Not marked")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("This staff attendance QR has expired.").length).toBeGreaterThan(0);
+    typeCode("anekio:staff-attendance:new");
+    expect(await screen.findByText("Welcome, Tara")).toBeTruthy();
   });
 
-  it("resumes after an invalid QR", async () => {
-    mockAct.mockRejectedValueOnce(new Error("This staff attendance QR is not valid."));
+  it("Exit goes back to Employees", () => {
     render(<StaffAttendanceScanBoard />);
-    fireEvent.changeText(screen.getByPlaceholderText("Scan or paste attendance QR code"), "bad");
-    fireEvent.press(screen.getByText("Mark attendance"));
-    await waitFor(() => expect(screen.getByText("Invalid QR")).toBeTruthy());
-    expect(screen.getByText(/Scanner still running/)).toBeTruthy();
-  });
-
-  it("shows already marked, expired, and used outcomes", async () => {
-    mockAct.mockRejectedValueOnce(new Error("Attendance already marked for today"));
-    const view = render(<StaffAttendanceScanBoard />);
-    fireEvent.changeText(screen.getByPlaceholderText("Scan or paste attendance QR code"), "anekio:staff-attendance:one");
-    fireEvent.press(screen.getByText("Mark attendance"));
-    await waitFor(() => expect(screen.getByText("Already marked")).toBeTruthy());
-    view.unmount();
+    fireEvent.press(screen.getByLabelText("Exit check-in"));
+    expect(mockReplace).toHaveBeenCalledWith("/staff");
   });
 });

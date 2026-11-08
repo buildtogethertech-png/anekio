@@ -285,7 +285,8 @@ export function StaffAttendanceDetail({
       let remarks = "—";
       if (kindDay === "weekend") remarks = "Weekend";
       else if (kindDay === "holiday") remarks = holiday?.name ? `H · ${holiday.name}` : "H · Holiday";
-      else if (byDate.get(date)?.remark) remarks = byDate.get(date)?.remark || "—";
+      // "Marked by attendance QR scan." / "Marked by location at school." are automatic: show the times instead.
+      else if (byDate.get(date)?.remark && !/^Marked by /.test(byDate.get(date)?.remark || "")) remarks = byDate.get(date)?.remark || "—";
       else if (saved === "LEAVE") remarks = leave.get(date)?.reason || (leave.get(date)?.paid === false ? "Unpaid leave" : "Approved leave");
       else if (saved === "ABSENT") remarks = "Personal absence";
       else if (saved === "HALF_DAY") remarks = "Half day";
@@ -293,11 +294,12 @@ export function StaffAttendanceDetail({
         const inAt = byDate.get(date)?.inAt || "";
         const start = byDate.get(date)?.startTimeUsed || payrollRules.startTime;
         const lateMin = inAt ? minutesLate(inAt, start) : 0;
-        remarks = inAt ? `Late ${lateMin} min · In ${inAt}` : "Late";
+        const outAt = byDate.get(date)?.outAt || "";
+        remarks = inAt ? `Late ${lateMin} min · In ${inAt}${outAt ? ` · Out ${outAt}` : ""}` : "Late";
       }
       else if (saved === "PRESENT" && byDate.get(date)?.computedStatus === "LATE") remarks = byDate.get(date)?.remark || "Late, marked present";
       else if (future) remarks = "—";
-      else if (byDate.get(date)?.inAt) remarks = `In ${byDate.get(date)?.inAt}`;
+      else if (byDate.get(date)?.inAt) remarks = `In ${byDate.get(date)?.inAt}${byDate.get(date)?.outAt ? ` · Out ${byDate.get(date)?.outAt}` : ""}`;
       return {
         date,
         n: Number(date.slice(8)),

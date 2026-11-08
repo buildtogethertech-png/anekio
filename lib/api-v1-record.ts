@@ -27,7 +27,8 @@ import { gradePolicyFrom, marksVisible, effectiveExamPlan, parseExamPlan, timeta
 import { parentMaySeeExamResult } from "./exam-marks";
 import { teacherClassTestChoices } from "./exam-evaluators";
 import { parsePayrollRules } from "./payroll";
-import { collapseStaffDaysByDate, staffAttendanceInMark, staffDayWindow, staffDayYmd } from "./staff-day";
+import { loadStaffAttendanceSetup } from "./staff-attendance-setup";
+import { collapseStaffDaysByDate, parseOutLog, staffAttendanceInMark, staffDayWindow, staffDayYmd } from "./staff-day";
 import { feeLineTotal, invoiceBalance, parseFeeCatalogState, parseFeeLines, reportCardFeeHoldFromConfig } from "./fees";
 import { studentLetter } from "./letter";
 import { payFormFromSecrets, paySecretsFromRow } from "./pay-config";
@@ -189,6 +190,9 @@ function mapPersonStaffDays(
     outAt: string;
     startTimeUsed: string;
     computedStatus: string | null;
+    inVia?: string;
+    outVia?: string;
+    outLogJson?: string;
   }[],
   kind: "teacher" | "staff",
   id: string
@@ -202,6 +206,9 @@ function mapPersonStaffDays(
     outAt: d.outAt || "",
     startTimeUsed: d.startTimeUsed || "",
     computedStatus: d.computedStatus || "",
+    inVia: d.inVia || "",
+    outVia: d.outVia || "",
+    outLog: parseOutLog(d.outLogJson),
   }));
 }
 
@@ -293,7 +300,10 @@ async function staffAttendanceSelf(user: AccessUser) {
       marked: staffAttendanceInMark(todayRow),
       status: todayRow?.status || "",
       inAt: todayRow?.inAt || "",
+      outAt: todayRow?.outAt || "",
+      outLog: parseOutLog(todayRow?.outLogJson),
     },
+    attendanceSetup: await loadStaffAttendanceSetup(),
   };
 }
 
@@ -1229,6 +1239,7 @@ async function officePayload(user: AccessUser) {
     kind: "OFFICE" as const,
     dayGaps: can(user, "timetable.edit") ? await (await import("./class-attendance-cover")).dayGaps(user).catch(() => null) : null,
     staffAttendanceSelf: await staffAttendanceSelf(user),
+    staffAttendanceSetup: await loadStaffAttendanceSetup(),
     myTeaching: await myTeachingToday(user),
     onboarding: can(user, "onboarding.manage") && user.orgId ? await onboardingBundle(user) : null,
     desk: {

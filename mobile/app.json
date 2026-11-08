@@ -57,6 +57,15 @@
         }
       ],
       [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Anekio checks that you are at school when you mark your attendance.",
+          "isAndroidBackgroundLocationEnabled": false,
+          "isAndroidForegroundServiceEnabled": false,
+          "isIosBackgroundLocationEnabled": false
+        }
+      ],
+      [
         "expo-build-properties",
         {
           "android": {

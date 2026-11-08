@@ -993,6 +993,8 @@ model SchoolConfig {
   admissionNoFloor        Int                       @default(0)
   payrollJson             String                    @default("{\"presentCredit\":1,\"absentCredit\":0,\"paidLeaveCredit\":1,\"unpaidLeaveCredit\":0,\"halfDayCredit\":0.5,\"lateCredit\":1}")
   feeCatalogJson           String                    @default("{\"items\":[],\"late\":{\"enabled\":false,\"amount\":0,\"graceDays\":0}}")
+  /// How staff attendance is taken: {"qr":true,"location":false,"lat":..,"lng":..,"radiusM":150}. "" = QR only.
+  staffAttendanceJson     String                    @default("")
   documentTemplates       DocumentTemplate[]
   documentVersions        DocumentTemplateVersion[]
   issuedDocuments         IssuedDocument[]
@@ -1382,6 +1384,13 @@ model StaffDay {
   outAt          String            @default("")
   startTimeUsed  String            @default("")
   computedStatus AttendanceStatus?
+  /// How in/out were marked: "qr", "location" or "" (by hand).
+  inVia          String            @default("")
+  outVia         String            @default("")
+  /// Where a location mark was made: {"in":{lat,lng,acc,m},"out":{...}}.
+  geoJson        String            @default("")
+  /// Every out of the day, oldest first: [{"at":"13:00","via":"location"}, …]. outAt is the last one.
+  outLogJson     String            @default("")
 
   @@unique([teacherId, date])
   @@unique([staffId, date])

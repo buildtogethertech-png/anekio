@@ -33,6 +33,7 @@ import { LeaveApplyCard, LeaveDecideList } from "./leave-apply";
 import { ManagerPicker } from "./manager-picker";
 import { TeacherMonthlyRegister } from "./teacher-monthly-register";
 import { StaffAttendanceQrButton } from "./staff-attendance-qr";
+import { MarkHereButton } from "./attendance-geo";
 import { compareByRollThenName, matchesStudentQuery, rollLabel, studentMetaLine } from "../lib/student-label";
 
 function can(user: { permissions: string[] } | null, key: string) {
@@ -478,7 +479,16 @@ export function TeacherDeskBoard() {
             </Text>
             <Text className="mt-1 text-sm leading-5 text-ink-700">{scheduleText}</Text>
           </View>
-          {data?.staffAttendanceSelf ? (
+          {data?.staffAttendanceSelf?.attendanceSetup?.location ? (
+            <View className={phoneDashboard ? "w-full" : "shrink-0"}>
+              <MarkHereButton
+                token={token}
+                disabled={Boolean(todayClosed)}
+                today={data.staffAttendanceSelf.today}
+                onDone={() => void reloadSilently()}
+              />
+            </View>
+          ) : data?.staffAttendanceSelf && data.staffAttendanceSelf.attendanceSetup?.qr !== false ? (
             <View className={phoneDashboard ? "w-full" : "shrink-0"}>
               <StaffAttendanceQrButton
                 token={token}
@@ -603,7 +613,15 @@ export function TeacherDeskBoard() {
     if (!data?.staffAttendanceSelf) actions.push({ icon: "time-outline", label: "Timetable", route: "/timetable" });
     return (
       <View className="mb-4 flex-row justify-between rounded-3xl bg-white px-3 py-4" style={CARD_SHADOW}>
-        {data?.staffAttendanceSelf ? (
+        {data?.staffAttendanceSelf?.attendanceSetup?.location ? (
+          <MarkHereButton
+            token={token}
+            tile
+            disabled={Boolean(todayClosed)}
+            today={data.staffAttendanceSelf.today}
+            onDone={() => void reloadSilently()}
+          />
+        ) : data?.staffAttendanceSelf ? (
           <StaffAttendanceQrButton
             token={token}
             disabled={Boolean(todayClosed)}

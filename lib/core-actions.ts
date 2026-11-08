@@ -31,7 +31,7 @@ import { classifyFromIn, normalizeHHmm, parsePayrollRules, personKey, type Payro
 import { hasLiveSalaryPayments } from "./salary-payments";
 import { loadSchoolCalendar } from "./leave";
 import { cleanActivity } from "./timetable-activity";
-import { earliestStaffInAt, staffAttendanceInMark, staffDayInstant, staffDayWindow, staffDayYmd } from "./staff-day";
+import { earliestStaffInAt, parseOutLog, staffAttendanceInMark, staffDayInstant, staffDayWindow, staffDayYmd } from "./staff-day";
 import { addDays, examPlanWeight, effectiveExamPlan, DEFAULT_EXAM_PLAN, parseExamPlan, ymd } from "./exams";
 import { teacherCanEditMarks, teacherMayEnterMarks, teacherMarksBlock } from "./exam-workflow";
 import { teacherIdsBySubjectName, teacherMayHostClassTest } from "./exam-evaluators";
@@ -116,10 +116,13 @@ function currentSchoolTime() {
 }
 
 async function resolveStaffAttendanceSelf(user: AccessUser) {
-  const teacher = await prisma.teacher.findUnique({
+  // Same person as the record's staffAttendanceSelf: an office employee who also teaches (teachingOnly)
+  // keeps ONE attendance record, their StaffMember row, so QR / location marks land where the board reads.
+  const teacherRow = await prisma.teacher.findUnique({
     where: { userId: user.id },
-    select: { id: true, orgId: true, employeeId: true, user: { select: { name: true } } },
+    select: { id: true, orgId: true, employeeId: true, teachingOnly: true, user: { select: { name: true } } },
   });
+  const teacher = teacherRow && !teacherRow.teachingOnly ? teacherRow : null;
   if (teacher) {
     return {
       kind: "teacher" as const,
@@ -1439,6 +1442,10 @@ async function writeStaffDayOnStamp(
     startTimeUsed: string;
     computedStatus: AttendanceStatus | null;
     remark?: string;
+    inVia?: string;
+    outVia?: string;
+    geoJson?: string;
+    outLogJson?: string;
   }
 ) {
   const instant = staffDayInstant(stamp);
@@ -1519,8 +1526,28 @@ export async function markStaffAttendanceCore(
       await syncTeacherDayFromStaffMark(user.id, row.kind, row.id, stamp, false);
       continue;
     }
-    const next = classifyStaffDay(row.status, row.inAt, row.outAt, rules);
+    let inAt = row.inAt;
+    let outAt = row.outAt;
+    const existing = await findStaffDayOnStamp(row.kind, row.id, stamp);
+    if (row.status === "ABSENT") {
+      inAt = "";
+      outAt = "";
+    } else if (row.status !== "LEAVE" && !String(row.inAt || "").trim()) {
+      // "Save the day" with no time typed: keep the time staff marked themselves (QR / location).
+      if (existing?.inAt) {
+        inAt = existing.inAt;
+        if (!String(row.outAt || "").trim()) outAt = existing.outAt;
+      }
+    }
+    const next = classifyStaffDay(row.status, inAt, outAt, rules);
+    // A changed out time from the office is one more out of the day.
+    const outLogJson = !next.outAt
+      ? ""
+      : next.outAt !== (existing?.outAt || "")
+        ? withOut(existing?.outLogJson, next.outAt, "office")
+        : existing?.outLogJson || "";
     await writeStaffDayOnStamp(row.kind, row.id, stamp, {
+      outLogJson,
       status: next.status,
       markedById: user.id,
       inAt: next.inAt,
@@ -1537,17 +1564,15 @@ export async function markStaffAttendanceCore(
 export async function generateStaffAttendanceQrCore(user: AccessUser) {
   const self = await resolveStaffAttendanceSelf(user);
   if (!self) throw new Error("No staff profile is linked to this account.");
+  await (await import("./staff-attendance-setup")).assertQrAttendanceOn();
   const stamp = staffDayYmd(new Date());
-  const existing = await findStaffDayOnStamp(self.kind, self.id, stamp);
-  if (staffAttendanceInMark(existing)) {
-    throw new Error("Attendance already marked for today");
-  }
   const token = randomUUID().replace(/-/g, "");
   const expiresAt = Date.now() + STAFF_ATTENDANCE_QR_TTL_MS;
   staffAttendanceQrTokens.set(token, { ...self, expiresAt });
   const qrText = staffAttendanceQrPayload(token);
   const todayRows = await staffDaysOnStamp(self.kind, self.id, staffDayYmd(new Date())).catch(() => []);
   const checkedInAt = todayRows.find((row) => row.inAt)?.inAt || "";
+  const checkedOutAt = todayRows.find((row) => row.inAt)?.outAt || "";
   const qrDataUrl = await QRCode.toDataURL(qrText, {
     errorCorrectionLevel: "M",
     margin: 2,
@@ -1561,6 +1586,7 @@ export async function generateStaffAttendanceQrCore(user: AccessUser) {
     expiresAt: new Date(expiresAt).toISOString(),
     ttlSeconds: Math.floor(STAFF_ATTENDANCE_QR_TTL_MS / 1000),
     checkedInAt,
+    checkedOutAt,
     person: {
       kind: self.kind,
       id: self.id,
@@ -1572,6 +1598,7 @@ export async function generateStaffAttendanceQrCore(user: AccessUser) {
 
 export async function scanStaffAttendanceQrCore(user: AccessUser, input: { code: string }) {
   need(user, "staff.edit", "staff.attendance");
+  await (await import("./staff-attendance-setup")).assertQrAttendanceOn();
   const token = staffAttendanceTokenFromCode(String(input.code || ""));
   if (!token) throw new Error("Scan a staff attendance QR.");
   const ticket = staffAttendanceQrTokens.get(token);
@@ -1583,6 +1610,42 @@ export async function scanStaffAttendanceQrCore(user: AccessUser, input: { code:
     throw new Error("This staff attendance QR has expired.");
   }
 
+  const result = await stampStaffInOut(ticket, user.id, "qr", "Marked by attendance QR scan.");
+  ticket.usedAt = Date.now();
+  staffAttendanceQrTokens.set(token, ticket);
+  return result;
+}
+
+type StaffPerson = { kind: "teacher" | "staff"; id: string; name: string; employeeId: string };
+
+function withOut(raw: string | null | undefined, at: string, via: string) {
+  return JSON.stringify([...parseOutLog(raw), { at, via }].slice(-20));
+}
+type StaffFix = { lat: number; lng: number; acc: number; m: number };
+
+function mergeGeo(raw: string | null | undefined, side: "in" | "out", fix?: StaffFix) {
+  let prev: Record<string, unknown> = {};
+  try {
+    prev = raw ? JSON.parse(raw) : {};
+  } catch {
+    prev = {};
+  }
+  if (fix) prev[side] = fix;
+  else delete prev[side];
+  return Object.keys(prev).length ? JSON.stringify(prev) : "";
+}
+
+/**
+ * Today's in / out for one person: the first mark of the day is the entry, any later one (10+ minutes on)
+ * is the exit, and the last exit wins. Shared by the QR desk and "Mark here" by location.
+ */
+async function stampStaffInOut(
+  person: StaffPerson,
+  markerId: string,
+  via: "qr" | "location",
+  remark: string,
+  fix?: StaffFix
+) {
   const stamp = staffDayYmd(new Date());
   const cal = await loadSchoolCalendar();
   const closed = closedReason(stamp, cal);
@@ -1595,37 +1658,50 @@ export async function scanStaffAttendanceQrCore(user: AccessUser, input: { code:
   const config = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
   const rules = parsePayrollRules(config?.payrollJson);
   const inAt = currentSchoolTime();
-  const existing = await findStaffDayOnStamp(ticket.kind, ticket.id, stamp);
-  if (staffAttendanceInMark(existing)) {
-    ticket.usedAt = Date.now();
-    staffAttendanceQrTokens.set(token, ticket);
-    throw new Error("Attendance already marked for today");
+  const existing = await findStaffDayOnStamp(person.kind, person.id, stamp);
+  const who = { kind: person.kind, id: person.id, name: person.name, employeeId: person.employeeId };
+  if (existing && staffAttendanceInMark(existing)) {
+    // Already in: any later mark is an out (no minimum gap). The last one of the day wins; entry never changes.
+    await writeStaffDayOnStamp(person.kind, person.id, stamp, {
+      status: existing.status,
+      markedById: existing.markedById || markerId,
+      inAt: existing.inAt,
+      outAt: inAt,
+      startTimeUsed: existing.startTimeUsed,
+      computedStatus: existing.computedStatus,
+      outVia: via,
+      geoJson: mergeGeo(existing.geoJson, "out", fix),
+      outLogJson: withOut(existing.outLogJson, inAt, via),
+    });
+    return { person: who, date: stamp, status: existing.status, inAt: existing.inAt, outAt: inAt, checkedOut: true };
   }
   const preservedInAt = earliestStaffInAt(existing?.inAt, inAt) || inAt;
   const next = classifyStaffDay("PRESENT", preservedInAt, "", rules);
-  await writeStaffDayOnStamp(ticket.kind, ticket.id, stamp, {
+  await writeStaffDayOnStamp(person.kind, person.id, stamp, {
     status: next.status,
-    markedById: user.id,
+    markedById: markerId,
     inAt: next.inAt,
     outAt: next.outAt,
     startTimeUsed: next.startTimeUsed,
     computedStatus: next.computedStatus,
-    remark: "Marked by attendance QR scan.",
+    remark,
+    inVia: via,
+    outVia: "",
+    geoJson: mergeGeo("", "in", fix),
+    outLogJson: "",
   });
-  await syncTeacherDayFromStaffMark(user.id, ticket.kind, ticket.id, stamp, false);
-  ticket.usedAt = Date.now();
-  staffAttendanceQrTokens.set(token, ticket);
-  return {
-    person: {
-      kind: ticket.kind,
-      id: ticket.id,
-      name: ticket.name,
-      employeeId: ticket.employeeId,
-    },
-    date: stamp,
-    status: next.status,
-    inAt: next.inAt,
-  };
+  await syncTeacherDayFromStaffMark(markerId, person.kind, person.id, stamp, false);
+  return { person: who, date: stamp, status: next.status, inAt: next.inAt, outAt: "", checkedOut: false };
+}
+
+/** "Mark here": staff mark their own in / out from their phone when it is at school. */
+export async function markStaffAttendanceHereCore(user: AccessUser, input: { lat?: number; lng?: number; accuracy?: number; mocked?: boolean }) {
+  const self = await resolveStaffAttendanceSelf(user);
+  if (!self) throw new Error("No staff profile is linked to this account.");
+  const { loadStaffAttendanceSetup, checkAtSchool } = await import("./staff-attendance-setup");
+  const fix = checkAtSchool(await loadStaffAttendanceSetup(), input);
+  const result = await stampStaffInOut(self, user.id, "location", "Marked by location at school.", fix);
+  return { ...result, meters: fix.m, accuracy: fix.acc };
 }
 
 function classifyStaffDay(

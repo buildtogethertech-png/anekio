@@ -15,9 +15,9 @@ describe("teacher dashboard QR", () => {
     expect(screen.getByRole("button", { name: "Show attendance QR" })).toBeEnabled();
   });
 
-  it("is disabled when the dashboard loads with attendance already marked", () => {
+  it("offers the check-out QR when the dashboard loads with attendance already marked", () => {
     render(<StaffAttendanceQrButton token="teacher-token" alreadyMarked onMessage={jest.fn()} />);
-    expect(screen.getByRole("button", { name: "Attendance already marked for today" })).toBeDisabled();
-    expect(screen.getByText("Attendance already marked for today")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Show check-out QR" })).toBeEnabled();
+    expect(screen.getByText("Attendance marked for today")).toBeTruthy();
   });
 });

@@ -24,6 +24,16 @@ jest.mock("@expo/vector-icons/Ionicons", () => {
 const mockAct = mutate as jest.MockedFunction<typeof mutate>;
 const mockUseOptionalRecord = useOptionalRecord as jest.MockedFunction<typeof useOptionalRecord>;
 const originalOs = Platform.OS;
+const outQr = {
+  ok: true,
+  qrText: "anekio:staff-attendance:out",
+  qrDataUrl: "data:image/png;base64,xx",
+  expiresAt: new Date(Date.now() + 120_000).toISOString(),
+  ttlSeconds: 120,
+  checkedInAt: "08:55",
+  checkedOutAt: "",
+  person: { kind: "teacher", id: "t1", name: "Tara", employeeId: "T-1" },
+};
 
 function setOs(os: typeof Platform.OS) {
   Object.defineProperty(Platform, "OS", { configurable: true, writable: true, value: os });
@@ -46,7 +56,7 @@ function stubWindowOpen() {
   };
 }
 
-function mockToday(today: { marked: boolean; date: string; inAt?: string } | null) {
+function mockToday(today: { marked: boolean; date: string; inAt?: string; outAt?: string } | null) {
   const reloadSilently = jest.fn().mockResolvedValue(undefined);
   mockUseOptionalRecord.mockReturnValue({
     data: today ? { staffAttendanceSelf: { today } } : { staffAttendanceSelf: null },
@@ -89,20 +99,30 @@ describe("teacher attendance QR", () => {
     expect(await screen.findByText("My attendance QR")).toBeTruthy();
   });
 
-  it("disables the QR when attendance is already marked", () => {
-    const onMessage = jest.fn();
-    render(<StaffAttendanceQrButton token="tok" alreadyMarked onMessage={onMessage} />);
-    expect(screen.getByRole("button", { name: "Attendance already marked for today" })).toBeDisabled();
-    expect(screen.getByText("Attendance already marked for today")).toBeTruthy();
-    expect(mockAct).not.toHaveBeenCalled();
+  it("turns into a check-out QR once attendance is marked", async () => {
+    mockToday({ marked: true, date: "2026-10-22", inAt: "08:55" });
+    mockAct.mockResolvedValue(outQr as never);
+    render(<StaffAttendanceQrButton token="tok" alreadyMarked onMessage={jest.fn()} />);
+    expect(screen.getByText("Checked in today at 8:55 AM")).toBeTruthy();
+    fireEvent.press(screen.getByRole("button", { name: "Show check-out QR" }));
+    await waitFor(() => expect(mockAct).toHaveBeenCalledWith("tok", "generateStaffAttendanceQr"));
+    expect(await screen.findByText("Scan when you leave. Your last scan is your out time.")).toBeTruthy();
   });
 
-  it("keeps the QR disabled after a refresh says it is marked", () => {
-    const onMessage = jest.fn();
-    const view = render(<StaffAttendanceQrButton token="tok" alreadyMarked={false} onMessage={onMessage} />);
-    expect(screen.getByRole("button", { name: "Show attendance QR" })).toBeEnabled();
-    view.rerender(<StaffAttendanceQrButton token="tok" alreadyMarked onMessage={onMessage} />);
-    expect(screen.getByRole("button", { name: "Attendance already marked for today" })).toBeDisabled();
+  it("closes the QR once the check-in scan lands", async () => {
+    mockAct.mockResolvedValue({ ...outQr, checkedInAt: "" } as never);
+    const view = render(<StaffAttendanceQrButton token="tok" alreadyMarked={false} onMessage={jest.fn()} />);
+    fireEvent.press(screen.getByRole("button", { name: "Show attendance QR" }));
+    expect(await screen.findByText("My attendance QR")).toBeTruthy();
+    mockToday({ marked: true, date: "2026-10-22", inAt: "08:55" });
+    view.rerender(<StaffAttendanceQrButton token="tok" alreadyMarked onMessage={jest.fn()} />);
+    await waitFor(() => expect(screen.queryByText("My attendance QR")).toBeNull());
+  });
+
+  it("shows in and out once there is an exit scan", () => {
+    mockToday({ marked: true, date: "2026-10-22", inAt: "08:55", outAt: "15:10" });
+    render(<StaffAttendanceQrButton token="tok" alreadyMarked onMessage={jest.fn()} />);
+    expect(screen.getByText("In 8:55 AM · Out 3:10 PM")).toBeTruthy();
   });
 
   it("refreshes in the background every 30 s, not on mount (RecordProvider already loaded)", () => {
@@ -115,12 +135,6 @@ describe("teacher attendance QR", () => {
     jest.advanceTimersByTime(15000);
     expect(onRefresh).toHaveBeenCalledTimes(1);
     jest.useRealTimers();
-  });
-
-  it("does not generate when the dashboard already has today's mark", async () => {
-    render(<StaffAttendanceQrButton token="tok" alreadyMarked onMessage={jest.fn()} />);
-    fireEvent.press(screen.getByRole("button", { name: "Attendance already marked for today" }));
-    expect(mockAct).not.toHaveBeenCalled();
   });
 });
 
@@ -174,27 +188,33 @@ describe("website admin scan button", () => {
   });
 });
 
-describe("teacher QR dock freeze", () => {
+describe("teacher QR dock", () => {
   beforeEach(() => {
     mockAct.mockReset();
     mockPush.mockReset();
     mockToday({ marked: false, date: "2026-10-22", inAt: "" });
   });
 
-  it("does not generate a new QR after today's attendance is marked", () => {
+  it("offers the check-out QR after today's check-in", async () => {
     mockToday({ marked: true, date: "2026-10-22", inAt: "08:55" });
+    mockAct.mockResolvedValue(outQr as never);
     render(<QrDockButton token="tok" hasSelfQr />);
-    const button = screen.getByRole("button", { name: "Attendance already marked for today" });
-    expect(button).toBeDisabled();
+    const button = screen.getByRole("button", { name: "Show my check-out QR. Checked in today at 8:55 AM" });
+    expect(button).toBeEnabled();
     fireEvent.press(button);
-    expect(mockAct).not.toHaveBeenCalled();
+    await waitFor(() => expect(mockAct).toHaveBeenCalledWith("tok", "generateStaffAttendanceQr"));
+    expect(await screen.findByText("Check-out QR")).toBeTruthy();
   });
 
-  it("shows a checked-in frozen state after check-in", () => {
+  it("closes the check-out QR when the out time changes", async () => {
     mockToday({ marked: true, date: "2026-10-22", inAt: "08:55" });
-    render(<QrDockButton token="tok" hasSelfQr />);
-    expect(screen.getByRole("button", { name: "Attendance already marked for today" })).toBeDisabled();
-    expect(screen.queryByRole("button", { name: "Show my attendance QR" })).toBeNull();
+    mockAct.mockResolvedValue(outQr as never);
+    const view = render(<QrDockButton token="tok" hasSelfQr />);
+    fireEvent.press(screen.getByRole("button", { name: "Show my check-out QR. Checked in today at 8:55 AM" }));
+    expect(await screen.findByText("Check-out QR")).toBeTruthy();
+    mockToday({ marked: true, date: "2026-10-22", inAt: "08:55", outAt: "15:10" });
+    view.rerender(<QrDockButton token="tok" hasSelfQr />);
+    await waitFor(() => expect(screen.queryByText("Check-out QR")).toBeNull());
   });
 
   it("lets QR generation work again the next calendar day", async () => {
@@ -208,7 +228,7 @@ describe("teacher QR dock freeze", () => {
     } as never);
     mockToday({ marked: true, date: "2026-10-21", inAt: "08:55" });
     const view = render(<QrDockButton token="tok" hasSelfQr />);
-    expect(screen.getByRole("button", { name: "Attendance already marked for today" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /check-out QR/ })).toBeTruthy();
     mockToday({ marked: false, date: "2026-10-22", inAt: "" });
     view.rerender(<QrDockButton token="tok" hasSelfQr />);
     fireEvent.press(screen.getByRole("button", { name: "Show my attendance QR" }));

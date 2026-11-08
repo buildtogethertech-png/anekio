@@ -4950,6 +4950,7 @@ function leaveRange(from: string, to: string) {
 
 export function StaffBoard() {
   const { data, reload, reloadInBackground } = useRecord();
+  const qrOn = data?.staffAttendanceSetup?.qr !== false;
   const { token, user } = useSession();
   const toast = useToast();
   const router = useRouter();
@@ -4975,6 +4976,12 @@ export function StaffBoard() {
   const timesRef = useRef(times);
   const marksRef = useRef(marks);
   timesRef.current = times;
+  // Times kept on screen after a save are only a bridge until the reload lands: fresh data wins, so a
+  // QR / location mark made since then shows here (and is never saved back as blank).
+  useEffect(() => {
+    setTimes({});
+    setSavedTimes({});
+  }, [data?.staff]);
   marksRef.current = marks;
   const [timesheetOpen, setTimesheetOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
@@ -5056,7 +5063,7 @@ export function StaffBoard() {
           id: p.id,
           status: (status === "LATE" ? "LATE" : status === "ABSENT" ? "ABSENT" : "PRESENT") as "PRESENT" | "ABSENT" | "LATE",
           inAt,
-          outAt: hit?.outAt || "",
+          outAt: status === "ABSENT" ? "" : hit?.outAt || "",
         };
       });
       const saved = await act<{ ok: true; days?: { kind: string; id: string; inAt?: string; status?: string }[] }>(
@@ -5521,8 +5528,8 @@ export function StaffBoard() {
             </Button>
           ) : null}
 
-          {canMark ? <StaffAttendanceQrScanButton token={token} disabled={locked} onMessage={toast.show} onDone={reload} /> : null}
-          {data?.staffAttendanceSelf ? (
+          {canMark && qrOn ? <StaffAttendanceQrScanButton token={token} disabled={locked} onMessage={toast.show} onDone={reload} /> : null}
+          {data?.staffAttendanceSelf && qrOn ? (
             <StaffAttendanceQrButton
               token={token}
               disabled={locked || Boolean(data.staffAttendanceSelf.today?.marked)}
@@ -5611,7 +5618,10 @@ export function StaffBoard() {
                     {(() => {
                       const inAt = timesOf(p);
                       if (st === "LEAVE") return null;
-                      if (inAt) return <Text className={st === "LATE" ? "text-amber-700" : "text-emerald-700"}>{` · ${st === "LATE" ? "Late, in" : "In"} ${inAt}`}</Text>;
+                      const day = inAt ? dayOn(p.days, date) : undefined;
+                      const outAt = day?.outAt || "";
+                      const pin = (via?: string) => (via === "location" ? " 📍" : "");
+                      if (inAt) return <Text className={st === "LATE" ? "text-amber-700" : "text-emerald-700"}>{` · ${st === "LATE" ? "Late, in" : "In"} ${inAt}${pin(day?.inVia)}${outAt ? ` · Out ${outAt}${pin(day?.outVia)}` : ""}`}</Text>;
                       if (!locked && !isMarked(p)) return <Text className="text-ink-400"> · Not marked</Text>;
                       return null;
                     })()}
@@ -5763,7 +5773,7 @@ export function StaffBoard() {
             ? "Approve each month's salary, pay it, and keep proof of every payment."
             : staffView === "directory" && !timesheetOpen
               ? "Profiles, roles, documents and who reports to whom."
-              : "Mark Present, Late, or Absent, then Save the day. Optional In time lives on Timesheet."
+              : "Mark Present, Late, or Absent, then Save the day. In and Out times live on Timesheet."
         }
         action={
           pendingLeave.length ? (

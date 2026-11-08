@@ -19,3 +19,6 @@ and put new SQL in `scripts/sql/<date>-<topic>.sql` written with `IF NOT EXISTS`
 |---|---|---|
 | r1 | 2026-11-02 | Per-student pricing, coupons, payment links, plans; automatic admission numbers |
 | r2 | 2026-11-05 | Usage tracking (`UsageDaily`) for the admin Usage page |
+| r3 | 2026-11-06 | Class attendance cover (`ClassAttendanceCover`), timetable activities |
+| r4 | 2026-11-07 | Staff attendance by location (QR or location in Settings), in / out via, every out kept |
+| r5 | 2026-11-08 | Teacher phones during the school day (`SchoolConfig.schoolDayJson`, `StaffPhoneEvent`) |
