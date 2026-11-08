@@ -229,68 +229,14 @@ function LeavingEarly({
   );
 }
 
-/** Break (with a reason) and Resume, for the phone's school day. */
-function BreakControls({
-  status,
-  reason,
-  since,
-  now,
-  inClass,
-  breakAllowed,
-  reasons,
-  onTake,
-  onResume,
-}: {
-  status: "focus" | "break" | "ended";
-  reason: string;
-  since: number;
-  now: number;
-  inClass: string;
-  breakAllowed: boolean;
-  reasons: string[];
-  onTake: (reason: string) => void;
-  onResume: () => void;
-}) {
-  const [open, setOpen] = useState(false);
+/** Why the break (one tap; "Other" asks for a word). */
+function BreakPicker({ reasons, onTake, onCancel }: { reasons: string[]; onTake: (reason: string) => void; onCancel: () => void }) {
   const [pick, setPick] = useState("");
   const [note, setNote] = useState("");
-  if (status === "break") {
-    return (
-      <View testID="on-break" className="flex-row items-center gap-3 rounded-2xl bg-amber-50 px-4 py-3">
-        <Ionicons name="cafe" size={22} color="#B45309" />
-        <View className="min-w-0 flex-1">
-          <Text className="text-[15px] font-semibold text-amber-900">{`On break · ${reason}`}</Text>
-          <Text className="text-[13px] tabular-nums text-amber-800">{hms(now - since)}</Text>
-        </View>
-        <Pressable accessibilityRole="button" accessibilityLabel="Resume" onPress={onResume} className="rounded-xl px-5 py-2.5" style={{ backgroundColor: BLUE }}>
-          <Text className="text-[15px] font-bold text-white">Resume</Text>
-        </Pressable>
-      </View>
-    );
-  }
-  if (!open) {
-    return (
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Take a break"
-        accessibilityState={{ disabled: !breakAllowed }}
-        disabled={!breakAllowed}
-        onPress={() => setOpen(true)}
-        className={`flex-row items-center gap-3 rounded-2xl border border-ink-200 bg-white px-4 py-3 ${breakAllowed ? "" : "opacity-60"}`}
-      >
-        <Ionicons name="cafe-outline" size={20} color="#475569" />
-        <View className="min-w-0 flex-1">
-          <Text className="text-[15px] font-semibold text-ink-900">Take a break</Text>
-          {!breakAllowed ? <Text className="text-[12px] text-ink-500">{`${inClass || "A class"} is on now · after it`}</Text> : null}
-        </View>
-        {breakAllowed ? <Ionicons name="chevron-forward" size={18} color="#94A3B8" /> : null}
-      </Pressable>
-    );
-  }
   const ready = Boolean(pick) && (pick !== "Other" || note.trim().length > 1);
   return (
-    <View testID="break-reasons" className="gap-3 rounded-2xl border border-ink-200 bg-white p-3.5">
-      <Text className="text-[13px] font-semibold text-ink-700">Break for</Text>
+    <View testID="break-reasons" className="gap-3 rounded-2xl bg-amber-50 p-3.5">
+      <Text className="text-[14px] font-semibold text-amber-900">Break for</Text>
       <View className="flex-row flex-wrap gap-2">
         {reasons.map((r) => (
           <Chip key={r} label={r} on={pick === r} onPress={() => setPick(r)} />
@@ -303,11 +249,11 @@ function BreakControls({
           placeholder="Write a short reason"
           placeholderTextColor="#94A3B8"
           accessibilityLabel="Break reason"
-          className="rounded-xl border border-ink-200 px-3 py-2.5 text-[15px] text-ink-900"
+          className="rounded-xl border border-ink-200 bg-white px-3 py-2.5 text-[15px] text-ink-900"
         />
       ) : null}
       <View className="flex-row gap-2">
-        <Pressable accessibilityRole="button" onPress={() => setOpen(false)} className="flex-1 items-center rounded-xl border border-ink-200 py-2.5">
+        <Pressable accessibilityRole="button" onPress={onCancel} className="flex-1 items-center rounded-xl border border-amber-200 bg-white py-2.5">
           <Text className="text-[15px] font-semibold text-ink-700">Cancel</Text>
         </Pressable>
         <Pressable
@@ -315,12 +261,7 @@ function BreakControls({
           accessibilityLabel="Start break"
           accessibilityState={{ disabled: !ready }}
           disabled={!ready}
-          onPress={() => {
-            onTake(pick === "Other" ? note.trim() || "Other" : pick);
-            setOpen(false);
-            setPick("");
-            setNote("");
-          }}
+          onPress={() => onTake(pick === "Other" ? note.trim() || "Other" : pick)}
           className={`flex-1 items-center rounded-xl py-2.5 ${ready ? "" : "opacity-40"}`}
           style={{ backgroundColor: "#D97706" }}
         >
@@ -361,6 +302,7 @@ export function MarkHereSheet({
   const [error, setError] = useState("");
   const [leaveReason, setLeaveReason] = useState("");
   const [leaveNote, setLeaveNote] = useState("");
+  const [picking, setPicking] = useState(false);
   const watcher = useRef<FixWatcher | null>(null);
   const checkedIn = Boolean(today?.marked && today?.inAt);
   const phoneDay = focus?.enabled && focus.day && focus.day.status !== "ended" ? focus.day : null;
@@ -398,6 +340,7 @@ export function MarkHereSheet({
     setError("");
     setLeaveReason("");
     setLeaveNote("");
+    setPicking(false);
     onClose();
   }
 
@@ -486,17 +429,22 @@ export function MarkHereSheet({
           </Pressable>
         ) : null}
 
-        {phoneDay && isIn && !outAt && !locating ? (
-          <BreakControls
-            status={phoneDay.status}
-            reason={phoneDay.breakReason || ""}
-            since={phoneDay.since}
-            now={focus?.now ?? Date.now()}
-            inClass={focus?.inClass ? `${focus.inClass.classLabel} ${focus.inClass.subject}`.trim() : ""}
-            breakAllowed={!focus?.inClass || Boolean(focus?.breakInClass)}
+        {phoneDay?.status === "break" && isIn && !outAt ? (
+          <View testID="on-break" className="flex-row items-center gap-3 rounded-2xl bg-amber-50 px-4 py-3">
+            <Ionicons name="cafe" size={20} color="#B45309" />
+            <Text className="min-w-0 flex-1 text-[15px] font-semibold text-amber-900">{`On break · ${phoneDay.breakReason || ""}`}</Text>
+            <Text className="text-[14px] font-semibold tabular-nums text-amber-800">{hms((focus?.now ?? Date.now()) - phoneDay.since)}</Text>
+          </View>
+        ) : null}
+
+        {picking && phoneDay && phoneDay.status === "focus" ? (
+          <BreakPicker
             reasons={focus?.reasons ?? []}
-            onTake={(r) => focus?.takeBreak(r)}
-            onResume={() => focus?.resume()}
+            onTake={(r) => {
+              focus?.takeBreak(r);
+              setPicking(false);
+            }}
+            onCancel={() => setPicking(false)}
           />
         ) : null}
 
@@ -507,21 +455,45 @@ export function MarkHereSheet({
           </View>
         ) : null}
 
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={isIn ? "Check out here" : "Check in here"}
-          accessibilityState={{ disabled: locating, busy: locating }}
-          disabled={locating}
-          onPress={() => {
-            if (isIn && !outAt && earlyNow) setPhase("leaving");
-            else void mark();
-          }}
-          className="mt-1 h-14 flex-row items-center justify-center gap-2.5 rounded-2xl active:opacity-90"
-          style={{ backgroundColor: isIn ? ORANGE : BLUE }}
-        >
-          {locating ? <ActivityIndicator color="#fff" /> : <Ionicons name={isIn ? "exit-outline" : "enter-outline"} size={22} color="#fff" />}
-          <Text className="text-[16px] font-bold text-white">{busyText || (isIn ? (outAt ? "Check out again" : "Check out") : "Check in")}</Text>
-        </Pressable>
+        <View className="flex-row gap-2.5">
+          {phoneDay && isIn && !outAt && !locating ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={phoneDay.status === "break" ? "Resume" : "Take a break"}
+              accessibilityState={{ disabled: phoneDay.status !== "break" && Boolean(focus?.inClass) && !focus?.breakInClass }}
+              disabled={phoneDay.status !== "break" && Boolean(focus?.inClass) && !focus?.breakInClass}
+              onPress={() => {
+                if (phoneDay.status === "break") focus?.resume();
+                else setPicking((v) => !v);
+              }}
+              className={`mt-1 h-14 flex-1 flex-row items-center justify-center gap-2 rounded-2xl active:opacity-90 ${
+                phoneDay.status !== "break" && focus?.inClass && !focus?.breakInClass ? "opacity-40" : ""
+              }`}
+              style={{ backgroundColor: phoneDay.status === "break" ? BLUE : "#D97706" }}
+            >
+              <Ionicons name={phoneDay.status === "break" ? "play" : "cafe-outline"} size={20} color="#fff" />
+              <Text className="text-[16px] font-bold text-white">{phoneDay.status === "break" ? "Resume" : "Break"}</Text>
+            </Pressable>
+          ) : null}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={isIn ? "Check out here" : "Check in here"}
+            accessibilityState={{ disabled: locating, busy: locating }}
+            disabled={locating}
+            onPress={() => {
+              if (isIn && !outAt && earlyNow) setPhase("leaving");
+              else void mark();
+            }}
+            className="mt-1 h-14 flex-1 flex-row items-center justify-center gap-2.5 rounded-2xl active:opacity-90"
+            style={{ backgroundColor: isIn ? ORANGE : BLUE }}
+          >
+            {locating ? <ActivityIndicator color="#fff" /> : <Ionicons name={isIn ? "exit-outline" : "enter-outline"} size={22} color="#fff" />}
+            <Text className="text-[16px] font-bold text-white">{busyText || (isIn ? (outAt ? "Check out again" : "Check out") : "Check in")}</Text>
+          </Pressable>
+        </View>
+        {phoneDay && phoneDay.status === "focus" && isIn && !outAt && focus?.inClass && !focus?.breakInClass ? (
+          <Text className="text-center text-[12px] text-ink-500">{`${`${focus.inClass.classLabel} ${focus.inClass.subject}`.trim()} is on now · break after it`}</Text>
+        ) : null}
       </View>
     );
 
@@ -762,9 +734,21 @@ export function MarkHereButton({
   const checkedIn = Boolean((today?.marked && today?.inAt) || justIn);
   const focus = useFocusDay();
   const onBreak = focus?.day?.status === "break";
+  const phoneDayOn = Boolean(focus?.enabled && focus.day && focus.day.status !== "ended");
   const dayDone = Boolean(checkedIn && today?.outAt);
   // "Check in" is the teacher's own attendance (class attendance keeps the word "Attendance").
-  const tileText = busy ? "Checking in…" : dayDone ? "Done" : checkedIn ? "Check out" : "Check in";
+  // One tile: with the phone school day on it opens Break and Check out together.
+  const tileText = busy
+    ? "Checking in…"
+    : onBreak
+      ? "On break"
+      : dayDone
+        ? "Done"
+        : checkedIn
+          ? phoneDayOn
+            ? "Break / Out"
+            : "Check out"
+          : "Check in";
   const inAt = today?.inAt || justIn;
   const label = onBreak
     ? "My check in. On break"
@@ -815,55 +799,32 @@ export function MarkHereButton({
           )}
         </Pressable>
       ) : tile ? (
-        <>
-          {/* Phone school day on: Break (or Resume) is its own tile — no location needed, from anywhere. */}
-          {checkedIn && !dayDone && focus?.enabled && focus.day && focus.day.status !== "ended" ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={onBreak ? "Resume" : "Take a break"}
-              onPress={() => {
-                if (onBreak) {
-                  focus.resume();
-                  setMsg({ tone: "ok", text: "Break over. Welcome back." });
-                } else if (focus.inClass && !focus.breakInClass) {
-                  setMsg({ tone: "bad", text: `${`${focus.inClass.classLabel} ${focus.inClass.subject}`.trim()} is on now. Take a break after it.` });
-                } else focus.requestBreak();
-              }}
-              className="flex-1 items-center gap-1.5 active:opacity-70"
-            >
-              <View className={`h-12 w-12 items-center justify-center rounded-2xl ${onBreak ? "bg-[#D97706]" : "bg-amber-50"}`}>
-                <Ionicons name={onBreak ? "play" : "cafe-outline"} size={22} color={onBreak ? "#fff" : "#B45309"} />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={label}
+          accessibilityState={{ disabled: disabled || busy, busy }}
+          disabled={disabled || busy}
+          onPress={press}
+          className={`flex-1 items-center gap-1.5 active:opacity-70 ${disabled ? "opacity-50" : ""}`}
+        >
+          <View className={`h-12 w-12 items-center justify-center rounded-2xl ${checkedIn ? "bg-[#EEF3FF]" : "bg-[#2855F6]"}`}>
+            {busy ? (
+              <ActivityIndicator color={checkedIn ? "#1F45C7" : "#fff"} />
+            ) : (
+              <Ionicons name={checkedIn ? (dayDone ? "moon-outline" : "exit-outline") : "enter-outline"} size={22} color={checkedIn ? "#1F45C7" : "#fff"} />
+            )}
+            {busy ? null : onBreak ? (
+              <View className="absolute -right-1 -top-1 h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-[#D97706]">
+                <Ionicons name="cafe" size={10} color="#fff" />
               </View>
-              <Text className={`text-xs ${onBreak ? "font-bold text-amber-800" : "font-medium text-ink-800"}`}>{onBreak ? "Resume" : "Break"}</Text>
-            </Pressable>
-          ) : null}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={label}
-            accessibilityState={{ disabled: disabled || busy, busy }}
-            disabled={disabled || busy}
-            onPress={press}
-            className={`flex-1 items-center gap-1.5 active:opacity-70 ${disabled ? "opacity-50" : ""}`}
-          >
-            <View className={`h-12 w-12 items-center justify-center rounded-2xl ${!checkedIn ? "bg-[#2855F6]" : dayDone ? "bg-violet-50" : "bg-orange-50"}`}>
-              {busy ? (
-                <ActivityIndicator color={checkedIn ? "#1F45C7" : "#fff"} />
-              ) : (
-                <Ionicons
-                  name={checkedIn ? (dayDone ? "moon-outline" : "exit-outline") : "enter-outline"}
-                  size={22}
-                  color={!checkedIn ? "#fff" : dayDone ? "#6D28D9" : "#C2410C"}
-                />
-              )}
-              {busy || !checkedIn ? null : (
-                <View className="absolute -right-1 -top-1 h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-[#22C55E]">
-                  <Ionicons name="checkmark" size={11} color="#fff" />
-                </View>
-              )}
-            </View>
-            <Text className={`text-xs ${checkedIn ? "font-medium text-ink-800" : "font-bold text-[#1F45C7]"}`}>{tileText}</Text>
-          </Pressable>
-        </>
+            ) : checkedIn ? (
+              <View className="absolute -right-1 -top-1 h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-[#22C55E]">
+                <Ionicons name="checkmark" size={11} color="#fff" />
+              </View>
+            ) : null}
+          </View>
+          <Text className={`text-xs ${checkedIn ? "font-medium text-ink-800" : "font-bold text-[#1F45C7]"}`}>{tileText}</Text>
+        </Pressable>
       ) : (
         <Button variant="ghost" accessibilityLabel={label} disabled={disabled || busy} onPress={press}>
           {busy ? "Checking in…" : checkedIn ? `✓ In at ${clock(inAt)}` : "📍 Check in"}

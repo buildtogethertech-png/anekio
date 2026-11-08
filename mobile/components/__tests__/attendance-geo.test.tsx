@@ -88,55 +88,6 @@ describe("Check in from the tile", () => {
   });
 });
 
-describe("Break and Check out are separate tiles", () => {
-  function focusOn(status: "focus" | "break", extra: Record<string, unknown> = {}) {
-    const focus = {
-      enabled: true,
-      day: { status, since: Date.now(), breakReason: status === "break" ? "Lunch" : undefined },
-      inClass: null,
-      breakInClass: false,
-      requestBreak: jest.fn(),
-      resume: jest.fn(),
-      ...extra,
-    };
-    mockUseFocusDay.mockReturnValue(focus as never);
-    return focus;
-  }
-  afterEach(() => mockUseFocusDay.mockReturnValue(null));
-
-  it("checked in with the phone day on: Break opens the reason sheet, Check out is its own tile", () => {
-    const focus = focusOn("focus");
-    render(<MarkHereButton tile token="t" today={{ marked: true, inAt: "08:52" }} onDone={jest.fn()} />);
-    expect(screen.getByText("Check out")).toBeTruthy();
-    fireEvent.press(screen.getByLabelText("Take a break"));
-    expect(focus.requestBreak).toHaveBeenCalled();
-    expect(screen.queryByTestId("mark-here-sheet")).toBeNull();
-  });
-
-  it("on break: Resume in one tap", async () => {
-    const focus = focusOn("break");
-    render(<MarkHereButton tile token="t" today={{ marked: true, inAt: "08:52" }} onDone={jest.fn()} />);
-    fireEvent.press(screen.getByLabelText("Resume"));
-    expect(focus.resume).toHaveBeenCalled();
-    expect(await screen.findByText("Break over. Welcome back.")).toBeTruthy();
-  });
-
-  it("no break while a class is on: says why", async () => {
-    const focus = focusOn("focus", { inClass: { classLabel: "2-A", subject: "Maths" } });
-    render(<MarkHereButton tile token="t" today={{ marked: true, inAt: "08:52" }} onDone={jest.fn()} />);
-    fireEvent.press(screen.getByLabelText("Take a break"));
-    expect(focus.requestBreak).not.toHaveBeenCalled();
-    expect(await screen.findByText("2-A Maths is on now. Take a break after it.")).toBeTruthy();
-  });
-
-  it("phone school day off: no Break tile", () => {
-    mockUseFocusDay.mockReturnValue(null);
-    render(<MarkHereButton tile token="t" today={{ marked: true, inAt: "08:52" }} onDone={jest.fn()} />);
-    expect(screen.queryByLabelText("Take a break")).toBeNull();
-    expect(screen.getByText("Check out")).toBeTruthy();
-  });
-});
-
 describe("MarkHereSheet", () => {
   // A teacher with one more class later today; the school day ends at 23:59.
   function teacherDay() {
@@ -223,6 +174,16 @@ describe("MarkHereSheet", () => {
     expect(focus.goHome).toHaveBeenCalledWith("Not well");
   });
 
+  it("one tile says Break / Out, and the sheet has Break and Check out side by side", async () => {
+    teacherDay();
+    phoneDay("focus");
+    render(<MarkHereButton tile token="t" today={{ marked: true, inAt: "08:52" }} onDone={jest.fn()} />);
+    expect(screen.getByText("Break / Out")).toBeTruthy();
+    fireEvent.press(screen.getByLabelText("My check in. In at 8:52 AM"));
+    expect(await screen.findByLabelText("Take a break")).toBeTruthy();
+    expect(screen.getByLabelText("Check out here")).toBeTruthy();
+  });
+
   it("Take a break needs a reason; on break, Resume is right there", () => {
     teacherDay();
     const focus = phoneDay("focus");
@@ -244,7 +205,7 @@ describe("MarkHereSheet", () => {
     phoneDay("focus", { inClass: { classLabel: "2-A", subject: "Maths" } });
     render(<MarkHereSheet open token="t" today={{ marked: true, inAt: "08:52" }} onClose={jest.fn()} onDone={jest.fn()} />);
     expect(screen.getByLabelText("Take a break").props.accessibilityState.disabled).toBe(true);
-    expect(screen.getByText("2-A Maths is on now · after it")).toBeTruthy();
+    expect(screen.getByText("2-A Maths is on now · break after it")).toBeTruthy();
   });
 });
 
