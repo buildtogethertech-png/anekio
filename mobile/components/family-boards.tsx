@@ -219,7 +219,7 @@ function friendlyHint(text?: string) {
 
 export function TeacherDeskBoard() {
   const { data, reload, reloadSilently, reloadInBackground } = useRecord();
-  const { token, user } = useSession();
+  const { token, user, nav } = useSession();
   const router = useRouter();
   const toast = useToast();
   const [pending, setPending] = useState("");
@@ -606,7 +606,7 @@ export function TeacherDeskBoard() {
 
   function phoneQuickActions() {
     if (!phoneDashboard) return null;
-    // My class and Marks are already bottom tabs (Class, Exams): the dashboard keeps what is not.
+    // Marks is already a bottom tab (Exams); My class lives here (not in the bottom bar).
     const actions: { icon: keyof typeof Ionicons.glyphMap; label: string; route: string }[] = [
       { icon: "airplane-outline", label: "Leave", route: "/leave" },
     ];
@@ -631,6 +631,19 @@ export function TeacherDeskBoard() {
             round
             onMessage={toast.show}
           />
+        ) : null}
+        {nav.some((item) => item.key === "class") ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="My class"
+          onPress={() => router.push("/class" as never)}
+          className="flex-1 items-center gap-1.5 active:opacity-70"
+        >
+          <View className="h-12 w-12 items-center justify-center rounded-2xl bg-[#EEF3FF]">
+            <Ionicons name="people-outline" size={22} color="#1F45C7" />
+          </View>
+          <Text className="text-xs font-medium text-ink-800">My class</Text>
+        </Pressable>
         ) : null}
         {data?.staffAttendanceSelf ? <MyAttendanceTile token={token} /> : null}
         {actions.map((action) => (

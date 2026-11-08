@@ -60,8 +60,8 @@ export function iconForNav(key: string): IoniconName {
 export function tabsForPortal(portal?: string | null) {
   // Parents: no "More" tab. Everything else sits in Quick access on the home screen.
   if (portal === "PARENT") return ["home", "timetable", "fees", "inbox"];
-  // Teachers: no "More" tab. Leave is on the dashboard, Inbox and Profile sit in the top bar.
-  if (portal === "TEACHER") return ["home", "attendance", "class", "exams", "timetable"];
+  // Teachers: no "More" tab. My class and Leave are on the dashboard; Inbox and Profile sit in the top bar.
+  if (portal === "TEACHER") return ["home", "attendance", "exams", "timetable"];
   if (portal === "OFFICE") return ["home", "people", "staff", "fees", "more"];
   return ["home", "timetable", "fees", "profile", "more"];
 }
@@ -69,7 +69,7 @@ export function tabsForPortal(portal?: string | null) {
 /** If a role can't open a preferred tab, the next most useful page it CAN open takes the slot. */
 const TAB_FALLBACKS: Record<string, string[]> = {
   OFFICE: ["home", "people", "staff", "fees", "admissions", "exams", "timetable", "notices", "inbox", "school"],
-  TEACHER: ["home", "attendance", "class", "exams", "timetable", "leave", "notices", "inbox"],
+  TEACHER: ["home", "attendance", "exams", "timetable", "class", "leave", "notices", "inbox"],
 };
 
 /** Office staff with their own attendance QR get a centre "My QR" button, which takes one tab slot. */
