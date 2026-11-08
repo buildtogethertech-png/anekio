@@ -6,6 +6,9 @@
   <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
   <application>
+    <!-- Play policy: an app that reports how staff use their phone during the school day is a monitoring
+         tool. It is declared, never hidden, and always shows its notification while the day is on. -->
+    <meta-data android:name="android.app.isMonitoringTool" android:value="enterprise_management" />
     <service
       android:name="expo.modules.classlock.FocusDayService"
       android:exported="false"

@@ -201,6 +201,19 @@ describe("MarkHereSheet", () => {
     expect(onBreak.resume).toHaveBeenCalled();
   });
 
+  it("asks for the overlay permission only after a plain consent screen", () => {
+    teacherDay();
+    const focus = phoneDay("focus", { guardAllowed: false });
+    render(<MarkHereSheet open token="t" today={{ marked: true, inAt: "08:52" }} onClose={jest.fn()} onDone={jest.fn()} />);
+    fireEvent.press(screen.getByLabelText("Allow the school day"));
+    expect(screen.getByTestId("guard-consent")).toBeTruthy();
+    expect(screen.getByText(/Your school's admin can see this/)).toBeTruthy();
+    expect(screen.getByText(/does not read your messages/)).toBeTruthy();
+    expect(focus.allowGuard).not.toHaveBeenCalled();
+    fireEvent.press(screen.getByLabelText("I agree, continue"));
+    expect(focus.allowGuard).toHaveBeenCalled();
+  });
+
   it("no break while a class is on (unless the school allows it)", () => {
     teacherDay();
     phoneDay("focus", { inClass: { classLabel: "2-A", subject: "Maths" } });

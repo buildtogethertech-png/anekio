@@ -246,6 +246,45 @@ function BreakPicker({ reasons, onTake, onCancel }: { reasons: string[]; onTake:
 }
 
 /**
+ * Before Android's "Display over other apps" permission: say plainly what the school day does, what is
+ * recorded and who sees it (Play: prominent disclosure and consent for monitoring).
+ */
+function GuardConsent({ open, onAgree, onCancel }: { open: boolean; onAgree: () => void; onCancel: () => void }) {
+  const insets = useSafeAreaInsets();
+  const point = (icon: keyof typeof Ionicons.glyphMap, text: string, tint = "#1F45C7") => (
+    <View className="flex-row items-start gap-3">
+      <View className="mt-0.5 h-8 w-8 items-center justify-center rounded-full bg-ink-50">
+        <Ionicons name={icon} size={16} color={tint} />
+      </View>
+      <Text className="min-w-0 flex-1 text-[14px] leading-5 text-ink-800">{text}</Text>
+    </View>
+  );
+  return (
+    <RnModal visible={open} transparent animationType="slide" onRequestClose={onCancel} statusBarTranslucent>
+      <View className="flex-1 justify-end">
+        <Pressable accessibilityRole="button" accessibilityLabel="Not now" onPress={onCancel} className="absolute inset-0 bg-black/40" />
+        <View testID="guard-consent" className="gap-4 rounded-t-3xl bg-white px-5 pt-5" style={{ paddingBottom: insets.bottom + 18 }}>
+          <Text className="text-[20px] font-bold text-ink-900">Your school day on this phone</Text>
+          {point("lock-closed-outline", "During school hours, other apps are paused while you are not on a break. Anekio, calls and apps opened from Anekio, and breaks stay free.")}
+          {point("document-text-outline", "Anekio records when your day starts and ends, your breaks with their reason, and when you leave Anekio. Your school's admin can see this.")}
+          {point("eye-off-outline", "Anekio does not read your messages, photos or what you do in other apps.", "#047857")}
+          {point("power-outline", "It turns off when you check out, when the school day ends, and on leave days.")}
+          <Text className="text-[13px] text-ink-500">Next, Android asks you to let Anekio “display over other apps”.</Text>
+          <View className="flex-row gap-2.5">
+            <Pressable accessibilityRole="button" onPress={onCancel} className="h-12 flex-1 items-center justify-center rounded-2xl border border-ink-200">
+              <Text className="text-[15px] font-semibold text-ink-700">Not now</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel="I agree, continue" onPress={onAgree} className="h-12 flex-1 items-center justify-center rounded-2xl" style={{ backgroundColor: BLUE }}>
+              <Text className="text-[15px] font-bold text-white">I agree, continue</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </RnModal>
+  );
+}
+
+/**
  * The teacher's own day, as a sheet from the bottom: Check in; then In / Out / hours, Break and Resume,
  * and Check out — which, before the school day
  * is over, asks why. Checking out ends the phone's school day. The server checks distance, GPS
@@ -276,6 +315,7 @@ export function MarkHereSheet({
   const [leaveReason, setLeaveReason] = useState("");
   const [leaveNote, setLeaveNote] = useState("");
   const [picking, setPicking] = useState(false);
+  const [consentOpen, setConsentOpen] = useState(false);
   const watcher = useRef<FixWatcher | null>(null);
   const checkedIn = Boolean(today?.marked && today?.inAt);
   const phoneDay = focus?.enabled && focus.day && focus.day.status !== "ended" ? focus.day : null;
@@ -395,7 +435,7 @@ export function MarkHereSheet({
         ) : null}
 
         {focus?.enabled && isIn && !focus.guardAllowed && phoneDay ? (
-          <Pressable accessibilityRole="button" onPress={focus.allowGuard} className="flex-row items-center gap-3 rounded-2xl bg-amber-50 px-4 py-3">
+          <Pressable accessibilityRole="button" accessibilityLabel="Allow the school day" onPress={() => setConsentOpen(true)} className="flex-row items-center gap-3 rounded-2xl bg-amber-50 px-4 py-3">
             <Ionicons name="shield-half-outline" size={20} color="#B45309" />
             <Text className="min-w-0 flex-1 text-[13px] text-amber-900">Allow “Display over other apps” so your school day works.</Text>
             <Text className="text-[13px] font-bold text-amber-800">Allow</Text>
@@ -479,6 +519,14 @@ export function MarkHereSheet({
           <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: Dimensions.get("window").height * 0.85 }}>
             {body}
           </ScrollView>
+          <GuardConsent
+            open={consentOpen}
+            onCancel={() => setConsentOpen(false)}
+            onAgree={() => {
+              setConsentOpen(false);
+              focus?.allowGuard();
+            }}
+          />
         </View>
       </View>
     </RnModal>

@@ -128,7 +128,9 @@ object FocusDayState {
     val app = context.applicationContext
     appContext = app
     check(app)
-    hideFromRecents(app, status != "off")
+    // Anekio always stays in Recents (Play: monitoring apps must never hide). Earlier test builds hid the
+    // task during the day; this undoes it on phones that still have it hidden.
+    keepInRecents(app)
     val service = Intent(app, FocusDayService::class.java)
     if (status != "off") {
       runCatching {
@@ -180,10 +182,10 @@ object FocusDayState {
     }
   }
 
-  private fun hideFromRecents(context: Context, hide: Boolean) {
+  private fun keepInRecents(context: Context) {
     runCatching {
       val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-      am.appTasks.forEach { it.setExcludeFromRecents(hide) }
+      am.appTasks.forEach { it.setExcludeFromRecents(false) }
     }
   }
 }
