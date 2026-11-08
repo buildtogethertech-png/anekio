@@ -213,12 +213,24 @@ export function FocusDayProvider({ children }: { children: ReactNode }) {
     });
   }, [enabled, user?.id]);
 
-  // The teacher's own check-in starts the day by itself (before closing time, once a day).
+  // The teacher's own check-in starts the day by itself (before closing time).
   const checkedIn = Boolean(data?.staffAttendanceSelf?.today?.marked);
+  const todayIn = data?.staffAttendanceSelf?.today?.inAt || "";
+  const todayOut = data?.staffAttendanceSelf?.today?.outAt || "";
+  // A day that ended (checked out) starts again only for a newer check-in with no out: the office took
+  // the out back, or cleared the day, and the teacher checked in again.
+  const freshIn = useMemo(() => {
+    if (!day || day.status !== "ended" || !todayIn || todayOut) return false;
+    const m = /^(\d{1,2}):(\d{2})/.exec(todayIn);
+    if (!m) return false;
+    const inAtMs = midnight + (Number(m[1]) * 60 + Number(m[2])) * 60_000;
+    return inAtMs >= day.since - 60_000;
+  }, [day, todayIn, todayOut, midnight]);
   useEffect(() => {
-    if (!enabled || !loaded || day || !checkedIn || !user?.id || Date.now() >= closesAt) return;
+    if (!enabled || !loaded || !checkedIn || !user?.id || Date.now() >= closesAt) return;
+    if (day && !freshIn) return;
     save(focusDay.start(user.id, Date.now()));
-  }, [enabled, loaded, day, checkedIn, user?.id, closesAt]);
+  }, [enabled, loaded, day, freshIn, checkedIn, user?.id, closesAt]);
 
   // Tick every second while the day is on: timer, class start, closing time.
   useEffect(() => {
