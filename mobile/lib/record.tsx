@@ -973,6 +973,8 @@ export type RecordPayload = {
     advanceDays?: number;
     /** false = the built-in Unpaid leave type (Leave settings switch). */
     paid?: boolean;
+    /** false = applying does not need a note to the approver. */
+    noteRequired?: boolean;
   }[];
   leaveBalances?: {
     typeId: string;

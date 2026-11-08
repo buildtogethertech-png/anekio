@@ -83,10 +83,10 @@ export async function applyLeave(
   const to = halfDay ? from : String(input.to || from).slice(0, 10);
   const reason = String(input.reason || "").trim();
   if (!typeId || !from || !to) throw new Error("Pick a leave type and the dates");
-  if (reason.length < 3) throw new Error("Add a short note for the approver.");
   if (from > to) throw new Error("End date is before the start");
   const type = await prisma.leaveType.findUnique({ where: { id: typeId } });
   if (!type) throw new Error("That leave type is gone. Ask the office to set Planned and Sick.");
+  if (type.noteRequired && reason.length < 3) throw new Error("Add a short note for the approver.");
   const cal = await loadSchoolCalendar();
   const days = schoolDaysInRange(from, to, cal);
   if (!days.length) throw new Error("Those dates are weekly offs or holidays");

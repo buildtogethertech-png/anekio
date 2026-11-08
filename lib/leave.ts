@@ -27,6 +27,8 @@ export type LeaveTypeRow = {
   advanceDays: number;
   /** false = Unpaid leave (salary is cut). The built-in "Unpaid leave" type is the only unpaid one. */
   paid: boolean;
+  /** Applying needs a note to the approver. */
+  noteRequired: boolean;
 };
 
 export type LeaveRequestRow = {
@@ -129,6 +131,7 @@ export function serializeLeaveType(row: {
   prorateJoiners?: boolean | null;
   advanceDays?: number | null;
   paid?: boolean | null;
+  noteRequired?: boolean | null;
 }): LeaveTypeRow {
   return {
     id: row.id,
@@ -147,6 +150,7 @@ export function serializeLeaveType(row: {
     prorateJoiners: row.prorateJoiners !== false,
     advanceDays: Number(row.advanceDays || 0),
     paid: row.paid !== false,
+    noteRequired: row.noteRequired !== false,
   };
 }
 

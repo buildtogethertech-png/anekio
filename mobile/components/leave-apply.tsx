@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Modal as RnModal, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { useEffect, useMemo, useState, useRef } from "react";
+import { KeyboardAvoidingView, Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -216,6 +216,10 @@ export function LeaveApplyCard({
   const [formError, setFormError] = useState("");
   const [busy, setBusy] = useState(false);
   const picked = useMemo(() => types.find((t) => t.id === typeId) || types[0], [types, typeId]);
+  // The school decides per leave type whether the note is required (on unless turned off).
+  const noteNeeded = picked?.noteRequired !== false;
+  const noteMissing = noteNeeded && reason.trim().length < 3;
+  const scrollRef = useRef<ScrollView | null>(null);
   const earliest = picked ? earliestLeaveStart(picked.noticeDays, schoolCalendar) : "";
   const leaveClosedReason = (value: string) => {
     const closed = closedReason(value, schoolCalendar);
@@ -283,7 +287,7 @@ export function LeaveApplyCard({
       onError(message);
       return;
     }
-    if (reason.trim().length < 3) {
+    if (noteMissing) {
       setFormError("Add a short note for the approver.");
       onError("Add a short note for the approver.");
       return;
@@ -477,11 +481,14 @@ export function LeaveApplyCard({
 
       <View>
         <Text className="mb-2 text-sm font-semibold text-ink-900">
-          Note to approver <Text className="text-red-600">*</Text>
+          Note to approver {noteNeeded ? <Text className="text-red-600">*</Text> : <Text className="font-normal text-ink-500">(optional)</Text>}
         </Text>
         <TextInput
           value={reason}
           onChangeText={setReason}
+          accessibilityLabel="Note to approver"
+          // Keep the note in view above the keyboard (phone sheet scrolls it up).
+          onFocus={() => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 250)}
           placeholder="e.g. Family function, doctor's appointment"
           placeholderTextColor="#94A3B8"
           multiline
@@ -501,9 +508,9 @@ export function LeaveApplyCard({
       </Text>
       <Pressable
         accessibilityRole="button"
-        disabled={busy || !from || !picked || reason.trim().length < 3}
+        disabled={busy || !from || !picked || noteMissing}
         onPress={() => void submitLeave()}
-        className={`h-12 items-center justify-center rounded-2xl ${busy || !from || !picked || reason.trim().length < 3 ? "bg-[#1F45C7]/40" : "bg-[#1F45C7]"}`}
+        className={`h-12 items-center justify-center rounded-2xl ${busy || !from || !picked || noteMissing ? "bg-[#1F45C7]/40" : "bg-[#1F45C7]"}`}
       >
         <Text className="text-[15px] font-semibold text-white">{busy ? "Sending…" : "Request leave"}</Text>
       </Pressable>
@@ -520,10 +527,12 @@ export function LeaveApplyCard({
           <Text className="flex-1 text-center text-[17px] font-semibold text-ink-900">Apply leave</Text>
           <View className="w-11" />
         </View>
-        <ScrollView className="flex-1" contentContainerStyle={{ padding: 16, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
-          {formBody}
-        </ScrollView>
-        <View className="border-t border-ink-100 px-4 pb-3 pt-3">{footer}</View>
+        <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === "ios" ? "padding" : "height"}>
+          <ScrollView ref={scrollRef} className="flex-1" contentContainerStyle={{ padding: 16, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
+            {formBody}
+          </ScrollView>
+          <View className="border-t border-ink-100 px-4 pb-3 pt-3">{footer}</View>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </RnModal>
   ) : (

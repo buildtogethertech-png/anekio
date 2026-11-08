@@ -1201,6 +1201,8 @@ model LeaveType {
   /// Set when the credit rule changes: earlier periods are never re-credited under the new rule.
   creditRuleSince   DateTime?
   paid              Boolean        @default(true)
+  /// Applying needs a note to the approver (the school can turn it off per type, e.g. Sick).
+  noteRequired      Boolean        @default(true)
   sortOrder         Int            @default(0)
   requests          LeaveRequest[]
 }

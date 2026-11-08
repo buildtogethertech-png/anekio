@@ -4734,6 +4734,7 @@ export async function saveLeavePolicyCore(
       carryForwardCap?: number;
       prorateJoiners?: boolean;
       advanceDays?: number;
+      noteRequired?: boolean;
     }[];
     leaveYearStartMonth?: number;
   }
@@ -4760,6 +4761,7 @@ export async function saveLeavePolicyCore(
     carryForwardCap: Math.max(0, Math.min(365, Math.round(Number(row.carryForwardCap) || 0))),
     prorateJoiners: row.prorateJoiners !== false,
     advanceDays: Math.max(0, Math.min(30, Math.round(Number(row.advanceDays) || 0))),
+    noteRequired: row.noteRequired !== false,
   }));
   const before = new Map((await prisma.leaveType.findMany()).map((t) => [t.id, t]));
   if (!rows.length) throw new Error("Add at least one leave type");
@@ -4790,6 +4792,7 @@ export async function saveLeavePolicyCore(
         carryForwardCap: row.carryForwardCap,
         prorateJoiners: row.prorateJoiners,
         advanceDays: row.advanceDays,
+        noteRequired: row.noteRequired,
       } as Record<string, unknown>;
       const prev = row.id ? before.get(row.id) : undefined;
       // A changed credit rule applies from the next credit; what was already credited stays.

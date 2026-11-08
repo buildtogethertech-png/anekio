@@ -1504,6 +1504,15 @@ function PhoneLeaveTypes({
                   </View>
                 ) : null}
                 {moreOpen ? (
+                  <View className="flex-row items-center justify-between">
+                    <View className="min-w-0 flex-1 pr-3">
+                      <Text className="text-sm font-medium text-ink-900">Note to approver required</Text>
+                      <Text className="text-[11px] text-ink-500">Off: staff can apply without writing a note</Text>
+                    </View>
+                    <Switch on={draft.noteRequired !== false} onPress={() => setDraft({ ...draft, noteRequired: draft.noteRequired === false })} />
+                  </View>
+                ) : null}
+                {moreOpen ? (
                   <View>
                     <Text className="mb-2 text-xs font-medium text-ink-700">Only for (e.g. maternity / paternity)</Text>
                     <View className="flex-row gap-2">
@@ -1773,6 +1782,15 @@ function DeskLeaveTypes({
                     </Text>
                   </View>
                   <LeaveStep value={draft.noticeDays} max={30} onChange={(noticeDays) => setDraft({ ...draft, noticeDays: Math.round(noticeDays) })} />
+                </View>
+              ) : null}
+              {moreOpen ? (
+                <View className="mt-3 flex-row items-center justify-between gap-3">
+                  <View className="min-w-0 flex-1">
+                    <Text className="text-sm font-medium text-ink-900">Note to approver required</Text>
+                    <Text className="text-[11px] text-ink-500">Off: staff can apply without writing a note</Text>
+                  </View>
+                  <Switch on={draft.noteRequired !== false} onPress={() => setDraft({ ...draft, noteRequired: draft.noteRequired === false })} />
                 </View>
               ) : null}
               {moreOpen ? (
