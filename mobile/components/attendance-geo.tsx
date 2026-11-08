@@ -760,10 +760,11 @@ export function MarkHereButton({
   const [msg, setMsg] = useState<{ tone: "ok" | "bad"; text: string } | null>(null);
   const [justIn, setJustIn] = useState("");
   const checkedIn = Boolean((today?.marked && today?.inAt) || justIn);
-  const onBreak = useFocusDay()?.day?.status === "break";
+  const focus = useFocusDay();
+  const onBreak = focus?.day?.status === "break";
   const dayDone = Boolean(checkedIn && today?.outAt);
   // "Check in" is the teacher's own attendance (class attendance keeps the word "Attendance").
-  const tileText = busy ? "Checking in…" : onBreak ? "On break" : dayDone ? "Done" : checkedIn ? "Check out" : "Check in";
+  const tileText = busy ? "Checking in…" : dayDone ? "Done" : checkedIn ? "Check out" : "Check in";
   const inAt = today?.inAt || justIn;
   const label = onBreak
     ? "My check in. On break"
@@ -814,32 +815,55 @@ export function MarkHereButton({
           )}
         </Pressable>
       ) : tile ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={label}
-          accessibilityState={{ disabled: disabled || busy, busy }}
-          disabled={disabled || busy}
-          onPress={press}
-          className={`flex-1 items-center gap-1.5 active:opacity-70 ${disabled ? "opacity-50" : ""}`}
-        >
-          <View className={`h-12 w-12 items-center justify-center rounded-2xl ${checkedIn ? "bg-[#EEF3FF]" : "bg-[#2855F6]"}`}>
-            {busy ? (
-              <ActivityIndicator color={checkedIn ? "#1F45C7" : "#fff"} />
-            ) : (
-              <Ionicons name={checkedIn ? (dayDone ? "moon-outline" : "exit-outline") : "enter-outline"} size={22} color={checkedIn ? "#1F45C7" : "#fff"} />
-            )}
-            {busy ? null : onBreak ? (
-              <View className="absolute -right-1 -top-1 h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-[#D97706]">
-                <Ionicons name="cafe" size={10} color="#fff" />
+        <>
+          {/* Phone school day on: Break (or Resume) is its own tile — no location needed, from anywhere. */}
+          {checkedIn && !dayDone && focus?.enabled && focus.day && focus.day.status !== "ended" ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={onBreak ? "Resume" : "Take a break"}
+              onPress={() => {
+                if (onBreak) {
+                  focus.resume();
+                  setMsg({ tone: "ok", text: "Break over. Welcome back." });
+                } else if (focus.inClass && !focus.breakInClass) {
+                  setMsg({ tone: "bad", text: `${`${focus.inClass.classLabel} ${focus.inClass.subject}`.trim()} is on now. Take a break after it.` });
+                } else focus.requestBreak();
+              }}
+              className="flex-1 items-center gap-1.5 active:opacity-70"
+            >
+              <View className={`h-12 w-12 items-center justify-center rounded-2xl ${onBreak ? "bg-[#D97706]" : "bg-amber-50"}`}>
+                <Ionicons name={onBreak ? "play" : "cafe-outline"} size={22} color={onBreak ? "#fff" : "#B45309"} />
               </View>
-            ) : checkedIn ? (
-              <View className="absolute -right-1 -top-1 h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-[#22C55E]">
-                <Ionicons name="checkmark" size={11} color="#fff" />
-              </View>
-            ) : null}
-          </View>
-          <Text className={`text-xs ${checkedIn ? "font-medium text-ink-800" : "font-bold text-[#1F45C7]"}`}>{tileText}</Text>
-        </Pressable>
+              <Text className={`text-xs ${onBreak ? "font-bold text-amber-800" : "font-medium text-ink-800"}`}>{onBreak ? "Resume" : "Break"}</Text>
+            </Pressable>
+          ) : null}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={label}
+            accessibilityState={{ disabled: disabled || busy, busy }}
+            disabled={disabled || busy}
+            onPress={press}
+            className={`flex-1 items-center gap-1.5 active:opacity-70 ${disabled ? "opacity-50" : ""}`}
+          >
+            <View className={`h-12 w-12 items-center justify-center rounded-2xl ${!checkedIn ? "bg-[#2855F6]" : dayDone ? "bg-violet-50" : "bg-orange-50"}`}>
+              {busy ? (
+                <ActivityIndicator color={checkedIn ? "#1F45C7" : "#fff"} />
+              ) : (
+                <Ionicons
+                  name={checkedIn ? (dayDone ? "moon-outline" : "exit-outline") : "enter-outline"}
+                  size={22}
+                  color={!checkedIn ? "#fff" : dayDone ? "#6D28D9" : "#C2410C"}
+                />
+              )}
+              {busy || !checkedIn ? null : (
+                <View className="absolute -right-1 -top-1 h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-[#22C55E]">
+                  <Ionicons name="checkmark" size={11} color="#fff" />
+                </View>
+              )}
+            </View>
+            <Text className={`text-xs ${checkedIn ? "font-medium text-ink-800" : "font-bold text-[#1F45C7]"}`}>{tileText}</Text>
+          </Pressable>
+        </>
       ) : (
         <Button variant="ghost" accessibilityLabel={label} disabled={disabled || busy} onPress={press}>
           {busy ? "Checking in…" : checkedIn ? `✓ In at ${clock(inAt)}` : "📍 Check in"}
