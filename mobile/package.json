@@ -83,5 +83,12 @@
   },
   "engines": {
     "node": ">=20.19.4"
+  },
+  "expo": {
+    "autolinking": {
+      "exclude": [
+        "class-lock"
+      ]
+    }
   }
 }

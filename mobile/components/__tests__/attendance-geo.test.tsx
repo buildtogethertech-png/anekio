@@ -90,6 +90,13 @@ describe("Check in from the tile", () => {
 });
 
 describe("MarkHereSheet", () => {
+  // A fixed school morning, so "a class later today" never runs past midnight.
+  beforeAll(() => {
+    jest.useFakeTimers({ advanceTimers: true, now: new Date(2026, 10, 4, 10, 0, 0) });
+  });
+  afterAll(() => {
+    jest.useRealTimers();
+  });
   // A teacher with one more class later today; the school day ends at 23:59.
   function teacherDay() {
     const later = new Date(Date.now() + 60 * 60_000);

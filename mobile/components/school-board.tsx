@@ -1,4 +1,5 @@
 import { SchoolDaySettingsForm } from "./school-day-settings";
+import { FEATURES } from "../lib/features";
 import { useEffect, useState, type ReactNode } from "react";
 import { SchoolYearPanel, YearSummaryModal } from "./school-year-panel";
 import { Image, KeyboardAvoidingView, Linking, Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
@@ -43,7 +44,10 @@ const TABS = [
   { id: "exams", label: "Exams", hint: "Grade scale and this year's sittings. Every class follows this.", group: "Academics" },
   { id: "leave", label: "Leave", hint: "Leave types, who can apply, notice, and how leave builds up.", group: "HR & Payroll" },
   { id: "payroll", label: "Payroll rules", hint: "Salary day basis, paid offs, sandwich rule, half days, timing and lates.", group: "HR & Payroll" },
-  { id: "phones", label: "Teacher phones", hint: "Keep teachers' phones on Anekio during the school day, and when breaks are allowed.", group: "HR & Payroll" },
+  // Teacher phones ships on its own (see lib/features.ts).
+  ...(FEATURES.teacherPhones
+    ? [{ id: "phones", label: "Teacher phones", hint: "Keep teachers' phones on Anekio during the school day, and when breaks are allowed.", group: "HR & Payroll" } as const]
+    : []),
   { id: "staffAttendance", label: "Staff attendance", hint: "How staff mark in and out: QR, location, RFID card, fingerprint.", group: "HR & Payroll" },
   { id: "feeClasses", label: "Class fees", hint: "Monthly and admission fee for each class", group: "Fees" },
   { id: "feeAddons", label: "Add-ons", hint: "Optional charges like transport or meals", group: "Fees" },

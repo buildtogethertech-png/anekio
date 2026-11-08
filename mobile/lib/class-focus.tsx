@@ -8,6 +8,7 @@
  * The day ends with "End day" or after the last period. The phone keeps the day natively
  * (modules/class-lock), so it works with Anekio in the background or after a restart.
  */
+import { FEATURES } from "./features";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AppState, Platform } from "react-native";
 import { ClassLock } from "../modules/class-lock";
@@ -164,7 +165,8 @@ export function FocusDayProvider({ children }: { children: ReactNode }) {
   const { user, token } = useSession();
   const rules = data?.schoolDay;
   // Android app only: the guard needs the native module, so web and iPhone never show the school day.
-  const enabled = Platform.OS === "android" && ClassLock.available && data?.kind === "TEACHER" && Boolean(user?.id) && rules?.enabled === true;
+  const enabled =
+    FEATURES.teacherPhones && Platform.OS === "android" && ClassLock.available && data?.kind === "TEACHER" && Boolean(user?.id) && rules?.enabled === true;
   const breakInClass = rules?.breakDuringClass === "with_reason";
   const reasons = [...(rules?.breakReasons?.length ? rules.breakReasons : DEFAULT_REASONS), "Other"];
   const [day, setDay] = useState<FocusDay | null>(null);
