@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Animated, Easing, Modal as RnModal, Platform, Pressable, Text, TextInput, View } from "react-native";
+import { Animated, Dimensions, Easing, Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import Svg, { Circle, Defs, LinearGradient as SvgLinearGradient, RadialGradient, Rect, Stop } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
@@ -89,8 +89,11 @@ function greeting(d: Date) {
 /** Full-screen soft gradient with a glow behind the ring (SVG: works the same on phone and web). */
 function Backdrop({ tone }: { tone: Tone }) {
   const glow = tone === "green" ? GREEN : tone === "red" ? "#EF4444" : tone === "slate" ? "#8B5CF6" : tone === "orange" ? "#F97316" : "#3B82F6";
+  // Sized to the whole screen (not the window): with a translucent status bar the window is shorter,
+  // which left a hard band near the bottom.
+  const { width, height } = Dimensions.get("screen");
   return (
-    <Svg pointerEvents="none" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} width="100%" height="100%">
+    <Svg pointerEvents="none" style={{ position: "absolute", top: 0, left: 0 }} width={width} height={height}>
       <Defs>
         <SvgLinearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
           <Stop offset="0" stopColor="#1B2A6B" />
@@ -102,8 +105,8 @@ function Backdrop({ tone }: { tone: Tone }) {
           <Stop offset="1" stopColor={glow} stopOpacity="0" />
         </RadialGradient>
       </Defs>
-      <Rect x="0" y="0" width="100%" height="100%" fill="url(#bg)" />
-      <Rect x="0" y="0" width="100%" height="100%" fill="url(#glow)" />
+      <Rect x="0" y="0" width={width} height={height} fill="url(#bg)" />
+      <Rect x="0" y="0" width={width} height={height} fill="url(#glow)" />
     </Svg>
   );
 }
@@ -271,10 +274,11 @@ function Chip({ label, icon, on, onPress }: { label: string; icon?: keyof typeof
   );
 }
 
-/** Mark out before the school day is over: say why (one tap), see the classes left, or apply leave instead. */
+/**
+ * Checking out before the school day is over: a full screen. Classes still left today, why (four big
+ * tiles), then one button. Half-day leave is offered as the other way.
+ */
 function LeavingEarly({
-  title,
-  sub,
   classesLeft,
   reason,
   note,
@@ -284,8 +288,6 @@ function LeavingEarly({
   onLeave,
   onCancel,
 }: {
-  title: string;
-  sub: string;
   classesLeft: { key: string; classLabel: string; subject: string; start: number }[];
   reason: string;
   note: string;
@@ -298,59 +300,94 @@ function LeavingEarly({
   const ready = Boolean(reason) && (reason !== "Other" || note.trim().length > 1);
   const at = (m: number) => clock(`${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`);
   return (
-    <View testID="leaving-early" className="w-full gap-4">
-      <View className="items-center">
-        <View className="h-16 w-16 items-center justify-center rounded-full" style={{ backgroundColor: "rgba(234,88,12,0.25)" }}>
-          <Ionicons name="exit-outline" size={32} color="#FDBA74" />
-        </View>
-        <Text className="mt-3 text-center text-[26px] font-bold text-white">{title}</Text>
-        <Text className="mt-1 text-center text-[15px] text-white/65">{sub}</Text>
-      </View>
-      {classesLeft.length ? (
-        <View className="gap-1.5 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3">
-          {classesLeft.slice(0, 3).map((c) => (
-            <View key={c.key} className="flex-row items-center gap-2">
-              <Ionicons name="book-outline" size={14} color="#93C5FD" />
-              <Text className="min-w-0 flex-1 text-[14px] text-white" numberOfLines={1}>{`${c.classLabel} ${c.subject}`.trim()}</Text>
-              <Text className="text-[13px] tabular-nums text-white/55">{at(c.start)}</Text>
-            </View>
-          ))}
-          {classesLeft.length > 3 ? <Text className="text-[12px] text-white/45">{`+${classesLeft.length - 3} more`}</Text> : null}
-        </View>
-      ) : null}
-      <Text className="text-[13px] font-semibold uppercase tracking-wider text-white/50">Why are you leaving?</Text>
-      <View className="flex-row flex-wrap gap-2">
-        {EARLY_REASONS.map((r) => (
-          <Chip key={r.label} label={r.label} icon={r.icon} on={reason === r.label} onPress={() => onReason(r.label)} />
-        ))}
-      </View>
-      {reason === "Other" ? (
-        <TextInput
-          value={note}
-          onChangeText={onNote}
-          placeholder="Write a short reason"
-          placeholderTextColor="rgba(255,255,255,0.4)"
-          accessibilityLabel="Reason for leaving early"
-          className="rounded-2xl border border-white/20 bg-white/[0.08] px-4 py-3 text-[15px] text-white"
-        />
-      ) : null}
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Mark out and go home"
-        accessibilityState={{ disabled: !ready }}
-        disabled={!ready}
-        onPress={onConfirm}
-        className={`h-14 flex-row items-center justify-center gap-2 rounded-2xl ${ready ? "" : "opacity-40"}`}
-        style={{ backgroundColor: ORANGE }}
-      >
-        <Ionicons name="home-outline" size={22} color="#fff" />
-        <Text className="text-[17px] font-bold text-white">Mark out & go home</Text>
-      </Pressable>
-      <View className="flex-row items-center justify-between">
-        <Pressable accessibilityRole="button" onPress={onCancel} hitSlop={8}>
-          <Text className="text-[14px] font-semibold text-white/60">Not now</Text>
+    <View testID="leaving-early" className="flex-1">
+      <View className="flex-row items-center px-4">
+        <Pressable accessibilityRole="button" accessibilityLabel="Not now" onPress={onCancel} hitSlop={8} className="flex-row items-center gap-1 rounded-full bg-white/10 py-2 pl-2 pr-4">
+          <Ionicons name="chevron-back" size={18} color="#fff" />
+          <Text className="text-[14px] font-semibold text-white">Not now</Text>
         </Pressable>
-        <Pressable accessibilityRole="button" onPress={onLeave} hitSlop={8}>
+      </View>
+
+      <ScrollView className="flex-1" contentContainerClassName="px-5 pb-4 pt-6" keyboardShouldPersistTaps="handled">
+        <View className="items-center">
+          <View className="h-20 w-20 items-center justify-center rounded-full" style={{ backgroundColor: "rgba(234,88,12,0.22)", borderWidth: 2, borderColor: "rgba(253,186,116,0.5)" }}>
+            <Ionicons name="home" size={36} color="#FDBA74" />
+          </View>
+          <Text className="mt-4 text-center text-[28px] font-bold text-white">Going home early?</Text>
+          <Text className="mt-1.5 text-center text-[15px] leading-5 text-white/65">Tell the school why. Your classes will be covered.</Text>
+        </View>
+
+        {classesLeft.length ? (
+          <View className="mt-6">
+            <Text className="mb-2 text-[12px] font-semibold uppercase tracking-wider text-white/50">
+              {`Still left today · ${classesLeft.length}`}
+            </Text>
+            <View className="gap-2">
+              {classesLeft.slice(0, 3).map((c) => (
+                <View key={c.key} className="flex-row items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.07] px-3 py-2.5">
+                  <View className="rounded-lg bg-white/10 px-2 py-1">
+                    <Text className="text-[13px] font-semibold tabular-nums text-white">{at(c.start)}</Text>
+                  </View>
+                  <Text className="min-w-0 flex-1 text-[15px] font-medium text-white" numberOfLines={1}>{`${c.classLabel} ${c.subject}`.trim()}</Text>
+                </View>
+              ))}
+              {classesLeft.length > 3 ? <Text className="pl-1 text-[13px] text-white/45">{`+ ${classesLeft.length - 3} more`}</Text> : null}
+            </View>
+          </View>
+        ) : null}
+
+        <Text className="mb-2 mt-6 text-[12px] font-semibold uppercase tracking-wider text-white/50">Why are you leaving?</Text>
+        <View className="flex-row flex-wrap justify-between gap-y-2.5">
+          {EARLY_REASONS.map((r) => {
+            const on = reason === r.label;
+            return (
+              <Pressable
+                key={r.label}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: on }}
+                accessibilityLabel={r.label}
+                onPress={() => onReason(r.label)}
+                className={`w-[48.5%] items-center gap-2 rounded-2xl border px-3 py-4 ${on ? "border-[#FDBA74] bg-[#EA580C]/25" : "border-white/12 bg-white/[0.07]"}`}
+              >
+                <View className={`h-11 w-11 items-center justify-center rounded-full ${on ? "bg-[#EA580C]" : "bg-white/10"}`}>
+                  <Ionicons name={r.icon} size={22} color="#fff" />
+                </View>
+                <Text className="text-center text-[14px] font-semibold text-white">{r.label}</Text>
+                {on ? (
+                  <View className="absolute right-2.5 top-2.5 h-5 w-5 items-center justify-center rounded-full bg-[#FDBA74]">
+                    <Ionicons name="checkmark" size={13} color="#7C2D12" />
+                  </View>
+                ) : null}
+              </Pressable>
+            );
+          })}
+        </View>
+        {reason === "Other" ? (
+          <TextInput
+            value={note}
+            onChangeText={onNote}
+            placeholder="Write a short reason"
+            placeholderTextColor="rgba(255,255,255,0.4)"
+            accessibilityLabel="Reason for leaving early"
+            className="mt-3 rounded-2xl border border-white/20 bg-white/[0.08] px-4 py-3.5 text-[15px] text-white"
+          />
+        ) : null}
+      </ScrollView>
+
+      <View className="gap-3 px-5 pt-2">
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Check out and go home"
+          accessibilityState={{ disabled: !ready }}
+          disabled={!ready}
+          onPress={onConfirm}
+          className={`h-16 flex-row items-center justify-center gap-2.5 rounded-2xl ${ready ? "" : "opacity-40"}`}
+          style={{ backgroundColor: ORANGE, shadowColor: "#F97316", shadowOpacity: ready ? 0.5 : 0, shadowRadius: 18, elevation: ready ? 10 : 0 }}
+        >
+          <Ionicons name="exit-outline" size={24} color="#fff" />
+          <Text className="text-[18px] font-bold text-white">{ready ? "Check out & go home" : "Choose a reason"}</Text>
+        </Pressable>
+        <Pressable accessibilityRole="button" onPress={onLeave} hitSlop={8} className="items-center py-1">
           <Text className="text-[14px] font-semibold text-[#BFD0FF]">Apply half-day leave instead</Text>
         </Pressable>
       </View>
@@ -465,8 +502,8 @@ function BreakControls({
 }
 
 /**
- * "Mark in": staff mark their own attendance from their phone while at school. One big button; once in,
- * a big "Mark out" button (any number of times: the last out counts). The server checks distance, GPS
+ * "Check in": staff mark their own attendance from their phone while at school. One big button; once in,
+ * a big "Check out" button (any number of times: the last out counts). The server checks distance, GPS
  * accuracy and fake location.
  */
 export function MarkHereSheet({
@@ -571,16 +608,11 @@ export function MarkHereSheet({
   const tone: Tone =
     phase === "error" ? "red" : flash ? (done?.kind === "out" ? "slate" : "green") : isIn && !locating ? "orange" : "blue";
 
-  let title = "Ready to mark in?";
-  let sub = "Tap Mark in once you're inside school.";
+  let title = "Ready to check in?";
+  let sub = "Tap Check in once you're inside school.";
   if (locating) {
-    title = isIn ? "Marking you out…" : "Marking you in…";
+    title = isIn ? "Checking you out…" : "Checking you in…";
     sub = step === 0 ? "Finding your location" : "Checking you're at school";
-  } else if (phase === "leaving") {
-    title = "Leaving early?";
-    sub = classesLeft.length
-      ? `${classesLeft.length} ${classesLeft.length === 1 ? "class is" : "classes are"} still left today.`
-      : `School ends at ${clock(`${String(Math.floor(closes / 60)).padStart(2, "0")}:${String(closes % 60).padStart(2, "0")}`)}.`;
   } else if (phase === "error") {
     title = "Couldn't mark you";
     sub = error;
@@ -595,7 +627,7 @@ export function MarkHereSheet({
     sub = `In ${clock(inAt)} · Out ${clock(outAt)}. Leaving later? Tap again.`;
   } else if (isIn) {
     title = "You're checked in";
-    sub = `Since ${clock(inAt)}. Tap Mark out when you leave.`;
+    sub = `Since ${clock(inAt)}. Tap Check out when you leave.`;
   }
 
   // One button in the middle: Mark in (blue), then Mark out (orange). A short tick / moon after each mark.
@@ -616,7 +648,7 @@ export function MarkHereSheet({
   ) : (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={isIn ? "Mark out here" : "Mark in here"}
+      accessibilityLabel={isIn ? "Check out here" : "Check in here"}
       accessibilityState={{ disabled: locating, busy: locating }}
       disabled={locating}
       onPress={() => {
@@ -645,7 +677,9 @@ export function MarkHereSheet({
       ) : (
         <>
           <Ionicons name={isIn ? "exit-outline" : "enter-outline"} size={56} color="#fff" />
-          <Text className="mt-1 text-[24px] font-extrabold text-white">{isIn ? (outAt ? "Out again" : "Mark out") : "Mark in"}</Text>
+          <Text className={`mt-1 text-center font-extrabold text-white ${isIn && outAt ? "text-[19px] leading-6" : "text-[24px]"}`}>
+            {isIn ? (outAt ? "Check out\nagain" : "Check out") : "Check in"}
+          </Text>
         </>
       )}
     </Pressable>
@@ -653,9 +687,25 @@ export function MarkHereSheet({
 
   return (
     <RnModal visible={open} animationType="slide" onRequestClose={close} statusBarTranslucent>
-      <View testID="mark-here-sheet" className="flex-1 overflow-hidden bg-[#0B1530]" style={{ paddingTop: insets.top + 8, paddingBottom: insets.bottom + 12 }}>
+      <View testID="mark-here-sheet" className="flex-1 overflow-hidden bg-[#060B1A]" style={{ paddingTop: insets.top + 8, paddingBottom: insets.bottom + 12 }}>
         <StatusBar style="light" />
         <Backdrop tone={tone} />
+        {phase === "leaving" ? (
+          <LeavingEarly
+            classesLeft={classesLeft}
+            reason={leaveReason}
+            note={leaveNote}
+            onReason={setLeaveReason}
+            onNote={setLeaveNote}
+            onConfirm={() => void mark(leaveWhy())}
+            onLeave={() => {
+              close();
+              router.push("/leave" as never);
+            }}
+            onCancel={() => setPhase("idle")}
+          />
+        ) : (
+          <>
 
         <View className="flex-row items-center justify-between px-5">
           <Pressable
@@ -685,31 +735,11 @@ export function MarkHereSheet({
         </View>
 
         <View className="flex-1 items-center justify-center px-6">
-          {phase === "leaving" ? (
-            <LeavingEarly
-              classesLeft={classesLeft}
-              reason={leaveReason}
-              note={leaveNote}
-              onReason={setLeaveReason}
-              onNote={setLeaveNote}
-              onConfirm={() => void mark(leaveWhy())}
-              onLeave={() => {
-                close();
-                router.push("/leave" as never);
-              }}
-              onCancel={() => setPhase("idle")}
-              title={title}
-              sub={sub}
-            />
-          ) : (
-            <StatusRing phase={phase} tone={tone}>
-              {face}
-            </StatusRing>
-          )}
-          {phase === "leaving" ? null : <Text className="mt-3 text-center text-[26px] font-bold text-white">{title}</Text>}
-          {phase === "leaving" ? null : (
-            <Text className={`mt-1.5 text-center text-[15px] leading-5 ${phase === "error" ? "text-red-200" : "text-white/65"}`}>{sub}</Text>
-          )}
+          <StatusRing phase={phase} tone={tone}>
+            {face}
+          </StatusRing>
+          <Text className="mt-3 text-center text-[26px] font-bold text-white">{title}</Text>
+          <Text className={`mt-1.5 text-center text-[15px] leading-5 ${phase === "error" ? "text-red-200" : "text-white/65"}`}>{sub}</Text>
           {locating ? <Stepper step={step} /> : null}
         </View>
 
@@ -725,7 +755,7 @@ export function MarkHereSheet({
               <Text className="text-[13px] font-bold text-amber-200">Allow</Text>
             </Pressable>
           ) : null}
-          {phoneDay && isIn && !outAt && phase !== "leaving" && phase !== "locating" ? (
+          {phoneDay && isIn && !outAt && phase !== "locating" ? (
             <BreakControls
               status={phoneDay.status}
               reason={phoneDay.breakReason || ""}
@@ -746,7 +776,7 @@ export function MarkHereSheet({
               onResume={() => focus?.resume()}
             />
           ) : null}
-          {isIn && phase !== "leaving" ? <StatsCard inAt={inAt} outAt={outAt} now={now} /> : null}
+          {isIn ? <StatsCard inAt={inAt} outAt={outAt} now={now} /> : null}
           {earlierOuts.length ? (
             <Text testID="earlier-outs" className="text-center text-[12px] text-white/45">
               {`Earlier out ${earlierOuts.map((o) => clock(o.at)).join(", ")} · the last one counts`}
@@ -759,6 +789,8 @@ export function MarkHereSheet({
             </Text>
           </View>
         </View>
+          </>
+        )}
       </View>
     </RnModal>
   );
@@ -908,7 +940,7 @@ export function StaffAttendanceSettings({
       <MethodRow
         icon="location-outline"
         title="Location"
-        body="Staff tap “Mark in here” on their phone. Works only inside the school."
+        body="Staff tap “Check in” on their phone. Works only inside the school."
         on={draft.location}
         onSelect={() => choose("location")}
       >

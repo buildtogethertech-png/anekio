@@ -61,11 +61,11 @@ describe("MarkHereSheet", () => {
     mockAct.mockResolvedValue({ ok: true, inAt: "08:52", outAt: "", checkedOut: false, meters: 46, accuracy: 12 } as never);
     const onDone = jest.fn();
     render(<MarkHereSheet open token="t" today={{ marked: false }} onClose={jest.fn()} onDone={onDone} />);
-    expect(screen.getByText("Ready to mark in?")).toBeTruthy();
-    expect(screen.getByText("Mark in")).toBeTruthy();
+    expect(screen.getByText("Ready to check in?")).toBeTruthy();
+    expect(screen.getByText("Check in")).toBeTruthy();
     expect(screen.queryByText(/Secure/)).toBeNull();
-    expect(screen.queryByLabelText("Mark out here")).toBeNull();
-    fireEvent.press(screen.getByLabelText("Mark in here"));
+    expect(screen.queryByLabelText("Check out here")).toBeNull();
+    fireEvent.press(screen.getByLabelText("Check in here"));
     expect(await screen.findByText("You're in! 🎉")).toBeTruthy();
     expect(screen.getByText("Checked in at 8:52 AM. Have a great day.")).toBeTruthy();
     expect(screen.queryByText(/GPS ±/)).toBeNull();
@@ -80,8 +80,8 @@ describe("MarkHereSheet", () => {
     let saved: (v: unknown) => void = () => undefined;
     mockAct.mockReturnValue(new Promise((r) => (saved = r)) as never);
     render(<MarkHereSheet open token="t" today={{ marked: false }} onClose={jest.fn()} onDone={jest.fn()} />);
-    fireEvent.press(screen.getByLabelText("Mark in here"));
-    expect(await screen.findByText("Marking you in…")).toBeTruthy();
+    fireEvent.press(screen.getByLabelText("Check in here"));
+    expect(await screen.findByText("Checking you in…")).toBeTruthy();
     expect(screen.getByText("Finding your location")).toBeTruthy();
     expect(screen.getByTestId("mark-steps")).toBeTruthy();
     found({ lat: 28.6143, lng: 77.209, accuracy: 18, mocked: false });
@@ -96,10 +96,10 @@ describe("MarkHereSheet", () => {
     mockAct.mockResolvedValue({ ok: true, inAt: "08:52", outAt: "15:10", checkedOut: true } as never);
     render(<MarkHereSheet open token="t" today={{ marked: true, inAt: "08:52" }} onClose={jest.fn()} onDone={jest.fn()} />);
     expect(screen.getByText("You're checked in")).toBeTruthy();
-    expect(screen.getByText("Mark out")).toBeTruthy();
+    expect(screen.getByText("Check out")).toBeTruthy();
     expect(screen.getByText("Hours")).toBeTruthy();
-    expect(screen.queryByLabelText("Mark in here")).toBeNull();
-    fireEvent.press(screen.getByLabelText("Mark out here"));
+    expect(screen.queryByLabelText("Check in here")).toBeNull();
+    fireEvent.press(screen.getByLabelText("Check out here"));
     expect(await screen.findByText("Out at 3:10 PM")).toBeTruthy();
     expect(screen.getByText("6h 18m")).toBeTruthy();
   });
@@ -108,17 +108,17 @@ describe("MarkHereSheet", () => {
     render(<MarkHereSheet open token="t" today={{ marked: true, inAt: "08:52", outAt: "15:10" }} onClose={jest.fn()} onDone={jest.fn()} />);
     expect(screen.getByText("Done for today")).toBeTruthy();
     expect(screen.getByText("In 8:52 AM · Out 3:10 PM. Leaving later? Tap again.")).toBeTruthy();
-    expect(screen.getByText("Out again")).toBeTruthy();
-    expect(screen.getByLabelText("Mark out here")).toBeTruthy();
+    expect(screen.getByText("Check out\nagain")).toBeTruthy();
+    expect(screen.getByLabelText("Check out here")).toBeTruthy();
   });
 
   it("after the tick, Mark in becomes Mark out in the same place", async () => {
     mockReadFix.mockResolvedValue({ lat: 28.6143, lng: 77.209, accuracy: 12, mocked: false });
     mockAct.mockResolvedValue({ ok: true, inAt: "08:52", outAt: "", checkedOut: false } as never);
     render(<MarkHereSheet open token="t" today={{ marked: false }} onClose={jest.fn()} onDone={jest.fn()} />);
-    fireEvent.press(screen.getByLabelText("Mark in here"));
+    fireEvent.press(screen.getByLabelText("Check in here"));
     expect(await screen.findByTestId("attendance-done")).toBeTruthy();
-    await waitFor(() => expect(screen.getByLabelText("Mark out here")).toBeTruthy(), { timeout: 4000 });
+    await waitFor(() => expect(screen.getByLabelText("Check out here")).toBeTruthy(), { timeout: 4000 });
     expect(screen.getByText("You're checked in")).toBeTruthy();
   }, 10000);
 
@@ -139,7 +139,7 @@ describe("MarkHereSheet", () => {
     mockReadFix.mockResolvedValue({ lat: 28.62, lng: 77.209, accuracy: 12, mocked: false });
     mockAct.mockRejectedValue(new Error("You are 680 m from school. Mark when you are inside (within 150 m)."));
     render(<MarkHereSheet open token="t" today={{ marked: false }} onClose={jest.fn()} onDone={jest.fn()} />);
-    fireEvent.press(screen.getByLabelText("Mark in here"));
+    fireEvent.press(screen.getByLabelText("Check in here"));
     expect(await screen.findByText(/680 m from school/)).toBeTruthy();
     expect(screen.getByText("Couldn't mark you")).toBeTruthy();
     expect(screen.getByText("Try again")).toBeTruthy();
@@ -148,7 +148,7 @@ describe("MarkHereSheet", () => {
   it("says what to do when location is not allowed", async () => {
     mockReadFix.mockRejectedValue(new Error("Allow location for Anekio to mark attendance here."));
     render(<MarkHereSheet open token="t" today={{ marked: false }} onClose={jest.fn()} onDone={jest.fn()} />);
-    fireEvent.press(screen.getByLabelText("Mark in here"));
+    fireEvent.press(screen.getByLabelText("Check in here"));
     expect(await screen.findByText(/Allow location/)).toBeTruthy();
     expect(mockAct).not.toHaveBeenCalled();
   });
@@ -204,12 +204,12 @@ describe("Leaving early and breaks", () => {
     mockReadFix.mockResolvedValue({ lat: 28.6143, lng: 77.209, accuracy: 12, mocked: false });
     mockAct.mockResolvedValue({ ok: true, inAt: "08:52", outAt: "11:20", checkedOut: true } as never);
     render(<MarkHereSheet open token="t" today={{ marked: true, inAt: "08:52" }} onClose={jest.fn()} onDone={jest.fn()} />);
-    fireEvent.press(screen.getByLabelText("Mark out here"));
-    expect(screen.getByText("Leaving early?")).toBeTruthy();
+    fireEvent.press(screen.getByLabelText("Check out here"));
+    expect(screen.getByText("Going home early?")).toBeTruthy();
     expect(screen.getByText("2-A Maths")).toBeTruthy();
-    expect(screen.getByLabelText("Mark out and go home").props.accessibilityState.disabled).toBe(true);
+    expect(screen.getByLabelText("Check out and go home").props.accessibilityState.disabled).toBe(true);
     fireEvent.press(screen.getByLabelText("Not well"));
-    fireEvent.press(screen.getByLabelText("Mark out and go home"));
+    fireEvent.press(screen.getByLabelText("Check out and go home"));
     expect(await screen.findByText("Out at 11:20 AM")).toBeTruthy();
     expect(mockAct).toHaveBeenCalledWith("t", "markStaffAttendanceHere", expect.objectContaining({ earlyReason: "Not well" }));
     expect(focus.goHome).toHaveBeenCalledWith("Not well");
