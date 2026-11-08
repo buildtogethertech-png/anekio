@@ -70,6 +70,17 @@ function look(day: Day | undefined): Look {
 /** How far back the list goes while scrolling. */
 const MONTHS_BACK = 12;
 
+/** Breaks that count: a minute or more (or still on). */
+function realBreaks(day: Day) {
+  return (day.breaks ?? []).filter((b) => b.minutes >= 1 || !b.to);
+}
+
+function breakText(day: Day) {
+  const list = realBreaks(day);
+  if (!list.length) return "";
+  return `☕ ${list.length} · ${hours(list.reduce((n, b) => n + b.minutes, 0)) || "0m"}`;
+}
+
 /** Fixed column widths so In and Out line up on every row. */
 const COL_DATE = 54;
 const COL_STATUS = 92;
@@ -111,10 +122,10 @@ function DayLine({ day, last }: { day: Day; last: boolean }) {
       </View>
     );
   }
-  const timeCell = (value: string, sub?: string) => (
+  const timeCell = (value: string, sub?: string, subTone = "text-ink-500") => (
     <View className="flex-1 pl-1">
       <Text className={`text-[16px] font-semibold tabular-nums ${value ? "text-ink-900" : "text-ink-300"}`}>{value || "—"}</Text>
-      {sub ? <Text className="text-[11px] tabular-nums text-ink-500">{sub}</Text> : null}
+      {sub ? <Text className={`text-[11px] tabular-nums ${subTone}`}>{sub}</Text> : null}
     </View>
   );
   const detail = day.lateMin > 0 && !day.early ? `by ${hours(day.lateMin)}` : day.early ? day.early : "";
@@ -123,7 +134,7 @@ function DayLine({ day, last }: { day: Day; last: boolean }) {
       {date}
       {day.inAt ? (
         <>
-          {timeCell(clock(day.inAt))}
+          {timeCell(clock(day.inAt), breakText(day) || undefined, "font-semibold text-amber-700")}
           {timeCell(day.outAt ? clock(day.outAt) : "", day.minutes ? hours(day.minutes) : undefined)}
         </>
       ) : (
@@ -215,6 +226,13 @@ export function MyAttendanceSheet({ open, token, onClose }: { open: boolean; tok
   };
 
   const now = pages[0];
+  const monthBreaks = (now?.days ?? []).reduce(
+    (t, d) => {
+      const list = realBreaks(d);
+      return { count: t.count + list.length, minutes: t.minutes + list.reduce((n, b) => n + b.minutes, 0) };
+    },
+    { count: 0, minutes: 0 }
+  );
   const s = now?.summary;
   const schoolDays = (now?.days ?? []).filter((d) => d.status !== "OFF").length;
   const pct = schoolDays && s ? Math.round((s.present / schoolDays) * 100) : 0;
@@ -249,6 +267,9 @@ export function MyAttendanceSheet({ open, token, onClose }: { open: boolean; tok
           <Text className="mt-0.5 text-[11px] text-white/70">Avg a day</Text>
         </View>
       </View>
+      {monthBreaks.count ? (
+        <Text className="mt-3 text-center text-[12px] font-medium text-white/85">{`☕ ${monthBreaks.count} break${monthBreaks.count === 1 ? "" : "s"} · ${hours(monthBreaks.minutes) || "0m"} this month`}</Text>
+      ) : null}
     </View>
   );
 

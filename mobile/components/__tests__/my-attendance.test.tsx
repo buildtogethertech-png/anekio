@@ -56,9 +56,11 @@ describe("MyAttendanceSheet", () => {
     expect(screen.getByText("Sunday off")).toBeTruthy();
   });
 
-  it("does not show breaks or a calendar", async () => {
+  it("shows how many breaks and how long, per day and for the month (no break details)", async () => {
     render(<MyAttendanceSheet open token="t" onClose={jest.fn()} />);
     await screen.findByText("8:52 AM");
+    expect(screen.getByText("☕ 1 · 25m")).toBeTruthy();
+    expect(screen.getByText("☕ 1 break · 25m this month")).toBeTruthy();
     expect(screen.queryByText("Lunch")).toBeNull();
     expect(screen.queryByTestId("month-grid")).toBeNull();
   });
