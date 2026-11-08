@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Animated, Dimensions, Easing, Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
-import Svg, { Circle, Defs, LinearGradient as SvgLinearGradient, RadialGradient, Rect, Stop } from "react-native-svg";
+import { ActivityIndicator, Dimensions, Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { StatusBar } from "expo-status-bar";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { createFixWatcher, distanceMeters, formatDistance, GEO_MAX_ACCURACY_M, GEO_RADIUS_CHOICES, readFix, waitForFix, type Fix, type FixWatcher, type StaffAttendanceSetup } from "../lib/attendance-geo";
 import { act } from "../lib/mutate";
@@ -40,19 +38,11 @@ function errorText(error: unknown) {
   return error instanceof Error ? error.message : "Could not mark attendance.";
 }
 
-const NATIVE_DRIVER = Platform.OS !== "web";
 const BLUE = "#2855F6";
 const ORANGE = "#EA580C";
-type Tone = "blue" | "green" | "slate" | "red" | "orange";
-const GREEN = "#22C55E";
-const RING = 236;
-const STROKE = 10;
-const R = (RING - STROKE) / 2;
-const CIRC = 2 * Math.PI * R;
-const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 type Phase = "idle" | "locating" | "done" | "error" | "leaving";
-type Done = { kind: "in" | "out"; inAt: string; outAt: string };
+type Marked = { ok: true; inAt: string; outAt: string; checkedOut: boolean };
 
 function useNow(everyMs: number) {
   const [now, setNow] = useState(() => new Date());
@@ -81,174 +71,41 @@ function hoursText(inAt: string, until: string) {
   return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
 }
 
-function greeting(d: Date) {
-  const h = d.getHours();
-  return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
+/**
+ * One mark (in or out) from the phone: GPS (warm watcher when there is one), then the server.
+ * `onStep` says what is happening, for the button text.
+ */
+async function markHere(token: string | null, watcher: FixWatcher | null, onStep: (step: "gps" | "check") => void, earlyReason?: string) {
+  onStep("gps");
+  const fix = Platform.OS === "web" || !watcher ? await readFix() : await waitForFix(watcher);
+  onStep("check");
+  return act<Marked>(token, "markStaffAttendanceHere", earlyReason ? { ...fix, earlyReason } : fix);
 }
 
-/** Full-screen soft gradient with a glow behind the ring (SVG: works the same on phone and web). */
-function Backdrop({ tone }: { tone: Tone }) {
-  const glow = tone === "green" ? GREEN : tone === "red" ? "#EF4444" : tone === "slate" ? "#8B5CF6" : tone === "orange" ? "#F97316" : "#3B82F6";
-  // Sized to the whole screen (not the window): with a translucent status bar the window is shorter,
-  // which left a hard band near the bottom.
-  const { width, height } = Dimensions.get("screen");
-  return (
-    <Svg pointerEvents="none" style={{ position: "absolute", top: 0, left: 0 }} width={width} height={height}>
-      <Defs>
-        <SvgLinearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-          <Stop offset="0" stopColor="#1B2A6B" />
-          <Stop offset="0.55" stopColor="#0B1530" />
-          <Stop offset="1" stopColor="#060B1A" />
-        </SvgLinearGradient>
-        <RadialGradient id="glow" cx="50%" cy="45%" r="45%">
-          <Stop offset="0" stopColor={glow} stopOpacity="0.35" />
-          <Stop offset="1" stopColor={glow} stopOpacity="0" />
-        </RadialGradient>
-      </Defs>
-      <Rect x="0" y="0" width={width} height={height} fill="url(#bg)" />
-      <Rect x="0" y="0" width={width} height={height} fill="url(#glow)" />
-    </Svg>
-  );
-}
-
-/** The big ring: spinning arc while marking, fills green on success. */
-function StatusRing({ phase, tone, children }: { phase: Phase; tone: Tone; children: ReactNode }) {
-  const spin = useRef(new Animated.Value(0)).current;
-  const fill = useRef(new Animated.Value(0)).current;
-  const pop = useRef(new Animated.Value(1)).current;
-  const burst = useRef(new Animated.Value(0)).current;
-  const breathe = useRef(new Animated.Value(0)).current;
-
+/** Small floating message with a clear tone (the shared Toast guesses tone from words). */
+function CheckToast({ msg, onDone }: { msg: { tone: "ok" | "bad"; text: string } | null; onDone: () => void }) {
+  const insets = useSafeAreaInsets();
   useEffect(() => {
-    if (phase !== "locating") return;
-    spin.setValue(0);
-    const loop = Animated.loop(Animated.timing(spin, { toValue: 1, duration: 1100, easing: Easing.linear, useNativeDriver: NATIVE_DRIVER }));
-    loop.start();
-    return () => loop.stop();
-  }, [phase, spin]);
-
-  useEffect(() => {
-    if (phase !== "idle") return;
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(breathe, { toValue: 1, duration: 1600, easing: Easing.inOut(Easing.quad), useNativeDriver: NATIVE_DRIVER }),
-        Animated.timing(breathe, { toValue: 0, duration: 1600, easing: Easing.inOut(Easing.quad), useNativeDriver: NATIVE_DRIVER }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [phase, breathe]);
-
-  useEffect(() => {
-    const full = tone === "green" || tone === "slate" || tone === "orange";
-    if (phase === "done") {
-      fill.setValue(0);
-      pop.setValue(0.4);
-      burst.setValue(0);
-      Animated.parallel([
-        Animated.timing(fill, { toValue: 1, duration: 700, easing: Easing.out(Easing.cubic), useNativeDriver: false }),
-        Animated.spring(pop, { toValue: 1, friction: 4, tension: 120, useNativeDriver: NATIVE_DRIVER }),
-        Animated.timing(burst, { toValue: 1, duration: 900, easing: Easing.out(Easing.quad), useNativeDriver: NATIVE_DRIVER }),
-      ]).start();
-    } else {
-      fill.setValue(full ? 1 : 0);
-      pop.setValue(1);
-    }
-  }, [phase, tone, fill, pop, burst]);
-
-  const stroke = tone === "green" ? GREEN : tone === "red" ? "#F87171" : tone === "slate" ? "#A78BFA" : tone === "orange" ? "#FDBA74" : "#7C9BFF";
+    if (!msg) return;
+    const t = setTimeout(onDone, msg.tone === "ok" ? 2600 : 4500);
+    return () => clearTimeout(t);
+  }, [msg, onDone]);
+  if (!msg) return null;
+  const ok = msg.tone === "ok";
   return (
-    <View style={{ width: RING + 40, height: RING + 40, alignItems: "center", justifyContent: "center" }}>
-      <Animated.View
-        pointerEvents="none"
-        style={{
-          position: "absolute",
-          width: RING,
-          height: RING,
-          borderRadius: RING / 2,
-          borderWidth: 2,
-          borderColor: stroke,
-          opacity: burst.interpolate({ inputRange: [0, 0.1, 1], outputRange: [0, 0.7, 0] }),
-          transform: [{ scale: burst.interpolate({ inputRange: [0, 1], outputRange: [1, 1.35] }) }],
-        }}
-      />
-      <Animated.View
-        pointerEvents="none"
-        style={{
-          position: "absolute",
-          transform: [
-            { rotate: spin.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] }) },
-            { scale: breathe.interpolate({ inputRange: [0, 1], outputRange: [1, 1.03] }) },
-          ],
-        }}
-      >
-        <Svg width={RING} height={RING}>
-          <Circle cx={RING / 2} cy={RING / 2} r={R} stroke="rgba(255,255,255,0.10)" strokeWidth={STROKE} fill="none" />
-          {phase === "locating" ? (
-            <Circle
-              cx={RING / 2}
-              cy={RING / 2}
-              r={R}
-              stroke={stroke}
-              strokeWidth={STROKE}
-              strokeLinecap="round"
-              fill="none"
-              strokeDasharray={`${CIRC * 0.28} ${CIRC}`}
-            />
-          ) : (
-            <AnimatedCircle
-              cx={RING / 2}
-              cy={RING / 2}
-              r={R}
-              stroke={stroke}
-              strokeWidth={STROKE}
-              strokeLinecap="round"
-              fill="none"
-              strokeDasharray={`${CIRC} ${CIRC}`}
-              strokeDashoffset={fill.interpolate({ inputRange: [0, 1], outputRange: [CIRC, 0] })}
-              transform={`rotate(-90 ${RING / 2} ${RING / 2})`}
-            />
-          )}
-        </Svg>
-      </Animated.View>
-      <Animated.View style={{ transform: [{ scale: pop }] }}>{children}</Animated.View>
-    </View>
-  );
-}
-
-function Stepper({ step }: { step: 0 | 1 | 2 }) {
-  const labels = ["Locating", "Verifying", "Done"];
-  return (
-    <View testID="mark-steps" className="mt-5 flex-row items-center justify-center gap-2">
-      {labels.map((label, i) => (
-        <View key={label} className="flex-row items-center gap-2">
-          <View className={`h-2 rounded-full ${i < step ? "w-2 bg-[#22C55E]" : i === step ? "w-6 bg-white" : "w-2 bg-white/25"}`} />
-          <Text className={`text-[12px] font-semibold uppercase tracking-wider ${i <= step ? "text-white" : "text-white/35"}`}>{label}</Text>
-          {i < labels.length - 1 ? <View className="h-px w-4 bg-white/20" /> : null}
+    <RnModal visible transparent animationType="fade" onRequestClose={onDone}>
+      <View pointerEvents="box-none" className="flex-1 items-center justify-end px-4" style={{ paddingBottom: Math.max(insets.bottom, 20) + 64 }}>
+        <View accessibilityRole="alert" className="w-full max-w-sm flex-row items-center gap-3 rounded-2xl bg-white px-4 py-3.5" style={{ shadowColor: "#000", shadowOpacity: 0.18, shadowRadius: 16, elevation: 10 }}>
+          <View className={`h-8 w-8 items-center justify-center rounded-full ${ok ? "bg-green-600" : "bg-red-600"}`}>
+            <Ionicons name={ok ? "checkmark" : "close"} size={18} color="#fff" />
+          </View>
+          <Text className={`min-w-0 flex-1 text-[14px] font-semibold ${ok ? "text-green-800" : "text-red-700"}`}>{msg.text}</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel="Dismiss" hitSlop={8} onPress={onDone}>
+            <Ionicons name="close" size={20} color="#64748B" />
+          </Pressable>
         </View>
-      ))}
-    </View>
-  );
-}
-
-function StatsCard({ inAt, outAt, now }: { inAt: string; outAt: string; now: Date }) {
-  const cell = (icon: keyof typeof Ionicons.glyphMap, label: string, value: string, tint: string) => (
-    <View className="flex-1 items-center">
-      <View className="h-8 w-8 items-center justify-center rounded-full" style={{ backgroundColor: `${tint}33` }}>
-        <Ionicons name={icon} size={16} color={tint} />
       </View>
-      <Text className="mt-1.5 text-[11px] font-semibold uppercase tracking-wider text-white/45">{label}</Text>
-      <Text className="mt-0.5 text-[17px] font-bold tabular-nums text-white">{value}</Text>
-    </View>
-  );
-  return (
-    <View testID="attendance-timeline" className="w-full flex-row items-center rounded-3xl border border-white/10 bg-white/[0.07] px-2 py-4">
-      {cell("enter-outline", "In", inAt ? clock(inAt) : "—", "#4ADE80")}
-      <View className="h-10 w-px bg-white/10" />
-      {cell("exit-outline", "Out", outAt ? clock(outAt) : "—", "#FB923C")}
-      <View className="h-10 w-px bg-white/10" />
-      {cell("time-outline", "Hours", inAt ? hoursText(inAt, outAt || hhmmNow(now)) : "—", "#93C5FD")}
-    </View>
+    </RnModal>
   );
 }
 
@@ -259,29 +116,26 @@ const EARLY_REASONS: { label: string; icon: keyof typeof Ionicons.glyphMap }[] =
   { label: "Other", icon: "create-outline" },
 ];
 
-function Chip({ label, icon, on, onPress }: { label: string; icon?: keyof typeof Ionicons.glyphMap; on: boolean; onPress: () => void }) {
+function Chip({ label, on, onPress }: { label: string; on: boolean; onPress: () => void }) {
   return (
     <Pressable
       accessibilityRole="radio"
       accessibilityState={{ checked: on }}
       accessibilityLabel={label}
       onPress={onPress}
-      className={`flex-row items-center gap-1.5 rounded-full border px-3.5 py-2.5 ${on ? "border-white bg-white" : "border-white/20 bg-white/[0.08]"}`}
+      className={`rounded-full border px-3.5 py-2 ${on ? "border-[#D97706] bg-amber-50" : "border-ink-200 bg-white"}`}
     >
-      {icon ? <Ionicons name={icon} size={16} color={on ? "#0B1530" : "#fff"} /> : null}
-      <Text className={`text-[14px] font-semibold ${on ? "text-[#0B1530]" : "text-white"}`}>{label}</Text>
+      <Text className={`text-[14px] font-semibold ${on ? "text-amber-800" : "text-ink-800"}`}>{label}</Text>
     </Pressable>
   );
 }
 
-/**
- * Checking out before the school day is over: a full screen. Classes still left today, why (four big
- * tiles), then one button. Half-day leave is offered as the other way.
- */
+/** Checking out before the school day is over: classes left, why (four tiles), one button. */
 function LeavingEarly({
   classesLeft,
   reason,
   note,
+  busy,
   onReason,
   onNote,
   onConfirm,
@@ -291,6 +145,7 @@ function LeavingEarly({
   classesLeft: { key: string; classLabel: string; subject: string; start: number }[];
   reason: string;
   note: string;
+  busy: string;
   onReason: (r: string) => void;
   onNote: (t: string) => void;
   onConfirm: () => void;
@@ -300,102 +155,81 @@ function LeavingEarly({
   const ready = Boolean(reason) && (reason !== "Other" || note.trim().length > 1);
   const at = (m: number) => clock(`${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`);
   return (
-    <View testID="leaving-early" className="flex-1">
-      <View className="flex-row items-center px-4">
-        <Pressable accessibilityRole="button" accessibilityLabel="Not now" onPress={onCancel} hitSlop={8} className="flex-row items-center gap-1 rounded-full bg-white/10 py-2 pl-2 pr-4">
-          <Ionicons name="chevron-back" size={18} color="#fff" />
-          <Text className="text-[14px] font-semibold text-white">Not now</Text>
-        </Pressable>
+    <View testID="leaving-early" className="gap-4">
+      <View className="flex-row items-center gap-3">
+        <View className="h-12 w-12 items-center justify-center rounded-full bg-orange-100">
+          <Ionicons name="home" size={24} color={ORANGE} />
+        </View>
+        <View className="min-w-0 flex-1">
+          <Text className="text-[20px] font-bold text-ink-900">Going home early?</Text>
+          <Text className="text-[13px] text-ink-500">Tell the school why. Your classes will be covered.</Text>
+        </View>
       </View>
-
-      <ScrollView className="flex-1" contentContainerClassName="px-5 pb-4 pt-6" keyboardShouldPersistTaps="handled">
-        <View className="items-center">
-          <View className="h-20 w-20 items-center justify-center rounded-full" style={{ backgroundColor: "rgba(234,88,12,0.22)", borderWidth: 2, borderColor: "rgba(253,186,116,0.5)" }}>
-            <Ionicons name="home" size={36} color="#FDBA74" />
-          </View>
-          <Text className="mt-4 text-center text-[28px] font-bold text-white">Going home early?</Text>
-          <Text className="mt-1.5 text-center text-[15px] leading-5 text-white/65">Tell the school why. Your classes will be covered.</Text>
-        </View>
-
-        {classesLeft.length ? (
-          <View className="mt-6">
-            <Text className="mb-2 text-[12px] font-semibold uppercase tracking-wider text-white/50">
-              {`Still left today · ${classesLeft.length}`}
-            </Text>
-            <View className="gap-2">
-              {classesLeft.slice(0, 3).map((c) => (
-                <View key={c.key} className="flex-row items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.07] px-3 py-2.5">
-                  <View className="rounded-lg bg-white/10 px-2 py-1">
-                    <Text className="text-[13px] font-semibold tabular-nums text-white">{at(c.start)}</Text>
-                  </View>
-                  <Text className="min-w-0 flex-1 text-[15px] font-medium text-white" numberOfLines={1}>{`${c.classLabel} ${c.subject}`.trim()}</Text>
-                </View>
-              ))}
-              {classesLeft.length > 3 ? <Text className="pl-1 text-[13px] text-white/45">{`+ ${classesLeft.length - 3} more`}</Text> : null}
+      {classesLeft.length ? (
+        <View className="gap-1.5 rounded-2xl bg-ink-50 px-3 py-2.5">
+          <Text className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">{`Still left today · ${classesLeft.length}`}</Text>
+          {classesLeft.slice(0, 3).map((c) => (
+            <View key={c.key} className="flex-row items-center gap-2">
+              <Text className="w-[72px] text-[13px] font-semibold tabular-nums text-ink-700">{at(c.start)}</Text>
+              <Text className="min-w-0 flex-1 text-[14px] text-ink-900" numberOfLines={1}>{`${c.classLabel} ${c.subject}`.trim()}</Text>
             </View>
-          </View>
-        ) : null}
-
-        <Text className="mb-2 mt-6 text-[12px] font-semibold uppercase tracking-wider text-white/50">Why are you leaving?</Text>
-        <View className="flex-row flex-wrap justify-between gap-y-2.5">
-          {EARLY_REASONS.map((r) => {
-            const on = reason === r.label;
-            return (
-              <Pressable
-                key={r.label}
-                accessibilityRole="radio"
-                accessibilityState={{ checked: on }}
-                accessibilityLabel={r.label}
-                onPress={() => onReason(r.label)}
-                className={`w-[48.5%] items-center gap-2 rounded-2xl border px-3 py-4 ${on ? "border-[#FDBA74] bg-[#EA580C]/25" : "border-white/12 bg-white/[0.07]"}`}
-              >
-                <View className={`h-11 w-11 items-center justify-center rounded-full ${on ? "bg-[#EA580C]" : "bg-white/10"}`}>
-                  <Ionicons name={r.icon} size={22} color="#fff" />
-                </View>
-                <Text className="text-center text-[14px] font-semibold text-white">{r.label}</Text>
-                {on ? (
-                  <View className="absolute right-2.5 top-2.5 h-5 w-5 items-center justify-center rounded-full bg-[#FDBA74]">
-                    <Ionicons name="checkmark" size={13} color="#7C2D12" />
-                  </View>
-                ) : null}
-              </Pressable>
-            );
-          })}
+          ))}
+          {classesLeft.length > 3 ? <Text className="text-[12px] text-ink-500">{`+ ${classesLeft.length - 3} more`}</Text> : null}
         </View>
-        {reason === "Other" ? (
-          <TextInput
-            value={note}
-            onChangeText={onNote}
-            placeholder="Write a short reason"
-            placeholderTextColor="rgba(255,255,255,0.4)"
-            accessibilityLabel="Reason for leaving early"
-            className="mt-3 rounded-2xl border border-white/20 bg-white/[0.08] px-4 py-3.5 text-[15px] text-white"
-          />
-        ) : null}
-      </ScrollView>
-
-      <View className="gap-3 px-5 pt-2">
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Check out and go home"
-          accessibilityState={{ disabled: !ready }}
-          disabled={!ready}
-          onPress={onConfirm}
-          className={`h-16 flex-row items-center justify-center gap-2.5 rounded-2xl ${ready ? "" : "opacity-40"}`}
-          style={{ backgroundColor: ORANGE, shadowColor: "#F97316", shadowOpacity: ready ? 0.5 : 0, shadowRadius: 18, elevation: ready ? 10 : 0 }}
-        >
-          <Ionicons name="exit-outline" size={24} color="#fff" />
-          <Text className="text-[18px] font-bold text-white">{ready ? "Check out & go home" : "Choose a reason"}</Text>
+      ) : null}
+      <View className="flex-row flex-wrap justify-between gap-y-2">
+        {EARLY_REASONS.map((r) => {
+          const on = reason === r.label;
+          return (
+            <Pressable
+              key={r.label}
+              accessibilityRole="radio"
+              accessibilityState={{ checked: on }}
+              accessibilityLabel={r.label}
+              onPress={() => onReason(r.label)}
+              className={`w-[48.5%] flex-row items-center gap-2 rounded-2xl border px-3 py-3 ${on ? "border-[#EA580C] bg-orange-50" : "border-ink-200 bg-white"}`}
+            >
+              <Ionicons name={r.icon} size={18} color={on ? ORANGE : "#475569"} />
+              <Text className={`min-w-0 flex-1 text-[13px] font-semibold ${on ? "text-orange-800" : "text-ink-800"}`}>{r.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      {reason === "Other" ? (
+        <TextInput
+          value={note}
+          onChangeText={onNote}
+          placeholder="Write a short reason"
+          placeholderTextColor="#94A3B8"
+          accessibilityLabel="Reason for leaving early"
+          className="rounded-2xl border border-ink-200 bg-white px-4 py-3 text-[15px] text-ink-900"
+        />
+      ) : null}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Check out and go home"
+        accessibilityState={{ disabled: !ready || Boolean(busy) }}
+        disabled={!ready || Boolean(busy)}
+        onPress={onConfirm}
+        className={`h-14 flex-row items-center justify-center gap-2 rounded-2xl ${ready ? "" : "opacity-40"}`}
+        style={{ backgroundColor: ORANGE }}
+      >
+        {busy ? <ActivityIndicator color="#fff" /> : <Ionicons name="exit-outline" size={22} color="#fff" />}
+        <Text className="text-[16px] font-bold text-white">{busy || (ready ? "Check out & go home" : "Choose a reason")}</Text>
+      </Pressable>
+      <View className="flex-row items-center justify-between">
+        <Pressable accessibilityRole="button" onPress={onCancel} hitSlop={8}>
+          <Text className="text-[14px] font-semibold text-ink-500">Not now</Text>
         </Pressable>
-        <Pressable accessibilityRole="button" onPress={onLeave} hitSlop={8} className="items-center py-1">
-          <Text className="text-[14px] font-semibold text-[#BFD0FF]">Apply half-day leave instead</Text>
+        <Pressable accessibilityRole="button" onPress={onLeave} hitSlop={8}>
+          <Text className="text-[14px] font-semibold text-[#1F45C7]">Apply half-day leave instead</Text>
         </Pressable>
       </View>
     </View>
   );
 }
 
-/** Phone school day, inside the attendance screen: take a break (with a reason) and resume. */
+/** Break (with a reason) and Resume, for the phone's school day. */
 function BreakControls({
   status,
   reason,
@@ -404,10 +238,6 @@ function BreakControls({
   inClass,
   breakAllowed,
   reasons,
-  open,
-  note,
-  onOpen,
-  onNote,
   onTake,
   onResume,
 }: {
@@ -418,23 +248,21 @@ function BreakControls({
   inClass: string;
   breakAllowed: boolean;
   reasons: string[];
-  open: boolean;
-  note: string;
-  onOpen: (v: boolean) => void;
-  onNote: (t: string) => void;
   onTake: (reason: string) => void;
   onResume: () => void;
 }) {
+  const [open, setOpen] = useState(false);
   const [pick, setPick] = useState("");
+  const [note, setNote] = useState("");
   if (status === "break") {
     return (
-      <View testID="on-break" className="flex-row items-center gap-3 rounded-2xl border border-amber-300/30 bg-amber-400/15 px-4 py-3">
-        <Ionicons name="cafe" size={22} color="#FCD34D" />
+      <View testID="on-break" className="flex-row items-center gap-3 rounded-2xl bg-amber-50 px-4 py-3">
+        <Ionicons name="cafe" size={22} color="#B45309" />
         <View className="min-w-0 flex-1">
-          <Text className="text-[15px] font-semibold text-amber-100">{`On break · ${reason}`}</Text>
-          <Text className="text-[13px] tabular-nums text-amber-200/80">{hms(now - since)}</Text>
+          <Text className="text-[15px] font-semibold text-amber-900">{`On break · ${reason}`}</Text>
+          <Text className="text-[13px] tabular-nums text-amber-800">{hms(now - since)}</Text>
         </View>
-        <Pressable accessibilityRole="button" accessibilityLabel="Resume" onPress={onResume} className="rounded-xl px-5 py-3" style={{ backgroundColor: BLUE }}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Resume" onPress={onResume} className="rounded-xl px-5 py-2.5" style={{ backgroundColor: BLUE }}>
           <Text className="text-[15px] font-bold text-white">Resume</Text>
         </Pressable>
       </View>
@@ -447,22 +275,22 @@ function BreakControls({
         accessibilityLabel="Take a break"
         accessibilityState={{ disabled: !breakAllowed }}
         disabled={!breakAllowed}
-        onPress={() => onOpen(true)}
-        className={`flex-row items-center gap-3 rounded-2xl border border-white/15 bg-white/[0.08] px-4 py-3.5 ${breakAllowed ? "" : "opacity-60"}`}
+        onPress={() => setOpen(true)}
+        className={`flex-row items-center gap-3 rounded-2xl border border-ink-200 bg-white px-4 py-3 ${breakAllowed ? "" : "opacity-60"}`}
       >
-        <Ionicons name="cafe-outline" size={22} color="#fff" />
+        <Ionicons name="cafe-outline" size={20} color="#475569" />
         <View className="min-w-0 flex-1">
-          <Text className="text-[16px] font-semibold text-white">Take a break</Text>
-          {!breakAllowed ? <Text className="text-[12px] text-white/55">{`${inClass || "A class"} is on now · after it`}</Text> : null}
+          <Text className="text-[15px] font-semibold text-ink-900">Take a break</Text>
+          {!breakAllowed ? <Text className="text-[12px] text-ink-500">{`${inClass || "A class"} is on now · after it`}</Text> : null}
         </View>
-        {breakAllowed ? <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.6)" /> : null}
+        {breakAllowed ? <Ionicons name="chevron-forward" size={18} color="#94A3B8" /> : null}
       </Pressable>
     );
   }
   const ready = Boolean(pick) && (pick !== "Other" || note.trim().length > 1);
   return (
-    <View testID="break-reasons" className="gap-3 rounded-2xl border border-white/15 bg-white/[0.08] p-4">
-      <Text className="text-[13px] font-semibold uppercase tracking-wider text-white/50">Break for</Text>
+    <View testID="break-reasons" className="gap-3 rounded-2xl border border-ink-200 bg-white p-3.5">
+      <Text className="text-[13px] font-semibold text-ink-700">Break for</Text>
       <View className="flex-row flex-wrap gap-2">
         {reasons.map((r) => (
           <Chip key={r} label={r} on={pick === r} onPress={() => setPick(r)} />
@@ -471,16 +299,16 @@ function BreakControls({
       {pick === "Other" ? (
         <TextInput
           value={note}
-          onChangeText={onNote}
+          onChangeText={setNote}
           placeholder="Write a short reason"
-          placeholderTextColor="rgba(255,255,255,0.4)"
+          placeholderTextColor="#94A3B8"
           accessibilityLabel="Break reason"
-          className="rounded-2xl border border-white/20 bg-white/[0.08] px-4 py-3 text-[15px] text-white"
+          className="rounded-xl border border-ink-200 px-3 py-2.5 text-[15px] text-ink-900"
         />
       ) : null}
       <View className="flex-row gap-2">
-        <Pressable accessibilityRole="button" onPress={() => onOpen(false)} className="flex-1 items-center rounded-xl border border-white/20 py-3">
-          <Text className="text-[15px] font-semibold text-white/80">Cancel</Text>
+        <Pressable accessibilityRole="button" onPress={() => setOpen(false)} className="flex-1 items-center rounded-xl border border-ink-200 py-2.5">
+          <Text className="text-[15px] font-semibold text-ink-700">Cancel</Text>
         </Pressable>
         <Pressable
           accessibilityRole="button"
@@ -488,10 +316,12 @@ function BreakControls({
           accessibilityState={{ disabled: !ready }}
           disabled={!ready}
           onPress={() => {
-            onTake(pick);
+            onTake(pick === "Other" ? note.trim() || "Other" : pick);
+            setOpen(false);
             setPick("");
+            setNote("");
           }}
-          className={`flex-1 items-center rounded-xl py-3 ${ready ? "" : "opacity-40"}`}
+          className={`flex-1 items-center rounded-xl py-2.5 ${ready ? "" : "opacity-40"}`}
           style={{ backgroundColor: "#D97706" }}
         >
           <Text className="text-[15px] font-bold text-white">Start break</Text>
@@ -502,8 +332,9 @@ function BreakControls({
 }
 
 /**
- * "Check in": staff mark their own attendance from their phone while at school. One big button; once in,
- * a big "Check out" button (any number of times: the last out counts). The server checks distance, GPS
+ * The teacher's own day, as a sheet from the bottom (after checking in; checking in itself happens on
+ * the dashboard tile): In / Out / hours, Break and Resume, and Check out — which, before the school day
+ * is over, asks why. Checking out ends the phone's school day. The server checks distance, GPS
  * accuracy and fake location.
  */
 export function MarkHereSheet({
@@ -522,32 +353,19 @@ export function MarkHereSheet({
   const insets = useSafeAreaInsets();
   const now = useNow(15_000);
   const record = useOptionalRecord();
-  const firstName = (record?.data?.staffAttendanceSelf?.name || "").split(" ")[0];
-  const schoolName = record?.data?.school?.name || "";
-  const [phase, setPhase] = useState<Phase>("idle");
-  const [done, setDone] = useState<Done | null>(null);
-  const [error, setError] = useState("");
-  const [step, setStep] = useState<0 | 1>(0);
-  const [leaveReason, setLeaveReason] = useState("");
-  const [leaveNote, setLeaveNote] = useState("");
-  const [breakOpen, setBreakOpen] = useState(false);
-  const [breakNote, setBreakNote] = useState("");
-  const checkedIn = Boolean(today?.marked && today?.inAt);
-  const watcher = useRef<FixWatcher | null>(null);
   const router = useRouter();
   const focus = useFocusDay();
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [step, setStep] = useState<"gps" | "check">("gps");
+  const [done, setDone] = useState<Marked | null>(null);
+  const [error, setError] = useState("");
+  const [leaveReason, setLeaveReason] = useState("");
+  const [leaveNote, setLeaveNote] = useState("");
+  const watcher = useRef<FixWatcher | null>(null);
+  const checkedIn = Boolean(today?.marked && today?.inAt);
   const phoneDay = focus?.enabled && focus.day && focus.day.status !== "ended" ? focus.day : null;
 
-  // Before the school day ends (teachers): Mark out asks why, and shows the classes still left today.
-  const data = record?.data;
-  const nowMin = now.getHours() * 60 + now.getMinutes();
-  const myPeriods =
-    data?.kind === "TEACHER" ? teacherPeriodsOn(now, data.timetable as never, (data as { dayChanges?: never }).dayChanges) : [];
-  const classesLeft = myPeriods.filter((p) => p.end > nowMin);
-  const closes = data?.kind === "TEACHER" ? closingMinute(data.timetable as never, data.schoolDay?.endsAt) : 0;
-  const earlyNow = data?.kind === "TEACHER" && nowMin < closes;
-
-  // Start GPS as soon as the screen opens (only if already allowed), so the tap is usually instant.
+  // Start GPS as soon as the sheet opens (only if already allowed), so the tap is usually instant.
   useEffect(() => {
     if (!open || Platform.OS === "web") return;
     const w = createFixWatcher();
@@ -559,238 +377,164 @@ export function MarkHereSheet({
     };
   }, [open]);
 
+  // Before the school day ends (teachers): Check out asks why, and shows the classes still left today.
+  const data = record?.data;
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const myPeriods =
+    data?.kind === "TEACHER" ? teacherPeriodsOn(now, data.timetable as never, (data as { dayChanges?: never }).dayChanges) : [];
+  const classesLeft = myPeriods.filter((p) => p.end > nowMin);
+  const closes = data?.kind === "TEACHER" ? closingMinute(data.timetable as never, data.schoolDay?.endsAt) : 0;
+  const earlyNow = data?.kind === "TEACHER" && nowMin < closes;
+
+  const inAt = done?.inAt || today?.inAt || "";
+  const outAt = done?.outAt || today?.outAt || "";
+  const isIn = checkedIn || Boolean(done);
+  const locating = phase === "locating";
+  const leaveWhy = () => (leaveReason === "Other" ? leaveNote.trim() || "Other" : leaveReason);
+
   function close() {
     setPhase("idle");
     setDone(null);
     setError("");
     setLeaveReason("");
     setLeaveNote("");
-    setBreakOpen(false);
     onClose();
   }
 
   async function mark(earlyReason?: string) {
     setPhase("locating");
-    setStep(0);
     setError("");
     try {
-      const fix = Platform.OS === "web" || !watcher.current ? await readFix() : await waitForFix(watcher.current);
-      setStep(1);
-      const res = await act<{ ok: true; inAt: string; outAt: string; checkedOut: boolean }>(
-        token,
-        "markStaffAttendanceHere",
-        earlyReason ? { ...fix, earlyReason } : fix
-      );
-      setDone({ kind: res.checkedOut ? "out" : "in", inAt: res.inAt, outAt: res.outAt });
+      const res = await markHere(token, watcher.current, setStep, earlyReason);
+      setDone(res);
       setPhase("done");
-      // Marking out ends the phone's school day (the guard goes off), even in the middle of a class.
+      // Checking out ends the phone's school day (the guard goes off), even in the middle of a class.
       if (res.checkedOut) focus?.goHome(earlyReason);
-      setLeaveReason("");
-      setLeaveNote("");
       onDone();
-      setTimeout(() => setPhase((p) => (p === "done" ? "idle" : p)), 2200);
+      setTimeout(close, 1600);
     } catch (e) {
       setError(errorText(e));
-      setPhase("error");
+      setPhase(earlyReason ? "leaving" : "error");
     }
   }
 
-  const leaveWhy = () => (leaveReason === "Other" ? leaveNote.trim() || "Other" : leaveReason);
+  const busyText = locating ? (step === "gps" ? "Finding your location…" : "Checking you're at school…") : "";
+  const status = !isIn
+    ? { icon: "time-outline" as const, bg: "bg-ink-100", color: "#475569", title: "Not checked in yet", sub: "Check in once you're inside school." }
+    : outAt
+      ? { icon: "moon" as const, bg: "bg-violet-100", color: "#6D28D9", title: "Done for today", sub: `In ${clock(inAt)} · Out ${clock(outAt)}` }
+      : { icon: "checkmark" as const, bg: "bg-green-100", color: "#15803D", title: "You're checked in", sub: `Since ${clock(inAt)}` };
 
-  const inAt = done?.inAt || today?.inAt || "";
-  const outAt = done?.outAt || today?.outAt || "";
-  // The screen may be a step behind the server right after marking: what we just did counts.
-  const isIn = checkedIn || Boolean(done);
-  const flash = phase === "done";
-  const locating = phase === "locating";
-  const log = today?.outLog ?? [];
-  const earlierOuts = (done?.kind === "out" && log.at(-1)?.at !== done.outAt ? log : log.slice(0, -1)).filter((o) => o.at !== outAt);
-  const tone: Tone =
-    phase === "error" ? "red" : flash ? (done?.kind === "out" ? "slate" : "green") : isIn && !locating ? "orange" : "blue";
-
-  let title = "Ready to check in?";
-  let sub = "Tap Check in once you're inside school.";
-  if (locating) {
-    title = isIn ? "Checking you out…" : "Checking you in…";
-    sub = step === 0 ? "Finding your location" : "Checking you're at school";
-  } else if (phase === "error") {
-    title = "Couldn't mark you";
-    sub = error;
-  } else if (flash && done?.kind === "out") {
-    title = `Out at ${clock(done.outAt)}`;
-    sub = "See you tomorrow!";
-  } else if (flash) {
-    title = "You're in! 🎉";
-    sub = `Checked in at ${clock(inAt)}. Have a great day.`;
-  } else if (isIn && outAt) {
-    title = "Done for today";
-    sub = `In ${clock(inAt)} · Out ${clock(outAt)}. Leaving later? Tap again.`;
-  } else if (isIn) {
-    title = "You're checked in";
-    sub = `Since ${clock(inAt)}. Tap Check out when you leave.`;
-  }
-
-  // One button in the middle: Mark in (blue), then Mark out (orange). A short tick / moon after each mark.
-  const face = flash ? (
-    <View
-      testID="attendance-done"
-      className="h-[180px] w-[180px] items-center justify-center rounded-full"
-      style={{
-        backgroundColor: done?.kind === "out" ? "#4C3A9E" : "#16A34A",
-        shadowColor: done?.kind === "out" ? "#8B5CF6" : GREEN,
-        shadowOpacity: 0.7,
-        shadowRadius: 36,
-        elevation: 18,
-      }}
-    >
-      <Ionicons name={done?.kind === "out" ? "moon" : "checkmark"} size={done?.kind === "out" ? 64 : 84} color="#fff" />
-    </View>
-  ) : (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={isIn ? "Check out here" : "Check in here"}
-      accessibilityState={{ disabled: locating, busy: locating }}
-      disabled={locating}
-      onPress={() => {
-        if (isIn && !outAt && earlyNow && phase !== "error") setPhase("leaving");
-        else void mark(phase === "error" && leaveReason ? leaveWhy() : undefined);
-      }}
-      className="h-[180px] w-[180px] items-center justify-center rounded-full active:opacity-90"
-      style={{
-        backgroundColor: phase === "error" ? "#DC2626" : isIn ? ORANGE : BLUE,
-        shadowColor: phase === "error" ? "#EF4444" : isIn ? "#F97316" : BLUE,
-        shadowOpacity: 0.75,
-        shadowRadius: 36,
-        elevation: 18,
-      }}
-    >
-      {locating ? (
-        <>
-          <Ionicons name="navigate" size={48} color="#fff" />
-          <Text className="mt-1.5 text-[18px] font-bold text-white">Hold on</Text>
-        </>
-      ) : phase === "error" ? (
-        <>
-          <Ionicons name="refresh" size={48} color="#fff" />
-          <Text className="mt-1.5 text-[18px] font-bold text-white">Try again</Text>
-        </>
-      ) : (
-        <>
-          <Ionicons name={isIn ? "exit-outline" : "enter-outline"} size={56} color="#fff" />
-          <Text className={`mt-1 text-center font-extrabold text-white ${isIn && outAt ? "text-[19px] leading-6" : "text-[24px]"}`}>
-            {isIn ? (outAt ? "Check out\nagain" : "Check out") : "Check in"}
-          </Text>
-        </>
-      )}
-    </Pressable>
-  );
-
-  return (
-    <RnModal visible={open} animationType="slide" onRequestClose={close} statusBarTranslucent>
-      <View testID="mark-here-sheet" className="flex-1 overflow-hidden bg-[#060B1A]" style={{ paddingTop: insets.top + 8, paddingBottom: insets.bottom + 12 }}>
-        <StatusBar style="light" />
-        <Backdrop tone={tone} />
-        {phase === "leaving" ? (
-          <LeavingEarly
-            classesLeft={classesLeft}
-            reason={leaveReason}
-            note={leaveNote}
-            onReason={setLeaveReason}
-            onNote={setLeaveNote}
-            onConfirm={() => void mark(leaveWhy())}
-            onLeave={() => {
-              close();
-              router.push("/leave" as never);
-            }}
-            onCancel={() => setPhase("idle")}
-          />
-        ) : (
-          <>
-
-        <View className="flex-row items-center justify-between px-5">
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Close"
-            onPress={close}
-            className="h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/10 active:bg-white/20"
-          >
-            <Ionicons name="close" size={20} color="#fff" />
-          </Pressable>
-          {schoolName ? (
-            <View className="max-w-[70%] flex-row items-center gap-1.5 rounded-full border border-white/10 bg-white/10 px-3 py-2">
-              <Ionicons name="school" size={13} color="#BFD0FF" />
-              <Text className="text-[13px] font-semibold text-white/85" numberOfLines={1}>
-                {schoolName}
-              </Text>
-            </View>
-          ) : null}
+  const body =
+    phase === "leaving" ? (
+      <LeavingEarly
+        classesLeft={classesLeft}
+        reason={leaveReason}
+        note={leaveNote}
+        busy={busyText}
+        onReason={setLeaveReason}
+        onNote={setLeaveNote}
+        onConfirm={() => void mark(leaveWhy())}
+        onLeave={() => {
+          close();
+          router.push("/leave" as never);
+        }}
+        onCancel={() => setPhase("idle")}
+      />
+    ) : phase === "done" && done ? (
+      <View testID="attendance-done" className="items-center gap-2 py-6">
+        <View className={`h-16 w-16 items-center justify-center rounded-full ${done.checkedOut ? "bg-violet-100" : "bg-green-100"}`}>
+          <Ionicons name={done.checkedOut ? "moon" : "checkmark"} size={34} color={done.checkedOut ? "#6D28D9" : "#15803D"} />
         </View>
-
-        <View className="mt-5 px-6">
-          <Text className="text-[15px] text-white/60">{`${greeting(now)}${firstName ? "," : ""}`}</Text>
-          {firstName ? <Text className="text-[30px] font-bold leading-[36px] text-white">{firstName} 👋</Text> : null}
-          <Text className="mt-1 text-[14px] text-white/50">
-            {`${clock(hhmmNow(now))} · ${now.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}`}
-          </Text>
-        </View>
-
-        <View className="flex-1 items-center justify-center px-6">
-          <StatusRing phase={phase} tone={tone}>
-            {face}
-          </StatusRing>
-          <Text className="mt-3 text-center text-[26px] font-bold text-white">{title}</Text>
-          <Text className={`mt-1.5 text-center text-[15px] leading-5 ${phase === "error" ? "text-red-200" : "text-white/65"}`}>{sub}</Text>
-          {locating ? <Stepper step={step} /> : null}
-        </View>
-
-        <View className="gap-3 px-5">
-          {focus?.enabled && isIn && !focus.guardAllowed && phoneDay ? (
-            <Pressable
-              accessibilityRole="button"
-              onPress={focus.allowGuard}
-              className="flex-row items-center gap-3 rounded-2xl border border-amber-300/40 bg-amber-400/15 px-4 py-3"
-            >
-              <Ionicons name="shield-half-outline" size={20} color="#FCD34D" />
-              <Text className="min-w-0 flex-1 text-[13px] text-amber-100">Allow “Display over other apps” so your school day works.</Text>
-              <Text className="text-[13px] font-bold text-amber-200">Allow</Text>
-            </Pressable>
-          ) : null}
-          {phoneDay && isIn && !outAt && phase !== "locating" ? (
-            <BreakControls
-              status={phoneDay.status}
-              reason={phoneDay.breakReason || ""}
-              since={phoneDay.since}
-              now={focus?.now ?? Date.now()}
-              inClass={focus?.inClass ? `${focus.inClass.classLabel} ${focus.inClass.subject}`.trim() : ""}
-              breakAllowed={!focus?.inClass || Boolean(focus?.breakInClass)}
-              reasons={focus?.reasons ?? []}
-              open={breakOpen}
-              note={breakNote}
-              onOpen={setBreakOpen}
-              onNote={setBreakNote}
-              onTake={(r) => {
-                focus?.takeBreak(r === "Other" ? breakNote.trim() || "Other" : r);
-                setBreakOpen(false);
-                setBreakNote("");
-              }}
-              onResume={() => focus?.resume()}
-            />
-          ) : null}
-          {isIn ? <StatsCard inAt={inAt} outAt={outAt} now={now} /> : null}
-          {earlierOuts.length ? (
-            <Text testID="earlier-outs" className="text-center text-[12px] text-white/45">
-              {`Earlier out ${earlierOuts.map((o) => clock(o.at)).join(", ")} · the last one counts`}
-            </Text>
-          ) : null}
-          <View className="mt-1 flex-row items-center justify-center gap-1.5">
-            <Ionicons name="flash" size={12} color="rgba(191,208,255,0.55)" />
-            <Text className="text-[12px] font-medium tracking-wide text-white/40">
-              Powered by <Text className="font-bold text-white/60">Anekio SmartAttend</Text>
-            </Text>
+        <Text className="text-[20px] font-bold text-ink-900">{done.checkedOut ? `Checked out at ${clock(done.outAt)}` : `Checked in at ${clock(done.inAt)}`}</Text>
+        <Text className="text-[14px] text-ink-500">{done.checkedOut ? "See you tomorrow!" : "Have a great day."}</Text>
+      </View>
+    ) : (
+      <View className="gap-3">
+        <View className="flex-row items-center gap-3">
+          <View className={`h-11 w-11 items-center justify-center rounded-full ${status.bg}`}>
+            <Ionicons name={status.icon} size={22} color={status.color} />
+          </View>
+          <View className="min-w-0 flex-1">
+            <Text className="text-[18px] font-bold text-ink-900">{status.title}</Text>
+            <Text className="text-[13px] text-ink-500">{status.sub}</Text>
           </View>
         </View>
-          </>
-        )}
+
+        {isIn ? (
+          <View testID="attendance-timeline" className="flex-row rounded-2xl bg-ink-50 py-3">
+            {[
+              ["In", clock(inAt) || "—", "#047857"],
+              ["Out", outAt ? clock(outAt) : "—", "#C2410C"],
+              ["Hours", inAt ? hoursText(inAt, outAt || hhmmNow(now)) : "—", "#1D4ED8"],
+            ].map(([label, value, tint]) => (
+              <View key={label} className="flex-1 items-center">
+                <Text className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: tint }}>
+                  {label}
+                </Text>
+                <Text className="mt-0.5 text-[16px] font-bold tabular-nums text-ink-900">{value}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
+        {focus?.enabled && isIn && !focus.guardAllowed && phoneDay ? (
+          <Pressable accessibilityRole="button" onPress={focus.allowGuard} className="flex-row items-center gap-3 rounded-2xl bg-amber-50 px-4 py-3">
+            <Ionicons name="shield-half-outline" size={20} color="#B45309" />
+            <Text className="min-w-0 flex-1 text-[13px] text-amber-900">Allow “Display over other apps” so your school day works.</Text>
+            <Text className="text-[13px] font-bold text-amber-800">Allow</Text>
+          </Pressable>
+        ) : null}
+
+        {phoneDay && isIn && !outAt && !locating ? (
+          <BreakControls
+            status={phoneDay.status}
+            reason={phoneDay.breakReason || ""}
+            since={phoneDay.since}
+            now={focus?.now ?? Date.now()}
+            inClass={focus?.inClass ? `${focus.inClass.classLabel} ${focus.inClass.subject}`.trim() : ""}
+            breakAllowed={!focus?.inClass || Boolean(focus?.breakInClass)}
+            reasons={focus?.reasons ?? []}
+            onTake={(r) => focus?.takeBreak(r)}
+            onResume={() => focus?.resume()}
+          />
+        ) : null}
+
+        {error ? (
+          <View className="flex-row items-start gap-2 rounded-2xl bg-red-50 px-4 py-3">
+            <Ionicons name="alert-circle" size={18} color="#B91C1C" />
+            <Text className="min-w-0 flex-1 text-[13px] text-red-800">{error}</Text>
+          </View>
+        ) : null}
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={isIn ? "Check out here" : "Check in here"}
+          accessibilityState={{ disabled: locating, busy: locating }}
+          disabled={locating}
+          onPress={() => {
+            if (isIn && !outAt && earlyNow) setPhase("leaving");
+            else void mark();
+          }}
+          className="mt-1 h-14 flex-row items-center justify-center gap-2.5 rounded-2xl active:opacity-90"
+          style={{ backgroundColor: isIn ? ORANGE : BLUE }}
+        >
+          {locating ? <ActivityIndicator color="#fff" /> : <Ionicons name={isIn ? "exit-outline" : "enter-outline"} size={22} color="#fff" />}
+          <Text className="text-[16px] font-bold text-white">{busyText || (isIn ? (outAt ? "Check out again" : "Check out") : "Check in")}</Text>
+        </Pressable>
+      </View>
+    );
+
+  return (
+    <RnModal visible={open} transparent animationType="slide" onRequestClose={close} statusBarTranslucent>
+      <View className="flex-1 justify-end">
+        <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={close} className="absolute inset-0 bg-black/40" />
+        <View testID="mark-here-sheet" className="rounded-t-3xl bg-white px-5 pt-2.5" style={{ paddingBottom: insets.bottom + 18 }}>
+          <View className="mb-3 h-1.5 w-12 self-center rounded-full bg-ink-200" />
+          <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: Dimensions.get("window").height * 0.85 }}>
+            {body}
+          </ScrollView>
+        </View>
       </View>
     </RnModal>
   );
@@ -990,8 +734,10 @@ export function StaffAttendanceSettings({
 }
 
 /**
- * "Attendance" for schools that take it by location: a round tile in the phone dashboard's quick
- * actions (next to My class), or a plain button on wider screens. Opens MarkHereSheet.
+ * The teacher's own check-in, for schools that take it by location: a round tile in the dashboard's quick
+ * actions, a small header button (office staff), or a plain button on wider screens.
+ * Not checked in yet: a tap checks in right there (spinner on the tile, then a short message).
+ * Checked in: a tap opens MarkHereSheet (Check out, Break / Resume).
  */
 export function MarkHereButton({
   token,
@@ -1010,30 +756,58 @@ export function MarkHereButton({
   onDone: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const checkedIn = Boolean(today?.marked && today?.inAt);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ tone: "ok" | "bad"; text: string } | null>(null);
+  const [justIn, setJustIn] = useState("");
+  const checkedIn = Boolean((today?.marked && today?.inAt) || justIn);
   const onBreak = useFocusDay()?.day?.status === "break";
   const dayDone = Boolean(checkedIn && today?.outAt);
   // "Check in" is the teacher's own attendance (class attendance keeps the word "Attendance").
-  const tileText = onBreak ? "On break" : dayDone ? "Done" : checkedIn ? "Check out" : "Check in";
+  const tileText = busy ? "Checking in…" : onBreak ? "On break" : dayDone ? "Done" : checkedIn ? "Check out" : "Check in";
+  const inAt = today?.inAt || justIn;
   const label = onBreak
     ? "My check in. On break"
     : dayDone
       ? `My check in. Done, out at ${clock(today?.outAt)}`
       : checkedIn
-        ? `My check in. In at ${clock(today?.inAt)}`
+        ? `My check in. In at ${clock(inAt)}`
         : "My check in. Not checked in yet";
+
+  async function checkInNow() {
+    setBusy(true);
+    const watcher = Platform.OS === "web" ? null : createFixWatcher();
+    try {
+      const res = await markHere(token, watcher, () => undefined);
+      setJustIn(res.inAt);
+      setMsg({ tone: "ok", text: `Checked in at ${clock(res.inAt)}` });
+      onDone();
+    } catch (e) {
+      setMsg({ tone: "bad", text: errorText(e) });
+    } finally {
+      watcher?.stop();
+      setBusy(false);
+    }
+  }
+
+  const press = () => {
+    if (busy) return;
+    if (checkedIn) setOpen(true);
+    else void checkInNow();
+  };
+
   return (
     <>
       {icon ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={label}
-          disabled={disabled}
-          onPress={() => setOpen(true)}
+          accessibilityState={{ disabled: disabled || busy, busy }}
+          disabled={disabled || busy}
+          onPress={press}
           className="h-10 w-10 items-center justify-center rounded-full bg-white"
         >
-          <Ionicons name="location-outline" size={21} color="#0f2744" />
-          {checkedIn ? (
+          {busy ? <ActivityIndicator size="small" color="#0f2744" /> : <Ionicons name="location-outline" size={21} color="#0f2744" />}
+          {busy ? null : checkedIn ? (
             <View className="absolute right-1 top-1 h-3.5 w-3.5 items-center justify-center rounded-full border-2 border-white bg-[#22C55E]" />
           ) : (
             <View className="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-[#F59E0B]" />
@@ -1043,14 +817,18 @@ export function MarkHereButton({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={label}
-          accessibilityState={{ disabled }}
-          disabled={disabled}
-          onPress={() => setOpen(true)}
+          accessibilityState={{ disabled: disabled || busy, busy }}
+          disabled={disabled || busy}
+          onPress={press}
           className={`flex-1 items-center gap-1.5 active:opacity-70 ${disabled ? "opacity-50" : ""}`}
         >
-          <View className="h-12 w-12 items-center justify-center rounded-2xl bg-[#EEF3FF]">
-            <Ionicons name="location-outline" size={22} color="#1F45C7" />
-            {onBreak ? (
+          <View className={`h-12 w-12 items-center justify-center rounded-2xl ${checkedIn ? "bg-[#EEF3FF]" : "bg-[#2855F6]"}`}>
+            {busy ? (
+              <ActivityIndicator color={checkedIn ? "#1F45C7" : "#fff"} />
+            ) : (
+              <Ionicons name={checkedIn ? (dayDone ? "moon-outline" : "exit-outline") : "enter-outline"} size={22} color={checkedIn ? "#1F45C7" : "#fff"} />
+            )}
+            {busy ? null : onBreak ? (
               <View className="absolute -right-1 -top-1 h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-[#D97706]">
                 <Ionicons name="cafe" size={10} color="#fff" />
               </View>
@@ -1058,18 +836,17 @@ export function MarkHereButton({
               <View className="absolute -right-1 -top-1 h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-[#22C55E]">
                 <Ionicons name="checkmark" size={11} color="#fff" />
               </View>
-            ) : (
-              <View className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full border-2 border-white bg-[#F59E0B]" />
-            )}
+            ) : null}
           </View>
-          <Text className="text-xs font-medium text-ink-800">{tileText}</Text>
+          <Text className={`text-xs ${checkedIn ? "font-medium text-ink-800" : "font-bold text-[#1F45C7]"}`}>{tileText}</Text>
         </Pressable>
       ) : (
-        <Button variant="ghost" accessibilityLabel={label} disabled={disabled} onPress={() => setOpen(true)}>
-          {checkedIn ? `✓ In at ${clock(today?.inAt)}` : "📍 Check in"}
+        <Button variant="ghost" accessibilityLabel={label} disabled={disabled || busy} onPress={press}>
+          {busy ? "Checking in…" : checkedIn ? `✓ In at ${clock(inAt)}` : "📍 Check in"}
         </Button>
       )}
-      <MarkHereSheet open={open} token={token} today={today} onClose={() => setOpen(false)} onDone={onDone} />
+      <MarkHereSheet open={open} token={token} today={justIn && !today?.inAt ? { ...today, marked: true, inAt: justIn } : today} onClose={() => setOpen(false)} onDone={onDone} />
+      <CheckToast msg={msg} onDone={() => setMsg(null)} />
     </>
   );
 }

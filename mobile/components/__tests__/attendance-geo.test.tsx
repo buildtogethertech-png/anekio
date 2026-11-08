@@ -55,106 +55,40 @@ beforeEach(() => {
 });
 afterAll(() => setOs(originalOs));
 
-describe("MarkHereSheet", () => {
-  it("one big Mark in, then You're in", async () => {
-    mockReadFix.mockResolvedValue({ lat: 28.6143, lng: 77.209, accuracy: 12, mocked: false });
-    mockAct.mockResolvedValue({ ok: true, inAt: "08:52", outAt: "", checkedOut: false, meters: 46, accuracy: 12 } as never);
-    const onDone = jest.fn();
-    render(<MarkHereSheet open token="t" today={{ marked: false }} onClose={jest.fn()} onDone={onDone} />);
-    expect(screen.getByText("Ready to check in?")).toBeTruthy();
-    expect(screen.getByText("Check in")).toBeTruthy();
-    expect(screen.queryByText(/Secure/)).toBeNull();
-    expect(screen.queryByLabelText("Check out here")).toBeNull();
-    fireEvent.press(screen.getByLabelText("Check in here"));
-    expect(await screen.findByText("You're in! 🎉")).toBeTruthy();
-    expect(screen.getByText("Checked in at 8:52 AM. Have a great day.")).toBeTruthy();
-    expect(screen.queryByText(/GPS ±/)).toBeNull();
-    expect(screen.getByText(/Anekio SmartAttend/)).toBeTruthy();
-    expect(mockAct).toHaveBeenCalledWith("t", "markStaffAttendanceHere", { lat: 28.6143, lng: 77.209, accuracy: 12, mocked: false });
-    expect(onDone).toHaveBeenCalled();
-  });
-
-  it("shows what is happening while it marks", async () => {
-    let found: (f: unknown) => void = () => undefined;
-    mockReadFix.mockReturnValue(new Promise((r) => (found = r)) as never);
-    let saved: (v: unknown) => void = () => undefined;
-    mockAct.mockReturnValue(new Promise((r) => (saved = r)) as never);
-    render(<MarkHereSheet open token="t" today={{ marked: false }} onClose={jest.fn()} onDone={jest.fn()} />);
-    fireEvent.press(screen.getByLabelText("Check in here"));
-    expect(await screen.findByText("Checking you in…")).toBeTruthy();
-    expect(screen.getByText("Finding your location")).toBeTruthy();
-    expect(screen.getByTestId("mark-steps")).toBeTruthy();
-    found({ lat: 28.6143, lng: 77.209, accuracy: 18, mocked: false });
-    expect(await screen.findByText("Checking you're at school")).toBeTruthy();
-    saved({ ok: true, inAt: "08:52", outAt: "", checkedOut: false });
-    expect(await screen.findByText("You're in! 🎉")).toBeTruthy();
-    expect(screen.queryByTestId("mark-steps")).toBeNull();
-  });
-
-  it("once in, the same middle button turns into Mark out", async () => {
-    mockReadFix.mockResolvedValue({ lat: 28.6143, lng: 77.209, accuracy: 12, mocked: false });
-    mockAct.mockResolvedValue({ ok: true, inAt: "08:52", outAt: "15:10", checkedOut: true } as never);
-    render(<MarkHereSheet open token="t" today={{ marked: true, inAt: "08:52" }} onClose={jest.fn()} onDone={jest.fn()} />);
-    expect(screen.getByText("You're checked in")).toBeTruthy();
-    expect(screen.getByText("Check out")).toBeTruthy();
-    expect(screen.getByText("Hours")).toBeTruthy();
-    expect(screen.queryByLabelText("Check in here")).toBeNull();
-    fireEvent.press(screen.getByLabelText("Check out here"));
-    expect(await screen.findByText("Out at 3:10 PM")).toBeTruthy();
-    expect(screen.getByText("6h 18m")).toBeTruthy();
-  });
-
-  it("a day with an out time reads Done for today, and the out can be updated", () => {
-    render(<MarkHereSheet open token="t" today={{ marked: true, inAt: "08:52", outAt: "15:10" }} onClose={jest.fn()} onDone={jest.fn()} />);
-    expect(screen.getByText("Done for today")).toBeTruthy();
-    expect(screen.getByText("In 8:52 AM · Out 3:10 PM. Leaving later? Tap again.")).toBeTruthy();
-    expect(screen.getByText("Check out\nagain")).toBeTruthy();
-    expect(screen.getByLabelText("Check out here")).toBeTruthy();
-  });
-
-  it("after the tick, Mark in becomes Mark out in the same place", async () => {
+describe("Check in from the tile", () => {
+  it("not checked in: a tap checks in right there and says so", async () => {
     mockReadFix.mockResolvedValue({ lat: 28.6143, lng: 77.209, accuracy: 12, mocked: false });
     mockAct.mockResolvedValue({ ok: true, inAt: "08:52", outAt: "", checkedOut: false } as never);
-    render(<MarkHereSheet open token="t" today={{ marked: false }} onClose={jest.fn()} onDone={jest.fn()} />);
-    fireEvent.press(screen.getByLabelText("Check in here"));
-    expect(await screen.findByTestId("attendance-done")).toBeTruthy();
-    await waitFor(() => expect(screen.getByLabelText("Check out here")).toBeTruthy(), { timeout: 4000 });
-    expect(screen.getByText("You're checked in")).toBeTruthy();
-  }, 10000);
-
-  it("lists earlier outs when out was marked more than once", () => {
-    render(
-      <MarkHereSheet
-        open
-        token="t"
-        today={{ marked: true, inAt: "08:52", outAt: "17:05", outLog: [{ at: "13:00" }, { at: "17:05" }] }}
-        onClose={jest.fn()}
-        onDone={jest.fn()}
-      />
-    );
-    expect(screen.getByTestId("earlier-outs").props.children).toBe("Earlier out 1:00 PM · the last one counts");
+    const onDone = jest.fn();
+    render(<MarkHereButton tile token="t" today={{ marked: false }} onDone={onDone} />);
+    expect(screen.getByText("Check in")).toBeTruthy();
+    fireEvent.press(screen.getByLabelText("My check in. Not checked in yet"));
+    expect(await screen.findByText("Checked in at 8:52 AM")).toBeTruthy();
+    expect(mockAct).toHaveBeenCalledWith("t", "markStaffAttendanceHere", { lat: 28.6143, lng: 77.209, accuracy: 12, mocked: false });
+    expect(onDone).toHaveBeenCalled();
+    expect(screen.queryByTestId("mark-here-sheet")).toBeNull();
+    expect(screen.getByText("Check out")).toBeTruthy();
   });
 
-  it("shows the server's reason and lets them try again", async () => {
+  it("a refusal shows the server's reason", async () => {
     mockReadFix.mockResolvedValue({ lat: 28.62, lng: 77.209, accuracy: 12, mocked: false });
-    mockAct.mockRejectedValue(new Error("You are 680 m from school. Mark when you are inside (within 150 m)."));
-    render(<MarkHereSheet open token="t" today={{ marked: false }} onClose={jest.fn()} onDone={jest.fn()} />);
-    fireEvent.press(screen.getByLabelText("Check in here"));
-    expect(await screen.findByText(/680 m from school/)).toBeTruthy();
-    expect(screen.getByText("Couldn't mark you")).toBeTruthy();
-    expect(screen.getByText("Try again")).toBeTruthy();
+    mockAct.mockRejectedValue(new Error("You are 5 km from school. Mark when you are inside (within 150 m)."));
+    render(<MarkHereButton tile token="t" today={{ marked: false }} onDone={jest.fn()} />);
+    fireEvent.press(screen.getByLabelText("My check in. Not checked in yet"));
+    expect(await screen.findByText(/5 km from school/)).toBeTruthy();
+    expect(screen.getByText("Check in")).toBeTruthy();
   });
 
-  it("says what to do when location is not allowed", async () => {
-    mockReadFix.mockRejectedValue(new Error("Allow location for Anekio to mark attendance here."));
-    render(<MarkHereSheet open token="t" today={{ marked: false }} onClose={jest.fn()} onDone={jest.fn()} />);
-    fireEvent.press(screen.getByLabelText("Check in here"));
-    expect(await screen.findByText(/Allow location/)).toBeTruthy();
-    expect(mockAct).not.toHaveBeenCalled();
+  it("once in, a tap opens the sheet; the header button works the same", async () => {
+    const { rerender } = render(<MarkHereButton tile token="t" today={{ marked: true, inAt: "08:52" }} onDone={jest.fn()} />);
+    fireEvent.press(screen.getByLabelText("My check in. In at 8:52 AM"));
+    expect(await screen.findByTestId("mark-here-sheet")).toBeTruthy();
+    rerender(<MarkHereButton icon token="t" today={{ marked: true, inAt: "08:52" }} onDone={jest.fn()} />);
+    expect(screen.getByLabelText("My check in. In at 8:52 AM")).toBeTruthy();
   });
 });
 
-describe("Leaving early and breaks", () => {
+describe("MarkHereSheet", () => {
   // A teacher with one more class later today; the school day ends at 23:59.
   function teacherDay() {
     const later = new Date(Date.now() + 60 * 60_000);
@@ -198,7 +132,32 @@ describe("Leaving early and breaks", () => {
     mockUseOptionalRecord.mockReset();
   });
 
-  it("Mark out before the day ends asks why, shows classes left, then goes home", async () => {
+  it("shows In / Out / Hours and checks out (after school hours: no questions)", async () => {
+    mockReadFix.mockResolvedValue({ lat: 28.6143, lng: 77.209, accuracy: 12, mocked: false });
+    mockAct.mockResolvedValue({ ok: true, inAt: "08:52", outAt: "15:10", checkedOut: true } as never);
+    render(<MarkHereSheet open token="t" today={{ marked: true, inAt: "08:52" }} onClose={jest.fn()} onDone={jest.fn()} />);
+    expect(screen.getByText("You're checked in")).toBeTruthy();
+    expect(screen.getByText("Hours")).toBeTruthy();
+    fireEvent.press(screen.getByLabelText("Check out here"));
+    expect(await screen.findByText("Checked out at 3:10 PM")).toBeTruthy();
+  });
+
+  it("a day with an out time reads Done for today, and can check out again", () => {
+    render(<MarkHereSheet open token="t" today={{ marked: true, inAt: "08:52", outAt: "15:10" }} onClose={jest.fn()} onDone={jest.fn()} />);
+    expect(screen.getByText("Done for today")).toBeTruthy();
+    expect(screen.getByText("In 8:52 AM · Out 3:10 PM")).toBeTruthy();
+    expect(screen.getByText("Check out again")).toBeTruthy();
+  });
+
+  it("shows the server's reason when it refuses", async () => {
+    mockReadFix.mockResolvedValue({ lat: 28.62, lng: 77.209, accuracy: 12, mocked: false });
+    mockAct.mockRejectedValue(new Error("Weak GPS signal. Step near a window or outside and try again."));
+    render(<MarkHereSheet open token="t" today={{ marked: true, inAt: "08:52" }} onClose={jest.fn()} onDone={jest.fn()} />);
+    fireEvent.press(screen.getByLabelText("Check out here"));
+    expect(await screen.findByText(/Weak GPS signal/)).toBeTruthy();
+  });
+
+  it("Check out before the day ends asks why, shows classes left, then goes home", async () => {
     teacherDay();
     const focus = phoneDay("focus");
     mockReadFix.mockResolvedValue({ lat: 28.6143, lng: 77.209, accuracy: 12, mocked: false });
@@ -210,7 +169,7 @@ describe("Leaving early and breaks", () => {
     expect(screen.getByLabelText("Check out and go home").props.accessibilityState.disabled).toBe(true);
     fireEvent.press(screen.getByLabelText("Not well"));
     fireEvent.press(screen.getByLabelText("Check out and go home"));
-    expect(await screen.findByText("Out at 11:20 AM")).toBeTruthy();
+    expect(await screen.findByText("Checked out at 11:20 AM")).toBeTruthy();
     expect(mockAct).toHaveBeenCalledWith("t", "markStaffAttendanceHere", expect.objectContaining({ earlyReason: "Not well" }));
     expect(focus.goHome).toHaveBeenCalledWith("Not well");
   });
@@ -237,24 +196,6 @@ describe("Leaving early and breaks", () => {
     render(<MarkHereSheet open token="t" today={{ marked: true, inAt: "08:52" }} onClose={jest.fn()} onDone={jest.fn()} />);
     expect(screen.getByLabelText("Take a break").props.accessibilityState.disabled).toBe(true);
     expect(screen.getByText("2-A Maths is on now · after it")).toBeTruthy();
-  });
-});
-
-describe("Attendance tile (location schools)", () => {
-  it("opens the sheet from the quick action and shows when you are in", async () => {
-    const { rerender } = render(<MarkHereButton tile token="t" today={{ marked: false }} onDone={jest.fn()} />);
-    fireEvent.press(screen.getByLabelText("My check in. Not checked in yet"));
-    expect(await screen.findByTestId("mark-here-sheet")).toBeTruthy();
-    rerender(<MarkHereButton tile token="t" today={{ marked: true, inAt: "08:52" }} onDone={jest.fn()} />);
-    expect(screen.getByLabelText("My check in. In at 8:52 AM")).toBeTruthy();
-  });
-});
-
-describe("Header Mark in (office staff, location schools)", () => {
-  it("is a small round button that opens the same sheet", async () => {
-    render(<MarkHereButton icon token="t" today={{ marked: false }} onDone={jest.fn()} />);
-    fireEvent.press(screen.getByLabelText("My check in. Not checked in yet"));
-    expect(await screen.findByTestId("mark-here-sheet")).toBeTruthy();
   });
 });
 
