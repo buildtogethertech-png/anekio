@@ -49,7 +49,9 @@ describe("MyAttendanceSheet", () => {
     expect(screen.getByText("3:10 PM")).toBeTruthy();
     expect(screen.getByText(/of \d+ school days present/)).toBeTruthy();
     expect(screen.getByLabelText("2026-11-07 On time")).toBeTruthy();
-    expect(screen.getByText("Left early · Not well")).toBeTruthy();
+    expect(screen.getAllByText("Left early").length).toBeGreaterThan(1);
+    expect(screen.getByText("Not well")).toBeTruthy();
+    expect(screen.getByText("by 7h 57m")).toBeTruthy();
     expect(screen.getByText("Marked present by office")).toBeTruthy();
     expect(screen.getByText("Sunday off")).toBeTruthy();
   });

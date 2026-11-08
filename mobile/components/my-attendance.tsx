@@ -70,56 +70,105 @@ function look(day: Day | undefined): Look {
 /** How far back the list goes while scrolling. */
 const MONTHS_BACK = 12;
 
-/** One day in the list: date, In, Out, hours, status. Closed days are a quiet single line. */
-function DayLine({ day }: { day: Day }) {
+/** Fixed column widths so In and Out line up on every row. */
+const COL_DATE = 54;
+const COL_STATUS = 92;
+
+/** Short status for the chip; the detail (how late) goes under it. */
+function chipText(day: Day) {
+  if (day.status === "LEAVE") return "Leave";
+  if (day.status === "ABSENT") return "Absent";
+  if (day.status === "NONE") return "Not marked";
+  if (day.early) return "Left early";
+  if (day.lateMin > 0 || day.status === "LATE") return "Late";
+  if (day.status === "HALF_DAY") return "Half day";
+  return "On time";
+}
+
+function DayLine({ day, last }: { day: Day; last: boolean }) {
   const l = look(day);
   const d = new Date(`${day.date}T00:00:00`);
+  const sunday = d.getDay() === 0;
+  const border = last ? "" : "border-b border-ink-100";
   const date = (
-    <View className="w-11 items-center">
-      <Text className="text-[11px] font-semibold uppercase text-ink-400">{d.toLocaleDateString("en-IN", { weekday: "short" })}</Text>
-      <Text className="text-[19px] font-bold text-ink-900">{d.getDate()}</Text>
+    <View style={{ width: COL_DATE }} className="items-center">
+      <Text className={`text-[11px] font-semibold uppercase ${sunday ? "text-red-500" : "text-ink-400"}`}>
+        {d.toLocaleDateString("en-IN", { weekday: "short" })}
+      </Text>
+      <Text className={`text-[20px] font-bold leading-6 ${sunday ? "text-red-600" : "text-ink-900"}`}>{d.getDate()}</Text>
     </View>
   );
   if (day.status === "OFF") {
     return (
-      <View accessibilityLabel={`${day.date} ${l.text}`} className="flex-row items-center gap-3 px-4 py-2 opacity-60">
+      <View accessibilityLabel={`${day.date} ${l.text}`} className={`flex-row items-center bg-[#FAFBFD] py-2.5 ${border}`}>
         {date}
-        <Text className="min-w-0 flex-1 text-[13px] text-ink-500">{day.note || "School closed"}</Text>
+        <View className="min-w-0 flex-1 flex-row items-center gap-1.5 pl-1">
+          <Ionicons name="moon-outline" size={14} color="#94A3B8" />
+          <Text className="text-[13px] text-ink-500" numberOfLines={1}>
+            {day.note || "School closed"}
+          </Text>
+        </View>
       </View>
     );
   }
-  const time = (label: string, value: string, tint: string) => (
-    <View className="flex-1">
-      <Text className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: tint }}>
-        {label}
-      </Text>
+  const timeCell = (value: string, sub?: string) => (
+    <View className="flex-1 pl-1">
       <Text className={`text-[16px] font-semibold tabular-nums ${value ? "text-ink-900" : "text-ink-300"}`}>{value || "—"}</Text>
+      {sub ? <Text className="text-[11px] tabular-nums text-ink-500">{sub}</Text> : null}
     </View>
   );
+  const detail = day.lateMin > 0 && !day.early ? `by ${hours(day.lateMin)}` : day.early ? day.early : "";
   return (
-    <View accessibilityLabel={`${day.date} ${l.text}`} className="mx-4 mb-2 rounded-2xl border border-ink-100 bg-white px-1 py-3">
-      <View className="flex-row items-center gap-2">
-        {date}
-        {day.inAt ? (
-          <>
-            {time("In", clock(day.inAt), "#047857")}
-            {time("Out", day.outAt ? clock(day.outAt) : "", "#C2410C")}
-          </>
-        ) : (
-          <Text className="min-w-0 flex-1 text-[14px] text-ink-500">
-            {day.status === "LEAVE" ? "On leave" : day.status === "ABSENT" ? "Marked absent" : day.status === "NONE" ? "No check in" : "Marked present by office"}
+    <View accessibilityLabel={`${day.date} ${l.text}`} className={`flex-row items-center py-3 ${border}`}>
+      {date}
+      {day.inAt ? (
+        <>
+          {timeCell(clock(day.inAt))}
+          {timeCell(day.outAt ? clock(day.outAt) : "", day.minutes ? hours(day.minutes) : undefined)}
+        </>
+      ) : (
+        <Text className="min-w-0 flex-1 pl-1 text-[14px] text-ink-500" numberOfLines={1}>
+          {day.status === "LEAVE" ? day.note || "On leave" : day.status === "ABSENT" ? "Marked absent" : day.status === "NONE" ? "No check in" : "Marked present by office"}
+        </Text>
+      )}
+      <View style={{ width: COL_STATUS }} className="items-center pr-2">
+        <View className="w-full items-center rounded-full py-1" style={{ backgroundColor: l.bg === "#FFFFFF" ? "#F1F5F9" : l.bg }}>
+          <Text className="text-[12px] font-semibold" style={{ color: l.fg }} numberOfLines={1}>
+            {chipText(day)}
           </Text>
-        )}
-        <View className="items-end gap-1 pr-2">
-          <View className="rounded-full px-2.5 py-1" style={{ backgroundColor: l.bg === "#FFFFFF" ? "#F1F5F9" : l.bg }}>
-            <Text className="text-[12px] font-semibold" style={{ color: l.fg }} numberOfLines={1}>
-              {l.text}
-            </Text>
-          </View>
-          {day.minutes ? <Text className="text-[11px] tabular-nums text-ink-500">{hours(day.minutes)}</Text> : null}
         </View>
+        {detail ? (
+          <Text className="mt-0.5 text-[11px]" style={{ color: l.fg }} numberOfLines={1}>
+            {detail}
+          </Text>
+        ) : null}
       </View>
-      {day.early ? <Text className="mt-1.5 pl-14 text-[12px] text-orange-700">{`Left early · ${day.early}`}</Text> : null}
+    </View>
+  );
+}
+
+/** One month: a wide white card with a column header, then a row per day. */
+function MonthBlock({ page, title }: { page: Month; title?: string }) {
+  return (
+    <View className="mx-3 mb-3">
+      {title ? <Text className="mb-2 ml-2 text-[13px] font-semibold uppercase tracking-wider text-ink-500">{title}</Text> : null}
+      <View className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
+        <View className="flex-row items-center border-b border-ink-100 bg-[#F8FAFC] py-2">
+          <Text style={{ width: COL_DATE }} className="text-center text-[11px] font-semibold uppercase tracking-wider text-ink-400">
+            Date
+          </Text>
+          <Text className="flex-1 pl-1 text-[11px] font-semibold uppercase tracking-wider text-emerald-700">In</Text>
+          <Text className="flex-1 pl-1 text-[11px] font-semibold uppercase tracking-wider text-orange-700">Out</Text>
+          <Text style={{ width: COL_STATUS }} className="pr-2 text-center text-[11px] font-semibold uppercase tracking-wider text-ink-400">
+            Status
+          </Text>
+        </View>
+        {page.days.length ? (
+          page.days.map((d, i) => <DayLine key={d.date} day={d} last={i === page.days.length - 1} />)
+        ) : (
+          <Text className="py-6 text-center text-[13px] text-ink-500">Nothing this month.</Text>
+        )}
+      </View>
     </View>
   );
 }
@@ -179,14 +228,9 @@ export function MyAttendanceSheet({ open, token, onClose }: { open: boolean; tok
     </View>
   );
 
-  const rows: ({ kind: "month"; key: string; month: string } | { kind: "day"; key: string; day: Day })[] = [];
-  pages.forEach((p, i) => {
-    if (i > 0) rows.push({ kind: "month", key: `m-${p.month}`, month: p.month });
-    for (const d of p.days) rows.push({ kind: "day", key: d.date, day: d });
-  });
 
   const header = (
-    <View className="mx-4 mb-3 overflow-hidden rounded-3xl px-4 pb-4 pt-3" style={{ backgroundColor: "#1F45C7" }}>
+    <View className="mx-3 mb-3 overflow-hidden rounded-3xl px-4 pb-4 pt-3" style={{ backgroundColor: "#1F45C7" }}>
       <View pointerEvents="none" className="absolute -right-10 -top-12 h-40 w-40 rounded-full bg-white/10" />
       <Text className="text-[13px] font-semibold uppercase tracking-wider text-white/70">{monthTitle(now?.month || thisMonth())}</Text>
       <View className="mt-1 flex-row items-end gap-2">
@@ -222,16 +266,10 @@ export function MyAttendanceSheet({ open, token, onClose }: { open: boolean; tok
         ) : (
           <FlatList
             testID="attendance-list"
-            data={rows}
-            keyExtractor={(r) => r.key}
+            data={pages}
+            keyExtractor={(p) => p.month}
             ListHeaderComponent={header}
-            renderItem={({ item }) =>
-              item.kind === "month" ? (
-                <Text className="mx-5 mb-2 mt-4 text-[13px] font-semibold uppercase tracking-wider text-ink-500">{monthTitle(item.month)}</Text>
-              ) : (
-                <DayLine day={item.day} />
-              )
-            }
+            renderItem={({ item, index }) => <MonthBlock page={item} title={index > 0 ? monthTitle(item.month) : undefined} />}
             onEndReached={loadOlder}
             onEndReachedThreshold={0.4}
             ListFooterComponent={
