@@ -82,33 +82,6 @@ async function markHere(token: string | null, watcher: FixWatcher | null, onStep
   return act<Marked>(token, "markStaffAttendanceHere", earlyReason ? { ...fix, earlyReason } : fix);
 }
 
-/** Small floating message with a clear tone (the shared Toast guesses tone from words). */
-function CheckToast({ msg, onDone }: { msg: { tone: "ok" | "bad"; text: string } | null; onDone: () => void }) {
-  const insets = useSafeAreaInsets();
-  useEffect(() => {
-    if (!msg) return;
-    const t = setTimeout(onDone, msg.tone === "ok" ? 2600 : 4500);
-    return () => clearTimeout(t);
-  }, [msg, onDone]);
-  if (!msg) return null;
-  const ok = msg.tone === "ok";
-  return (
-    <RnModal visible transparent animationType="fade" onRequestClose={onDone}>
-      <View pointerEvents="box-none" className="flex-1 items-center justify-end px-4" style={{ paddingBottom: Math.max(insets.bottom, 20) + 64 }}>
-        <View accessibilityRole="alert" className="w-full max-w-sm flex-row items-center gap-3 rounded-2xl bg-white px-4 py-3.5" style={{ shadowColor: "#000", shadowOpacity: 0.18, shadowRadius: 16, elevation: 10 }}>
-          <View className={`h-8 w-8 items-center justify-center rounded-full ${ok ? "bg-green-600" : "bg-red-600"}`}>
-            <Ionicons name={ok ? "checkmark" : "close"} size={18} color="#fff" />
-          </View>
-          <Text className={`min-w-0 flex-1 text-[14px] font-semibold ${ok ? "text-green-800" : "text-red-700"}`}>{msg.text}</Text>
-          <Pressable accessibilityRole="button" accessibilityLabel="Dismiss" hitSlop={8} onPress={onDone}>
-            <Ionicons name="close" size={20} color="#64748B" />
-          </Pressable>
-        </View>
-      </View>
-    </RnModal>
-  );
-}
-
 const EARLY_REASONS: { label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { label: "Not well", icon: "medkit-outline" },
   { label: "Family / emergency", icon: "home-outline" },
@@ -273,8 +246,8 @@ function BreakPicker({ reasons, onTake, onCancel }: { reasons: string[]; onTake:
 }
 
 /**
- * The teacher's own day, as a sheet from the bottom (after checking in; checking in itself happens on
- * the dashboard tile): In / Out / hours, Break and Resume, and Check out — which, before the school day
+ * The teacher's own day, as a sheet from the bottom: Check in; then In / Out / hours, Break and Resume,
+ * and Check out — which, before the school day
  * is over, asks why. Checking out ends the phone's school day. The server checks distance, GPS
  * accuracy and fake location.
  */
@@ -708,8 +681,7 @@ export function StaffAttendanceSettings({
 /**
  * The teacher's own check-in, for schools that take it by location: a round tile in the dashboard's quick
  * actions, a small header button (office staff), or a plain button on wider screens.
- * Not checked in yet: a tap checks in right there (spinner on the tile, then a short message).
- * Checked in: a tap opens MarkHereSheet (Check out, Break / Resume).
+ * A tap opens MarkHereSheet: Check in, or Break / Resume and Check out.
  */
 export function MarkHereButton({
   token,
@@ -728,57 +700,21 @@ export function MarkHereButton({
   onDone: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<{ tone: "ok" | "bad"; text: string } | null>(null);
-  const [justIn, setJustIn] = useState("");
-  const checkedIn = Boolean((today?.marked && today?.inAt) || justIn);
+  const checkedIn = Boolean(today?.marked && today?.inAt);
   const focus = useFocusDay();
   const onBreak = focus?.day?.status === "break";
   const phoneDayOn = Boolean(focus?.enabled && focus.day && focus.day.status !== "ended");
   const dayDone = Boolean(checkedIn && today?.outAt);
   // "Check in" is the teacher's own attendance (class attendance keeps the word "Attendance").
-  // One tile: with the phone school day on it opens Break and Check out together.
-  const tileText = busy
-    ? "Checking in…"
-    : onBreak
-      ? "On break"
-      : dayDone
-        ? "Done"
-        : checkedIn
-          ? phoneDayOn
-            ? "Break / Out"
-            : "Check out"
-          : "Check in";
-  const inAt = today?.inAt || justIn;
+  // One tile; it always opens the sheet, where Check in / Break / Check out are.
+  const tileText = onBreak ? "On break" : dayDone ? "Done" : checkedIn ? (phoneDayOn ? "Break / Out" : "Check out") : "Check in";
   const label = onBreak
     ? "My check in. On break"
     : dayDone
       ? `My check in. Done, out at ${clock(today?.outAt)}`
       : checkedIn
-        ? `My check in. In at ${clock(inAt)}`
+        ? `My check in. In at ${clock(today?.inAt)}`
         : "My check in. Not checked in yet";
-
-  async function checkInNow() {
-    setBusy(true);
-    const watcher = Platform.OS === "web" ? null : createFixWatcher();
-    try {
-      const res = await markHere(token, watcher, () => undefined);
-      setJustIn(res.inAt);
-      setMsg({ tone: "ok", text: `Checked in at ${clock(res.inAt)}` });
-      onDone();
-    } catch (e) {
-      setMsg({ tone: "bad", text: errorText(e) });
-    } finally {
-      watcher?.stop();
-      setBusy(false);
-    }
-  }
-
-  const press = () => {
-    if (busy) return;
-    if (checkedIn) setOpen(true);
-    else void checkInNow();
-  };
 
   return (
     <>
@@ -786,13 +722,12 @@ export function MarkHereButton({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={label}
-          accessibilityState={{ disabled: disabled || busy, busy }}
-          disabled={disabled || busy}
-          onPress={press}
+          disabled={disabled}
+          onPress={() => setOpen(true)}
           className="h-10 w-10 items-center justify-center rounded-full bg-white"
         >
-          {busy ? <ActivityIndicator size="small" color="#0f2744" /> : <Ionicons name="location-outline" size={21} color="#0f2744" />}
-          {busy ? null : checkedIn ? (
+          <Ionicons name="location-outline" size={21} color="#0f2744" />
+          {checkedIn ? (
             <View className="absolute right-1 top-1 h-3.5 w-3.5 items-center justify-center rounded-full border-2 border-white bg-[#22C55E]" />
           ) : (
             <View className="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-[#F59E0B]" />
@@ -802,18 +737,14 @@ export function MarkHereButton({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={label}
-          accessibilityState={{ disabled: disabled || busy, busy }}
-          disabled={disabled || busy}
-          onPress={press}
+          accessibilityState={{ disabled }}
+          disabled={disabled}
+          onPress={() => setOpen(true)}
           className={`flex-1 items-center gap-1.5 active:opacity-70 ${disabled ? "opacity-50" : ""}`}
         >
-          <View className={`h-12 w-12 items-center justify-center rounded-2xl ${checkedIn ? "bg-[#EEF3FF]" : "bg-[#2855F6]"}`}>
-            {busy ? (
-              <ActivityIndicator color={checkedIn ? "#1F45C7" : "#fff"} />
-            ) : (
-              <Ionicons name={checkedIn ? (dayDone ? "moon-outline" : "exit-outline") : "enter-outline"} size={22} color={checkedIn ? "#1F45C7" : "#fff"} />
-            )}
-            {busy ? null : onBreak ? (
+          <View className="h-12 w-12 items-center justify-center rounded-2xl bg-[#EEF3FF]">
+            <Ionicons name={checkedIn ? (dayDone ? "moon-outline" : "exit-outline") : "enter-outline"} size={22} color="#1F45C7" />
+            {onBreak ? (
               <View className="absolute -right-1 -top-1 h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-[#D97706]">
                 <Ionicons name="cafe" size={10} color="#fff" />
               </View>
@@ -823,15 +754,14 @@ export function MarkHereButton({
               </View>
             ) : null}
           </View>
-          <Text className={`text-xs ${checkedIn ? "font-medium text-ink-800" : "font-bold text-[#1F45C7]"}`}>{tileText}</Text>
+          <Text className="text-xs font-medium text-ink-800">{tileText}</Text>
         </Pressable>
       ) : (
-        <Button variant="ghost" accessibilityLabel={label} disabled={disabled || busy} onPress={press}>
-          {busy ? "Checking in…" : checkedIn ? `✓ In at ${clock(inAt)}` : "📍 Check in"}
+        <Button variant="ghost" accessibilityLabel={label} disabled={disabled} onPress={() => setOpen(true)}>
+          {checkedIn ? `✓ In at ${clock(today?.inAt)}` : "📍 Check in"}
         </Button>
       )}
-      <MarkHereSheet open={open} token={token} today={justIn && !today?.inAt ? { ...today, marked: true, inAt: justIn } : today} onClose={() => setOpen(false)} onDone={onDone} />
-      <CheckToast msg={msg} onDone={() => setMsg(null)} />
+      <MarkHereSheet open={open} token={token} today={today} onClose={() => setOpen(false)} onDone={onDone} />
     </>
   );
 }

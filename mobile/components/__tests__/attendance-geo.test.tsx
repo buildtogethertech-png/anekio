@@ -56,27 +56,28 @@ beforeEach(() => {
 afterAll(() => setOs(originalOs));
 
 describe("Check in from the tile", () => {
-  it("not checked in: a tap checks in right there and says so", async () => {
+  it("not checked in: the tile opens the sheet, and Check in there checks in", async () => {
     mockReadFix.mockResolvedValue({ lat: 28.6143, lng: 77.209, accuracy: 12, mocked: false });
     mockAct.mockResolvedValue({ ok: true, inAt: "08:52", outAt: "", checkedOut: false } as never);
     const onDone = jest.fn();
     render(<MarkHereButton tile token="t" today={{ marked: false }} onDone={onDone} />);
     expect(screen.getByText("Check in")).toBeTruthy();
     fireEvent.press(screen.getByLabelText("My check in. Not checked in yet"));
+    expect(await screen.findByTestId("mark-here-sheet")).toBeTruthy();
+    expect(mockAct).not.toHaveBeenCalled();
+    fireEvent.press(screen.getByLabelText("Check in here"));
     expect(await screen.findByText("Checked in at 8:52 AM")).toBeTruthy();
     expect(mockAct).toHaveBeenCalledWith("t", "markStaffAttendanceHere", { lat: 28.6143, lng: 77.209, accuracy: 12, mocked: false });
     expect(onDone).toHaveBeenCalled();
-    expect(screen.queryByTestId("mark-here-sheet")).toBeNull();
-    expect(screen.getByText("Check out")).toBeTruthy();
   });
 
-  it("a refusal shows the server's reason", async () => {
+  it("a refusal shows the server's reason in the sheet", async () => {
     mockReadFix.mockResolvedValue({ lat: 28.62, lng: 77.209, accuracy: 12, mocked: false });
     mockAct.mockRejectedValue(new Error("You are 5 km from school. Mark when you are inside (within 150 m)."));
     render(<MarkHereButton tile token="t" today={{ marked: false }} onDone={jest.fn()} />);
     fireEvent.press(screen.getByLabelText("My check in. Not checked in yet"));
+    fireEvent.press(await screen.findByLabelText("Check in here"));
     expect(await screen.findByText(/5 km from school/)).toBeTruthy();
-    expect(screen.getByText("Check in")).toBeTruthy();
   });
 
   it("once in, a tap opens the sheet; the header button works the same", async () => {

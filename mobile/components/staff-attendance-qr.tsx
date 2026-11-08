@@ -335,20 +335,16 @@ export function StaffAttendanceQrButton({
           onPress={() => void generate()}
           className={`flex-1 items-center gap-1.5 active:opacity-70 ${blocked || busy ? "opacity-50" : ""}`}
         >
-          {/* Same words as location schools: the teacher checks in / out; the QR is just how. */}
-          <View className={`h-12 w-12 items-center justify-center rounded-2xl ${alreadyMarked ? "bg-orange-50" : "bg-[#2855F6]"}`}>
-            {busy ? (
-              <ActivityIndicator color={alreadyMarked ? "#C2410C" : "#fff"} />
-            ) : (
-              <Ionicons name="qr-code-outline" size={22} color={alreadyMarked ? "#C2410C" : "#fff"} />
-            )}
+          {/* Same words and look as location schools: the teacher checks in / out; the QR is just how. */}
+          <View className="h-12 w-12 items-center justify-center rounded-2xl bg-[#EEF3FF]">
+            {busy ? <ActivityIndicator color="#1F45C7" /> : <Ionicons name="qr-code-outline" size={22} color="#1F45C7" />}
             {alreadyMarked && !busy ? (
               <View className="absolute -right-1 -top-1 h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-[#22C55E]">
                 <Ionicons name="checkmark" size={11} color="#fff" />
               </View>
             ) : null}
           </View>
-          <Text className={`text-xs ${alreadyMarked ? "font-medium text-ink-800" : "font-bold text-[#1F45C7]"}`}>{alreadyMarked ? "Check out" : "Check in"}</Text>
+          <Text className="text-xs font-medium text-ink-800">{alreadyMarked ? "Check out" : "Check in"}</Text>
         </Pressable>
       ) : tile ? (
         <Pressable
