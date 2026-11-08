@@ -9,7 +9,6 @@ import { act } from "../lib/mutate";
 import { useOptionalRecord } from "../lib/record";
 import { closingMinute, hms, teacherPeriodsOn, useFocusDay } from "../lib/class-focus";
 import { useRouter } from "expo-router";
-import { MyAttendanceSheet } from "./my-attendance";
 import { Badge, Button, Segmented } from "./ui";
 
 type Note = { tone: "success" | "warn" | "danger"; title: string; body: string };
@@ -533,7 +532,6 @@ export function MarkHereSheet({
   const [leaveNote, setLeaveNote] = useState("");
   const [breakOpen, setBreakOpen] = useState(false);
   const [breakNote, setBreakNote] = useState("");
-  const [historyOpen, setHistoryOpen] = useState(false);
   const checkedIn = Boolean(today?.marked && today?.inAt);
   const watcher = useRef<FixWatcher | null>(null);
   const router = useRouter();
@@ -784,16 +782,6 @@ export function MarkHereSheet({
               {`Earlier out ${earlierOuts.map((o) => clock(o.at)).join(", ")} · the last one counts`}
             </Text>
           ) : null}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="My attendance"
-            onPress={() => setHistoryOpen(true)}
-            className="flex-row items-center justify-center gap-1.5 self-center rounded-full border border-white/15 bg-white/[0.06] px-4 py-2"
-          >
-            <Ionicons name="calendar-outline" size={15} color="#BFD0FF" />
-            <Text className="text-[14px] font-semibold text-[#BFD0FF]">My attendance</Text>
-            <Ionicons name="chevron-forward" size={14} color="#BFD0FF" />
-          </Pressable>
           <View className="mt-1 flex-row items-center justify-center gap-1.5">
             <Ionicons name="flash" size={12} color="rgba(191,208,255,0.55)" />
             <Text className="text-[12px] font-medium tracking-wide text-white/40">
@@ -803,7 +791,6 @@ export function MarkHereSheet({
         </View>
           </>
         )}
-        <MyAttendanceSheet open={historyOpen} token={token} onClose={() => setHistoryOpen(false)} />
       </View>
     </RnModal>
   );
@@ -1025,7 +1012,16 @@ export function MarkHereButton({
   const [open, setOpen] = useState(false);
   const checkedIn = Boolean(today?.marked && today?.inAt);
   const onBreak = useFocusDay()?.day?.status === "break";
-  const label = onBreak ? "Attendance. On break" : checkedIn ? `Attendance. In at ${clock(today?.inAt)}` : "Attendance. Not marked yet";
+  const dayDone = Boolean(checkedIn && today?.outAt);
+  // "Check in" is the teacher's own attendance (class attendance keeps the word "Attendance").
+  const tileText = onBreak ? "On break" : dayDone ? "Done" : checkedIn ? "Check out" : "Check in";
+  const label = onBreak
+    ? "My check in. On break"
+    : dayDone
+      ? `My check in. Done, out at ${clock(today?.outAt)}`
+      : checkedIn
+        ? `My check in. In at ${clock(today?.inAt)}`
+        : "My check in. Not checked in yet";
   return (
     <>
       {icon ? (
@@ -1066,11 +1062,11 @@ export function MarkHereButton({
               <View className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full border-2 border-white bg-[#F59E0B]" />
             )}
           </View>
-          <Text className="text-xs font-medium text-ink-800">Attendance</Text>
+          <Text className="text-xs font-medium text-ink-800">{tileText}</Text>
         </Pressable>
       ) : (
         <Button variant="ghost" accessibilityLabel={label} disabled={disabled} onPress={() => setOpen(true)}>
-          {checkedIn ? `✓ In at ${clock(today?.inAt)}` : "📍 Mark attendance"}
+          {checkedIn ? `✓ In at ${clock(today?.inAt)}` : "📍 Check in"}
         </Button>
       )}
       <MarkHereSheet open={open} token={token} today={today} onClose={() => setOpen(false)} onDone={onDone} />

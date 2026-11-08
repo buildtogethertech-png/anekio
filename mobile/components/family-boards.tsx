@@ -34,6 +34,7 @@ import { ManagerPicker } from "./manager-picker";
 import { TeacherMonthlyRegister } from "./teacher-monthly-register";
 import { StaffAttendanceQrButton } from "./staff-attendance-qr";
 import { MarkHereButton } from "./attendance-geo";
+import { MyAttendanceTile } from "./my-attendance";
 import { compareByRollThenName, matchesStudentQuery, rollLabel, studentMetaLine } from "../lib/student-label";
 
 function can(user: { permissions: string[] } | null, key: string) {
@@ -605,9 +606,8 @@ export function TeacherDeskBoard() {
 
   function phoneQuickActions() {
     if (!phoneDashboard) return null;
+    // My class and Marks are already bottom tabs (Class, Exams): the dashboard keeps what is not.
     const actions: { icon: keyof typeof Ionicons.glyphMap; label: string; route: string }[] = [
-      { icon: "people-outline", label: "My class", route: "/class" },
-      { icon: "create-outline", label: "Marks", route: "/exams" },
       { icon: "airplane-outline", label: "Leave", route: "/leave" },
     ];
     if (!data?.staffAttendanceSelf) actions.push({ icon: "time-outline", label: "Timetable", route: "/timetable" });
@@ -632,6 +632,7 @@ export function TeacherDeskBoard() {
             onMessage={toast.show}
           />
         ) : null}
+        {data?.staffAttendanceSelf ? <MyAttendanceTile token={token} /> : null}
         {actions.map((action) => (
           <Pressable
             key={action.label}

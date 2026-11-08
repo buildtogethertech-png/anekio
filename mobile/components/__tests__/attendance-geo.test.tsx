@@ -243,17 +243,17 @@ describe("Leaving early and breaks", () => {
 describe("Attendance tile (location schools)", () => {
   it("opens the sheet from the quick action and shows when you are in", async () => {
     const { rerender } = render(<MarkHereButton tile token="t" today={{ marked: false }} onDone={jest.fn()} />);
-    fireEvent.press(screen.getByLabelText("Attendance. Not marked yet"));
+    fireEvent.press(screen.getByLabelText("My check in. Not checked in yet"));
     expect(await screen.findByTestId("mark-here-sheet")).toBeTruthy();
     rerender(<MarkHereButton tile token="t" today={{ marked: true, inAt: "08:52" }} onDone={jest.fn()} />);
-    expect(screen.getByLabelText("Attendance. In at 8:52 AM")).toBeTruthy();
+    expect(screen.getByLabelText("My check in. In at 8:52 AM")).toBeTruthy();
   });
 });
 
 describe("Header Mark in (office staff, location schools)", () => {
   it("is a small round button that opens the same sheet", async () => {
     render(<MarkHereButton icon token="t" today={{ marked: false }} onDone={jest.fn()} />);
-    fireEvent.press(screen.getByLabelText("Attendance. Not marked yet"));
+    fireEvent.press(screen.getByLabelText("My check in. Not checked in yet"));
     expect(await screen.findByTestId("mark-here-sheet")).toBeTruthy();
   });
 });

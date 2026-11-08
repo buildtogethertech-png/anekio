@@ -201,19 +201,29 @@ export function MyAttendanceSheet({ open, token, onClose }: { open: boolean; tok
           <View className="w-11" />
         </View>
 
-        <View className="flex-row items-center justify-between px-4 pb-2">
-          <Pressable accessibilityRole="button" accessibilityLabel="Previous month" onPress={() => setMonth((m) => shiftMonth(m, -1))} className="h-10 w-10 items-center justify-center rounded-full bg-ink-50">
-            <Ionicons name="chevron-back" size={18} color="#1F45C7" />
+        <View className="mx-4 mb-3 flex-row items-center rounded-full border border-ink-100 bg-ink-50 p-1">
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Previous month"
+            onPress={() => setMonth((m) => shiftMonth(m, -1))}
+            hitSlop={6}
+            className="h-9 w-9 items-center justify-center rounded-full bg-white"
+          >
+            <Ionicons name="caret-back" size={14} color="#1F45C7" />
           </Pressable>
-          <Text className="text-[16px] font-semibold text-ink-900">{monthTitle(month)}</Text>
+          <View className="flex-1 flex-row items-center justify-center gap-1.5">
+            <Ionicons name="calendar-outline" size={15} color="#475569" />
+            <Text className="text-[15px] font-semibold text-ink-900">{monthTitle(month)}</Text>
+          </View>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Next month"
             disabled={month >= thisMonth()}
             onPress={() => setMonth((m) => shiftMonth(m, 1))}
-            className={`h-10 w-10 items-center justify-center rounded-full bg-ink-50 ${month >= thisMonth() ? "opacity-30" : ""}`}
+            hitSlop={6}
+            className={`h-9 w-9 items-center justify-center rounded-full bg-white ${month >= thisMonth() ? "opacity-30" : ""}`}
           >
-            <Ionicons name="chevron-forward" size={18} color="#1F45C7" />
+            <Ionicons name="caret-forward" size={14} color="#1F45C7" />
           </Pressable>
         </View>
 
@@ -265,5 +275,21 @@ export function MyAttendanceSheet({ open, token, onClose }: { open: boolean; tok
         )}
       </View>
     </RnModal>
+  );
+}
+
+/** Dashboard quick action: opens My attendance. */
+export function MyAttendanceTile({ token }: { token: string | null }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Pressable accessibilityRole="button" accessibilityLabel="My attendance" onPress={() => setOpen(true)} className="flex-1 items-center gap-1.5 active:opacity-70">
+        <View className="h-12 w-12 items-center justify-center rounded-2xl bg-[#EEF3FF]">
+          <Ionicons name="calendar-outline" size={22} color="#1F45C7" />
+        </View>
+        <Text className="text-xs font-medium text-ink-800">My attendance</Text>
+      </Pressable>
+      <MyAttendanceSheet open={open} token={token} onClose={() => setOpen(false)} />
+    </>
   );
 }
