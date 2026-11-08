@@ -43,65 +43,36 @@ beforeEach(() => {
 });
 
 describe("MyAttendanceSheet", () => {
-  it("shows the month card and opens on the latest day", async () => {
+  it("lists each day's In and Out, newest first, under this month's card", async () => {
     render(<MyAttendanceSheet open token="t" onClose={jest.fn()} />);
-    expect(await screen.findByTestId("day-card")).toBeTruthy();
-    expect(screen.getByText("Saturday, 7 November")).toBeTruthy();
-    expect(screen.getByText("On time")).toBeTruthy();
-    expect(screen.getByText("6h 18m at school")).toBeTruthy();
+    expect(await screen.findByText("8:52 AM")).toBeTruthy();
+    expect(screen.getByText("3:10 PM")).toBeTruthy();
     expect(screen.getByText(/of \d+ school days present/)).toBeTruthy();
-    expect(screen.queryByText("By office")).toBeNull();
-  });
-
-  it("the day card shows breaks and every out", async () => {
-    render(<MyAttendanceSheet open token="t" onClose={jest.fn()} />);
-    await screen.findByTestId("day-card");
-    expect(screen.getByText("Lunch")).toBeTruthy();
-    expect(screen.getByText("12:00 PM – 12:25 PM")).toBeTruthy();
-    expect(screen.getByText("Checked out 2 times")).toBeTruthy();
-    expect(screen.getByText("3:10 PM · counts")).toBeTruthy();
-  });
-
-  it("tapping another day in the calendar shows that day", async () => {
-    render(<MyAttendanceSheet open token="t" onClose={jest.fn()} />);
-    await screen.findByTestId("day-card");
-    fireEvent.press(screen.getByLabelText("2026-11-06 Left early"));
+    expect(screen.getByLabelText("2026-11-07 On time")).toBeTruthy();
     expect(screen.getByText("Left early · Not well")).toBeTruthy();
-    fireEvent.press(screen.getByLabelText("2026-11-04 On time"));
-    expect(screen.getByText("Marked present by the office.")).toBeTruthy();
-    fireEvent.press(screen.getByLabelText("2026-11-03 Late 7h 57m"));
-    expect(screen.getAllByText("Late 7h 57m").length).toBeGreaterThan(0);
+    expect(screen.getByText("Marked present by office")).toBeTruthy();
+    expect(screen.getByText("Sunday off")).toBeTruthy();
   });
 
-  it("hides breaks under a minute and folds a long list", async () => {
+  it("does not show breaks or a calendar", async () => {
+    render(<MyAttendanceSheet open token="t" onClose={jest.fn()} />);
+    await screen.findByText("8:52 AM");
+    expect(screen.queryByText("Lunch")).toBeNull();
+    expect(screen.queryByTestId("month-grid")).toBeNull();
+  });
+
+  it("scrolling to the end loads the month before", async () => {
+    render(<MyAttendanceSheet open token="t" onClose={jest.fn()} />);
+    await screen.findByText("8:52 AM");
     mockAct.mockResolvedValueOnce({
       ok: true,
-      month: "2026-11",
-      days: [
-        day("2026-11-07", {
-          inAt: "08:52",
-          breaks: [
-            { from: "09:00", to: "09:00", reason: "", minutes: 0 },
-            ...[1, 2, 3, 4].map((n) => ({ from: `1${n}:00`, to: `1${n}:10`, reason: `Free period ${n}`, minutes: 10 })),
-          ],
-        }),
-      ],
-      summary: { present: 1, late: 0, early: 0, leave: 0, absent: 0, avgMinutes: 0 },
+      month: "2026-10",
+      days: [day("2026-10-31", { inAt: "08:40", outAt: "14:30", minutes: 350 })],
+      summary: { present: 1, late: 0, early: 0, leave: 0, absent: 0, avgMinutes: 350 },
     } as never);
-    render(<MyAttendanceSheet open token="t" onClose={jest.fn()} />);
-    await screen.findByTestId("day-card");
-    expect(screen.getByText("Free period 3")).toBeTruthy();
-    expect(screen.queryByText("Free period 4")).toBeNull();
-    fireEvent.press(screen.getByText("Show all 4"));
-    expect(screen.getByText("Free period 4")).toBeTruthy();
-  });
-
-  it("goes to the previous month", async () => {
-    render(<MyAttendanceSheet open token="t" onClose={jest.fn()} />);
-    await screen.findByTestId("day-card");
-    const first = (mockAct.mock.calls[0][2] as { month: string }).month;
-    fireEvent.press(screen.getByLabelText("Previous month"));
-    await waitFor(() => expect(mockAct).toHaveBeenCalledTimes(2));
-    expect((mockAct.mock.calls[1][2] as { month: string }).month < first).toBe(true);
+    fireEvent(screen.getByTestId("attendance-list"), "onEndReached");
+    expect(await screen.findByText("8:40 AM")).toBeTruthy();
+    expect(screen.getByText(/October 2026/i)).toBeTruthy();
+    expect((mockAct.mock.calls[1][2] as { month: string }).month).toBe("2026-10");
   });
 });
