@@ -35,9 +35,9 @@ async function record(token: string) {
 
 describe.sequential("staff attendance by location", () => {
   beforeAll(async () => {
-    // Noon in India today, so "in at 00:00, out now" is always more than 10 minutes apart.
+    // A fixed school day (Wednesday, noon in India): the tests never land on a Sunday or just after midnight.
     vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date(`${new Date().toISOString().slice(0, 10)}T06:30:00Z`));
+    vi.setSystemTime(new Date("2026-11-04T06:30:00Z"));
     process.env.NODE_ENV = "test";
     delete process.env.VERCEL;
     process.env.JWT_SECRET = "staff-attendance-geo-test-secret-long-one";

@@ -1,7 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import type { Express } from "express";
 import request from "supertest";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { staffAttendanceInMark, staffDayYmd } from "../../lib/staff-day";
 import { seedPortalFixture, type PortalFixture } from "../support/factories";
 import { createPushedTestDatabase, type TestDatabase } from "../support/test-database";
@@ -26,6 +26,9 @@ async function act(token: string, op: string, body: Record<string, unknown> = {}
 
 describe.sequential("staff attendance QR", () => {
   beforeAll(async () => {
+    // A fixed school day (Wednesday, noon in India): never a Sunday, a holiday or just after midnight.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-04T06:30:00Z"));
     process.env.NODE_ENV = "test";
     delete process.env.VERCEL;
     process.env.JWT_SECRET = "staff-attendance-qr-test-secret-with-enough";
@@ -54,6 +57,7 @@ describe.sequential("staff attendance QR", () => {
   }, 90_000);
 
   afterAll(async () => {
+    vi.useRealTimers();
     await prisma?.$disconnect();
     database?.cleanup();
   });
