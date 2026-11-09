@@ -103,9 +103,17 @@ function Chip({ label, on, onPress }: { label: string; on: boolean; onPress: () 
   );
 }
 
-/** Checking out before the school day is over: classes left, why (four tiles), one button. */
+const EARLY_TINTS: Record<string, { bg: string; fg: string }> = {
+  "Not well": { bg: "#FFE8EC", fg: "#BE123C" },
+  "Family / emergency": { bg: "#FEF3E2", fg: "#B45309" },
+  "School work outside": { bg: "#EAF0FF", fg: "#1F45C7" },
+  Other: { bg: "#F1F5F9", fg: "#475569" },
+};
+
+/** Checking out before the school day is over: when the day ends, classes left, why (four tiles), one button. */
 function LeavingEarly({
   classesLeft,
+  endsAt,
   reason,
   note,
   busy,
@@ -116,6 +124,8 @@ function LeavingEarly({
   onCancel,
 }: {
   classesLeft: { key: string; classLabel: string; subject: string; start: number }[];
+  /** Minute of the day the school day ends (0 = unknown). */
+  endsAt: number;
   reason: string;
   note: string;
   busy: string;
@@ -129,45 +139,67 @@ function LeavingEarly({
   const at = (m: number) => clock(`${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`);
   return (
     <View testID="leaving-early" className="gap-4">
-      <View className="flex-row items-center gap-3">
-        <View className="h-12 w-12 items-center justify-center rounded-full bg-orange-100">
-          <Ionicons name="home" size={24} color={ORANGE} />
+      <View className="items-center pt-1">
+        <View className="h-[72px] w-[72px] items-center justify-center rounded-full bg-orange-50">
+          <View className="h-14 w-14 items-center justify-center rounded-full" style={{ backgroundColor: ORANGE }}>
+            <Ionicons name="home" size={26} color="#fff" />
+          </View>
         </View>
-        <View className="min-w-0 flex-1">
-          <Text className="text-[20px] font-bold text-ink-900">Going home early?</Text>
-          <Text className="text-[13px] text-ink-500">Tell the school why. Your classes will be covered.</Text>
-        </View>
+        <Text className="mt-3 text-[22px] font-bold text-ink-900">Going home early?</Text>
+        <Text className="mt-1 text-center text-[14px] leading-5 text-ink-500">
+          {endsAt > 0 ? `School ends at ${at(endsAt)}. ` : ""}Pick a reason. The office will arrange cover for your classes.
+        </Text>
       </View>
+
       {classesLeft.length ? (
-        <View className="gap-1.5 rounded-2xl bg-ink-50 px-3 py-2.5">
-          <Text className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">{`Still left today · ${classesLeft.length}`}</Text>
-          {classesLeft.slice(0, 3).map((c) => (
-            <View key={c.key} className="flex-row items-center gap-2">
-              <Text className="w-[72px] text-[13px] font-semibold tabular-nums text-ink-700">{at(c.start)}</Text>
-              <Text className="min-w-0 flex-1 text-[14px] text-ink-900" numberOfLines={1}>{`${c.classLabel} ${c.subject}`.trim()}</Text>
+        <View className="rounded-2xl border border-ink-200 bg-white px-3.5 py-3">
+          <View className="mb-2 flex-row items-center justify-between">
+            <Text className="text-[13px] font-semibold text-ink-700">Your classes left today</Text>
+            <View className="rounded-full bg-orange-50 px-2 py-0.5">
+              <Text className="text-[12px] font-bold text-orange-700">{classesLeft.length}</Text>
             </View>
-          ))}
-          {classesLeft.length > 3 ? <Text className="text-[12px] text-ink-500">{`+ ${classesLeft.length - 3} more`}</Text> : null}
+          </View>
+          <View className="gap-2">
+            {classesLeft.slice(0, 3).map((c) => (
+              <View key={c.key} className="flex-row items-center gap-2.5">
+                <View className="w-[78px] items-center rounded-lg bg-[#EEF3FF] py-1">
+                  <Text className="text-[12px] font-semibold tabular-nums text-[#1F45C7]">{at(c.start)}</Text>
+                </View>
+                <Text className="min-w-0 flex-1 text-[14px] font-medium text-ink-900" numberOfLines={1}>{`${c.classLabel} ${c.subject}`.trim()}</Text>
+              </View>
+            ))}
+          </View>
+          {classesLeft.length > 3 ? <Text className="mt-2 text-[12px] text-ink-500">{`+ ${classesLeft.length - 3} more`}</Text> : null}
         </View>
       ) : null}
-      <View className="flex-row flex-wrap justify-between gap-y-2">
-        {EARLY_REASONS.map((r) => {
-          const on = reason === r.label;
-          return (
-            <Pressable
-              key={r.label}
-              accessibilityRole="radio"
-              accessibilityState={{ checked: on }}
-              accessibilityLabel={r.label}
-              onPress={() => onReason(r.label)}
-              className={`w-[48.5%] flex-row items-center gap-2 rounded-2xl border px-3 py-3 ${on ? "border-[#EA580C] bg-orange-50" : "border-ink-200 bg-white"}`}
-            >
-              <Ionicons name={r.icon} size={18} color={on ? ORANGE : "#475569"} />
-              <Text className={`min-w-0 flex-1 text-[13px] font-semibold ${on ? "text-orange-800" : "text-ink-800"}`}>{r.label}</Text>
-            </Pressable>
-          );
-        })}
+
+      <View className="gap-2">
+        <Text className="text-[13px] font-semibold text-ink-700">Why are you leaving?</Text>
+        <View className="flex-row flex-wrap justify-between gap-y-2.5">
+          {EARLY_REASONS.map((r) => {
+            const on = reason === r.label;
+            const tint = EARLY_TINTS[r.label] ?? EARLY_TINTS.Other;
+            return (
+              <Pressable
+                key={r.label}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: on }}
+                accessibilityLabel={r.label}
+                onPress={() => onReason(r.label)}
+                className="w-[48.5%] flex-row items-center gap-2.5 rounded-2xl bg-white px-3 py-3"
+                style={{ borderWidth: on ? 2 : 1, borderColor: on ? ORANGE : "#E2E8F0", backgroundColor: on ? "#FFF7ED" : "#FFFFFF" }}
+              >
+                <View className="h-9 w-9 items-center justify-center rounded-full" style={{ backgroundColor: tint.bg }}>
+                  <Ionicons name={r.icon} size={18} color={tint.fg} />
+                </View>
+                <Text className="min-w-0 flex-1 text-[13px] font-semibold leading-4 text-ink-900">{r.label}</Text>
+                {on ? <Ionicons name="checkmark-circle" size={18} color={ORANGE} /> : null}
+              </Pressable>
+            );
+          })}
+        </View>
       </View>
+
       {reason === "Other" ? (
         <TextInput
           value={note}
@@ -178,24 +210,33 @@ function LeavingEarly({
           className="rounded-2xl border border-ink-200 bg-white px-4 py-3 text-[15px] text-ink-900"
         />
       ) : null}
+
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Check out and go home"
         accessibilityState={{ disabled: !ready || Boolean(busy) }}
         disabled={!ready || Boolean(busy)}
         onPress={onConfirm}
-        className={`h-14 flex-row items-center justify-center gap-2 rounded-2xl ${ready ? "" : "opacity-40"}`}
-        style={{ backgroundColor: ORANGE }}
+        className="h-14 flex-row items-center justify-center gap-2 rounded-full"
+        style={{ backgroundColor: ready ? ORANGE : "#E2E8F0" }}
       >
-        {busy ? <ActivityIndicator color="#fff" /> : <Ionicons name="exit-outline" size={22} color="#fff" />}
-        <Text className="text-[16px] font-bold text-white">{busy || (ready ? "Check out & go home" : "Choose a reason")}</Text>
+        {busy ? <ActivityIndicator color="#fff" /> : <Ionicons name="exit-outline" size={22} color={ready ? "#fff" : "#94A3B8"} />}
+        <Text className="text-[16px] font-bold" style={{ color: ready ? "#fff" : "#64748B" }}>
+          {busy || (ready ? "Check out & go home" : "Pick a reason first")}
+        </Text>
       </Pressable>
-      <View className="flex-row items-center justify-between">
-        <Pressable accessibilityRole="button" onPress={onCancel} hitSlop={8}>
-          <Text className="text-[14px] font-semibold text-ink-500">Not now</Text>
+      <View className="flex-row gap-2.5">
+        <Pressable accessibilityRole="button" onPress={onCancel} className="h-12 flex-1 items-center justify-center rounded-full border border-ink-200 bg-white">
+          <Text className="text-[15px] font-semibold text-ink-700">Not now</Text>
         </Pressable>
-        <Pressable accessibilityRole="button" onPress={onLeave} hitSlop={8}>
-          <Text className="text-[14px] font-semibold text-[#1F45C7]">Apply half-day leave instead</Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Apply half-day leave instead"
+          onPress={onLeave}
+          className="h-12 flex-1 flex-row items-center justify-center gap-1.5 rounded-full bg-[#EEF3FF]"
+        >
+          <Ionicons name="airplane-outline" size={16} color="#1F45C7" />
+          <Text className="text-[15px] font-semibold text-[#1F45C7]">Half-day leave</Text>
         </Pressable>
       </View>
     </View>
@@ -385,6 +426,7 @@ export function MarkHereSheet({
     phase === "leaving" ? (
       <LeavingEarly
         classesLeft={classesLeft}
+        endsAt={closes}
         reason={leaveReason}
         note={leaveNote}
         busy={busyText}

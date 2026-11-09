@@ -184,6 +184,23 @@ describe.sequential("staff attendance by location", () => {
     expect(notice?.recipients.length).toBeGreaterThan(0);
   });
 
+  it("classes opened for cover when a teacher leaves early are not shown to them as timetable changes", async () => {
+    const mk = (id: string, weekday: number) =>
+      prisma.timetableSlot.create({ data: { id, classId: fixture.classId, periodId: "period-1", weekday, teacherId: "teacher-tara", activity: "Library" } });
+    await mk("slot-left-early", 6);
+    await mk("slot-office", 5);
+    await prisma.substituteAssignment.createMany({
+      data: [
+        { date: "2026-11-07", slotId: "slot-left-early", status: "OPEN", reason: "ABSENT", note: "Left early: Not well", absentTeacherId: "teacher-tara", assignedById: "user-teacher" },
+        { date: "2026-11-06", slotId: "slot-office", status: "OPEN", reason: "ABSENT", note: "", absentTeacherId: "teacher-tara", assignedById: "user-office" },
+      ],
+    });
+    const { teacherDayChanges } = await import("../../lib/timetable-day");
+    const changes = await teacherDayChanges("teacher-tara");
+    expect(changes.map((c) => c.date)).toContain("2026-11-06");
+    expect(changes.map((c) => c.date)).not.toContain("2026-11-07");
+  });
+
   it("office Save the day keeps a time staff marked themselves, and Absent clears in and out", async () => {
     const today = (await prisma.staffDay.findFirstOrThrow({ where: { teacherId: "teacher-tara" } })).date;
     const stamp = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(today);

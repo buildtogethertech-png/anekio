@@ -24,7 +24,7 @@ import android.widget.TextView
  * does: tapping it ends the break right there. The details ("2-A class · Admin is watching", live
  * break timer) are in the ongoing notification.
  *
- * Same line in blue while Anekio opened another app (WhatsApp, call, camera…): "From Anekio · 2:45 ·
+ * Same line in blue while Anekio opened another app (WhatsApp, call, camera…): "From Anekio · 0:25 ·
  * Back" — the short pass before the guard comes back.
  */
 object ClassLockBreakChip {

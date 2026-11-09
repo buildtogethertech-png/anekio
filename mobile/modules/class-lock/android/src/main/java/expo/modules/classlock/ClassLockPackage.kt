@@ -14,6 +14,8 @@ class ClassLockPackage : Package {
   override fun createReactActivityLifecycleListeners(activityContext: Context?): List<ReactActivityLifecycleListener> =
     listOf(object : ReactActivityLifecycleListener {
       override fun onUserLeaveHint(activity: Activity) {
+        // Android also sends this when Anekio itself starts another app's screen; JS marks those first.
+        if (System.currentTimeMillis() < ClassLockOverlay.openingUntil) return
         ClassLockOverlay.userLeft = true
       }
     })

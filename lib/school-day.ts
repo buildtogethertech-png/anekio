@@ -15,7 +15,11 @@ export type SchoolDaySettings = {
   /** "last_period" or a fixed "HH:MM" when the day ends by itself. */
   endsAt: string;
   breakReasons: string[];
+  /** How long an app opened from Anekio (WhatsApp, call, link) stays free before the guard. A call that is on stays free. */
+  openAppSeconds: number;
 };
+
+export const OPEN_APP_SECONDS = { default: 30, min: 10, max: 600 };
 
 export const DEFAULT_BREAK_REASONS = ["Free period", "Lunch", "Personal call", "Office work"];
 
@@ -24,7 +28,14 @@ export const SCHOOL_DAY_DEFAULTS: SchoolDaySettings = {
   breakDuringClass: "never",
   endsAt: "last_period",
   breakReasons: DEFAULT_BREAK_REASONS,
+  openAppSeconds: OPEN_APP_SECONDS.default,
 };
+
+function cleanOpenAppSeconds(v: unknown) {
+  const n = Math.round(Number(v));
+  if (!Number.isFinite(n) || n <= 0) return OPEN_APP_SECONDS.default;
+  return Math.min(OPEN_APP_SECONDS.max, Math.max(OPEN_APP_SECONDS.min, n));
+}
 
 function cleanReasons(list: unknown) {
   if (!Array.isArray(list)) return DEFAULT_BREAK_REASONS;
@@ -46,6 +57,7 @@ export function parseSchoolDay(raw: string | null | undefined): SchoolDaySetting
       breakDuringClass: o.breakDuringClass === "with_reason" ? "with_reason" : "never",
       endsAt,
       breakReasons: cleanReasons(o.breakReasons),
+      openAppSeconds: cleanOpenAppSeconds(o.openAppSeconds),
     };
   } catch {
     return { ...SCHOOL_DAY_DEFAULTS };

@@ -9,7 +9,16 @@ const DEFAULTS: SchoolDaySettings = {
   breakDuringClass: "never",
   endsAt: "last_period",
   breakReasons: ["Free period", "Lunch", "Personal call", "Office work"],
+  openAppSeconds: 30,
 };
+
+const OPEN_APP_CHOICES = [
+  { s: 15, label: "15 sec" },
+  { s: 30, label: "30 sec" },
+  { s: 60, label: "1 min" },
+  { s: 120, label: "2 min" },
+  { s: 300, label: "5 min" },
+];
 
 function Choice({ on, title, hint, onPress }: { on: boolean; title: string; hint: string; onPress: () => void }) {
   return (
@@ -97,6 +106,32 @@ export function SchoolDaySettingsForm({
               hint="Teachers can take a break any time, even during a class."
               onPress={() => canEdit && set({ breakDuringClass: "with_reason" })}
             />
+          </View>
+
+          <View className="gap-2">
+            <View>
+              <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">Apps opened from Anekio</Text>
+              <Text className="mt-0.5 text-[12px] text-ink-500">
+                When a teacher opens WhatsApp, a call or a link from Anekio, that app stays free for this long. A call stays free until it ends.
+              </Text>
+            </View>
+            <View className="flex-row flex-wrap gap-1.5">
+              {OPEN_APP_CHOICES.map((c) => {
+                const on = (draft.openAppSeconds ?? 30) === c.s;
+                return (
+                  <Pressable
+                    key={c.s}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: on }}
+                    accessibilityLabel={`Free for ${c.label}`}
+                    onPress={() => canEdit && set({ openAppSeconds: c.s })}
+                    className={`h-9 items-center justify-center rounded-full border px-4 ${on ? "border-[#2855F6] bg-[#EEF3FF]" : "border-ink-200 bg-white"}`}
+                  >
+                    <Text className={`text-[13px] font-semibold ${on ? "text-[#1F45C7]" : "text-ink-700"}`}>{c.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
           </View>
 
           <View className="gap-2">

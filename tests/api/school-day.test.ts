@@ -47,7 +47,7 @@ describe.sequential("teacher phones setting", () => {
 
   it("is off until the school turns it on", async () => {
     const teacher = await record(teacherToken);
-    expect(teacher.body.schoolDay).toMatchObject({ enabled: false, breakDuringClass: "never", endsAt: "last_period" });
+    expect(teacher.body.schoolDay).toMatchObject({ enabled: false, breakDuringClass: "never", endsAt: "last_period", openAppSeconds: 30 });
   });
 
   it("the office turns it on and teachers get the rules", async () => {
@@ -56,12 +56,22 @@ describe.sequential("teacher phones setting", () => {
       breakDuringClass: "with_reason",
       endsAt: "14:30",
       breakReasons: ["Lunch", "  Parent meeting ", "lunch"],
+      openAppSeconds: 60,
     });
     expect(saved.status).toBe(200);
     const teacher = await record(teacherToken);
-    expect(teacher.body.schoolDay).toEqual({ enabled: true, breakDuringClass: "with_reason", endsAt: "14:30", breakReasons: ["Lunch", "Parent meeting"] });
+    expect(teacher.body.schoolDay).toEqual({ enabled: true, breakDuringClass: "with_reason", endsAt: "14:30", breakReasons: ["Lunch", "Parent meeting"], openAppSeconds: 60 });
     const office = await record(officeToken);
     expect(office.body.school.schoolDay.enabled).toBe(true);
+  });
+
+  it("keeps the free time for apps opened from Anekio between 10 seconds and 10 minutes", async () => {
+    await act(officeToken, "saveSchoolDay", { enabled: true, breakReasons: ["Lunch"], openAppSeconds: 2 });
+    expect((await record(teacherToken)).body.schoolDay.openAppSeconds).toBe(10);
+    await act(officeToken, "saveSchoolDay", { enabled: true, breakReasons: ["Lunch"], openAppSeconds: 9999 });
+    expect((await record(teacherToken)).body.schoolDay.openAppSeconds).toBe(600);
+    await act(officeToken, "saveSchoolDay", { enabled: true, breakReasons: ["Lunch"] });
+    expect((await record(teacherToken)).body.schoolDay.openAppSeconds).toBe(30);
   });
 
   it("refuses a bad end time or no reasons", async () => {

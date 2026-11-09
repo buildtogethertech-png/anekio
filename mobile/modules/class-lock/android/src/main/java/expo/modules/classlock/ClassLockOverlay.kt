@@ -15,7 +15,6 @@ import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
-import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -26,8 +25,14 @@ import android.widget.TextView
  * reads which app is open.
  */
 object ClassLockOverlay {
-  private const val NAVY = "#0E1A3A"
-  private const val NAVY_SOFT = "#1B2A55"
+  private const val PAGE = "#F6F8FC"
+  private const val INK = "#0F172A"
+  private const val INK_SOFT = "#475569"
+  private const val INK_MUTED = "#94A3B8"
+  private const val LINE = "#E2E8F0"
+  private const val BLUE = "#2855F6"
+  private const val BLUE_DARK = "#1F45C7"
+  private const val BLUE_SOFT = "#EEF3FF"
 
   /** Anekio on screen? Starts false so a restart (no Anekio window yet) shows the guard. */
   private var appVisible = false
@@ -39,6 +44,9 @@ object ClassLockOverlay {
 
   /** Set by ClassLockPackage when the teacher leaves with Home / Recents (not when Anekio opens an app). */
   @Volatile var userLeft = false
+
+  /** Until this time (epoch ms) a leave hint means Anekio is opening another app, not Home / Recents. */
+  @Volatile var openingUntil = 0L
 
   /** "Take a break" was tapped on the guard; the module reports it once Anekio is back. */
   @Volatile var breakRequested = false
@@ -61,6 +69,7 @@ object ClassLockOverlay {
       override fun onActivityStarted(activity: android.app.Activity) {
         started += 1
         userLeft = false
+        openingUntil = 0L
         FocusDayState.endPass()
         setAppVisible(app, true)
       }
@@ -70,6 +79,7 @@ object ClassLockOverlay {
           val power = app.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
           // Anekio opened another app (no Home/Recents, screen still on): a short pass, not the guard.
           if (!userLeft && power.isInteractive) FocusDayState.startPass(app)
+          if (userLeft) FocusDayState.countLeft(app)
           userLeft = false
           setAppVisible(app, false)
         }
@@ -96,24 +106,72 @@ object ClassLockOverlay {
       hide(app)
       return
     }
+    if (inCall(app)) {
+      // Never cover a phone or WhatsApp call; look again once it may have ended.
+      hide(app)
+      handler.removeCallbacks(recheck)
+      handler.postDelayed(recheck, 5_000L)
+      return
+    }
     val slot = FocusDayState.classNow()
     val variant = if (slot != null) "class:${slot.start}" else "focus"
     if (view != null && variant != shownVariant) hide(app)
     if (view == null) show(app, slot, variant)
   }
 
+  private var recheckContext: Context? = null
+  private val recheck = Runnable { recheckContext?.let { refresh(it) } }
+
+  /** A phone, WhatsApp or other call is on (audio mode; needs no permission). */
+  private fun inCall(context: Context): Boolean {
+    recheckContext = context
+    val audio = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+    return audio.mode == android.media.AudioManager.MODE_IN_CALL ||
+      audio.mode == android.media.AudioManager.MODE_IN_COMMUNICATION ||
+      audio.mode == android.media.AudioManager.MODE_RINGTONE
+  }
+
   private fun dp(context: Context, v: Float) =
     TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, context.resources.displayMetrics).toInt()
 
-  private fun label(context: Context, value: String, size: Float, color: String, bold: Boolean = false) =
+  private val fonts = HashMap<String, Typeface>()
+
+  /** Anekio's own fonts (Inter, Ionicons), bundled with this module, so the guard looks like the app on every phone. */
+  private fun font(context: Context, name: String): Typeface =
+    fonts.getOrPut(name) {
+      runCatching { Typeface.createFromAsset(context.assets, "classlock/$name.ttf") }.getOrDefault(Typeface.DEFAULT)
+    }
+
+  private fun label(context: Context, value: String, size: Float, color: String, weight: Int = 400) =
     TextView(context).apply {
       text = value
       setTextSize(TypedValue.COMPLEX_UNIT_SP, size)
       setTextColor(Color.parseColor(color))
       gravity = Gravity.CENTER
-      typeface = Typeface.create(Typeface.SANS_SERIF, if (bold) Typeface.BOLD else Typeface.NORMAL)
-      setLineSpacing(0f, 1.15f)
+      typeface = font(context, "inter-$weight")
+      includeFontPadding = false
+      setLineSpacing(0f, 1.2f)
     }
+
+  /** One Ionicons glyph (same icons as the app). */
+  private fun icon(context: Context, glyph: Int, size: Float, color: String) =
+    TextView(context).apply {
+      text = String(Character.toChars(glyph))
+      setTextSize(TypedValue.COMPLEX_UNIT_SP, size)
+      setTextColor(Color.parseColor(color))
+      gravity = Gravity.CENTER
+      typeface = font(context, "ionicons")
+      includeFontPadding = false
+    }
+
+  private const val I_LOCK = 0xf3c7
+  private const val I_BOOK = 0xf1a5
+  private const val I_TIME = 0xf5de
+  private const val I_CAFE = 0xf1ca
+  private const val I_EXIT = 0xf2de
+  private const val I_CALL = 0xf1d9
+  private const val I_NEXT = 0xf1a6
+  private const val I_ARROW = 0xf133
 
   private fun rounded(color: String, radius: Int, stroke: Int = 0, strokeColor: String = "#00000000") =
     GradientDrawable().apply {
@@ -122,96 +180,186 @@ object ClassLockOverlay {
       if (stroke > 0) setStroke(stroke, Color.parseColor(strokeColor))
     }
 
+  private fun gradient(top: String, bottom: String, radius: Int = 0) =
+    GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.parseColor(top), Color.parseColor(bottom))).apply {
+      cornerRadius = radius.toFloat()
+    }
+
   private fun openAnekio(context: Context) {
     val launch = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: return
     launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
     context.startActivity(launch)
   }
 
-  private fun focused(): String {
-    val s = ((FocusDayState.focusMs + (System.currentTimeMillis() - FocusDayState.since)) / 1000).coerceAtLeast(0)
-    return String.format("%02d:%02d:%02d", s / 3600, (s % 3600) / 60, s % 60)
+  /** "2h 14m" / "35m" of school time today. */
+  private fun focused(): String = span(FocusDayState.focusMs + (System.currentTimeMillis() - FocusDayState.since))
+
+  private fun span(ms: Long): String {
+    val m = (ms / 60_000).coerceAtLeast(0)
+    return if (m >= 60) "${m / 60}h ${m % 60}m" else "${m}m"
   }
 
   private val tick = object : Runnable {
     override fun run() {
-      timer?.text = "${focused()}  focused today"
-      handler.postDelayed(this, 1000)
+      timer?.text = focused()
+      handler.postDelayed(this, 30_000)
     }
   }
 
+  /** A small coloured tile: icon, big number, label. */
+  private fun statTile(context: Context, glyph: Int, value: String, name: String, tint: String, soft: String): LinearLayout =
+    LinearLayout(context).apply {
+      orientation = LinearLayout.VERTICAL
+      gravity = Gravity.START
+      background = rounded(soft, dp(context, 20f))
+      setPadding(dp(context, 14f), dp(context, 14f), dp(context, 12f), dp(context, 14f))
+      addView(icon(context, glyph, 18f, tint).apply {
+        background = rounded("#FFFFFF", dp(context, 12f))
+      }, LinearLayout.LayoutParams(dp(context, 32f), dp(context, 32f)))
+      addView(label(context, value, 22f, INK, 700).apply {
+        gravity = Gravity.START
+        setPadding(0, dp(context, 12f), 0, 0)
+      })
+      addView(label(context, name, 12f, INK_SOFT, 400).apply {
+        gravity = Gravity.START
+        setPadding(0, dp(context, 3f), 0, 0)
+      })
+    }
+
   private fun show(context: Context, slot: FocusDayState.ClassSlot?, variant: String) {
     // Back does nothing here; Home cannot be blocked by any app, but the guard stays on top.
-    val root = object : FrameLayout(context) {
+    val root = object : LinearLayout(context) {
       override fun dispatchKeyEvent(event: KeyEvent): Boolean =
         if (event.keyCode == KeyEvent.KEYCODE_BACK) true else super.dispatchKeyEvent(event)
     }
-    root.setBackgroundColor(Color.parseColor(NAVY))
+    root.orientation = LinearLayout.VERTICAL
+    root.background = gradient("#E7EEFF", "#FFFFFF")
     root.isClickable = true
-    root.addView(View(context).apply { background = rounded(NAVY_SOFT, dp(context, 220f)) },
-      FrameLayout.LayoutParams(dp(context, 440f), dp(context, 440f)).apply { gravity = Gravity.TOP or Gravity.END; topMargin = -dp(context, 180f); rightMargin = -dp(context, 200f) })
-    root.addView(View(context).apply { background = rounded(NAVY_SOFT, dp(context, 160f)) },
-      FrameLayout.LayoutParams(dp(context, 320f), dp(context, 320f)).apply { gravity = Gravity.BOTTOM or Gravity.START; bottomMargin = -dp(context, 140f); leftMargin = -dp(context, 160f) })
+    root.setPadding(dp(context, 20f), dp(context, 48f), dp(context, 20f), dp(context, 24f))
+    val wrap = LinearLayout.LayoutParams.WRAP_CONTENT
+    val match = LinearLayout.LayoutParams.MATCH_PARENT
 
-    val column = LinearLayout(context).apply {
-      orientation = LinearLayout.VERTICAL
-      gravity = Gravity.CENTER_HORIZONTAL
-      setPadding(dp(context, 32f), 0, dp(context, 32f), 0)
+    // Brand.
+    val brand = LinearLayout(context).apply {
+      orientation = LinearLayout.HORIZONTAL
+      gravity = Gravity.CENTER_VERTICAL
+      background = rounded("#FFFFFF", dp(context, 20f))
+      setPadding(dp(context, 10f), dp(context, 6f), dp(context, 14f), dp(context, 6f))
     }
-    val tile = FrameLayout(context).apply {
-      background = rounded("#FFFFFF", dp(context, 22f))
-      elevation = dp(context, 6f).toFloat()
-    }
-    tile.addView(ImageView(context).apply {
+    brand.addView(ImageView(context).apply {
       setImageDrawable(context.packageManager.getApplicationIcon(context.applicationInfo))
-    }, FrameLayout.LayoutParams(dp(context, 56f), dp(context, 56f), Gravity.CENTER))
-    column.addView(tile, LinearLayout.LayoutParams(dp(context, 76f), dp(context, 76f)))
+    }, LinearLayout.LayoutParams(dp(context, 22f), dp(context, 22f)))
+    brand.addView(label(context, "Anekio · School day", 13f, INK, 600).apply { setPadding(dp(context, 8f), 0, 0, 0) })
+    root.addView(brand, LinearLayout.LayoutParams(wrap, wrap).apply { gravity = Gravity.CENTER_HORIZONTAL })
 
-    val full = { top: Float -> LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(context, 54f)).apply { topMargin = dp(context, top) } }
+    // Hero.
+    val middle = LinearLayout(context).apply {
+      orientation = LinearLayout.VERTICAL
+      gravity = Gravity.CENTER
+    }
+    val halo = android.widget.FrameLayout(context).apply { background = rounded("#D6E2FF", dp(context, 52f)) }
+    halo.addView(icon(context, if (slot != null) I_BOOK else I_LOCK, 34f, "#FFFFFF").apply {
+      background = gradient("#3B6BFF", BLUE, dp(context, 38f))
+    }, android.widget.FrameLayout.LayoutParams(dp(context, 76f), dp(context, 76f), Gravity.CENTER))
+    middle.addView(halo, LinearLayout.LayoutParams(dp(context, 104f), dp(context, 104f)))
+    middle.addView(label(context, if (slot != null) "Your class is on" else "It's school time", 30f, INK, 700).apply {
+      setPadding(0, dp(context, 20f), 0, 0)
+      letterSpacing = -0.02f
+    })
+    val line = when {
+      slot != null && FocusDayState.breakInClass -> "Please go to your class.\nOther apps are off for now."
+      slot != null -> "Please go to your class.\nOther apps open after it ends."
+      else -> "Other apps are off until you\ntake a break or check out."
+    }
+    middle.addView(label(context, line, 16f, INK_SOFT, 400).apply { setPadding(0, dp(context, 10f), 0, 0) })
+
     if (slot != null) {
-      column.addView(label(context, "YOUR CLASS IS ON", 12f, "#93A6D9", true).apply { setPadding(0, dp(context, 26f), 0, 0) })
-      column.addView(label(context, slot.title, 30f, "#FFFFFF", true).apply { setPadding(0, dp(context, 6f), 0, 0) })
-      column.addView(label(context, slot.subtitle, 15f, "#B8C4E6").apply { setPadding(0, dp(context, 8f), 0, 0) })
-      column.addView(label(context, "Phone use during class is visible to your admin.", 13f, "#FFD7A8", true).apply {
-        background = rounded("#33F59E0B", dp(context, 20f))
-        setPadding(dp(context, 16f), dp(context, 9f), dp(context, 16f), dp(context, 9f))
-      }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(context, 22f) })
-      column.addView(label(context, "Back to Anekio", 16f, NAVY, true).apply {
-        background = rounded("#FFFFFF", dp(context, 16f))
-        setOnClickListener { openAnekio(context) }
-      }, full(44f))
-      if (FocusDayState.breakInClass) {
-        column.addView(label(context, "Take a break", 15f, "#FFFFFF", true).apply {
-          background = rounded("#00000000", dp(context, 16f), dp(context, 1f), "#4A5B8C")
-          setOnClickListener {
-            breakRequested = true
-            openAnekio(context)
-          }
-        }, full(12f))
+      val card = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.START
+        background = gradient("#3B6BFF", BLUE_DARK, dp(context, 22f))
+        setPadding(dp(context, 18f), dp(context, 16f), dp(context, 18f), dp(context, 16f))
       }
-      timer = null
-    } else {
-      column.addView(label(context, "Focus time", 30f, "#FFFFFF", true).apply { setPadding(0, dp(context, 26f), 0, 0) })
-      column.addView(label(context, "Other apps are paused while your school day is on.", 15f, "#B8C4E6").apply { setPadding(0, dp(context, 10f), 0, 0) })
-      timer = label(context, "${focused()}  focused today", 13f, "#DCE4FF", true).apply {
-        background = rounded("#22FFFFFF", dp(context, 20f))
-        setPadding(dp(context, 16f), dp(context, 8f), dp(context, 16f), dp(context, 8f))
+      card.addView(label(context, "NOW", 11f, "#C7D6FF", 600).apply { gravity = Gravity.START; letterSpacing = 0.12f })
+      card.addView(label(context, slot.title, 20f, "#FFFFFF", 700).apply { gravity = Gravity.START; setPadding(0, dp(context, 6f), 0, 0) })
+      card.addView(label(context, slot.subtitle, 14f, "#DCE6FF", 400).apply { gravity = Gravity.START; setPadding(0, dp(context, 4f), 0, 0) })
+      middle.addView(card, LinearLayout.LayoutParams(match, wrap).apply { topMargin = dp(context, 22f) })
+    }
+
+    // Today: three tiles.
+    val tiles = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
+    val time = statTile(context, I_TIME, focused(), "School time", BLUE, "#EAF0FF")
+    timer = time.getChildAt(1) as TextView
+    val breakName = if (FocusDayState.breaks > 0) "Breaks · ${span(FocusDayState.breakMs)}" else "Breaks"
+    val cell = { v: View, gap: Boolean ->
+      tiles.addView(v, LinearLayout.LayoutParams(0, wrap, 1f).apply { if (gap) leftMargin = dp(context, 10f) })
+    }
+    cell(time, false)
+    cell(statTile(context, I_CAFE, "${FocusDayState.breaks}", breakName, "#B45309", "#FEF3E2"), true)
+    cell(statTile(context, I_EXIT, "${FocusDayState.leftToday()}", "Times left", "#BE123C", "#FFE8EC"), true)
+    middle.addView(tiles, LinearLayout.LayoutParams(match, wrap).apply { topMargin = dp(context, if (slot != null) 12f else 26f) })
+
+    if (slot == null) {
+      val next = FocusDayState.nextClass()
+      val row = LinearLayout(context).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        background = rounded("#FFFFFF", dp(context, 18f), dp(context, 1f), LINE)
+        setPadding(dp(context, 12f), dp(context, 12f), dp(context, 14f), dp(context, 12f))
       }
-      column.addView(timer, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(context, 22f) })
-      column.addView(label(context, "Back to Anekio", 16f, NAVY, true).apply {
-        background = rounded("#FFFFFF", dp(context, 16f))
-        setOnClickListener { openAnekio(context) }
-      }, full(44f))
-      column.addView(label(context, "Take a break", 15f, "#FFFFFF", true).apply {
-        background = rounded("#00000000", dp(context, 16f), dp(context, 1f), "#4A5B8C")
+      row.addView(icon(context, I_NEXT, 18f, BLUE).apply { background = rounded(BLUE_SOFT, dp(context, 12f)) },
+        LinearLayout.LayoutParams(dp(context, 36f), dp(context, 36f)))
+      val texts = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(context, 12f), 0, 0, 0)
+      }
+      texts.addView(label(context, "Next class", 12f, INK_MUTED, 600).apply { gravity = Gravity.START })
+      texts.addView(label(context, next?.title ?: "No more classes today", 15f, INK, 600).apply { gravity = Gravity.START; setPadding(0, dp(context, 2f), 0, 0) })
+      row.addView(texts, LinearLayout.LayoutParams(0, wrap, 1f))
+      if (next != null) {
+        val at = java.text.SimpleDateFormat("h:mm a", java.util.Locale.US).format(java.util.Date(next.start))
+        row.addView(label(context, at, 13f, BLUE_DARK, 600).apply {
+          background = rounded(BLUE_SOFT, dp(context, 14f))
+          setPadding(dp(context, 10f), dp(context, 6f), dp(context, 10f), dp(context, 6f))
+        })
+      }
+      middle.addView(row, LinearLayout.LayoutParams(match, wrap).apply { topMargin = dp(context, 10f) })
+    }
+    root.addView(middle, LinearLayout.LayoutParams(match, 0, 1f))
+
+    // Actions.
+    val primary = LinearLayout(context).apply {
+      orientation = LinearLayout.HORIZONTAL
+      gravity = Gravity.CENTER
+      background = gradient("#3B6BFF", BLUE, dp(context, 28f))
+      elevation = dp(context, 4f).toFloat()
+      setOnClickListener { openAnekio(context) }
+      addView(label(context, "Open Anekio", 17f, "#FFFFFF", 600))
+      addView(icon(context, I_ARROW, 18f, "#FFFFFF").apply { setPadding(dp(context, 8f), 0, 0, 0) })
+    }
+    root.addView(primary, LinearLayout.LayoutParams(match, dp(context, 56f)))
+    if (slot == null || FocusDayState.breakInClass) {
+      val brk = LinearLayout(context).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER
+        background = rounded("#FFFFFF", dp(context, 28f), dp(context, 1f), LINE)
         setOnClickListener {
           breakRequested = true
           openAnekio(context)
         }
-      }, full(12f))
+        addView(icon(context, I_CAFE, 18f, "#B45309").apply { setPadding(0, 0, dp(context, 8f), 0) })
+        addView(label(context, "Take a break", 17f, INK, 600))
+      }
+      root.addView(brk, LinearLayout.LayoutParams(match, dp(context, 56f)).apply { topMargin = dp(context, 10f) })
     }
-    column.addView(label(context, "Leaving Anekio during the school day is recorded.", 12f, "#7F8DB8").apply { setPadding(0, dp(context, 22f), 0, 0) })
-    root.addView(column, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+    val foot = LinearLayout(context).apply {
+      orientation = LinearLayout.HORIZONTAL
+      gravity = Gravity.CENTER
+      setPadding(0, dp(context, 14f), 0, 0)
+      addView(icon(context, I_CALL, 13f, INK_MUTED).apply { setPadding(0, 0, dp(context, 6f), 0) })
+      addView(label(context, "Calls are never blocked · Your school sees when you leave", 12f, INK_MUTED, 400))
+    }
+    root.addView(foot, LinearLayout.LayoutParams(match, wrap))
 
     val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
     else @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE

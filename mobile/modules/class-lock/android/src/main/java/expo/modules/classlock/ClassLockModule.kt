@@ -29,7 +29,11 @@ class ClassLockModule : Module() {
 
     Function("canDrawOverlays") { ClassLockOverlay.canDraw(context) }
 
+    /** Anekio is about to open another app (link, WhatsApp, call, share): not the teacher leaving. */
+    Function("willOpenApp") { ClassLockOverlay.openingUntil = System.currentTimeMillis() + 5_000L }
+
     Function("openOverlaySettings") {
+      ClassLockOverlay.openingUntil = System.currentTimeMillis() + 5_000L
       val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
       intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
       context.startActivity(intent)

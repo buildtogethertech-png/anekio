@@ -59,6 +59,8 @@ export type SchoolDaySettings = {
   /** "last_period" or a fixed "HH:MM". */
   endsAt: string;
   breakReasons: string[];
+  /** Seconds an app opened from Anekio stays free before the guard (default 30). */
+  openAppSeconds?: number;
 };
 
 export type FeeRow = {

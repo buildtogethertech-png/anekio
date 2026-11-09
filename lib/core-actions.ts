@@ -1826,8 +1826,8 @@ async function leftEarly(user: AccessUser, self: StaffPerson, stamp: string, out
   let periods = 0;
   if (teacherId) {
     try {
-      const { openTeacherPeriodsFrom } = await import("./timetable-day");
-      periods = await openTeacherPeriodsFrom(user.id, teacherId, stamp, outAt, `Left early: ${reason}`);
+      const { openTeacherPeriodsFrom, LEFT_EARLY_NOTE } = await import("./timetable-day");
+      periods = await openTeacherPeriodsFrom(user.id, teacherId, stamp, outAt, `${LEFT_EARLY_NOTE}: ${reason}`);
     } catch (error) {
       console.error("[staff-attendance] could not open periods for cover", error);
     }

@@ -447,6 +447,9 @@ export async function syncTeacherOutFromStaffDay(authorId: string, teacherId: st
   await clearAttendanceCoversFor(authorId, teacherId, date);
 }
 
+/** Start of the cover note when a teacher checks out before the day ends. */
+export const LEFT_EARLY_NOTE = "Left early";
+
 /** Teacher left school early: their periods still to come (or on now) from `fromHHmm` need cover. */
 export async function openTeacherPeriodsFrom(authorId: string, teacherId: string, date: string, fromHHmm: string, note: string) {
   const { weekday, closed } = await openDay(date);
@@ -494,6 +497,8 @@ export async function teacherDayChanges(teacherId: string) {
     orderBy: [{ date: "asc" }],
   });
   return rows
+    // Their own classes opened for cover because they left early are the office's job, not a timetable change for them.
+    .filter((row) => !(row.absentTeacherId === teacherId && !row.substituteId && row.note.startsWith(LEFT_EARLY_NOTE)))
     .map((row) => ({
       date: row.date,
       period: row.slot.period.name,

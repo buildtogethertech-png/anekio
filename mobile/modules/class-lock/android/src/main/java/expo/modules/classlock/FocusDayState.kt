@@ -38,10 +38,17 @@ object FocusDayState {
   var breakInClass = false
   /** Anekio itself opened another app (WhatsApp, call, camera…): no guard until this time. */
   var passUntil = 0L
+  /** Breaks today and their total (from JS), shown on the guard. */
+  var breaks = 0
+  var breakMs = 0L
+  /** Times the teacher left Anekio (Home / Recents) during focus today; counted here, kept per date. */
+  var leftCount = 0
+  var leftDate = ""
   /** When Anekio opened another app today (sent to JS for the log, then cleared). */
   val outside = mutableListOf<Long>()
 
-  private const val PASS_MS = 3 * 60_000L
+  /** School setting (default 30 s): enough to send a WhatsApp message or start a call; a call that is on keeps the guard away (ClassLockOverlay). */
+  var passMs = 30_000L
 
   fun passActive(now: Long = System.currentTimeMillis()) = status == "focus" && now < passUntil
 
@@ -49,11 +56,28 @@ object FocusDayState {
   fun startPass(context: Context) {
     if (status != "focus") return
     val now = System.currentTimeMillis()
-    passUntil = now + PASS_MS
+    passUntil = now + passMs
     outside.add(now)
     save(context)
-    handler.postDelayed({ ClassLockOverlay.refresh(context) }, PASS_MS + 500)
+    handler.postDelayed({ ClassLockOverlay.refresh(context) }, passMs + 500)
   }
+
+  /** The teacher left Anekio themselves while in focus. */
+  fun countLeft(context: Context) {
+    if (status != "focus") return
+    val d = today()
+    if (leftDate != d) {
+      leftDate = d
+      leftCount = 0
+    }
+    leftCount += 1
+    save(context)
+  }
+
+  fun leftToday() = if (leftDate == today()) leftCount else 0
+
+  /** The next class that has not started yet. */
+  fun nextClass(now: Long = System.currentTimeMillis()) = classes.filter { it.start > now }.minByOrNull { it.start }
 
   fun endPass() {
     passUntil = 0L
@@ -79,6 +103,9 @@ object FocusDayState {
   fun toJson(): String = JSONObject()
     .put("status", status).put("focusMs", focusMs).put("since", since).put("closesAt", closesAt).put("date", date)
     .put("breakInClass", breakInClass)
+    .put("passMs", passMs)
+    .put("breaks", breaks).put("breakMs", breakMs)
+    .put("leftCount", leftCount).put("leftDate", leftDate)
     .put("outside", JSONArray(outside))
     .put("classes", JSONArray(classes.map { JSONObject().put("start", it.start).put("end", it.end).put("title", it.title).put("subtitle", it.subtitle) }))
     .put("changedByPhone", changedByPhone ?: JSONObject.NULL)
@@ -92,6 +119,14 @@ object FocusDayState {
     closesAt = o.optLong("closesAt", 0)
     date = o.optString("date", "")
     breakInClass = o.optBoolean("breakInClass", false)
+    passMs = o.optLong("passMs", 30_000L).coerceIn(5_000L, 600_000L)
+    breaks = o.optInt("breaks", 0)
+    breakMs = o.optLong("breakMs", 0)
+    // JS does not send these; only the saved state has them.
+    if (o.has("leftDate")) {
+      leftCount = o.optInt("leftCount", 0)
+      leftDate = o.optString("leftDate", "")
+    }
     val out = o.optJSONArray("outside")
     if (out != null) {
       outside.clear()
@@ -137,7 +172,7 @@ object FocusDayState {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) app.startForegroundService(service) else app.startService(service)
       }
       handler.removeCallbacks(tick)
-      handler.postDelayed(tick, 15_000)
+      handler.postDelayed(tick, 5_000)
     } else {
       runCatching { app.stopService(service) }
       handler.removeCallbacks(tick)
@@ -178,7 +213,7 @@ object FocusDayState {
       val before = status
       check(app)
       if (before != status) apply(app) else ClassLockOverlay.refresh(app)
-      if (status != "off") handler.postDelayed(this, 15_000)
+      if (status != "off") handler.postDelayed(this, 5_000)
     }
   }
 

@@ -64,6 +64,24 @@ function minutes(hhmm: string | undefined) {
   return m ? Number(m[1]) * 60 + Number(m[2]) : NaN;
 }
 
+/** Breaks taken today and their time (a break still on counts up to now). */
+export function breakStats(day: FocusDay, now: number) {
+  let count = 0;
+  let ms = 0;
+  let from = 0;
+  for (const e of day.log) {
+    if (e.type === "break") {
+      count += 1;
+      from = e.at;
+    } else if (from && (e.type === "resume" || e.type === "class_started" || e.type === "end" || e.type === "auto_end")) {
+      ms += e.at - from;
+      from = 0;
+    }
+  }
+  if (from) ms += now - from;
+  return { count, ms };
+}
+
 /** Focus time so far today (breaks not counted). */
 export function focusTime(day: FocusDay, now: number) {
   return day.focusMs + (day.status === "focus" ? now - day.since : 0);
@@ -168,6 +186,7 @@ export function FocusDayProvider({ children }: { children: ReactNode }) {
   const enabled =
     FEATURES.teacherPhones && Platform.OS === "android" && ClassLock.available && data?.kind === "TEACHER" && Boolean(user?.id) && rules?.enabled === true;
   const breakInClass = rules?.breakDuringClass === "with_reason";
+  const passMs = (rules?.openAppSeconds || 30) * 1000;
   const reasons = [...(rules?.breakReasons?.length ? rules.breakReasons : DEFAULT_REASONS), "Other"];
   const [day, setDay] = useState<FocusDay | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -253,6 +272,9 @@ export function FocusDayProvider({ children }: { children: ReactNode }) {
     ClassLock.setDay({
       status: !enabled || !day || day.status === "ended" ? "off" : day.status,
       breakInClass,
+      passMs,
+      breaks: day ? breakStats(day, Date.now()).count : 0,
+      breakMs: day ? breakStats(day, Date.now()).ms : 0,
       focusMs: day?.focusMs ?? 0,
       since: day?.since ?? Date.now(),
       closesAt,
@@ -264,7 +286,7 @@ export function FocusDayProvider({ children }: { children: ReactNode }) {
         subtitle: `${clock(c.start)} – ${clock(c.end)}${c.room ? ` · ${c.room}` : ""}`,
       })),
     });
-  }, [enabled, Boolean(data), breakInClass, day?.status, day?.since, day?.focusMs, closesAt, classes, midnight]);
+  }, [enabled, Boolean(data), breakInClass, passMs, day?.status, day?.since, day?.focusMs, closesAt, classes, midnight]);
 
   // The phone changed the day on its own (class started during a break, school closed) while Anekio was away.
   useEffect(() => {

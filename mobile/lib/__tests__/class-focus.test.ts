@@ -1,8 +1,20 @@
-import { closingMinute, focusDay, focusTime, hms, teacherPeriodsOn } from "../class-focus";
+import { breakStats, closingMinute, focusDay, focusTime, hms, teacherPeriodsOn } from "../class-focus";
 
 const MIN = 60_000;
 
 describe("school day", () => {
+  it("counts today's breaks and their time for the guard", () => {
+    const min = 60_000;
+    let day = focusDay.start("u1", 0);
+    day = focusDay.takeBreak(day, 10 * min, "Lunch");
+    day = focusDay.resume(day, 30 * min);
+    day = focusDay.takeBreak(day, 60 * min, "Free period");
+    day = focusDay.resume(day, 75 * min, "class_started");
+    expect(breakStats(day, 90 * min)).toEqual({ count: 2, ms: 35 * min });
+    day = focusDay.takeBreak(day, 100 * min, "Personal call");
+    expect(breakStats(day, 105 * min)).toEqual({ count: 3, ms: 40 * min });
+  });
+
   it("counts focus time, leaves breaks out and keeps the break reason", () => {
     let day = focusDay.start("u1", 0);
     expect(focusTime(day, 30 * MIN)).toBe(30 * MIN);
