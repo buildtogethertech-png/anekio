@@ -280,6 +280,20 @@ describe("notice targeting and kinds", () => {
     expect(teacherDenied.status).toBe(400);
   });
 
+  it("keeps a circular on the poster's own board when it went to parents only", async () => {
+    const posted = await act(officeToken, "publishNotice", {
+      title: "Parents only circular",
+      body: "Sports day on Friday.",
+      audience: ["PARENT"],
+      allClasses: true,
+      kind: "CIRCULAR",
+    });
+    expect(posted.status).toBe(200);
+    expect(boardTitles(await inbox(officeToken))).toContain("Parents only circular");
+    expect(boardTitles(await inbox(parentAToken))).toContain("Parents only circular");
+    expect(titles(await inbox(teacherAToken))).not.toContain("Parents only circular");
+  });
+
   it("replaces a push token on the same user and never shares it", async () => {
     const first = await act(parentAToken, "savePushToken", { token: "ExponentPushToken[parent-a-old]" });
     expect(first.status).toBe(200);

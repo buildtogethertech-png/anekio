@@ -172,25 +172,30 @@ export async function readFix(waitMs = 10_000): Promise<Fix> {
   }
 }
 
-/** Browser: expo-location's web watcher cannot be stopped (removeSubscription is missing), so ask the browser directly. */
+/**
+ * Browser: expo-location's web watcher cannot be stopped (removeSubscription is missing), so ask the browser directly.
+ * Laptops often have no GPS and time out on a high-accuracy request, so a failed one is retried with Wi-Fi accuracy.
+ */
 function readWebFix(waitMs: number): Promise<Fix> {
-  return new Promise((resolve, reject) => {
-    const geo = typeof navigator !== "undefined" ? navigator.geolocation : undefined;
-    if (!geo) {
-      reject(new Error("This browser cannot share its location."));
-      return;
-    }
-    geo.getCurrentPosition(
-      (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: Math.round(p.coords.accuracy ?? 9999), mocked: false }),
-      (error) =>
-        reject(
-          new Error(
-            error.code === error.PERMISSION_DENIED
-              ? "Allow location for this site in the browser, then try again."
-              : "Could not read your location. Try again."
-          )
-        ),
-      { enableHighAccuracy: true, timeout: waitMs, maximumAge: 0 }
+  const geo = typeof navigator !== "undefined" ? navigator.geolocation : undefined;
+  if (!geo) return Promise.reject(new Error("This browser cannot share its location."));
+  const ask = (high: boolean) =>
+    new Promise<Fix>((resolve, reject) =>
+      geo.getCurrentPosition(
+        (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: Math.round(p.coords.accuracy ?? 9999), mocked: false }),
+        reject,
+        high ? { enableHighAccuracy: true, timeout: waitMs, maximumAge: 0 } : { enableHighAccuracy: false, timeout: waitMs, maximumAge: 60_000 }
+      )
     );
-  });
+  return ask(true)
+    .catch((error: GeolocationPositionError) => (error.code === error.PERMISSION_DENIED ? Promise.reject(error) : ask(false)))
+    .catch((error: GeolocationPositionError) => {
+      throw new Error(
+        error.code === error.PERMISSION_DENIED
+          ? "Allow location for this site in the browser, then try again."
+          : error.code === error.POSITION_UNAVAILABLE
+            ? "This computer could not find its location. On a Mac, turn on Location Services for the browser (System Settings → Privacy & Security → Location Services), or take the point from a phone at school."
+            : "Could not read your location. Try again."
+      );
+    });
 }

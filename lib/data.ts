@@ -8,6 +8,7 @@ import { compareExamNearness, eligibleMarksTeacherIds, examWorkStepOrder, teache
 import { parseWeekdays, weekCapacity } from "./schedule";
 import { formatSubjectLabel, skillMatchesSubject, subjectDto } from "./subject-code";
 import { schoolFromConfig } from "./school";
+import { classifyNotice } from "./notices";
 import { ensureSchoolSessions } from "./school-session";
 import { ensureCurrentSessionStudentRollNumbers } from "./student-rolls";
 import { runWithoutTenant } from "./tenant-context";
@@ -1150,7 +1151,9 @@ export async function noticesForUser(user: { id: string; portal: "OFFICE" | "TEA
     return rows.filter((n) =>
       n.recipients.length
         ? n.recipients.some((recipient) => recipient.userId === user.id)
-        : n.audiences.some((a) => a.portal === "OFFICE")
+        : n.audiences.some((a) => a.portal === "OFFICE") ||
+          // A circular the office posted to parents, teachers or students stays on its own Notices board.
+          (n.authorId === user.id && !n.eventKey && classifyNotice(n).kind === "CIRCULAR")
     );
   }
   let classIds: string[] = [];
