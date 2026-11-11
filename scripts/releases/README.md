@@ -22,3 +22,4 @@ and put new SQL in `scripts/sql/<date>-<topic>.sql` written with `IF NOT EXISTS`
 | r3 | 2026-11-06 | Class attendance cover (`ClassAttendanceCover`), timetable activities |
 | r4 | 2026-11-07 | Staff attendance by location (QR or location in Settings), in / out via, every out kept |
 | r5 | 2026-11-08 | Teacher phones during the school day (`SchoolConfig.schoolDayJson`, `StaffPhoneEvent`); `LeaveType.noteRequired` |
+| r6 | 2026-11-11 | Fee receipts (`FeeReceipt`, `FeeReceiptCounter`, `Payment.receiptId`): part payments, one receipt over many invoices |
