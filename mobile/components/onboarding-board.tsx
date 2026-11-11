@@ -811,8 +811,8 @@ export function OnboardingBoard({
           </View>
           {preview.kind === "opening_balances" && preview.coveragePeriod ? (
             <View className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2">
-              <Text className="text-sm font-medium text-ink-900">Opening amounts cover all unpaid fees through {preview.coveragePeriod}.</Text>
-              <Text className="mt-1 text-xs text-ink-700">Each invoice uses the Due date in its row. Invoice date is created automatically. Monthly invoices begin {new Date(Number(preview.coveragePeriod.slice(0, 4)), Number(preview.coveragePeriod.slice(5, 7)), 1).toLocaleDateString("en-IN", { month: "long", year: "numeric" })}.</Text>
+              <Text className="text-sm font-medium text-ink-900">Each amount covers unpaid fees up to the month of its Due date.</Text>
+              <Text className="mt-1 text-xs text-ink-700">A Due date in October 2026 means fees through October; monthly invoices start the month after. Invoice date is created automatically.</Text>
             </View>
           ) : null}
           {preview.errors.slice(0, 12).map((error) => <Text key={error} className="text-xs leading-5 text-red-700">• {error}</Text>)}

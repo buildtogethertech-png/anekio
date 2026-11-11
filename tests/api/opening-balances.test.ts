@@ -307,6 +307,33 @@ describe.sequential("first-time fees opening balances", () => {
     }
   });
 
+  it("covers fees up to each row's Due date month, so a later monthly invoice is fine", async () => {
+    const november = await prisma.feeInvoice.create({ data: {
+      studentId: "student-opening-001",
+      classId: fixture.classId,
+      period: "2026-11",
+      title: "November fee",
+      amount: 1000,
+      dueDate: new Date("2026-11-10T00:00:00.000Z"),
+    } });
+    const before = await prisma.student.findUniqueOrThrow({ where: { id: "student-opening-001" }, select: { billingStartPeriod: true } });
+    try {
+      expect((await preview([openingRow({ duedate: "2026-11-10" })])).errors.join("\n")).toMatch(/2026-11 already has a monthly invoice/i);
+      const reviewed = await preview([openingRow({ duedate: "2026-10-10" })]);
+      expect(reviewed).toMatchObject({ errors: [], coveragePeriod: "2026-10" });
+      await applyOnboardingImport(officeUser, { batchId: reviewed.batchId });
+      const opening = await prisma.feeInvoice.findUniqueOrThrow({ where: { studentId_period: { studentId: "student-opening-001", period: "OPENING" } } });
+      expect(opening).toMatchObject({ generatedThrough: "2026-10", amount: 12345 });
+      expect([opening.dueDate.getFullYear(), opening.dueDate.getMonth() + 1, opening.dueDate.getDate()]).toEqual([2026, 10, 10]);
+      const student = await prisma.student.findUniqueOrThrow({ where: { id: "student-opening-001" }, select: { billingStartPeriod: true } });
+      expect(student.billingStartPeriod >= "2026-11").toBe(true);
+    } finally {
+      await prisma.feeInvoice.deleteMany({ where: { studentId: "student-opening-001", period: { in: ["OPENING", "2026-11"] } } });
+      await prisma.student.update({ where: { id: "student-opening-001" }, data: { billingStartPeriod: before.billingStartPeriod } });
+      await prisma.feeInvoice.deleteMany({ where: { id: november.id } });
+    }
+  });
+
   it("rejects blank backlog amounts while accepting a true zero", async () => {
     const before = await snapshotOpeningMoney("student-opening-001");
     for (const [name, row] of [

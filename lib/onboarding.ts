@@ -169,6 +169,16 @@ function currentMonthPeriod(date = new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
+/** Opening balances: a row's amount covers fees up to the month of its Due date. */
+function openingRowPeriod(row: ImportRow) {
+  const due = sheetCell(row, "Due date");
+  return validDate(due) ? due.slice(0, 7) : "";
+}
+
+function openingCoveragePeriod(rows: ImportRow[]) {
+  return rows.map(openingRowPeriod).filter(Boolean).sort().at(-1) || currentMonthPeriod();
+}
+
 function admissionLookupKey(value: string) {
   return value.trim().toLowerCase();
 }
@@ -1567,8 +1577,10 @@ async function validateRows(kind: ImportKind, rows: ImportRow[], coveragePeriod?
     ? await prisma.feeInvoice.findMany({
         where: { studentId: { in: students.map((student) => student.id) }, period: { gte: "0000-01", lte: coveragePeriod || currentMonthPeriod() } },
         select: { studentId: true, period: true },
+        orderBy: { period: "desc" },
       })
     : [];
+  // Earliest monthly invoice per student: a row may not cover a month that is already billed.
   const billedByStudent = new Map(billedThroughCoverage.map((invoice) => [invoice.studentId, invoice.period]));
   const studentById = new Map(students.map((student) => [student.id, student]));
   const studentByAdmission = new Map(students.map((student) => [admissionLookupKey(student.admissionNo), student]));
@@ -1760,7 +1772,7 @@ async function validateRows(kind: ImportKind, rows: ImportRow[], coveragePeriod?
       errors.push(rowError(row, "student ID or admission number was not found."));
     }
     const billedMonth = matchedStudent && billedByStudent.get(matchedStudent.id);
-    if (billedMonth) errors.push(rowError(row, `${billedMonth} already has a monthly invoice. Do not include that month again in the opening balance.`));
+    if (billedMonth && validDate(dueDate) && billedMonth <= openingRowPeriod(row)) errors.push(rowError(row, `${billedMonth} already has a monthly invoice. Do not include that month again in the opening balance.`));
     if (admissionNo) {
       const firstRow = openingAdmissionRows.get(admissionNo);
       if (firstRow) errors.push(rowError(row, "Duplicate admission number in import file"));
@@ -1845,7 +1857,7 @@ export async function previewOnboardingRows(
   const rows = input.rows;
   if (!rows.length) throw new Error("No data rows found. Add school data below the example row, or copy it and clear Example only.");
   const orgId = await onboardingOrgId(user);
-  const coveragePeriod = kind === "opening_balances" ? currentMonthPeriod() : undefined;
+  const coveragePeriod = kind === "opening_balances" ? openingCoveragePeriod(rows) : undefined;
   const errors = [
     ...(kind === "opening_balances" ? await openingDocumentErrors(orgId) : []),
     ...(await validateRows(kind, rows, coveragePeriod)),
@@ -2194,9 +2206,9 @@ async function applyOpeningBalances(db: OnboardingDb, rows: ImportRow[], coverag
     if (!validDate(dueDateText)) throw new Error(rowError(row, "due date must use YYYY-MM-DD."));
     const dueDate = new Date(`${dueDateText}T00:00:00`);
     const amount = parsedAmount.amount;
-    const generatedThrough = coveragePeriod;
+    const generatedThrough = openingRowPeriod(row) || coveragePeriod;
     const alreadyBilled = await db.feeInvoice.findFirst({
-      where: { studentId: student.id, period: { gte: "0000-01", lte: coveragePeriod } },
+      where: { studentId: student.id, period: { gte: "0000-01", lte: generatedThrough } },
       select: { period: true },
     });
     if (alreadyBilled) throw new Error(rowError(row, `${alreadyBilled.period} already has a monthly invoice. Do not include that month again in the opening balance.`));
