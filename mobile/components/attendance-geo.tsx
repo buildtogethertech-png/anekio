@@ -357,6 +357,7 @@ export function MarkHereSheet({
   const [leaveNote, setLeaveNote] = useState("");
   const [picking, setPicking] = useState(false);
   const [consentOpen, setConsentOpen] = useState(false);
+  const [checkInAfterAllow, setCheckInAfterAllow] = useState(false);
   const watcher = useRef<FixWatcher | null>(null);
   const checkedIn = Boolean(today?.marked && today?.inAt);
   const phoneDay = focus?.enabled && focus.day && focus.day.status !== "ended" ? focus.day : null;
@@ -386,9 +387,19 @@ export function MarkHereSheet({
   const outAt = done?.outAt || today?.outAt || "";
   const isIn = checkedIn || Boolean(done);
   const locating = phase === "locating";
+  // Teacher phones on: check-in needs "Display over other apps" first; the school day starts with it.
+  const needsGuard = Boolean(focus?.enabled && !focus.guardAllowed && !isIn);
   const leaveWhy = () => (leaveReason === "Other" ? leaveNote.trim() || "Other" : leaveReason);
 
+  // Back from Android's settings with the permission on: carry on with the check-in the teacher asked for.
+  useEffect(() => {
+    if (!checkInAfterAllow || !open || needsGuard || phase !== "idle") return;
+    setCheckInAfterAllow(false);
+    void mark();
+  }, [checkInAfterAllow, open, needsGuard, phase]);
+
   function close() {
+    setCheckInAfterAllow(false);
     setPhase("idle");
     setDone(null);
     setError("");
@@ -476,6 +487,14 @@ export function MarkHereSheet({
           </View>
         ) : null}
 
+        {needsGuard ? (
+          <Pressable accessibilityRole="button" accessibilityLabel="Allow to check in" onPress={() => setConsentOpen(true)} className="flex-row items-center gap-3 rounded-2xl bg-amber-50 px-4 py-3">
+            <Ionicons name="shield-half-outline" size={20} color="#B45309" />
+            <Text className="min-w-0 flex-1 text-[13px] text-amber-900">Your school uses Teacher phones. Allow “Display over other apps” to check in.</Text>
+            <Text className="text-[13px] font-bold text-amber-800">Allow</Text>
+          </Pressable>
+        ) : null}
+
         {focus?.enabled && isIn && !focus.guardAllowed && phoneDay ? (
           <Pressable accessibilityRole="button" accessibilityLabel="Allow the school day" onPress={() => setConsentOpen(true)} className="flex-row items-center gap-3 rounded-2xl bg-amber-50 px-4 py-3">
             <Ionicons name="shield-half-outline" size={20} color="#B45309" />
@@ -536,7 +555,10 @@ export function MarkHereSheet({
             accessibilityState={{ disabled: locating, busy: locating }}
             disabled={locating}
             onPress={() => {
-              if (isIn && !outAt && earlyNow) setPhase("leaving");
+              if (needsGuard) {
+                setCheckInAfterAllow(true);
+                setConsentOpen(true);
+              } else if (isIn && !outAt && earlyNow) setPhase("leaving");
               else void mark();
             }}
             className="mt-1 h-14 flex-1 flex-row items-center justify-center gap-2.5 rounded-2xl active:opacity-90"
@@ -563,7 +585,10 @@ export function MarkHereSheet({
           </ScrollView>
           <GuardConsent
             open={consentOpen}
-            onCancel={() => setConsentOpen(false)}
+            onCancel={() => {
+              setConsentOpen(false);
+              setCheckInAfterAllow(false);
+            }}
             onAgree={() => {
               setConsentOpen(false);
               focus?.allowGuard();

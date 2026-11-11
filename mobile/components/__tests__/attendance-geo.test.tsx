@@ -221,6 +221,35 @@ describe("MarkHereSheet", () => {
     expect(focus.allowGuard).toHaveBeenCalled();
   });
 
+  it("Teacher phones on: Check in asks for the overlay first and checks in once it is allowed", async () => {
+    teacherDay();
+    mockReadFix.mockResolvedValue({ lat: 28.6143, lng: 77.209, accuracy: 12, mocked: false });
+    mockAct.mockResolvedValue({ ok: true, inAt: "08:52", outAt: "", checkedOut: false } as never);
+    const focus = phoneDay("focus", { guardAllowed: false, day: null });
+    const props = { open: true, token: "t", today: { marked: false }, onClose: jest.fn(), onDone: jest.fn() };
+    const { rerender } = render(<MarkHereSheet {...props} />);
+    expect(screen.getByText(/Allow “Display over other apps” to check in/)).toBeTruthy();
+    fireEvent.press(screen.getByLabelText("Check in here"));
+    expect(screen.getByTestId("guard-consent")).toBeTruthy();
+    expect(mockAct).not.toHaveBeenCalled();
+    fireEvent.press(screen.getByLabelText("I agree, continue"));
+    expect(focus.allowGuard).toHaveBeenCalled();
+    expect(mockAct).not.toHaveBeenCalled();
+    phoneDay("focus", { guardAllowed: true, day: null });
+    rerender(<MarkHereSheet {...props} />);
+    expect(await screen.findByText("Checked in at 8:52 AM")).toBeTruthy();
+    expect(mockAct).toHaveBeenCalledWith("t", "markStaffAttendanceHere", expect.objectContaining({ lat: 28.6143 }));
+  });
+
+  it("Teacher phones on: Not now on the consent screen does not check in", () => {
+    teacherDay();
+    phoneDay("focus", { guardAllowed: false, day: null });
+    render(<MarkHereSheet open token="t" today={{ marked: false }} onClose={jest.fn()} onDone={jest.fn()} />);
+    fireEvent.press(screen.getByLabelText("Check in here"));
+    fireEvent.press(screen.getAllByLabelText("Not now")[0]);
+    expect(mockAct).not.toHaveBeenCalled();
+  });
+
   it("no break while a class is on (unless the school allows it)", () => {
     teacherDay();
     phoneDay("focus", { inClass: { classLabel: "2-A", subject: "Maths" } });
