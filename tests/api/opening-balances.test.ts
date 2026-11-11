@@ -334,7 +334,7 @@ describe.sequential("first-time fees opening balances", () => {
     }
   });
 
-  it("rejects blank backlog amounts while accepting a true zero", async () => {
+  it("reads a blank backlog amount as zero", async () => {
     const before = await snapshotOpeningMoney("student-opening-001");
     for (const [name, row] of [
       ["empty", openingRow({ backloginvoiceamount: "" })],
@@ -344,12 +344,10 @@ describe.sequential("first-time fees opening balances", () => {
         delete next.backloginvoiceamount;
         return next;
       })()],
+      ["zero", openingRow({ backloginvoiceamount: "0" })],
     ] as const) {
-      const previewed = await preview([row]);
-      expect(previewed.errors.join("\n"), name).toMatch(/backlog invoice amount is required/i);
-      await expect(applyOnboardingImport(officeUser, { batchId: previewed.batchId })).rejects.toThrow(/fix the review errors/i);
+      expect((await preview([row])).errors, name).toEqual([]);
     }
-    expect((await preview([openingRow({ backloginvoiceamount: "0" })])).errors).toEqual([]);
     expect(await snapshotOpeningMoney("student-opening-001")).toEqual(before);
   });
 

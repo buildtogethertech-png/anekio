@@ -185,7 +185,7 @@ function admissionLookupKey(value: string) {
 
 function parseOpeningBacklogAmount(raw: string): { error: string } | { amount: number } {
   const text = raw.trim();
-  if (!text) return { error: "backlog invoice amount is required." };
+  if (!text) return { amount: 0 }; // blank: nothing due
   if (!/^\d+$/.test(text)) return { error: "backlog invoice amount must be a whole number of rupees." };
   const amount = Number(text);
   if (!Number.isFinite(amount) || amount < 0) return { error: "backlog invoice amount must be zero or more." };
