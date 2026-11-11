@@ -383,6 +383,7 @@ model Student {
   examAudits          ExamResultAudit[]
   grants              Grant[]
   feeInvoices         FeeInvoice[]
+  feeReceipts         FeeReceipt[]
   feeAddOns           StudentFeeAddOn[]
   applications        Application[]
   leaveRequests       LeaveRequest[]
@@ -844,6 +845,10 @@ model Payment {
   org       SaasOrg?      @relation(fields: [orgId], references: [id], onDelete: SetNull)
   invoiceId String
   invoice   FeeInvoice    @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  /// The receipt this money came in on. One receipt can pay several invoices; one invoice can have
+  /// several receipts (part payments). Empty on payments recorded before receipts existed.
+  receiptId String?
+  receipt   FeeReceipt?   @relation(fields: [receiptId], references: [id], onDelete: SetNull)
   amount    Int
   method    PaymentMethod @default(CASH)
   reference String?
@@ -852,6 +857,44 @@ model Payment {
   paidAt    DateTime      @default(now())
 
   @@index([orgId])
+  @@index([receiptId])
+}
+
+/// Money received once from a parent. Its Payment rows say which invoices it paid.
+model FeeReceipt {
+  id            String        @id @default(cuid())
+  orgId         String?
+  studentId     String
+  student       Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  /// RCPT/26-27/00042: numbered in order per school and financial year (April to March).
+  receiptNo     String
+  amount        Int
+  method        PaymentMethod @default(CASH)
+  /// UTR / cheque number / gateway payment id.
+  reference     String?
+  proofPath     String?
+  notes         String?
+  paidAt        DateTime      @default(now())
+  shareToken    String        @unique
+  /// ACTIVE or CANCELLED. A cancelled receipt keeps its number; its Payment rows are removed.
+  status        String        @default("ACTIVE")
+  cancelReason  String?
+  cancelledAt   DateTime?
+  createdAt     DateTime      @default(now())
+  allocations   Payment[]
+
+  @@unique([orgId, receiptNo])
+  @@index([studentId])
+  @@index([reference])
+}
+
+/// Next receipt number per school (`scope` = orgId, or "school") and financial year ("26-27").
+model FeeReceiptCounter {
+  scope String
+  year  String
+  next  Int    @default(1)
+
+  @@id([scope, year])
 }
 
 model FeeReminder {

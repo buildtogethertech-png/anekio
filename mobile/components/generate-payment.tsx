@@ -33,6 +33,7 @@ type OpenMonth = {
   studentId: string;
   studentName: string;
   classId?: string;
+  dueAt: string;
 };
 
 type StudentPay = {
@@ -51,8 +52,22 @@ type StudentPay = {
     late?: number;
     lateLabel?: string;
     status: string;
+    dueAt?: string;
   }[];
 };
+
+/** How an amount is spread over the ticked months: oldest due date first, the last may be part paid. */
+export function splitPayment(months: { id: string; dueNow: number; dueAt: string }[], amount: number) {
+  let left = Math.max(0, Math.round(amount));
+  return [...months]
+    .sort((a, b) => a.dueAt.localeCompare(b.dueAt))
+    .map((m) => {
+      const pay = Math.min(left, m.dueNow);
+      left -= pay;
+      return { id: m.id, pay, full: pay >= m.dueNow };
+    })
+    .filter((row) => row.pay > 0);
+}
 
 function rupees(amount: number) {
   return `₹${Math.round(amount).toLocaleString("en-IN")}`;
@@ -134,6 +149,7 @@ export function GeneratePayment({
   const [collectedBy, setCollectedBy] = useState("");
   const [notes, setNotes] = useState("");
   const [proof, setProof] = useState<PickedFile | null>(null);
+  const [amountText, setAmountText] = useState("");
   const [busy, setBusy] = useState<Busy>(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
@@ -170,6 +186,7 @@ export function GeneratePayment({
             studentId: row.id,
             studentName: row.name,
             classId: row.classId,
+            dueAt: inv.dueAt || "",
           }))
           .filter((m) => m.dueNow > 0)
       ),
@@ -177,6 +194,20 @@ export function GeneratePayment({
   );
   const selected = months.filter((m) => picked.includes(m.id));
   const due = selected.reduce((sum, m) => sum + m.dueNow, 0);
+  const oneChild = new Set(selected.map((m) => m.studentId)).size <= 1;
+  const typed = amountText.replace(/[^0-9]/g, "");
+  const received = typed ? Number(typed) : due;
+  const partPay = Boolean(typed) && received < due;
+  const amountError = !typed
+    ? ""
+    : received <= 0
+      ? "Enter the amount received."
+      : received > due
+        ? `More than due (${rupees(due)}). Tick more months.`
+        : partPay && !oneChild
+          ? "Part payment is one child at a time."
+          : "";
+  const split = partPay ? splitPayment(selected, received) : [];
   const current = PAYMENT_METHODS.find((m) => m.id === method)!;
   const wa = whatsAppDigits(lead?.parentPhone);
   const heading = title || (roster.length > 1 ? `Payment · ${roster.length} children` : lead ? `Payment · ${lead.name}` : "Payment");
@@ -187,6 +218,7 @@ export function GeneratePayment({
     setMethod(startMethod || "CASH");
     setReference("");
     setProof(null);
+    setAmountText("");
     setCollectedBy(user?.name || "");
     setNotes("");
     setBusy(null);
@@ -220,6 +252,10 @@ export function GeneratePayment({
 
   async function collect() {
     if (!selected.length || method === "RAZORPAY") return;
+    if (amountError) {
+      setError(amountError);
+      return;
+    }
     if (!collectedBy.trim()) {
       setError("Enter who collected or recorded this payment.");
       return;
@@ -234,10 +270,12 @@ export function GeneratePayment({
         groups.set(m.studentId, [...(groups.get(m.studentId) || []), m.id]);
       }
       const receiptNos: string[] = [];
+      const receiptTokens: string[] = [];
       for (const [studentId, invoiceIds] of groups) {
-        const res = await act<{ ok: true; receiptNo?: string }>(token, "collectPartialFees", {
+        const res = await act<{ ok: true; receiptNo?: string; receiptToken?: string }>(token, "collectPartialFees", {
           studentId,
           invoiceIds,
+          amount: partPay ? received : undefined,
           method,
           reference: reference.trim() || undefined,
           collectedBy: collectedBy.trim() || undefined,
@@ -245,17 +283,24 @@ export function GeneratePayment({
           proofPath,
         });
         if (res?.receiptNo) receiptNos.push(res.receiptNo);
+        if (res?.receiptToken) receiptTokens.push(res.receiptToken);
       }
-      // Receipt PDF link (one student at a time; a family collection shares the first child's receipt).
+      // Receipt PDF link (a family collection shares the first child's receipt).
       const firstStudent = [...groups.keys()][0];
-      const receiptUrl = firstStudent
-        ? await receiptPdfUrl(token, groups.get(firstStudent) || []).catch(() => "")
-        : "";
-      const message = selected.length === 1 ? "Collected 1 month." : `Collected ${selected.length} months.`;
+      const receiptUrl = receiptTokens[0]
+        ? `${webOrigin()}/pay/r/${encodeURIComponent(receiptTokens[0])}`
+        : firstStudent
+          ? await receiptPdfUrl(token, groups.get(firstStudent) || []).catch(() => "")
+          : "";
+      const message = partPay
+        ? `Collected ${rupees(received)}.`
+        : selected.length === 1
+          ? "Collected 1 month."
+          : `Collected ${selected.length} months.`;
       if (phone) {
         setDone({
           message,
-          amount: due,
+          amount: received,
           method: current.label,
           range: payRangeLabel(selected.map((m) => m.title)),
           when: new Date().toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }),
@@ -331,7 +376,46 @@ export function GeneratePayment({
   const locked = busy !== null;
   const copyLabel = busy === "copy" ? "Copying" : copied ? "Copied" : "Copy";
   const waLabel = busy === "whatsapp" ? "Opening" : "WhatsApp";
-  const collectLabel = busy === "collect" ? "Collecting…" : `Collect ${selected.length} ${monthWord}`;
+  const collectLabel = busy === "collect" ? "Collecting…" : partPay ? `Collect ${rupees(received)}` : `Collect ${selected.length} ${monthWord}`;
+  const amountBox = (
+    <View>
+      <TextInput
+        value={amountText}
+        onChangeText={(v) => {
+          setAmountText(v.replace(/[^0-9]/g, ""));
+          setError("");
+        }}
+        editable={!locked && selected.length > 0}
+        keyboardType="number-pad"
+        accessibilityLabel="Amount received"
+        placeholder={`${rupees(due)} (full)`}
+        placeholderTextColor="#94a3b8"
+        className="rounded-xl border border-ink-200 px-3 py-3 text-sm text-ink-900"
+        style={{ includeFontPadding: false }}
+      />
+      {amountError ? (
+        <Text className="mt-1.5 text-xs text-red-700">{amountError}</Text>
+      ) : split.length ? (
+        <View className="mt-2 gap-1 rounded-xl bg-ink-50 px-3 py-2">
+          {split.map((row) => {
+            const m = selected.find((x) => x.id === row.id);
+            return (
+              <View key={row.id} className="flex-row justify-between gap-3">
+                <Text numberOfLines={1} className="min-w-0 flex-1 text-xs text-ink-700">
+                  {m?.title}
+                  {row.full ? "" : " · part paid"}
+                </Text>
+                <Text className="text-xs font-semibold text-ink-900">{rupees(row.pay)}</Text>
+              </View>
+            );
+          })}
+          <Text className="text-[11px] text-ink-500">Still due after this: {rupees(due - received)}</Text>
+        </View>
+      ) : (
+        <Text className="mt-1.5 text-[11px] text-ink-500">Leave empty to collect in full. Less goes to the oldest month first.</Text>
+      )}
+    </View>
+  );
   const manualReady = method === "RAZORPAY" || Boolean(collectedBy.trim());
 
   if (phone) {
@@ -479,6 +563,13 @@ export function GeneratePayment({
                           })}
                         </View>
 
+                        {method !== "RAZORPAY" ? (
+                          <>
+                            <Text className="mb-2 mt-4 text-xs font-semibold uppercase tracking-wide text-ink-500">Amount received</Text>
+                            {amountBox}
+                          </>
+                        ) : null}
+
                         <Text className="mb-2 mt-4 text-xs font-semibold uppercase tracking-wide text-ink-500">Paid by</Text>
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }} keyboardShouldPersistTaps="handled">
                           {PAYMENT_METHODS.map((m) => {
@@ -601,15 +692,15 @@ export function GeneratePayment({
                         <View className="border-t border-ink-100 px-5 pb-2 pt-3">
                           <Pressable
                             accessibilityRole="button"
-                            disabled={!selected.length || locked || !manualReady}
+                            disabled={!selected.length || locked || !manualReady || Boolean(amountError)}
                             onPress={collect}
-                            className={`h-12 items-center justify-center rounded-xl ${!selected.length || locked || !manualReady ? "bg-ink-200" : "bg-[#1F45C7]"}`}
+                            className={`h-12 items-center justify-center rounded-xl ${!selected.length || locked || !manualReady || amountError ? "bg-ink-200" : "bg-[#1F45C7]"}`}
                           >
                             <Text className="text-[15px] font-semibold text-white">
                               {busy === "collect"
                                 ? "Collecting…"
                                 : selected.length
-                                  ? `Collect ${rupees(due)} · ${current.short}`
+                                  ? `Collect ${rupees(received)} · ${current.short}`
                                   : "Tick a month to collect"}
                             </Text>
                           </Pressable>
@@ -767,6 +858,7 @@ export function GeneratePayment({
           ) : null}
           {method !== "RAZORPAY" ? (
             <View className="gap-3">
+              <Field label="Amount received">{amountBox}</Field>
               <Field label="Collected by">
                 <Input value={collectedBy} onChangeText={setCollectedBy} placeholder="Name of staff / counter" editable={!locked} />
               </Field>
@@ -814,7 +906,7 @@ export function GeneratePayment({
                 >
                   Collect all due
                 </Button>
-                <Button className="px-3 py-2" disabled={!selected.length || locked || !manualReady} onPress={collect}>
+                <Button className="px-3 py-2" disabled={!selected.length || locked || !manualReady || Boolean(amountError)} onPress={collect}>
                   {collectLabel}
                 </Button>
               </>

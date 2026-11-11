@@ -1,5 +1,5 @@
 import { prisma } from "./prisma";
-import { feeLineTotal, parseFeeLines } from "./fees";
+import { feeLineTotal, invoiceBalance, parseFeeLines } from "./fees";
 import { schoolFromConfig, schoolLines } from "./school";
 import {
   BLUE,
@@ -47,7 +47,7 @@ export async function feeReceiptPdf(tokens: string[]) {
   if (!wanted.length) return null;
   const invoices = await prisma.feeInvoice.findMany({
     where: { shareToken: { in: wanted } },
-    include: { payments: true, student: { include: { class: true, parent: { include: { user: true } } } } },
+    include: { payments: { include: { receipt: { select: { receiptNo: true } } } }, student: { include: { class: true, parent: { include: { user: true } } } } },
     orderBy: { dueDate: "asc" },
   });
   if (!invoices.length) return null;
@@ -60,13 +60,13 @@ export async function feeReceiptPdf(tokens: string[]) {
   const config = (orgId ? await prisma.schoolConfig.findFirst({ where: { orgId } }) : null) || (await prisma.schoolConfig.findUnique({ where: { id: "school" } }));
   const school = schoolFromConfig(config as never);
   const latest = [...payments].sort((a, b) => +b.paidAt - +a.paidAt)[0];
-  const receiptNo = (referenceBase(latest.reference) || `RCPT-${latest.id.slice(-8)}`).toUpperCase();
+  const receiptNo = latest.receipt ? latest.receipt.receiptNo : (referenceBase(latest.reference) || `RCPT-${latest.id.slice(-8)}`).toUpperCase();
   const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
   const totalBilled = invoices.reduce((sum, inv) => sum + inv.amount, 0);
   const balance = Math.max(0, totalBilled - totalPaid);
   const methods = [...new Set(payments.map((p) => METHOD_LABEL[String(p.method)] || String(p.method)))].join(", ");
   const refs = [...new Set(payments.map((p) => referenceBase(p.reference)).filter(Boolean))];
-  const userRef = refs.find((r) => !r.startsWith("RCPT-")) || "";
+  const userRef = refs.find((r) => !r.startsWith("RCPT-") && r !== receiptNo) || "";
 
   const c: PdfCommand[] = [];
   const W = PAGE_WIDTH - MARGIN * 2;
@@ -135,6 +135,103 @@ export async function feeReceiptPdf(tokens: string[]) {
   rect(c, tx, y - 62, 230, 62, { stroke: LINE });
 
   // Footer
+  text(c, `For ${cleanText(school.name)}`, MARGIN + W - 210, 120, 8.5, { bold: true, align: "right", maxWidth: 210 });
+  line(c, MARGIN + W - 130, 84, MARGIN + W, 84, INK);
+  text(c, school.signatory || "Authorised signatory", MARGIN + W - 130, 70, 8.5, { bold: true, align: "center", maxWidth: 130 });
+  text(c, "This is a computer generated receipt and does not need a signature.", MARGIN, 40, 8, { color: MUTED });
+
+  const safe = cleanText(`${receiptNo}-${student.name}`).replace(/[^A-Za-z0-9._-]+/g, "-").replace(/-+/g, "-");
+  return { filename: `Receipt-${safe}.pdf`, receiptNo, buffer: makePdf(c.join("\n")) };
+}
+
+/**
+ * PDF for one receipt: the money received that one time and the invoices it paid.
+ * Used by /pay/r/<receipt share token>.
+ */
+export async function feeReceiptPdfByToken(token: string) {
+  const receipt = await prisma.feeReceipt.findUnique({
+    where: { shareToken: String(token || "").replace(/\.pdf$/i, "") },
+    include: {
+      allocations: { include: { invoice: { include: { payments: true } } }, orderBy: { paidAt: "asc" } },
+      student: { include: { class: true, parent: { include: { user: true } } } },
+    },
+  });
+  if (!receipt) return null;
+  const student = receipt.student;
+  const cancelled = receipt.status === "CANCELLED";
+  const orgId = receipt.orgId || student.orgId;
+  const config = (orgId ? await prisma.schoolConfig.findFirst({ where: { orgId } }) : null) || (await prisma.schoolConfig.findUnique({ where: { id: "school" } }));
+  const school = schoolFromConfig(config as never);
+  const receiptNo = receipt.receiptNo;
+  const invoices = [...new Map(receipt.allocations.map((a) => [a.invoiceId, a.invoice])).values()];
+  const balance = invoices.reduce((sum, inv) => sum + invoiceBalance({ ...inv, status: undefined }).dueNow, 0);
+
+  const c: PdfCommand[] = [];
+  const W = PAGE_WIDTH - MARGIN * 2;
+  rect(c, 0, 0, PAGE_WIDTH, PAGE_HEIGHT, { fill: "1 1 1" });
+
+  rect(c, MARGIN, PAGE_HEIGHT - 132, W, 94, { fill: BLUE });
+  text(c, school.name, MARGIN + 18, PAGE_HEIGHT - 72, 20, { bold: true, color: "1 1 1", maxWidth: 330 });
+  schoolLines(school)
+    .slice(0, 3)
+    .forEach((part, i) => text(c, part, MARGIN + 18, PAGE_HEIGHT - 90 - i * 11, 8, { color: "0.86 0.93 1", maxWidth: 330 }));
+  text(c, "FEE RECEIPT", MARGIN + W - 170, PAGE_HEIGHT - 72, 18, { bold: true, color: "1 1 1", align: "right", maxWidth: 160 });
+  text(c, "Receipt No.", MARGIN + W - 170, PAGE_HEIGHT - 92, 8, { color: "0.86 0.93 1", align: "right", maxWidth: 160 });
+  text(c, receiptNo, MARGIN + W - 190, PAGE_HEIGHT - 106, 10, { bold: true, color: "1 1 1", align: "right", maxWidth: 180 });
+  rect(c, MARGIN + W - 96, PAGE_HEIGHT - 127, 80, 16, { fill: cancelled ? "1 0.92 0.92" : GREEN_SOFT, stroke: cancelled ? "0.95 0.7 0.7" : "0.74 0.91 0.80" });
+  text(c, cancelled ? "CANCELLED" : "RECEIVED", MARGIN + W - 96, PAGE_HEIGHT - 122, 8.5, { bold: true, color: cancelled ? "0.75 0.1 0.1" : GREEN, align: "center", maxWidth: 80 });
+
+  let y = PAGE_HEIGHT - 156;
+  const colW = (W - 14) / 2;
+  rect(c, MARGIN, y - 86, colW, 86, { stroke: LINE });
+  rect(c, MARGIN + colW + 14, y - 86, colW, 86, { stroke: LINE });
+  text(c, "RECEIVED FROM", MARGIN + 10, y - 18, 8.5, { bold: true, color: MUTED });
+  text(c, student.name, MARGIN + 10, y - 36, 13, { bold: true, maxWidth: colW - 20 });
+  text(c, [student.class ? [student.class.name, student.class.section].filter(Boolean).join("-") : "", student.admissionNo ? `Adm. ${student.admissionNo}` : ""].filter(Boolean).join(" | "), MARGIN + 10, y - 52, 8.5, { color: MUTED, maxWidth: colW - 20 });
+  const parentName = student.parent?.user?.name || "";
+  if (parentName) text(c, `Parent: ${parentName}`, MARGIN + 10, y - 66, 8.5, { color: MUTED, maxWidth: colW - 20 });
+  text(c, "PAYMENT", MARGIN + colW + 24, y - 18, 8.5, { bold: true, color: MUTED });
+  row(c, "Date", dateLabel(receipt.paidAt), MARGIN + colW + 24, y - 36, colW - 20);
+  row(c, "Mode", METHOD_LABEL[String(receipt.method)] || String(receipt.method), MARGIN + colW + 24, y - 50, colW - 20);
+  row(c, "UTR / Ref.", receipt.reference || "-", MARGIN + colW + 24, y - 64, colW - 20);
+  row(c, "Receipt No.", receiptNo, MARGIN + colW + 24, y - 78, colW - 20);
+
+  y -= 110;
+  rect(c, MARGIN, y - 24, W, 24, { fill: SOFT, stroke: LINE });
+  text(c, "APPLIED TO", MARGIN + 10, y - 16, 8, { bold: true, color: MUTED });
+  text(c, "INVOICE", MARGIN + W - 250, y - 16, 8, { bold: true, color: MUTED, align: "right", maxWidth: 110 });
+  text(c, "PAID NOW", MARGIN + W - 130, y - 16, 8, { bold: true, color: MUTED, align: "right", maxWidth: 120 });
+  y -= 24;
+  const lines = cancelled ? [] : receipt.allocations;
+  for (const a of lines.slice(0, 24)) {
+    rect(c, MARGIN, y - 20, W, 20, { stroke: LINE });
+    text(c, a.invoice.title, MARGIN + 10, y - 13.5, 9, { bold: true, color: INK, maxWidth: W - 280 });
+    text(c, money(a.invoice.amount), MARGIN + W - 250, y - 13.5, 9, { color: MUTED, align: "right", maxWidth: 110 });
+    text(c, money(a.amount), MARGIN + W - 130, y - 13.5, 9, { bold: true, color: INK, align: "right", maxWidth: 120 });
+    y -= 20;
+  }
+  if (cancelled) {
+    rect(c, MARGIN, y - 34, W, 34, { stroke: LINE });
+    text(c, `Cancelled${receipt.cancelledAt ? ` on ${dateLabel(receipt.cancelledAt)}` : ""}${receipt.cancelReason ? `: ${receipt.cancelReason}` : ""}`, MARGIN + 10, y - 20, 9, { color: "0.75 0.1 0.1", maxWidth: W - 20 });
+    y -= 34;
+  }
+
+  y -= 14;
+  const tx = MARGIN + W - 230;
+  const totals: [string, string][] = cancelled
+    ? [["Amount received", money(0)]]
+    : [
+        ["Amount received", money(receipt.amount)],
+        ["Still due on these invoices", money(balance)],
+      ];
+  totals.forEach(([label, value], i) => {
+    const ry = y - 16 - i * 20;
+    if (i === 0) rect(c, tx, ry - 7, 230, 20, { fill: GREEN_SOFT });
+    row(c, label, value, tx + 10, ry, 210);
+    if (i < totals.length - 1) line(c, tx, ry - 9, tx + 230, ry - 9);
+  });
+  rect(c, tx, y - 22 - (totals.length - 1) * 20, 230, 22 + (totals.length - 1) * 20, { stroke: LINE });
+
   text(c, `For ${cleanText(school.name)}`, MARGIN + W - 210, 120, 8.5, { bold: true, align: "right", maxWidth: 210 });
   line(c, MARGIN + W - 130, 84, MARGIN + W, 84, INK);
   text(c, school.signatory || "Authorised signatory", MARGIN + W - 130, 70, 8.5, { bold: true, align: "center", maxWidth: 130 });

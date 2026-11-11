@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import { invoicePaymentTable, paymentsReceivedHtml } from "./invoice-payments";
 import QRCode from "qrcode";
 import { toBuffer as barcodeBuffer } from "bwip-js/node";
 import type { AccessUser } from "./permissions";
@@ -271,10 +272,12 @@ export const DOCUMENT_FIELDS = [
   { group: "Fees", id: "fees.lines", label: "Fee line items" },
   { group: "Fees", id: "fees.amount", label: "Amount" },
   { group: "Fees", id: "fees.paid", label: "Amount paid" },
+  { group: "Fees", id: "fees.paidEarlier", label: "Paid earlier (receipt)" },
   { group: "Fees", id: "fees.due", label: "Amount due" },
   { group: "Fees", id: "fees.status", label: "Fee status" },
   { group: "Fees", id: "fees.receiptLabel", label: "Receipt label" },
   { group: "Fees", id: "fees.receiptNumber", label: "Receipt number" },
+  { group: "Fees", id: "fees.payments", label: "Payments received (receipts)" },
   { group: "Fees", id: "fees.term", label: "Fee term" },
   { group: "Fees", id: "fees.method", label: "Payment method" },
   { group: "Fees", id: "fees.reference", label: "Payment reference" },
@@ -408,9 +411,8 @@ export function sampleFeePreviewData(type: string): Record<string, unknown> {
     fees: {
       lines: paid
         ? [
-            { Invoice: "INV-0142", Term: "Term 1 tuition", Amount: "₹12,000" },
-            { Invoice: "INV-0143", Term: "Transport · Q1", Amount: "₹6,000" },
-            { Invoice: "INV-0144", Term: "Examination fee", Amount: "₹6,000" },
+            { for: "Term 1 fee", detail: "Tuition ₹12,000, Transport ₹6,000 · Invoice INV-0142", paidNow: "₹18,000", balance: "₹0" },
+            { for: "Examination fee", detail: "Examination ₹4,000, Activity & lab ₹2,000 · Invoice INV-0143 · ₹2,000 paid earlier", paidNow: "₹4,000", balance: "₹0" },
           ]
         : [
             { Particulars: "Tuition fee", Period: "Apr–Jun 2026", Amount: "₹12,000" },
@@ -419,7 +421,8 @@ export function sampleFeePreviewData(type: string): Record<string, unknown> {
             { Particulars: "Activity & lab", Period: "Annual", Amount: "₹2,000" },
           ],
       amount: "₹24,000",
-      paid: paid ? "₹24,000" : "₹18,000",
+      paidEarlier: "₹2,000",
+      paid: paid ? "₹22,000" : "₹18,000",
       due: paid ? "₹0" : "₹6,000",
       status: paid ? "Paid" : "Part paid",
       receiptLabel: "Receipt No.",
@@ -1422,6 +1425,67 @@ function tableHtml(value: unknown, label: string, headerColor = "#2563EB", total
   return `<div class="framed-table"><div>${table}</div><div class="table-total"><span>${escapeHtml(total.label)}</span><b>${escapeHtml(total.value)}</b></div></div>`;
 }
 
+/**
+ * Receipts get their own box under the fee lines. The fee-lines box keeps the space its rows need and the
+ * receipts take the rest of the same slot (down to a `fees.payments` table, if the design has one).
+ * With no receipts the fee-lines box fills the slot as before.
+ */
+function placeFeePayments(layout: DocumentLayout, data: Record<string, unknown>, pageHeight: number): DocumentLayout {
+  const lines = layout.elements.find((item) => item.type === "TABLE" && item.field === "fees.lines");
+  if (!lines) return layout;
+  const pay = layout.elements.find((item) => item.type === "TABLE" && item.field === "fees.payments");
+  const rows = (Array.isArray(atPath(data, "fees.payments")) ? (atPath(data, "fees.payments") as unknown[]) : []).filter((row) => row && typeof row === "object");
+  const others = layout.elements.filter((item) => item !== lines && item !== pay && item.id !== "payments-l");
+  const bottom = Math.max(lines.y + lines.height, pay && pay.y > lines.y ? pay.y + pay.height : 0);
+  if (!rows.length) return { elements: [...others, { ...lines, height: bottom - lines.y }] };
+  const pct = (mm: number) => (mm / pageHeight) * 100;
+  const lineCount = Array.isArray(atPath(data, "fees.lines")) ? (atPath(data, "fees.lines") as unknown[]).length : 1;
+  const linesNeed = pct(6.5 + Math.max(1, lineCount) * 6.6 + 8.5);
+  const caption = pct(6);
+  const payHead = pct(6.5);
+  const payRow = pct(6);
+  const room = bottom - lines.y - linesNeed - caption - payHead;
+  const fit = Math.max(1, Math.min(rows.length, Math.floor(room / payRow)));
+  const payHeight = payHead + fit * payRow + pct(1);
+  const payY = bottom - payHeight;
+  const label = layout.elements.find((item) => item.id === "table-l");
+  const shownNote = rows.length > fit ? ` · LAST ${fit} OF ${rows.length}` : "";
+  return {
+    elements: [
+      ...others,
+      { ...lines, height: Math.max(pct(20), payY - caption - lines.y) },
+      {
+        id: "payments-l",
+        type: "TEXT",
+        x: lines.x,
+        y: payY - pct(4.6),
+        width: lines.width,
+        height: pct(4),
+        value: `PAYMENTS RECEIVED${shownNote}`,
+        fontSize: label?.fontSize || 8,
+        fontWeight: "bold",
+        color: label?.color || "#64748B",
+      },
+      { ...(pay || lines), id: pay?.id || "payments", field: "fees.payments", label: "Payments received", x: lines.x, width: lines.width, y: payY, height: payHeight, value: String(fit) },
+    ],
+  };
+}
+
+/** Receipt rows: what the money was for (with the fee heads under it), what this receipt paid, what is left. */
+function receiptLinesHtml(rows: Record<string, unknown>[], headerColor: string, total: string) {
+  const light = isLightColor(headerColor);
+  const head = (label: string, cls = "") =>
+    `<th class="${cls}" style="position:relative;overflow:hidden;color:${light ? "#334155" : "#fff"};${printFillStyle(headerColor)}">${printFillLayer(headerColor)}<span style="position:relative;z-index:1">${label}</span></th>`;
+  const body = rows
+    .map(
+      (row) =>
+        `<tr><td style="padding:7px 10px"><div style="font-weight:700">${escapeHtml(row.for)}</div>${row.detail ? `<div style="margin-top:2px;font-size:8.5px;font-weight:500;color:#64748B">${escapeHtml(row.detail)}</div>` : ""}</td><td class="amt" style="width:18%">${escapeHtml(row.paidNow)}</td><td class="amt" style="width:16%;color:#64748B">${escapeHtml(row.balance)}</td></tr>`
+    )
+    .join("");
+  const table = `<table><thead><tr>${head("For")}${head("Paid now", "amt")}${head("Balance", "amt")}</tr></thead><tbody>${body}</tbody></table>`;
+  return `<div class="framed-table"><div>${table}</div><div class="table-total"><span>Total received</span><b>${escapeHtml(total)}</b></div></div>`;
+}
+
 function attendanceBarHtml(value: unknown) {
   const n = Math.max(0, Math.min(100, Number(String(value ?? "").replace("%", "")) || 0));
   const color = n >= 75 ? "#1B365D" : n >= 60 ? "#64748B" : "#9F1239";
@@ -1520,11 +1584,15 @@ function feeDocumentLayout(paid: boolean): DocumentLayout {
       cap("words-l", 6, 52, 46, "AMOUNT IN WORDS"),
       e("amount-words", "FIELD", 6, 53.2, 48, 4, { field: "fees.amountWords", label: "Amount in words", fontSize: 10.5, fontWeight: "bold", color: ink }),
       ...(paid
-        ? [...sumRow(1, 51.8, "Total fees", "fees.amount", "Amount"), ...sumRow(2, 54, "Balance due", "fees.due", "Amount due")]
+        ? [
+            ...sumRow(1, 51.4, "Total fees", "fees.amount", "Amount"),
+            ...sumRow(2, 53.5, "Paid earlier", "fees.paidEarlier", "Paid earlier"),
+            ...sumRow(3, 55.6, "Balance due", "fees.due", "Amount due"),
+          ]
         : [...sumRow(1, 51.8, "Total fees", "fees.amount", "Amount"), ...sumRow(2, 54, "Amount paid", "fees.paid", "Amount paid")]),
-      e("total-box", "SHAPE", 58.4, 56.6, 35.6, 4.8, { background: t.brand, locked: true }),
-      e("total-l", "TEXT", 60, 57.5, 16, 3, { value: paid ? "AMOUNT\nRECEIVED" : "AMOUNT\nDUE", fontSize: 8, fontWeight: "bold", color: "#FFFFFF" }),
-      e("total", "FIELD", 72, 57.2, 20.4, 3.6, { field: paid ? "fees.paid" : "fees.due", label: paid ? "Amount paid" : "Amount due", fontSize: 20, fontWeight: "bold", align: "right", color: "#FFFFFF" }),
+      e("total-box", "SHAPE", 58.4, paid ? 58.2 : 56.6, 35.6, 4.8, { background: t.brand, locked: true }),
+      e("total-l", "TEXT", 60, paid ? 59.1 : 57.5, 16, 3, { value: paid ? "AMOUNT\nRECEIVED" : "AMOUNT\nDUE", fontSize: 8, fontWeight: "bold", color: "#FFFFFF" }),
+      e("total", "FIELD", 72, paid ? 58.8 : 57.2, 20.4, 3.6, { field: paid ? "fees.paid" : "fees.due", label: paid ? "Amount paid" : "Amount due", fontSize: 20, fontWeight: "bold", align: "right", color: "#FFFFFF" }),
       // How to pay (invoice) or payment details (receipt).
       e("pay-card", "SHAPE", 6, 66, 88, 12.6, { background: panel, borderColor: rule, locked: true }),
       cap("pay-title", 8, 67, 40, paid ? "PAYMENT DETAILS" : "HOW TO PAY", { color: t.brand, fontSize: 8 }),
@@ -1673,7 +1741,7 @@ function feeDocumentData(type: string, data: Record<string, unknown>): Record<st
     const params = new URLSearchParams({ pa: upi, pn: str(school.name).slice(0, 40), am: String(Math.round(due)), cu: "INR", tn: `Fees ${docNo}`.slice(0, 40) });
     fees.payQr = `upi://pay?${params.toString().replace(/\+/g, "%20")}`;
     fees.payHint = `Any UPI app. ${str(fees.due)} is filled in for you.`;
-  } else if (!paid && str(fees.paymentUrl)) {
+  } else if (!paid && due > 0 && str(fees.paymentUrl)) {
     fees.payQr = str(fees.paymentUrl);
     fees.payHint = "Opens the secure online payment page.";
   } else {
@@ -1851,11 +1919,14 @@ async function renderIssuedHtml(layout: DocumentLayout, data: Record<string, unk
   const designedDoc = feeDoc || admitDoc;
   if (designedDoc) layout = upgradeLegacyFeeLayout(docType, layout);
   if (feeDoc) data = feeDocumentData(docType, data);
+  if (feeDoc) layout = placeFeePayments(layout, data, pageHeight);
   if (admitDoc) data = admitCardData(data);
   const content = (await Promise.all(layout.elements.map(async (item) => {
     const maxFont = Math.max(7, Math.round((item.height / 100) * pageHeight * 3.2));
     const fontSize = Math.min(item.fontSize || 14, maxFont);
     const base = `position:absolute;left:${item.x}%;top:${item.y}%;width:${item.width}%;height:${item.height}%;font-size:${fontSize}px;font-weight:${item.fontWeight || "normal"};text-align:${item.align || "left"};color:${item.color || "#102a43"};overflow:hidden;box-sizing:border-box;`;
+    // Nothing to pay: no "Scan to pay" label next to the empty pay QR.
+    if (feeDoc && item.id === "pay-qr-l" && !String(atPath(data, "fees.payQr") || "")) return "";
     if (item.type === "VERIFY_QR" || item.type === "CUSTOM_QR") {
       const studentId = String(atPath(data, "student.id") || "");
       const documentType = String(atPath(data, "document.type") || "");
@@ -1890,7 +1961,16 @@ async function renderIssuedHtml(layout: DocumentLayout, data: Record<string, unk
     }
     if (item.type === "TABLE") {
       const linesTotal = feeDoc && item.field === "fees.lines" ? String(atPath(data, "fees.linesTotal") || "") : "";
+      if (feeDoc && item.field === "fees.payments") {
+        const rows = atPath(data, "fees.payments");
+        const shown = Array.isArray(rows) ? rows.slice(-Math.max(1, Number(item.value) || rows.length)) : [];
+        if (!shown.length) return "";
+        return `<div style="${base}"><div class="framed-table pay-box">${tableHtml(shown, item.label || "Payments received", item.background || "#2563EB")}</div></div>`;
+      }
       const tableRows = atPath(data, item.field || "");
+      if (feeDoc && item.field === "fees.lines" && Array.isArray(tableRows) && tableRows.some((row) => row && typeof row === "object" && "paidNow" in row)) {
+        return `<div style="${base}">${receiptLinesHtml(tableRows as Record<string, unknown>[], item.background || "#2563EB", linesTotal)}</div>`;
+      }
       const tableClass = admitDoc && item.field === "exam.schedule" ? `admit-table${Array.isArray(tableRows) && tableRows.length > 6 ? " tight" : ""}` : "";
       return `<div class="${tableClass}" style="${base}">${tableHtml(tableRows, item.label || "Table", item.background || "#2563EB", linesTotal ? { label: "Total", value: linesTotal } : undefined)}</div>`;
     }
@@ -1928,7 +2008,7 @@ async function renderIssuedHtml(layout: DocumentLayout, data: Record<string, unk
     return `<div style="${base}display:flex;align-items:center;justify-content:${justify};padding:0 2px;line-height:1.15;white-space:${wrap};${fill}${item.borderColor ? `border:1px solid ${item.borderColor};` : ""}color:${color}">${background ? printFillLayer(background) : ""}<span style="position:relative;z-index:1">${escapeHtml(display)}</span></div>`;
   }))).join("");
   const previewScale = pageSize === "CR80" ? 3.2 : 1;
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(atPath(data, "document.number"))}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800&display=swap" rel="stylesheet"><style>@page{size:${pageWidth}mm ${pageHeight}mm;margin:0}html,body,.page,table,th,td,div,span,svg{${PRINT_COLOR_CSS}}body{margin:0;background:#e8edf2;font-family:Inter,system-ui,"Segoe UI",sans-serif;color:#0f172a}.toolbar{position:sticky;top:0;z-index:2;padding:12px;text-align:center;background:#eef2f7}.page-wrap{display:flex;justify-content:center;padding:24px}.page{position:relative;width:${pageWidth}mm;height:${pageHeight}mm;background:white;box-shadow:0 2px 18px #102a4322;overflow:hidden;transform:scale(${previewScale});transform-origin:top center;margin-bottom:${pageSize === "CR80" ? "260px" : "24px"}}table{width:100%;height:auto;border-collapse:collapse;font-size:inherit}th{color:#fff;padding:6px 8px;font-size:8px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;border:none;text-align:left}td{padding:5px 8px;border-bottom:1px solid #E2E8F0;color:#0f172a;font-weight:600;vertical-align:middle}td.num,th.num{text-align:center}td.amt,th.amt{text-align:right;font-variant-numeric:tabular-nums}.admit-table table{border:1px solid #E2E8F0}.admit-table th{padding:5px 8px;font-size:7px}.admit-table td{padding:6px 8px;border-right:1px solid #EEF2F7}.admit-table td:last-child{width:22%}.admit-table th:first-child,.admit-table td:first-child{width:24%;white-space:nowrap}.admit-table.tight td{padding:3px 8px;font-size:8px}.framed-table{display:flex;flex-direction:column;justify-content:space-between;height:100%;box-sizing:border-box;border:1px solid #E2E8F0;border-radius:8px;overflow:hidden}.framed-table th{padding:7px 10px}.framed-table td{padding:6px 10px}.table-total{display:flex;justify-content:space-between;align-items:center;padding:7px 10px;border-top:1px solid #CBD5E1;font-size:11px;color:#0F172A;font-weight:700;font-variant-numeric:tabular-nums}.table-total b{font-size:12px}.empty-table{border:1px dashed #E2E8F0;border-radius:8px;padding:8px;color:#64748b;font-size:8px}@media print{html,body,.page,*{${PRINT_COLOR_CSS_IMPORTANT}}body{background:white}.toolbar{display:none}.page-wrap{display:block;padding:0}.page{margin:0;box-shadow:none;transform:none}}</style></head><body><div class="toolbar"><button onclick="window.print()">Print / Save PDF</button></div><div class="page-wrap"><main class="page">${content}</main></div></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(atPath(data, "document.number"))}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800&display=swap" rel="stylesheet"><style>@page{size:${pageWidth}mm ${pageHeight}mm;margin:0}html,body,.page,table,th,td,div,span,svg{${PRINT_COLOR_CSS}}body{margin:0;background:#e8edf2;font-family:Inter,system-ui,"Segoe UI",sans-serif;color:#0f172a}.toolbar{position:sticky;top:0;z-index:2;padding:12px;text-align:center;background:#eef2f7}.page-wrap{display:flex;justify-content:center;padding:24px}.page{position:relative;width:${pageWidth}mm;height:${pageHeight}mm;background:white;box-shadow:0 2px 18px #102a4322;overflow:hidden;transform:scale(${previewScale});transform-origin:top center;margin-bottom:${pageSize === "CR80" ? "260px" : "24px"}}table{width:100%;height:auto;border-collapse:collapse;font-size:inherit}th{color:#fff;padding:6px 8px;font-size:8px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;border:none;text-align:left}td{padding:5px 8px;border-bottom:1px solid #E2E8F0;color:#0f172a;font-weight:600;vertical-align:middle}td.num,th.num{text-align:center}td.amt,th.amt{text-align:right;font-variant-numeric:tabular-nums}.admit-table table{border:1px solid #E2E8F0}.admit-table th{padding:5px 8px;font-size:7px}.admit-table td{padding:6px 8px;border-right:1px solid #EEF2F7}.admit-table td:last-child{width:22%}.admit-table th:first-child,.admit-table td:first-child{width:24%;white-space:nowrap}.admit-table.tight td{padding:3px 8px;font-size:8px}.framed-table{display:flex;flex-direction:column;justify-content:space-between;height:100%;box-sizing:border-box;border:1px solid #E2E8F0;border-radius:8px;overflow:hidden}.framed-table th{padding:7px 10px}.framed-table td{padding:6px 10px}.table-total{display:flex;justify-content:space-between;align-items:center;padding:7px 10px;border-top:1px solid #CBD5E1;font-size:11px;color:#0F172A;font-weight:700;font-variant-numeric:tabular-nums}.table-total b{font-size:12px}.framed-table.pay-box{justify-content:flex-start}.pay-box td{padding:4px 10px;font-weight:500;color:#334155}.pay-box tr:last-child td{border-bottom:none}.empty-table{border:1px dashed #E2E8F0;border-radius:8px;padding:8px;color:#64748b;font-size:8px}@media print{html,body,.page,*{${PRINT_COLOR_CSS_IMPORTANT}}body{background:white}.toolbar{display:none}.page-wrap{display:block;padding:0}.page{margin:0;box-shadow:none;transform:none}}</style></head><body><div class="toolbar"><button onclick="window.print()">Print / Save PDF</button></div><div class="page-wrap"><main class="page">${content}</main></div></body></html>`;
 }
 
 function schoolContactLine(school: Record<string, unknown>) {
@@ -2446,7 +2526,7 @@ export async function renderActiveFeeInvoiceTemplateHtml(token: string) {
     where: { shareToken: token },
     include: {
       student: { include: { class: true, parent: { include: { user: true } }, enrollments: { where: { active: true, session: { current: true } }, select: { classId: true, rollNumber: true } } } },
-      payments: true,
+      payments: { include: { receipt: { select: { receiptNo: true, amount: true, shareToken: true } } } },
     },
   });
   if (!invoice) return null;
@@ -2457,7 +2537,10 @@ export async function renderActiveFeeInvoiceTemplateHtml(token: string) {
   const school = schoolFromConfig(config);
   const { balance, lines: statementLines, totalBilled } = invoiceFeeStatement(invoice);
   const latestPayment = [...invoice.payments].sort((a, b) => +b.paidAt - +a.paidAt)[0];
-  const receiptNumber = balance.paid > 0 ? paymentReceiptNumber(latestPayment?.reference, invoice.id) : "";
+  const paymentRows = invoicePaymentTable(invoice.payments);
+  const receiptNumber = balance.paid > 0
+    ? `${paymentReceiptNumber(latestPayment, invoice.id)}${paymentRows.length > 1 ? ` +${paymentRows.length - 1} more` : ""}`
+    : "";
   const lines = statementLines.map((row) => ({
     item: row.label,
     amount: formatInr(row.value),
@@ -2487,6 +2570,7 @@ export async function renderActiveFeeInvoiceTemplateHtml(token: string) {
       status: balance.display === "PAID" ? "Paid" : balance.display === "OVERDUE" ? "Overdue" : balance.display === "PARTIAL" ? "Part paid" : "Unpaid",
       receiptLabel: receiptNumber ? "Receipt No." : "",
       receiptNumber,
+      payments: paymentRows,
       term: invoice.title,
       upiId: school.upiId,
       bankName: school.bankName,
@@ -2501,17 +2585,22 @@ export async function renderActiveFeeInvoiceTemplateHtml(token: string) {
       verifyId: token.slice(0, 10).toUpperCase(),
     },
   };
-  return renderIssuedHtml(
+  const html = await renderIssuedHtml(
     parseDocumentLayout(template.versions[0].layoutJson),
     data,
     `${publicOrigin()}/i/${encodeURIComponent(token)}`,
     template.versions[0].pageSize,
     template.versions[0].orientation
   );
+  const layout = parseDocumentLayout(template.versions[0].layoutJson);
+  const inBox = layout.elements.some((item) => item.type === "TABLE" && (item.field === "fees.lines" || item.field === "fees.payments"));
+  const received = inBox ? "" : paymentsReceivedHtml(invoice.payments, balance.dueNow);
+  return received ? html.replace("</main></div></body>", `</main></div><div class="page-wrap" style="padding-top:0">${received}</div></body>`) : html;
 }
 
-function paymentReceiptNumber(reference: string | null | undefined, invoiceId: string) {
-  const value = String(reference || "").trim();
+function paymentReceiptNumber(payment: { reference?: string | null; receipt?: { receiptNo: string } | null } | undefined, invoiceId: string) {
+  if (payment?.receipt?.receiptNo) return payment.receipt.receiptNo;
+  const value = String(payment?.reference || "").trim();
   const base = value ? value.split(":")[0] || value : "";
   return (base || `RCPT-${invoiceId.slice(-8)}`).toUpperCase();
 }
@@ -2522,12 +2611,29 @@ function paymentReceiptBase(reference: string | null | undefined) {
 
 function receiptTerm(rows: { title: string; period: string }[]) {
   if (!rows.length) return "";
+  const months = rows.map((row) => row.period).filter((period) => /^\d{4}-\d{2}$/.test(period)).sort();
+  if (months.length === rows.length) {
+    const label = (period: string, withYear: boolean) =>
+      new Date(`${period}-01T00:00:00Z`).toLocaleDateString("en-IN", { month: months.length === 1 ? "long" : "short", year: withYear ? "numeric" : undefined, timeZone: "UTC" });
+    const first = months[0];
+    const last = months[months.length - 1];
+    if (first === last) return label(first, true);
+    return first.slice(0, 4) === last.slice(0, 4) ? `${label(first, false)}–${label(last, true)}` : `${label(first, true)} – ${label(last, true)}`;
+  }
   if (rows.length === 1) return rows[0].title;
   const sorted = [...rows].sort((a, b) => a.period.localeCompare(b.period) || a.title.localeCompare(b.title));
   const parsed = sorted.map((row) => row.title.split(" · ").map((part) => part.trim()));
   const commonSuffix = parsed[0]?.[1] && parsed.every((parts) => parts[1] === parsed[0][1]) ? parsed[0][1] : "";
   if (commonSuffix && parsed.every((parts) => parts[0])) return `${parsed[0][0]} to ${parsed[parsed.length - 1][0]} · ${commonSuffix}`;
   return `${sorted[0].title} to ${sorted[sorted.length - 1].title}`;
+}
+
+function receiptRowLabel(row: { title: string; period: string }) {
+  if (/^\d{4}-\d{2}$/.test(row.period)) {
+    return `${new Date(`${row.period}-01T00:00:00Z`).toLocaleDateString("en-IN", { month: "long", year: "numeric", timeZone: "UTC" })} fee`;
+  }
+  if (row.period === "OPENING") return "Previous balance";
+  return row.title.split(" · ")[0] || row.title;
 }
 
 function paymentMethodLabel(method: unknown) {
@@ -2564,7 +2670,7 @@ export async function renderActivePaymentReceiptTemplateHtml(token: string) {
     where: { shareToken: token },
     include: {
       student: { include: { class: true, parent: { include: { user: true } }, enrollments: { where: { active: true, session: { current: true } }, select: { classId: true, rollNumber: true } } } },
-      payments: true,
+      payments: { include: { receipt: { select: { receiptNo: true } } } },
     },
   });
   if (!invoice) return null;
@@ -2576,11 +2682,17 @@ export async function renderActivePaymentReceiptTemplateHtml(token: string) {
   if (!template?.versions[0]) return null;
   const school = schoolFromConfig(config);
   const latestPayment = [...invoice.payments].sort((a, b) => +b.paidAt - +a.paidAt)[0];
-  const receiptNumber = paymentReceiptNumber(latestPayment?.reference, invoice.id);
-  const receiptBase = paymentReceiptBase(latestPayment?.reference);
+  const receiptNumber = paymentReceiptNumber(latestPayment, invoice.id);
+  const receiptId = latestPayment?.receiptId || "";
+  const receiptBase = receiptId ? "" : paymentReceiptBase(latestPayment?.reference);
   const noteParts = paymentNoteParts(latestPayment?.notes);
   const manualMethod = latestPayment ? ["CASH", "UPI", "BANK", "CHEQUE"].includes(String(latestPayment.method)) : false;
-  const paidInvoices = receiptBase
+  const paidInvoices = receiptId
+    ? (await prisma.payment.findMany({ where: { receiptId }, include: { invoice: { include: { payments: true } } }, orderBy: { paidAt: "asc" } })).map((payment) => ({
+        invoice: payment.invoice,
+        paid: payment.amount,
+      }))
+    : receiptBase
     ? (await prisma.feeInvoice.findMany({
         where: { studentId: invoice.studentId },
         include: { payments: true },
@@ -2594,16 +2706,29 @@ export async function renderActivePaymentReceiptTemplateHtml(token: string) {
         }))
         .filter((row) => row.paid > 0)
     : [{ invoice, paid: paidAmount }];
-  const receiptRows = paidInvoices.map((row) => ({
-    invoice: row.invoice.id.slice(-8).toUpperCase(),
-    title: row.invoice.title,
-    period: row.invoice.period || row.invoice.id,
-    paid: row.paid,
-  }));
+  const receivedAt = latestPayment?.paidAt || new Date();
+  const receiptRows = paidInvoices.map((row) => {
+    const statement = invoiceFeeStatement(row.invoice);
+    const earlier = row.invoice.payments
+      .filter((payment) => +payment.paidAt < +receivedAt && (receiptId ? payment.receiptId !== receiptId : true))
+      .reduce((sum, payment) => sum + payment.amount, 0);
+    return {
+      invoice: row.invoice.id.slice(-8).toUpperCase(),
+      title: row.invoice.title,
+      period: row.invoice.period || row.invoice.id,
+      paid: row.paid,
+      billed: statement.totalBilled,
+      earlier,
+      balance: Math.max(0, statement.totalBilled - earlier - row.paid),
+      heads: statement.lines.map((line) => `${line.label} ${formatInr(line.value)}`).join(", "),
+    };
+  });
+  receiptRows.sort((a, b) => a.period.localeCompare(b.period));
   const lines = receiptRows.map((row) => ({
-    invoiceNumber: row.invoice,
-    term: row.title,
-    amount: formatInr(row.paid),
+    for: receiptRowLabel(row),
+    detail: [row.heads, `Invoice ${row.invoice}`, row.earlier > 0 ? `${formatInr(row.earlier)} paid earlier` : ""].filter(Boolean).join(" · "),
+    paidNow: formatInr(row.paid),
+    balance: formatInr(row.balance),
   }));
   const totalPaid = paidInvoices.reduce((sum, row) => sum + row.paid, 0);
   const data = {
@@ -2624,15 +2749,16 @@ export async function renderActivePaymentReceiptTemplateHtml(token: string) {
     },
     fees: {
       lines,
-      amount: formatInr(invoice.amount),
+      amount: formatInr(receiptRows.reduce((sum, row) => sum + row.billed, 0)),
+      paidEarlier: formatInr(receiptRows.reduce((sum, row) => sum + row.earlier, 0)),
       paid: formatInr(totalPaid),
-      due: formatInr(invoiceBalance(invoice).dueNow),
+      due: formatInr(receiptRows.reduce((sum, row) => sum + row.balance, 0)),
       status: "Paid",
       receiptLabel: "Receipt No.",
       receiptNumber,
       term: receiptTerm(receiptRows) || invoice.title,
       method: paymentMethodLabel(latestPayment?.method),
-      reference: receiptBase || latestPayment?.reference || receiptNumber,
+      reference: (receiptId ? latestPayment?.reference : receiptBase || latestPayment?.reference) || receiptNumber,
       receivedBy: noteParts.receivedBy || (manualMethod ? "School office" : "Payment gateway"),
       receivedAt: paymentReceivedAt(latestPayment?.paidAt),
       receivedNote: noteParts.note,

@@ -428,26 +428,16 @@ export async function collectAllStudentFeesCore(
   const reference = String(input.reference || "").trim() || null;
   if ((method === "UPI" || method === "BANK") && !reference) throw new Error("Enter the UTR / reference number");
   if (method === "CHEQUE" && !reference) throw new Error("Enter the cheque number");
-  const invoices = await prisma.feeInvoice.findMany({
-    where: { studentId },
-    include: { payments: true },
-    orderBy: { dueDate: "asc" },
+  const { recordReceipt } = await import("./fee-ledger");
+  const { receipt, duplicate } = await recordReceipt({
+    studentId,
+    method,
+    reference,
+    proofPath: String(input.proofPath || "").trim() || null,
+    notes: String(input.notes || "").trim() || "Full payment",
   });
-  const open = invoices.filter((inv) => invoiceBalance(inv).dueNow > 0);
-  if (!open.length) throw new Error("Nothing due for this student");
-  const { recordLedgerPayment } = await import("./fee-ledger");
-  const proofPath = String(input.proofPath || "").trim() || null;
-  const notes = String(input.notes || "").trim() || "Full payment";
-  for (const inv of open) {
-    await recordLedgerPayment({
-      invoiceId: inv.id,
-      amount: invoiceBalance(inv).dueNow,
-      method,
-      reference,
-      proofPath,
-      notes,
-    });
-  }
+  if (duplicate) throw new Error(`This UTR / reference is already on receipt ${receipt.receiptNo}`);
+  return { receiptNo: receipt.receiptNo, receiptId: receipt.id, receiptToken: receipt.shareToken };
 }
 
 export async function issueClassFeesCore(

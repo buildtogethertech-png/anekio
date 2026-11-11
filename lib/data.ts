@@ -665,7 +665,7 @@ export async function getSharedInvoice(token: string) {
     where: { shareToken: token },
     include: {
       student: { include: { class: true, parent: { include: { user: true } } } },
-      payments: true,
+      payments: { include: { receipt: { select: { receiptNo: true, amount: true, shareToken: true } } } },
     },
   });
   if (!invoice) return null;
@@ -698,7 +698,10 @@ export async function getPeople() {
     interests: true,
     parent: { include: { user: true } },
     user: true,
-    feeInvoices: { include: { payments: true }, orderBy: { dueDate: "desc" as const } },
+    feeInvoices: {
+      include: { payments: { include: { receipt: { select: { id: true, receiptNo: true, shareToken: true, amount: true, status: true } } } } },
+      orderBy: { dueDate: "desc" as const },
+    },
     feeAddOns: { where: { active: true }, orderBy: { createdAt: "asc" as const } },
     attendance: { select: { status: true } },
   };

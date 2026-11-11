@@ -5,7 +5,7 @@ import QRCode from "qrcode";
 import { AttendanceStatus, PaymentMethod, PathTag, Portal, PayrollStatus, Prisma, RoomKind, StaffKind } from "@prisma/client";
 import { sendAisensyWhatsApp } from "./aisensy";
 import { getPayShareChannels, type PayShareChannelId } from "./comms";
-import { recordLedgerPayment } from "./fee-ledger";
+import { cancelReceipt, createReceiptTx, recordReceipt } from "./fee-ledger";
 import { issueDueFeesCore } from "./fee-run";
 import { feePeriod, feePeriodBefore, invoiceBalance, parseFeeCatalogState, payRangeLabel, pickAdmissionFeeLines, serializeFeeCatalogState } from "./fees";
 import { buildStudentMonthPayPath } from "./pay";
@@ -437,8 +437,18 @@ async function createStudentNow(
                           orgId: user.orgId ?? null,
                           amount: admissionCharge,
                           method: paymentMethod,
-                          reference: paymentReference || `RCPT-${student.id.slice(-8).toUpperCase()}-${randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase()}`,
+                          reference: paymentReference || null,
                           notes: "Collected while adding student",
+                          receiptId: (
+                            await createReceiptTx(tx, {
+                              orgId: user.orgId ?? null,
+                              studentId: student.id,
+                              amount: admissionCharge,
+                              method: paymentMethod,
+                              reference: paymentReference || null,
+                              notes: "Collected while adding student",
+                            })
+                          ).id,
                         },
                       },
                     }
@@ -728,6 +738,16 @@ export async function admitLeadAsStudentCore(
               method: paymentMethod as PaymentMethod,
               reference: paymentReference || null,
               notes: "Collected as a one-time admission fee",
+              receiptId: (
+                await createReceiptTx(tx, {
+                  orgId: user.orgId ?? null,
+                  studentId: student.id,
+                  amount: admissionCharge,
+                  method: paymentMethod as PaymentMethod,
+                  reference: paymentReference || null,
+                  notes: "Collected as a one-time admission fee",
+                })
+              ).id,
             },
           },
         },
@@ -3262,33 +3282,27 @@ export async function collectFeeCore(
   input: { invoiceId: string; amount?: number; method?: string; reference?: string; notes?: string; proofPath?: string; collectedBy?: string }
 ) {
   need(user, "fees.collect");
-  const invoice = await prisma.feeInvoice.findUnique({
-    where: { id: input.invoiceId },
-    include: { payments: true },
-  });
+  const method = parsePayMethod(input.method);
+  if (method === "RAZORPAY") throw new Error("Use the pay link so the parent can pay themselves");
+  const reference = String(input.reference || "").trim() || null;
+  assertPayRefs(method, reference);
+  const omitted = input.amount == null || String(input.amount).trim() === "";
+  const invoice = await prisma.feeInvoice.findUnique({ where: { id: input.invoiceId }, include: { payments: true } });
   if (!invoice) throw new Error("Invoice missing");
   const due = invoiceBalance(invoice).dueNow;
   if (due <= 0) throw new Error("This invoice is already paid");
-  const omitted = input.amount == null || String(input.amount).trim() === "";
-  const requested = omitted ? due : Math.round(Number(input.amount));
-  if (!Number.isFinite(requested) || requested <= 0) throw new Error("Invalid payment");
-  const amount = Math.min(due, requested);
-  const method = parsePayMethod(input.method);
-  if (method === "RAZORPAY") throw new Error("Use the pay link so the parent can pay themselves");
-  const providedReference = String(input.reference || "").trim() || null;
-  assertPayRefs(method, providedReference);
-  const reference = providedReference || `RCPT-${invoice.id.slice(-8).toUpperCase()}-${randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase()}`;
-  await recordLedgerPayment({
-    invoiceId: invoice.id,
-    amount,
+  const { receipt, duplicate } = await recordReceipt({
+    invoiceIds: [input.invoiceId],
+    amount: omitted ? null : Math.min(due, Math.round(Number(input.amount))),
     method,
     reference,
     proofPath: String(input.proofPath || "").trim() || null,
     notes: paymentAuditNote(user, input),
   });
+  if (duplicate) throw new Error(`This UTR / reference is already on receipt ${receipt.receiptNo}`);
+  return { receiptNo: receipt.receiptNo, receiptId: receipt.id, receiptToken: receipt.shareToken };
 }
 
-/** Only accept proofs uploaded through the fee upload kinds (private/.../fees/...). */
 function feeProofPath(value: unknown) {
   const path = String(value || "").replace(/^\/+/, "").trim();
   if (!path) return null;
@@ -3301,6 +3315,8 @@ export async function collectPartialFeesCore(
   input: {
     studentId: string;
     invoiceIds?: string[];
+    /** Amount received. Omitted: the selected months in full. Less: oldest months first, the last part paid. */
+    amount?: number | string | null;
     method?: string;
     reference?: string;
     notes?: string;
@@ -3318,29 +3334,35 @@ export async function collectPartialFeesCore(
     throw new Error("Use the pay link so the parent can pay themselves");
   }
   const reference = String(input.reference || "").trim() || null;
-  const notes = paymentAuditNote(user, input);
   assertPayRefs(method, reference);
-  const invoices = await prisma.feeInvoice.findMany({
-    where: { studentId, id: { in: invoiceIds } },
-    include: { payments: true },
-    orderBy: { dueDate: "asc" },
+  const omitted = input.amount == null || String(input.amount).trim() === "";
+  const amount = omitted ? null : Math.round(Number(input.amount));
+  if (amount != null && (!Number.isFinite(amount) || amount <= 0)) throw new Error("Enter the amount received");
+  const { receipt, duplicate } = await recordReceipt({
+    studentId,
+    invoiceIds,
+    amount,
+    method,
+    reference,
+    proofPath: feeProofPath(input.proofPath),
+    notes: paymentAuditNote(user, input),
   });
-  const open = invoices
-    .map((inv) => ({ inv, dueNow: invoiceBalance(inv).dueNow }))
-    .filter((row) => row.dueNow > 0);
-  if (!open.length) throw new Error("Those months are already paid");
-  const receiptBase = reference || `RCPT-${randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase()}`;
-  for (const row of open) {
-    await recordLedgerPayment({
-      invoiceId: row.inv.id,
-      amount: row.dueNow,
-      method,
-      reference: `${receiptBase}:${row.inv.id.slice(-8)}`,
-      proofPath: feeProofPath(input.proofPath),
-      notes,
-    });
-  }
-  return { receiptNo: receiptBase.toUpperCase() };
+  if (duplicate) throw new Error(`This UTR / reference is already on receipt ${receipt.receiptNo}`);
+  return {
+    receiptNo: receipt.receiptNo,
+    receiptId: receipt.id,
+    receiptToken: receipt.shareToken,
+    amount: receipt.amount,
+    invoiceIds: receipt.allocations.map((row) => row.invoiceId),
+  };
+}
+
+export async function cancelFeeReceiptCore(user: AccessUser, input: { receiptId: string; reason?: string }) {
+  need(user, "fees.collect");
+  const receiptId = String(input.receiptId || "");
+  if (!receiptId) throw new Error("Receipt required");
+  const reason = `${String(input.reason || "").trim()}${String(input.reason || "").trim() ? ` (by ${user.name || user.email || "office"})` : ""}`;
+  return cancelReceipt(receiptId, reason);
 }
 
 export async function issueDueFeesCoreApi(user: AccessUser, input: { classId?: string }) {

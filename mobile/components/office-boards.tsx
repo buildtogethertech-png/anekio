@@ -9,6 +9,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { GeneratePayment } from "./generate-payment";
+import { InvoiceReceipts } from "./invoice-receipts";
 import { Dropdown } from "./form";
 import { Badge, Button, Card, Chip, Empty, Field, Input, Modal, PageHeader, Segmented, Sheet, Stat, Switch, Toast, useToast } from "./ui";
 import { Select } from "./form/select";
@@ -2641,7 +2642,12 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                 const adhoc = inv.kind === "ADHOC";
                 const lineCount = inv.lines?.length ?? 0;
                 const showItems = adhoc && (lineCount > 1 || (lineCount === 1 && inv.lines![0].label !== inv.title));
-                const statusText = paid ? "Paid" : inv.status === "overdue" ? "Overdue" : inv.status === "partial" ? "Partly paid" : "Due";
+                const partPaid = !paid && (inv.payments?.length ?? 0) > 0;
+                const statusText = paid
+                  ? "Paid"
+                  : partPaid
+                    ? inv.status === "overdue" ? "Part paid · Overdue" : "Part paid"
+                    : inv.status === "overdue" ? "Overdue" : inv.status === "partial" ? "Partly paid" : "Due";
                 return (
                   <View
                     key={inv.id}
@@ -2659,14 +2665,23 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                       </View>
                       <View className="mt-1 flex-row items-center justify-between gap-2">
                         <Text className="min-w-0 flex-1 text-xs text-ink-600">
-                          {paid ? `Paid ${inv.paid}` : `Due ${inv.due}`}
-                          {!paid && inv.remaining && inv.remaining !== inv.amount ? ` · ${inv.remaining} left` : ""}
+                          {paid ? `Paid ${inv.paid}` : partPaid ? `Paid ${inv.paid} · ${inv.remaining} left · Due ${inv.due}` : `Due ${inv.due}`}
+                          {!paid && !partPaid && inv.remaining && inv.remaining !== inv.amount ? ` · ${inv.remaining} left` : ""}
                           {!paid && inv.lateLabel ? ` · ${inv.lateLabel}` : ""}
                         </Text>
                         {!wide ? (
                           <Badge tone={paid ? "leaf" : inv.status === "overdue" ? "danger" : "warn"}>{statusText}</Badge>
                         ) : null}
                       </View>
+                      <InvoiceReceipts
+                        payments={inv.payments}
+                        canCancel={can(user, "fees.collect")}
+                        className="mt-2"
+                        onChanged={async (message) => {
+                          toast.show(message);
+                          await reload();
+                        }}
+                      />
                       {showItems || inv.note || inv.attachments?.length ? (
                         <View className="mt-2.5 gap-2 rounded-lg bg-ink-50 px-3 py-2.5">
                           {showItems

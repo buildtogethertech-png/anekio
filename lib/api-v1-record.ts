@@ -110,7 +110,14 @@ function serializePeopleFeeInvoice(inv: {
   linesJson?: string | null;
   metadataJson?: string | null;
   shareToken?: string | null;
-  payments: { amount: number; method?: string; reference?: string | null; notes?: string | null; paidAt?: Date }[];
+  payments: {
+    amount: number;
+    method?: string;
+    reference?: string | null;
+    notes?: string | null;
+    paidAt?: Date;
+    receipt?: { id: string; receiptNo: string; shareToken: string; amount: number; status: string } | null;
+  }[];
 }) {
   const paidAmt = inv.payments.reduce((n, payment) => n + payment.amount, 0);
   const balance = invoiceBalance({ ...inv, paid: paidAmt });
@@ -125,6 +132,7 @@ function serializePeopleFeeInvoice(inv: {
     title: inv.title,
     period: inv.period || "",
     due: inv.dueDate.toLocaleDateString("en-IN"),
+    dueAt: inv.dueDate.toISOString(),
     amount: formatInr(inv.amount),
     paid: formatInr(paidAmt),
     remaining: balance.remaining ? formatInr(balance.remaining) : "",
@@ -144,6 +152,11 @@ function serializePeopleFeeInvoice(inv: {
       reference: payment.reference || "",
       notes: payment.notes || "",
       paidAt: payment.paidAt ? payment.paidAt.toISOString() : "",
+      amountValue: payment.amount,
+      receiptId: payment.receipt?.id || "",
+      receiptNo: payment.receipt?.receiptNo || "",
+      receiptTotal: payment.receipt?.amount || 0,
+      receiptUrl: payment.receipt ? `${publicOrigin()}/pay/r/${payment.receipt.shareToken}` : "",
     })),
   };
 }

@@ -697,6 +697,16 @@ function TemplateEditor({ template, studio, data, onClose, onSaved }: { template
     setSelectedId(next.id);
   }
 
+  const builtInDefault = studio.defaults.find((row) => row.type === draft.type);
+
+  function resetToDefault() {
+    if (!builtInDefault) return;
+    setElements(builtInDefault.layout.elements.map((row) => ({ ...row })));
+    setDraft((current) => ({ ...current, pageSize: builtInDefault.pageSize, orientation: builtInDefault.orientation }));
+    setSelectedId("");
+    setMessage("Reset to the default design. Publish to use it; Undo brings your design back.");
+  }
+
   function changeZoom(next: number) {
     setCanvasZoom(clamp(next, 0.7, 1.4));
   }
@@ -890,6 +900,7 @@ function TemplateEditor({ template, studio, data, onClose, onSaved }: { template
           <View className="flex-row flex-wrap items-center justify-center gap-2">
             <Button variant="ghost" disabled={!history.length} onPress={undo}>Undo</Button>
             <Button variant="ghost" disabled={!future.length} onPress={redo}>Redo</Button>
+            {builtInDefault ? <Button variant="ghost" onPress={resetToDefault}>Reset to default</Button> : null}
             <View className="flex-row items-center overflow-hidden rounded-md border border-ink-200 bg-white">
               <Pressable accessibilityRole="button" accessibilityLabel="Zoom out" onPress={() => changeZoom(canvasZoom - 0.1)} className="h-10 w-10 items-center justify-center border-r border-ink-200">
                 <Ionicons name="remove-outline" size={18} color="#3d4f66" />

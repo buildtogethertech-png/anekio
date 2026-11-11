@@ -19,6 +19,7 @@ import {
   addSchoolHolidayCore,
   collectFeeCore,
   collectPartialFeesCore,
+  cancelFeeReceiptCore,
   changeOwnPasswordCore,
   createClassCore,
   updateClassCore,
@@ -526,13 +527,13 @@ export async function runAct(
       await deleteRoomCore(user, body as never);
       break;
     case "collectFee":
-      await collectFeeCore(user, body as never);
-      break;
+      return { ok: true, ...(await collectFeeCore(user, body as never)) };
     case "collectPartialFees":
       return { ok: true, ...(await collectPartialFeesCore(user, body as never)) };
     case "collectAllStudentFees":
-      await collectAllStudentFeesCore(user, body as never);
-      break;
+      return { ok: true, ...(await collectAllStudentFeesCore(user, body as never)) };
+    case "cancelFeeReceipt":
+      return { ok: true, ...(await cancelFeeReceiptCore(user, body as never)) };
     case "issueDueFees":
       await issueDueFeesCoreApi(user, body as never);
       break;

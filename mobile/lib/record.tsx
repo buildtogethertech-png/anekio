@@ -562,6 +562,8 @@ export type RecordPayload = {
       attachments?: { path: string; name: string }[];
       canCancel?: boolean;
       lines?: { label: string; amount: number }[];
+      /** ISO due date; receipts pay the oldest first. */
+      dueAt?: string;
       invoiceUrl?: string;
       receiptUrl?: string;
       receiptNumber?: string;
@@ -571,6 +573,14 @@ export type RecordPayload = {
         reference: string;
         notes: string;
         paidAt: string;
+        /** This invoice's share of the receipt, in rupees. */
+        amountValue?: number;
+        /** Empty on payments recorded before receipts existed. */
+        receiptId?: string;
+        receiptNo?: string;
+        /** Whole receipt amount (it can cover other invoices too). */
+        receiptTotal?: number;
+        receiptUrl?: string;
       }[];
     }[];
   }[];

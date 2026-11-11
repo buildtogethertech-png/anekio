@@ -1,4 +1,5 @@
 import { getSharedInvoice, getStudentPay } from "../lib/pay-public";
+import { invoicePaymentRows } from "../lib/invoice-payments";
 import { feeLineTotal, invoiceBalance, invoiceFeeStatement, parseFeeLines } from "../lib/fees";
 import { gatewayLabel, gatewayReady, getSchoolPaySecrets } from "../lib/pay-config";
 import { schoolBankLine, schoolFromConfig, schoolLines } from "../lib/school";
@@ -385,7 +386,7 @@ export async function renderPayPage(token: string, embed: boolean, paid: boolean
         student: inv.student,
         rows: [{ title: inv.title, period: inv.period || inv.id, paid: paidAmount, shareToken: token }],
         totalPaid: paidAmount,
-        receiptReference: paymentReferenceBase([...inv.payments].sort((a, b) => +b.paidAt - +a.paidAt)[0]?.reference),
+        receiptReference: paymentReferenceBase([...inv.payments].sort((a, b) => +b.paidAt - +a.paidAt)[0]),
         pending: dueNow,
         embed,
         gateway: gatewayLabel(pay.gateway),
@@ -433,14 +434,15 @@ export async function renderPayPage(token: string, embed: boolean, paid: boolean
   return layout(`${school.name} · Pay`, body);
 }
 
-function paymentReferenceBase(reference?: string | null) {
-  const value = String(reference || "").trim();
+function paymentReferenceBase(payment?: { reference?: string | null; receipt?: { receiptNo: string } | null } | null) {
+  if (payment?.receipt?.receiptNo) return payment.receipt.receiptNo;
+  const value = String(payment?.reference || "").trim();
   if (!value) return "";
   return value.split(":")[0] || value;
 }
 
-function receiptNumber(reference: string | null | undefined, invoiceId: string) {
-  return (paymentReferenceBase(reference) || `RCPT-${invoiceId.slice(-8)}`).toUpperCase();
+function receiptNumber(payment: { reference?: string | null; receipt?: { receiptNo: string } | null }, invoiceId: string) {
+  return (paymentReferenceBase(payment) || `RCPT-${invoiceId.slice(-8)}`).toUpperCase();
 }
 
 export async function renderStudentPayPage(token: string, monthsRaw: string, invoiceIdsRaw: string, embed: boolean, paid = false) {
@@ -480,7 +482,7 @@ export async function renderStudentPayPage(token: string, monthsRaw: string, inv
         display: b.display,
         lines: feeLineTotal(parseFeeLines(inv.linesJson)).rows,
         shareToken: inv.shareToken,
-        latestReference: paymentReferenceBase(latestPayment?.reference),
+        latestReference: paymentReferenceBase(latestPayment),
       };
     })
     .sort((a, b) => a.period.localeCompare(b.period) || a.title.localeCompare(b.title) || a.studentName.localeCompare(b.studentName));
@@ -562,7 +564,8 @@ export async function renderInvoicePage(token: string) {
   const via = dueNow > 0 && gatewayReady(pay) ? gatewayLabel(pay.gateway) : "";
   const inv = data.invoice;
   const latestPayment = [...inv.payments].sort((a, b) => +b.paidAt - +a.paidAt)[0];
-  const receipt = latestPayment ? receiptNumber(latestPayment.reference, inv.id) : "";
+  const receipt = latestPayment ? receiptNumber(latestPayment, inv.id) : "";
+  const received = invoicePaymentRows(inv.payments);
   const body = `
     <p class="noprint"><button onclick="window.print()">Print</button></p>
     <h1>${escapeHtml(school.name)}</h1>
@@ -572,7 +575,18 @@ export async function renderInvoicePage(token: string) {
       ${lines.map((l) => `<div class="row"><span>${escapeHtml(l.label)}</span><span>${escapeHtml(formatInr(l.value))}</span></div>`).join("")}
       <div class="row"><span>Total billed</span><strong>${escapeHtml(formatInr(totalBilled))}</strong></div>
       <div class="row"><span>Due now</span><strong>${escapeHtml(formatInr(dueNow))}</strong></div>
-      ${receipt ? `<div class="row"><span>Receipt no.</span><strong>${escapeHtml(receipt)}</strong></div>` : ""}
+      ${
+        received.length
+          ? received
+              .map(
+                (r) =>
+                  `<div class="row"><span>${escapeHtml(r.receiptNo)} · ${escapeHtml(r.paidAt.toLocaleDateString("en-IN", { day: "numeric", month: "short" }))} · ${escapeHtml(r.mode)}</span><span>${escapeHtml(formatInr(r.amount))}${r.receiptTotal > r.amount ? ` <small>(of ${escapeHtml(formatInr(r.receiptTotal))})</small>` : ""}</span></div>`
+              )
+              .join("")
+          : receipt
+            ? `<div class="row"><span>Receipt no.</span><strong>${escapeHtml(receipt)}</strong></div>`
+            : ""
+      }
     </div>
     ${payUrl ? `<p class="noprint"><a href="${escapeHtml(payUrl)}">Pay${via ? " with " + escapeHtml(via) : ""}</a></p>` : `<p class="ok">Paid.</p>`}
   `;

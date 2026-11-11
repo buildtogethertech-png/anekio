@@ -16,6 +16,7 @@ import { receiptMessage, receiptPdfUrl, sendReceiptOnWhatsApp, shareReceiptPdf }
 import { datesForSessionYear, ordinalDay, SESSION_YEAR_OPTIONS, sessionYearId } from "../lib/fee-setup";
 import { useRecord } from "../lib/record";
 import { AdhocInvoiceModal } from "./adhoc-invoice";
+import { InvoiceReceipts } from "./invoice-receipts";
 import { useSession } from "../lib/session";
 import { inr } from "../lib/payroll";
 
@@ -1524,6 +1525,21 @@ export function FeesBoard() {
     );
   }
 
+  /** Receipts that paid this invoice, newest first. One receipt can also cover other months. */
+  function ReceiptLines({ inv, inset }: { inv: Invoice; inset?: boolean }) {
+    return (
+      <InvoiceReceipts
+        payments={inv.payments}
+        canCancel={collect}
+        className={inset ? "px-3 pb-3 pl-[34px]" : "mt-1.5"}
+        onChanged={async (message) => {
+          toast.show(message);
+          await reload();
+        }}
+      />
+    );
+  }
+
   function MonthRow({ inv }: { inv: Invoice }) {
     const parts = invoiceDueParts(inv);
     const paid = inv.status === "paid" || parts.dueNow <= 0;
@@ -1568,6 +1584,7 @@ export function FeesBoard() {
             </Pressable>
           ) : null}
         </View>
+        <ReceiptLines inv={inv} />
       </View>
     );
   }
@@ -1647,12 +1664,12 @@ export function FeesBoard() {
   async function reshareReceipt(inv: (typeof selectedMonths)[number], via: "whatsapp" | "share") {
     if (!selectedDueStudent) return;
     const latest = [...(inv.payments ?? [])].sort((a, b) => String(b.paidAt || "").localeCompare(String(a.paidAt || "")))[0];
-    const ref = String(latest?.reference || "").split(":")[0];
+    const ref = latest?.receiptNo || String(latest?.reference || "").split(":")[0];
     try {
-      const url = await receiptPdfUrl(token, [inv.id]);
+      const url = latest?.receiptUrl || (await receiptPdfUrl(token, [inv.id]));
       const text = receiptMessage({
         studentName: selectedDueStudent.name,
-        amount: String(inv.paid || inv.amount),
+        amount: latest?.receiptUrl ? inr(latest.receiptTotal || latest.amountValue || 0) : String(inv.paid || inv.amount),
         range: shortMonth(inv.period, inv.title),
         method: latest ? paymentMethodLabel(latest.method) : undefined,
         when: latest?.paidAt ? new Date(latest.paidAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : undefined,
@@ -1815,8 +1832,10 @@ export function FeesBoard() {
             const overdue = !paid && inv.status === "overdue";
             const latestPay = [...(inv.payments ?? [])].sort((a, b) => String(b.paidAt || "").localeCompare(String(a.paidAt || "")))[0];
             const when = clockLabel(latestPay?.paidAt);
+            const partPaid = !paid && (inv.payments ?? []).length > 0;
             return (
-              <View key={inv.id} className={`flex-row items-center gap-3 px-3 py-3 ${i ? "border-t border-ink-100" : ""}`}>
+              <View key={inv.id} className={i ? "border-t border-ink-100" : ""}>
+              <View className="flex-row items-center gap-3 px-3 py-3">
                 <View className={`h-2.5 w-2.5 rounded-full ${paid ? "bg-green-500" : overdue ? "bg-red-500" : "bg-amber-400"}`} />
                 <View className="min-w-0 flex-1">
                   <View className="flex-row items-center gap-2">
@@ -1826,7 +1845,7 @@ export function FeesBoard() {
                         paid ? "bg-green-50 text-green-700" : overdue ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-800"
                       }`}
                     >
-                      {paid ? "Paid" : overdue ? "Overdue" : "Due"}
+                      {paid ? "Paid" : partPaid ? "Part paid" : overdue ? "Overdue" : "Due"}
                     </Text>
                   </View>
                   <Text className="mt-0.5 text-xs text-ink-500" numberOfLines={1}>
@@ -1861,6 +1880,8 @@ export function FeesBoard() {
                     </Pressable>
                   </View>
                 </View>
+              </View>
+              <ReceiptLines inv={inv} inset />
               </View>
             );
           })}

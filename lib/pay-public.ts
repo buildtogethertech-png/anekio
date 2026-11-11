@@ -38,7 +38,7 @@ export async function getSharedInvoice(token: string) {
     where: { shareToken: token },
     include: {
       student: { include: { class: true, parent: { include: { user: true } } } },
-      payments: true,
+      payments: { include: { receipt: { select: { receiptNo: true, amount: true, shareToken: true } } } },
     },
   });
   if (!invoice) return null;

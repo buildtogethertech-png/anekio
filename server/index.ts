@@ -64,7 +64,7 @@ import { withPublicRequestOrigin } from "../lib/utils";
 import { hasHostnamePrefix, normalizeHostname, schoolSlugFromHostname } from "../lib/host-routing";
 import { runWithoutTenant, setTenantOrg } from "../lib/tenant-context";
 import { renderInvoicePage, renderPayPage, renderStudentPayPage } from "./pay-html";
-import { feeReceiptPdf } from "../lib/fee-receipt-pdf";
+import { feeReceiptPdf, feeReceiptPdfByToken } from "../lib/fee-receipt-pdf";
 import {
   createAdmissionLeadFromWebsite,
   prepareAdmissionFileUpload,
@@ -1775,6 +1775,15 @@ app.get("/pay/s/:token", async (req, res) => {
   );
   if (!html) return res.status(404).send("Not found");
   res.type("html").send(html);
+});
+
+app.get("/pay/r/:token", async (req, res) => {
+  const pdf = await feeReceiptPdfByToken(String(req.params.token || ""));
+  if (!pdf) return res.status(404).send("Receipt not found");
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `inline; filename="${pdf.filename}"`);
+  res.setHeader("Cache-Control", "no-store");
+  res.send(pdf.buffer);
 });
 
 app.get("/pay/receipt/:tokens", async (req, res) => {

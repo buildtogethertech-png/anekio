@@ -21,7 +21,7 @@ export async function buildStudentMonthPayPath(
 ) {
   const student = await prisma.student.findUnique({
     where: { id: studentId },
-    include: { feeInvoices: { include: { payments: true } } },
+    include: { feeInvoices: { include: { payments: { include: { receipt: { select: { receiptNo: true, amount: true, shareToken: true } } } } } } },
   });
   if (!student) throw new Error("Student missing");
   const wanted = new Set(invoiceIds.filter(Boolean));
@@ -85,7 +85,7 @@ export async function buildParentMonthPayPath(
     where: { userId: parentUserId },
     include: {
       students: {
-        include: { feeInvoices: { include: { payments: true } } },
+        include: { feeInvoices: { include: { payments: { include: { receipt: { select: { receiptNo: true, amount: true, shareToken: true } } } } } } },
         orderBy: { name: "asc" },
       },
     },
@@ -130,7 +130,7 @@ export async function invoicesFromPeriods(studentToken: string, periods: string)
   const list = periods.split(",").map((p) => p.trim()).filter(Boolean);
   const student = await prisma.student.findUnique({
     where: { payToken: studentToken },
-    include: { feeInvoices: { include: { payments: true } } },
+    include: { feeInvoices: { include: { payments: { include: { receipt: { select: { receiptNo: true, amount: true, shareToken: true } } } } } } },
   });
   if (!student) return [];
   return student.feeInvoices
