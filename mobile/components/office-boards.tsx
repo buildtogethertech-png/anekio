@@ -1383,6 +1383,8 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   const [cancellingInvoiceId, setCancellingInvoiceId] = useState("");
   const [manageFeeOpen, setManageFeeOpen] = useState(false);
   const [moveOutOpen, setMoveOutOpen] = useState(false);
+  const [restoreFor, setRestoreFor] = useState<null | { id: string; name: string; classId: string }>(null);
+  const [restorePending, setRestorePending] = useState(false);
   const [manageFeePending, setManageFeePending] = useState(false);
   const [manageOtherIds, setManageOtherIds] = useState<string[]>([]);
   const [manageClassAddOns, setManageClassAddOns] = useState<string[]>([]);
@@ -1935,12 +1937,28 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                 }
                 const former = pastPeople.find((p) => p.id === selected.id);
                 if (!former) return null;
+                // Pre-pick the class they left from ("2-A · 2027-28" → 2-A) when it still exists.
+                const lastLabel = String(former.classLabel || "").split(" · ")[0].trim();
+                const lastClass = (data?.classes ?? []).find((c) => c.label === lastLabel);
                 return (
-                  <View className="mt-1.5 flex-row flex-wrap items-center gap-1.5 self-start rounded-md bg-amber-50 px-2 py-1">
-                    <Ionicons name="archive-outline" size={13} color="#92400e" />
-                    <Text className="text-xs font-medium text-amber-900">
-                      {[former.leftReason || "Left school", former.leftOn ? `on ${former.leftOn.split("-").reverse().join("/")}` : ""].filter(Boolean).join(" ")}
-                    </Text>
+                  <View className="mt-1.5 flex-row flex-wrap items-center gap-2 self-start">
+                    <View className="flex-row items-center gap-1.5 rounded-md bg-amber-50 px-2 py-1">
+                      <Ionicons name="archive-outline" size={13} color="#92400e" />
+                      <Text className="text-xs font-medium text-amber-900">
+                        {[former.leftReason || "Left school", former.leftOn ? `on ${former.leftOn.split("-").reverse().join("/")}` : ""].filter(Boolean).join(" ")}
+                      </Text>
+                    </View>
+                    {can(user, "school.edit") ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Bring ${selected.name} back to school`}
+                        onPress={() => setRestoreFor({ id: selected.id, name: selected.name, classId: lastClass?.id || "" })}
+                        className="flex-row items-center gap-1 rounded-md border border-[#C7D5FF] bg-[#EEF3FF] px-2 py-1"
+                      >
+                        <Ionicons name="arrow-undo-outline" size={13} color="#1F45C7" />
+                        <Text className="text-xs font-semibold text-[#1F45C7]">Restore</Text>
+                      </Pressable>
+                    ) : null}
                   </View>
                 );
               })()}
@@ -3765,6 +3783,55 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
             onDiscountValueChange={setManageDiscountValue}
           />
         ) : null}
+      </Modal>
+
+      <Modal
+        open={Boolean(restoreFor)}
+        title={restoreFor ? `Restore ${restoreFor.name}` : "Restore"}
+        sheetOnPhone
+        onClose={() => !restorePending && setRestoreFor(null)}
+        footer={
+          <View className="flex-row gap-2">
+            <Button variant="ghost" disabled={restorePending} onPress={() => setRestoreFor(null)}>
+              Cancel
+            </Button>
+            <Button
+              className="flex-1"
+              disabled={restorePending || !restoreFor?.classId}
+              onPress={async () => {
+                if (!restoreFor?.classId) return;
+                setRestorePending(true);
+                try {
+                  await act(token, "restoreStudent", { studentId: restoreFor.id, classId: restoreFor.classId });
+                  const label = (data?.classes ?? []).find((c) => c.id === restoreFor.classId)?.label || "their class";
+                  toast.show(`${restoreFor.name} is back in ${label}. Fees, attendance and exams start again.`);
+                  setRestoreFor(null);
+                  setListMode("current");
+                  await reload();
+                } catch (e) {
+                  toast.show(e instanceof Error ? e.message : "Could not restore the student.");
+                } finally {
+                  setRestorePending(false);
+                }
+              }}
+            >
+              {restorePending ? "Restoring…" : "Restore"}
+            </Button>
+          </View>
+        }
+      >
+        <View className="gap-4">
+          <Text className="text-[14px] leading-5 text-ink-600">
+            Brings the student back from Past students. Monthly fees, attendance and exams start again from this class. Old invoices and documents stay as they are.
+          </Text>
+          <Select
+            label="Class"
+            value={restoreFor?.classId || ""}
+            placeholder="Pick the class"
+            options={(data?.classes ?? []).map((c) => ({ id: c.id, label: c.label }))}
+            onChange={(classId) => setRestoreFor((cur) => (cur ? { ...cur, classId } : cur))}
+          />
+        </View>
       </Modal>
 
       <MoveOutModal
