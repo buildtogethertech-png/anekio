@@ -17,5 +17,7 @@ chmod 700 /srv/anekio/shared/backup-db.sh
   # Vercel ran the leave job at 19:30 UTC = 01:00 IST; the server clock is IST.
   echo '0 1 * * * set -a; . '"$ENV"'; set +a; curl -fsS -m 120 -H "Authorization: Bearer $CRON_SECRET" http://127.0.0.1:4000/api/cron/leave >> /var/log/anekio/cron.log 2>&1 # anekio'
   echo '30 2 * * * /srv/anekio/shared/backup-db.sh >> /var/log/anekio/backup.log 2>&1 # anekio'
+  # Monthly fee invoices, 06:00 IST daily (only missing months are created). One school for now: Tagore Public School.
+  echo '0 6 * * * set -a; . '"$ENV"'; set +a; curl -fsS -m 300 -H "Authorization: Bearer $CRON_SECRET" "http://127.0.0.1:4000/api/cron/fees?orgId=cmv7op9js0007le06e9oxcmks" >> /var/log/anekio/cron.log 2>&1 # anekio'
 ) | crontab -
 echo "crontab installed"
