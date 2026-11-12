@@ -518,6 +518,7 @@ export function FeesBoard() {
   const [classId, setClassId] = useState("all");
   const [section, setSection] = useState("");
   const [status, setStatus] = useState("");
+  const [sortBy, setSortBy] = useState<"due" | "name" | "admission" | "class">("due");
   const [monthsGte, setMonthsGte] = useState("");
   const [historyClassId, setHistoryClassId] = useState("");
   const [historyMode, setHistoryMode] = useState("");
@@ -673,8 +674,20 @@ export function FeesBoard() {
             .includes(q)
         );
       })
-      .sort((a, b) => b.dueNow - a.dueNow || a.person.name.localeCompare(b.person.name));
-  }, [people, query, classId, section, status, monthsGte, classes]);
+      .sort((a, b) => {
+        const byName = a.person.name.localeCompare(b.person.name);
+        if (sortBy === "name") return byName;
+        if (sortBy === "admission") return String(a.person.admissionNo || "").localeCompare(String(b.person.admissionNo || ""), undefined, { numeric: true }) || byName;
+        if (sortBy === "class") {
+          return (
+            String(a.person.classLabel || "").localeCompare(String(b.person.classLabel || ""), undefined, { numeric: true }) ||
+            String(a.person.rollNumber || "").localeCompare(String(b.person.rollNumber || ""), undefined, { numeric: true }) ||
+            byName
+          );
+        }
+        return b.dueNow - a.dueNow || byName;
+      });
+  }, [people, query, classId, section, status, monthsGte, classes, sortBy]);
 
   const selectedDueStudent = selectedDueStudentId ? people.find((row) => row.id === selectedDueStudentId) || null : null;
   const payDueStudent = payDueStudentId ? people.find((row) => row.id === payDueStudentId) || null : null;
@@ -2609,6 +2622,31 @@ export function FeesBoard() {
             </Pressable>
           );
         })}
+      <View className="flex-row items-center gap-1.5 border-l border-ink-200 pl-2">
+        <Ionicons name="swap-vertical" size={14} color="#94A3B8" />
+        {(
+          [
+            ["due", "Due"],
+            ["name", "Name"],
+            ["admission", "Adm. no."],
+            ["class", "Class"],
+          ] as const
+        ).map(([id, label]) => {
+          const on = sortBy === id;
+          return (
+            <Pressable
+              key={id}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: on }}
+              accessibilityLabel={`Sort by ${label}`}
+              onPress={() => setSortBy(id)}
+              className={`rounded-full border px-3 py-1.5 ${on ? "border-ink-900 bg-ink-900" : "border-ink-200 bg-white"}`}
+            >
+              <Text className={`text-[13px] font-medium ${on ? "text-white" : "text-ink-700"}`}>{label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
     </ScrollView>
   );
 
