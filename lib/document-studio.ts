@@ -715,25 +715,27 @@ function examResultLayout(): DocumentLayout {
       e("student-card", "SHAPE", 5, 16.2, 90, 9.6, { background: soft, borderColor: line, locked: true }),
       e("photo", "PHOTO", 6.6, 17.3, 7.4, 7.4, { field: "student.photo", label: "Photo", background: "#DDE3EC" }),
       label("name-l", 16.4, 17.5, 30, "STUDENT"),
-      e("student-name", "FIELD", 16.4, 18.8, 50, 2.8, { field: "student.name", label: "Student name", fontSize: 18, fontWeight: "bold", color: navy }),
+      e("student-name", "FIELD", 16.4, 18.8, 63, 2.8, { field: "student.name", label: "Student name", fontSize: 18, fontWeight: "bold", color: navy }),
       label("class-l", 16.4, 22.3, 12, "CLASS"),
       e("class", "FIELD", 16.4, 23.4, 12, 1.8, { field: "student.classLabel", label: "Class and section", fontSize: 11, fontWeight: "bold", color: navy }),
-      label("roll-l", 29.6, 22.3, 10, "ROLL NO"),
-      e("roll", "FIELD", 29.6, 23.4, 10, 1.8, { field: "student.rollNo", label: "Roll number", fontSize: 11, fontWeight: "bold", color: navy }),
-      label("admission-l", 41, 22.3, 18, "ADMISSION NO"),
-      e("admission", "FIELD", 41, 23.4, 18, 1.8, { field: "student.admissionNo", label: "Admission number", fontSize: 11, fontWeight: "bold", color: navy }),
-      label("dob-l", 60.4, 22.3, 16, "DATE OF BIRTH"),
-      e("dob", "FIELD", 60.4, 23.4, 16, 1.8, { field: "student.born", label: "Date of birth", fontSize: 11, fontWeight: "bold", color: navy }),
-      label("parent-l", 77.6, 22.3, 16, "PARENT"),
-      e("parent", "FIELD", 77.6, 23.4, 16.4, 1.8, { field: "student.parent", label: "Guardian name", fontSize: 11, fontWeight: "bold", color: navy }),
+      label("roll-l", 27.6, 22.3, 9, "ROLL NO"),
+      e("roll", "FIELD", 27.6, 23.4, 9, 1.8, { field: "student.rollNo", label: "Roll number", fontSize: 11, fontWeight: "bold", color: navy }),
+      label("admission-l", 37.4, 22.3, 15, "ADMISSION NO"),
+      e("admission", "FIELD", 37.4, 23.4, 15, 1.8, { field: "student.admissionNo", label: "Admission number", fontSize: 11, fontWeight: "bold", color: navy }),
+      label("dob-l", 53.2, 22.3, 13, "DATE OF BIRTH"),
+      e("dob", "FIELD", 53.2, 23.4, 13, 1.8, { field: "student.born", label: "Date of birth", fontSize: 11, fontWeight: "bold", color: navy }),
+      label("parent-l", 67, 22.3, 13.5, "PARENT"),
+      e("parent", "FIELD", 67, 23.4, 13.5, 1.8, { field: "student.parent", label: "Guardian name", fontSize: 11, fontWeight: "bold", color: navy }),
+      e("rank-bg", "SHAPE", 82.2, 17.4, 11.6, 7.2, { background: "#FBF6EA", borderColor: "#E9D9B0", locked: true }),
+      label("rank-l", 82.2, 18.4, 11.6, "CLASS RANK", "#A6844A", "center"),
+      e("rank", "FIELD", 82.2, 19.8, 11.6, 3.6, { field: "results.classRank", label: "Rank", fontSize: 26, fontWeight: "bold", align: "center", color: navy }),
 
-      ...tile("score", 5, "MARKS", "results.score", "Marks (obtained / total)"),
+      ...tile("score", 5, "MARKS", "results.score", "Marks"),
       ...tile("percentage", 27.8, "PERCENTAGE", "results.percentage", "Percentage"),
       ...tile("grade", 50.6, "OVERALL GRADE", "results.overallGrade", "Overall grade", true),
-      e("rank", "FIELD", 57.5, 31.2, 13, 1.4, { field: "results.rankLine", label: "Class rank line", fontSize: 8, fontWeight: "bold", align: "right", color: "#E3CB94" }),
       e("outcome-bg", "SHAPE", 73.4, 28.2, 21.6, 6, { background: "#FFFFFF", borderColor: line, locked: true }),
       label("outcome-l", 75.2, 29.1, 18, "RESULT"),
-      e("outcome", "FIELD", 75.2, 30.4, 18, 3, { field: "results.outcome", label: "Result (pass / needs improvement)", fontSize: 22, fontWeight: "bold", color: navy }),
+      e("outcome", "FIELD", 75.2, 30.4, 18, 3, { field: "results.outcome", label: "Result", fontSize: 22, fontWeight: "bold", color: navy }),
 
       e("marks-title", "TEXT", 5, 36.6, 50, 1.7, { value: "SUBJECT-WISE MARKS", fontSize: 10, fontWeight: "bold", color: navy }),
       e("marks-table", "TABLE", 5, 38.8, 90, 32, { field: "results.marks", label: "Marks and grades table", value: "bars", fontSize: 10, background: navy }),
@@ -2099,6 +2101,7 @@ async function renderIssuedHtml(layout: DocumentLayout, data: Record<string, unk
     const hide = new Set<string>();
     if (!atPath(data, "results.bestSubject")) ["hl-best-bg", "hl-best-bar", "hl-best-l", "hl-best"].forEach((id) => hide.add(id));
     if (!atPath(data, "results.focusSubject")) ["hl-focus-bg", "hl-focus-bar", "hl-focus-l", "hl-focus"].forEach((id) => hide.add(id));
+    if (!String(atPath(data, "results.classRank") ?? "").trim()) ["rank-bg", "rank-l", "rank"].forEach((id) => hide.add(id));
     // A label with nothing under it reads as a mistake: drop both.
     for (const item of layout.elements) {
       if (item.type !== "FIELD" || !item.field?.startsWith("student.")) continue;
