@@ -45,34 +45,25 @@ export async function sendReceiptOnWhatsApp(waDigits: string, text: string) {
 }
 
 /**
- * Shares the receipt as a PDF file where the platform allows it (Android/iOS browsers that support
- * file sharing, so WhatsApp gets the PDF as an attachment). Otherwise shares the text with the PDF link,
- * or on desktop web opens the PDF so it can be downloaded.
+ * Share the receipt as a message with its link (no file): the link opens the school's receipt page,
+ * which has Download PDF. Phone: the share sheet. Web: the browser share sheet, else copy to clipboard,
+ * else open the link.
  */
-export async function shareReceiptPdf(url: string, fileName: string, text: string) {
+export async function shareReceiptPdf(url: string, _fileName: string, text: string): Promise<"shared" | "copied" | "opened"> {
+  const message = text.includes(url) ? text : `${text}\n${url}`;
   if (Platform.OS === "web" && typeof navigator !== "undefined") {
-    const nav = navigator as Navigator & { canShare?: (data: ShareData) => boolean };
+    if (navigator.share) {
+      await navigator.share({ text: message }).catch(() => undefined);
+      return "shared";
+    }
     try {
-      // The receipt link opens the school's receipt page; attaching a file needs the PDF version.
-      const fileUrl = /\/pay\/r\//.test(url) ? `${url}${url.includes("?") ? "&" : "?"}pdf=1` : url;
-      const blob = await fetch(fileUrl).then((r) => {
-        if (!r.ok) throw new Error("Receipt not ready");
-        return r.blob();
-      });
-      const file = new File([blob], fileName, { type: "application/pdf" });
-      if (nav.share && nav.canShare?.({ files: [file] })) {
-        await nav.share({ files: [file], text });
-        return;
-      }
-    } catch (error) {
-      if ((error as { name?: string })?.name === "AbortError") return;
+      await navigator.clipboard.writeText(message);
+      return "copied";
+    } catch {
+      window.open(url, "_blank", "noopener,noreferrer");
+      return "opened";
     }
-    if (nav.share) {
-      await nav.share({ text, url }).catch(() => undefined);
-      return;
-    }
-    window.open(url, "_blank", "noopener,noreferrer");
-    return;
   }
-  await Share.share({ message: text, url }).catch(() => undefined);
+  await Share.share({ message }).catch(() => undefined);
+  return "shared";
 }

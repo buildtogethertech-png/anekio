@@ -1666,7 +1666,7 @@ export function FeesBoard() {
   const dueLabel = firstDue ? firstDue.toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "";
   const paidShare = sessionBilled > 0 ? Math.min(1, sessionPaid / sessionBilled) : 0;
 
-  /** Re-send a paid month's receipt PDF (with receipt no. and UTR) to the parent. */
+  /** Re-send a paid month's receipt link (with receipt no. and UTR) to the parent. */
   async function reshareReceipt(inv: (typeof selectedMonths)[number], via: "whatsapp" | "share") {
     if (!selectedDueStudent) return;
     const latest = [...(inv.payments ?? [])].sort((a, b) => String(b.paidAt || "").localeCompare(String(a.paidAt || "")))[0];
@@ -1683,7 +1683,7 @@ export function FeesBoard() {
         url,
       });
       if (via === "whatsapp" && parentDigits) await sendReceiptOnWhatsApp(parentDigits, text);
-      else await shareReceiptPdf(url, `Receipt-${(ref || inv.id.slice(-8)).replace(/[^A-Za-z0-9-]+/g, "-")}.pdf`, text);
+      else if ((await shareReceiptPdf(url, `Receipt-${(ref || inv.id.slice(-8)).replace(/[^A-Za-z0-9-]+/g, "-")}.pdf`, text)) === "copied") toast.show("Receipt link copied.");
     } catch (error) {
       toast.show(error instanceof Error ? error.message : "Could not share the receipt.");
     }
@@ -1870,7 +1870,7 @@ export function FeesBoard() {
                     {paid ? (
                       <Pressable
                         accessibilityRole="button"
-                        accessibilityLabel={parentDigits ? "Send receipt on WhatsApp" : "Share receipt PDF"}
+                        accessibilityLabel={parentDigits ? "Send receipt on WhatsApp" : "Share receipt link"}
                         hitSlop={8}
                         onPress={() => void reshareReceipt(inv, parentDigits ? "whatsapp" : "share")}
                       >

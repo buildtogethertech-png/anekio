@@ -159,6 +159,7 @@ export function GeneratePayment({
   const [busy, setBusy] = useState<Busy>(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
+  const [linkCopied, setLinkCopied] = useState(false);
   const [showNote, setShowNote] = useState(false);
   const [editBy, setEditBy] = useState(false);
   const [done, setDone] = useState<null | {
@@ -291,7 +292,7 @@ export function GeneratePayment({
         if (res?.receiptNo) receiptNos.push(res.receiptNo);
         if (res?.receiptToken) receiptTokens.push(res.receiptToken);
       }
-      // Receipt PDF link (a family collection shares the first child's receipt).
+      // Receipt link (a family collection shares the first child's receipt).
       const firstStudent = [...groups.keys()][0];
       const receiptUrl = receiptTokens[0]
         ? `${webOrigin()}/pay/r/${encodeURIComponent(receiptTokens[0])}`
@@ -489,13 +490,17 @@ export function GeneratePayment({
                         accessibilityRole="button"
                         onPress={() =>
                           done.receiptUrl
-                            ? void shareReceiptPdf(done.receiptUrl, `Receipt-${(done.receiptNo || "fee").replace(/[^A-Za-z0-9-]+/g, "-")}.pdf`, receiptText)
+                            ? void shareReceiptPdf(done.receiptUrl, `Receipt-${(done.receiptNo || "fee").replace(/[^A-Za-z0-9-]+/g, "-")}.pdf`, receiptText).then((how) => {
+                                if (how !== "copied") return;
+                                setLinkCopied(true);
+                                setTimeout(() => setLinkCopied(false), 2500);
+                              })
                             : void Share.share({ message: receiptText }).catch(() => undefined)
                         }
                         className="h-12 flex-row items-center justify-center gap-2 rounded-xl border border-ink-200"
                       >
                         <Ionicons name="share-outline" size={18} color="#1F45C7" />
-                        <Text className="text-[15px] font-semibold text-[#1F45C7]">{done.receiptUrl ? "Share receipt PDF" : "Share receipt"}</Text>
+                        <Text className="text-[15px] font-semibold text-[#1F45C7]">{linkCopied ? "Link copied" : done.receiptUrl ? "Share receipt link" : "Share receipt"}</Text>
                       </Pressable>
                     ) : null}
                     <Pressable
