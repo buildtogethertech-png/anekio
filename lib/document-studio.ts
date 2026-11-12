@@ -186,6 +186,7 @@ export const LIBRARY_DOCUMENT_TYPE_IDS = [
   "ADMISSION_CONFIRMATION",
   "EXAM_DATE_SHEET",
   "CONSOLIDATED_REPORT",
+  "TRANSFER_CERTIFICATE",
   "SALARY_SLIP",
 ] as const;
 
@@ -251,6 +252,8 @@ export const DOCUMENT_FIELDS = [
   { group: "Exam", id: "admit.reporting", label: "Reporting time" },
   { group: "Exam", id: "admit.sessionLine", label: "Academic session line" },
   { group: "Exam", id: "admit.signLine", label: "Principal signature line" },
+  { group: "Transfer", id: "tc.leavingDate", label: "Date of leaving" },
+  { group: "Transfer", id: "tc.reason", label: "Reason for leaving" },
   { group: "Results", id: "results.marks", label: "Marks and grades table" },
   { group: "Results", id: "results.activities", label: "Co-scholastic table" },
   { group: "Results", id: "results.attendance", label: "Attendance" },
@@ -773,6 +776,72 @@ function examResultLayout(): DocumentLayout {
   };
 }
 
+/**
+ * Transfer certificate: formal, register-style. Numbered particulars with ruled lines, leaving date and
+ * reason from the Move out step (tc.*), principal's signature, school stamp and a verify QR.
+ */
+function transferCertificateLayout(): DocumentLayout {
+  const e = element;
+  const navy = "#1E2A44";
+  const gold = "#B8954A";
+  const muted = "#6B778C";
+  const rows: [string, string, string][] = [
+    ["Name of the student", "student.name", "Student name"],
+    ["Parent / guardian's name", "student.parent", "Guardian name"],
+    ["Date of birth", "student.born", "Date of birth"],
+    ["Gender", "student.gender", "Gender"],
+    ["Admission number", "student.admissionNo", "Admission number"],
+    ["Class last studied", "student.classLabel", "Class and section"],
+    ["Roll number", "student.rollNo", "Roll number"],
+    ["Date of leaving", "tc.leavingDate", "Date of leaving"],
+    ["Reason for leaving", "tc.reason", "Reason for leaving"],
+  ];
+  const top = 35.5;
+  const step = 4.3;
+  return {
+    elements: [
+      e("page-bg", "SHAPE", 0, 0, 100, 100, { background: "#FFFFFF", locked: true }),
+      e("frame-outer", "SHAPE", 3.5, 2.5, 93, 95, { borderColor: navy, locked: true }),
+      e("frame-inner", "SHAPE", 5, 3.6, 90, 92.8, { borderColor: gold, locked: true }),
+      e("school-logo", "IMAGE", 44, 5.6, 12, 8, { field: "school.logoPath", label: "Logo", background: "#4A5D80", locked: true }),
+      e("school-name", "FIELD", 10, 14.4, 80, 3.4, { field: "school.name", label: "School name", fontSize: 22, fontWeight: "bold", align: "center", color: navy, locked: true }),
+      e("school-address", "FIELD", 10, 18, 80, 1.6, { field: "school.address", label: "School address", fontSize: 9, align: "center", color: muted }),
+      e("school-contact", "FIELD", 10, 19.7, 80, 1.6, { field: "school.contact", label: "School contact", fontSize: 9, align: "center", color: muted }),
+      e("school-affiliation", "FIELD", 10, 21.4, 80, 1.6, { field: "school.affiliation", label: "Affiliation", fontSize: 9, fontWeight: "bold", align: "center", color: muted }),
+      e("rule-left", "LINE", 12, 26.4, 22, 0.3, { color: gold }),
+      e("title", "TEXT", 30, 25, 40, 3, { value: "TRANSFER CERTIFICATE", fontSize: 17, fontWeight: "bold", align: "center", color: navy }),
+      e("rule-right", "LINE", 66, 26.4, 22, 0.3, { color: gold }),
+      e("no-l", "TEXT", 12, 30.6, 10, 1.6, { value: "TC No.", fontSize: 9, fontWeight: "bold", color: muted }),
+      e("document-number", "FIELD", 20, 30.5, 30, 1.8, { field: "document.number", label: "Document number", fontSize: 10, fontWeight: "bold", color: navy }),
+      e("date-l", "TEXT", 60, 30.6, 14, 1.6, { value: "Date of issue", fontSize: 9, fontWeight: "bold", align: "right", color: muted }),
+      e("date", "FIELD", 74.5, 30.5, 14, 1.8, { field: "document.issueDate", label: "Issue date", fontSize: 10, fontWeight: "bold", align: "right", color: navy }),
+      e("photo", "PHOTO", 76.5, 35.2, 12, 14.5, { field: "student.photo", label: "Photo", borderColor: "#CBD5E1" }),
+      ...rows.flatMap(([label, field, name], i) => {
+        const y = top + i * step;
+        const width = y < 50.5 ? 40 : 53;
+        return [
+          e(`row-${i}-n`, "TEXT", 12, y, 3.5, 2, { value: `${i + 1}.`, fontSize: 10, fontWeight: "bold", color: gold }),
+          e(`row-${i}-l`, "TEXT", 15.5, y, 20, 2, { value: label, fontSize: 10, color: muted }),
+          e(`row-${i}-v`, "FIELD", 35.5, y - 0.2, width, 2.3, { field, label: name, fontSize: 12, fontWeight: "bold", color: navy }),
+          e(`row-${i}-line`, "LINE", 35.5, y + 2.3, width, 0.2, { color: "#D5DBE5" }),
+        ];
+      }),
+      e("body", "TEXT", 12, 73.8, 76, 5.5, {
+        value: "Certified that the above particulars are true as per the school admission register. We wish the student every success in the future.",
+        fontSize: 10,
+        color: "#334155",
+      }),
+      e("verify", "VERIFY_QR", 12, 82, 9, 6.5, { label: "Verification QR", locked: true }),
+      e("verify-l", "TEXT", 10.5, 88.8, 12, 1.4, { value: "Scan to verify", fontSize: 7, align: "center", color: muted }),
+      e("stamp", "STAMP", 42, 81.5, 13, 9, { field: "school.stampPath", label: "School stamp" }),
+      e("signature", "SIGNATURE", 66, 81.8, 22, 6, { field: "school.signPath", label: "Principal signature" }),
+      e("signature-line", "LINE", 66, 88.2, 22, 0.3, { color: "#94A3B8" }),
+      e("signature-label", "TEXT", 66, 88.7, 22, 1.6, { value: "Principal", fontSize: 9, fontWeight: "bold", align: "center", color: navy }),
+      e("footer", "TEXT", 10, 93.6, 80, 1.4, { value: "This certificate is computer generated and can be verified by scanning the QR code.", fontSize: 7, align: "center", color: "#94A3B8" }),
+    ],
+  };
+}
+
 function catalogPagePalette(kind: string, category?: string) {
   if (kind.includes("FEE") || kind.includes("RECEIPT") || kind.includes("CHALLAN") || kind.includes("DUES") || kind.includes("REFUND") || kind.includes("CONCESSION") || category === "FEES") {
     return { page: "#F0FDFA", header: "#0F766E", header2: "#0D9488", accent: "#14B8A6", titleBg: "#CCFBF1", line: "#99F6E4", card: "#F0FDFA", onHeaderMuted: "#CCFBF1" };
@@ -799,6 +868,7 @@ export function defaultLayout(type: string): DocumentLayout {
   const meta = DOCUMENT_TYPES.find((row) => row.id === type);
   const isCard = type === "STUDENT_ID" || type === "EMPLOYEE_ID" || type.endsWith("_CARD") || type.endsWith("_PASS");
   if (type === "REPORT_CARD") return examResultLayout();
+  if (type === "TRANSFER_CERTIFICATE") return transferCertificateLayout();
   if (isReportCardType(type)) return reportCardLayout(type);
   if (type === "STUDENT_ID") {
     return {
@@ -961,6 +1031,14 @@ export function defaultLayout(type: string): DocumentLayout {
               element("identity", "FIELD", 50, 38.8, 22, 2.6, { field: "student.admissionNo", label: "Admission number", fontSize: 11, fontWeight: "bold" }),
               element("class-or-role-label", "TEXT", 30, 43.5, 14, 2, { value: "CLASS", fontSize: 7, fontWeight: "bold", color: "#64748b" }),
               element("class-or-role", "FIELD", 44, 43.3, 28, 2.6, { field: "student.classLabel", label: "Class and section", fontSize: 11, fontWeight: "bold" }),
+              ...(transfer
+                ? [
+                    element("leaving-label", "TEXT", 10, 49.5, 18, 2, { value: "DATE OF LEAVING", fontSize: 7, fontWeight: "bold", color: "#64748b" }),
+                    element("leaving-date", "FIELD", 28, 49.3, 22, 2.6, { field: "tc.leavingDate", label: "Date of leaving", fontSize: 11, fontWeight: "bold" }),
+                    element("reason-label", "TEXT", 52, 49.5, 12, 2, { value: "REASON", fontSize: 7, fontWeight: "bold", color: "#64748b" }),
+                    element("reason", "FIELD", 64, 49.3, 26, 2.6, { field: "tc.reason", label: "Reason for leaving", fontSize: 11, fontWeight: "bold" }),
+                  ]
+                : []),
             ]),
         element("body", "TEXT", 10, 54, 80, 16, {
           value: bonafide
@@ -2088,8 +2166,17 @@ async function renderIssuedHtml(layout: DocumentLayout, data: Record<string, unk
   if (feeDoc) layout = placeFeePayments(layout, data, pageHeight);
   const examDoc = layout.elements.some((item) => item.type === "TABLE" && item.field === "results.marks" && item.value === "bars");
   if (examDoc) layout = placeExamMarks(layout, data, pageHeight);
-  const designedDoc = feeDoc || admitDoc || examDoc;
-  const docLabel = examDoc || isReportCardType(docType) ? "exam result" : docType === "PAYMENT_RECEIPT" || docType === "CONSOLIDATED_RECEIPT" ? "payment receipt" : docType === "FEE_INVOICE" ? "fee invoice" : "document";
+  const tcDoc = docType === "TRANSFER_CERTIFICATE";
+  if (tcDoc) {
+    // Certificates read dates as "12 Nov 2026", not ISO.
+    const issued = String(atPath(data, "document.issueDate") || "");
+    if (/^\d{4}-\d{2}-\d{2}$/.test(issued)) {
+      const pretty = new Date(`${issued}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+      data = { ...data, document: { ...((data.document as Record<string, unknown>) || {}), issueDate: pretty } };
+    }
+  }
+  const designedDoc = feeDoc || admitDoc || examDoc || tcDoc;
+  const docLabel = examDoc || isReportCardType(docType) ? "exam result" : docType === "PAYMENT_RECEIPT" || docType === "CONSOLIDATED_RECEIPT" ? "payment receipt" : docType === "FEE_INVOICE" ? "fee invoice" : tcDoc ? "transfer certificate" : "document";
   const studentName = String(atPath(data, "student.name") || "");
   const schoolName = String(atPath(data, "school.name") || "");
   const shareLine = `${studentName ? `${studentName}'s ` : "Your "}${docLabel}${schoolName ? ` from ${schoolName}` : ""}:`;
@@ -2148,7 +2235,7 @@ async function renderIssuedHtml(layout: DocumentLayout, data: Record<string, unk
       const field = item.field || (item.type === "SIGNATURE" ? "school.signPath" : item.type === "STAMP" ? "school.stampPath" : item.type === "IMAGE" ? "school.logoPath" : "student.photo");
       const src = await assetSrc(atPath(data, field));
       const round = item.type === "PHOTO" ? "border-radius:8px;" : item.type === "IMAGE" ? "border-radius:10px;" : "";
-      if (!src && admitDoc && !isPreview && item.type === "PHOTO") {
+      if (!src && (admitDoc || tcDoc) && !isPreview && item.type === "PHOTO") {
         return `<div style="${base}border:1px dashed #94A3B8;display:flex;align-items:center;justify-content:center;text-align:center;font-size:8px;color:#64748B;padding:4px">Affix recent passport-size photograph</div>`;
       }
       if (!src && examDoc && item.type === "PHOTO") {

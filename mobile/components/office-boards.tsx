@@ -3,6 +3,7 @@ import { createElement, useMemo, useState, useEffect, useRef } from "react";
 import { SetPasswordModal } from "./set-password-modal";
 import type { ViewStyle } from "react-native";
 import { DocViewer } from "./doc-viewer";
+import { MoveOutModal } from "./move-out";
 import { openInAppDoc } from "../lib/in-app-doc";
 import type { ReactNode } from "react";
 import { Alert, Linking, Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
@@ -1381,6 +1382,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   const [adhocOpen, setAdhocOpen] = useState(false);
   const [cancellingInvoiceId, setCancellingInvoiceId] = useState("");
   const [manageFeeOpen, setManageFeeOpen] = useState(false);
+  const [moveOutOpen, setMoveOutOpen] = useState(false);
   const [manageFeePending, setManageFeePending] = useState(false);
   const [manageOtherIds, setManageOtherIds] = useState<string[]>([]);
   const [manageClassAddOns, setManageClassAddOns] = useState<string[]>([]);
@@ -1973,6 +1975,11 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
               </Button>
             ) : null}
             {bare ? null : <Button variant="ghost" onPress={() => selectStudentTab("documents")}>Documents</Button>}
+            {!bare && can(user, "school.edit") ? (
+              <Button variant="ghost" accessibilityLabel="Move out of school" onPress={() => setMoveOutOpen(true)}>
+                Move out
+              </Button>
+            ) : null}
             {bare ? null : (
             <Pressable
               disabled={!parentTel}
@@ -2589,6 +2596,21 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
             ) : null}
           </View>
         </View>
+        ) : null}
+        {!wide && can(user, "school.edit") ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Move out of school"
+            onPress={() => setMoveOutOpen(true)}
+            className="flex-row items-center gap-3 rounded-2xl border border-ink-100 bg-white px-4 py-3.5"
+          >
+            <Ionicons name="exit-outline" size={18} color="#B45309" />
+            <View className="min-w-0 flex-1">
+              <Text className="text-[15px] font-semibold text-ink-900">Move out of school</Text>
+              <Text className="text-[13px] text-ink-500">Issue TC if needed · stops fees · can undo</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
+          </Pressable>
         ) : null}
       </View>
       );
@@ -3744,6 +3766,18 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
           />
         ) : null}
       </Modal>
+
+      <MoveOutModal
+        open={moveOutOpen && Boolean(selected)}
+        student={selected ? { id: selected.id, name: selected.name, classId: selected.classId, classLabel: selected.classLabel, dueAmount: selected.dueAmount, dueNow: selected.dueNow } : null}
+        documentData={{ school: data?.school, student: selected }}
+        onClose={() => setMoveOutOpen(false)}
+        onDone={async (message) => {
+          setMoveOutOpen(false);
+          toast.show(message);
+          await reload();
+        }}
+      />
 
       <Modal open={importOpen} title="Import students and parents" onClose={() => setImportOpen(false)} wide>
         <OnboardingBoard compact focusKinds={["students"]} />

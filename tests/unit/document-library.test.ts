@@ -14,7 +14,7 @@ import {
 } from "../../lib/document-studio";
 
 describe("document studio library", () => {
-  it("exposes exactly the ten office templates in the requested order", () => {
+  it("exposes exactly the eleven office templates in the requested order", () => {
     expect([...LIBRARY_DOCUMENT_TYPE_IDS]).toEqual([
       "STUDENT_ID",
       "EMPLOYEE_ID",
@@ -25,6 +25,7 @@ describe("document studio library", () => {
       "ADMISSION_CONFIRMATION",
       "EXAM_DATE_SHEET",
       "CONSOLIDATED_REPORT",
+      "TRANSFER_CERTIFICATE",
       "SALARY_SLIP",
     ]);
     expect(libraryDocumentTypes().map((row) => row.id)).toEqual([...LIBRARY_DOCUMENT_TYPE_IDS]);
