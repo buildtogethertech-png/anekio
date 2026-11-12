@@ -94,7 +94,13 @@ export function payRangeLabel(titles: string[]) {
   const months = titles.map((title) => title.split(" · ")[0]?.trim() || title).filter(Boolean);
   if (!months.length) return "Selected months";
   if (months.length === 1) return months[0];
-  return `${months[0]} to ${months[months.length - 1]}`;
+  // Oldest first, whatever order the invoices came in ("October 2026 to November 2026").
+  const when = (month: string) => {
+    const t = Date.parse(`1 ${month}`);
+    return Number.isNaN(t) ? Number.MAX_SAFE_INTEGER : t;
+  };
+  const sorted = [...months].sort((a, b) => when(a) - when(b));
+  return `${sorted[0]} to ${sorted[sorted.length - 1]}`;
 }
 
 export function whatsAppDigits(raw?: string | null) {

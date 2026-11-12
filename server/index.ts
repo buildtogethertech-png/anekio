@@ -1781,8 +1781,9 @@ app.get("/pay/s/:token", async (req, res) => {
 });
 
 app.get("/pay/r/:token", async (req, res) => {
-  // ?view=1: the receipt as a page (fits a phone, has Download PDF); otherwise the PDF file.
-  if (req.query.view === "1") {
+  // The school's receipt design (Document Studio) as a page that fits a phone and has Download PDF.
+  // ?pdf=1, or no published receipt design / a cancelled receipt: the plain PDF file.
+  if (req.query.pdf !== "1") {
     const html = await renderReceiptHtmlByReceiptToken(String(req.params.token || ""));
     if (html) return res.type("html").send(html);
   }

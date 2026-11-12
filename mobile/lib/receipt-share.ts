@@ -32,7 +32,7 @@ export function receiptMessage(input: {
     input.utr && input.utr !== input.receiptNo ? `UTR / Ref: ${input.utr}` : "",
     input.method ? `Mode: ${input.method}` : "",
     input.when ? `Date: ${input.when}` : "",
-    input.url ? `\nDownload receipt (PDF): ${input.url}` : "",
+    input.url ? `\nView / download receipt: ${input.url}` : "",
     "",
     "Thank you.",
   ]
@@ -53,7 +53,9 @@ export async function shareReceiptPdf(url: string, fileName: string, text: strin
   if (Platform.OS === "web" && typeof navigator !== "undefined") {
     const nav = navigator as Navigator & { canShare?: (data: ShareData) => boolean };
     try {
-      const blob = await fetch(url).then((r) => {
+      // The receipt link opens the school's receipt page; attaching a file needs the PDF version.
+      const fileUrl = /\/pay\/r\//.test(url) ? `${url}${url.includes("?") ? "&" : "?"}pdf=1` : url;
+      const blob = await fetch(fileUrl).then((r) => {
         if (!r.ok) throw new Error("Receipt not ready");
         return r.blob();
       });
