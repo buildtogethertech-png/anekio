@@ -854,3 +854,15 @@ export function applicableMonthlyFee(input: {
   const total = feeLineTotal(lines).total;
   return { classFee, extras, lines, total };
 }
+
+/** Name of the one-time invoice for dues from before Anekio: "Fees till October 2026" (the last month it covers). */
+export function openingInvoiceTitle(through?: string | null, dueDate?: Date | null) {
+  const period = /^\d{4}-\d{2}$/.test(String(through || "")) ? String(through) : dueDate && !Number.isNaN(+dueDate) ? dueDate.toISOString().slice(0, 7) : "";
+  if (!period) return "Previous dues";
+  const [year, month] = period.split("-").map(Number);
+  const name = new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString("en-IN", { month: "long", year: "numeric", timeZone: "UTC" });
+  return `Fees till ${name}`;
+}
+
+/** Line label on that invoice when the school did not give its own. */
+export const OPENING_LINE_LABEL = "Previous dues";

@@ -7,7 +7,7 @@ import { sendAisensyWhatsApp } from "./aisensy";
 import { getPayShareChannels, type PayShareChannelId } from "./comms";
 import { cancelReceipt, createReceiptTx, recordReceipt } from "./fee-ledger";
 import { issueDueFeesCore } from "./fee-run";
-import { feePeriod, feePeriodBefore, invoiceBalance, parseFeeCatalogState, payRangeLabel, pickAdmissionFeeLines, serializeFeeCatalogState } from "./fees";
+import { feePeriod, feePeriodBefore, invoiceBalance, OPENING_LINE_LABEL, openingInvoiceTitle, parseFeeCatalogState, payRangeLabel, pickAdmissionFeeLines, serializeFeeCatalogState } from "./fees";
 import { buildStudentMonthPayPath } from "./pay";
 import { admissionNumberContext, cleanAdmissionFormat, planNextAdmissionNo, nextAdmissionNo, withAdmissionNoRetry } from "./admission-number";
 import { sendResendEmail } from "./resend";
@@ -465,7 +465,7 @@ async function createStudentNow(
                 period: "OPENING",
                 kind: "OPENING",
                 generatedThrough: feePeriodBefore(billingStartPeriod),
-                title: "Backlog invoice",
+                title: openingInvoiceTitle(feePeriodBefore(billingStartPeriod), openingDueDate),
                 amount: openingDueAmount,
                 linesJson: JSON.stringify(openingDueLines),
                 dueDate: openingDueDate,
@@ -523,7 +523,7 @@ function parseAdmitOpeningDueLines(
     const amount = Number(amountText);
     if (!Number.isFinite(amount) || amount < 0) throw new Error("Old due must be zero or more.");
     if (amount === 0) return null;
-    const label = String(row?.label || "").trim().slice(0, 80) || (index === 0 ? "Backlog invoice" : `Old due ${index + 1}`);
+    const label = String(row?.label || "").trim().slice(0, 80) || (index === 0 ? OPENING_LINE_LABEL : `Old due ${index + 1}`);
     return { label, kind: "FLAT" as const, amount };
   }).filter((row): row is { label: string; kind: "FLAT"; amount: number } => Boolean(row));
   if (parsed.length) return parsed;
@@ -532,7 +532,7 @@ function parseAdmitOpeningDueLines(
   if (!/^\d+$/.test(openingDueText)) throw new Error("Old due must be a whole number of rupees.");
   const amount = Number(openingDueText);
   if (!Number.isFinite(amount) || amount < 0) throw new Error("Old due must be zero or more.");
-  return amount > 0 ? [{ label: "Backlog invoice", kind: "FLAT" as const, amount }] : [];
+  return amount > 0 ? [{ label: OPENING_LINE_LABEL, kind: "FLAT" as const, amount }] : [];
 }
 
 function normalizeAdmissionFeeLines(input: unknown) {

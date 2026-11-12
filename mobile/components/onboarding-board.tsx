@@ -84,7 +84,7 @@ const FOCUSED_IMPORT_COPY: Record<Template["kind"], { heading: string; descripti
   opening_balances: {
     heading: "Choose a fee CSV or Excel file",
     description: "Upload first-time fee balances for review.",
-    requiredColumns: "Admission number, Backlog invoice amount, Due date",
+    requiredColumns: "Admission number, Previous dues amount, Due date",
     note: "Include all unpaid fees through the current month and give each invoice its due date. Invoice date is created automatically; monthly billing starts the following month.",
   },
 };

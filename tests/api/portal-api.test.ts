@@ -262,7 +262,7 @@ describe("Express portal API", () => {
     expect(invoice).toMatchObject({
       period: "OPENING",
       kind: "OPENING",
-      title: "Backlog invoice",
+      title: "Fees till September 2026",
       amount: 4500,
       generatedThrough: "2026-09",
       status: "DUE",

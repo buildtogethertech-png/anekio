@@ -16,7 +16,7 @@ import { currentTenantOrg, runWithoutTenant } from "./tenant-context";
 import { admissionFormFields, parentAdmissionContact, staffOnboardingFormFields, type AdmissionFormField } from "./admission-form";
 import { configuredAdmissionFormJson, configuredFormJson } from "./admission-form-config";
 import { assignStudentRollNumber } from "./student-rolls";
-import { feePeriodAfter } from "./fees";
+import { feePeriodAfter, OPENING_LINE_LABEL, openingInvoiceTitle } from "./fees";
 
 const ONBOARDING_STATE_ID = "school";
 function onboardingStateId(orgId: string) {
@@ -186,9 +186,9 @@ function admissionLookupKey(value: string) {
 function parseOpeningBacklogAmount(raw: string): { error: string } | { amount: number } {
   const text = raw.trim();
   if (!text) return { amount: 0 }; // blank: nothing due
-  if (!/^\d+$/.test(text)) return { error: "backlog invoice amount must be a whole number of rupees." };
+  if (!/^\d+$/.test(text)) return { error: "previous dues amount must be a whole number of rupees." };
   const amount = Number(text);
-  if (!Number.isFinite(amount) || amount < 0) return { error: "backlog invoice amount must be zero or more." };
+  if (!Number.isFinite(amount) || amount < 0) return { error: "previous dues amount must be zero or more." };
   return { amount };
 }
 
@@ -272,7 +272,7 @@ type StaffAttendancePerson = { kind: "teacher" | "staff"; id: string; employeeId
 type ExamMarkColumn = { key: string; examId: string; classId: string; classLabel: string; maxMarks: number; label: string };
 type OpeningBalanceStudent = Prisma.StudentGetPayload<{ include: { class: true } }>;
 type OpeningBalanceInvoice = Prisma.FeeInvoiceGetPayload<{ include: { payments: true } }>;
-const OPENING_BALANCE_HEADERS = ["Admission number", "Student name", "Class", "Backlog invoice amount", "Due date", "Example only"];
+const OPENING_BALANCE_HEADERS = ["Admission number", "Student name", "Class", "Previous dues amount", "Due date", "Example only"];
 
 type ConfiguredImportForms = {
   admission: AdmissionFormField[];
@@ -1765,7 +1765,7 @@ async function validateRows(kind: ImportKind, rows: ImportRow[], coveragePeriod?
     }
     const studentId = sheetCell(row, "Anekio student ID");
     const admissionNo = admissionLookupKey(sheetCell(row, "Admission number", "Admission no"));
-    const parsedAmount = parseOpeningBacklogAmount(sheetCell(row, "Backlog invoice amount", "Opening due amount", "Previous system due", "Due amount", "Amount"));
+    const parsedAmount = parseOpeningBacklogAmount(sheetCell(row, "Previous dues amount", "Backlog invoice amount", "Opening due amount", "Previous system due", "Due amount", "Amount"));
     const dueDate = sheetCell(row, "Due date");
     const matchedStudent = studentId ? studentById.get(studentId) : studentByAdmission.get(admissionNo);
     if (!matchedStudent) {
@@ -2200,7 +2200,7 @@ async function applyOpeningBalances(db: OnboardingDb, rows: ImportRow[], coverag
     const admissionNo = sheetCell(row, "Admission number", "Admission no");
     const student = await findStudentForOpening(db, { studentId, admissionNo, orgId: orgId ?? null });
     if (!student) throw new Error(rowError(row, "student no longer exists."));
-    const parsedAmount = parseOpeningBacklogAmount(sheetCell(row, "Backlog invoice amount", "Opening due amount", "Previous system due", "Due amount", "Amount"));
+    const parsedAmount = parseOpeningBacklogAmount(sheetCell(row, "Previous dues amount", "Backlog invoice amount", "Opening due amount", "Previous system due", "Due amount", "Amount"));
     if ("error" in parsedAmount) throw new Error(rowError(row, parsedAmount.error));
     const dueDateText = sheetCell(row, "Due date");
     if (!validDate(dueDateText)) throw new Error(rowError(row, "due date must use YYYY-MM-DD."));
@@ -2217,16 +2217,16 @@ async function applyOpeningBalances(db: OnboardingDb, rows: ImportRow[], coverag
       include: { payments: true },
     });
     const paid = existing?.payments.reduce((total, payment) => total + payment.amount, 0) || 0;
-    if (amount < paid) throw new Error(rowError(row, `backlog invoice amount cannot be below ₹${paid} already collected.`));
+    if (amount < paid) throw new Error(rowError(row, `previous dues amount cannot be below ₹${paid} already collected.`));
     if (existing) {
       await db.feeInvoice.update({
         where: { id: existing.id },
         data: {
           kind: "OPENING",
           generatedThrough,
-          title: "Backlog invoice",
+          title: openingInvoiceTitle(generatedThrough, dueDate),
           amount,
-          linesJson: JSON.stringify([{ label: "Backlog invoice", kind: "FLAT", amount }]),
+          linesJson: JSON.stringify([{ label: OPENING_LINE_LABEL, kind: "FLAT", amount }]),
           dueDate,
           classId: student.classId,
           status: amount <= paid ? InvoiceStatus.PAID : paid ? InvoiceStatus.PARTIAL : InvoiceStatus.DUE,
@@ -2242,9 +2242,9 @@ async function applyOpeningBalances(db: OnboardingDb, rows: ImportRow[], coverag
           period: "OPENING",
           kind: "OPENING",
           generatedThrough,
-          title: "Backlog invoice",
+          title: openingInvoiceTitle(generatedThrough, dueDate),
           amount,
-          linesJson: JSON.stringify([{ label: "Backlog invoice", kind: "FLAT", amount }]),
+          linesJson: JSON.stringify([{ label: OPENING_LINE_LABEL, kind: "FLAT", amount }]),
           dueDate,
           shareToken: randomUUID(),
           status: InvoiceStatus.DUE,

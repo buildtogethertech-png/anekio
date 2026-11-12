@@ -2935,7 +2935,7 @@ function receiptRowLabel(row: { title: string; period: string }) {
   if (/^\d{4}-\d{2}$/.test(row.period)) {
     return `${new Date(`${row.period}-01T00:00:00Z`).toLocaleDateString("en-IN", { month: "long", year: "numeric", timeZone: "UTC" })} fee`;
   }
-  if (row.period === "OPENING") return "Previous balance";
+  if (row.period === "OPENING") return row.title && row.title !== "Backlog invoice" ? row.title : "Previous dues";
   return row.title.split(" · ")[0] || row.title;
 }
 

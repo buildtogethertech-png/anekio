@@ -139,7 +139,7 @@ describe("school onboarding imports", () => {
     const opening = await prisma.feeInvoice.findUniqueOrThrow({
       where: { studentId_period: { studentId: kabir.id, period: "OPENING" } },
     });
-    expect(opening).toMatchObject({ kind: "OPENING", title: "Backlog invoice", amount: 12_345, generatedThrough: "2026-10" });
+    expect(opening).toMatchObject({ kind: "OPENING", title: "Fees till October 2026", amount: 12_345, generatedThrough: "2026-10" });
     expect((await prisma.student.findUniqueOrThrow({ where: { id: kabir.id } })).billingStartPeriod).toBe("2026-11");
 
     const template = await prisma.feeTemplate.create({
