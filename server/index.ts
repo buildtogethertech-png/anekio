@@ -1705,7 +1705,10 @@ app.all("/api/cron/fees", async (req, res) => {
   if (!secret || req.headers.authorization !== `Bearer ${secret}`) {
     return res.status(401).send("Unauthorized");
   }
-  res.json(await issueDueFeesCore(new Date()));
+  // ?orgId=<id> runs one school only; ?dryRun=1 only counts what would be billed.
+  const orgId = String(req.query.orgId || "").trim() || undefined;
+  const dryRun = req.query.dryRun === "1" || req.query.dryRun === "true";
+  res.json(await issueDueFeesCore(new Date(), undefined, undefined, { orgId, dryRun }));
 });
 
 app.all("/api/cron/leave", async (req, res) => {

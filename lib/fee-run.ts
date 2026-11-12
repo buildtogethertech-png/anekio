@@ -56,12 +56,12 @@ function templateMonthsThrough(template: Pick<FeeTemplate, "startsPeriod" | "end
 }
 
 /** The button and cron choose different scopes, but issue each template with the same rules. */
-export async function issueTemplateMonthlyInvoices(template: FeeTemplate & { lines: FeeLine[] }, months: FeeMonth[]) {
+export async function issueTemplateMonthlyInvoices(template: FeeTemplate & { lines: FeeLine[] }, months: FeeMonth[], opts: { dryRun?: boolean } = {}) {
   const students = await prisma.student.findMany({
     where: { classId: template.classId },
     select: { id: true, billingStartPeriod: true, feeAddOns: { where: { active: true } } },
   });
-  if (!students.length || !template.lines.length || !months.length) return { created: 0, studentCount: students.length, months: [] as string[] };
+  if (!students.length || !template.lines.length || !months.length) return { created: 0, amount: 0, studentCount: students.length, months: [] as string[] };
 
   const existing = await prisma.feeInvoice.findMany({
     where: { studentId: { in: students.map((student) => student.id) } },
@@ -93,9 +93,13 @@ export async function issueTemplateMonthlyInvoices(template: FeeTemplate & { lin
       });
     }
   }
-  if (!rows.length) return { created: 0, studentCount: students.length, months: [] as string[] };
+  const amount = rows.reduce((sum, row) => sum + row.amount, 0);
+  const periods = [...new Set(rows.map((row) => row.period))];
+  if (!rows.length) return { created: 0, amount: 0, studentCount: students.length, months: [] as string[] };
+  // Dry run: say what would be billed, write nothing.
+  if (opts.dryRun) return { created: rows.length, amount, studentCount: students.length, months: periods };
   const result = await prisma.feeInvoice.createMany({ data: rows });
-  return { created: result.count, studentCount: students.length, months: [...new Set(rows.map((row) => row.period))] };
+  return { created: result.count, amount, studentCount: students.length, months: periods };
 }
 
 export async function previewDueFees(classId: string, asOf = new Date(), sessionId?: string) {
@@ -126,7 +130,7 @@ export async function previewDueFees(classId: string, asOf = new Date(), session
   };
 }
 
-export async function issueDueFeesCore(asOf = new Date(), classId?: string, sessionId?: string) {
+export async function issueDueFeesCore(asOf = new Date(), classId?: string, sessionId?: string, opts: { orgId?: string; dryRun?: boolean } = {}) {
   // A school action supplies its session. The scheduled cron has no school
   // context, so it must visit every configured template.
   const scoped = sessionId ? await sessionRange(sessionId, asOf) : null;
@@ -134,23 +138,29 @@ export async function issueDueFeesCore(asOf = new Date(), classId?: string, sess
     where: {
       ...(scoped ? { sessionId: scoped.session.id } : {}),
       ...(classId ? { classId } : {}),
+      ...(opts.orgId ? { orgId: opts.orgId } : {}),
     },
     include: { lines: { orderBy: { sortOrder: "asc" } } },
   });
 
   let created = 0;
+  let amount = 0;
   const added: string[] = [];
 
   for (const template of templates) {
     const months = scoped ? scoped.months : templateMonthsThrough(template, asOf);
-    const result = await issueTemplateMonthlyInvoices(template, months);
+    const result = await issueTemplateMonthlyInvoices(template, months, { dryRun: opts.dryRun });
     created += result.created;
+    amount += result.amount;
     added.push(...result.months);
   }
 
   return {
+    ...(opts.dryRun ? { dryRun: true } : {}),
+    ...(opts.orgId ? { orgId: opts.orgId, templates: templates.length } : {}),
     created,
-    months: [...new Set(added)],
+    amount,
+    months: [...new Set(added)].sort(),
     through: feePeriod(asOf.getFullYear(), asOf.getMonth()),
   };
 }
