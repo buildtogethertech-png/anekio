@@ -1,6 +1,6 @@
 import { useState } from "react";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Platform, Pressable, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { openInAppDoc } from "../lib/in-app-doc";
 import { act } from "../lib/mutate";
 import { inr } from "../lib/payroll";
@@ -59,9 +59,13 @@ function dayLabel(iso: string) {
   return Number.isNaN(+d) ? "" : d.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
 }
 
-function openReceipt(url: string) {
-  if (Platform.OS === "web") window.open(url, "_blank", "noopener,noreferrer");
-  else openInAppDoc(url, "Receipt");
+/** Receipt links are PDFs; inside the app show the page version, which fits a phone. */
+export function receiptPageUrl(url: string) {
+  return /\/pay\/r\//.test(url) && !/[?&]view=/.test(url) ? `${url}${url.includes("?") ? "&" : "?"}view=1` : url;
+}
+
+function openReceipt(url: string, label: string) {
+  openInAppDoc(receiptPageUrl(url), label);
 }
 
 /**
@@ -72,9 +76,12 @@ export function InvoiceReceipts({
   payments,
   canCancel,
   onChanged,
+  onOpen,
   className = "",
 }: {
   payments: InvoicePayment[] | undefined;
+  /** Show the receipt in a viewer the caller owns (e.g. one inside its own sheet). */
+  onOpen?: (url: string, title: string) => void;
   canCancel?: boolean;
   onChanged?: (message: string) => void | Promise<void>;
   className?: string;
@@ -111,7 +118,7 @@ export function InvoiceReceipts({
             accessibilityRole="button"
             accessibilityLabel={`Open receipt ${r.receiptNo}`}
             disabled={!r.url}
-            onPress={() => r.url && openReceipt(r.url)}
+            onPress={() => r.url && (onOpen ? onOpen(receiptPageUrl(r.url), `Receipt ${r.receiptNo}`) : openReceipt(r.url, `Receipt ${r.receiptNo}`))}
             className="min-w-0 flex-1 flex-row items-center gap-1.5"
           >
             <Ionicons name="receipt-outline" size={12} color="#047857" />

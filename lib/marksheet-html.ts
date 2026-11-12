@@ -6,6 +6,8 @@ import { schoolFromConfig } from "./school";
 import { renderActiveReportCardTemplateHtml } from "./document-studio";
 import { publicOrigin } from "./utils";
 import { readUploadDataUrl, resolveUploadPath } from "./uploads";
+import { readResultToken, resultLink } from "./result-link";
+import { runWithoutTenant, setTenantOrg } from "./tenant-context";
 
 function esc(value: unknown) {
   return String(value ?? "")
@@ -50,6 +52,41 @@ export async function marksheetHtmlForUser(
   const studentId = await childForUser(user, String(input.studentId || ""));
   if (!studentId) throw new Error("Student required");
   if (user.portal === "TEACHER") throw new Error("Open marksheets from office or the family login.");
+  return marksheetHtmlForStudent(studentId, input, { feeHold: user.portal === "PARENT" || user.portal === "STUDENT" });
+}
+
+/** Link the office can send on WhatsApp: the sitting's result for this student. */
+export async function resultShareLinkForUser(user: AccessUser, input: { studentId?: string; seriesId?: string }) {
+  if (user.portal !== "OFFICE") throw new Error("Only the office can share results.");
+  const studentId = String(input.studentId || "");
+  const seriesId = String(input.seriesId || "");
+  const student = await prisma.student.findUnique({ where: { id: studentId }, select: { classId: true } });
+  if (!student) throw new Error("Student not found");
+  const series = await prisma.examSeries.findFirst({ where: { id: seriesId, classId: student.classId }, include: { exams: true } });
+  if (!series) throw new Error("Exam not found");
+  if (!series.exams.length || series.exams.some((exam) => !marksVisible(exam))) {
+    throw new Error("Share the result after every subject in this exam is published.");
+  }
+  const invoices = await prisma.feeInvoice.findMany({ where: { studentId }, include: { payments: true } });
+  const config = await prisma.schoolConfig.findUnique({ where: { id: "school" } });
+  return { url: resultLink(studentId, seriesId), feeHold: Boolean(reportCardFeeHoldFromConfig(invoices, config)) };
+}
+
+/** Public result page from a signed /result link. Same rules as the family app, fee hold included. */
+export async function publicResultHtml(token: string) {
+  const parsed = readResultToken(token);
+  if (!parsed) return null;
+  const student = await runWithoutTenant(() => prisma.student.findUnique({ where: { id: parsed.studentId }, select: { orgId: true } }));
+  if (!student) return null;
+  setTenantOrg(student.orgId);
+  return marksheetHtmlForStudent(parsed.studentId, { seriesId: parsed.seriesId }, { feeHold: true });
+}
+
+async function marksheetHtmlForStudent(
+  studentId: string,
+  input: { seriesId?: string; examId?: string },
+  opts: { feeHold: boolean }
+) {
 
   const student = await prisma.student.findUnique({
     where: { id: studentId },
@@ -76,7 +113,7 @@ export async function marksheetHtmlForUser(
   if (sittingReport && series.exams.some((exam) => !marksVisible(exam))) {
     throw new Error("The report card is ready after every subject in this exam is published.");
   }
-  if (sittingReport && (user.portal === "PARENT" || user.portal === "STUDENT")) {
+  if (sittingReport && opts.feeHold) {
     const invoices = await prisma.feeInvoice.findMany({
       where: { studentId },
       include: { payments: true },
@@ -291,24 +328,10 @@ export async function marksheetHtmlForUser(
           ${att == null ? "" : `<div class="bar"><div class="track"><div class="fill" style="width:${att}%"></div></div><strong style="color:${attColor}">${att}%</strong></div>`}
         </div>
       </div>
-      <div class="panel blue">
-        <h3>CO-SCHOLASTIC & ACTIVITIES</h3>
-        <div class="panel-body">
-          <table>
-            <thead><tr><th>Activity</th><th>Grade</th><th>Remark</th></tr></thead>
-            <tbody>
-              <tr><td>Sports</td><td><span class="badge">A</span></td><td>Excellent participation</td></tr>
-              <tr class="alt"><td>Discipline</td><td><span class="badge">A+</span></td><td>Outstanding</td></tr>
-              <tr><td>Art & Craft</td><td><span class="badge">A</span></td><td>Very Good</td></tr>
-              <tr class="alt"><td>Communication</td><td><span class="badge">A</span></td><td>Good</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
     </div>
     <div class="remark">
       <h3>TEACHER'S REMARKS</h3>
-      <p>${esc(score.rows.map((row) => row.remarks).filter(Boolean).join(" ") || "Excellent academic performance. Continue the same level of dedication and participation.")}</p>
+      <p>${esc(score.rows.map((row) => row.remarks).filter(Boolean).join(" ") || "")}</p>
     </div>
     <div class="verdict ${score.entered ? (score.passed ? "" : "fail") : "pending"}">
       <b>FINAL RESULT</b>

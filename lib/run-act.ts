@@ -1,4 +1,5 @@
 import type { AccessUser } from "./permissions";
+import { resultShareLinkForUser } from "./marksheet-html";
 import { adminSetPasswordCore } from "./admin-password";
 import {
   markStudentLeftCore,
@@ -532,6 +533,8 @@ export async function runAct(
       return { ok: true, ...(await collectPartialFeesCore(user, body as never)) };
     case "collectAllStudentFees":
       return { ok: true, ...(await collectAllStudentFeesCore(user, body as never)) };
+    case "resultShareLink":
+      return { ok: true, ...(await resultShareLinkForUser(user, body as never)) };
     case "cancelFeeReceipt":
       return { ok: true, ...(await cancelFeeReceiptCore(user, body as never)) };
     case "issueDueFees":

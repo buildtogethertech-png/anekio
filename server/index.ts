@@ -47,12 +47,12 @@ import {
 } from "../lib/handle-upload";
 import { presignedReadUrl, readUpload, readUploadDataUrl, resolveUploadPath } from "../lib/uploads";
 import { createSchoolFeeOrder, verifySchoolPayment, invoicesFromPeriods } from "../lib/pay";
-import { batchDocumentsHtml, findBatchDocuments, findIssuedDocument, identityScanHtml, missingIssuedScanHtml, uploadedIssuedDocumentFile, verificationHtml } from "../lib/document-studio";
+import { batchDocumentsHtml, findBatchDocuments, findIssuedDocument, identityScanHtml, missingIssuedScanHtml, renderReceiptHtmlByReceiptToken, uploadedIssuedDocumentFile, verificationHtml } from "../lib/document-studio";
 import { prisma } from "../lib/prisma";
 import { verifyCashfreeWebhook, captureCashfreePayment } from "../lib/cashfree";
 import { captureRazorpayPayment, captureRazorpayMonths, verifyWebhookSignature } from "../lib/razorpay";
 import { issueDueFeesCore } from "../lib/fee-run";
-import { marksheetHtmlForUser } from "../lib/marksheet-html";
+import { marksheetHtmlForUser, publicResultHtml } from "../lib/marksheet-html";
 import { routineHtmlForUser } from "../lib/timetable-html";
 import { runExamCronNotifications } from "../lib/exam-notification-run";
 import { ensureAccessRoles, loadAccess } from "../lib/roles";
@@ -1778,6 +1778,11 @@ app.get("/pay/s/:token", async (req, res) => {
 });
 
 app.get("/pay/r/:token", async (req, res) => {
+  // ?view=1: the receipt as a page (fits a phone, has Download PDF); otherwise the PDF file.
+  if (req.query.view === "1") {
+    const html = await renderReceiptHtmlByReceiptToken(String(req.params.token || ""));
+    if (html) return res.type("html").send(html);
+  }
   const pdf = await feeReceiptPdfByToken(String(req.params.token || ""));
   if (!pdf) return res.status(404).send("Receipt not found");
   res.setHeader("Content-Type", "application/pdf");
@@ -1814,6 +1819,21 @@ app.get("/pay/:token", async (req, res) => {
   if (!html) return res.status(404).send("Not found");
   res.type("html").send(html);
 });
+
+app.get("/result/:token", async (req, res) => {
+  try {
+    const html = await publicResultHtml(req.params.token);
+    if (!html) return res.status(404).type("html").send(resultNoticeHtml("This result link is not valid."));
+    res.type("html").send(html);
+  } catch (e) {
+    res.status(403).type("html").send(resultNoticeHtml(e instanceof Error ? e.message : "This result is not available yet."));
+  }
+});
+
+function resultNoticeHtml(message: string) {
+  const safe = message.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Result</title></head><body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#F7F8FA;font-family:system-ui,sans-serif;color:#1E2A44"><div style="max-width:420px;margin:24px;padding:24px;border:1px solid #E5E8EE;border-radius:14px;background:#fff;text-align:center"><p style="margin:0;font-size:16px;line-height:1.5">${safe}</p></div></body></html>`;
+}
 
 app.get("/i/:token", async (req, res) => {
   const html = await renderInvoicePage(req.params.token);

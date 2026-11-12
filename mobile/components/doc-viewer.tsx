@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { createElement, useState } from "react";
+import { createElement, useEffect, useState } from "react";
 import { ActivityIndicator, Linking, Modal as RnModal, Platform, Pressable, Share, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { closeInAppDoc, useInAppDoc } from "../lib/in-app-doc";
@@ -8,6 +8,10 @@ import { closeInAppDoc, useInAppDoc } from "../lib/in-app-doc";
 export function DocViewer({ url, title, onClose }: { url: string | null; title: string; onClose: () => void }) {
   const [loading, setLoading] = useState(true);
   const open = Boolean(url);
+  // Reset per document. (Modal onShow can fire after the iframe has already loaded on web.)
+  useEffect(() => {
+    if (url) setLoading(true);
+  }, [url]);
 
   async function share() {
     if (!url) return;
@@ -23,7 +27,7 @@ export function DocViewer({ url, title, onClose }: { url: string | null; title: 
   }
 
   return (
-    <RnModal visible={open} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose} onShow={() => setLoading(true)}>
+    <RnModal visible={open} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
       <SafeAreaView className="flex-1 bg-white" edges={["top", "bottom"]}>
         <View className="flex-row items-center gap-1 border-b border-ink-100 bg-white px-2 py-1.5">
           <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} className="h-10 w-10 items-center justify-center rounded-full">
@@ -76,6 +80,14 @@ function NativeDoc({ uri, onLoading }: { uri: string; onLoading: (v: boolean) =>
       domStorageEnabled
       originWhitelist={["*"]}
       setSupportMultipleWindows={false}
+      onShouldStartLoadWithRequest={(request) => {
+        // The page's WhatsApp button: hand it to the WhatsApp app instead of loading it here.
+        if (/^(https:\/\/(api\.)?wa\.me\/|whatsapp:)/i.test(request.url)) {
+          void Linking.openURL(request.url);
+          return false;
+        }
+        return true;
+      }}
       onLoadStart={() => onLoading(true)}
       onLoadEnd={() => onLoading(false)}
     />

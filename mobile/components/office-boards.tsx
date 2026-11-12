@@ -2,6 +2,7 @@ import { AdmissionNoField, type AdmissionNoDraft } from "./admission-number";
 import { createElement, useMemo, useState, useEffect, useRef } from "react";
 import { SetPasswordModal } from "./set-password-modal";
 import type { ViewStyle } from "react-native";
+import { DocViewer } from "./doc-viewer";
 import { openInAppDoc } from "../lib/in-app-doc";
 import type { ReactNode } from "react";
 import { Alert, Linking, Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
@@ -9,7 +10,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { GeneratePayment } from "./generate-payment";
-import { InvoiceReceipts } from "./invoice-receipts";
+import { InvoiceReceipts, receiptPageUrl } from "./invoice-receipts";
 import { Dropdown } from "./form";
 import { Badge, Button, Card, Chip, Empty, Field, Input, Modal, PageHeader, Segmented, Sheet, Stat, Switch, Toast, useToast } from "./ui";
 import { Select } from "./form/select";
@@ -22,7 +23,7 @@ import { useAssetUrl } from "../lib/assets";
 import { ReportCardSheet, type ReportCardData } from "./report-card-sheet";
 import { studentSeriesScore, studentYearScore } from "../lib/exams";
 import { act } from "../lib/mutate";
-import { openMarksheetPdf } from "../lib/print-html";
+import { fetchMarksheetHtml, openMarksheetPdf } from "../lib/print-html";
 import { pickFile, uploadFile } from "../lib/upload";
 import { ParentUpdatesReview } from "./parent-details";
 import { DayGapsCard } from "./day-gaps-card";
@@ -1351,6 +1352,15 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   const { data, reload } = useRecord();
   const { token, user } = useSession();
   const [parentPasswordFor, setParentPasswordFor] = useState<{ parentId: string; name: string } | null>(null);
+  // Result viewer lives inside the student sheet so it opens on top of it.
+  const [resultDoc, setResultDocState] = useState<{ url: string; title: string } | null>(null);
+  /** Opens a document in the sheet's viewer; its WhatsApp button then goes straight to this student's parent. */
+  function setResultDoc(doc: { url: string; title: string } | null) {
+    if (!doc || !/^https?:/.test(doc.url)) return setResultDocState(doc);
+    const digits = (selected?.parentPhone || "").replace(/\D/g, "");
+    const wa = digits.length === 10 ? `91${digits}` : digits.length >= 11 ? digits : "";
+    setResultDocState({ ...doc, url: wa ? `${doc.url.split("#")[0]}#wa=${wa}` : doc.url });
+  }
   const router = useRouter();
   const { width } = useWindowDimensions();
   const wide = width >= 768;
@@ -1834,32 +1844,19 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   }
 
   async function openFeeDocument(inv: { id: string; invoiceUrl?: string; receiptUrl?: string }, paid: boolean) {
+    const title = `${paid ? "Receipt" : "Invoice"}${selected ? ` · ${selected.name}` : ""}`;
     const directUrl = paid ? inv.receiptUrl : inv.invoiceUrl;
     if (directUrl) {
-      if (Platform.OS === "web") {
-        window.open(directUrl, "_blank", "noopener,noreferrer");
-        return;
-      }
-      openInAppDoc(directUrl, paid ? "Receipt" : "Invoice");
+      setResultDoc({ url: receiptPageUrl(directUrl), title });
       return;
     }
-    const pendingWindow = Platform.OS === "web" ? window.open("", "_blank") : null;
-    if (pendingWindow) pendingWindow.opener = null;
-    const openUrl = async (url: string) => {
-      if (pendingWindow) {
-        pendingWindow.location.replace(url);
-        return;
-      }
-      openInAppDoc(url, paid ? "Receipt" : "Invoice");
-    };
     try {
       const result = await act<{ ok: true; token: string }>(token, "ensurePayToken", { invoiceId: inv.id });
       const shareToken = encodeURIComponent(result.token);
       const url = paid ? `${webOrigin()}/pay/${shareToken}?paid=1` : `${webOrigin()}/i/${shareToken}`;
+      setResultDoc({ url, title });
       await reload();
-      await openUrl(url);
     } catch (e) {
-      pendingWindow?.close();
       toast.show(e instanceof Error ? e.message : "Could not open fee document.");
     }
   }
@@ -1879,8 +1876,40 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
     const docTypeLabel = (type: string) =>
       data?.documentStudio?.types?.find((row) => row.id === type)?.label || type.replace(/_/g, " ").toLowerCase();
     const parentTel = phoneHref(selected.parentPhone);
+    const canManageFee = can(user, "people.edit") && showFees;
+    function startEdit() {
+      if (!selected) return;
+      setEdit({
+        name: selected.name,
+        admissionNo: selected.admissionNo,
+        dateOfBirth: selected.dateOfBirth || "",
+        classId: selected.classId || "",
+        parentId: selected.parentId || "",
+        parentName: selected.parent,
+        parentEmail: selected.parentEmail || "",
+        parentPhone: selected.parentPhone || "",
+        address: selected.parentStreet || selected.parentAddress || "",
+        city: selected.parentCity || "",
+        state: selected.parentState || "",
+        pincode: selected.parentPincode || "",
+        feeAddOns: (selected.feeAddOns ?? []).map((addOn) => ({ ...addOn, amount: String(addOn.amount) })),
+      });
+      setEditTags(pathIds(selected.path));
+      selectStudentTab("overview");
+      setFileEdit(true);
+    }
+    function startManageFee() {
+      if (!selected) return;
+      const next = feeAssignmentFromStudent(selected.feeAddOns);
+      setManageOtherIds(next.otherIds);
+      setManageClassAddOns(next.classAddOnLabels);
+      setManageDiscountType(next.discount?.type || "FLAT");
+      setManageDiscountValue(next.discount?.value ? String(next.discount.value) : "");
+      setManageFeeOpen(true);
+    }
     const header = (
       <>
+        <DocViewer url={resultDoc?.url ?? null} title={resultDoc?.title ?? ""} onClose={() => setResultDoc(null)} />
         <View className={wide ? "flex-row flex-wrap items-start justify-between gap-4" : "gap-3"}>
           <View className={`flex-row items-start gap-3 ${wide ? "min-w-0 flex-1" : "pr-8"}`}>
             <View className={`${wide ? "h-14 w-14" : "h-12 w-12"} items-center justify-center rounded-2xl bg-[#1F45C7]`}>
@@ -1923,31 +1952,12 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
               ) : null}
             </View>
           </View>
-          <View className={wide ? "flex-row flex-wrap justify-end gap-2" : "flex-row gap-2"}>
+          <View className={wide ? "flex-row flex-wrap justify-end gap-2" : "hidden"}>
             {canEditStudent ? (
               <Button
                 className={wide ? undefined : "flex-1"}
                 variant="ghost"
-                onPress={() => {
-                  setEdit({
-                    name: selected.name,
-                    admissionNo: selected.admissionNo,
-                    dateOfBirth: selected.dateOfBirth || "",
-                    classId: selected.classId || "",
-                    parentId: selected.parentId || "",
-                    parentName: selected.parent,
-                    parentEmail: selected.parentEmail || "",
-                    parentPhone: selected.parentPhone || "",
-                    address: selected.parentStreet || selected.parentAddress || "",
-                    city: selected.parentCity || "",
-                    state: selected.parentState || "",
-                    pincode: selected.parentPincode || "",
-                    feeAddOns: (selected.feeAddOns ?? []).map((addOn) => ({ ...addOn, amount: String(addOn.amount) })),
-                  });
-                  setEditTags(pathIds(selected.path));
-                  selectStudentTab("overview");
-                  setFileEdit(true);
-                }}
+                onPress={startEdit}
               >
                 Edit
               </Button>
@@ -1957,14 +1967,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                 className={wide ? undefined : "flex-1"}
                 variant="ghost"
                 accessibilityLabel="Manage fee"
-                onPress={() => {
-                  const next = feeAssignmentFromStudent(selected.feeAddOns);
-                  setManageOtherIds(next.otherIds);
-                  setManageClassAddOns(next.classAddOnLabels);
-                  setManageDiscountType(next.discount?.type || "FLAT");
-                  setManageDiscountValue(next.discount?.value ? String(next.discount.value) : "");
-                  setManageFeeOpen(true);
-                }}
+                onPress={startManageFee}
               >
                 Manage fee
               </Button>
@@ -1987,7 +1990,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
               { id: "overview", label: "Overview" },
               ...(showFees ? [{ id: "fees", label: "Fees" }] : []),
               { id: "attendance", label: "Attendance" },
-              { id: "reports", label: "Exams & Reports" },
+              { id: "reports", label: wide ? "Exams & Reports" : "Results" },
               { id: "documents", label: "Documents" },
             ]}
             value={fileTab}
@@ -2170,7 +2173,13 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
         value ? (
           <View className="flex-row items-center justify-between gap-3 py-2.5">
             <Text className="text-[13px] text-ink-500">{label}</Text>
-            <Text className={`min-w-0 flex-shrink text-right text-[13px] ${/^Not (added|assigned)$/.test(value) ? "text-ink-400" : "font-medium text-ink-900"}`} numberOfLines={1}>{value}</Text>
+            {value === "Not added" && canEditStudent ? (
+              <Pressable accessibilityRole="button" accessibilityLabel={`Add ${label.toLowerCase()}`} onPress={startEdit} hitSlop={8}>
+                <Text className="text-[13px] font-semibold text-[#1F45C7]">+ Add</Text>
+              </Pressable>
+            ) : (
+              <Text className={`min-w-0 flex-shrink text-right text-[13px] ${/^Not (added|assigned)$/.test(value) ? "text-ink-400" : "font-medium text-ink-900"}`} numberOfLines={1}>{value}</Text>
+            )}
           </View>
         ) : null;
       const selfTeacher = studentOnly && user?.portal === "TEACHER" && (!classTeacher || classTeacher.name === user.name);
@@ -2178,8 +2187,11 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       const actions: { icon: keyof typeof Ionicons.glyphMap; label: string; bg: string; fg: string; onPress?: () => void }[] = [
         { icon: "call", label: "Call", bg: "#EEF3FF", fg: "#1F45C7", onPress: parentTel ? () => void Linking.openURL(parentTel) : undefined },
         { icon: "logo-whatsapp", label: "WhatsApp", bg: "#ECFDF5", fg: "#16a34a", onPress: wa ? () => void Linking.openURL(wa) : undefined },
+        ...(!wide && canManageFee ? [{ icon: "wallet" as const, label: "Fees", bg: "#FEF3C7", fg: "#b45309", onPress: startManageFee }] : []),
         { icon: "document-text", label: "Results", bg: "#F3E8FF", fg: "#7e22ce", onPress: () => selectStudentTab("reports") },
-        { icon: "folder-open", label: "Documents", bg: "#FFF7ED", fg: "#c2410c", onPress: () => selectStudentTab("documents") },
+        ...(!wide && canEditStudent
+          ? [{ icon: "create" as const, label: "Edit", bg: "#F1F5F9", fg: "#334155", onPress: startEdit }]
+          : [{ icon: "folder-open" as const, label: "Documents", bg: "#FFF7ED", fg: "#c2410c", onPress: () => selectStudentTab("documents") }]),
       ];
       const wideOverview = wide && !bare;
       if (wideOverview) {
@@ -2191,7 +2203,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
               ["Attendance", attPct === null ? "—" : `${attPct}%`, attPct === null ? "text-ink-400" : low ? "text-amber-700" : "text-emerald-700", attTotal ? `${attTotal} days marked` : "Not marked yet", "attendance"],
               ["Absent", `${att.a} ${att.a === 1 ? "day" : "days"}`, att.a ? "text-red-700" : "text-ink-900", att.l ? `${att.l} late` : "", "attendance"],
               ...(showFees
-                ? [["Fees due", owed ? selected.dueNow || "₹0" : "Clear", owed ? "text-red-700" : "text-emerald-700", owed && selected.overdueCount ? `${selected.overdueCount} overdue` : "", "fees"] as const]
+                ? [["Fees", owed ? `${selected.dueNow || "₹0"} due` : "Paid up", owed ? "text-red-700" : "text-emerald-700", owed && selected.overdueCount ? `${selected.overdueCount} overdue` : "", "fees"] as const]
                 : []),
             ] as const
           ).map(([label, value, tone, hint, tab], n) => (
@@ -2218,7 +2230,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
               </View>
               <View className="min-w-0 flex-1">
                 <Text className="text-[15px] font-semibold text-ink-900" numberOfLines={1}>{selected.parentId ? selected.parent || "Parent" : "No parent added"}</Text>
-                <Text className="text-xs text-ink-500" numberOfLines={1}>
+                <Text className="text-[13px] text-ink-500" numberOfLines={1}>
                   {selected.parentId ? `Parent · ${selected.parentPhone || "no phone"}` : "Edit the student and add a parent mobile to create a parent login."}
                 </Text>
               </View>
@@ -2251,7 +2263,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
               onClose={() => setParentPasswordFor(null)}
               onDone={(message) => toast.show(message)}
             />
-            {selected.parentEmail ? (
+            {selected.parentEmail && !/\.invalid$/i.test(selected.parentEmail) ? (
               <View className="flex-row items-center gap-2.5 border-t border-ink-100 px-3.5 py-2.5">
                 <Ionicons name="mail-outline" size={14} color="#94a3b8" />
                 <Text className="min-w-0 flex-1 text-[13px] text-ink-700" numberOfLines={1}>{selected.parentEmail}</Text>
@@ -2360,6 +2372,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       }
       return (
       <View className="mt-4 gap-5">
+        {attTotal ? (
         <Pressable
           onPress={() => selectStudentTab("attendance")}
           accessibilityRole="button"
@@ -2381,12 +2394,12 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
               </Text>
             </View>
             <View className="min-w-0 flex-1 rounded-xl bg-ink-50 px-3 py-2.5">
-              <Text className="text-[11px] font-medium uppercase tracking-wide text-ink-500">{showFees ? "Fees due" : "Present"}</Text>
+              <Text className="text-[11px] font-medium uppercase tracking-wide text-ink-500">{showFees ? "Fees" : "Present"}</Text>
               <Text
                 className={`mt-0.5 text-[20px] font-bold ${showFees ? (owed ? "text-red-700" : "text-emerald-700") : "text-ink-900"}`}
                 numberOfLines={1}
               >
-                {showFees ? (owed ? selected.dueNow : "Clear") : `${att.p}`}
+                {showFees ? (owed ? selected.dueNow : "Paid up") : `${att.p}`}
                 {!showFees ? <Text className="text-[12px] font-medium text-ink-500"> {att.p === 1 ? "day" : "days"}</Text> : null}
               </Text>
             </View>
@@ -2407,6 +2420,28 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
             <Text className="mt-2 text-[12px] text-ink-500">No attendance marked yet this session</Text>
           )}
         </Pressable>
+        ) : (
+          <View className="flex-row overflow-hidden rounded-2xl border border-ink-200 bg-white">
+            {showFees ? (
+              <Pressable accessibilityRole="button" accessibilityLabel="Open fees" onPress={() => selectStudentTab("fees")} className="min-w-0 flex-1 px-4 py-3.5">
+                <Text className="text-[12px] font-medium text-ink-500">Fees</Text>
+                <Text className={`mt-0.5 text-[18px] font-bold ${owed ? "text-red-700" : "text-emerald-700"}`} numberOfLines={1}>
+                  {owed ? `${selected.dueNow} due` : "Paid up"}
+                </Text>
+                {owed && selected.overdueCount ? <Text className="text-[12px] text-red-700">{`${selected.overdueCount} overdue`}</Text> : null}
+              </Pressable>
+            ) : null}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Open attendance"
+              onPress={() => selectStudentTab("attendance")}
+              className={`min-w-0 flex-1 px-4 py-3.5 ${showFees ? "border-l border-ink-100" : ""}`}
+            >
+              <Text className="text-[12px] font-medium text-ink-500">Attendance</Text>
+              <Text className="mt-0.5 text-[15px] font-semibold text-ink-400" numberOfLines={1}>Not marked yet</Text>
+            </Pressable>
+          </View>
+        )}
 
         <View className="flex-row justify-between">
           {actions.map((a) => (
@@ -2414,12 +2449,14 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
               key={a.label}
               disabled={!a.onPress}
               onPress={a.onPress}
-              className={`w-1/4 items-center gap-1.5 ${a.onPress ? "" : "opacity-40"}`}
+              accessibilityRole="button"
+              accessibilityLabel={a.label}
+              className={`flex-1 items-center gap-1.5 ${a.onPress ? "" : "opacity-40"}`}
             >
-              <View className="h-12 w-12 items-center justify-center rounded-2xl" style={{ backgroundColor: a.bg }}>
-                <Ionicons name={a.icon} size={20} color={a.fg} />
+              <View className="h-[52px] w-[52px] items-center justify-center rounded-2xl" style={{ backgroundColor: a.bg }}>
+                <Ionicons name={a.icon} size={22} color={a.fg} />
               </View>
-              <Text className="text-[11px] font-medium text-ink-700">{a.label}</Text>
+              <Text className="text-[12px] font-semibold text-ink-800">{a.label}</Text>
             </Pressable>
           ))}
         </View>
@@ -2433,7 +2470,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
               </View>
               <View className="min-w-0 flex-1">
                 <Text className="text-[15px] font-semibold text-ink-900" numberOfLines={1}>{selected.parentId ? selected.parent || "Parent" : "No parent added"}</Text>
-                <Text className="text-xs text-ink-500" numberOfLines={1}>
+                <Text className="text-[13px] text-ink-500" numberOfLines={1}>
                   {selected.parentId ? `Parent · ${selected.parentPhone || "no phone"}` : "Edit the student and add a parent mobile to create a parent login."}
                 </Text>
               </View>
@@ -2456,7 +2493,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
               onClose={() => setParentPasswordFor(null)}
               onDone={(message) => toast.show(message)}
             />
-            {selected.parentEmail ? (
+            {selected.parentEmail && !/\.invalid$/i.test(selected.parentEmail) ? (
               <View className="flex-row items-center gap-2.5 border-t border-ink-100 px-3.5 py-2.5">
                 <Ionicons name="mail-outline" size={14} color="#94a3b8" />
                 <Text className="min-w-0 flex-1 text-[13px] text-ink-700" numberOfLines={1}>{selected.parentEmail}</Text>
@@ -2675,6 +2712,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                       </View>
                       <InvoiceReceipts
                         payments={inv.payments}
+                        onOpen={(url, label) => setResultDoc({ url, title: `${label} · ${selected.name}` })}
                         canCancel={can(user, "fees.collect")}
                         className="mt-2"
                         onChanged={async (message) => {
@@ -2888,11 +2926,49 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
         )}
       </View>
     );
+    /** Published result: open the same link the parent gets. With fees on hold that link shows the fee notice, so open the office copy instead. */
+    async function openResultLink(seriesId: string, seriesName: string) {
+      if (!selected) return;
+      const title = `${seriesName} · ${selected.name}`;
+      try {
+        const res = await act<{ url: string; feeHold?: boolean }>(token, "resultShareLink", { studentId: selected.id, seriesId });
+        if (!res.feeHold) {
+          setResultDoc({ url: res.url, title });
+          return;
+        }
+        // Fees on hold: the parent link shows a fee notice, so show the office copy.
+        toast.show("Fees are pending, so the parent link shows a fee notice. Showing the office copy.");
+        if (Platform.OS === "web" && typeof URL !== "undefined") {
+          const html = await fetchMarksheetHtml(token, { seriesId, studentId: selected.id });
+          setResultDoc({ url: URL.createObjectURL(new Blob([html], { type: "text/html" })), title });
+        } else {
+          await openMarksheetPdf(token, { seriesId, studentId: selected.id });
+        }
+      } catch (error) {
+        toast.show(error instanceof Error ? error.message : "Could not open the result.");
+      }
+    }
+    async function shareResultOnWhatsApp(seriesId: string, seriesName: string) {
+      if (!selected) return;
+      // Open the window first: browsers block pop-ups that open after an await.
+      const tab = Platform.OS === "web" && typeof window !== "undefined" ? window.open("", "_blank") : null;
+      try {
+        const res = await act<{ url: string }>(token, "resultShareLink", { studentId: selected.id, seriesId });
+        const school = data?.school?.name || "School";
+        const text = `Dear Parent, ${selected.name}'s ${seriesName} result (${selected.classLabel}) is ready.\n\nView or download the result: ${res.url}\n\n— ${school}`;
+        const href = whatsappHref(selected.parentPhone, text) || `https://wa.me/?text=${encodeURIComponent(text)}`;
+        if (tab) tab.location.href = href;
+        else await Linking.openURL(href);
+      } catch (error) {
+        tab?.close();
+        toast.show(error instanceof Error ? error.message : "Could not create the result link.");
+      }
+    }
     const reportsBody = (
       <View className="mt-5 gap-4">
         <View>
           <Text className="text-sm font-semibold text-ink-900">Exams & reports</Text>
-          <Text className="mt-1 text-xs text-ink-700">{selected.classLabel} · {yearSession || "Current session"}</Text>
+          <Text className="mt-1 text-xs text-ink-700">{selected.classLabel} · {classSittings.find((s) => s.sessionId === yearSession)?.sessionLabel || "Current session"}</Text>
         </View>
         {year?.entered ? (
           <Text className="text-sm text-ink-800">
@@ -2903,6 +2979,8 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
         {classSittings.length ? (
           <View className="overflow-hidden rounded-md bg-white">
             {classSittings.map((series, i) => {
+              const resultsOut = series.exams.filter((e) => e.workflowStatus === "PUBLISHED" || e.resultsPublishedAt).length;
+              const allOut = series.exams.length > 0 && resultsOut === series.exams.length;
               const score = studentSeriesScore(
                 selected.id,
                 series.exams,
@@ -2913,10 +2991,8 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                 <Pressable
                   key={series.id}
                   onPress={() => {
-                    if (series.published) {
-                      void openMarksheetPdf(token, { seriesId: series.id, studentId: selected.id }).catch((error) => {
-                        toast.show(error instanceof Error ? error.message : "Could not open the report card.");
-                      });
+                    if (allOut) {
+                      void openResultLink(series.id, series.name);
                       return;
                     }
                     setOpenCard({
@@ -2947,9 +3023,32 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                       {score.entered ? ` · ${score.pct}%${score.grade ? ` · ${score.grade}` : ""}` : " · no marks"}
                     </Text>
                   </View>
-                  <Badge tone={series.published ? "leaf" : "ink"}>
-                    {series.published ? "published" : "draft"}
-                  </Badge>
+                  {allOut ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Send ${series.name} result on WhatsApp`}
+                      hitSlop={6}
+                      onPress={() => void shareResultOnWhatsApp(series.id, series.name)}
+                      className="h-8 flex-row items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3"
+                    >
+                      <Ionicons name="logo-whatsapp" size={14} color="#16a34a" />
+                      <Text className="text-xs font-semibold text-emerald-700">Send</Text>
+                    </Pressable>
+                  ) : null}
+                  {allOut ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`View ${series.name} result`}
+                      hitSlop={6}
+                      onPress={() => void openResultLink(series.id, series.name)}
+                      className="h-8 flex-row items-center gap-1.5 rounded-full bg-[#1F45C7] px-3"
+                    >
+                      <Ionicons name="eye-outline" size={14} color="#FFFFFF" />
+                      <Text className="text-xs font-semibold text-white">View</Text>
+                    </Pressable>
+                  ) : (
+                    <Badge tone="ink">{resultsOut ? `${resultsOut}/${series.exams.length} published` : "not published"}</Badge>
+                  )}
                 </Pressable>
               );
             })}
@@ -3578,18 +3677,20 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
 
       <Modal
         open={manageFeeOpen && Boolean(selected)}
-        title="Manage monthly fee"
+        title={selected ? `Monthly fee · ${selected.name}` : "Monthly fee"}
+        sheetOnPhone
         onClose={() => {
           if (!manageFeePending) setManageFeeOpen(false);
         }}
         footer={
           <View className="gap-3">
             {selected ? <MonthlyFeeBillSummary student={selected} templates={data?.feeTemplates} catalog={data?.feeCatalog ?? { items: [], late: { enabled: false, amount: 0, graceDays: 0 }, dueDay: 10 }} session={data?.school?.sessions?.find((row) => row.current) ?? data?.school?.sessions?.[0]} otherIds={manageOtherIds} classAddOnLabels={manageClassAddOns} discountType={manageDiscountType} discountValue={manageDiscountValue} /> : null}
-          <View className="flex-row flex-wrap justify-end gap-2">
+          <View className="flex-row gap-2">
             <Button variant="ghost" disabled={manageFeePending} onPress={() => setManageFeeOpen(false)}>
               Cancel
             </Button>
             <Button
+              className="flex-1"
               disabled={manageFeePending || !selected}
               onPress={async () => {
                 if (!selected) return;

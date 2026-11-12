@@ -55,8 +55,33 @@ describe("document studio library", () => {
     }
   });
 
-  it("keeps every report-card field and a display-size title", () => {
+  it("keeps the exam result to marks and grades", () => {
     const layout = defaultLayout("REPORT_CARD");
+    const fields = layout.elements.map((item) => item.field).filter(Boolean);
+    expect(fields).toEqual(expect.arrayContaining([
+      "school.name",
+      "exam.name",
+      "exam.session",
+      "student.name",
+      "student.classLabel",
+      "student.rollNo",
+      "results.marks",
+      "results.score",
+      "results.percentage",
+      "results.overallGrade",
+      "results.outcome",
+      "results.teacherRemark",
+      "results.gradeScale",
+    ]));
+    for (const field of ["results.activities", "results.attendanceBar", "results.workingDays", "results.promotionStatus"]) {
+      expect(fields).not.toContain(field);
+    }
+    expect(layout.elements.find((item) => item.field === "results.marks")?.value).toBe("bars");
+    expect(layout.elements.find((item) => item.field === "student.name")?.fontSize).toBeGreaterThanOrEqual(16);
+  });
+
+  it("keeps every report-card field and a display-size title on the consolidated report", () => {
+    const layout = defaultLayout("CONSOLIDATED_REPORT");
     const fields = layout.elements.map((item) => item.field).filter(Boolean);
     expect(fields).toEqual(expect.arrayContaining([
       "school.name",
@@ -152,8 +177,8 @@ describe("document studio library", () => {
     expect(layout.elements.find((item) => item.id === "title")?.fontSize).toBeGreaterThanOrEqual(14);
   });
 
-  it("keeps navy fills on the report card so print matches the screen design", () => {
-    const layout = defaultLayout("REPORT_CARD");
+  it("keeps navy fills on the consolidated report so print matches the screen design", () => {
+    const layout = defaultLayout("CONSOLIDATED_REPORT");
     expect(layout.elements.find((item) => item.id === "header-a")?.background).toBe("#1B365D");
     expect(layout.elements.find((item) => item.id === "title-bg")?.background).toBe("#1B365D");
     expect(layout.elements.find((item) => item.id === "acad-head")?.background).toBe("#1B365D");

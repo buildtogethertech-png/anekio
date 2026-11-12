@@ -10,12 +10,17 @@ function errorFromBody(text: string, fallback: string) {
   }
 }
 
-export async function openHtmlDocument(html: string) {
+export async function openHtmlDocument(html: string, opened?: Window | null) {
   if (Platform.OS === "web" && typeof window !== "undefined") {
-    const frame = window.open("", "_blank");
+    const frame = opened || window.open("", "_blank");
     if (!frame) throw new Error("Allow pop-ups to open the PDF.");
     frame.document.write(html);
     frame.document.close();
+    // Print only once the logo, photos and fonts are in, or they come out blank on the PDF.
+    const images = Array.from(frame.document.images).filter((img) => !img.complete);
+    const loaded = Promise.all(images.map((img) => new Promise((done) => { img.onload = img.onerror = done; })));
+    const fonts = (frame.document as Document & { fonts?: { ready: Promise<unknown> } }).fonts?.ready ?? Promise.resolve();
+    await Promise.race([Promise.all([loaded, fonts]), new Promise((done) => setTimeout(done, 5000))]);
     frame.focus();
     frame.print();
     return;
@@ -68,9 +73,23 @@ export async function downloadAuthedFile(url: string, token: string | null, file
   await openAuthedFile(url, token);
 }
 
+/** The office copy of a marksheet as HTML, for showing inside the app. */
+export async function fetchMarksheetHtml(token: string | null, query: { seriesId?: string; examId?: string; studentId?: string }) {
+  if (!token) throw new Error("Sign in again.");
+  const qs = new URLSearchParams();
+  if (query.seriesId) qs.set("seriesId", query.seriesId);
+  if (query.examId) qs.set("examId", query.examId);
+  if (query.studentId) qs.set("studentId", query.studentId);
+  const res = await fetch(`${apiBase()}/api/v1/marksheet?${qs.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
+  const html = await res.text();
+  if (!res.ok) throw new Error(errorFromBody(html, "Marksheet unavailable."));
+  return html;
+}
+
 export async function openMarksheetPdf(
   token: string | null,
-  query: { seriesId?: string; examId?: string; studentId?: string }
+  query: { seriesId?: string; examId?: string; studentId?: string },
+  opened?: Window | null
 ) {
   if (!token) throw new Error("Sign in again.");
   const qs = new URLSearchParams();
@@ -82,7 +101,7 @@ export async function openMarksheetPdf(
   });
   const html = await res.text();
   if (!res.ok) throw new Error(errorFromBody(html, "Marksheet unavailable."));
-  await openHtmlDocument(html);
+  await openHtmlDocument(html, opened);
 }
 
 export async function openRoutinePdf(

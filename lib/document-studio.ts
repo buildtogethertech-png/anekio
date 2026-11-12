@@ -267,6 +267,14 @@ export const DOCUMENT_FIELDS = [
   { group: "Results", id: "results.teacherRemark", label: "Teacher remark" },
   { group: "Results", id: "results.promotionStatus", label: "Promotion status" },
   { group: "Results", id: "results.nextClass", label: "Next class" },
+  { group: "Results", id: "results.score", label: "Marks (obtained / total)" },
+  { group: "Results", id: "results.outcome", label: "Result (pass / needs improvement)" },
+  { group: "Results", id: "results.rankLine", label: "Class rank line" },
+  { group: "Results", id: "results.gradeScale", label: "Grade scale" },
+  { group: "Results", id: "results.bestSubject", label: "Strongest subject" },
+  { group: "Results", id: "results.focusSubject", label: "Subject needing practice" },
+  { group: "Exam", id: "exam.name", label: "Exam name" },
+  { group: "Exam", id: "exam.session", label: "Exam session" },
   { group: "Staff", id: "staff.classTeacherName", label: "Class teacher name" },
   { group: "Staff", id: "staff.principalName", label: "Principal name" },
   { group: "Fees", id: "fees.lines", label: "Fee line items" },
@@ -671,6 +679,98 @@ function reportCardLayout(type = "REPORT_CARD"): DocumentLayout {
   };
 }
 
+/**
+ * Exam result: one sitting, marks only. Attendance, co-scholastic and promotion belong on the consolidated
+ * report card. The marks table draws a bar per subject (TABLE value "bars"); the remark block follows the table.
+ */
+function examResultLayout(): DocumentLayout {
+  const e = element;
+  const navy = "#1E2A44";
+  const muted = "#7A8699";
+  const soft = "#F7F8FA";
+  const line = "#E5E8EE";
+  const label = (id: string, x: number, y: number, w: number, value: string, color = muted, align: "left" | "right" | "center" = "left") =>
+    e(id, "TEXT", x, y, w, 1.2, { value, fontSize: 7, fontWeight: "bold", color, align });
+  const tile = (id: string, x: number, title: string, field: string, name: string, dark = false) => [
+    e(`${id}-bg`, "SHAPE", x, 28.2, 21.6, 6, { background: dark ? navy : "#FFFFFF", borderColor: dark ? undefined : line, locked: true }),
+    label(`${id}-l`, x + 1.8, 29.1, 18, title, dark ? "#A9B8D1" : muted),
+    e(id, "FIELD", x + 1.8, 30.4, 18, 3, { field, label: name, fontSize: 22, fontWeight: "bold", color: dark ? "#FFFFFF" : navy }),
+  ];
+  return {
+    elements: [
+      e("page-bg", "SHAPE", 0, 0, 100, 100, { background: "#FFFFFF", locked: true }),
+      e("header", "SHAPE", 0, 0, 100, 13.4, { background: navy, locked: true }),
+      e("header-stripe", "SHAPE", 0, 13.4, 100, 0.3, { background: "#8FA6C8", locked: true }),
+      e("header-stripe-2", "SHAPE", 0, 13.4, 24, 0.3, { background: "#D4B06A", locked: true }),
+      e("logo-frame", "SHAPE", 5, 2.9, 9.6, 6.9, { background: "#FFFFFF", locked: true }),
+      e("school-logo", "IMAGE", 5.7, 3.4, 8.2, 5.9, { field: "school.logoPath", label: "Logo", background: "#4A5D80", locked: true }),
+      e("school-name", "FIELD", 17, 3.2, 47, 3.2, { field: "school.name", label: "School name", fontSize: 20, fontWeight: "bold", color: "#FFFFFF", locked: true }),
+      e("school-address", "FIELD", 17, 6.6, 47, 1.5, { field: "school.address", label: "School address", fontSize: 8, color: "#B8C4DA" }),
+      e("school-contact", "FIELD", 17, 8.2, 47, 1.5, { field: "school.contact", label: "School contact", fontSize: 8, color: "#B8C4DA" }),
+      label("doc-kind", 62, 3.3, 33, "EXAM RESULT", "#A9B8D1", "right"),
+      e("title", "FIELD", 55, 4.8, 40, 2.8, { field: "exam.name", label: "Exam name", fontSize: 17, fontWeight: "bold", align: "right", color: "#FFFFFF" }),
+      e("exam-session", "FIELD", 55, 7.7, 40, 1.5, { field: "exam.session", label: "Exam session", fontSize: 9, fontWeight: "bold", align: "right", color: "#DBEAFE" }),
+      e("document-number", "FIELD", 55, 9.6, 40, 1.4, { field: "document.number", label: "Document number", fontSize: 7, align: "right", color: "#93A4C3" }),
+
+      e("student-card", "SHAPE", 5, 16.2, 90, 9.6, { background: soft, borderColor: line, locked: true }),
+      e("photo", "PHOTO", 6.6, 17.3, 7.4, 7.4, { field: "student.photo", label: "Photo", background: "#DDE3EC" }),
+      label("name-l", 16.4, 17.5, 30, "STUDENT"),
+      e("student-name", "FIELD", 16.4, 18.8, 50, 2.8, { field: "student.name", label: "Student name", fontSize: 18, fontWeight: "bold", color: navy }),
+      label("class-l", 16.4, 22.3, 12, "CLASS"),
+      e("class", "FIELD", 16.4, 23.4, 12, 1.8, { field: "student.classLabel", label: "Class and section", fontSize: 11, fontWeight: "bold", color: navy }),
+      label("roll-l", 29.6, 22.3, 10, "ROLL NO"),
+      e("roll", "FIELD", 29.6, 23.4, 10, 1.8, { field: "student.rollNo", label: "Roll number", fontSize: 11, fontWeight: "bold", color: navy }),
+      label("admission-l", 41, 22.3, 18, "ADMISSION NO"),
+      e("admission", "FIELD", 41, 23.4, 18, 1.8, { field: "student.admissionNo", label: "Admission number", fontSize: 11, fontWeight: "bold", color: navy }),
+      label("dob-l", 60.4, 22.3, 16, "DATE OF BIRTH"),
+      e("dob", "FIELD", 60.4, 23.4, 16, 1.8, { field: "student.born", label: "Date of birth", fontSize: 11, fontWeight: "bold", color: navy }),
+      label("parent-l", 77.6, 22.3, 16, "PARENT"),
+      e("parent", "FIELD", 77.6, 23.4, 16.4, 1.8, { field: "student.parent", label: "Guardian name", fontSize: 11, fontWeight: "bold", color: navy }),
+
+      ...tile("score", 5, "MARKS", "results.score", "Marks (obtained / total)"),
+      ...tile("percentage", 27.8, "PERCENTAGE", "results.percentage", "Percentage"),
+      ...tile("grade", 50.6, "OVERALL GRADE", "results.overallGrade", "Overall grade", true),
+      e("rank", "FIELD", 57.5, 31.2, 13, 1.4, { field: "results.rankLine", label: "Class rank line", fontSize: 8, fontWeight: "bold", align: "right", color: "#E3CB94" }),
+      e("outcome-bg", "SHAPE", 73.4, 28.2, 21.6, 6, { background: "#FFFFFF", borderColor: line, locked: true }),
+      label("outcome-l", 75.2, 29.1, 18, "RESULT"),
+      e("outcome", "FIELD", 75.2, 30.4, 18, 3, { field: "results.outcome", label: "Result (pass / needs improvement)", fontSize: 22, fontWeight: "bold", color: navy }),
+
+      e("marks-title", "TEXT", 5, 36.6, 50, 1.7, { value: "SUBJECT-WISE MARKS", fontSize: 10, fontWeight: "bold", color: navy }),
+      e("marks-table", "TABLE", 5, 38.8, 90, 32, { field: "results.marks", label: "Marks and grades table", value: "bars", fontSize: 10, background: navy }),
+
+      e("hl-best-bg", "SHAPE", 5, 72.2, 44.4, 4.4, { background: "#FFFFFF", borderColor: line, locked: true }),
+      label("hl-best-l", 6.8, 72.9, 40, "STRONGEST SUBJECT", "#5E8A70"),
+      e("hl-best", "FIELD", 6.8, 74.1, 41, 2, { field: "results.bestSubject", label: "Strongest subject", fontSize: 13, fontWeight: "bold", color: navy }),
+      e("hl-focus-bg", "SHAPE", 50.6, 72.2, 44.4, 4.4, { background: "#FFFFFF", borderColor: line, locked: true }),
+      label("hl-focus-l", 52.4, 72.9, 40, "NEEDS MORE PRACTICE", "#A6844A"),
+      e("hl-focus", "FIELD", 52.4, 74.1, 41, 2, { field: "results.focusSubject", label: "Subject needing practice", fontSize: 13, fontWeight: "bold", color: navy }),
+      e("remark-title", "TEXT", 5, 77.7, 50, 1.7, { value: "CLASS TEACHER'S REMARK", fontSize: 10, fontWeight: "bold", color: navy }),
+      e("remark-card", "SHAPE", 5, 79.7, 90, 4, { background: soft, borderColor: line, locked: true }),
+      e("teacher-remark", "FIELD", 6.6, 80.1, 86.8, 3.2, { field: "results.teacherRemark", label: "Teacher remark", fontSize: 11, color: "#334155" }),
+
+      label("scale-l", 5, 85.2, 14, "GRADE SCALE"),
+      e("grade-scale", "FIELD", 16, 84.8, 79, 2, { field: "results.gradeScale", label: "Grade scale", fontSize: 8, fontWeight: "bold", color: "#475569" }),
+      e("sign-teacher", "SIGNATURE", 6, 88.2, 20, 3.6, { field: "school.signPath", label: "Class teacher signature" }),
+      e("sign-teacher-line", "LINE", 6, 92, 20, 0.3, { color: "#CBD5E1" }),
+      e("sign-teacher-name", "FIELD", 6, 92.3, 20, 1.4, { field: "staff.classTeacherName", label: "Class teacher name", fontSize: 8, fontWeight: "bold", align: "center", color: navy }),
+      e("sign-teacher-l", "TEXT", 6, 93.6, 20, 1.2, { value: "Class Teacher", fontSize: 7, align: "center", color: muted }),
+      e("sign-principal", "SIGNATURE", 32, 88.2, 20, 3.6, { field: "school.signPath", label: "Principal signature" }),
+      e("sign-principal-line", "LINE", 32, 92, 20, 0.3, { color: "#CBD5E1" }),
+      e("sign-principal-name", "FIELD", 32, 92.3, 20, 1.4, { field: "staff.principalName", label: "Principal name", fontSize: 8, fontWeight: "bold", align: "center", color: navy }),
+      e("sign-principal-l", "TEXT", 32, 93.6, 20, 1.2, { value: "Principal", fontSize: 7, align: "center", color: muted }),
+      e("sign-parent-line", "LINE", 58, 92, 20, 0.3, { color: "#CBD5E1" }),
+      e("sign-parent-l", "TEXT", 58, 92.3, 20, 1.4, { value: "Parent / Guardian", fontSize: 8, fontWeight: "bold", align: "center", color: navy }),
+      e("sign-parent-sub", "TEXT", 58, 93.6, 20, 1.2, { value: "Signature", fontSize: 7, align: "center", color: muted }),
+      e("verify", "VERIFY_QR", 87.4, 87.6, 7.6, 5.4, { label: "Verification QR", locked: true }),
+      e("verify-l", "TEXT", 84, 93.2, 11, 1.3, { value: "SCAN TO VERIFY", fontSize: 6, fontWeight: "bold", align: "right", color: muted }),
+      e("footer-bg", "SHAPE", 0, 96.2, 100, 3.8, { background: soft, locked: true }),
+      e("footer", "TEXT", 5, 97.3, 40, 1.5, { value: "Generated by Anekio", fontSize: 7, color: muted }),
+      e("footer-web", "FIELD", 35, 97.3, 30, 1.5, { field: "school.website", label: "School website", fontSize: 7, align: "center", color: muted }),
+      e("issue-date", "FIELD", 65, 97.3, 30, 1.5, { field: "document.issueDate", label: "Issue date", fontSize: 7, align: "right", color: muted }),
+    ],
+  };
+}
+
 function catalogPagePalette(kind: string, category?: string) {
   if (kind.includes("FEE") || kind.includes("RECEIPT") || kind.includes("CHALLAN") || kind.includes("DUES") || kind.includes("REFUND") || kind.includes("CONCESSION") || category === "FEES") {
     return { page: "#F0FDFA", header: "#0F766E", header2: "#0D9488", accent: "#14B8A6", titleBg: "#CCFBF1", line: "#99F6E4", card: "#F0FDFA", onHeaderMuted: "#CCFBF1" };
@@ -696,6 +796,7 @@ function catalogPagePalette(kind: string, category?: string) {
 export function defaultLayout(type: string): DocumentLayout {
   const meta = DOCUMENT_TYPES.find((row) => row.id === type);
   const isCard = type === "STUDENT_ID" || type === "EMPLOYEE_ID" || type.endsWith("_CARD") || type.endsWith("_PASS");
+  if (type === "REPORT_CARD") return examResultLayout();
   if (isReportCardType(type)) return reportCardLayout(type);
   if (type === "STUDENT_ID") {
     return {
@@ -1378,6 +1479,12 @@ async function assetSrc(value: unknown) {
   }
 }
 
+/** On a phone the A4 page is wider than the screen: scale it to fit (printing still uses full size). */
+const PHONE_FIT_SCRIPT = `<script>(function(){function fit(){var p=document.querySelector(".page"),w=p&&p.parentElement;if(!p)return;p.style.transform="";w.style.height="";var room=document.documentElement.clientWidth-16,s=Math.min(1,room/p.offsetWidth);if(s<1){p.style.transform="scale("+s+")";p.style.transformOrigin="top left";w.style.display="block";w.style.padding="8px";w.style.overflow="hidden";w.style.height=Math.ceil(p.offsetHeight*s+16)+"px";p.style.marginBottom="0"}else{w.style.display="";w.style.padding="";w.style.overflow=""}}addEventListener("resize",fit);addEventListener("load",fit);fit()})()</script>`;
+
+/** WhatsApp button next to Download PDF: shares this page's link; #wa=<number> opens that chat directly. */
+const WHATSAPP_SHARE_SCRIPT = `<script>(function(){var a=document.getElementById("wa-share");if(!a||!/^https?:$/.test(location.protocol))return;var url=location.href.split("#")[0],m=location.hash.match(/wa=(\\d{10,13})/),n=m?m[1]:"";a.href="https://wa.me/"+n+"?text="+encodeURIComponent(a.getAttribute("data-text")+" "+url);a.hidden=false})()</script>`;
+
 const PRINT_COLOR_CSS = "-webkit-print-color-adjust:exact;print-color-adjust:exact;color-adjust:exact";
 const PRINT_COLOR_CSS_IMPORTANT = "-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;color-adjust:exact !important";
 
@@ -1493,6 +1600,64 @@ function attendanceBarHtml(value: unknown) {
     <div style="position:relative;flex:1;height:8px;border-radius:999px;overflow:hidden;${printFillStyle("#E2E8F0")}">${printFillLayer("#E2E8F0")}<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 8" preserveAspectRatio="none" width="100%" height="8" aria-hidden="true" style="position:absolute;inset:0;width:${n}%;height:100%;display:block"><rect width="100" height="8" fill="${escapeHtml(color)}"/></svg></div>
     <span style="font-size:10px;font-weight:700;color:${color};min-width:32px">${n}%</span>
   </div>`;
+}
+
+function scoreTone(pct: number) {
+  if (pct >= 75) return { bar: "#7FA88E", chipBg: "#EAF2EC", chip: "#3F6B50" };
+  if (pct >= 50) return { bar: "#7E97BD", chipBg: "#EAEFF6", chip: "#3E5677" };
+  if (pct >= 33) return { bar: "#CDA866", chipBg: "#F7F0E1", chip: "#7A5F2A" };
+  return { bar: "#C98A82", chipBg: "#F6E9E7", chip: "#8A4A42" };
+}
+
+/** Subject rows with a score bar each, for the exam result design. */
+function marksBarsHtml(value: unknown, headerColor: string, rowMm: number) {
+  const rows = (Array.isArray(value) ? value : []).filter((row) => row && typeof row === "object") as Record<string, unknown>[];
+  if (!rows.length) return `<div class="empty-table">No marks yet</div>`;
+  const fill = (color: string) => `${printFillStyle(color)}`;
+  const body = rows.map((row, index) => {
+    const subject = String(row.Subject ?? "").split(" · ").pop() || "—";
+    const got = row["Marks Obtained"];
+    const max = Number(row["Max Marks"]) || 0;
+    const numeric = typeof got === "number" ? got : Number(got);
+    const scored = Number.isFinite(numeric) && max > 0;
+    const pct = scored ? Math.max(0, Math.min(100, Math.round((numeric / max) * 1000) / 10)) : 0;
+    const tone = scored ? scoreTone(pct) : { bar: "#CBD5E1", chipBg: "#F1F5F9", chip: "#475569" };
+    const marks = got === "Ab" ? `<span style="color:#B45309">Absent</span>` : scored ? `<b>${escapeHtml(numeric)}</b><span class="of"> / ${escapeHtml(max)}</span>` : "—";
+    const grade = String(row.Grade ?? "—");
+    const alt = index % 2 ? `position:relative;${fill("#FAFBFC")}` : "";
+    return `<tr style="height:${rowMm}mm;${alt}">
+      <td class="sub">${escapeHtml(subject)}</td>
+      <td class="mk">${marks}</td>
+      <td class="bar"><div class="barline"><div class="track" style="${fill("#EFF1F4")}"><div class="fill" style="width:${pct}%;${fill(tone.bar)}">${printFillLayer(tone.bar)}</div>${printFillLayer("#EFF1F4")}</div><span class="pc">${scored ? `${pct}%` : ""}</span></div></td>
+      <td class="gr"><span class="chip" style="color:${tone.chip};${fill(tone.chipBg)}">${printFillLayer(tone.chipBg)}<span style="position:relative;z-index:1">${escapeHtml(grade)}</span></span></td>
+    </tr>`;
+  }).join("");
+  const head = (text: string, cls = "") => `<th class="${cls}" style="position:relative;overflow:hidden;${fill(headerColor)}">${printFillLayer(headerColor)}<span style="position:relative;z-index:1">${text}</span></th>`;
+  return `<div class="bars-table"><table><thead><tr>${head("Subject")}${head("Marks", "mk")}${head("Score", "bar")}${head("Grade", "gr")}</tr></thead><tbody>${body}</tbody></table></div>`;
+}
+
+/** Exam result: the marks table keeps the height its rows need and the remark block moves up under it. */
+function placeExamMarks(layout: DocumentLayout, data: Record<string, unknown>, pageHeight: number): DocumentLayout {
+  const table = layout.elements.find((item) => item.type === "TABLE" && item.field === "results.marks" && item.value === "bars");
+  if (!table) return layout;
+  const count = Math.max(1, Array.isArray(atPath(data, "results.marks")) ? (atPath(data, "results.marks") as unknown[]).length : 1);
+  const pct = (mm: number) => (mm / pageHeight) * 100;
+  const need = pct(8 + count * (count <= 4 ? 13 : 11) + 0.5);
+  if (need >= table.height) return layout;
+  const shift = table.height - need;
+  const top = table.y + table.height;
+  const card = layout.elements.find((item) => item.id === "remark-card");
+  const scale = layout.elements.find((item) => item.id === "scale-l");
+  const room = card && scale ? scale.y - 1.6 - (card.y - shift) - card.height : 0;
+  const grow = card && card.y >= top ? Math.max(0, Math.min(room, 15 - card.height)) : 0;
+  return {
+    elements: layout.elements.map((item) => {
+      if (item === table) return { ...item, height: need };
+      if (item.y < top || !(item.id.startsWith("remark") || item.id.startsWith("hl-") || item.id === "teacher-remark")) return item;
+      const moved = { ...item, y: item.y - shift };
+      return item.id === "remark-card" ? { ...moved, height: item.height + grow } : moved;
+    }),
+  };
 }
 
 function promotionTone(value: unknown) {
@@ -1916,10 +2081,43 @@ async function renderIssuedHtml(layout: DocumentLayout, data: Record<string, unk
   const feeDoc = isFeeDocumentType(docType);
   const isPreview = verifyUrl === DESIGNER_QR_PREVIEW_URL;
   const admitDoc = docType === "ADMIT_CARD";
-  const designedDoc = feeDoc || admitDoc;
-  if (designedDoc) layout = upgradeLegacyFeeLayout(docType, layout);
+  if (feeDoc || admitDoc) layout = upgradeLegacyFeeLayout(docType, layout);
   if (feeDoc) data = feeDocumentData(docType, data);
   if (feeDoc) layout = placeFeePayments(layout, data, pageHeight);
+  const examDoc = layout.elements.some((item) => item.type === "TABLE" && item.field === "results.marks" && item.value === "bars");
+  if (examDoc) layout = placeExamMarks(layout, data, pageHeight);
+  const designedDoc = feeDoc || admitDoc || examDoc;
+  const docLabel = examDoc || isReportCardType(docType) ? "exam result" : docType === "PAYMENT_RECEIPT" || docType === "CONSOLIDATED_RECEIPT" ? "payment receipt" : docType === "FEE_INVOICE" ? "fee invoice" : "document";
+  const studentName = String(atPath(data, "student.name") || "");
+  const schoolName = String(atPath(data, "school.name") || "");
+  const shareLine = `${studentName ? `${studentName}'s ` : "Your "}${docLabel}${schoolName ? ` from ${schoolName}` : ""}:`;
+  if (examDoc) {
+    const exam = (data.exam && typeof data.exam === "object" ? data.exam : {}) as Record<string, unknown>;
+    if (!exam.session) data = { ...data, exam: { ...exam, session: atPath(data, "school.academicYear") || "" } };
+    const outcome = String(atPath(data, "results.outcome") || "");
+    const tint = ["#FFFFFF", "#E5E8EE"];
+    const hide = new Set<string>();
+    if (!atPath(data, "results.bestSubject")) ["hl-best-bg", "hl-best-bar", "hl-best-l", "hl-best"].forEach((id) => hide.add(id));
+    if (!atPath(data, "results.focusSubject")) ["hl-focus-bg", "hl-focus-bar", "hl-focus-l", "hl-focus"].forEach((id) => hide.add(id));
+    // A label with nothing under it reads as a mistake: drop both.
+    for (const item of layout.elements) {
+      if (item.type !== "FIELD" || !item.field?.startsWith("student.")) continue;
+      if (String(atPath(data, item.field) ?? "").trim()) continue;
+      hide.add(item.id);
+      hide.add(`${item.id}-l`);
+    }
+    layout = {
+      elements: layout.elements
+        .filter((item) => !hide.has(item.id))
+        .map((item) =>
+          item.id === "outcome-bg"
+            ? { ...item, background: tint[0], borderColor: tint[1] }
+            : item.id === "outcome" && outcome.length > 8
+              ? { ...item, fontSize: 12 }
+              : item
+        ),
+    };
+  }
   if (admitDoc) data = admitCardData(data);
   const content = (await Promise.all(layout.elements.map(async (item) => {
     const maxFont = Math.max(7, Math.round((item.height / 100) * pageHeight * 3.2));
@@ -1950,6 +2148,12 @@ async function renderIssuedHtml(layout: DocumentLayout, data: Record<string, unk
       if (!src && admitDoc && !isPreview && item.type === "PHOTO") {
         return `<div style="${base}border:1px dashed #94A3B8;display:flex;align-items:center;justify-content:center;text-align:center;font-size:8px;color:#64748B;padding:4px">Affix recent passport-size photograph</div>`;
       }
+      if (!src && examDoc && item.type === "PHOTO") {
+        const name = String(atPath(data, "student.name") || "");
+        const initials = name.split(/\s+/).filter((w) => /^[A-Za-z]/.test(w)).slice(0, 2).map((w) => w[0].toUpperCase()).join("") || "S";
+        const fill = item.background || "#DDE3EC";
+        return `<div style="${base}border-radius:10px;display:flex;align-items:center;justify-content:center;color:#4A5D80;font-size:20px;font-weight:800;${printFillStyle(fill)}">${printFillLayer(fill)}<span style="position:relative;z-index:1">${escapeHtml(initials)}</span></div>`;
+      }
       if (!src && designedDoc && item.type === "IMAGE" && item.field === "school.logoPath") {
         const name = String(atPath(data, "school.name") || "");
         const initials = name.split(/\s+/).filter((w) => /^[A-Za-z]/.test(w)).slice(0, 2).map((w) => w[0].toUpperCase()).join("") || "S";
@@ -1968,6 +2172,10 @@ async function renderIssuedHtml(layout: DocumentLayout, data: Record<string, unk
         return `<div style="${base}"><div class="framed-table pay-box">${tableHtml(shown, item.label || "Payments received", item.background || "#2563EB")}</div></div>`;
       }
       const tableRows = atPath(data, item.field || "");
+      if (item.field === "results.marks" && item.value === "bars") {
+        const rowMm = Math.max(6, Math.min(Array.isArray(tableRows) && tableRows.length <= 4 ? 13 : 11, ((item.height / 100) * pageHeight - 8) / Math.max(1, Array.isArray(tableRows) ? tableRows.length : 1)));
+        return `<div style="${base}">${marksBarsHtml(tableRows, item.background || "#0F1E3D", rowMm)}</div>`;
+      }
       if (feeDoc && item.field === "fees.lines" && Array.isArray(tableRows) && tableRows.some((row) => row && typeof row === "object" && "paidNow" in row)) {
         return `<div style="${base}">${receiptLinesHtml(tableRows as Record<string, unknown>[], item.background || "#2563EB", linesTotal)}</div>`;
       }
@@ -1998,6 +2206,10 @@ async function renderIssuedHtml(layout: DocumentLayout, data: Record<string, unk
       : value;
     let color = item.color || "#102a43";
     let background = item.background;
+    if (item.field === "results.outcome") {
+      const text = String(display || "");
+      color = text === "PASS" ? "#4F7F62" : text ? "#A6773A" : color;
+    }
     if (item.field === "results.promotionStatus") {
       const tone = promotionTone(display);
       color = item.color && item.color !== "#102a43" ? item.color : tone.color;
@@ -2008,7 +2220,7 @@ async function renderIssuedHtml(layout: DocumentLayout, data: Record<string, unk
     return `<div style="${base}display:flex;align-items:center;justify-content:${justify};padding:0 2px;line-height:1.15;white-space:${wrap};${fill}${item.borderColor ? `border:1px solid ${item.borderColor};` : ""}color:${color}">${background ? printFillLayer(background) : ""}<span style="position:relative;z-index:1">${escapeHtml(display)}</span></div>`;
   }))).join("");
   const previewScale = pageSize === "CR80" ? 3.2 : 1;
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(atPath(data, "document.number"))}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800&display=swap" rel="stylesheet"><style>@page{size:${pageWidth}mm ${pageHeight}mm;margin:0}html,body,.page,table,th,td,div,span,svg{${PRINT_COLOR_CSS}}body{margin:0;background:#e8edf2;font-family:Inter,system-ui,"Segoe UI",sans-serif;color:#0f172a}.toolbar{position:sticky;top:0;z-index:2;padding:12px;text-align:center;background:#eef2f7}.page-wrap{display:flex;justify-content:center;padding:24px}.page{position:relative;width:${pageWidth}mm;height:${pageHeight}mm;background:white;box-shadow:0 2px 18px #102a4322;overflow:hidden;transform:scale(${previewScale});transform-origin:top center;margin-bottom:${pageSize === "CR80" ? "260px" : "24px"}}table{width:100%;height:auto;border-collapse:collapse;font-size:inherit}th{color:#fff;padding:6px 8px;font-size:8px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;border:none;text-align:left}td{padding:5px 8px;border-bottom:1px solid #E2E8F0;color:#0f172a;font-weight:600;vertical-align:middle}td.num,th.num{text-align:center}td.amt,th.amt{text-align:right;font-variant-numeric:tabular-nums}.admit-table table{border:1px solid #E2E8F0}.admit-table th{padding:5px 8px;font-size:7px}.admit-table td{padding:6px 8px;border-right:1px solid #EEF2F7}.admit-table td:last-child{width:22%}.admit-table th:first-child,.admit-table td:first-child{width:24%;white-space:nowrap}.admit-table.tight td{padding:3px 8px;font-size:8px}.framed-table{display:flex;flex-direction:column;justify-content:space-between;height:100%;box-sizing:border-box;border:1px solid #E2E8F0;border-radius:8px;overflow:hidden}.framed-table th{padding:7px 10px}.framed-table td{padding:6px 10px}.table-total{display:flex;justify-content:space-between;align-items:center;padding:7px 10px;border-top:1px solid #CBD5E1;font-size:11px;color:#0F172A;font-weight:700;font-variant-numeric:tabular-nums}.table-total b{font-size:12px}.framed-table.pay-box{justify-content:flex-start}.pay-box td{padding:4px 10px;font-weight:500;color:#334155}.pay-box tr:last-child td{border-bottom:none}.empty-table{border:1px dashed #E2E8F0;border-radius:8px;padding:8px;color:#64748b;font-size:8px}@media print{html,body,.page,*{${PRINT_COLOR_CSS_IMPORTANT}}body{background:white}.toolbar{display:none}.page-wrap{display:block;padding:0}.page{margin:0;box-shadow:none;transform:none}}</style></head><body><div class="toolbar"><button onclick="window.print()">Print / Save PDF</button></div><div class="page-wrap"><main class="page">${content}</main></div></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(atPath(data, "document.number"))}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800&display=swap" rel="stylesheet"><style>@page{size:${pageWidth}mm ${pageHeight}mm;margin:0}html,body,.page,table,th,td,div,span,svg{${PRINT_COLOR_CSS}}body{margin:0;background:#e8edf2;font-family:Inter,system-ui,"Segoe UI",sans-serif;color:#0f172a}.toolbar{position:sticky;top:0;z-index:2;padding:12px;text-align:center;background:#eef2f7}.page-wrap{display:flex;justify-content:center;padding:24px}.page{position:relative;flex-shrink:0;width:${pageWidth}mm;height:${pageHeight}mm;background:white;box-shadow:0 2px 18px #102a4322;overflow:hidden;transform:scale(${previewScale});transform-origin:top center;margin-bottom:${pageSize === "CR80" ? "260px" : "24px"}}table{width:100%;height:auto;border-collapse:collapse;font-size:inherit}th{color:#fff;padding:6px 8px;font-size:8px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;border:none;text-align:left}td{padding:5px 8px;border-bottom:1px solid #E2E8F0;color:#0f172a;font-weight:600;vertical-align:middle}td.num,th.num{text-align:center}td.amt,th.amt{text-align:right;font-variant-numeric:tabular-nums}.admit-table table{border:1px solid #E2E8F0}.admit-table th{padding:5px 8px;font-size:7px}.admit-table td{padding:6px 8px;border-right:1px solid #EEF2F7}.admit-table td:last-child{width:22%}.admit-table th:first-child,.admit-table td:first-child{width:24%;white-space:nowrap}.admit-table.tight td{padding:3px 8px;font-size:8px}.framed-table{display:flex;flex-direction:column;justify-content:space-between;height:100%;box-sizing:border-box;border:1px solid #E2E8F0;border-radius:8px;overflow:hidden}.framed-table th{padding:7px 10px}.framed-table td{padding:6px 10px}.table-total{display:flex;justify-content:space-between;align-items:center;padding:7px 10px;border-top:1px solid #CBD5E1;font-size:11px;color:#0F172A;font-weight:700;font-variant-numeric:tabular-nums}.table-total b{font-size:12px}.framed-table.pay-box{justify-content:flex-start}.pay-box td{padding:4px 10px;font-weight:500;color:#334155}.pay-box tr:last-child td{border-bottom:none}.bars-table{height:100%;border:1px solid #E2E8F0;border-radius:10px;overflow:hidden;box-sizing:border-box}.bars-table table{height:auto}.bars-table th{height:8mm;padding:0 12px;font-size:8px}.bars-table td{padding:0 12px;border-bottom:1px solid #EEF2F7;font-size:12px}.bars-table tr:last-child td{border-bottom:none}.bars-table td.sub{font-weight:700;color:#0F1E3D;width:28%}.bars-table td.mk,.bars-table th.mk{width:15%;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}.bars-table td.mk b{font-size:14px;color:#0F1E3D}.bars-table td.mk .of{color:#94A3B8;font-weight:600}.bars-table td.bar,.bars-table th.bar{width:46%;padding-left:20px}.bars-table .barline{display:flex;align-items:center;gap:10px}.bars-table .track{position:relative;flex:1;height:8px;border-radius:99px;overflow:hidden}.bars-table .pc{width:40px;text-align:right;color:#475569;font-variant-numeric:tabular-nums;font-size:10px;font-weight:700}.bars-table .fill{position:relative;height:100%;border-radius:99px;overflow:hidden;z-index:1}.bars-table td.gr,.bars-table th.gr{width:11%;text-align:center}.bars-table .chip{position:relative;display:inline-block;min-width:26px;padding:2px 8px;border-radius:99px;overflow:hidden;font-weight:800;font-size:10px}.empty-table{border:1px dashed #E2E8F0;border-radius:8px;padding:8px;color:#64748b;font-size:8px}.toolbar button{font:600 14px Inter,system-ui,sans-serif;padding:10px 20px;border:0;border-radius:999px;background:#1E2A44;color:#fff;cursor:pointer;box-shadow:0 1px 3px #0f172a33}.toolbar{display:flex;justify-content:center;gap:10px;flex-wrap:wrap}.toolbar .wa{display:inline-flex;align-items:center;gap:6px;font:600 14px Inter,system-ui,sans-serif;padding:10px 18px;border-radius:999px;background:#16A34A;color:#fff;text-decoration:none;box-shadow:0 1px 3px #0f172a33}.toolbar .wa[hidden]{display:none}@media print{html,body,.page,*{${PRINT_COLOR_CSS_IMPORTANT}}body{background:white}.toolbar{display:none}.page-wrap{display:block !important;padding:0 !important;height:auto !important;overflow:visible !important}.page{margin:0;box-shadow:none;transform:none !important}}</style></head><body><div class="toolbar"><button onclick="window.print()">Download PDF</button><a id="wa-share" class="wa" target="_blank" rel="noopener" hidden data-text="${escapeHtml(shareLine)}"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2c-1.5 0-3-.4-4.3-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.2-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5c-.2 0-.4.1-.6.3-.2.2-.8.8-.8 2s.8 2.3 1 2.5c.1.2 1.6 2.5 4 3.5 1.5.6 2 .7 2.8.6.4-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.1-1.2l-.4-.3Z"/></svg>WhatsApp</a></div><div class="page-wrap"><main class="page">${content}</main></div>${pageSize === "CR80" ? "" : PHONE_FIT_SCRIPT}${WHATSAPP_SHARE_SCRIPT}</body></html>`;
 }
 
 function schoolContactLine(school: Record<string, unknown>) {
@@ -2203,6 +2415,7 @@ async function hydrateIssuedDocumentData(
           exam: {
             ...((next.exam && typeof next.exam === "object" ? next.exam : {}) as Record<string, unknown>),
             name: series.name,
+            session: series.session.label,
             seriesId: series.id,
             ...(examId ? { examId } : {}),
           },
@@ -2665,7 +2878,19 @@ function activeRollNumber(row: { classId: string; enrollments?: { classId: strin
   return row.enrollments?.find((enrollment) => enrollment.classId === row.classId)?.rollNumber || null;
 }
 
-export async function renderActivePaymentReceiptTemplateHtml(token: string) {
+/** One receipt (by its own share token) in the active receipt design; null when there is no design or it was cancelled. */
+export async function renderReceiptHtmlByReceiptToken(receiptToken: string) {
+  const receipt = await prisma.feeReceipt.findUnique({
+    where: { shareToken: receiptToken },
+    include: { allocations: { include: { invoice: { select: { shareToken: true } } }, orderBy: { paidAt: "asc" } } },
+  });
+  if (!receipt || receipt.status === "CANCELLED") return null;
+  const invoiceToken = receipt.allocations.find((row) => row.invoice?.shareToken)?.invoice?.shareToken;
+  if (!invoiceToken) return null;
+  return renderActivePaymentReceiptTemplateHtml(invoiceToken, receipt.id);
+}
+
+export async function renderActivePaymentReceiptTemplateHtml(token: string, receiptIdWanted?: string) {
   const invoice = await prisma.feeInvoice.findUnique({
     where: { shareToken: token },
     include: {
@@ -2681,7 +2906,10 @@ export async function renderActivePaymentReceiptTemplateHtml(token: string) {
   const template = await findActiveTemplateByTypes(["PAYMENT_RECEIPT", "CONSOLIDATED_RECEIPT"], config.id);
   if (!template?.versions[0]) return null;
   const school = schoolFromConfig(config);
-  const latestPayment = [...invoice.payments].sort((a, b) => +b.paidAt - +a.paidAt)[0];
+  const latestPayment = [...invoice.payments]
+    .filter((payment) => !receiptIdWanted || payment.receiptId === receiptIdWanted)
+    .sort((a, b) => +b.paidAt - +a.paidAt)[0];
+  if (receiptIdWanted && !latestPayment) return null;
   const receiptNumber = paymentReceiptNumber(latestPayment, invoice.id);
   const receiptId = latestPayment?.receiptId || "";
   const receiptBase = receiptId ? "" : paymentReceiptBase(latestPayment?.reference);

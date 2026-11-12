@@ -828,6 +828,21 @@ export function ScheduleExamModal({
       </View>
     ) : null;
 
+  const skipButton = (group: Group, key: string, label: string, color: string) => (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`No ${label} paper in ${item.name}`}
+      hitSlop={6}
+      onPress={() => {
+        if (picked?.group === group.key && picked?.key === key) setPicked(null);
+        toggleSkip(group, key);
+      }}
+      className="h-7 w-6 items-center justify-center"
+    >
+      <Ionicons name="close" size={13} color={color} />
+    </Pressable>
+  );
+
   const cellButton = (col: (typeof sheet)[number], key: string, label: string) => {
     const on = picked?.group === col.group.key && picked?.key === key;
     const missing = col.group.classIds.some((classId) => {
@@ -839,14 +854,13 @@ export function ScheduleExamModal({
       return own && setterFor(classId, own) !== teacherFor(classId, own);
     });
     return (
-      <Pressable
-        key={key}
-        onPress={() => setPicked(on ? null : { group: col.group.key, key })}
-        className={`rounded-md px-2 py-1.5 ${on ? "bg-clay-500" : "bg-white hover:bg-clay-50"} border ${on ? "border-clay-500" : missing ? "border-amber-300" : "border-ink-100"}`}
-      >
-        <Text className={`text-[13px] font-medium ${on ? "text-white" : "text-ink-900"}`} numberOfLines={1}>{label}</Text>
-        {split ? <Text className={`text-[10px] ${on ? "text-white/80" : "text-ink-500"}`}>2 teachers</Text> : null}
-      </Pressable>
+      <View key={key} className={`flex-row items-center rounded-md border ${on ? "border-clay-500 bg-clay-500" : `bg-white hover:bg-clay-50 ${missing ? "border-amber-300" : "border-ink-100"}`}`}>
+        <Pressable onPress={() => setPicked(on ? null : { group: col.group.key, key })} className="min-w-0 flex-1 px-2 py-1.5">
+          <Text className={`text-[13px] font-medium ${on ? "text-white" : "text-ink-900"}`} numberOfLines={1}>{label}</Text>
+          {split ? <Text className={`text-[10px] ${on ? "text-white/80" : "text-ink-500"}`}>2 teachers</Text> : null}
+        </Pressable>
+        {edit ? null : skipButton(col.group, key, label, on ? "#FFFFFF" : "#94A3B8")}
+      </View>
     );
   };
 
@@ -962,6 +976,7 @@ export function ScheduleExamModal({
                   <Text className="text-[12px] text-ink-500" numberOfLines={1}>{teacherNames(phoneCol.group, x.key) || "Pick a teacher"}</Text>
                 </View>
                 <Ionicons name={on ? "chevron-up" : "chevron-down"} size={14} color="#94A3B8" />
+                {edit ? null : skipButton(phoneCol.group, x.key, x.subject.name, "#94A3B8")}
               </Pressable>
               {on ? <View className="px-2 pb-2">{editor}</View> : null}
               </View>

@@ -16,7 +16,7 @@ import { receiptMessage, receiptPdfUrl, sendReceiptOnWhatsApp, shareReceiptPdf }
 import { datesForSessionYear, ordinalDay, SESSION_YEAR_OPTIONS, sessionYearId } from "../lib/fee-setup";
 import { useRecord } from "../lib/record";
 import { AdhocInvoiceModal } from "./adhoc-invoice";
-import { InvoiceReceipts } from "./invoice-receipts";
+import { InvoiceReceipts, receiptPageUrl } from "./invoice-receipts";
 import { useSession } from "../lib/session";
 import { inr } from "../lib/payroll";
 
@@ -859,26 +859,19 @@ export function FeesBoard() {
   }, [currentSession?.id, currentSession?.startsOn, currentSession?.endsOn, data?.school?.sessionStart, data?.school?.sessionEnd, templates, catalog.dueDay]);
 
   async function openDueFeeDocument(inv: { id: string; invoiceUrl?: string; receiptUrl?: string }, paid: boolean) {
+    const title = paid ? "Receipt" : "Invoice";
     const directUrl = paid ? inv.receiptUrl : inv.invoiceUrl;
     if (directUrl) {
-      if (Platform.OS === "web") {
-        window.open(directUrl, "_blank", "noopener,noreferrer");
-        return;
-      }
-      openInAppDoc(directUrl, paid ? "Receipt" : "Invoice");
+      openInAppDoc(receiptPageUrl(directUrl), title);
       return;
     }
-    const pendingWindow = Platform.OS === "web" ? window.open("", "_blank") : null;
-    if (pendingWindow) pendingWindow.opener = null;
     try {
       const result = await act<{ ok: true; token: string }>(token, "ensurePayToken", { invoiceId: inv.id });
       const shareToken = encodeURIComponent(result.token);
       const url = paid ? `${webOrigin()}/pay/${shareToken}?paid=1` : `${webOrigin()}/i/${shareToken}`;
+      openInAppDoc(url, title);
       await reload();
-      if (pendingWindow) pendingWindow.location.replace(url);
-      else openInAppDoc(url, paid ? "Receipt" : "Invoice");
     } catch (error) {
-      pendingWindow?.close();
       toast.show(error instanceof Error ? error.message : "Could not open fee document.");
     }
   }

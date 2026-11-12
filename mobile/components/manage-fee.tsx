@@ -1,3 +1,4 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 import { inr } from "../lib/payroll";
@@ -80,13 +81,37 @@ export function monthlyFeeSummary({ student, templates, catalog, session, otherI
 }
 
 export function MonthlyFeeBillSummary(props: MonthlyFeeSummaryInput) {
-  const { total, optionalCount, discountAmount } = monthlyFeeSummary(props);
+  const { total, classFee, others, selectedAddOns, discountAmount } = monthlyFeeSummary(props);
+  const parts = [
+    classFee ? `Class ${inr(classFee)}` : "",
+    ...selectedAddOns.map((line) => `${line.label} ${inr(line.amount)}`),
+    ...others.map((item) => `${item.label} ${inr(item.amount)}`),
+  ].filter(Boolean);
+  const breakdown = `${parts.join(" + ") || "No charges"}${discountAmount ? ` − Discount ${inr(discountAmount)}` : ""}`;
   return (
-    <View className="rounded-xl bg-[#102A5C] px-4 py-3">
-      <View className="flex-row items-center justify-between">
-        <View><Text className="text-[11px] font-semibold uppercase tracking-wide text-blue-100">Monthly amount to bill</Text><Text className="mt-1 text-xs text-blue-100">{discountAmount ? `${inr(discountAmount)} discount applied` : optionalCount ? `${optionalCount} optional charge${optionalCount === 1 ? "" : "s"} included` : "Class fee only"}</Text></View>
-        <View className="items-end"><Text className="text-xl font-semibold text-white">{inr(total)}</Text><Text className="text-[11px] text-blue-100">per month</Text></View>
+    <View className="flex-row items-center justify-between gap-3 rounded-2xl bg-[#1E2A44] px-4 py-3">
+      <View className="min-w-0 flex-1">
+        <Text className="text-[12px] font-medium text-[#A9B8D1]">Billed every month</Text>
+        <Text className="mt-0.5 text-[12px] text-[#DCE3EE]" numberOfLines={2}>{breakdown}</Text>
       </View>
+      <Text className="text-[22px] font-bold text-white">{inr(total)}</Text>
+    </View>
+  );
+}
+
+function Switch({ on }: { on: boolean }) {
+  return (
+    <View className={`h-6 w-11 justify-center rounded-full px-0.5 ${on ? "bg-[#1F45C7]" : "bg-ink-200"}`}>
+      <View className={`h-5 w-5 rounded-full bg-white shadow-sm ${on ? "self-end" : "self-start"}`} />
+    </View>
+  );
+}
+
+function SectionTitle({ children, hint }: { children: string; hint?: string }) {
+  return (
+    <View className="mb-2 flex-row items-baseline justify-between">
+      <Text className="text-[13px] font-semibold uppercase tracking-wide text-ink-500">{children}</Text>
+      {hint ? <Text className="text-[12px] text-ink-500">{hint}</Text> : null}
     </View>
   );
 }
@@ -121,98 +146,106 @@ export function ManageFeeBody({
   onDiscountValueChange: (value: string) => void;
 }) {
   const [discountFocused, setDiscountFocused] = useState(false);
-  const { classLines, classAddOns, classFee, otherOptions, others, selectedAddOns, beforeDiscount, maximumDiscount, discountAmount, total } = monthlyFeeSummary({ student, templates, catalog, session, otherIds, classAddOnLabels, discountType, discountValue });
-  const discountInput = Math.max(0, Math.round(Number(discountValue) || 0));
+  const { classLines, classAddOns, classFee, otherOptions, others, selectedAddOns, beforeDiscount, maximumDiscount, discountAmount } = monthlyFeeSummary({ student, templates, catalog, session, otherIds, classAddOnLabels, discountType, discountValue });
   const updateDiscountValue = (value: string) => {
     const digits = value.replace(/[^0-9]/g, "");
     if (!digits) return onDiscountValueChange("");
     onDiscountValueChange(String(Math.min(maximumDiscount, Number(digits))));
   };
-  const initials = student.name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join("")
-    .toUpperCase();
+  // Class add-ons and school-wide extras are one list to the office: the student either pays it or not.
+  const extras = [
+    ...classAddOns.map((line) => ({
+      key: `class:${line.label}`,
+      label: line.label,
+      amount: line.amount,
+      on: classAddOnLabels.some((label) => classAddOnKey(label) === classAddOnKey(line.label)),
+      toggle: () => onToggleClassAddOn(line.label),
+    })),
+    ...otherOptions.map((item) => ({
+      key: `other:${item.id}`,
+      label: item.label,
+      amount: item.amount,
+      on: otherIds.includes(item.id),
+      toggle: () => onToggleOther(item.id),
+    })),
+  ];
+  const chosen = selectedAddOns.length + others.length;
   return (
-    <View className="gap-3">
-      <View className="flex-row items-center justify-between rounded-xl border border-ink-100 bg-ink-50 p-3">
-        <View className="flex-row items-center gap-3">
-          <View className="h-10 w-10 items-center justify-center rounded-full bg-clay-100">
-            <Text className="text-sm font-semibold text-clay-700">{initials || "S"}</Text>
-          </View>
+    <View className="gap-5">
+      <Text className="text-[13px] text-ink-500">{[student.classLabel, student.admissionNo, sessionLabel].filter(Boolean).join(" · ")}</Text>
+
+      <View>
+        <SectionTitle>Class fee</SectionTitle>
+        <View className="flex-row items-center gap-3 rounded-2xl border border-ink-100 bg-ink-50 px-4 py-3.5">
+          <Ionicons name="lock-closed" size={15} color="#94A3B8" />
           <View className="min-w-0 flex-1">
-            <Text className="text-base font-semibold text-ink-900" numberOfLines={1}>{student.name}</Text>
-            <Text className="mt-0.5 text-xs text-ink-700" numberOfLines={1}>{student.classLabel} · {student.admissionNo}</Text>
-            {sessionLabel ? <Text className="mt-0.5 text-[11px] text-ink-500">{sessionLabel}</Text> : null}
+            <Text className="text-[15px] font-semibold text-ink-900">{student.classLabel || "Class"} monthly plan</Text>
+            <Text className="mt-0.5 text-[13px] text-ink-500" numberOfLines={2}>
+              {classLines.length ? classLines.map((line) => (classLines.length > 1 ? `${line.label} ${inr(line.amount)}` : line.label)).join(" · ") : "No class fee set yet"}
+            </Text>
           </View>
-        </View>
-        <View className="items-end">
-          <Text className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">Monthly fee</Text>
-          <Text className="mt-0.5 text-base font-semibold text-ink-900">{inr(total)}</Text>
+          <Text className="text-[16px] font-semibold text-ink-900">{inr(classFee)}</Text>
         </View>
       </View>
 
-      <View className="rounded-xl border border-blue-100 bg-blue-50 p-3">
-        <View className="flex-row items-start justify-between gap-3">
-          <View>
-            <Text className="text-[11px] font-semibold uppercase tracking-wide text-ink-600">Required class fee</Text>
-            <Text className="mt-1 text-sm font-semibold text-ink-900">{student.classLabel || "Class"} monthly plan</Text>
-            <Text className="mt-0.5 text-xs text-ink-700">Applied automatically every month</Text>
+      {extras.length ? (
+        <View>
+          <SectionTitle hint={chosen ? `${chosen} on` : "Tap to add"}>Extras</SectionTitle>
+          <View className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
+            {extras.map((item, i) => (
+              <Pressable
+                key={item.key}
+                accessibilityRole="switch"
+                accessibilityState={{ checked: item.on }}
+                accessibilityLabel={`${item.label} ${inr(item.amount)} a month`}
+                onPress={item.toggle}
+                className={`flex-row items-center gap-3 px-4 py-3.5 ${i ? "border-t border-ink-100" : ""}`}
+              >
+                <View className="min-w-0 flex-1">
+                  <Text className={`text-[15px] ${item.on ? "font-semibold text-ink-900" : "text-ink-800"}`} numberOfLines={1}>{item.label}</Text>
+                  <Text className="mt-0.5 text-[13px] text-ink-500">{inr(item.amount)} a month</Text>
+                </View>
+                <Switch on={item.on} />
+              </Pressable>
+            ))}
           </View>
-          <Text className="text-base font-semibold text-ink-900">{inr(classFee)}</Text>
         </View>
-        {classLines.length ? <View className="mt-3 border-t border-blue-100 pt-2">{classLines.map((line) => (
-          <View key={`${line.label}-${line.amount}`} className="flex-row justify-between py-1">
-            <Text className="text-xs text-ink-700">{line.label}</Text>
-            <Text className="text-xs font-medium text-ink-800">{inr(line.amount)}</Text>
+      ) : null}
+
+      <View>
+        <SectionTitle hint="Optional">Discount</SectionTitle>
+        <View className="flex-row items-center gap-2">
+          <View className="flex-row rounded-xl bg-ink-100 p-1">
+            {(["FLAT", "PERCENT"] as const).map((type) => (
+              <Pressable
+                key={type}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: discountType === type }}
+                accessibilityLabel={type === "FLAT" ? "Discount in rupees" : "Discount in percent"}
+                onPress={() => onDiscountTypeChange(type)}
+                className={`h-9 w-11 items-center justify-center rounded-lg ${discountType === type ? "bg-white shadow-sm" : ""}`}
+              >
+                <Text className={`text-[15px] font-semibold ${discountType === type ? "text-ink-900" : "text-ink-500"}`}>{type === "FLAT" ? "₹" : "%"}</Text>
+              </Pressable>
+            ))}
           </View>
-        ))}</View> : <Text className="mt-3 border-t border-blue-100 pt-2 text-xs text-ink-600">No class fee lines are configured yet.</Text>}
-      </View>
-
-      <View className="rounded-xl border border-ink-200 bg-white p-3">
-        <View className="flex-row items-start justify-between gap-3">
-          <View className="flex-1">
-            <Text className="text-sm font-semibold text-ink-900">Optional class add-ons</Text>
-            <Text className="mt-0.5 text-xs leading-4 text-ink-600">Choose only charges this student should receive every month.</Text>
+          <View className={`h-11 min-w-0 flex-1 flex-row items-center rounded-xl border bg-white px-3 ${discountFocused ? "border-[#1F45C7]" : "border-ink-200"}`}>
+            <TextInput
+              value={discountValue}
+              onChangeText={updateDiscountValue}
+              onFocus={() => setDiscountFocused(true)}
+              onBlur={() => setDiscountFocused(false)}
+              keyboardType="numeric"
+              placeholder={discountType === "PERCENT" ? "0 %" : "₹ 0"}
+              maxLength={discountType === "PERCENT" ? 3 : String(Math.max(0, beforeDiscount)).length}
+              className="min-w-0 flex-1 text-[15px] text-ink-900 outline-none focus:outline-none"
+              style={{ outlineStyle: "none" } as never}
+            />
+            {discountAmount > 0 ? <Text className="text-[13px] font-semibold text-emerald-700">−{inr(discountAmount)}</Text> : null}
           </View>
-          <View className="rounded-full bg-ink-100 px-2 py-1"><Text className="text-[10px] font-semibold text-ink-700">{selectedAddOns.length} selected</Text></View>
         </View>
-        {classAddOns.length ? <View className="mt-3 gap-2">{classAddOns.map((item) => {
-          const checked = classAddOnLabels.some((label) => classAddOnKey(label) === classAddOnKey(item.label));
-          return <Pressable key={item.label} accessibilityRole="checkbox" accessibilityState={{ checked }} onPress={() => onToggleClassAddOn(item.label)} className={`flex-row items-center justify-between rounded-lg border px-3 py-2.5 ${checked ? "border-clay-300 bg-blue-50" : "border-ink-200 bg-white"}`}>
-            <View className="flex-row items-center gap-2.5"><View className={`h-5 w-5 items-center justify-center rounded-md border ${checked ? "border-clay-600 bg-clay-600" : "border-ink-300 bg-white"}`}><Text className="text-[11px] font-bold text-white">{checked ? "✓" : ""}</Text></View><Text className="text-sm font-medium text-ink-900">{item.label}</Text></View>
-            <Text className="text-sm font-semibold text-ink-800">{inr(item.amount)}</Text>
-          </Pressable>;
-        })}</View> : <Text className="mt-3 text-xs text-ink-600">No optional add-ons are configured for this class.</Text>}
+        <Text className="mt-1.5 text-[12px] text-ink-500">Applies to future monthly invoices · up to {discountType === "PERCENT" ? "100%" : inr(beforeDiscount)}</Text>
       </View>
-
-      {otherOptions.length ? <View className="rounded-xl border border-ink-200 bg-white p-3">
-        <View className="flex-row items-start justify-between gap-3"><View className="flex-1"><Text className="text-sm font-semibold text-ink-900">Universal add-ons</Text><Text className="mt-0.5 text-xs leading-4 text-ink-600">Optional charges available to every student in the school.</Text></View><View className="rounded-full bg-ink-100 px-2 py-1"><Text className="text-[10px] font-semibold text-ink-700">{others.length} selected</Text></View></View>
-        <View className="mt-3 gap-2">{otherOptions.map((item) => {
-          const checked = otherIds.includes(item.id);
-          return <Pressable key={item.id} accessibilityRole="checkbox" accessibilityState={{ checked }} onPress={() => onToggleOther(item.id)} className={`flex-row items-center justify-between rounded-lg border px-3 py-2.5 ${checked ? "border-clay-300 bg-blue-50" : "border-ink-200 bg-white"}`}>
-            <View className="flex-row items-center gap-2.5"><View className={`h-5 w-5 items-center justify-center rounded-md border ${checked ? "border-clay-600 bg-clay-600" : "border-ink-300 bg-white"}`}><Text className="text-[11px] font-bold text-white">{checked ? "✓" : ""}</Text></View><Text className="text-sm font-medium text-ink-900">{item.label}</Text></View>
-            <Text className="text-sm font-semibold text-ink-800">{inr(item.amount)}</Text>
-          </Pressable>;
-        })}</View>
-      </View> : null}
-
-      <View className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
-        <Text className="text-sm font-semibold text-ink-900">Discount</Text>
-        <Text className="mt-0.5 text-xs leading-4 text-ink-600">Optional. It applies to this student’s future monthly invoices.</Text>
-        <View className="mt-3 flex-row rounded-lg border border-emerald-200 bg-white p-1">
-          {(["FLAT", "PERCENT"] as const).map((type) => <Pressable key={type} accessibilityRole="radio" accessibilityState={{ selected: discountType === type }} onPress={() => onDiscountTypeChange(type)} className={`flex-1 rounded-md px-3 py-2 ${discountType === type ? "bg-emerald-600" : "bg-white"}`}><Text className={`text-center text-xs font-semibold ${discountType === type ? "text-white" : "text-ink-700"}`}>{type === "FLAT" ? "Flat amount" : "Percentage"}</Text></Pressable>)}
-        </View>
-        <View className={`mt-3 flex-row items-center rounded-lg border bg-white px-3 ${discountFocused ? "border-emerald-500" : "border-emerald-200"}`}>
-          <Text className="mr-2 text-base font-semibold text-ink-700">{discountType === "PERCENT" ? "%" : "₹"}</Text>
-          <TextInput value={discountValue} onChangeText={updateDiscountValue} onFocus={() => setDiscountFocused(true)} onBlur={() => setDiscountFocused(false)} keyboardType="numeric" placeholder={discountType === "PERCENT" ? "e.g. 10" : "e.g. 500"} maxLength={discountType === "PERCENT" ? 3 : String(Math.max(0, beforeDiscount)).length} className="flex-1 py-2.5 text-sm text-ink-900 outline-none focus:outline-none" style={{ outlineStyle: "none" } as never} />
-          {discountAmount > 0 ? <Text className="text-xs font-semibold text-emerald-700">−{inr(discountAmount)}</Text> : null}
-        </View>
-        <Text className="mt-2 text-[11px] text-emerald-800">Maximum: {discountType === "PERCENT" ? "100%" : inr(beforeDiscount)}</Text>
-      </View>
-
     </View>
   );
 }

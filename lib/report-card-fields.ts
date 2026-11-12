@@ -79,6 +79,22 @@ export type ReportMarkRow = {
   grade?: string;
 };
 
+/** Best and weakest scored subject, for the exam result. Weakest only when it differs from the best. */
+function subjectHighlights(marks: { Subject: string; "Max Marks": number; "Marks Obtained": unknown }[]) {
+  const scored = marks
+    .map((row) => ({ name: String(row.Subject || "").split(" · ").pop() || "", pct: Number(row["Marks Obtained"]) / (Number(row["Max Marks"]) || 0) }))
+    .filter((row) => row.name && Number.isFinite(row.pct))
+    .map((row) => ({ ...row, pct: Math.round(row.pct * 1000) / 10 }));
+  if (scored.length < 2) return { bestSubject: "", focusSubject: "" };
+  const sorted = [...scored].sort((a, b) => b.pct - a.pct);
+  const best = sorted[0];
+  const focus = sorted[sorted.length - 1];
+  return {
+    bestSubject: `${best.name} · ${best.pct}%`,
+    focusSubject: focus.pct < best.pct ? `${focus.name} · ${focus.pct}%` : "",
+  };
+}
+
 export function buildReportCardResults(input: {
   rows: ReportMarkRow[];
   policy?: Pick<GradePolicy, "bands" | "passPercent">;
@@ -86,6 +102,7 @@ export function buildReportCardResults(input: {
   classRank?: number | string;
   className?: string;
   teacherRemark?: string;
+  activities?: { Activity: string; Grade: string; Remark: string }[];
 }) {
   const bands = input.policy?.bands || [
     { min: 91, grade: "A+" },
@@ -136,8 +153,16 @@ export function buildReportCardResults(input: {
       : "Result will be confirmed after marks are published";
   return {
     marks,
-    activities: DEFAULT_CO_SCHOLASTIC,
+    activities: input.activities ?? [],
     totalMarks: max || "",
+    score: entered ? `${total} / ${max}` : "",
+    outcome: entered ? (passed ? "PASS" : "NEEDS IMPROVEMENT") : "",
+    rankLine: input.classRank ? `Rank ${input.classRank} in class` : "",
+    ...subjectHighlights(marks),
+    gradeScale: [...bands]
+      .sort((x, y) => y.min - x.min)
+      .map((band, i, all) => `${band.grade} ${band.min}${i ? `–${all[i - 1].min - 1}` : "+"}`)
+      .join("   ·   "),
     marksObtained: entered ? total : "",
     percentage: entered ? percentage : "",
     overallGrade: entered ? overallGrade : "—",
@@ -147,9 +172,7 @@ export function buildReportCardResults(input: {
     daysAbsent: workingDays ? daysAbsent : "",
     attendancePercentage: workingDays ? attendancePercentage : "",
     attendanceBar: workingDays ? attendancePercentage : "",
-    teacherRemark:
-      input.teacherRemark ||
-      "Excellent academic performance. Continue the same level of dedication and participation.",
+    teacherRemark: input.teacherRemark || "",
     promotionStatus,
     nextClass: nextLine,
     sessionTitle: "",
@@ -170,6 +193,7 @@ export function sampleReportCardPreviewData() {
     teacherRemark:
       "Excellent performance. Keep working consistently and participate more actively in classroom activities.",
     attendance: Array.from({ length: 100 }, (_, index) => ({ status: index < 92 ? "PRESENT" : "ABSENT" })),
+    activities: DEFAULT_CO_SCHOLASTIC,
   });
   return {
     school: {
@@ -202,7 +226,7 @@ export function sampleReportCardPreviewData() {
       principalName: "Principal",
     },
     results,
-    exam: { name: "Annual Examination" },
+    exam: { name: "Annual Examination", session: "2025–26" },
     document: {},
   };
 }
