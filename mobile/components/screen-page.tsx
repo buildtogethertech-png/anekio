@@ -1,8 +1,9 @@
 import type { ViewStyle } from "react-native";
 import { Platform, RefreshControl, ScrollView, useWindowDimensions, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { PhoneTopBar } from "./notice-bell";
 import { PortalBody } from "./portal-body";
+import { TabSceneBody } from "./tab-scene";
 import { useRecord } from "../lib/record";
 
 export function ScreenPage({ screen }: { screen: string }) {
@@ -26,13 +27,17 @@ export function ScreenPage({ screen }: { screen: string }) {
   const workspacePage = workspace || parentTests;
   const tightPad = teacherExams || teacherAttendance || officeStaff || officeFees;
   const settingsPage = screen === "school";
+  // Insets from the provider are ready on the first frame; SafeAreaView applies them a frame late on a newly
+  // opened tab, so the top bar jumped down under the status bar.
+  const insets = useSafeAreaInsets();
   return (
-    <SafeAreaView
+    <View
       className={`min-h-0 flex-1 overflow-hidden ${screen === "exams" ? "bg-[#F7F9FC]" : "bg-ink-50"}`}
-      edges={wide ? ["top", "bottom"] : ["top"]}
+      style={{ paddingTop: insets.top, paddingBottom: wide ? insets.bottom : 0 }}
       testID={`portal-screen-${screen}`}
     >
       <PhoneTopBar />
+      <TabSceneBody>
       {workspacePage ? (
         <View className={`min-h-0 flex-1 ${tightPad ? (wide ? "px-5 py-3" : "px-3 py-2") : parentTests ? "px-4 py-5 sm:px-10 sm:py-8" : "px-6 py-6 sm:px-8 sm:py-6"}`}>
           <PortalBody screen={screen} />
@@ -47,6 +52,7 @@ export function ScreenPage({ screen }: { screen: string }) {
           <PortalBody screen={screen} />
         </ScrollView>
       )}
-    </SafeAreaView>
+      </TabSceneBody>
+    </View>
   );
 }

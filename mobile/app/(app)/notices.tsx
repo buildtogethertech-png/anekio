@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Modal as RnModal, Pressable, RefreshControl, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Toast, useToast } from "../../components/ui";
 import { PhoneTopBar } from "../../components/notice-bell";
+import { TabSceneBody } from "../../components/tab-scene";
 import { api, type Notice } from "../../lib/api";
 import { act } from "../../lib/mutate";
 import { isCircularNotice, NOTICE_KIND_LABEL, type NoticeKind } from "../../lib/notice-kind";
@@ -81,6 +82,7 @@ export default function Notices() {
   const toast = useToast();
   const { width } = useWindowDimensions();
   const wide = width >= 768;
+  const insets = useSafeAreaInsets();
   const [notices, setNotices] = useState<Notice[] | null>(null);
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
@@ -430,8 +432,9 @@ export default function Notices() {
   ) : null;
 
   return (
-    <SafeAreaView className="min-h-0 flex-1 overflow-hidden bg-ink-50" edges={wide ? ["top", "bottom"] : ["top"]} testID="portal-screen-notices">
+    <View className="min-h-0 flex-1 overflow-hidden bg-ink-50" style={{ paddingTop: insets.top, paddingBottom: wide ? insets.bottom : 0 }} testID="portal-screen-notices">
       <PhoneTopBar />
+      <TabSceneBody>
       <ScrollView
         className="min-h-0 flex-1"
         contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 20, paddingBottom: 110 }}
@@ -595,6 +598,7 @@ export default function Notices() {
           ) : null}
         </View>
       </ScrollView>
+      </TabSceneBody>
 
       {wide ? (
         <RnModal visible={Boolean(opened)} transparent animationType="fade" onRequestClose={() => setOpenId("")}>
@@ -635,6 +639,6 @@ export default function Notices() {
           </RnModal>
         )
       ) : null}
-    </SafeAreaView>
+    </View>
   );
 }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { openInAppDoc } from "../lib/in-app-doc";
-import { Linking, Modal as RnModal, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { FlatList, Linking, Modal as RnModal, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -2741,6 +2741,46 @@ export function FeesBoard() {
     );
   };
 
+  const phoneReportRow = (row: (typeof reportEvents)[number]) => {
+    const when = clockLabel(row.paidAt);
+    return (
+      <Pressable
+        key={row.key}
+        accessibilityRole="button"
+        onPress={() => void openDueFeeDocument({ id: row.invoiceId, invoiceUrl: row.invoiceUrl, receiptUrl: row.receiptUrl }, true)}
+        className="flex-row items-center gap-3 border-b border-ink-100 px-4 py-3 active:bg-slate-50"
+      >
+        <View className="h-10 w-10 items-center justify-center rounded-full bg-green-50">
+          <Ionicons name="receipt-outline" size={18} color="#047857" />
+        </View>
+        <View className="min-w-0 flex-1">
+          <Text numberOfLines={1} className="text-[15px] font-semibold text-ink-900">{row.studentName}</Text>
+          <Text numberOfLines={1} className="mt-0.5 text-xs text-ink-500">
+            {row.fee} · {row.mode}
+          </Text>
+        </View>
+        <View className="items-end">
+          <Text className="text-[15px] font-bold text-green-700">{row.amount}</Text>
+          <Text className="mt-0.5 text-[11px] text-ink-500">
+            {when.day}
+            {when.time ? `, ${when.time}` : ""}
+          </Text>
+        </View>
+      </Pressable>
+    );
+  };
+
+  type PhoneListRow = (typeof registerRows)[number] | (typeof reportEvents)[number];
+  // FlatList rows sit in one rounded card: side borders on every row, top/bottom edges on the first/last.
+  const phoneCardEdge = (index: number, count: number) => ({
+    backgroundColor: "#fff",
+    borderColor: "#EFF6FF",
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    overflow: "hidden" as const,
+    ...(index === 0 ? { borderTopWidth: 1, borderTopLeftRadius: 12, borderTopRightRadius: 12 } : null),
+    ...(index === count - 1 ? { borderBottomWidth: 1, borderBottomLeftRadius: 12, borderBottomRightRadius: 12 } : null),
+  });
   const phoneList = compact && !selectedDueStudent && (tab === "register" || tab === "report");
   const phoneInsight = compact && !selectedDueStudent && tab === "insight";
 
@@ -2771,62 +2811,50 @@ export function FeesBoard() {
     return (
       <View className="min-h-0 flex-1">
         {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
-        <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 110 }} keyboardShouldPersistTaps="handled">
-          <View className="gap-3 pb-3">
-            {feesTitle}
-            {phoneTabs}
-            {tab === "register" ? missingFeeBanner : null}
-            {tab === "register" ? phoneSummary : null}
-            {phoneSearch}
-            {tab === "register" ? statusChips : null}
-            {remindButton}
-          </View>
-          {bulkModal}
-          <View className="overflow-hidden rounded-xl border border-ink-100 bg-white">
-            {tab === "register"
-              ? refreshing && !registerRows.length
-                ? Array.from({ length: 6 }).map((_, index) => (
-                    <View key={`sk-${index}`} className="h-[68px] justify-center border-b border-ink-50 px-4">
-                      <View className="h-3 w-2/3 rounded bg-ink-100" />
-                    </View>
-                  ))
-                : registerRows.map(phoneRegisterRow)
-              : reportEvents.map((row) => {
-                  const when = clockLabel(row.paidAt);
-                  return (
-                    <Pressable
-                      key={row.key}
-                      accessibilityRole="button"
-                      onPress={() => void openDueFeeDocument({ id: row.invoiceId, invoiceUrl: row.invoiceUrl, receiptUrl: row.receiptUrl }, true)}
-                      className="flex-row items-center gap-3 border-b border-ink-100 px-4 py-3 active:bg-slate-50"
-                    >
-                      <View className="h-10 w-10 items-center justify-center rounded-full bg-green-50">
-                        <Ionicons name="receipt-outline" size={18} color="#047857" />
-                      </View>
-                      <View className="min-w-0 flex-1">
-                        <Text numberOfLines={1} className="text-[15px] font-semibold text-ink-900">{row.studentName}</Text>
-                        <Text numberOfLines={1} className="mt-0.5 text-xs text-ink-500">
-                          {row.fee} · {row.mode}
-                        </Text>
-                      </View>
-                      <View className="items-end">
-                        <Text className="text-[15px] font-bold text-green-700">{row.amount}</Text>
-                        <Text className="mt-0.5 text-[11px] text-ink-500">
-                          {when.day}
-                          {when.time ? `, ${when.time}` : ""}
-                        </Text>
-                      </View>
-                    </Pressable>
-                  );
-                })}
-            {tab === "register" && !refreshing && !registerRows.length ? (
-              <Text className="px-4 py-8 text-center text-sm text-ink-600">No students match.</Text>
-            ) : null}
-            {tab === "report" && !reportEvents.length ? (
-              <Text className="px-4 py-8 text-center text-sm text-ink-600">No payments match these filters.</Text>
-            ) : null}
-          </View>
-        </ScrollView>
+        <FlatList<PhoneListRow>
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingBottom: 110 }}
+          keyboardShouldPersistTaps="handled"
+          data={tab === "register" ? (refreshing && !registerRows.length ? [] : registerRows) : reportEvents}
+          keyExtractor={(row) => ("person" in row ? row.person.id : row.key)}
+          extraData={remindingId}
+          initialNumToRender={12}
+          maxToRenderPerBatch={12}
+          windowSize={7}
+          ListHeaderComponent={
+            <View className="gap-3 pb-3">
+              {feesTitle}
+              {phoneTabs}
+              {tab === "register" ? missingFeeBanner : null}
+              {tab === "register" ? phoneSummary : null}
+              {phoneSearch}
+              {tab === "register" ? statusChips : null}
+              {remindButton}
+              {bulkModal}
+            </View>
+          }
+          renderItem={({ item, index }) => {
+            const count = tab === "register" ? registerRows.length : reportEvents.length;
+            return (
+              <View style={phoneCardEdge(index, count)}>{"person" in item ? phoneRegisterRow(item) : phoneReportRow(item)}</View>
+            );
+          }}
+          ListEmptyComponent={
+            <View className="overflow-hidden rounded-xl border border-ink-100 bg-white">
+              {tab === "register" && refreshing ? (
+                Array.from({ length: 6 }).map((_, index) => (
+                  <View key={`sk-${index}`} className="h-[68px] justify-center border-b border-ink-50 px-4">
+                    <View className="h-3 w-2/3 rounded bg-ink-100" />
+                  </View>
+                ))
+              ) : (
+                <Text className="px-4 py-8 text-center text-sm text-ink-600">
+                  {tab === "register" ? "No students match." : "No payments match these filters."}
+                </Text>
+              )}
+            </View>
+          }
+        />
         <GeneratePayment
           open={Boolean(payDueStudent)}
           student={payDueStudent}

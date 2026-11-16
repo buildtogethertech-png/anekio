@@ -6,7 +6,7 @@ import { DocViewer } from "./doc-viewer";
 import { MoveOutModal } from "./move-out";
 import { openInAppDoc } from "../lib/in-app-doc";
 import type { ReactNode } from "react";
-import { Alert, Linking, Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { Alert, FlatList, Linking, Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -3463,74 +3463,91 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   const visibleCount = showStudents ? filtered.length : showParents ? filteredParents.length : filteredTeachers.length;
   const visibleNoun = showStudents ? "student" : showParents ? "parent" : "employee";
 
+  // One virtualized list: only the rows on screen are built, so opening People doesn't freeze the UI thread.
+  type PeopleListRow =
+    | { kind: "student"; item: (typeof sortedStudents)[number] }
+    | { kind: "teacher"; item: (typeof filteredTeachers)[number] }
+    | { kind: "parent"; item: (typeof filteredParents)[number] };
+  const peopleRows: PeopleListRow[] = [
+    ...(showStudents ? sortedStudents.map((item) => ({ kind: "student" as const, item })) : []),
+    ...(showTeachers ? filteredTeachers.map((item) => ({ kind: "teacher" as const, item })) : []),
+    ...(showParents ? filteredParents.map((item) => ({ kind: "parent" as const, item })) : []),
+  ];
   const peopleList = (
     <Card className={`min-h-0 overflow-hidden border-transparent shadow-sm ${wide ? "" : "flex-1"}`} style={wide ? { width: 372 } : undefined}>
       {listTools}
       {listEmpty ? (
         <Text className="px-4 py-10 text-center text-sm text-ink-700">No people match that filter.</Text>
       ) : (
-        <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" className="flex-1" contentContainerClassName={wide ? undefined : "pb-24"}>
-          {showStudents
-            ? sortedStudents.map((s) => {
-                const on = picked?.kind === "student" && picked.id === s.id;
-                return (
-                  <Pressable
-                    key={`student-${s.id}`}
-                    onPress={() => selectStudent(s.id)}
-                    className={`mx-2 mb-1 flex-row items-center gap-3 rounded-md px-3 py-2.5 ${
-                      on ? "bg-blue-50" : "bg-white"
-                    }`}
-                  >
-                    <View className={`h-9 w-9 items-center justify-center rounded-full ${on ? "bg-white" : "bg-ink-100"}`}>
-                      <Text className="text-xs font-semibold text-ink-900">{initials(s.name)}</Text>
-                    </View>
-                    <View className="min-w-0 flex-1">
-                      <Text className="font-medium text-ink-900" numberOfLines={1}>{s.name}</Text>
-                      <Text className="mt-0.5 text-xs text-ink-700">
-                        {studentMetaLine(s)}
-                      </Text>
-                    </View>
-                    {showFees ? <FeeText label={s.feeLabel} tone={s.feeTone} /> : null}
-                  </Pressable>
-                );
-              })
-            : null}
-          {showTeachers
-            ? filteredTeachers.map((t) => {
-                const on = picked?.kind === "teacher" && picked.id === t.id;
-                return (
-                  <Pressable
-                    key={`teacher-${t.id}`}
-                    onPress={() => setPicked({ kind: "teacher", id: t.id })}
-                    className={`border-l-2 px-4 py-3 ${on ? "border-l-clay-500 bg-blue-50" : "border-l-transparent"}`}
-                  >
-                    <Text className="font-medium text-ink-900">{t.name}</Text>
+        <FlatList<PeopleListRow>
+          nestedScrollEnabled
+          keyboardShouldPersistTaps="handled"
+          style={{ flex: 1 }}
+          contentContainerStyle={wide ? undefined : { paddingBottom: 96 }}
+          data={peopleRows}
+          extraData={picked}
+          keyExtractor={(row) => `${row.kind}-${row.item.id}`}
+          initialNumToRender={14}
+          maxToRenderPerBatch={14}
+          windowSize={7}
+          renderItem={({ item: row }) => {
+            if (row.kind === "student") {
+              const s = row.item;
+              const on = picked?.kind === "student" && picked.id === s.id;
+              return (
+                <Pressable
+                  key={`student-${s.id}`}
+                  onPress={() => selectStudent(s.id)}
+                  className={`mx-2 mb-1 flex-row items-center gap-3 rounded-md px-3 py-2.5 ${
+                    on ? "bg-blue-50" : "bg-white"
+                  }`}
+                >
+                  <View className={`h-9 w-9 items-center justify-center rounded-full ${on ? "bg-white" : "bg-ink-100"}`}>
+                    <Text className="text-xs font-semibold text-ink-900">{initials(s.name)}</Text>
+                  </View>
+                  <View className="min-w-0 flex-1">
+                    <Text className="font-medium text-ink-900" numberOfLines={1}>{s.name}</Text>
                     <Text className="mt-0.5 text-xs text-ink-700">
-                      {t.employeeId}
-                      {t.managerName ? ` · Reports to ${t.managerName}` : ""}
+                      {studentMetaLine(s)}
                     </Text>
-                  </Pressable>
-                );
-              })
-            : null}
-          {showParents
-            ? filteredParents.map((p) => {
-                const on = picked?.kind === "parent" && picked.id === p.id;
-                return (
-                  <Pressable
-                    key={`parent-${p.id}`}
-                    onPress={() => setPicked({ kind: "parent", id: p.id })}
-                    className={`border-l-2 px-4 py-3 ${on ? "border-l-clay-500 bg-blue-50" : "border-l-transparent"}`}
-                  >
-                    <Text className="font-medium text-ink-900">{p.name}</Text>
-                    <Text className="mt-0.5 text-xs text-ink-700">
-                      {p.childCount ?? 0} {(p.childCount ?? 0) === 1 ? "child" : "children"}
-                    </Text>
-                  </Pressable>
-                );
-              })
-            : null}
-        </ScrollView>
+                  </View>
+                  {showFees ? <FeeText label={s.feeLabel} tone={s.feeTone} /> : null}
+                </Pressable>
+              );
+            }
+            if (row.kind === "teacher") {
+              const t = row.item;
+              const on = picked?.kind === "teacher" && picked.id === t.id;
+              return (
+                <Pressable
+                  key={`teacher-${t.id}`}
+                  onPress={() => setPicked({ kind: "teacher", id: t.id })}
+                  className={`border-l-2 px-4 py-3 ${on ? "border-l-clay-500 bg-blue-50" : "border-l-transparent"}`}
+                >
+                  <Text className="font-medium text-ink-900">{t.name}</Text>
+                  <Text className="mt-0.5 text-xs text-ink-700">
+                    {t.employeeId}
+                    {t.managerName ? ` · Reports to ${t.managerName}` : ""}
+                  </Text>
+                </Pressable>
+              );
+            }
+            const p = row.item;
+            const on = picked?.kind === "parent" && picked.id === p.id;
+            return (
+              <Pressable
+                key={`parent-${p.id}`}
+                onPress={() => setPicked({ kind: "parent", id: p.id })}
+                className={`border-l-2 px-4 py-3 ${on ? "border-l-clay-500 bg-blue-50" : "border-l-transparent"}`}
+              >
+                <Text className="font-medium text-ink-900">{p.name}</Text>
+                <Text className="mt-0.5 text-xs text-ink-700">
+                  {p.childCount ?? 0} {(p.childCount ?? 0) === 1 ? "child" : "children"}
+                </Text>
+              </Pressable>
+            );
+          }}
+        />
       )}
     </Card>
   );

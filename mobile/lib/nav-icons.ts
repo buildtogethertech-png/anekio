@@ -101,7 +101,7 @@ export function tabLabel(key: string, portal: string | undefined, nav: { key: st
   if (portal === "OFFICE") {
     const officeLabels: Record<string, string> = {
       home: "Desk",
-      people: "People",
+      people: "Students",
       staff: "Staff",
       fees: "Fees",
       more: "More",

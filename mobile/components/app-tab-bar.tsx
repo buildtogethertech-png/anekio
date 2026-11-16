@@ -1,5 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { usePathname, useRouter } from "expo-router";
+import { useEffect, useState } from "react";
 import { Platform, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { isStaffScanPath } from "../lib/staff-attendance-scan";
@@ -8,6 +9,7 @@ import { qrDockSlots, tabIcon, tabLabel, visibleTabs } from "../lib/nav-icons";
 import { useSession } from "../lib/session";
 import { useRecord } from "../lib/record";
 import { QrDockButton } from "./staff-attendance-qr";
+import { startTabLeave } from "./tab-scene";
 
 function pathMatches(key: string, pathname: string) {
   if (key === "home") return pathname === "/" || pathname === "" || pathname === "/index";
@@ -21,6 +23,9 @@ export function AppTabBar() {
   const pathname = usePathname();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  // The tapped tab lights up at once; the pathname only changes after the next screen has rendered.
+  const [pressedKey, setPressedKey] = useState<string | null>(null);
+  useEffect(() => setPressedKey(null), [pathname]);
   const hasSelfQr = Boolean(data?.staffAttendanceSelf);
   const showQr = qrDockSlots(user?.portal, hasSelfQr) > 0;
   const tabs = visibleTabs(user?.portal, nav, showQr ? 1 : 0);
@@ -44,7 +49,8 @@ export function AppTabBar() {
             showQr && index === qrAt ? (
               <QrDockButton key="qr-dock" token={token} />
             ) : null;
-          const on = key === "more" ? onMore : pathMatches(key, pathname);
+          const current = key === "more" ? onMore : pathMatches(key, pathname);
+          const on = pressedKey ? pressedKey === key : current;
           const color = on ? "#2563eb" : "#64748B";
           const label = tabLabel(key, user?.portal, nav);
           return [
@@ -54,9 +60,15 @@ export function AppTabBar() {
               accessibilityRole="tab"
               accessibilityState={{ selected: on }}
               accessibilityLabel={label}
-              onPress={() => router.push((key === "more" ? "/more" : pathForNav(key)) as never)}
+              onPress={() => {
+                setPressedKey(key);
+                if (!current) startTabLeave();
+                // Let the highlight paint before the next screen's render takes the JS thread.
+                requestAnimationFrame(() => router.push((key === "more" ? "/more" : pathForNav(key)) as never));
+              }}
+              android_ripple={{ color: "#DBEAFE", borderless: true, radius: 30 }}
               className="min-h-[52px] flex-1 items-center justify-center pt-1.5"
-              style={Platform.OS === "web" ? ({ outlineStyle: "none" } as never) : undefined}
+              style={({ pressed }) => [Platform.OS === "web" ? ({ outlineStyle: "none" } as never) : null, pressed && Platform.OS === "ios" ? { opacity: 0.6 } : null]}
             >
               <Ionicons name={tabIcon(key, on)} size={22} color={color} />
               <Text className={`mt-0.5 text-[10px] ${on ? "font-semibold text-clay-500" : "text-ink-700"}`} numberOfLines={1}>

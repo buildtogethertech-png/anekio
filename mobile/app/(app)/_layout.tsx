@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties, ReactElement } from "react";
 import { Redirect, Slot, Tabs, useGlobalSearchParams, usePathname, useRouter } from "expo-router";
 import { Image, Modal, PanResponder, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { AppTabBar } from "../../components/app-tab-bar";
+import { TabScene, type TabSceneNavigation } from "../../components/tab-scene";
 import { AnekioLoader } from "../../components/anekio-loader";
 import { HatSwitch, NavMenu } from "../../components/nav-menu";
 import { NoticeBell } from "../../components/notice-bell";
@@ -445,39 +446,7 @@ export default function AppLayout() {
         </View>
       ) : (
         <View className="min-h-0 flex-1 overflow-hidden">
-          <Tabs
-            tabBar={() => <AppTabBar />}
-            screenOptions={{
-              headerShown: false,
-              tabBarHideOnKeyboard: true,
-              sceneStyle: { flex: 1, overflow: "hidden" },
-            }}
-          >
-            <Tabs.Screen name="index" />
-            <Tabs.Screen name="notices" options={{ href: null }} />
-            <Tabs.Screen name="notifications" options={{ href: null }} />
-            <Tabs.Screen name="inbox" options={{ href: null }} />
-            <Tabs.Screen name="more" options={{ href: null }} />
-            <Tabs.Screen name="people" options={{ href: null }} />
-            <Tabs.Screen name="onboarding" options={{ href: null }} />
-            <Tabs.Screen name="staff" options={{ href: null }} />
-            <Tabs.Screen name="school" options={{ href: null }} />
-            <Tabs.Screen name="timetable" options={{ href: null }} />
-            <Tabs.Screen name="fees" options={{ href: null }} />
-            <Tabs.Screen name="pay" options={{ href: null }} />
-            <Tabs.Screen name="exams" options={{ href: null }} />
-            <Tabs.Screen name="roles" options={{ href: null }} />
-            <Tabs.Screen name="attendance" options={{ href: null }} />
-            <Tabs.Screen name="class" options={{ href: null }} />
-            <Tabs.Screen name="leave" options={{ href: null }} />
-            <Tabs.Screen name="subjects" options={{ href: null }} />
-            <Tabs.Screen name="tests" options={{ href: null }} />
-            <Tabs.Screen name="papers" options={{ href: null }} />
-            <Tabs.Screen name="path" options={{ href: null }} />
-            <Tabs.Screen name="letter" options={{ href: null }} />
-            <Tabs.Screen name="uploads" options={{ href: null }} />
-            <Tabs.Screen name="profile" options={{ href: null }} />
-          </Tabs>
+          <PhoneTabs />
           <LaunchPanelButton />
           <SupportBanner />
         </View>
@@ -487,3 +456,52 @@ export default function AppLayout() {
     </RecordProvider>
   );
 }
+
+const TAB_SCREEN_OPTIONS = {
+  headerShown: false,
+  tabBarHideOnKeyboard: true,
+  sceneStyle: { flex: 1, overflow: "hidden" },
+} as const;
+const HIDDEN_TAB = { href: null };
+const HIDDEN_TAB_ROUTES = [
+  "notices",
+  "notifications",
+  "inbox",
+  "more",
+  "people",
+  "onboarding",
+  "staff",
+  "school",
+  "timetable",
+  "fees",
+  "pay",
+  "exams",
+  "roles",
+  "attendance",
+  "class",
+  "leave",
+  "subjects",
+  "tests",
+  "papers",
+  "path",
+  "letter",
+  "uploads",
+  "profile",
+] as const;
+const renderTabBar = () => <AppTabBar />;
+
+const renderTabScene = ({ navigation, children }: { navigation: TabSceneNavigation; children: ReactElement }) => (
+  <TabScene navigation={navigation}>{children}</TabScene>
+);
+
+/** Kept out of AppLayout so its re-renders (pathname, params) don't hand Tabs new options on every navigation. */
+const PhoneTabs = memo(function PhoneTabs() {
+  return (
+    <Tabs tabBar={renderTabBar} screenOptions={TAB_SCREEN_OPTIONS} screenLayout={renderTabScene}>
+      <Tabs.Screen name="index" />
+      {HIDDEN_TAB_ROUTES.map((name) => (
+        <Tabs.Screen key={name} name={name} options={HIDDEN_TAB} />
+      ))}
+    </Tabs>
+  );
+});
