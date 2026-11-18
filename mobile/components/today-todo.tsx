@@ -108,7 +108,7 @@ function Item({
           </View>
           <View className="min-w-0 flex-1">
             <Text className="text-[14px] font-semibold text-ink-900" numberOfLines={1}>{title}</Text>
-            <Text className="text-[12px] text-ink-500" numberOfLines={1}>{sub}</Text>
+            <Text className="text-[12px] text-ink-500" numberOfLines={2}>{sub}</Text>
           </View>
           {open !== undefined ? <Ionicons name={open ? "chevron-up" : "chevron-down"} size={15} color="#94A3B8" /> : null}
         </Pressable>
@@ -296,7 +296,19 @@ export function TodayTodo({
 
   for (const t of teachers) {
     const comingNeed = t.coming.length;
-    const sub = [comingNeed ? `${comingNeed} period${comingNeed === 1 ? "" : "s"} need a teacher` : "", t.over.length ? `${t.over.length} already over` : ""]
+    // Their class's attendance today: a co-class teacher who is in, someone handed it, or already taken.
+    const gap = (gaps?.gaps ?? []).find((g) => g.teacherId === t.key);
+    const klass = gap?.classLabel || "";
+    const attendance = !klass
+      ? ""
+      : gap?.attendanceDone
+        ? `${klass} attendance taken`
+        : gap?.attendanceBy
+          ? `${klass} attendance: ${first(gap.attendanceBy.name)}`
+          : gap?.coClassTeacher
+            ? `${klass} attendance: ${first(gap.coClassTeacher)} (class teacher)`
+            : "";
+    const sub = [comingNeed ? `${comingNeed} period${comingNeed === 1 ? "" : "s"} need a teacher` : "", t.over.length ? `${t.over.length} already over` : "", attendance]
       .filter(Boolean)
       .join(" · ");
     const action = comingNeed && t.coming.some((r) => fitOf(r).length) ? (t.over.length ? "Assign all" : "Assign") : "Mark free";

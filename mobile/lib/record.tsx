@@ -46,6 +46,7 @@ export type DayGap = {
   classId: string;
   classLabel: string;
   attendanceBy: { id: string; name: string } | null;
+  coClassTeacher?: string;
   attendanceDone: boolean;
   candidates: { id: string; name: string; hint: string }[];
 };

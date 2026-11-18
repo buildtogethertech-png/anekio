@@ -143,6 +143,8 @@ export type DayGap = {
   classLabel: string;
   /** Class teacher only: who takes attendance that day (null = nobody yet). */
   attendanceBy: { id: string; name: string } | null;
+  /** Another class teacher of the same class who is in that day (they take attendance; no hand-over needed). */
+  coClassTeacher: string;
   attendanceDone: boolean;
   candidates: { id: string; name: string; hint: string }[];
 };
@@ -172,9 +174,10 @@ export async function dayGaps(user: AccessUser, input: { date?: string } = {}) {
   // A class with another class teacher who is in that day needs no hand-over.
   const classIds = [...new Set(teachers.map((t) => t.classId).filter(Boolean))] as string[];
   const coClassTeachers = classIds.length
-    ? await prisma.teacher.findMany({ where: { classId: { in: classIds } }, select: { id: true, classId: true } })
+    ? await prisma.teacher.findMany({ where: { classId: { in: classIds } }, select: { id: true, classId: true, user: { select: { name: true } } } })
     : [];
   const classTeacherIn = (classId: string) => coClassTeachers.some((t) => t.classId === classId && !out.has(t.id));
+  const presentClassTeacher = (classId: string) => coClassTeachers.find((t) => t.classId === classId && !out.has(t.id))?.user.name || "";
   const gaps: DayGap[] = [];
   for (const teacher of teachers) {
     const mine = slots.filter((s) => s.teacherId === teacher.id && !s.period.isBreak && (!team || team.includes(s.classId)));
@@ -207,6 +210,7 @@ export async function dayGaps(user: AccessUser, input: { date?: string } = {}) {
       classId,
       classLabel: teacher.class ? `${teacher.class.name}-${teacher.class.section}` : "",
       attendanceBy,
+      coClassTeacher: teacher.classId && !classId ? presentClassTeacher(teacher.classId) : "",
       attendanceDone,
       candidates,
     });
