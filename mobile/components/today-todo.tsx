@@ -165,6 +165,7 @@ export function TodayTodo({
   const [pickGap, setPickGap] = useState<DayGap | null>(null);
   const [subjectFor, setSubjectFor] = useState<{ row: Row; teacher: Candidate; subjectId: string; on: string } | null>(null);
   const [showOthers, setShowOthers] = useState(false);
+  const [showOtherAtt, setShowOtherAtt] = useState(false);
   const [plan, setPlan] = useState<{ leave: UpcomingTeacherLeaveRow; days: { date: string; rows: Row[] }[] | null } | null>(null);
   const canCover = Boolean(data?.dayGaps);
   const date = ymdLocal(new Date());
@@ -213,6 +214,7 @@ export function TodayTodo({
       setPick(null);
       setShowOthers(false);
       setPickGap(null);
+      setShowOtherAtt(false);
       setSubjectFor(null);
       await load();
       if (plan) await loadPlan(plan.leave).catch(() => undefined);
@@ -347,15 +349,26 @@ export function TodayTodo({
           tone="amber"
           icon="people-outline"
           title={`${gap.classLabel} attendance`}
-          sub={`Class teacher ${gap.teacherName} is ${gap.why.toLowerCase()}`}
+          sub={`Class teacher ${gap.teacherName} is ${gap.why.toLowerCase()}${best?.hint ? ` · ${first(best.name)}: ${best.hint.toLowerCase()}` : ""}`}
           onPress={gap.candidates.length ? () => setPickGap(gap) : undefined}
           right={
             best ? (
-              <SmallButton
-                label={busy === `att:${gap.classId}` ? "Saving…" : `Give to ${first(best.name)}`}
-                disabled={Boolean(busy)}
-                onPress={() => void attendanceTo(gap, best)}
-              />
+              <View className="flex-row items-center gap-1.5">
+                <SmallButton
+                  label={busy === `att:${gap.classId}` ? "Saving…" : `Give to ${first(best.name)}`}
+                  disabled={Boolean(busy)}
+                  onPress={() => void attendanceTo(gap, best)}
+                />
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Pick another teacher for ${gap.classLabel} attendance`}
+                  onPress={() => setPickGap(gap)}
+                  className="h-8 flex-row items-center gap-1 rounded-lg border border-ink-200 bg-white px-2.5 active:opacity-70"
+                >
+                  <Text className="text-[12px] font-semibold text-ink-700">Others</Text>
+                  <Ionicons name="chevron-down" size={13} color="#475569" />
+                </Pressable>
+              </View>
             ) : null
           }
         />
@@ -789,29 +802,57 @@ export function TodayTodo({
         ) : null}
       </Modal>
 
-      <Modal open={Boolean(pickGap)} sheetOnPhone title={pickGap ? `${pickGap.classLabel} attendance` : ""} onClose={() => setPickGap(null)}>
-        {pickGap ? (
-          <View className="overflow-hidden rounded-xl border border-ink-100">
-            {pickGap.candidates.map((c, i) => (
-              <Pressable
-                key={c.id}
-                accessibilityRole="button"
-                disabled={Boolean(busy)}
-                onPress={() => void attendanceTo(pickGap, c)}
-                className={`flex-row items-center gap-3 px-3 py-2.5 active:bg-ink-50 ${i ? "border-t border-ink-100" : ""}`}
-              >
-                <View className="h-8 w-8 items-center justify-center rounded-full bg-[#EEF3FF]">
-                  <Text className="text-[10px] font-bold text-[#1F45C7]">{initials(c.name)}</Text>
+      <Modal
+        open={Boolean(pickGap)}
+        sheetOnPhone
+        title={pickGap ? `Who takes ${pickGap.classLabel} attendance?` : ""}
+        onClose={() => {
+          setPickGap(null);
+          setShowOtherAtt(false);
+        }}
+      >
+        {pickGap
+          ? (() => {
+              const ofClass = pickGap.candidates.filter((c) => c.hint);
+              const others = pickGap.candidates.filter((c) => !c.hint);
+              const list = [...ofClass, ...(showOtherAtt || !ofClass.length ? others : [])];
+              return (
+                <View className="gap-3">
+                  <Text className="text-[13px] text-ink-600">
+                    {`${pickGap.teacherName} is ${pickGap.why.toLowerCase()}. Teachers of ${pickGap.classLabel} who are in today come first. It is for today only, and they get a notice.`}
+                  </Text>
+                  <View className="overflow-hidden rounded-xl border border-ink-100">
+                    {!ofClass.length ? (
+                      <Text className="px-3 py-2.5 text-[12px] text-ink-500">{`No teacher of ${pickGap.classLabel} is in today. Pick anyone below.`}</Text>
+                    ) : null}
+                    {list.map((c, i) => (
+                      <Pressable
+                        key={c.id}
+                        accessibilityRole="button"
+                        disabled={Boolean(busy)}
+                        onPress={() => void attendanceTo(pickGap, c)}
+                        className={`flex-row items-center gap-3 px-3 py-2.5 active:bg-ink-50 ${i || !ofClass.length ? "border-t border-ink-100" : ""} ${c.hint ? "" : "bg-ink-50/50"}`}
+                      >
+                        <View className={`h-8 w-8 items-center justify-center rounded-full ${c.hint ? "bg-[#EEF3FF]" : "bg-ink-100"}`}>
+                          <Text className={`text-[10px] font-bold ${c.hint ? "text-[#1F45C7]" : "text-ink-600"}`}>{initials(c.name)}</Text>
+                        </View>
+                        <View className="min-w-0 flex-1">
+                          <Text className="text-[14px] font-medium text-ink-900">{c.name}</Text>
+                          <Text className="text-[12px] text-ink-500">{c.hint || `Doesn't teach ${pickGap.classLabel}`}</Text>
+                        </View>
+                        {i === 0 && c.hint ? <Text className="text-[11px] font-semibold text-emerald-700">Best fit</Text> : null}
+                      </Pressable>
+                    ))}
+                    {ofClass.length && others.length && !showOtherAtt ? (
+                      <Pressable onPress={() => setShowOtherAtt(true)} className="border-t border-ink-100 px-3 py-2.5 active:bg-ink-50">
+                        <Text className="text-[13px] font-medium text-ink-600">{`Other teachers (${others.length}) · don't teach ${pickGap.classLabel}`}</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
                 </View>
-                <View className="min-w-0 flex-1">
-                  <Text className="text-[14px] font-medium text-ink-900">{c.name}</Text>
-                  {c.hint ? <Text className="text-[12px] text-ink-500">{c.hint}</Text> : null}
-                </View>
-                {i === 0 ? <Text className="text-[11px] font-semibold text-emerald-700">Best fit</Text> : null}
-              </Pressable>
-            ))}
-          </View>
-        ) : null}
+              );
+            })()
+          : null}
       </Modal>
     </View>
   );
