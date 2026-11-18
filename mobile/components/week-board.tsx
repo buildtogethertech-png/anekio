@@ -137,7 +137,9 @@ function WeeklyBoard() {
   );
   const periods = table?.periods ?? [];
   const weekdays = table?.weekdays ?? [];
-  const [classId, setClassId] = useState(classes[0]?.id || "");
+  // Deep link from the dashboard To do: /timetable?class=<id>&addTeacher=1 opens that class with "Add teacher".
+  const link = useLocalSearchParams<{ class?: string; addTeacher?: string }>();
+  const [classId, setClassId] = useState(link.class || classes[0]?.id || "");
   const klass = classes.find((c) => c.id === classId) || classes[0];
   useEffect(() => {
     if (!classId && classes[0]?.id) setClassId(classes[0].id);
@@ -149,6 +151,14 @@ function WeeklyBoard() {
   const [teacherId, setTeacherId] = useState<string | null>(null);
   const [teacherFocusClass, setTeacherFocusClass] = useState("");
   const [addTeacherOpen, setAddTeacherOpen] = useState(false);
+  const linkOpened = useRef("");
+  useEffect(() => {
+    if (!link.class || link.addTeacher !== "1" || linkOpened.current === link.class) return;
+    if (!classes.some((c) => c.id === link.class)) return;
+    linkOpened.current = link.class;
+    setClassId(link.class);
+    if (can(user, "staff.edit")) setAddTeacherOpen(true);
+  }, [link.class, link.addTeacher, classes, user]);
   /** Copy day: the weekday to copy from (0 = closed). */
   const [copyFrom, setCopyFrom] = useState(0);
   const [assign, setAssign] = useState<{

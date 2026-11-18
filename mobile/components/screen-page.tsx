@@ -1,4 +1,5 @@
 import type { ViewStyle } from "react-native";
+import { RenewalBanner } from "./renewal-reminder";
 import { Platform, RefreshControl, ScrollView, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { PhoneTopBar } from "./notice-bell";
@@ -37,6 +38,7 @@ export function ScreenPage({ screen }: { screen: string }) {
       testID={`portal-screen-${screen}`}
     >
       <PhoneTopBar />
+      <RenewalBanner />
       <TabSceneBody>
       {workspacePage ? (
         <View className={`min-h-0 flex-1 ${tightPad ? (wide ? "px-5 py-3" : "px-3 py-2") : parentTests ? "px-4 py-5 sm:px-10 sm:py-8" : "px-6 py-6 sm:px-8 sm:py-6"}`}>

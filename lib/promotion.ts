@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { assertSeatsFor } from "./seats";
 import { can, type AccessUser } from "./permissions";
 import { createNextSchoolSession, ensureSchoolSessions, sessionLabel } from "./school-session";
 import { ensureCurrentSessionStudentRollNumbers } from "./student-rolls";
@@ -550,6 +551,7 @@ export async function restoreStudentCore(user: AccessUser, input: { studentId?: 
   if (!student) throw new Error("Student not found.");
   const klass = await prisma.class.findFirst({ where: { id: String(input.classId || ""), archivedAt: null }, select: { id: true } });
   if (!klass) throw new Error("Pick a class.");
+  if (student.leftOn) await assertSeatsFor(user.orgId, 1);
   const { current } = await ensureSchoolSessions();
   await prisma.$transaction(async (tx) => {
     const db = tx as unknown as typeof prisma;

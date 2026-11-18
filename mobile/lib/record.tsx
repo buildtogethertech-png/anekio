@@ -163,9 +163,15 @@ export type RecordPayload = {
     orgId: string;
     schoolName: string;
     status: string;
+    free?: boolean;
+    reason?: "ENDED" | "STOPPED";
     renewalOn: string;
     renewUrl: string;
     amount: number;
+    seats?: number;
+    rateMonthly?: number;
+    supportPhone?: string;
+    canRenew?: boolean;
   };
   subscription?: {
     orgId: string;
@@ -173,9 +179,15 @@ export type RecordPayload = {
     plan: string;
     status: string;
     paymentStatus: string;
+    state: "FREE" | "ACTIVE" | "EXPIRED";
+    free: boolean;
     subscriptionStart: string;
     renewalOn: string;
     daysLeft: number | null;
+    graceDaysLeft?: number | null;
+    /** Students on the roll vs seats paid for (slabs of 50). paid 0 = no limit. */
+    seats?: { active: number; paid: number; needed: number; limited: boolean; full: boolean; trial: boolean };
+    upgradeUrl?: string;
     renewUrl: string;
     amount: number;
     invoices: {

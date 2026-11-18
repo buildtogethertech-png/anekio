@@ -1,5 +1,6 @@
 import { prisma } from "./prisma";
 import { getSitePricing } from "./saas-pricing";
+import { paidSeats, seatSlab } from "./seats";
 
 export const PIPELINE_STAGES = ["NEW", "CONTACTED", "DEMO", "QUALIFIED", "PROPOSAL", "PAYMENT", "WON"] as const;
 export type PipelineStage = (typeof PIPELINE_STAGES)[number];
@@ -236,7 +237,7 @@ export async function createTrialSubscription(orgId: string, days?: number) {
   return subscription;
 }
 
-async function issuePaidInvoice(orgId: string, amount: number, plan: string, actorEmail: string) {
+async function issuePaidInvoice(orgId: string, amount: number, plan: string, actorEmail: string, description = `${plan} subscription`) {
   const taxPercent = 18;
   const subtotal = Math.round(amount / (1 + taxPercent / 100));
   const taxAmount = amount - subtotal;
@@ -250,7 +251,7 @@ async function issuePaidInvoice(orgId: string, amount: number, plan: string, act
       status: "PAID",
       issueDate: new Date(),
       dueDate: new Date(),
-      description: `${plan} subscription`,
+      description,
       quantity: 1,
       unitPrice: subtotal,
       taxPercent,
@@ -263,6 +264,30 @@ async function issuePaidInvoice(orgId: string, amount: number, plan: string, act
   });
   await logCrm(actorEmail, "INVOICE_ISSUED", { orgId, entityType: "INVOICE", entityId: invoice.id, detail: number });
   return invoice;
+}
+
+/**
+ * Paid seat upgrade: the school now pays for `seats` students until its current period ends. The end date
+ * does not move. A locked per-student rate carries over, so the next renewal is priced for the new seats.
+ */
+export async function fulfillSeatUpgrade(input: { orgId: string; seats: number; amount: number; actorEmail: string; paymentId?: string }) {
+  const org = await prisma.saasOrg.findUnique({ where: { id: input.orgId } });
+  if (!org) throw new Error("Organisation not found.");
+  const before = paidSeats(org);
+  const seats = seatSlab(input.seats);
+  const rate = org.monthlyPrice > 0 && before > 0 ? org.monthlyPrice / (before * 12) : 0;
+  const invoice = await issuePaidInvoice(org.id, input.amount, org.plan, input.actorEmail, `${org.plan} · upgrade to ${seats} students (until ${org.renewalOn ? org.renewalOn.toISOString().slice(0, 10) : "plan end"})`);
+  if (input.paymentId) await prisma.saasPayment.updateMany({ where: { paymentId: input.paymentId }, data: { invoiceId: invoice.id } });
+  const current = await prisma.saasSubscription.findFirst({ where: { orgId: org.id, status: "ACTIVE" }, orderBy: { createdAt: "desc" } });
+  if (current) {
+    await prisma.saasSubscription.update({ where: { id: current.id }, data: { history: `${current.history}\nUpgraded to ${seats} students` } });
+  }
+  await prisma.saasOrg.update({
+    where: { id: org.id },
+    data: { studentCount: seats, ...(rate ? { monthlyPrice: Math.round(rate * seats * 12) } : {}) },
+  });
+  await logCrm(input.actorEmail, "SEATS_UPGRADED", { orgId: org.id, entityType: "SUBSCRIPTION", entityId: current?.id || org.id, detail: `${before || "?"} → ${seats} students · ₹${input.amount}` });
+  return { seats, invoiceId: invoice.id };
 }
 
 /**
@@ -410,19 +435,34 @@ export async function addOrgNote(orgId: string, note: string, actorEmail: string
   await logCrm(actorEmail, "NOTE_ADDED", { orgId, entityType: "ORGANISATION", entityId: orgId, detail: note });
 }
 
-export async function changeSubscriptionPlan(orgId: string, plan: string, amount: number, actorEmail: string) {
+/** Change the running plan, its amount and (optionally) when it ends. A 0 amount (free trial) keeps the school's locked renewal price. */
+export async function changeSubscriptionPlan(orgId: string, plan: string, amount: number, actorEmail: string, endsOn?: Date | null) {
   const current = await prisma.saasSubscription.findFirst({
     where: { orgId, status: { in: ["ACTIVE", "TRIAL"] } },
     orderBy: { createdAt: "desc" },
   });
+  const endLine = endsOn ? `\nEnd date set to ${endsOn.toISOString().slice(0, 10)}` : "";
   if (current) {
     await prisma.saasSubscription.update({
       where: { id: current.id },
-      data: { plan, amount, history: `${current.history}\nPlan changed to ${plan}` },
+      data: {
+        plan,
+        amount,
+        ...(endsOn ? { renewsAt: endsOn } : {}),
+        history: `${current.history}${plan !== current.plan ? `\nPlan changed to ${plan}` : ""}${endLine}`,
+      },
     });
   }
-  await prisma.saasOrg.update({ where: { id: orgId }, data: { plan, monthlyPrice: amount } });
-  await logCrm(actorEmail, "PLAN_CHANGED", { orgId, entityType: "SUBSCRIPTION", entityId: current?.id || orgId, detail: `${plan} · ₹${amount}` });
+  await prisma.saasOrg.update({
+    where: { id: orgId },
+    data: { plan, ...(amount > 0 ? { monthlyPrice: amount } : {}), ...(endsOn ? { renewalOn: endsOn } : {}) },
+  });
+  await logCrm(actorEmail, "PLAN_CHANGED", {
+    orgId,
+    entityType: "SUBSCRIPTION",
+    entityId: current?.id || orgId,
+    detail: `${plan} · ₹${amount}${endsOn ? ` · ends ${endsOn.toISOString().slice(0, 10)}` : ""}`,
+  });
 }
 
 export async function cancelSubscription(orgId: string, actorEmail: string) {

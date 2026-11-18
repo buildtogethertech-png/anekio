@@ -1,4 +1,6 @@
-import { Linking, Text, View } from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { useRouter } from "expo-router";
+import { Linking, Pressable, Text, View } from "react-native";
 import {
   DeskBoard,
   AdmissionsBoard,
@@ -32,6 +34,7 @@ import { Button, Empty, PageHeader } from "./ui";
 import { AccountActions, MoreBoard } from "./nav-menu";
 import { ParentExamination, ParentExaminationError, ParentExaminationLoading } from "./parent-examination";
 import { OnboardingBoard } from "./onboarding-board";
+import { SubscriptionBoard } from "./subscription-board";
 import { PORTAL_PATH, examsScreenForKind, testsScreenForKind } from "../lib/paths";
 import { useRecord } from "../lib/record";
 import { useSession } from "../lib/session";
@@ -42,26 +45,99 @@ function resolveRenewUrl(url: string) {
   return `${webOrigin()}${url.startsWith("/") ? url : `/${url}`}`;
 }
 
+function lockDate(value: string | Date) {
+  return new Date(value).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+}
+
+/**
+ * Shown instead of the app while the school's plan is not active. Admins see what happened, the price
+ * worked out, and how to renew or talk to us. Everyone else is told to ask the school's admin.
+ */
 function SubscriptionLocked({ lock }: { lock: NonNullable<ReturnType<typeof useRecord>["data"]>["subscriptionLock"] }) {
+  const router = useRouter();
   if (!lock) return null;
-  const renewal = lock.renewalOn ? new Date(lock.renewalOn).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "";
-  return (
-    <View className="mx-auto w-full max-w-2xl gap-4 rounded-md border border-amber-200 bg-amber-50 p-5">
-      <View className="gap-2">
-        <Text className="text-xs font-semibold uppercase tracking-wide text-amber-800">Renewal required</Text>
-        <Text className="text-2xl font-semibold text-ink-900">Renew Anekio to continue</Text>
-        <Text className="text-sm leading-6 text-ink-700">
-          {lock.schoolName} can still sign in, but school modules are hidden until the subscription is renewed.
+  const ended = lock.renewalOn ? lockDate(lock.renewalOn) : "";
+  const stopped = lock.reason === "STOPPED";
+  const title = stopped ? "Your Anekio plan is paused" : lock.free ? "Your free trial has ended" : "Your Anekio plan has ended";
+  const inr = (n: number) => `₹${new Intl.NumberFormat("en-IN").format(Math.round(n))}`;
+  const start = new Date();
+  const until = new Date(start);
+  until.setFullYear(until.getFullYear() + 1);
+  const wa = String(lock.supportPhone || "").replace(/\D/g, "");
+  const waDigits = wa.length === 10 ? `91${wa}` : wa;
+
+  if (!lock.canRenew) {
+    return (
+      <View className="mx-auto mt-6 w-full max-w-md items-center rounded-2xl border border-ink-100 bg-white px-6 py-8">
+        <View className="h-14 w-14 items-center justify-center rounded-full bg-amber-50">
+          <Ionicons name="lock-closed-outline" size={24} color="#B45309" />
+        </View>
+        <Text className="mt-4 text-center text-xl font-semibold text-ink-900">{lock.schoolName} needs to renew Anekio</Text>
+        <Text className="mt-2 text-center text-sm leading-6 text-ink-600">
+          The school's plan is not active right now, so the app is closed for a while. Please ask your school office or admin to renew it. Nothing is lost.
         </Text>
       </View>
-      <View className="gap-1">
-        <Text className="text-sm text-ink-800">Plan amount: ₹{new Intl.NumberFormat("en-IN").format(lock.amount)}</Text>
-        {renewal ? <Text className="text-sm text-ink-700">Renewal date: {renewal}</Text> : null}
+    );
+  }
+
+  return (
+    <View className="mx-auto mt-2 w-full max-w-lg items-center rounded-2xl border border-ink-100 bg-white px-6 py-8">
+      <View className="h-14 w-14 items-center justify-center rounded-full bg-amber-50">
+        <Ionicons name={stopped ? "pause-circle-outline" : "hourglass-outline"} size={26} color="#B45309" />
       </View>
-      <Button onPress={() => void Linking.openURL(resolveRenewUrl(lock.renewUrl))}>Renew securely</Button>
-      <Text className="text-xs leading-5 text-ink-700">
-        After payment, access becomes active again. One of our account managers will connect with you as well.
+      <Text className="mt-4 text-center text-2xl font-semibold text-ink-900">{title}</Text>
+      <Text className="mt-1 text-center text-sm text-ink-500">
+        {lock.schoolName}
+        {ended && !stopped ? ` · ended on ${ended}` : ""}
       </Text>
+
+      <View className="mt-4 flex-row items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5">
+        <Ionicons name="shield-checkmark-outline" size={15} color="#047857" />
+        <Text className="text-[13px] font-medium text-emerald-800">Your students, fees and records are safe</Text>
+      </View>
+      <Text className="mt-3 text-center text-sm leading-6 text-ink-600">Renew to open the app again for everyone in your school.</Text>
+
+      <View className="mt-5 w-full items-center rounded-2xl border border-ink-100 bg-ink-50/60 px-4 py-4">
+        <Text className="text-3xl font-bold text-ink-900">
+          {inr(lock.amount)}
+          <Text className="text-base font-medium text-ink-500"> / year</Text>
+        </Text>
+        {lock.seats && lock.rateMonthly ? (
+          <Text className="mt-1 text-[13px] text-ink-600">{`${lock.seats} students × ₹${lock.rateMonthly} × 12 months`}</Text>
+        ) : lock.seats ? (
+          <Text className="mt-1 text-[13px] text-ink-600">{`For ${lock.seats} students`}</Text>
+        ) : null}
+        <Text className="mt-1 text-[12px] text-ink-500">{`Covers ${lockDate(start)} → ${lockDate(until)}`}</Text>
+      </View>
+
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => void Linking.openURL(resolveRenewUrl(lock.renewUrl))}
+        className="mt-5 w-full items-center rounded-xl bg-[#1F45C7] py-3.5 active:opacity-80"
+      >
+        <Text className="text-[15px] font-semibold text-white">Renew now</Text>
+      </Pressable>
+      <View className="mt-3 w-full flex-row gap-2">
+        {waDigits ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => void Linking.openURL(`https://wa.me/${waDigits}?text=${encodeURIComponent(`Hi, I want to renew Anekio for ${lock.schoolName}.`)}`)}
+            className="flex-1 flex-row items-center justify-center gap-1.5 rounded-xl border border-ink-200 py-3 active:bg-ink-50"
+          >
+            <Ionicons name="logo-whatsapp" size={16} color="#15803D" />
+            <Text className="text-[14px] font-semibold text-ink-800">Talk to us</Text>
+          </Pressable>
+        ) : null}
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => router.push("/subscription" as never)}
+          className="flex-1 flex-row items-center justify-center gap-1.5 rounded-xl border border-ink-200 py-3 active:bg-ink-50"
+        >
+          <Ionicons name="receipt-outline" size={16} color="#334155" />
+          <Text className="text-[14px] font-semibold text-ink-800">Plan & invoices</Text>
+        </Pressable>
+      </View>
+      <Text className="mt-4 text-center text-xs leading-5 text-ink-500">Access opens again as soon as the payment goes through.</Text>
     </View>
   );
 }
@@ -96,7 +172,11 @@ export function PortalBody({ screen }: { screen: string }) {
     if (parentTests) return <ParentExaminationLoading />;
     return <Text className="text-sm text-ink-700">Loading…</Text>;
   }
-  if (data.subscriptionLock) return <SubscriptionLocked lock={data.subscriptionLock} />;
+  if (data.subscriptionLock) {
+    // A locked school's admin can still open their plan and invoices.
+    if (screen === "subscription" && data.subscription) return <SubscriptionBoard />;
+    return <SubscriptionLocked lock={data.subscriptionLock} />;
+  }
   if (screen === "profile")
     return (
       <View>
@@ -157,6 +237,7 @@ export function PortalBody({ screen }: { screen: string }) {
     return <FamilyTests />;
   }
   if (screen === "roles") return <RolesBoard />;
+  if (screen === "subscription") return <SubscriptionBoard />;
   if (screen === "attendance") {
     if (data.kind === "TEACHER") {
       return (

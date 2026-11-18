@@ -84,19 +84,24 @@ async function dayContext(date: string, weekday: number) {
       include: {
         user: { select: { id: true, name: true } },
         skills: true,
-        subjects: { select: { name: true, classId: true } },
+        subjects: { select: { id: true, name: true, classId: true } },
         classes: { select: { classId: true } },
       },
       orderBy: { user: { name: "asc" } },
     }),
   ]);
+  const classIds = [...new Set(slots.map((s) => s.classId))];
+  const subjects = classIds.length
+    ? await prisma.subject.findMany({ where: { classId: { in: classIds } }, select: { id: true, name: true, classId: true }, orderBy: { name: "asc" } })
+    : [];
+  const subjectName = new Map(subjects.map((x) => [x.id, x.name]));
   const changeBySlot = new Map(changes.map((c) => [c.slotId, c]));
   const leaveByTeacher = new Map(leaves.map((l) => [l.teacherId as string, l]));
   // Teachers marked out for the day without a leave (they have OPEN/COVERED rows with reason ABSENT/DUTY).
   const outToday = new Set(
     changes.filter((c) => c.absentTeacherId && (c.reason === "ABSENT" || c.reason === "DUTY")).map((c) => c.absentTeacherId as string)
   );
-  return { slots, changes, changeBySlot, leaveByTeacher, outToday, teachers };
+  return { slots, changes, changeBySlot, leaveByTeacher, outToday, teachers, subjects, subjectName };
 }
 
 type Ctx = Awaited<ReturnType<typeof dayContext>>;
@@ -122,7 +127,15 @@ function coverCount(ctx: Ctx, teacherId: string) {
   return ctx.changes.filter((c) => c.substituteId === teacherId).length;
 }
 
-/** Free teachers for a slot, best first: teaches this class > teaches this subject > anyone free. */
+/** Subjects a teacher takes in one class (their subject list plus their weekly periods there). */
+function subjectsInClass(ctx: Ctx, teacher: Ctx["teachers"][number], classId: string) {
+  const out = new Map<string, string>();
+  for (const s of teacher.subjects) if (s.classId === classId) out.set(s.id, s.name);
+  for (const s of ctx.slots) if (s.teacherId === teacher.id && s.classId === classId && s.subject) out.set(s.subject.id, s.subject.name);
+  return [...out].map(([id, name]) => ({ id, name }));
+}
+
+/** Free teachers for a slot, best first: teaches this subject in this class > this class > this subject > anyone free. */
 function rankCandidates(ctx: Ctx, slot: Ctx["slots"][number]) {
   const subjectName = (slot.subject?.name || "").toLowerCase();
   return ctx.teachers
@@ -140,16 +153,32 @@ function rankCandidates(ctx: Ctx, slot: Ctx["slots"][number]) {
         Boolean(slot.subject) &&
         (t.skills.some((s) => skillMatchesSubject(s.subjectName, slot.subject!)) ||
           t.subjects.some((s) => s.name.toLowerCase() === subjectName));
-      const tier = teachesClass ? 1 : teachesSubject ? 2 : 3;
+      const subjects = subjectsInClass(ctx, t, slot.classId);
+      const sameSubject = Boolean(slot.subjectId) && subjects.some((x) => x.id === slot.subjectId);
+      const tier = sameSubject ? 1 : teachesClass && teachesSubject ? 2 : teachesClass ? 3 : teachesSubject ? 4 : 5;
+      const klass = `${slot.class.name}-${slot.class.section}`;
+      const others = [
+        ...new Set([
+          ...t.subjects.map((x) => x.name),
+          ...ctx.slots.filter((x) => x.teacherId === t.id && x.subject).map((x) => x.subject!.name),
+        ]),
+      ].sort();
+      const here = subjects.length ? `${subjects.map((x) => x.name).join(", ")} in ${klass}` : klass;
       const reason =
         tier === 1
-          ? `Teaches ${slot.class.name}-${slot.class.section}`
+          ? `Teaches ${slot.subject?.name} in ${klass}`
           : tier === 2
-            ? `Teaches ${slot.subject?.name || "this subject"}`
-            : "Free this period";
+            ? `Teaches ${here} · ${slot.subject?.name} in other classes`
+            : tier === 3
+              ? `Teaches ${here}`
+              : tier === 4
+                ? `Teaches ${slot.subject?.name || "this subject"} in other classes`
+                : others.length
+                  ? `Free · teaches ${others.slice(0, 3).join(", ")}${others.length > 3 ? "…" : ""} in other classes`
+                  : "Free · no subjects set";
       const periodsToday =
         ctx.slots.filter((s) => s.teacherId === t.id && !ctx.changeBySlot.has(s.id) && !s.period.isBreak).length + coverCount(ctx, t.id);
-      return { id: t.id, name: t.user.name, tier, reason, periodsToday };
+      return { id: t.id, name: t.user.name, tier, reason, periodsToday, sameSubject, subjects };
     })
     .sort((a, b) => a.tier - b.tier || a.periodsToday - b.periodsToday || a.name.localeCompare(b.name));
 }
@@ -189,6 +218,10 @@ function rowFor(ctx: Ctx, slot: Ctx["slots"][number]) {
     teacherId: status === "COVERED" ? subTeacher?.id || "" : status ? "" : slot.teacherId || "",
     teacher: status === "COVERED" ? subTeacher?.name || "" : status ? "" : slot.teacher?.user.name || "",
     fromLeave: Boolean(change?.leaveRequestId || (!change && leave)),
+    /** Subject taught that day when the cover teacher takes a different one ("" = as per routine). */
+    /** Subjects of this class, for picking what a cover teacher takes that day. */
+    classSubjects: ctx.subjects.filter((x) => x.classId === slot.classId).map(({ id, name }) => ({ id, name })),
+    coverSubject: change?.subjectId && change.subjectId !== slot.subjectId ? ctx.subjectName.get(change.subjectId) || "" : "",
   };
 }
 
@@ -268,7 +301,7 @@ function whenText(date: string) {
 /** Change one period for one date. The weekly timetable is not touched. */
 export async function saveDayChange(
   user: AccessUser,
-  input: { date?: string; slotId?: string; status?: string; substituteId?: string; reason?: string; note?: string }
+  input: { date?: string; slotId?: string; status?: string; substituteId?: string; subjectId?: string; reason?: string; note?: string }
 ) {
   const date = cleanDate(input.date);
   const slotId = String(input.slotId || "");
@@ -303,12 +336,20 @@ export async function saveDayChange(
     if (isOut(ctx, substituteId)) throw new Error(`${sub.user.name} is out that day.`);
     if (busyIn(ctx, substituteId, slot.periodId, slot.id)) throw new Error(`${sub.user.name} already has a class in ${slot.period.name}.`);
   }
+  // The cover teacher may teach another subject of this class that day (e.g. their own Maths instead of Hindi).
+  let coverSubject: { id: string; name: string } | null = null;
+  const pickedSubject = status === "COVERED" ? String(input.subjectId || "") : "";
+  if (pickedSubject && pickedSubject !== slot.subjectId) {
+    coverSubject = await prisma.subject.findFirst({ where: { id: pickedSubject, classId: slot.classId }, select: { id: true, name: true } });
+    if (!coverSubject) throw new Error("Pick a subject of this class.");
+  }
   const reason = leave ? "LEAVE" : cleanReason(input.reason, before ? (before.reason as Reason) : "OTHER");
   const data = {
     status,
     reason,
     note: String(input.note ?? before?.note ?? "").slice(0, 200),
     substituteId: substituteId || null,
+    subjectId: coverSubject?.id || null,
     leaveRequestId: leave?.id || null,
     absentTeacherId: slot.teacherId,
     assignedById: user.id,
@@ -320,12 +361,13 @@ export async function saveDayChange(
   });
 
   const label = `${slot.period.name} · ${slot.class.name}-${slot.class.section}${slot.subject ? ` ${slot.subject.name}` : slot.activity ? ` ${slot.activity}` : ""}`;
-  if (substituteId && before?.substituteId !== substituteId) {
+  const coverLabel = coverSubject ? `${slot.period.name} · ${slot.class.name}-${slot.class.section} ${coverSubject.name}` : label;
+  if (substituteId && (before?.substituteId !== substituteId || (before?.subjectId || null) !== (coverSubject?.id || null))) {
     await noticeTo(
       user.id,
       substituteId,
-      `Cover ${whenText(date)}: ${label}`,
-      `You take ${label} ${whenText(date)}${slot.teacher ? ` for ${slot.teacher.user.name}` : ""}.`,
+      `Cover ${whenText(date)}: ${coverLabel}`,
+      `You take ${coverLabel} ${whenText(date)}${coverSubject && slot.subject ? ` (instead of ${slot.subject.name})` : ""}${slot.teacher ? ` for ${slot.teacher.user.name}` : ""}.`,
       `${slot.id}:${date}:${substituteId}`
     );
   }
@@ -460,7 +502,7 @@ export async function openTeacherPeriodsFrom(authorId: string, teacherId: string
 }
 
 /** Give every period that needs cover on this date to the best free teacher. */
-export async function autoCoverDay(user: AccessUser, input: { date?: string }) {
+export async function autoCoverDay(user: AccessUser, input: { date?: string; from?: string }) {
   const date = cleanDate(input.date);
   if (!can(user, "timetable.edit")) throw new Error("Only the office can change the timetable.");
   const day = await loadDayTimetable(user, { date });
@@ -468,16 +510,26 @@ export async function autoCoverDay(user: AccessUser, input: { date?: string }) {
   let covered = 0;
   let left = 0;
   // Re-read busy state after each pick so one teacher is not given two classes in the same period.
-  for (const row of day.rows.filter((r) => r.status === "OPEN")) {
+  // "from" (HH:mm): skip periods already over, so past ones are not filled in after the fact.
+  const from = /^\d{2}:\d{2}$/.test(String(input.from || "")) ? String(input.from) : "";
+  for (const row of day.rows.filter((r) => r.status === "OPEN" && (!from || (r.endsAt || "") > from))) {
     const { weekday } = await openDay(date);
     const ctx = await dayContext(date, weekday);
     const slot = ctx.slots.find((s) => s.id === row.slotId);
-    const best = slot ? rankCandidates(ctx, slot)[0] : undefined;
+    // Only teachers who already teach this class; others are left for the office to pick by hand.
+    const best = slot ? rankCandidates(ctx, slot).find((c) => c.tier <= 3) : undefined;
     if (!best) {
       left += 1;
       continue;
     }
-    await saveDayChange(user, { date, slotId: row.slotId, status: "COVERED", substituteId: best.id, reason: row.reason || undefined });
+    await saveDayChange(user, {
+      date,
+      slotId: row.slotId,
+      status: "COVERED",
+      substituteId: best.id,
+      subjectId: best.sameSubject || !slot?.subjectId ? undefined : best.subjects[0]?.id,
+      reason: row.reason || undefined,
+    });
     covered += 1;
   }
   return { ok: true as const, covered, left };
@@ -496,6 +548,10 @@ export async function teacherDayChanges(teacherId: string) {
     },
     orderBy: [{ date: "asc" }],
   });
+  const coverIds = [...new Set(rows.map((r) => r.subjectId).filter((id): id is string => Boolean(id)))];
+  const coverName = new Map(
+    (coverIds.length ? await prisma.subject.findMany({ where: { id: { in: coverIds } }, select: { id: true, name: true } }) : []).map((x) => [x.id, x.name])
+  );
   return rows
     // Their own classes opened for cover because they left early are the office's job, not a timetable change for them.
     .filter((row) => !(row.absentTeacherId === teacherId && !row.substituteId && row.note.startsWith(LEFT_EARLY_NOTE)))
@@ -505,7 +561,7 @@ export async function teacherDayChanges(teacherId: string) {
       startsAt: row.slot.period.startsAt,
       sortOrder: row.slot.period.sortOrder,
       classLabel: `${row.slot.class.name}-${row.slot.class.section}`,
-      subject: row.slot.subject?.name || row.slot.activity || "",
+      subject: (row.subjectId && coverName.get(row.subjectId)) || row.slot.subject?.name || row.slot.activity || "",
       kind: row.substituteId === teacherId ? ("COVER" as const) : ("AWAY" as const),
       /** For COVER: whose period. For AWAY: who takes it ("" = free / not yet). */
       other: row.substituteId === teacherId ? row.slot.teacher?.user.name || "" : row.substitute?.user.name || "",

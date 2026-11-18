@@ -28,6 +28,27 @@ function integer(value: unknown, fallback = 0) {
   return Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : fallback;
 }
 
+/**
+ * Yearly price the school renews at (saved as monthlyPrice, 0 = website price), from the admin form's
+ * price box: WEBSITE, PER_STUDENT (₹ per student per month × students × 12) or FLAT (₹ per year).
+ */
+function priceFromForm(input: Record<string, unknown>, students: number | null, fallback: number) {
+  const mode = text(input.priceMode).toUpperCase();
+  if (mode === "WEBSITE") return 0;
+  if (mode === "PER_STUDENT") {
+    const rate = Number(input.pricePerStudent);
+    if (!Number.isFinite(rate) || rate <= 0) throw new Error("Enter the price per student per month.");
+    if (!students || students < 1) throw new Error("Add the number of students to use a per-student price.");
+    return Math.round(rate * students * 12);
+  }
+  if (mode === "FLAT") {
+    const flat = integer(input.priceFlat);
+    if (!flat) throw new Error("Enter the flat price per year.");
+    return flat;
+  }
+  return integer(input.monthlyPrice, fallback);
+}
+
 function optionalDate(value: unknown) {
   const raw = text(value);
   if (!raw) return null;
@@ -91,7 +112,7 @@ export async function createAdminOrganisation(input: UnknownRecord, actorEmail: 
       studentCount: text(input.studentCount) ? integer(input.studentCount) : null,
       subscriptionStatus: text(input.subscriptionStatus, "LEAD").toUpperCase(),
       plan: text(input.plan, "Monthly school"),
-      monthlyPrice: integer(input.monthlyPrice, 14999),
+      monthlyPrice: priceFromForm(input as Record<string, unknown>, text(input.studentCount) ? integer(input.studentCount) : null, 14999),
       assignedOwner: text(input.assignedOwner),
       followUpStatus: text(input.followUpStatus, "NEW").toUpperCase(),
       nextFollowUpOn: optionalDate(input.nextFollowUpOn),
@@ -135,7 +156,7 @@ export async function updateAdminOrganisation(id: string, input: UnknownRecord, 
       studentCount: text(input.studentCount) ? integer(input.studentCount) : null,
       subscriptionStatus: text(input.subscriptionStatus, existing.subscriptionStatus).toUpperCase(),
       plan: text(input.plan, existing.plan),
-      monthlyPrice: integer(input.monthlyPrice, existing.monthlyPrice),
+      monthlyPrice: priceFromForm(input as Record<string, unknown>, text(input.studentCount) ? integer(input.studentCount) : null, existing.monthlyPrice),
       assignedOwner: text(input.assignedOwner),
       followUpStatus: text(input.followUpStatus, existing.followUpStatus).toUpperCase(),
       nextFollowUpOn: optionalDate(input.nextFollowUpOn),
@@ -296,7 +317,7 @@ export async function runAdminCrmAction(kind: string, id: string, input: Unknown
   if (kind === "followup-done") return completeFollowUp(id, actorEmail);
   if (kind === "onboarding-start") return startOnboarding(id, actorEmail);
   if (kind === "onboarding-toggle") return toggleOnboardingTask(id, text(input.key) || text(input.taskKey), actorEmail);
-  if (kind === "plan") return changeSubscriptionPlan(id, text(input.plan, "Launch"), integer(input.amount), actorEmail);
+  if (kind === "plan") return changeSubscriptionPlan(id, text(input.plan, "Launch"), integer(input.amount), actorEmail, optionalDate(input.endsOn));
   if (kind === "cancel") return cancelSubscription(id, actorEmail);
   if (kind === "support") return createSupportTicket(text(input.orgId) || id, text(input.subject), text(input.body), actorEmail);
   throw new Error("Unknown CRM action.");

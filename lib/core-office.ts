@@ -1,4 +1,5 @@
 import { examTimes } from "./exam-time";
+import { seatRoom } from "./seats";
 import bcrypt from "bcryptjs";
 import { randomUUID } from "node:crypto";
 import { FeeLineKind, InvoiceStatus, PaperType, PathTag } from "@prisma/client";
@@ -1848,6 +1849,7 @@ export async function importPeopleSheetCore(user: AccessUser, input: { kind?: st
     ]);
     const taken = new Set(existing.map((s) => s.admissionNo.toLowerCase()));
     const parentByEmail = new Map(parents.map((p) => [p.user.email.toLowerCase(), p]));
+    let room = await seatRoom(user.orgId);
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       const line = i + 2;
@@ -1869,6 +1871,11 @@ export async function importPeopleSheetCore(user: AccessUser, input: { kind?: st
         skipped.push(`Row ${line}: admission ${admissionNo} already exists.`);
         continue;
       }
+      if (room < 1) {
+        skipped.push(`Row ${line}: your plan's student seats are full. Upgrade from Manage subscription to add more.`);
+        continue;
+      }
+      room -= 1;
       let parent = parentByEmail.get(parentEmail);
       if (!parent) {
         const parentName = cell(row, "parentName");

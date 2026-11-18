@@ -27,7 +27,8 @@ import { act } from "../lib/mutate";
 import { fetchMarksheetHtml, openMarksheetPdf } from "../lib/print-html";
 import { pickFile, uploadFile } from "../lib/upload";
 import { ParentUpdatesReview } from "./parent-details";
-import { DayGapsCard } from "./day-gaps-card";
+import { TodayTodo } from "./today-todo";
+import { RenewalReminder } from "./renewal-reminder";
 import { webOrigin } from "../lib/api";
 import { useRecord, type AdmissionFormField } from "../lib/record";
 import { useSession } from "../lib/session";
@@ -533,7 +534,6 @@ export function DeskBoard() {
   if (!desk) return <Empty title="The desk" body="Loading the school pulse." />;
   const desktop = width >= 900;
   const canSeeFees = can(user, "fees.view");
-  const subjectLoadPending = desk.subjectLoadPending ?? 0;
   const overdue = desk.overdueCount ?? 0;
   const series = desk.series ?? [];
   const max = Math.max(...series.map((d) => d.amount), 1);
@@ -593,21 +593,12 @@ export function DeskBoard() {
         }));
   const attention: { label: string; hint: string; route: string; urgent?: boolean }[] = [
     ...feeGapRows,
-    ...(desk.idleNow ?? []).map((row) => ({ label: row.name, hint: `${row.employeeId} · idle now`, route: "/staff" })),
-    ...(desk.didNotCome ?? []).map((row) => ({ label: row.label, hint: "Did not come", route: "/staff" })),
     ...(desk.holes ?? []).map((row) => ({ label: row.classLabel, hint: `${row.count} unassigned period${row.count === 1 ? "" : "s"}`, route: "/timetable" })),
     ...(desk.subjectShortfalls ?? []).map((row) => ({
       label: row.classLabel,
       hint: `${row.count} subject period${row.count === 1 ? "" : "s"} still not placed`,
       route: "/timetable",
     })),
-    ...upcomingLeave
-      .filter((leave) => leave.covered < leave.total)
-      .map((leave) => ({
-        label: `${leave.teacherName} · upcoming leave`,
-        hint: `${leave.total - leave.covered} period${leave.total - leave.covered === 1 ? "" : "s"} need cover`,
-        route: "/staff",
-      })),
   ].slice(0, 6);
   const shortMoney = (amount: number) =>
     amount >= 100000 ? `₹${(amount / 100000).toFixed(amount >= 1000000 ? 0 : 1)}L` : amount >= 1000 ? `₹${Math.round(amount / 1000)}k` : `₹${amount}`;
@@ -643,46 +634,18 @@ export function DeskBoard() {
         </Button>
       </View>
       <MyTeachingCard />
-      <DayGapsCard />
+      <RenewalReminder />
+      <TodayTodo
+        fees={{ show: canSeeFees, overdue, dueNow: desk.dueNow || "₹0" }}
+        leave={{
+          waiting: waitingOnMe,
+          upcoming: upcomingLeave,
+          busy: decideBusy,
+          onReview: setReviewId,
+          onDecide: (id, yes) => void decide(id, yes),
+        }}
+      />
       <ParentUpdatesReview />
-
-      <View className="flex-row flex-wrap gap-3">
-        {[
-          {
-            label: "Subject load pending",
-            value: String(subjectLoadPending),
-            hint: subjectLoadPending ? "Needs routine slots" : "All subjects placed",
-            route: "/timetable",
-            danger: subjectLoadPending > 0,
-          },
-          { label: "Idle staff", value: String(desk.idleStaff), hint: "Available this stretch", route: "/staff", danger: false },
-          { label: "Teacher absent", value: String(desk.teacherAbsent ?? 0), hint: "Assigned today", route: "/staff", danger: (desk.teacherAbsent ?? 0) > 0 },
-          {
-            label: "Fees overdue",
-            value: canSeeFees ? String(overdue) : "—",
-            hint: canSeeFees ? desk.dueNow || "₹0 pending" : "No permission",
-            route: canSeeFees ? "/fees" : "",
-            danger: canSeeFees && overdue > 0,
-            locked: !canSeeFees,
-          },
-        ].map((metric) => (
-          <Pressable
-            key={metric.label}
-            className={desktop ? "w-[23.5%]" : "w-[47%]"}
-            disabled={!metric.route}
-            onPress={() => metric.route && router.push(metric.route as never)}
-          >
-            <Card className="min-h-[124px] p-4">
-              <View className="flex-row items-center justify-between gap-2">
-                <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">{metric.label}</Text>
-                <Ionicons name={metric.locked ? "lock-closed" : "arrow-forward"} size={15} color="#3d4f66" />
-              </View>
-              <Text className={`mt-3 text-3xl font-semibold ${metric.danger ? "text-red-600" : "text-ink-900"}`}>{metric.value}</Text>
-              <Text className="mt-1 text-xs text-ink-700">{metric.hint}</Text>
-            </Card>
-          </Pressable>
-        ))}
-      </View>
 
       {toast.message ? <View className="mt-4"><Toast message={toast.message} onDone={toast.clear} /></View> : null}
 
@@ -699,49 +662,6 @@ export function DeskBoard() {
             <Ionicons name="chevron-forward" size={16} color="#94a3b8" />
           </Card>
         </Pressable>
-      ) : null}
-
-      {waitingOnMe.length ? (
-        <Card className="mt-4 overflow-hidden border-amber-200">
-          <View className="flex-row items-center gap-3 border-b border-amber-100 bg-amber-50 px-5 py-3">
-            <View className="h-8 w-8 items-center justify-center rounded-full bg-amber-100">
-              <Ionicons name="hourglass-outline" size={16} color="#b45309" />
-            </View>
-            <Text className="min-w-0 flex-1 text-[15px] font-semibold text-amber-900">
-              {waitingOnMe.length} leave {waitingOnMe.length === 1 ? "request" : "requests"} waiting on you
-            </Text>
-          </View>
-          {waitingOnMe.slice(0, 5).map((row, i) => {
-            const initialsTxt = row.subjectName.split(" ").slice(0, 2).map((w) => w[0]?.toUpperCase() || "").join("");
-            const days = row.halfDay ? "½ day" : row.days ? `${row.days} day${row.days === 1 ? "" : "s"}` : "";
-            return (
-              <Pressable
-                key={row.id}
-                onPress={() => setReviewId(row.id)}
-                className={`flex-row items-center gap-3 px-4 py-3 active:bg-ink-50 hover:bg-ink-50 ${i ? "border-t border-ink-100" : ""}`}
-              >
-                <View className="h-9 w-9 items-center justify-center rounded-full bg-[#EEF3FF]">
-                  <Text className="text-[12px] font-bold text-[#1F45C7]">{initialsTxt}</Text>
-                </View>
-                <View className="min-w-0 flex-1">
-                  <Text className="text-[14px] font-semibold text-ink-900" numberOfLines={1}>
-                    {row.subjectName} <Text className="font-normal text-ink-500">· {row.typeName}</Text>
-                  </Text>
-                  <Text className="text-xs text-ink-500" numberOfLines={1}>
-                    {leaveRange(row.from, row.to)}{days ? ` · ${days}` : ""}
-                  </Text>
-                </View>
-                <Text className="text-[13px] font-semibold text-[#1F45C7]">Review</Text>
-                <Ionicons name="chevron-forward" size={15} color="#1F45C7" />
-              </Pressable>
-            );
-          })}
-          {waitingOnMe.length > 5 ? (
-            <Pressable onPress={() => router.push("/staff" as never)} className="border-t border-ink-100 px-5 py-3">
-              <Text className="text-xs font-semibold text-[#1F45C7]">See all {waitingOnMe.length} ›</Text>
-            </Pressable>
-          ) : null}
-        </Card>
       ) : null}
 
       <Sheet open={Boolean(reviewRow)} onClose={() => setReviewId("")}>
@@ -807,43 +727,6 @@ export function DeskBoard() {
           </View>
         ) : null}
       </Sheet>
-
-      {upcomingLeave.length ? (
-        <Card className="mt-4 overflow-hidden">
-          <View className="flex-row items-center justify-between gap-3 border-b border-ink-100 px-5 py-4">
-            <View>
-              <Text className="text-base font-semibold text-ink-900">Upcoming teacher leave</Text>
-              <Text className="mt-0.5 text-xs text-ink-700">Today and the next seven days</Text>
-            </View>
-            <Badge tone={upcomingLeave.some((leave) => leave.covered < leave.total) ? "warn" : "leaf"}>
-              {upcomingLeave.some((leave) => leave.covered < leave.total) ? "Coverage needed" : "Covered"}
-            </Badge>
-          </View>
-          {upcomingLeave.map((leave, index) => {
-            const uncovered = leave.total - leave.covered;
-            return (
-              <View key={leave.requestId} className={`flex-row flex-wrap items-center gap-3 px-5 py-4 ${index ? "border-t border-ink-100" : ""}`}>
-                <View className="min-w-0 flex-1">
-                  <Text className="text-sm font-semibold text-ink-900">{leave.teacherName} · {leave.typeName}</Text>
-                  <Text className="mt-0.5 text-xs text-ink-700">
-                    {leaveRange(leave.from, leave.to)}{leave.reason ? ` · ${leave.reason}` : ""}
-                  </Text>
-                </View>
-                <View className="items-end">
-                  <Text className={`text-xs font-medium ${uncovered ? "text-amber-800" : "text-green-700"}`}>
-                    {leave.total ? `${leave.covered}/${leave.total} periods covered` : "No scheduled periods"}
-                  </Text>
-                  {leave.total ? (
-                    <Pressable className="mt-1" onPress={() => setCoverageFor(leave.requestId)}>
-                      <Text className="text-sm font-medium text-clay-600">{uncovered ? "Assign cover" : "View coverage"}</Text>
-                    </Pressable>
-                  ) : null}
-                </View>
-              </View>
-            );
-          })}
-        </Card>
-      ) : null}
 
       <View className={`mt-4 gap-4 ${desktop ? "flex-row items-stretch" : ""}`}>
         <Card className={`p-5 ${desktop ? "min-h-0 flex-[1.4]" : "w-full shrink-0"}`}>

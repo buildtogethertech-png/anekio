@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import { seatRoom } from "./seats";
 import { admissionNumberer } from "./admission-number";
 import ExcelJS from "exceljs";
 import { AttendanceStatus, ExamWorkflowStatus, InvoiceStatus, Prisma, type Role } from "@prisma/client";
@@ -1937,6 +1938,7 @@ async function applyStudents(
 ) {
   const forms = await configuredImportForms();
   const rollPlan = (await studentRollPlan(db, rows, forms.admission)).rolls;
+  let room = await seatRoom(setup.orgId);
   let created = 0;
   let updated = 0;
   // Blank admission numbers continue the school's series after every number already in use (DB + this sheet).
@@ -2028,6 +2030,8 @@ async function applyStudents(
       }
       updated += 1;
     } else {
+      if (room < 1) throw new Error(rowError(row, "Your plan's student seats are full. Upgrade from Manage subscription to add more students."));
+      room -= 1;
       const student = await db.student.create({ data: { billingStartPeriod: "", ...data } });
       savedId = student.id;
       try {

@@ -4,12 +4,14 @@ import crypto from "node:crypto";
 import { prisma } from "./prisma";
 import { normalizeMobile } from "./phone";
 import { roleIdBySlug } from "./roles";
-import { captureWebsiteLead, createDemo, createTrialSubscription, ensureOnboardingTasks, fulfillPaidSubscription, startOnboarding } from "./saas-crm";
+import { captureWebsiteLead, createDemo, createTrialSubscription, ensureOnboardingTasks, fulfillPaidSubscription, fulfillSeatUpgrade, startOnboarding } from "./saas-crm";
 import { getPaymentLink, getSitePricing, markCouponUsed, quoteForSchool } from "./saas-pricing";
+import { quotePrice } from "./saas-quote";
 import { marketingBottom, marketingCss, marketingHead, marketingScript, marketingTop } from "./anekio-marketing";
 import { birthdayBanner } from "./birthday-banner";
 import { blogSitemapPaths } from "./anekio-blog";
 import { emptyUnusedBakedSubjectCatalog } from "./subject-code";
+import { activeStudents, paidSeats, SEAT_STEP, seatSlab, seatStatus, upgradeQuote, type SeatStatus } from "./seats";
 
 const PRODUCT_NAME = "Anekio";
 const TAGLINE = "One Platform, Infinite Possibilities.";
@@ -41,9 +43,20 @@ export type SaasSubscriptionLock = {
   orgId: string;
   schoolName: string;
   status: string;
+  /** True when it was a free trial that ended (vs a paid plan that lapsed or was stopped). */
+  free: boolean;
+  /** "ENDED" = the end date passed; "STOPPED" = paused / cancelled by Anekio. */
+  reason: "ENDED" | "STOPPED";
   renewalOn: string;
   renewUrl: string;
   amount: number;
+  /** How the amount is worked out: seats × monthly rate × 12 (rate 0 = a fixed agreed price). */
+  seats: number;
+  rateMonthly: number;
+  /** WhatsApp number for "Talk to us" (from the app update settings; "" = not set). */
+  supportPhone: string;
+  /** Filled in by the record route: true for school admins who can pay. */
+  canRenew?: boolean;
 };
 
 export type SaasSubscriptionOverview = {
@@ -52,10 +65,20 @@ export type SaasSubscriptionOverview = {
   plan: string;
   status: string;
   paymentStatus: string;
+  /** FREE = a free subscription given by Anekio; ACTIVE = paid and running; EXPIRED = needs renewal. */
+  state: "FREE" | "ACTIVE" | "EXPIRED";
+  free: boolean;
   subscriptionStart: string;
   renewalOn: string;
   daysLeft: number | null;
+  /** After the end date: whole days left before the app locks (null while still running). */
+  graceDaysLeft: number | null;
+  /** Students on the roll vs seats paid for (slabs of 50). */
+  seats: SeatStatus;
+  /** Page to buy more seats until the current period ends ("" when not possible, e.g. on a free trial). */
+  upgradeUrl: string;
   renewUrl: string;
+  /** Renewal price for this school (its locked price when one is set). */
   amount: number;
   invoices: {
     id: string;
@@ -141,15 +164,83 @@ function addOneYear(date: Date) {
   return next;
 }
 
+/** Straight to secure checkout for this school's renewal (the price is worked out on the server). */
 function renewalUrl(orgId: string) {
-  return pageUrl(`/anekio/renew?org=${encodeURIComponent(orgId)}`);
+  return pageUrl(`/anekio/renew/pay?org=${encodeURIComponent(orgId)}`);
 }
 
-function isRenewalRequired(org: { subscriptionStatus: string; renewalOn: Date | null }) {
+function upgradeUrl(orgId: string) {
+  return pageUrl(`/anekio/upgrade?org=${encodeURIComponent(orgId)}`);
+}
+
+/** Days a school keeps working after its free trial or paid year ends, before the app locks. */
+export const RENEWAL_GRACE_DAYS = 3;
+
+function graceEndsAt(renewalOn: Date) {
+  return renewalOn.getTime() + RENEWAL_GRACE_DAYS * 86_400_000;
+}
+
+/** App locks: stopped by Anekio, or the free trial / paid year ended more than the grace days ago. */
+function isRenewalRequired(org: { subscriptionStatus: string; paymentStatus?: string; renewalOn: Date | null }) {
   const status = org.subscriptionStatus.toUpperCase();
   if (["PAUSED", "CANCELLED", "CLOSED", "INACTIVE", "EXPIRED", "OVERDUE"].includes(status)) return true;
-  if (status === "ACTIVE" && org.renewalOn && org.renewalOn.getTime() < Date.now()) return true;
-  return false;
+  const running = status === "ACTIVE" || status === "TRIAL" || String(org.paymentStatus || "").toUpperCase() === "TRIAL";
+  return Boolean(running && org.renewalOn && graceEndsAt(org.renewalOn) < Date.now());
+}
+
+/** Whole days left before the app locks, while an ended trial / year is in its grace days (null otherwise). */
+function graceDaysLeft(org: { renewalOn: Date | null }) {
+  if (!org.renewalOn || org.renewalOn.getTime() >= Date.now()) return null;
+  return Math.max(0, Math.ceil((graceEndsAt(org.renewalOn) - Date.now()) / 86_400_000));
+}
+
+/** The school's Anekio account: the user's own org first, else the one with the school's owner email / phone. */
+async function saasOrgForUser(userId: string) {
+  const row = await prisma.user.findUnique({ where: { id: userId }, select: { email: true, phone: true, org: true } });
+  if (!row) return null;
+  let org = row.org ?? (await findSaasOrgByContact({ ownerEmail: row.email || "", ownerPhone: row.phone || "" }));
+  if (!org) {
+    const school = await prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { email: true, phone: true } });
+    org = await findSaasOrgByContact({ ownerEmail: school?.email || "", ownerPhone: school?.phone || "" });
+  }
+  return org;
+}
+
+function isFreeSubscription(org: { subscriptionStatus: string; paymentStatus: string }) {
+  return org.subscriptionStatus.toUpperCase() === "TRIAL" || org.paymentStatus.toUpperCase() === "TRIAL";
+}
+
+function subscriptionState(org: { subscriptionStatus: string; paymentStatus: string; renewalOn: Date | null }): SaasSubscriptionOverview["state"] {
+  if (isRenewalRequired(org) || (org.renewalOn && org.renewalOn.getTime() < Date.now())) return "EXPIRED";
+  if (isFreeSubscription(org)) return "FREE";
+  return org.subscriptionStatus.toUpperCase() === "ACTIVE" ? "ACTIVE" : "EXPIRED";
+}
+
+/** Per-student monthly rate this school pays: its locked yearly price spread over its paid seats, else the website rate. */
+function seatRateMonthly(org: { monthlyPrice: number; studentCount: number | null }, pricing: { perStudentMonthly: number }) {
+  const seats = paidSeats(org);
+  return org.monthlyPrice > 0 && seats > 0 ? org.monthlyPrice / (seats * 12) : pricing.perStudentMonthly;
+}
+
+/** Seats a renewal is priced for: the students on the roll today, in slabs of 50. */
+async function renewalSeats(org: { id: string }) {
+  return seatSlab(await activeStudents(org.id));
+}
+
+/**
+ * Renewal price: the school's locked per-student rate (or its locked price) for the seats it needs,
+ * else the website price for those seats.
+ */
+async function renewalQuoteForOrg(org: { id: string; monthlyPrice: number; studentCount: number | null }) {
+  const seats = await renewalSeats(org);
+  if (org.monthlyPrice > 0) {
+    const pricing = await getSitePricing();
+    const paid = paidSeats(org);
+    const yearly = paid > 0 ? Math.round(seatRateMonthly(org, pricing) * seats * 12) : org.monthlyPrice;
+    const quote = quotePrice(pricing, seats, { code: "", kind: "FIXED", value: yearly });
+    return { ...quote, linkError: "", plan: null, seats };
+  }
+  return { ...(await quoteForSchool({ students: seats })), seats };
 }
 
 function daysUntil(value: Date | null) {
@@ -1121,9 +1212,20 @@ export async function createSaasRazorpayOrder(input: EnquiryInput & { orgId?: un
   const existing = orgId ? null : await findSaasOrgByContact(input);
   const known = orgId ? await prisma.saasOrg.findUnique({ where: { id: orgId } }) : existing;
   if (renewalLink && !known) throw new Error("The school on this renewal link was not found. Please contact support@anekio.com.");
-  const students = paymentLink?.link?.students ?? intOrNull(input.studentCount ?? input.students) ?? known?.studentCount ?? 0;
-  if (!students || students < 1) throw new Error("Enter the number of students in your school.");
-  const quote = await quoteForSchool({ students, link: linkToken, strict: Boolean(linkToken) });
+  // A school renewing its own account pays for the seats it needs (slabs of 50), not a typed count.
+  const students =
+    paymentLink?.link?.students ??
+    (orgId && known && !paymentLink?.link ? await renewalSeats(known) : null) ??
+    intOrNull(input.studentCount ?? input.students) ??
+    known?.studentCount ??
+    0;
+  // A school renewing its own account pays the price locked on it in the admin portal.
+  const lockedRenewal = Boolean(orgId && known && !paymentLink?.link && known.monthlyPrice > 0);
+  if (!lockedRenewal && (!students || students < 1)) throw new Error("Enter the number of students in your school.");
+  const quote =
+    lockedRenewal && known
+      ? await renewalQuoteForOrg(known)
+      : await quoteForSchool({ students, link: linkToken, strict: Boolean(linkToken) });
   if (quote.total < 1) throw new Error("This plan has no amount to pay. Please contact us at support@anekio.com to activate it.");
   const org = known
     ? await prisma.saasOrg.update({
@@ -1139,7 +1241,7 @@ export async function createSaasRazorpayOrder(input: EnquiryInput & { orgId?: un
                 followUpStatus: "RENEWAL_STARTED",
                 paymentStatus: known.paymentStatus === "PAID" ? "RENEWAL_DUE" : known.paymentStatus,
               }),
-          studentCount: students,
+          studentCount: students || known.studentCount,
           monthlyPrice: quote.total,
           plan: quote.plan?.name || pricing.planName,
         },
@@ -1187,22 +1289,138 @@ export async function createSaasRazorpayOrder(input: EnquiryInput & { orgId?: un
   };
 }
 
-export function saasCheckoutHtml(order: Awaited<ReturnType<typeof createSaasRazorpayOrder>>) {
+/** A paid, running plan can buy more seats; a free trial has no limit and an ended plan renews instead. */
+function canUpgrade(org: { subscriptionStatus: string; renewalOn: Date | null }, seats: SeatStatus) {
+  return !seats.trial && org.subscriptionStatus.toUpperCase() === "ACTIVE" && Boolean(org.renewalOn && org.renewalOn.getTime() > Date.now());
+}
+
+/** Price to move a school up to `toSeats` until its current period ends. Worked out on the server only. */
+export async function saasUpgradeQuote(orgIdRaw: unknown, toSeatsRaw?: unknown) {
+  const orgId = text(orgIdRaw);
+  const org = orgId ? await prisma.saasOrg.findUnique({ where: { id: orgId } }) : null;
+  if (!org) throw new Error("School not found.");
+  const pricing = await getSitePricing();
+  const active = await activeStudents(org.id);
+  const seats = seatStatus(org, active);
+  if (seats.trial) throw new Error("Your free trial has no student limit, so there is nothing to upgrade.");
+  if (!canUpgrade(org, seats)) throw new Error("This plan has ended. Renew it instead; the renewal covers all your students.");
+  const from = seats.paid || seatSlab(active);
+  const wanted = intOrNull(toSeatsRaw);
+  const to = seatSlab(wanted ?? Math.max(from + SEAT_STEP, seats.needed));
+  if (to <= from) throw new Error(`Pick more than ${from} students.`);
+  const rateMonthly = seatRateMonthly(org, pricing);
+  const quote = upgradeQuote({ rateMonthly, fromSeats: from, toSeats: to, endsOn: org.renewalOn as Date });
+  return { org, active, from, to, ...quote };
+}
+
+export async function createSaasUpgradeOrder(input: Record<string, unknown>) {
+  const keyId = text(process.env.ANEKIO_RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID);
+  const keySecret = text(process.env.ANEKIO_RAZORPAY_KEY_SECRET || process.env.RAZORPAY_KEY_SECRET);
+  if (!keyId || !keySecret) throw new Error("Anekio secure payment is not configured yet.");
+  const q = await saasUpgradeQuote(input.orgId, input.seats);
+  if (q.amount < 1) throw new Error("Your plan ends too soon to upgrade. Renew it instead.");
+  const pricing = await getSitePricing();
+  const razorpay = new Razorpay({ key_id: keyId, key_secret: keySecret });
+  const order = await razorpay.orders.create({
+    amount: q.amount * 100,
+    currency: "INR",
+    receipt: q.org.id.slice(0, 40),
+    notes: { orgId: q.org.id, schoolName: q.org.schoolName, product: PRODUCT_NAME, purpose: "upgrade", students: String(q.to) },
+  });
+  await prisma.saasPayment.create({
+    data: {
+      orgId: q.org.id,
+      amount: q.amount,
+      orderId: order.id,
+      status: "CREATED",
+      studentCount: q.to,
+      notes: `${UPGRADE_NOTE} · ${q.from} → ${q.to} students · ${q.daysLeft} days`,
+    },
+  });
+  const quote = await quoteForSchool({ students: q.to });
+  return {
+    keyId,
+    orderId: order.id,
+    amount: q.amount,
+    amountPaise: q.amount * 100,
+    org: q.org,
+    renewal: true,
+    planName: q.org.plan || pricing.planName,
+    quote,
+    upgrade: { from: q.from, to: q.to, extra: q.extra, daysLeft: q.daysLeft, rateMonthly: q.rateMonthly },
+  };
+}
+
+const UPGRADE_NOTE = "Upgrade order";
+
+function rupees(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
+}
+
+/** Page where a school picks how many students to upgrade to, with the price for the days left. */
+export async function saasUpgradeHtml(orgIdRaw: unknown, problem = "") {
+  let body: string;
+  try {
+    const base = await saasUpgradeQuote(orgIdRaw);
+    const options = await Promise.all([0, 1, 2, 3].map((i) => saasUpgradeQuote(orgIdRaw, base.to + i * SEAT_STEP)));
+    const end = (base.org.renewalOn as Date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+    body = `<p class="lead" style="font-size:18px">School: ${escapeHtml(base.org.schoolName)}</p>
+      <p class="muted">${base.active} students on the roll · your plan covers ${base.from}. Add seats in groups of ${SEAT_STEP}. You pay only for the ${base.daysLeft} days left until ${end}, at your rate of ₹${rupees(base.rateMonthly)} per student per month.</p>
+      ${problem ? `<p class="fine" style="color:#b91c1c">${escapeHtml(problem)}</p>` : ""}
+      <form class="form" method="post" action="/api/saas/payment/upgrade">
+        <input type="hidden" name="orgId" value="${escapeHtml(base.org.id)}">
+        ${options
+          .map(
+            (o, i) => `<label style="display:flex;align-items:center;gap:12px;border:1px solid #e2e8f0;border-radius:14px;padding:14px 16px;margin:8px 0;cursor:pointer">
+              <input type="radio" name="seats" value="${o.to}"${i === 0 ? " checked" : ""} style="width:auto">
+              <span style="flex:1"><strong>${o.to} students</strong><br><span class="fine">+${o.extra} × ₹${rupees(o.rateMonthly)} × 12 × ${o.daysLeft}/365 days</span></span>
+              <strong>₹${formatInr(o.amount)}</strong>
+            </label>`
+          )
+          .join("")}
+        <button class="btn primary" type="submit" style="width:100%;margin-top:14px">Continue to secure checkout →</button>
+      </form>
+      <p class="fine">Your end date stays ${end}. The next renewal is priced for your new number of students.</p>`;
+  } catch (e) {
+    body = `<p class="lead" style="font-size:18px">${escapeHtml(e instanceof Error ? e.message : "Upgrade is not available.")}</p>`;
+  }
+  return shell(
+    "Add students | Anekio",
+    "Add more students to your Anekio plan.",
+    `<main class="wrap" style="min-height:100vh;display:grid;place-items:center;padding:40px 0">
+      <section class="price-card" style="max-width:680px;width:100%">
+        <div class="eyebrow">Upgrade Anekio</div>
+        <h1 style="font-size:44px;margin-bottom:12px">Add more students.</h1>
+        ${body}
+      </section>
+    </main>`
+  );
+}
+
+export function saasCheckoutHtml(
+  order: Awaited<ReturnType<typeof createSaasRazorpayOrder>> & { upgrade?: { from: number; to: number; extra: number; daysLeft: number; rateMonthly: number } }
+) {
   const verifyPayload = { orgId: order.org.id, amount: order.amount };
-  const heading = order.renewal ? "Renew your Anekio plan" : "Complete your Anekio payment";
-  const description = order.renewal ? `${order.planName} plan renewal` : `${order.planName} plan`;
-  const successTitle = order.renewal ? "Renewal received" : "Payment received";
-  const successHeading = order.renewal ? "Your Anekio access is renewing" : "Welcome to Anekio";
-  const successCopy = order.renewal
-    ? "Your renewal payment is recorded. You can continue using Anekio while our account manager follows up."
-    : "Your payment is recorded. One of our account managers will connect with you for onboarding.";
+  const up = order.upgrade;
+  const heading = up ? `Upgrade to ${up.to} students` : order.renewal ? "Renew your Anekio plan" : "Complete your Anekio payment";
+  const description = up ? `Upgrade to ${up.to} students` : order.renewal ? `${order.planName} plan renewal` : `${order.planName} plan`;
+  const successTitle = up ? "Upgrade received" : order.renewal ? "Renewal received" : "Payment received";
+  const successHeading = up ? `Your plan now covers ${up.to} students` : order.renewal ? "Your Anekio access is renewing" : "Welcome to Anekio";
+  const successCopy = up
+    ? "Your payment is recorded. You can add students right away; refresh the app if it is open."
+    : order.renewal
+      ? "Your renewal payment is recorded. You can continue using Anekio while our account manager follows up."
+      : "Your payment is recorded. One of our account managers will connect with you for onboarding.";
   const q = order.quote;
-  const breakdown = [
+  const breakdown = up
+    ? [`${up.extra} more students × ₹${rupees(up.rateMonthly)} × 12 months × ${up.daysLeft} of 365 days left`, `Your plan goes from ${up.from} to ${up.to} students. The end date does not change.`]
+    : [
     q.coupon && q.baseYearly === q.total && !q.discount && q.rate === q.standardRate
       ? `${q.students} students · agreed price for your school`
       : `${q.students} students × ₹${q.rate} × 12 months${q.usedMinimum ? ` (minimum ₹${formatInr(q.minimumYearly)} a year applies)` : ""}`,
     q.coupon && q.discount ? `Agreed discount for your school: −₹${formatInr(q.discount)}` : "",
   ].filter(Boolean);
+  const unit = up ? ` for ${up.daysLeft} days` : " / year";
   return shell(
     "Complete payment | Anekio",
     "Complete your Anekio payment securely.",
@@ -1211,7 +1429,7 @@ export function saasCheckoutHtml(order: Awaited<ReturnType<typeof createSaasRazo
         <div class="eyebrow">Secure checkout</div>
         <h1 style="font-size:44px;margin-bottom:10px">${heading}</h1>
         <p class="lead" style="font-size:18px">School: ${escapeHtml(order.org.schoolName)}</p>
-        <div class="price">₹${formatInr(order.amount)}<span class="price-unit"> / year</span></div>
+        <div class="price">₹${formatInr(order.amount)}<span class="price-unit">${unit}</span></div>
         ${breakdown.map((line) => `<p class="fine" style="margin:4px 0">${line}</p>`).join("")}
         <p class="muted">Secure checkout should open automatically. If it does not, use the button below.</p>
         <button id="pay" class="btn primary" type="button" style="width:100%;margin-top:12px">Open secure checkout</button>
@@ -1301,6 +1519,13 @@ export async function verifySaasRazorpayPayment(input: Record<string, unknown>) 
     });
     if (ordered?.couponCode) await markCouponUsed(ordered.couponCode);
   }
+  // A seat upgrade adds students until the current end date; it does not buy a new period.
+  if (ordered?.notes.startsWith(UPGRADE_NOTE)) {
+    if (!existing) {
+      await fulfillSeatUpgrade({ orgId, seats: ordered.studentCount || 0, amount, actorEmail: "razorpay", paymentId: razorpayPaymentId });
+    }
+    return { ok: true, alreadyProcessed: Boolean(existing) };
+  }
   // A payment made through an admin link buys that link's plan (name + validity).
   const linkRow = ordered?.couponCode ? await prisma.saasCoupon.findUnique({ where: { code: ordered.couponCode } }) : null;
   const linkPlan = linkRow?.planId ? await prisma.saasPlan.findUnique({ where: { id: linkRow.planId } }) : null;
@@ -1326,7 +1551,8 @@ export async function saasRenewalHtml(input: { orgId?: unknown; contact?: unknow
     : contact
       ? await findSaasOrgByContact({ ownerEmail: contact, ownerPhone: contact })
       : null;
-  const renewQuote = org ? await quoteForSchool({ students: org.studentCount || 0 }) : null;
+  const renewQuote = org ? await renewalQuoteForOrg(org) : null;
+  const locked = Boolean(org && org.monthlyPrice > 0);
   return shell(
     "Renew Anekio | Anekio",
     "Renew your Anekio school ERP plan.",
@@ -1338,10 +1564,11 @@ export async function saasRenewalHtml(input: { orgId?: unknown; contact?: unknow
           org
             ? `<p class="lead" style="font-size:18px">School: ${escapeHtml(org.schoolName)}</p>
               <div class="price">₹${formatInr(renewQuote?.total || pricing.minimumYearly)}<span class="price-unit"> / year</span></div>
-              <p class="muted">₹${pricing.perStudentMonthly} per student per month, minimum ₹${formatInr(pricing.minimumYearly)} a year. Update your student count below; the final price is shown at checkout.</p>
+              <p class="muted">For ${renewQuote?.seats || 0} students (${await activeStudents(org.id)} on the roll, priced in groups of ${SEAT_STEP}).${
+                locked ? " The price agreed for your school." : ` ₹${pricing.perStudentMonthly} per student per month, minimum ₹${formatInr(pricing.minimumYearly)} a year.`
+              }</p>
               <form class="form" method="post" action="/api/saas/payment/order">
                 <input type="hidden" name="orgId" value="${escapeHtml(org.id)}">
-                <div class="two"><label>Number of students<input name="studentCount" type="number" min="1" required value="${org.studentCount || ""}"></label></div>
                 <button class="btn primary" type="submit" style="width:100%;margin-top:14px">Continue to secure checkout →</button>
               </form>`
             : `<p class="lead" style="font-size:18px">Enter the email or phone used for your school account. We will find your organisation and open renewal checkout.</p>
@@ -1357,37 +1584,38 @@ export async function saasRenewalHtml(input: { orgId?: unknown; contact?: unknow
 }
 
 export async function subscriptionLockForUser(userId: string): Promise<SaasSubscriptionLock | null> {
-  const row = await prisma.user.findUnique({ where: { id: userId }, select: { email: true, phone: true } });
-  if (!row) return null;
-  let org = await findSaasOrgByContact({ ownerEmail: row.email || "", ownerPhone: row.phone || "" });
-  if (!org) {
-    const school = await prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { email: true, phone: true } });
-    org = await findSaasOrgByContact({ ownerEmail: school?.email || "", ownerPhone: school?.phone || "" });
-  }
+  const org = await saasOrgForUser(userId);
   if (!org || !isRenewalRequired(org)) return null;
   const pricing = await getSitePricing();
-  const lockQuote = await quoteForSchool({ students: org.studentCount || 0 });
+  const lockQuote = await renewalQuoteForOrg(org);
+  const amount = lockQuote.total || pricing.minimumYearly;
+  const stopped = ["PAUSED", "CANCELLED", "CLOSED", "INACTIVE"].includes(org.subscriptionStatus.toUpperCase());
+  const { getAppVersionRules } = await import("./app-version");
+  const supportPhone = await getAppVersionRules("android")
+    .then((rules) => rules.supportPhone)
+    .catch(() => "");
   return {
     locked: true,
     orgId: org.id,
     schoolName: org.schoolName,
     status: org.subscriptionStatus,
+    free: isFreeSubscription(org),
+    reason: stopped ? "STOPPED" : "ENDED",
     renewalOn: org.renewalOn ? org.renewalOn.toISOString() : "",
     renewUrl: renewalUrl(org.id),
-    amount: lockQuote.total || pricing.minimumYearly,
+    amount,
+    seats: lockQuote.seats,
+    rateMonthly: lockQuote.seats && !lockQuote.usedMinimum ? Math.round((amount / (lockQuote.seats * 12)) * 100) / 100 : 0,
+    supportPhone,
   };
 }
 
 export async function subscriptionOverviewForUser(userId: string): Promise<SaasSubscriptionOverview | null> {
-  const row = await prisma.user.findUnique({ where: { id: userId }, select: { email: true, phone: true } });
-  if (!row) return null;
-  let org = await findSaasOrgByContact({ ownerEmail: row.email || "", ownerPhone: row.phone || "" });
-  if (!org) {
-    const school = await prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { email: true, phone: true } });
-    org = await findSaasOrgByContact({ ownerEmail: school?.email || "", ownerPhone: school?.phone || "" });
-  }
+  const org = await saasOrgForUser(userId);
   if (!org) return null;
   const pricing = await getSitePricing();
+  const renewQuote = await renewalQuoteForOrg(org);
+  const seats = seatStatus(org, await activeStudents(org.id));
   const invoices = await prisma.saasInvoice.findMany({
     where: { orgId: org.id },
     orderBy: [{ issueDate: "desc" }, { createdAt: "desc" }],
@@ -1399,11 +1627,16 @@ export async function subscriptionOverviewForUser(userId: string): Promise<SaasS
     plan: org.plan,
     status: org.subscriptionStatus,
     paymentStatus: org.paymentStatus,
+    state: subscriptionState(org),
+    free: isFreeSubscription(org),
     subscriptionStart: org.subscriptionStart ? org.subscriptionStart.toISOString() : "",
     renewalOn: org.renewalOn ? org.renewalOn.toISOString() : "",
     daysLeft: daysUntil(org.renewalOn),
+    graceDaysLeft: graceDaysLeft(org),
+    seats,
+    upgradeUrl: canUpgrade(org, seats) ? upgradeUrl(org.id) : "",
     renewUrl: renewalUrl(org.id),
-    amount: org.monthlyPrice || pricing.salePrice,
+    amount: renewQuote.total || pricing.salePrice,
     invoices: invoices.map((invoice) => ({
       id: invoice.id,
       number: invoice.number,

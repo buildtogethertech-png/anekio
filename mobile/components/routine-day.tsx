@@ -33,6 +33,7 @@ type Row = {
   teacherId: string;
   teacher: string;
   fromLeave: boolean;
+  coverSubject?: string;
   candidates: Candidate[];
 };
 type Day = {
@@ -303,7 +304,7 @@ function PeriodRow({ row, first, showClass, canEdit, onPress }: { row: Row; firs
       <View className="min-w-0 flex-1">
         <Text className="text-[14px] font-medium text-ink-900" numberOfLines={1}>
           {showClass ? `${row.classLabel} · ` : ""}
-          {row.subject}
+          {row.coverSubject && row.status === "COVERED" ? `${row.coverSubject} (instead of ${row.subject})` : row.subject}
         </Text>
         <View className="mt-0.5 flex-row flex-wrap items-center gap-1.5">
           {changed && row.weeklyTeacher ? (

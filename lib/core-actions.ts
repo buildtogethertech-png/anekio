@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import { assertSeatsFor } from "./seats";
 import { ensurePreparedYear, markJoiningNextYear } from "./promotion";
 import { randomUUID } from "node:crypto";
 import QRCode from "qrcode";
@@ -251,6 +252,7 @@ async function createStudentNow(
     existingStudent?: boolean;
   }
 ) {
+  await assertSeatsFor(user.orgId, 1);
   need(user, "people.edit", CLASS_STUDENTS_ADD);
   if (classTeacherOnly(user, CLASS_STUDENTS_ADD)) {
     // Class teacher: own class only, and no money. No admission fee, no old due, no payment, no enquiry.
@@ -610,6 +612,7 @@ export async function admitLeadAsStudentCore(
     paymentReference?: string;
   }
 ) {
+  await assertSeatsFor(user.orgId, 1);
   need(user, "admissions.manage");
   const leadId = String(input.leadId || "").trim();
   const studentName = String(input.studentName || "").trim();

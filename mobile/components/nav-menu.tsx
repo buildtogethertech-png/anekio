@@ -129,8 +129,12 @@ export function NavMenu({
   const { user, nav, signOut } = useSession();
   const pathname = usePathname();
   const router = useRouter();
+  const { data: record } = useRecord();
+  // While the school's plan is not active only "Manage subscription" works, so show nothing else.
+  const locked = Boolean(record?.subscriptionLock);
   const items = nav
     .filter((n) => n.key !== "profile" && n.key !== "uploads" && n.key !== "onboarding")
+    .filter((n) => !locked || n.key === "subscription")
     .sort((a, b) => {
       const order =
         user?.portal === "OFFICE"

@@ -129,3 +129,14 @@ export async function getFocusDay() {
 export async function setFocusDay(value: string | null) {
   await writeStore(FOCUS_DAY_KEY, value ?? "");
 }
+
+const RENEWAL_NOTICE_KEY = "anekio.renewalNotice";
+
+/** Last renewal reminder this device closed, as "<orgId>|<renewalOn>|<milestone>" (shown again at the next milestone). */
+export async function getRenewalNoticeSeen() {
+  return (await readStore(RENEWAL_NOTICE_KEY)) || "";
+}
+
+export async function setRenewalNoticeSeen(value: string) {
+  await writeStore(RENEWAL_NOTICE_KEY, value);
+}

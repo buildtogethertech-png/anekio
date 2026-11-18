@@ -45,7 +45,7 @@ import { ensureSchoolSessions } from "./school-session";
 import { documentStudioBundle } from "./document-studio";
 import { CONTEST_TYPE_LABEL, daysLate, formatInr, LEVEL_LABEL, PATH_LABEL, percent, publicOrigin } from "./utils";
 import { admissionCustomValues, admissionFormFields, applySchoolClassOptions, classLabelsFrom, effectiveFormJson, staffOnboardingFormFields, websiteFormFields } from "./admission-form";
-import { subscriptionLockForUser } from "./anekio-site";
+import { subscriptionLockForUser, subscriptionOverviewForUser } from "./anekio-site";
 import { configuredAdmissionFormJson } from "./admission-form-config";
 
 function inDate(value: Date | string) {
@@ -1765,14 +1765,19 @@ async function officePayload(user: AccessUser) {
 export async function recordPayload(user: AccessUser, childId?: string | null) {
   const subscriptionLock = await subscriptionLockForUser(user.id);
   if (subscriptionLock) {
+    // Only the school's admins can pay; everyone else is told to ask them. Admins still see their plan and invoices.
+    const canRenew = user.portal === "OFFICE" && (can(user, "subscription.manage") || can(user, "school.edit"));
     return {
       kind: user.portal,
-      subscriptionLock,
+      subscriptionLock: { ...subscriptionLock, canRenew },
+      ...(canRenew ? { subscription: await subscriptionOverviewForUser(user.id) } : {}),
     };
   }
   if (user.portal === "PARENT" || user.portal === "STUDENT") {
     return parentStudentPayload(user, childId);
   }
   if (user.portal === "TEACHER") return teacherPayload(user);
-  return officePayload(user);
+  const office = await officePayload(user);
+  if (!can(user, "subscription.manage") && !can(user, "school.edit")) return office;
+  return { ...office, subscription: await subscriptionOverviewForUser(user.id) };
 }

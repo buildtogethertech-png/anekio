@@ -81,6 +81,8 @@ import {
   marketingHtml,
   robotsTxt,
   saasRenewalHtml,
+  saasUpgradeHtml,
+  createSaasUpgradeOrder,
   saasCheckoutHtml,
   sitemapXml,
   subscriptionLockForUser,
@@ -1527,6 +1529,32 @@ app.get("/anekio/pay/:token", async (req, res, next) => {
 
 app.get("/anekio/renew", async (req, res) => {
   res.type("html").send(await saasRenewalHtml({ orgId: req.query.org, contact: req.query.contact }));
+});
+
+// "Renew now" from the app: create the order and open Razorpay checkout right away (no extra page).
+app.get("/anekio/renew/pay", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("X-Robots-Tag", "noindex, nofollow");
+  try {
+    res.type("html").send(saasCheckoutHtml(await createSaasRazorpayOrder({ orgId: req.query.org } as never)));
+  } catch (e) {
+    res.status(400).type("html").send(await marketingHtml(e instanceof Error ? e.message : "Could not open checkout."));
+  }
+});
+
+// Buy more student seats until the current plan ends (price worked out on the server).
+app.get("/anekio/upgrade", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("X-Robots-Tag", "noindex, nofollow");
+  res.type("html").send(await saasUpgradeHtml(req.query.org));
+});
+
+app.post("/api/saas/payment/upgrade", async (req, res) => {
+  try {
+    res.type("html").send(saasCheckoutHtml(await createSaasUpgradeOrder(req.body || {})));
+  } catch (e) {
+    res.status(400).type("html").send(await saasUpgradeHtml(req.body?.orgId, e instanceof Error ? e.message : "Could not start the upgrade."));
+  }
 });
 
 async function createSaasPaymentOrder(req: express.Request, res: express.Response) {

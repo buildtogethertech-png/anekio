@@ -175,4 +175,29 @@ describe("trial signup provisioning", () => {
     expect(welcomeChallenge.expiresAt.getTime() - welcomeChallenge.createdAt.getTime()).toBeGreaterThan(23 * 60 * 60 * 1000);
     expect(JSON.stringify(response.body)).not.toContain("reset-password?token=");
   });
+  it("shows a free subscription with renewal at the school's locked price", async () => {
+    const { createSaasTrial } = await import("../../lib/anekio-site");
+    const trial = await createSaasTrial({
+      schoolName: "Locked Price School", ownerName: "Locked Owner", ownerEmail: "locked-owner@example.com", ownerPhone: "9708608975", city: "Patna",
+    });
+    const orgId = trial.id;
+    const login = await request(app).post("/api/v1/login").send({ login: "9708608975", password: "12345" });
+    const auth = { Authorization: `Bearer ${login.body.token}` };
+
+    const free = await request(app).get("/api/v1/record").set(auth);
+    expect(free.status).toBe(200);
+    expect(free.body.subscription).toMatchObject({ orgId, state: "FREE", free: true });
+    expect(free.body.subscription.renewalOn).toBeTruthy();
+
+    await prisma.saasOrg.update({ where: { id: orgId }, data: { monthlyPrice: 18000 } });
+    const locked = await request(app).get("/api/v1/record").set(auth);
+    expect(locked.body.subscription).toMatchObject({ state: "FREE", amount: 18000 });
+    const renew = await request(app).get(`/anekio/renew?org=${orgId}`);
+    expect(renew.text).toContain("₹18,000");
+    expect(renew.text).not.toContain('name="studentCount"');
+
+    await prisma.saasOrg.update({ where: { id: orgId }, data: { renewalOn: new Date(Date.now() - 86_400_000) } });
+    const ended = await request(app).get("/api/v1/record").set(auth);
+    expect(ended.body.subscription).toMatchObject({ state: "EXPIRED", free: true, amount: 18000 });
+  });
 });

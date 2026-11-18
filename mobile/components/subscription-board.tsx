@@ -35,6 +35,32 @@ function resolveUrl(url: string) {
   return `${webOrigin()}${url.startsWith("/") ? url : `/${url}`}`;
 }
 
+function summaryFor(subscription: Subscription) {
+  const end = subscription.renewalOn ? dateLabel(subscription.renewalOn) : "";
+  if (subscription.state === "FREE") {
+    return {
+      title: "Free subscription",
+      badge: "Free",
+      tone: "sky" as const,
+      line: end ? `Valid till ${end}${subscription.daysLeft != null ? ` · ${subscription.daysLeft} days left` : ""}` : "Given by Anekio · no end date",
+    };
+  }
+  if (subscription.state === "EXPIRED") {
+    return {
+      title: subscription.free ? "Free subscription ended" : "Subscription expired",
+      badge: "Expired",
+      tone: "danger" as const,
+      line: end ? `Ended on ${end}` : "Renew to keep using Anekio",
+    };
+  }
+  return {
+    title: subscription.plan || "Anekio plan",
+    badge: "Active",
+    tone: "leaf" as const,
+    line: end ? `Renews on ${end}${subscription.daysLeft != null ? ` · ${subscription.daysLeft} days left` : ""}` : "Active",
+  };
+}
+
 const PLAN_FEATURES = [
   "Student, parent, teacher, and office portals",
   "Fee invoices, receipts, reminders, and payment tracking",
@@ -88,6 +114,8 @@ export function SubscriptionBoard() {
     );
   }
 
+  const summary = summaryFor(subscription);
+
   return (
     <View>
       <PageHeader title="Manage subscription" lede="Current plan, expiry, and invoices for this school." />
@@ -97,15 +125,18 @@ export function SubscriptionBoard() {
           <View className="flex-row flex-wrap items-start justify-between gap-4">
             <View className="min-w-0 flex-1">
               <View className="flex-row flex-wrap items-center gap-2">
-                <Text className="text-3xl font-semibold text-ink-900">{subscription.plan}</Text>
-                <Badge tone={toneFor(subscription.status)}>Current plan</Badge>
+                <Text className="text-3xl font-semibold text-ink-900">{summary.title}</Text>
+                <Badge tone={summary.tone}>{summary.badge}</Badge>
               </View>
-              <Text className="mt-2 text-sm font-semibold text-ink-700">
-                {money(subscription.amount)} · Expiry date: {dateLabel(subscription.renewalOn)}
-              </Text>
+              <Text className="mt-2 text-sm font-semibold text-ink-700">{summary.line}</Text>
+              {subscription.amount > 0 ? (
+                <Text className="mt-1 text-sm text-ink-700">Renewal price: {money(subscription.amount)} / year</Text>
+              ) : null}
             </View>
-            <Button onPress={() => void Linking.openURL(resolveUrl(subscription.renewUrl))}>Renew plan</Button>
+            <Button onPress={() => void Linking.openURL(resolveUrl(subscription.renewUrl))}>Renew</Button>
           </View>
+
+          {subscription.seats ? <SeatsCard subscription={subscription} /> : null}
 
           <View className="mt-5 border-t border-ink-100 pt-5">
             <Text className="text-lg font-semibold text-ink-900">Current plan features</Text>
@@ -157,6 +188,46 @@ export function SubscriptionBoard() {
         )}
       </View>
 
+    </View>
+  );
+}
+
+/** Students on the roll vs seats on the plan, with the upgrade button when more seats can be bought. */
+function SeatsCard({ subscription }: { subscription: Subscription }) {
+  const seats = subscription.seats!;
+  const used = seats.limited ? Math.min(1, seats.active / Math.max(1, seats.paid)) : 0;
+  const tone = seats.full ? "bg-red-500" : used >= 0.9 ? "bg-amber-500" : "bg-emerald-500";
+  return (
+    <View className="mt-5 rounded-2xl border border-ink-100 bg-ink-50/50 p-4">
+      <View className="flex-row flex-wrap items-center gap-3">
+        <View className="h-10 w-10 items-center justify-center rounded-full bg-white">
+          <Ionicons name="people-outline" size={20} color="#1F45C7" />
+        </View>
+        <View className="min-w-0 flex-1">
+          <Text className="text-[15px] font-semibold text-ink-900">
+            {seats.limited ? `${seats.active} of ${seats.paid} students` : `${seats.active} students`}
+          </Text>
+          <Text className="text-xs text-ink-700">
+            {seats.trial
+              ? "Free trial · add as many students as you like"
+              : seats.limited
+                ? seats.full
+                  ? "All seats are used. Upgrade to add new students."
+                  : `${seats.paid - seats.active} seats left · plans come in groups of 50 students`
+                : "No student limit set on this plan"}
+          </Text>
+        </View>
+        {subscription.upgradeUrl && seats.limited ? (
+          <Button variant={seats.full ? "primary" : "ghost"} onPress={() => void Linking.openURL(resolveUrl(subscription.upgradeUrl!))}>
+            {`Upgrade to ${Math.max(seats.paid + 50, seats.needed)}`}
+          </Button>
+        ) : null}
+      </View>
+      {seats.limited ? (
+        <View className="mt-3 h-2 overflow-hidden rounded-full bg-white">
+          <View className={`h-2 rounded-full ${tone}`} style={{ width: `${Math.round(used * 100)}%` }} />
+        </View>
+      ) : null}
     </View>
   );
 }
