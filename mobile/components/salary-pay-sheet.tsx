@@ -164,11 +164,15 @@ export function ProofAttach({
   file,
   onChange,
   disabled,
+  hint,
+  label = "Attach proof",
 }: {
   mode: string;
   file: PickedFile | null;
   onChange: (file: PickedFile | null) => void;
   disabled?: boolean;
+  hint?: string;
+  label?: string;
 }) {
   const [preview, setPreview] = useState(false);
   if (file) {
@@ -218,7 +222,7 @@ export function ProofAttach({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel="Attach proof"
+      accessibilityLabel={label}
       disabled={disabled}
       onPress={async () => {
         const picked = await pickFile("image/*,application/pdf").catch(() => null);
@@ -230,8 +234,8 @@ export function ProofAttach({
         <Ionicons name={mode === "CASH" ? "camera-outline" : "attach-outline"} size={18} color="#1F45C7" />
       </View>
       <View className="min-w-0 flex-1">
-        <Text className="text-sm font-semibold text-[#1F45C7]">Attach proof</Text>
-        <Text className="text-[11px] text-ink-500">{`${proofHint(mode)} · optional`}</Text>
+        <Text className="text-sm font-semibold text-[#1F45C7]">{label}</Text>
+        <Text className="text-[11px] text-ink-500">{`${hint ?? proofHint(mode)} · optional`}</Text>
       </View>
     </Pressable>
   );

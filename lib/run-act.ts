@@ -448,6 +448,26 @@ export async function runAct(
       const { undoTimetableFill } = await import("./timetable-autofill");
       return await undoTimetableFill(user, body as never);
     }
+    case "loadExpenses": {
+      const { loadExpensesCore } = await import("./expenses");
+      return { ok: true, ...(await loadExpensesCore(user, body as never)) };
+    }
+    case "saveExpense": {
+      const { saveExpenseCore } = await import("./expenses");
+      return { ok: true, ...(await saveExpenseCore(user, body as never)) };
+    }
+    case "voidExpense": {
+      const { voidExpenseCore } = await import("./expenses");
+      return { ok: true, ...(await voidExpenseCore(user, body as never)) };
+    }
+    case "saveExpenseCategory": {
+      const { saveExpenseCategoryCore } = await import("./expenses");
+      return { ok: true, ...(await saveExpenseCategoryCore(user, body as never)) };
+    }
+    case "saveRecurringExpense": {
+      const { saveRecurringExpenseCore } = await import("./expenses");
+      return { ok: true, ...(await saveRecurringExpenseCore(user, body as never)) };
+    }
     case "loadDayTimetable": {
       const { loadDayTimetable } = await import("./timetable-day");
       return { ok: true, ...(await loadDayTimetable(user, body as never)) };

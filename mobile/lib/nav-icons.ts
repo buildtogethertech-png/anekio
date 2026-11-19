@@ -38,6 +38,7 @@ const NAV_ICONS: Record<string, IoniconName> = {
   admissions: "person-add-outline",
   timetable: "calendar-outline",
   fees: "wallet-outline",
+  expenses: "cash-outline",
   exams: "clipboard-outline",
   leave: "airplane-outline",
   class: "people-outline",

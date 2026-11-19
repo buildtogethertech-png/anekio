@@ -34,6 +34,7 @@ const RESUMABLE_PATHS = new Set([
   "/school",
   "/timetable",
   "/fees",
+  "/expenses",
   "/exams",
   "/roles",
   "/subscription",

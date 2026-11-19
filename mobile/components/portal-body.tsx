@@ -35,6 +35,7 @@ import { AccountActions, MoreBoard } from "./nav-menu";
 import { ParentExamination, ParentExaminationError, ParentExaminationLoading } from "./parent-examination";
 import { OnboardingBoard } from "./onboarding-board";
 import { SubscriptionBoard } from "./subscription-board";
+import { ExpensesBoard } from "./expenses-board";
 import { PORTAL_PATH, examsScreenForKind, testsScreenForKind } from "../lib/paths";
 import { useRecord } from "../lib/record";
 import { useSession } from "../lib/session";
@@ -236,6 +237,7 @@ export function PortalBody({ screen }: { screen: string }) {
     }
     return <FamilyTests />;
   }
+  if (screen === "expenses") return <ExpensesBoard />;
   if (screen === "roles") return <RolesBoard />;
   if (screen === "subscription") return <SubscriptionBoard />;
   if (screen === "attendance") {

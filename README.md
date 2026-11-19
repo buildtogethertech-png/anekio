@@ -103,3 +103,19 @@ the diagrams. The generated Mermaid source files are written beside the HTML in
 Use the Jira-first workflow in [`docs/jira-change-workflow.md`](docs/jira-change-workflow.md).
 
 For every code change, create or identify a Jira ticket first, document the plan there, make the change, update the ticket with verification notes, then commit with the Jira ticket key in the commit message.
+
+## Hosting: AWS Mumbai (moved 5 Nov 2026)
+
+Anekio moved off Vercel + Neon onto AWS Mumbai (`ap-south-1`). All school data was copied and checked table by table.
+
+- **Why:** the API ran in the US (Virginia) and the database in Ohio; Neon also paused when idle (~14 s cold start). Login now takes ~0.09 s (was 0.25 s, or ~14 s after idle).
+- **Data:** stays in India on an encrypted database that is not reachable from the internet.
+- **Monitoring:** `monitoring.anekio.com` (server/DB health, traffic, errors, per-school activity). 8 email alerts go to support@anekio.com (server/DB down, error spikes, disk/memory/CPU/storage). Admin → Usage shows active users per school.
+- **Domains:** `anekio.in` redirects to `anekio.com`; one auto-renewing SSL certificate covers all school subdomains.
+- **Cost:** about ₹3,300/month incl. GST; AWS credits cover roughly the first 4 months.
+- **Deploys are manual:** pushing to GitHub does not deploy. Ship with `npm run deploy:prod` (`bash deploy/push.sh`, no downtime). Phone OTA: `npm run update:prod -- "message"`.
+- **Logs:** `bash deploy/logs.sh` (or `errors`, `slow`, `usage`). Server keeps 3 days; Grafana keeps 14.
+- **Staging is offline:** it lived on Vercel, so staging/preview app builds won't connect until it is set up again.
+- **Still to do:** delete the old Neon database once stable; upgrade the AWS account from the Free plan before **4 March 2027**; decide whether staging is needed.
+
+Setup, scripts and runbook: [`deploy/README.md`](deploy/README.md).

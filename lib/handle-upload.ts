@@ -193,6 +193,12 @@ function validateAndFolder(user: AccessUser, file: UploadFile, fields: Record<st
     return { kind, folder: `private/${schoolRoot()}/payroll/proofs` };
   }
 
+  if (kind === "expenseBill") {
+    if (!can(user, "expenses.add") && !can(user, "expenses.manage")) throw new Error("No access.");
+    if (!isReceiptFile(file.name, file.mime)) throw new Error("Attach the bill as a photo or PDF.");
+    return { kind, folder: `private/${schoolRoot()}/expenses/bills` };
+  }
+
   if (kind === "examMarks") {
     if (!can(user, "exams.edit")) throw new Error("No access.");
     if (!isOnboardingSheet(file.name, file.mime)) throw new Error("Upload the Excel or CSV marks sheet.");

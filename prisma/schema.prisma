@@ -2013,3 +2013,79 @@ model UsageDaily {
   @@index([orgId, day])
   @@index([day])
 }
+
+/// Expense heads a school sets up (Rent, Electricity, Stationery …). Salary is not a row here: it comes from StaffSalaryPayment.
+model ExpenseCategory {
+  id          String             @id @default(cuid())
+  orgId       String?
+  name        String
+  sort        Int                @default(0)
+  archivedAt  DateTime?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  createdById String?
+  updatedById String?
+  expenses    Expense[]
+  recurring   RecurringExpense[]
+
+  @@unique([orgId, name])
+  @@index([orgId])
+}
+
+/// A cost that comes back on a schedule (rent, internet, bus EMI). It never pays itself: each period shows as due until someone records the expense.
+model RecurringExpense {
+  id          String           @id @default(cuid())
+  orgId       String?
+  name        String
+  categoryId  String?
+  category    ExpenseCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  amount      Int
+  /// MONTHLY, QUARTERLY, HALF_YEARLY or YEARLY.
+  every       String           @default("MONTHLY")
+  /// Day of the month it falls due (1–31, clamped to the month's last day).
+  dueDay      Int              @default(1)
+  /// First period, YYYY-MM.
+  startMonth  String
+  payee       String           @default("")
+  note        String           @default("")
+  archivedAt  DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  createdById String?
+  updatedById String?
+  expenses    Expense[]
+
+  @@index([orgId])
+}
+
+/// One amount actually paid. paidOn is the day the money went out (daily report); forMonth is the month it belongs to (profit and loss).
+/// Wrong entries are cancelled with a reason, never deleted.
+model Expense {
+  id          String            @id @default(cuid())
+  orgId       String?
+  paidOn      String
+  forMonth    String
+  amount      Int
+  categoryId  String?
+  category    ExpenseCategory?  @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  recurringId String?
+  recurring   RecurringExpense? @relation(fields: [recurringId], references: [id], onDelete: SetNull)
+  /// CASH, UPI, BANK or CHEQUE.
+  mode        String            @default("CASH")
+  payee       String            @default("")
+  reference   String            @default("")
+  note        String            @default("")
+  /// Optional bill photo or PDF.
+  proofPath   String            @default("")
+  voidedAt    DateTime?
+  voidedById  String?
+  voidReason  String            @default("")
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  createdById String?
+  updatedById String?
+
+  @@index([orgId, paidOn])
+  @@index([orgId, forMonth])
+  @@index([recurringId, forMonth])
+}

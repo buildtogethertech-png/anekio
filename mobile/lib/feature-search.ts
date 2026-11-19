@@ -60,6 +60,10 @@ const FEATURE_SEARCH_INDEX: Record<string, FeatureSearchMeta> = {
     hint: "Settings",
     aliases: ["settings", "school", "configuration", "config", "gateway", "payment gateway"],
   },
+  expenses: {
+    hint: "Expenses",
+    aliases: ["expenses", "expense", "kharcha", "spend", "bills", "rent", "profit", "loss", "p&l"],
+  },
   subscription: {
     hint: "Subscription",
     aliases: ["subscription", "plan", "billing", "renewal"],
