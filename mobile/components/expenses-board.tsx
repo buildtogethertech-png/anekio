@@ -1024,6 +1024,7 @@ function ExpenseForm({
   const [categoryId, setCategoryId] = useState("");
   const [paidOn, setPaidOn] = useState(data.today);
   const [forMonth, setForMonth] = useState(data.today.slice(0, 7));
+  const [monthTouched, setMonthTouched] = useState(false);
   const [mode, setMode] = useState("CASH");
   const [payee, setPayee] = useState("");
   const [note, setNote] = useState("");
@@ -1037,6 +1038,7 @@ function ExpenseForm({
     setCategoryId(initial?.categoryId ?? "");
     setPaidOn(initial?.paidOn ?? data.today);
     setForMonth(initial?.forMonth ?? data.today.slice(0, 7));
+    setMonthTouched(Boolean(initial?.forMonth && initial.forMonth !== (initial.paidOn ?? data.today).slice(0, 7)));
     setMode(initial?.mode ?? "CASH");
     setPayee(initial?.payee ?? "");
     setNote(initial?.note ?? "");
@@ -1046,6 +1048,10 @@ function ExpenseForm({
 
   const editing = Boolean(initial?.id);
   const recurring = Boolean(initial?.recurringId);
+  const changePaidOn = (d: string) => {
+    setPaidOn(d);
+    if (!recurring && !monthTouched) setForMonth(d.slice(0, 7));
+  };
   const title = editing ? "Edit expense" : recurring ? `Pay ${initial?.recurringName}` : "Add expense";
 
   const save = async () => {
@@ -1058,7 +1064,7 @@ function ExpenseForm({
         amount: Number(amount.replace(/[^\d.]/g, "")),
         categoryId,
         recurringId: initial?.recurringId ?? undefined,
-        forMonth: recurring ? forMonth : undefined,
+        forMonth,
         paidOn,
         mode,
         payee,
@@ -1111,12 +1117,46 @@ function ExpenseForm({
 
       <Label>Paid on</Label>
       <View className="flex-row flex-wrap items-center gap-1.5">
-        <Chip label="Today" active={paidOn === data.today} onPress={() => setPaidOn(data.today)} />
-        <Chip label="Yesterday" active={paidOn === addDays(data.today, -1)} onPress={() => setPaidOn(addDays(data.today, -1))} />
+        <Chip label="Today" active={paidOn === data.today} onPress={() => changePaidOn(data.today)} />
+        <Chip label="Yesterday" active={paidOn === addDays(data.today, -1)} onPress={() => changePaidOn(addDays(data.today, -1))} />
         <View className="min-w-[150px] flex-1">
-          <DateField value={paidOn} max={data.today} onChange={setPaidOn} />
+          <DateField value={paidOn} max={data.today} onChange={changePaidOn} />
         </View>
       </View>
+
+      {!recurring && !monthTouched ? (
+        <Pressable accessibilityRole="button" onPress={() => setMonthTouched(true)} className="mt-2 flex-row items-center gap-1.5 self-start py-1">
+          <Ionicons name="calendar-clear-outline" size={14} color="#64748b" />
+          <Text className="text-xs text-ink-600">{`For ${monthLabel(forMonth, true)}`}</Text>
+          <Text className="text-xs font-semibold text-[#1F45C7]">· Bill for another month?</Text>
+        </Pressable>
+      ) : null}
+      {!recurring && monthTouched ? (
+        <>
+          <Label>For month</Label>
+          <View className="flex-row items-center gap-2 rounded-xl border border-ink-200 px-1.5 py-1.5">
+            <Pressable accessibilityRole="button" accessibilityLabel="Earlier month" onPress={() => setForMonth(addMonths(forMonth, -1))} className="h-9 w-9 items-center justify-center rounded-full bg-ink-50">
+              <Ionicons name="chevron-back" size={16} color="#3d4f66" />
+            </Pressable>
+            <View className="min-w-0 flex-1 items-center">
+              <Text className="text-sm font-semibold text-ink-900">{monthLabel(forMonth, true)}</Text>
+              <Text className="text-[11px] text-ink-500" numberOfLines={1}>
+                {forMonth === paidOn.slice(0, 7) ? "Same month it was paid" : `Paid ${shortDate(paidOn)}, counted in ${monthLabel(forMonth, true)}`}
+              </Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Later month"
+              disabled={forMonth >= paidOn.slice(0, 7)}
+              onPress={() => setForMonth(addMonths(forMonth, 1))}
+              className={`h-9 w-9 items-center justify-center rounded-full bg-ink-50 ${forMonth >= paidOn.slice(0, 7) ? "opacity-30" : ""}`}
+            >
+              <Ionicons name="chevron-forward" size={16} color="#3d4f66" />
+            </Pressable>
+          </View>
+          <Text className="mt-1 text-[11px] text-ink-500">For a bill from an earlier month, e.g. October's electricity paid in November.</Text>
+        </>
+      ) : null}
 
       <Label>Paid by</Label>
       <PayMethodTiles value={mode} onChange={setMode} />
