@@ -716,6 +716,23 @@ export function FeesBoard() {
       ),
     [people, todayKey]
   );
+  const monthKey = `${new Date().getFullYear()}-${new Date().getMonth()}`;
+  const collectedThisMonth = useMemo(
+    () =>
+      people.reduce(
+        (sum, person) =>
+          sum +
+          paymentHistory(person)
+            .filter((pay) => {
+              if (!pay.paidAt) return false;
+              const paidAt = new Date(pay.paidAt);
+              return `${paidAt.getFullYear()}-${paidAt.getMonth()}` === monthKey;
+            })
+            .reduce((acc, pay) => acc + moneyNumber(pay.amount), 0),
+        0
+      ),
+    [people, monthKey]
+  );
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = { all: 0, overdue: 0, unpaid: 0, partial: 0, paid: 0 };
     for (const person of people) {
@@ -1306,14 +1323,15 @@ export function FeesBoard() {
         accessibilityRole="button"
         accessibilityLabel={label}
         disabled={disabled}
+        hitSlop={6}
         onPress={(event) => {
           (event as unknown as { stopPropagation?: () => void })?.stopPropagation?.();
           onPress();
         }}
-        className={`h-8 w-8 items-center justify-center rounded-full border border-ink-200 bg-white hover:bg-slate-50 ${disabled ? "opacity-40" : ""}`}
+        className={`h-9 w-9 items-center justify-center rounded-full border border-ink-200 bg-white hover:bg-slate-50 ${disabled ? "opacity-40" : ""}`}
         style={Platform.OS === "web" ? ({ cursor: disabled ? "default" : "pointer" } as object) : undefined}
       >
-        <Ionicons name={icon} size={15} color={color} />
+        <Ionicons name={icon} size={18} color={color} />
       </Pressable>
     );
   }
@@ -2579,24 +2597,56 @@ export function FeesBoard() {
   );
 
   const phoneSummary = (
-    <View className="flex-row items-end justify-between rounded-2xl bg-[#1F45C7] px-4 py-4">
-      <View className="min-w-0 flex-1">
-        <Text className="text-xs font-medium text-white/70">Total due</Text>
-        <Text className="mt-0.5 text-[28px] font-bold leading-8 text-white">{compactInr(summary.outstanding)}</Text>
-        <Text className="mt-1 text-xs text-white/85">
-          {summary.overdue ? `${compactInr(summary.overdue)} overdue · ` : ""}
-          {summary.students} {summary.students === 1 ? "student" : "students"}
-        </Text>
+    <View className="rounded-2xl bg-[#1F45C7] px-4 py-3.5">
+      <View className="flex-row items-end justify-between">
+        <View className="min-w-0 flex-1">
+          <Text className="text-xs font-medium text-white/75">Total due</Text>
+          <Text className="mt-0.5 text-[26px] font-bold leading-8 text-white">{compactInr(summary.outstanding)}</Text>
+          <Text className="mt-0.5 text-xs text-white/85">
+            {summary.students} {summary.students === 1 ? "student" : "students"}
+            {summary.overdue && summary.overdue >= summary.outstanding
+              ? " · all overdue"
+              : summary.overdue
+                ? ` · ${compactInr(summary.overdue)} overdue`
+                : ""}
+          </Text>
+        </View>
+        <View className="items-end rounded-xl bg-white/15 px-3 py-2">
+          <Text className="text-[11px] text-white/80">{collectedToday ? "Collected today" : "Collected this month"}</Text>
+          <Text className="text-base font-bold text-white">{compactInr(collectedToday || collectedThisMonth)}</Text>
+        </View>
       </View>
-      <View className="items-end rounded-xl bg-white/15 px-3 py-2">
-        <Text className="text-[11px] text-white/75">Collected today</Text>
-        <Text className="text-base font-bold text-white">{compactInr(collectedToday)}</Text>
-      </View>
+      {collect && dueRows.length ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => {
+            setBulkDone([]);
+            setBulkOpen(true);
+          }}
+          className="mt-3 flex-row items-center justify-center gap-2 rounded-lg bg-white py-2.5"
+        >
+          <Ionicons name="logo-whatsapp" size={16} color="#16a34a" />
+          <Text className="text-sm font-semibold text-ink-900">
+            Remind {dueRows.length} {dueRows.length === 1 ? "parent" : "parents"}
+          </Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 
+  const sortOptions = [
+    ["due", "Due"],
+    ["name", "Name"],
+    ["admission", "Adm. no."],
+    ["class", "Class"],
+  ] as const;
+  const sortIndex = Math.max(
+    0,
+    sortOptions.findIndex(([id]) => id === sortBy)
+  );
   const statusChips = (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+    <View className="flex-row items-center gap-2">
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} className="min-w-0 flex-1" contentContainerStyle={{ gap: 8 }}>
       {(
         [
           ["", "All", statusCounts.all],
@@ -2622,32 +2672,17 @@ export function FeesBoard() {
             </Pressable>
           );
         })}
-      <View className="flex-row items-center gap-1.5 border-l border-ink-200 pl-2">
-        <Ionicons name="swap-vertical" size={14} color="#94A3B8" />
-        {(
-          [
-            ["due", "Due"],
-            ["name", "Name"],
-            ["admission", "Adm. no."],
-            ["class", "Class"],
-          ] as const
-        ).map(([id, label]) => {
-          const on = sortBy === id;
-          return (
-            <Pressable
-              key={id}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: on }}
-              accessibilityLabel={`Sort by ${label}`}
-              onPress={() => setSortBy(id)}
-              className={`rounded-full border px-3 py-1.5 ${on ? "border-ink-900 bg-ink-900" : "border-ink-200 bg-white"}`}
-            >
-              <Text className={`text-[13px] font-medium ${on ? "text-white" : "text-ink-700"}`}>{label}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
     </ScrollView>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Sorted by ${sortOptions[sortIndex][1]}. Tap to sort by ${sortOptions[(sortIndex + 1) % sortOptions.length][1]}`}
+        onPress={() => setSortBy(sortOptions[(sortIndex + 1) % sortOptions.length][0])}
+        className="flex-row items-center gap-1 rounded-full border border-ink-200 bg-white px-3 py-1.5"
+      >
+        <Ionicons name="swap-vertical" size={14} color="#475569" />
+        <Text className="text-[13px] font-medium text-ink-700">{sortOptions[sortIndex][1]}</Text>
+      </Pressable>
+    </View>
   );
 
   const phoneSearch = (
@@ -2688,7 +2723,7 @@ export function FeesBoard() {
         accessibilityRole="button"
         accessibilityLabel={`${row.person.name} fee detail`}
         onPress={() => setSelectedDueStudentId(row.person.id)}
-        className="flex-row items-center gap-3 border-b border-ink-100 px-4 py-3 active:bg-slate-50"
+        className="flex-row items-center gap-2.5 border-b border-ink-100 px-3 py-3 active:bg-slate-50"
       >
         <View className={`h-10 w-10 items-center justify-center rounded-full ${overdue ? "bg-red-50" : paid ? "bg-green-50" : "bg-[#EEF3FF]"}`}>
           <Text className={`text-[13px] font-semibold ${overdue ? "text-red-700" : paid ? "text-green-700" : "text-[#1F45C7]"}`}>
@@ -2703,15 +2738,13 @@ export function FeesBoard() {
         </View>
         <View className="min-w-0 flex-1">
           <Text numberOfLines={1} className="text-[15px] font-semibold text-ink-900">{row.person.name}</Text>
-          <Text numberOfLines={1} className="mt-0.5 text-xs text-ink-500">
+          <Text numberOfLines={1} className="mt-0.5 text-[13px] text-ink-600">
             {row.person.classLabel}
             {row.person.admissionNo ? ` · ${row.person.admissionNo}` : ""}
           </Text>
           {row.months ? (
-            <Text numberOfLines={1} className={`mt-0.5 text-xs font-medium ${overdue ? "text-red-600" : "text-amber-700"}`}>
-              {row.months} {row.months === 1 ? "month" : "months"}
-              {oldest ? ` · since ${oldest}` : ""}
-              {row.late ? ` · +${compactInr(row.late)} late` : ""}
+            <Text numberOfLines={1} className={`mt-0.5 text-[13px] font-medium ${overdue && row.months > 1 ? "text-red-600" : "text-amber-700"}`}>
+              {row.months} mo due{oldest ? ` · ${oldest}` : ""}
             </Text>
           ) : null}
         </View>
@@ -2719,6 +2752,7 @@ export function FeesBoard() {
           <Text className={`text-[15px] font-bold ${paid ? "text-green-700" : overdue ? "text-red-700" : "text-ink-900"}`}>
             {row.dueNow ? compactInr(row.dueNow) : "Paid"}
           </Text>
+          {row.late ? <Text className="mt-0.5 text-[12px] text-ink-600">+{compactInr(row.late)} late</Text> : null}
         </View>
         {row.dueNow > 0 && whatsAppDigits(row.person.parentPhone) ? (
           <RowAction
@@ -2829,7 +2863,7 @@ export function FeesBoard() {
               {tab === "register" ? phoneSummary : null}
               {phoneSearch}
               {tab === "register" ? statusChips : null}
-              {remindButton}
+              {tab === "register" ? null : remindButton}
               {bulkModal}
             </View>
           }

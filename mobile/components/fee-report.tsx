@@ -110,6 +110,7 @@ export function FeeReport({
   const { width } = useWindowDimensions();
   const compact = width < 760;
   const [classId, setClassId] = useState("all");
+  const [showUnbilled, setShowUnbilled] = useState(false);
   const selectedClass = classes.find((row) => row.id === classId);
   const reportPeople = classId === "all" ? people : people.filter((person) => person.classId === classId);
   const reportDueStudents = reportPeople.filter((person) => (person.dueAmount || 0) > 0);
@@ -190,6 +191,12 @@ export function FeeReport({
     const total = Math.max(paid + outstanding, 1);
     const seg = (value: number) => (value > 0 ? Math.max(2, (value / total) * 100) : 0);
     const pendingStudents = Math.max(0, reportDueStudents.length - reportOverdueStudents.length);
+    const toCollect = paid + outstanding;
+    const phoneRate = ratio(paid, toCollect);
+    const lateFines = Math.max(0, toCollect - billed);
+    const billedClasses = classHealth.filter((row) => row.billed > 0);
+    const unbilledClasses = classHealth.filter((row) => row.billed <= 0);
+    const studentsLabel = (count: number) => `${count} ${count === 1 ? "student" : "students"}`;
     return (
       <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 110 }}>
         {header}
@@ -214,48 +221,38 @@ export function FeeReport({
           <View className="rounded-2xl border border-ink-100 bg-white p-4">
             <Text className="text-xs font-medium text-ink-500">{selectedClass ? `${selectedClass.label} · collected` : "Collected"}</Text>
             <View className="mt-0.5 flex-row items-baseline gap-2">
-              <Text className="text-[30px] font-bold leading-9 text-ink-900">{collectionRate}%</Text>
+              <Text className="text-[30px] font-bold leading-9 text-ink-900">{phoneRate}%</Text>
               <Text className="text-sm text-ink-600">
-                {compactInr(paid)} of {compactInr(billed)} billed
+                {compactInr(paid)} of {compactInr(toCollect)}
               </Text>
             </View>
+            <Text className="mt-0.5 text-xs text-ink-500">
+              {compactInr(billed)} billed{lateFines > 0 ? ` + ${compactInr(lateFines)} late fees` : ""}
+            </Text>
             <View className="mt-3 h-3 flex-row overflow-hidden rounded-full bg-ink-100">
               <View className="h-full bg-emerald-500" style={{ width: `${seg(paid)}%` }} />
               <View className="h-full bg-amber-400" style={{ width: `${seg(currentDue)}%` }} />
               <View className="h-full bg-red-500" style={{ width: `${seg(overdue)}%` }} />
             </View>
-            <View className="mt-2 flex-row flex-wrap gap-x-4 gap-y-1">
+            <View className="mt-3 gap-2">
               {(
                 [
-                  ["bg-emerald-500", "Collected", paid],
-                  ["bg-amber-400", "Pending", currentDue],
-                  ["bg-red-500", "Overdue", overdue],
+                  ["bg-emerald-500", "Collected", paid, "", "text-ink-900"],
+                  ["bg-amber-400", "Pending", currentDue, studentsLabel(pendingStudents), "text-amber-800"],
+                  ["bg-red-500", "Overdue", overdue, studentsLabel(reportOverdueStudents.length), "text-red-700"],
                 ] as const
-              ).map(([dot, label, value]) => (
-                <View key={label} className="flex-row items-center gap-1.5">
-                  <View className={`h-2 w-2 rounded-full ${dot}`} />
-                  <Text className="text-xs text-ink-600">
-                    {label} <Text className="font-semibold text-ink-900">{compactInr(value)}</Text>
-                  </Text>
-                </View>
-              ))}
-            </View>
-          </View>
-
-          <View className="flex-row gap-3">
-            <View className="flex-1 rounded-xl border border-red-100 bg-red-50/60 px-3 py-3">
-              <Text className="text-xs font-medium text-red-700">Overdue</Text>
-              <Text className="mt-0.5 text-lg font-bold text-red-700">{compactInr(overdue)}</Text>
-              <Text className="text-xs text-ink-600">
-                {reportOverdueStudents.length} {reportOverdueStudents.length === 1 ? "student" : "students"}
-              </Text>
-            </View>
-            <View className="flex-1 rounded-xl border border-amber-100 bg-amber-50/60 px-3 py-3">
-              <Text className="text-xs font-medium text-amber-800">Pending</Text>
-              <Text className="mt-0.5 text-lg font-bold text-amber-800">{compactInr(currentDue)}</Text>
-              <Text className="text-xs text-ink-600">
-                {pendingStudents} {pendingStudents === 1 ? "student" : "students"}
-              </Text>
+              )
+                .filter(([, label, value]) => label === "Collected" || value > 0)
+                .map(([dot, label, value, hint, tone]) => (
+                  <View key={label} className="flex-row items-center gap-2">
+                    <View className={`h-2.5 w-2.5 rounded-full ${dot}`} />
+                    <Text className="flex-1 text-[13px] text-ink-700">
+                      {label}
+                      {hint ? <Text className="text-ink-500"> · {hint}</Text> : null}
+                    </Text>
+                    <Text className={`text-[14px] font-semibold ${tone}`}>{compactInr(value)}</Text>
+                  </View>
+                ))}
             </View>
           </View>
 
@@ -270,17 +267,17 @@ export function FeeReport({
                   <Text className={`text-lg font-bold ${i === 2 ? "text-red-700" : i === 1 ? "text-amber-800" : "text-[#1F45C7]"}`}>
                     {row.count}
                   </Text>
-                  <Text className="text-[11px] text-ink-600">{row.label}</Text>
+                  <Text className="text-[13px] text-ink-700">{row.label}</Text>
                 </View>
               ))}
             </View>
-            <Text className="mt-2 text-xs text-ink-500">{reportPeople.length - reportDueStudents.length} students fully paid</Text>
+            <Text className="mt-2 text-[13px] text-ink-600">{studentsLabel(reportPeople.length - reportDueStudents.length)} fully paid</Text>
           </View>
 
           {classId === "all" && classHealth.length ? (
             <View className="overflow-hidden rounded-xl border border-ink-100 bg-white">
               <Text className="px-4 pb-1 pt-3 text-sm font-semibold text-ink-900">By class</Text>
-              {classHealth.map((row) => (
+              {(showUnbilled ? [...billedClasses, ...unbilledClasses] : billedClasses).map((row) => (
                 <Pressable
                   key={row.id}
                   accessibilityRole="button"
@@ -305,6 +302,21 @@ export function FeeReport({
                   ) : null}
                 </Pressable>
               ))}
+              {unbilledClasses.length ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: showUnbilled }}
+                  onPress={() => setShowUnbilled((cur) => !cur)}
+                  className="flex-row items-center justify-between px-4 py-3 active:bg-slate-50"
+                >
+                  <Text className="text-[13px] text-ink-600">
+                    {showUnbilled
+                      ? "Hide classes not billed yet"
+                      : `${unbilledClasses.length} ${unbilledClasses.length === 1 ? "class" : "classes"} not billed yet`}
+                  </Text>
+                  <Ionicons name={showUnbilled ? "chevron-up" : "chevron-down"} size={16} color="#64748B" />
+                </Pressable>
+              ) : null}
             </View>
           ) : null}
 

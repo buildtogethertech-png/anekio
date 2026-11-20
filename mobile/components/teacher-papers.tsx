@@ -617,6 +617,11 @@ export function MarkEntryScreen({
   );
   const max = sheet?.maxMarks ?? 100;
   const published = sheet?.workflowStatus === "PUBLISHED";
+  // Sent but not yet published: the teacher can still change marks; the office is told about each change.
+  const sentUnpublished =
+    Boolean(sheet) && sheet?.isChecker !== false && ["SUBMITTED", "UNDER_REVIEW", "RESUBMITTED", "APPROVED"].includes(sheet?.workflowStatus || "");
+  const canChangeMarks = published || sentUnpublished;
+  const reasonOk = !published || reason.trim().length >= 3;
   const readOnly = !sheet || (isSent(sheet) ? !editPublished : !sheet.canEnterMarks);
   const correction = sheet?.workflowStatus === "CORRECTION_REQUIRED";
   const fixOnly = correction && students.some((s) => s.correctionRequested);
@@ -734,7 +739,7 @@ export function MarkEntryScreen({
     if (!sheet) return;
     if (problems) return setError(`Fix the ${problems} red mark${problems === 1 ? "" : "s"} first.`);
     if (!changedIds.length) return setError("Change at least one mark.");
-    if (reason.trim().length < 3) return setError("Write a short reason, e.g. \"Parent query — rechecked\".");
+    if (!reasonOk) return setError("Write a short reason, e.g. \"Parent query — rechecked\".");
     setSaving("submit");
     setError("");
     try {
@@ -743,7 +748,11 @@ export function MarkEntryScreen({
         reason: reason.trim(),
         changes: changedIds.map((s) => ({ studentId: s.id, marks: cells[s.id]?.absent ? "" : cells[s.id]?.value.trim(), absent: Boolean(cells[s.id]?.absent) })),
       });
-      onSaved(`${res.changed} mark${res.changed === 1 ? "" : "s"} changed. Parents see the new marks now; the office was told.`);
+      onSaved(
+        published
+          ? `${res.changed} mark${res.changed === 1 ? "" : "s"} changed. Parents see the new marks now; the office was told.`
+          : `${res.changed} mark${res.changed === 1 ? "" : "s"} changed. The office was told.`
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save the change.");
     } finally {
@@ -872,14 +881,18 @@ export function MarkEntryScreen({
           </ScrollView>
 
           {/* Footer */}
-          {published && !editPublished ? (
+          {canChangeMarks && !editPublished ? (
             <View className="border-t border-ink-100 bg-white px-4 py-3">
               <View className={`mx-auto w-full ${narrow ? "" : "max-w-2xl"}`}>
                 <Pressable onPress={() => setEditPublished(true)} className="h-12 flex-row items-center justify-center gap-2 rounded-lg border border-ink-200">
                   <Ionicons name="create-outline" size={18} color="#0F172A" />
                   <Text className="text-[15px] font-semibold text-ink-900">Change marks</Text>
                 </Pressable>
-                <Text className="mt-2 text-center text-[11px] text-ink-500">For a parent query or a counting mistake. The change shows to parents straight away.</Text>
+                <Text className="mt-2 text-center text-[11px] text-ink-500">
+                  {published
+                    ? "For a parent query or a counting mistake. The change shows to parents straight away."
+                    : "Marks are with the office. If you change them, the office gets a message."}
+                </Text>
               </View>
             </View>
           ) : editPublished ? (
@@ -892,7 +905,7 @@ export function MarkEntryScreen({
                 <TextInput
                   value={reason}
                   onChangeText={setReason}
-                  placeholder="Reason (e.g. Parent query — rechecked page 3)"
+                  placeholder={published ? "Reason (e.g. Parent query — rechecked page 3)" : "Reason (optional)"}
                   placeholderTextColor="#94A3B8"
                   className="h-11 rounded-lg border border-ink-300 px-3 text-[14px] text-ink-900"
                 />
@@ -911,10 +924,10 @@ export function MarkEntryScreen({
                   <Pressable
                     disabled={saving === "submit"}
                     onPress={() => void savePublishedChanges()}
-                    className={`h-12 flex-[2] flex-row items-center justify-center gap-2 rounded-lg ${changedIds.length && reason.trim().length >= 3 ? "bg-clay-500" : "bg-ink-200"}`}
+                    className={`h-12 flex-[2] flex-row items-center justify-center gap-2 rounded-lg ${changedIds.length && reasonOk ? "bg-clay-500" : "bg-ink-200"}`}
                   >
                     {saving === "submit" ? <ActivityIndicator size="small" color="#fff" /> : null}
-                    <Text className={`text-[15px] font-semibold ${changedIds.length && reason.trim().length >= 3 ? "text-white" : "text-ink-600"}`}>Save changes</Text>
+                    <Text className={`text-[15px] font-semibold ${changedIds.length && reasonOk ? "text-white" : "text-ink-600"}`}>Save changes</Text>
                   </Pressable>
                 </View>
                 <Text className="text-center text-[11px] text-ink-500">Old and new marks are kept in history.</Text>
