@@ -294,6 +294,8 @@ model Teacher {
   exams                 Exam[]                 @relation("ExamEvaluator")
   setExams              Exam[]                 @relation("ExamSetter")
   examGrants            ExamEvaluator[]
+  /// Removed from staff (Staff → Remove). Kept for history; day-to-day lists skip it (lib/prisma.ts).
+  archivedAt            DateTime?
 
   @@unique([orgId, employeeId])
 }
@@ -1532,9 +1534,12 @@ model TimetableSlot {
   teacher               Teacher?               @relation(fields: [teacherId], references: [id])
   roomId                String?
   room                  Room?                  @relation(fields: [roomId], references: [id])
+  /// Same value on slots of different classes taught together by one teacher in one period (a combined lesson).
+  combinedId            String?
   substituteAssignments SubstituteAssignment[]
 
   @@unique([classId, periodId, weekday])
+  @@index([combinedId])
 }
 
 model SaasOrg {
@@ -1997,6 +2002,27 @@ model AdmissionNumberChange {
 }
 
 /// Who uses Anekio: one row per user, IST day (YYYY-MM-DD) and platform (web/android/ios). Written by lib/usage.ts.
+/// One row per staff login: the phone it last reported from (once). Delete the row to ask that phone again.
+model DeviceReport {
+  id         String   @id @default(cuid())
+  orgId      String?
+  userId     String   @unique
+  platform   String   @default("")
+  brand      String   @default("")
+  model      String   @default("")
+  modelId    String   @default("")
+  os         String   @default("")
+  appBuild   String   @default("")
+  /// "yes" | "no" | "unknown": can this phone read NFC tags.
+  nfc        String   @default("unknown")
+  ip         String   @default("")
+  /// Room for more device facts later, without a new column.
+  extraJson  String   @default("{}")
+  reportedAt DateTime @default(now())
+
+  @@index([orgId])
+}
+
 model UsageDaily {
   id          String   @id @default(cuid())
   day         String

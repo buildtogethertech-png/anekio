@@ -37,7 +37,7 @@ import { ensureSchoolSessions, startNextSchoolSession, updateCurrentSchoolSessio
 import { markOnboardingConfigured } from "./onboarding";
 import { todayJoinedOn } from "./staff-profile";
 import { feePayUrl } from "./utils";
-import { addDays, paperSetterId, ymd } from "./exams";
+import { paperSetterId, ymd } from "./exams";
 import { validateExamMark } from "./exam-marks";
 import {
   adminCanPublish,
@@ -1010,33 +1010,22 @@ export async function updateExamSeriesPapersCore(
     })
     .filter((row) => row.subjectId && row.maxMarks && row.date);
   if (!papers.length) throw new Error("Pick at least one subject");
-  const classSubjects = await prisma.subject.findMany({ where: { classId: series.classId } });
-  const lastDate = papers.map((p) => p.date).filter(Boolean).sort().at(-1) || ymd(new Date());
-  let extra = 1;
-  for (const subject of classSubjects) {
-    if (papers.some((p) => p.subjectId === subject.id)) continue;
-    const examDate = addDays(lastDate, extra);
-    extra += 1;
-    papers.push({
-      subjectId: subject.id,
-      teacherId: subject.teacherId,
-      setterId: subject.teacherId,
-      maxMarks: papers[0]?.maxMarks || 80,
-      date: examDate,
-      paperDueOn: addDays(examDate, -7),
-      copiesDueOn: addDays(examDate, 7),
-      startTime: papers[0]?.startTime || "",
-      endTime: papers[0]?.endTime || "",
-      resultOn: addDays(examDate, 14),
-    });
-  }
+  // Editing keeps exactly the papers sent: a subject left out is removed from this exam.
   const keepSubjects = new Set(papers.map((p) => p.subjectId));
-  for (const exam of series.exams) {
-    if (!keepSubjects.has(exam.subjectId)) {
+  const dropped = series.exams.filter((exam) => !keepSubjects.has(exam.subjectId));
+  if (dropped.length) {
+    const names = new Map(
+      (await prisma.subject.findMany({ where: { id: { in: dropped.map((e) => e.subjectId) } }, select: { id: true, name: true } })).map((s) => [s.id, s.name])
+    );
+    for (const exam of dropped) {
+      const name = names.get(exam.subjectId) || "this subject";
+      if (exam.workflowStatus === "PUBLISHED" || exam.resultsPublishedAt) {
+        throw new Error(`Cannot remove ${name}. Its results are already published.`);
+      }
       const marked = await prisma.examResult.count({ where: { examId: exam.id } });
-      if (marked) throw new Error("Cannot remove a subject that already has marks.");
-      await prisma.exam.delete({ where: { id: exam.id } });
+      if (marked) throw new Error(`Cannot remove ${name}. Marks are already entered for it.`);
     }
+    await prisma.exam.deleteMany({ where: { id: { in: dropped.map((e) => e.id) } } });
   }
   const subjects = await prisma.subject.findMany({
     where: { classId: series.classId, id: { in: papers.map((p) => p.subjectId) } },
@@ -1955,7 +1944,7 @@ export async function importPeopleSheetCore(user: AccessUser, input: { kind?: st
     }
   } else if (kind === "teacher") {
     const existingUsers = await prisma.user.findMany({ select: { email: true } });
-    const existingTeachers = await prisma.teacher.findMany({ select: { employeeId: true } });
+    const existingTeachers = await prisma.teacher.findMany({ where: { OR: [{ archivedAt: null }, { archivedAt: { not: null } }] }, select: { employeeId: true } });
     const takenEmail = new Set(existingUsers.map((u) => u.email.toLowerCase()));
     const takenEmp = new Set(existingTeachers.map((t) => t.employeeId.toLowerCase()));
     const nums = existingTeachers

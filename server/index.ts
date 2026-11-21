@@ -20,6 +20,7 @@ import { hasAny, userFromAuthHeader } from "../lib/http-user";
 import { userForLogin, usersForLogin } from "../lib/login";
 import { verifiedGoogleEmail } from "../lib/mobile-google-auth";
 import { serializeUser } from "../lib/http-user";
+import { deviceCheckWanted } from "../lib/device-report";
 import { publicNav, navForPortal } from "../lib/nav";
 import { recordPayload } from "../lib/api-v1-record";
 import { queryFeeRegister } from "../lib/fee-register";
@@ -348,7 +349,10 @@ async function loginSession(
   const hat = opts.as && access.portal === opts.as && (access.hats || []).length > 1 ? opts.as : undefined;
   return {
     token: opts.override?.token ?? signAppToken(userId, hat),
-    user: { ...serializeUser(access), ...(opts.override ? { support: opts.override.support } : {}) },
+    user: {
+      ...serializeUser(access),
+      ...(opts.override ? { support: opts.override.support } : { deviceCheck: await deviceCheckWanted(access) }),
+    },
     nav: navForPortal(access.portal, access.permissions).map(publicNav),
   };
 }
@@ -524,7 +528,7 @@ app.get("/api/v1/me", async (req, res) => {
   const user = await requireUser(req, res);
   if (!user) return;
   res.json({
-    user: serializeUser(user),
+    user: { ...serializeUser(user), deviceCheck: await deviceCheckWanted(user) },
     nav: navForPortal(user.portal, user.permissions).map(publicNav),
   });
 });
@@ -754,6 +758,7 @@ app.post("/api/v1/act", async (req, res) => {
     if (op === "savePushToken") return res.json({ ok: true });
     if (SUPPORT_BLOCKED_OPS.has(op)) return sendError(res, 403, "Not available during a support login.");
   }
+  if (actOp(body) === "reportDevice") body.ip = req.ip || "";
   try {
     const result = await runAct(user, body);
     if (user.support) await recordSupportWrite(user, actOp(body));

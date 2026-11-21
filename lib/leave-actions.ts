@@ -9,6 +9,7 @@ import {
   schoolDaysInRange,
 } from "./leave";
 import { notifyNoticeRecipients } from "./push";
+import { combinedSiblings } from "./timetable-combined";
 
 function dayDate(value: string) {
   const d = new Date(`${value}T00:00:00`);
@@ -358,8 +359,9 @@ export async function assignSubstitute(
   if (!slot || slot.teacherId !== request.teacherId || slot.weekday !== weekday) {
     throw new Error("That period is not affected by this leave");
   }
+  const lessonIds = [slotId, ...(await combinedSiblings(slot)).map((s) => s.id)];
   if (!substituteId) {
-    await prisma.substituteAssignment.deleteMany({ where: { date, slotId, leaveRequestId: requestId } });
+    await prisma.substituteAssignment.deleteMany({ where: { date, slotId: { in: lessonIds }, leaveRequestId: requestId } });
     return;
   }
   if (substituteId === request.teacherId) throw new Error("Pick another teacher");
@@ -372,26 +374,28 @@ export async function assignSubstitute(
       where: { teacherId: substituteId, weekday, periodId: slot.periodId },
     }),
     prisma.substituteAssignment.findFirst({
-      where: { substituteId, date, slot: { periodId: slot.periodId }, NOT: { slotId } },
+      where: { substituteId, date, slot: { periodId: slot.periodId }, slotId: { notIn: lessonIds } },
     }),
   ]);
   if (!substitute) throw new Error("Teacher not found");
   if (onLeave) throw new Error("That teacher is also on leave");
   if (regularClass || otherCover) throw new Error("That teacher is already busy in this period");
-  await prisma.substituteAssignment.upsert({
-    where: { date_slotId: { date, slotId } },
-    update: { leaveRequestId: requestId, substituteId, assignedById: user.id, status: "COVERED", reason: "LEAVE", absentTeacherId: request.teacherId },
-    create: {
-      leaveRequestId: requestId,
-      slotId,
-      date,
-      substituteId,
-      assignedById: user.id,
-      status: "COVERED",
-      reason: "LEAVE",
-      absentTeacherId: request.teacherId,
-    },
-  });
+  for (const id of lessonIds) {
+    await prisma.substituteAssignment.upsert({
+      where: { date_slotId: { date, slotId: id } },
+      update: { leaveRequestId: requestId, substituteId, assignedById: user.id, status: "COVERED", reason: "LEAVE", absentTeacherId: request.teacherId },
+      create: {
+        leaveRequestId: requestId,
+        slotId: id,
+        date,
+        substituteId,
+        assignedById: user.id,
+        status: "COVERED",
+        reason: "LEAVE",
+        absentTeacherId: request.teacherId,
+      },
+    });
+  }
 }
 
 async function assertNoOverlap(input: {

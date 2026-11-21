@@ -8,6 +8,7 @@ import { skillMatchesSubject } from "./subject-code";
 import { notifyNoticePublished } from "./push";
 import type { Portal } from "./permissions";
 import { ensureSchoolSessions } from "./school-session";
+import { groupCombined } from "./timetable-combined";
 
 export type LeaveTypeRow = {
   id: string;
@@ -336,9 +337,9 @@ async function upcomingTeacherLeave(requestIds: string[], cal: SchoolCalendar): 
     const saved = new Map(request.coverAssignments.map((assignment) => [`${assignment.date}:${assignment.slotId}`, assignment]));
     const slots = days.flatMap((date) => {
       const weekday = new Date(`${date}T00:00:00`).getDay();
-      return request.teacher!.slots
-        .filter((slot) => slot.weekday === weekday && !slot.period.isBreak)
-        .map((slot) => {
+      return groupCombined(request.teacher!.slots.filter((slot) => slot.weekday === weekday && !slot.period.isBreak))
+        .map((lesson) => {
+          const slot = lesson[0];
           const assignment = saved.get(`${date}:${slot.id}`);
           const candidates = teachers
             .filter((teacher) => teacher.id !== request.teacherId)
@@ -390,7 +391,7 @@ async function upcomingTeacherLeave(requestIds: string[], cal: SchoolCalendar): 
             period: slot.period.name,
             startsAt: slot.period.startsAt,
             endsAt: slot.period.endsAt,
-            classLabel: `${slot.class.name}-${slot.class.section}`,
+            classLabel: lesson.map((s) => `${s.class.name}-${s.class.section}`).join(" + "),
             subject: slot.subject?.name || slot.activity || "Class",
             room: slot.room?.name || "",
             substituteId: assignment?.substituteId || "",

@@ -50,6 +50,8 @@ export type SessionUser = {
   hats?: ("OFFICE" | "TEACHER" | "PARENT" | "STUDENT")[];
   /** Present when an Anekio admin is signed in as this user (support login). */
   support?: { adminEmail: string; expiresAt: string };
+  /** The server wants this staff phone's one-time device report (brand, model, NFC). */
+  deviceCheck?: boolean;
 };
 
 export type ChildCard = {

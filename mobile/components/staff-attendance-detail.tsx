@@ -25,6 +25,7 @@ import type { IoniconName } from "../lib/nav-icons";
 import { EmployeeLeaveCard } from "./leave-balances";
 import { SalaryPayCard } from "./salary-pay-card";
 import { SetPasswordModal } from "./set-password-modal";
+import { RemoveStaffModal } from "./remove-staff-modal";
 import { useSession } from "../lib/session";
 
 type StaffPerson = NonNullable<RecordPayload["staff"]>[number];
@@ -219,6 +220,8 @@ export function StaffAttendanceDetail({
   const [passwordOpen, setPasswordOpen] = useState(false);
   const { user: me } = useSession();
   const canSetPassword = Boolean(person.userId && me?.permissions?.includes("roles.manage") && person.userId !== me?.id);
+  const [removeOpen, setRemoveOpen] = useState(false);
+  const canRemove = Boolean(onEditSalary && me?.permissions?.includes("staff.edit") && (!person.userId || person.userId !== me?.id));
 
   /** "Also a teacher": adds or removes this employee's teaching profile (Office ↔ Teacher switch). */
   async function toggleTeaching() {
@@ -612,6 +615,7 @@ export function StaffAttendanceDetail({
           ],
         ] as const)
       : []),
+    ...(canRemove ? ([["person-remove-outline", "Remove from staff", "Hand over their classes, periods and duties, then remove", () => setRemoveOpen(true)]] as const) : []),
   ] as const;
 
   return (
@@ -995,6 +999,18 @@ export function StaffAttendanceDetail({
         </View>
       ) : null}
 
+      <RemoveStaffModal
+        open={removeOpen}
+        person={{ kind: person.kind === "teacher" ? "teacher" : "staff", id: person.id, name: person.name }}
+        token={token}
+        onClose={() => setRemoveOpen(false)}
+        onRemoved={(message) => {
+          setRemoveOpen(false);
+          toast.show(message);
+          onBack();
+          void onSaved();
+        }}
+      />
       <SetPasswordModal
         open={passwordOpen}
         name={person.name}

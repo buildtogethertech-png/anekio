@@ -47,6 +47,7 @@ import { CONTEST_TYPE_LABEL, daysLate, formatInr, LEVEL_LABEL, PATH_LABEL, perce
 import { admissionCustomValues, admissionFormFields, applySchoolClassOptions, classLabelsFrom, effectiveFormJson, staffOnboardingFormFields, websiteFormFields } from "./admission-form";
 import { subscriptionLockForUser, subscriptionOverviewForUser } from "./anekio-site";
 import { configuredAdmissionFormJson } from "./admission-form-config";
+import { combinedWithLabels, groupCombined } from "./timetable-combined";
 
 function inDate(value: Date | string) {
   return new Date(value).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
@@ -272,7 +273,9 @@ async function myTeachingToday(user: AccessUser) {
   const js = new Date().getDay();
   const weekday = js === 0 ? 7 : js;
   const [periodsToday, marksToEnter, papersToSet] = await Promise.all([
-    prisma.timetableSlot.count({ where: { teacherId: teacher.id, weekday } }),
+    prisma.timetableSlot
+      .findMany({ where: { teacherId: teacher.id, weekday }, select: { id: true, combinedId: true, teacherId: true, periodId: true, weekday: true } })
+      .then((rows) => groupCombined(rows).length),
     prisma.exam.count({
       where: { teacherId: teacher.id, date: { lte: new Date() }, workflowStatus: { in: ["SCHEDULED", "IN_PROGRESS", "MARKS_DRAFT", "CORRECTION_REQUIRED"] } },
     }),
@@ -919,16 +922,21 @@ async function teacherRecordExtras(
   ownSlots: Awaited<ReturnType<typeof getTeacherTimetable>>
 ) {
   const extras = await teacherTeamExtras(user, weekdays, periods);
-  const slots = ownSlots.map((s) => ({
-    weekday: s.weekday,
-    periodId: s.periodId,
-    period: s.period.name,
-    subject: slotLabel(s),
+  // A combined lesson (one teacher, several classes at once) is one period for the teacher.
+  const slots = groupCombined(ownSlots).map((lesson) => {
+    const s = lesson[0];
+    return {
+      weekday: s.weekday,
+      periodId: s.periodId,
+      period: s.period.name,
+      subject: [...new Set(lesson.map((x) => slotLabel(x)))].join(" / "),
       activity: Boolean(!s.subject && s.activity),
-    teacher: s.teacher?.user.name || "",
-    room: s.room?.name || "",
-    classLabel: s.class ? `${s.class.name}-${s.class.section}` : "",
-  }));
+      teacher: s.teacher?.user.name || "",
+      room: s.room?.name || "",
+      classLabel: lesson.map((x) => (x.class ? `${x.class.name}-${x.class.section}` : "")).filter(Boolean).join(" + "),
+      combined: lesson.length > 1,
+    };
+  });
   if ("timetable" in extras && extras.timetable) {
     return { ...extras, timetable: { ...extras.timetable, slots } };
   }
@@ -973,6 +981,7 @@ async function teacherTeamExtras(
     }),
   ]);
   const reportTeacherIds = new Set(reports.map((r) => r.teacher?.id).filter((id): id is string => Boolean(id)));
+  const combinedWith = await combinedWithLabels();
   const idleNow = pulse.idleTeachers
     .map((t) => ({
       id: t.id,
@@ -1046,6 +1055,7 @@ async function teacherTeamExtras(
                 teacherId: s.teacherId || "",
                 teacher: s.teacher?.user.name || "",
                 room: s.room?.name || "",
+                combinedWith: combinedWith.get(s.id) ?? [],
               })),
             })),
           },
@@ -1155,6 +1165,7 @@ async function officePayload(user: AccessUser) {
     else current.absent += 1;
     attendanceByClass.set(row.student.classId, current);
   }
+  const combinedWith = await combinedWithLabels();
   const coverBySlot = new Map<string, typeof substituteAssignments>();
   for (const assignment of substituteAssignments) {
     const rows = coverBySlot.get(assignment.slotId) ?? [];
@@ -1739,6 +1750,7 @@ async function officePayload(user: AccessUser) {
           teacherId: s.teacherId || "",
           teacher: s.teacher?.user.name || "",
           room: s.room?.name || "",
+          combinedWith: combinedWith.get(s.id) ?? [],
           covers: (coverBySlot.get(s.id) ?? []).map((assignment) => ({
             date: assignment.date,
             status: assignment.status,

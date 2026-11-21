@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import Constants from "expo-constants";
 import { api, type Notice } from "./api";
 import { act } from "./mutate";
+import { reportDevice } from "./device-report";
 import { useSession } from "./session";
 import { getSeenNoticeIds, setSeenNoticeIds } from "./storage";
 import {
@@ -165,7 +166,8 @@ export function NoticeInboxProvider({ children }: { children: ReactNode }) {
     refresh({ silent: true }).catch(() => undefined);
     // A support login must not register this device for the real user's notifications.
     if (!user?.support) registerPush(token).catch(() => undefined);
-  }, [refresh, token, userId, user?.support]);
+    if (user?.deviceCheck) reportDevice(token, userId).catch(() => undefined);
+  }, [refresh, token, userId, user?.support, user?.deviceCheck]);
 
   useEffect(() => {
     if (!token || !userId) return;

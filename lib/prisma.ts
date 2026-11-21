@@ -56,11 +56,23 @@ function hideFormerStudents(operation: string, args: Record<string, unknown>) {
   args.where = Object.keys(where).length ? { AND: [where, live] } : live;
 }
 
+/**
+ * Employees removed from staff (Teacher/StaffMember.archivedAt set) stay for history: payroll, attendance,
+ * marks. Day-to-day list reads skip them unless the query names a specific person or asks about archivedAt.
+ */
+function hideRemovedStaff(operation: string, args: Record<string, unknown>) {
+  if (!FORMER_STUDENT_READS.has(operation)) return;
+  const where = (args.where || {}) as Record<string, unknown>;
+  if (/"(archivedAt|id|userId|employeeId|staffMemberId|orgId)":/.test(JSON.stringify(where))) return;
+  args.where = Object.keys(where).length ? { AND: [where, { archivedAt: null }] } : { archivedAt: null };
+}
+
 const prismaExtension = Prisma.defineExtension({
   query: {
     $allModels: {
       async $allOperations({ model, operation, args, query }) {
         if (model === "Student") hideFormerStudents(operation, args as Record<string, unknown>);
+        if (model === "Teacher" || model === "StaffMember") hideRemovedStaff(operation, args as Record<string, unknown>);
         const orgId = currentTenantOrg();
         if (!orgId || !model || !tenantModels.has(model)) return query(args);
 

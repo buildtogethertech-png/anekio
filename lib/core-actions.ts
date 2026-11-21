@@ -73,6 +73,7 @@ import { admissionCustomValues, admissionFormFields, admissionFormJson, admissio
 import { configuredAdmissionFormJson, configuredFormJson, liveSchoolClassLabels } from "./admission-form-config";
 import { markOnboardingConfigured } from "./onboarding";
 import { assertStudentAccess, classTeacherOnly, CLASS_ROLLS_EDIT, CLASS_STUDENTS_ADD, CLASS_STUDENTS_EDIT, ownClassIdFor } from "./class-teacher-access";
+import { lessonGroupFor, tidyCombined } from "./timetable-combined";
 
 function need(user: AccessUser, ...keys: string[]) {
   if (!keys.some((k) => can(user, k))) throw new Error("No access.");
@@ -2979,6 +2980,8 @@ export async function saveTimetableSlotCore(
     /** Non-exam period (Games, Library…) instead of a subject. */
     activity?: string;
     clear?: boolean;
+    /** The teacher is already in another class then: teach both together as one combined lesson. */
+    combine?: boolean;
   }
 ) {
   const { classId, periodId } = input;
@@ -2997,11 +3000,13 @@ export async function saveTimetableSlotCore(
   if (!period) throw new Error("Period missing");
   const activity = cleanActivity(input.activity);
   if (input.clear || (!subjectId && !input.subjectName && !teacherId && !activity)) {
+    const gone = await prisma.timetableSlot.findFirst({ where: { classId, periodId, weekday }, select: { combinedId: true } });
     await prisma.timetableSlot.deleteMany({ where: { classId, periodId, weekday } });
+    await tidyCombined(gone?.combinedId);
     return { ok: true as const };
   }
   if (period.isBreak) throw new Error("A break cannot take a lesson.");
-  if (activity) return saveActivitySlot({ classId, periodId, weekday, teacherId, activity, periodName: period.name });
+  if (activity) return saveActivitySlot({ classId, periodId, weekday, teacherId, activity, periodName: period.name, combine: input.combine });
   if (!teacherId) throw new Error("Pick a teacher assigned to this subject.");
   const klass = await prisma.class.findUnique({ where: { id: classId } });
   if (!klass) throw new Error("Class required");
@@ -3054,19 +3059,27 @@ export async function saveTimetableSlotCore(
     );
   }
   // Check the clash before touching anything, and say exactly where the teacher already is.
-  const busy = await prisma.timetableSlot.findFirst({
+  const busySlots = await prisma.timetableSlot.findMany({
     where: { teacherId, periodId, weekday, NOT: { classId } },
     include: { class: { select: { name: true, section: true } }, subject: { select: { code: true, name: true } } },
   });
-  if (busy) {
-    const days = ["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-    const where = `${busy.class.name}-${busy.class.section}`;
-    const what = busy.subject ? `${busy.subject.name} ` : "";
-    const when = `${days[weekday] || "that day"}, ${period.name}${period.startsAt && period.endsAt ? ` (${period.startsAt}–${period.endsAt})` : ""}`;
-    throw new Error(
-      `${teacher.user.name} is already teaching ${what}in ${where} on ${when}. Pick another teacher, or free ${where}'s ${period.name} first.`
-    );
-  }
+  const { combinedId, previous } = await lessonGroupFor({
+    classId,
+    periodId,
+    weekday,
+    busy: busySlots,
+    combine: input.combine,
+    clash: () => {
+      const busy = busySlots[0];
+      const days = ["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+      const where = `${busy.class.name}-${busy.class.section}`;
+      const what = busy.subject ? `${busy.subject.name} ` : "";
+      const when = `${days[weekday] || "that day"}, ${period.name}${period.startsAt && period.endsAt ? ` (${period.startsAt}–${period.endsAt})` : ""}`;
+      throw new Error(
+        `${teacher.user.name} is already teaching ${what}in ${where} on ${when}. Pick another teacher, combine the classes, or free ${where}'s ${period.name} first.`
+      );
+    },
+  });
   await prisma.subject.update({ where: { id: planned.id }, data: { teacherId } });
   const existing = await prisma.timetableSlot.findFirst({
     where: { classId, periodId, weekday },
@@ -3074,18 +3087,19 @@ export async function saveTimetableSlotCore(
   if (existing) {
     await prisma.timetableSlot.update({
       where: { id: existing.id },
-      data: { subjectId, teacherId, activity: "" },
+      data: { subjectId, teacherId, activity: "", combinedId },
     });
   } else {
     await prisma.timetableSlot.create({
-      data: { classId, periodId, weekday, subjectId, teacherId },
+      data: { classId, periodId, weekday, subjectId, teacherId, combinedId },
     });
   }
+  if (previous && previous !== combinedId) await tidyCombined(previous);
   return { ok: true as const };
 }
 
 /** A period with an activity (no subject, never in exams). The teacher is optional, e.g. Assembly. */
-async function saveActivitySlot(input: { classId: string; periodId: string; weekday: number; teacherId: string | null; activity: string; periodName: string }) {
+async function saveActivitySlot(input: { classId: string; periodId: string; weekday: number; teacherId: string | null; activity: string; periodName: string; combine?: boolean }) {
   const { classId, periodId, weekday, teacherId } = input;
   const klass = await prisma.class.findUnique({ where: { id: classId }, select: { id: true, name: true, section: true, activityPlan: true } });
   if (!klass) throw new Error("Class required");
@@ -3101,23 +3115,36 @@ async function saveActivitySlot(input: { classId: string; periodId: string; week
   if (planned.perWeek > 0 && already >= planned.perWeek) {
     throw new Error(`${activity} is already ${planned.perWeek}/${planned.perWeek} a week for ${classLabel}.`);
   }
+  let group: { combinedId: string | null; previous: string | null } = { combinedId: null, previous: null };
   if (teacherId) {
     const teacher = await prisma.teacher.findUnique({ where: { id: teacherId }, include: { user: { select: { name: true } } } });
     if (!teacher) throw new Error("Teacher required");
-    const busy = await prisma.timetableSlot.findFirst({
+    const busySlots = await prisma.timetableSlot.findMany({
       where: { teacherId, periodId, weekday, NOT: { classId } },
       include: { class: { select: { name: true, section: true } } },
     });
-    if (busy) {
-      throw new Error(`${teacher.user.name} is already in ${busy.class.name}-${busy.class.section} in ${input.periodName}. Pick another teacher.`);
-    }
+    group = await lessonGroupFor({
+      classId,
+      periodId,
+      weekday,
+      busy: busySlots,
+      combine: input.combine,
+      clash: () => {
+        const busy = busySlots[0];
+        throw new Error(`${teacher.user.name} is already in ${busy.class.name}-${busy.class.section} in ${input.periodName}. Pick another teacher or combine the classes.`);
+      },
+    });
+  } else {
+    const before = await prisma.timetableSlot.findFirst({ where: { classId, periodId, weekday }, select: { combinedId: true } });
+    group.previous = before?.combinedId || null;
   }
-  const data = { subjectId: null, teacherId, activity };
+  const data = { subjectId: null, teacherId, activity, combinedId: group.combinedId };
   await prisma.timetableSlot.upsert({
     where: { classId_periodId_weekday: { classId, periodId, weekday } },
     update: data,
     create: { classId, periodId, weekday, ...data },
   });
+  if (group.previous && group.previous !== group.combinedId) await tidyCombined(group.previous);
   return { ok: true as const };
 }
 

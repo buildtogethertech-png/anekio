@@ -14,6 +14,7 @@ import {
   undoYearSwitchCore,
 } from "./promotion";
 import { setStaffClassTeacherCore, setStaffTeachingCore } from "./staff-teaching";
+import { removeStaffCore, staffRemovalPlanCore } from "./staff-removal";
 import {
   addPeriodCore,
   addRoomCore,
@@ -151,6 +152,7 @@ import {
 } from "./core-office";
 import { issueFeeReceiptCore } from "./fee-register";
 import { savePushTokenCore } from "./push";
+import { saveDeviceReportCore } from "./device-report";
 import { pastExamMarksCore, readPastExamSheetCore, savePastExamMarksCore } from "./past-exams";
 import { reassignExamRoleCore, scheduleExamForClassesCore } from "./exam-schedule-all";
 import { editPublishedMarksCore } from "./exam-mark-edits";
@@ -670,6 +672,10 @@ export async function runAct(
       return { ok: true, ...(await setStaffTeachingCore(user, body as never)) };
     case "setStaffClassTeacher":
       return { ok: true, ...(await setStaffClassTeacherCore(user, body as never)) };
+    case "staffRemovalPlan":
+      return { ok: true, ...(await staffRemovalPlanCore(user, body as never)) };
+    case "removeStaff":
+      return { ok: true, ...(await removeStaffCore(user, body as never)) };
     case "reassignExamRole":
       return { ok: true, ...(await reassignExamRoleCore(user, body as never)) };
     case "scheduleExamForClasses":
@@ -752,6 +758,9 @@ export async function runAct(
       break;
     case "savePushToken":
       await savePushTokenCore(user, { token: String(body.token || "") });
+      break;
+    case "reportDevice":
+      await saveDeviceReportCore(user, body as never);
       break;
     case "ensurePayToken": {
       const token = await ensureInvoiceShareTokenCore(user, String(body.invoiceId || ""));

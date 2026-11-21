@@ -22,6 +22,9 @@ type WeekSlot = {
   period?: string;
   subject?: string;
   teacher?: string;
+  teacherId?: string;
+  /** Other classes taught together with this one in this period (one combined lesson). */
+  combinedWith?: string[];
   covers?: { date: string; status?: string; substituteId: string; substitute: string; absentTeacher: string }[];
 };
 
@@ -308,20 +311,51 @@ function WeeklyBoard() {
     }
   }
 
+  /** The teacher is already in another class then: ask before teaching both together as one lesson. */
+  const [combineAsk, setCombineAsk] = useState<{ body: Record<string, unknown>; teacher: string; others: string[]; period: string } | null>(null);
+  const [combining, setCombining] = useState(false);
+
+  function askToCombine(e: unknown, body: Record<string, unknown>) {
+    const message = e instanceof Error ? e.message : "";
+    if (!/combine the classes/i.test(message) || !body.teacherId) return false;
+    const period = periods.find((p) => p.id === body.periodId);
+    const others = busyTeachersFor(String(body.periodId), period?.name || "", Number(body.weekday)).get(String(body.teacherId)) ?? [];
+    setCombineAsk({ body, teacher: teachers.find((t) => t.id === body.teacherId)?.name || "This teacher", others, period: period?.name || "this period" });
+    return true;
+  }
+
+  async function confirmCombine() {
+    if (!combineAsk) return;
+    setCombining(true);
+    try {
+      await act(token, "saveTimetableSlot", { ...combineAsk.body, combine: true });
+      toast.show(`${klass?.label || "Class"} + ${combineAsk.others.join(", ") || "the other class"} combined.`);
+      setCombineAsk(null);
+      await reload();
+    } catch (e) {
+      setCombineAsk(null);
+      setError(e instanceof Error ? e.message : "Could not combine.");
+    } finally {
+      setCombining(false);
+    }
+  }
+
   async function dropOn(periodId: string, weekday: number, payload: Hold) {
     if (!klass?.id) return;
     setError("");
+    const body = {
+      classId: klass.id,
+      periodId,
+      weekday,
+      teacherId: payload.teacherId,
+      subjectId: payload.subjectId || klass.subjects?.find((row) => row.name === payload.subjectName)?.id,
+      subjectName: payload.subjectName,
+    };
     try {
-      await act(token, "saveTimetableSlot", {
-        classId: klass.id,
-        periodId,
-        weekday,
-        teacherId: payload.teacherId,
-        subjectId: payload.subjectId || klass.subjects?.find((row) => row.name === payload.subjectName)?.id,
-        subjectName: payload.subjectName,
-      });
+      await act(token, "saveTimetableSlot", body);
       await reload();
     } catch (e) {
+      if (askToCombine(e, body)) return;
       setError(e instanceof Error ? e.message : "Could not save.");
     }
   }
@@ -388,11 +422,16 @@ function WeeklyBoard() {
   async function saveActivity(periodId: string, weekday: number, payload: { activity: string; teacherId: string | null }) {
     if (!klass?.id) return;
     setError("");
+    const body = { classId: klass.id, periodId, weekday, activity: payload.activity, teacherId: payload.teacherId };
     try {
-      await act(token, "saveTimetableSlot", { classId: klass.id, periodId, weekday, activity: payload.activity, teacherId: payload.teacherId });
+      await act(token, "saveTimetableSlot", body);
       setAssign(null);
       await reload();
     } catch (e) {
+      if (askToCombine(e, body)) {
+        setAssign(null);
+        return;
+      }
       setError(e instanceof Error ? e.message : "Could not save.");
       toast.show(e instanceof Error ? e.message : "Could not save.");
     }
@@ -406,11 +445,13 @@ function WeeklyBoard() {
 
   /** Teachers already in another class in the period being filled. */
   function busyTeachersFor(periodId: string, periodName: string, weekday: number) {
-    const ids = new Set<string>();
+    const ids = new Map<string, string[]>();
     for (const c of classes) {
       if (c.id === klass?.id) continue;
       for (const o of c.slots as (WeekSlot & { teacherId?: string })[]) {
-        if (o.weekday === weekday && (o.periodId === periodId || o.period === periodName) && o.teacherId) ids.add(o.teacherId);
+        if (o.weekday === weekday && (o.periodId === periodId || o.period === periodName) && o.teacherId) {
+          ids.set(o.teacherId, [...(ids.get(o.teacherId) ?? []), c.label]);
+        }
       }
     }
     return ids;
@@ -1061,6 +1102,35 @@ function WeeklyBoard() {
         ) : null}
       </Modal>
 
+      <Modal
+        open={Boolean(combineAsk)}
+        title="Combine classes?"
+        sheetOnPhone
+        onClose={() => (combining ? undefined : setCombineAsk(null))}
+        footer={
+          <View className="flex-row items-center justify-end gap-2">
+            <Button variant="ghost" disabled={combining} onPress={() => setCombineAsk(null)}>
+              Cancel
+            </Button>
+            <Button disabled={combining} onPress={() => void confirmCombine()}>
+              {combining ? "Combining…" : "Combine classes"}
+            </Button>
+          </View>
+        }
+      >
+        {combineAsk ? (
+          <View className="gap-3">
+            <Text className="text-[15px] leading-6 text-ink-800">
+              {`${combineAsk.teacher} already teaches ${combineAsk.others.join(", ") || "another class"} in ${combineAsk.period}.`}
+            </Text>
+            <Text className="text-[14px] leading-6 text-ink-600">
+              {`Combine ${[klass?.label, ...combineAsk.others].filter(Boolean).join(" + ")} so ${combineAsk.teacher} teaches them together in this period. Each class keeps its own timetable, attendance and marks.`}
+            </Text>
+            <Text className="text-[12px] text-ink-500">To separate them later, change or clear this period in one of the classes.</Text>
+          </View>
+        ) : null}
+      </Modal>
+
       <Modal open={modal === "addTeacher"} title="Add teacher" large onClose={() => setModal(null)}>
         <TeacherForm
           key="new-teacher"
@@ -1375,7 +1445,7 @@ function DeskAssignPanel({
             <Pressable
               key={key}
               accessibilityRole="button"
-              accessibilityLabel={`${r.name} with ${r.teacher.name}${busy ? `, busy in ${r.teacher.busy.join(", ")}` : ""}`}
+              accessibilityLabel={`${r.name} with ${r.teacher.name}${busy ? `, already in ${r.teacher.busy.join(", ")}: combine` : ""}`}
               disabled={Boolean(busyKey) || isCurrent}
               onPress={async () => {
                 setBusyKey(key);
@@ -1427,9 +1497,9 @@ function DeskAssignPanel({
                 ) : busyKey === key ? (
                   <Text className="text-[12px] text-ink-500">Placing…</Text>
                 ) : busy ? (
-                  <View className="rounded-full bg-red-50 px-2 py-0.5">
-                    <Text className="text-[11px] font-medium text-red-700" numberOfLines={1}>
-                      Busy · {r.teacher.busy.join(", ")}
+                  <View className="rounded-full bg-amber-50 px-2 py-0.5">
+                    <Text className="text-[11px] font-medium text-amber-800" numberOfLines={1}>
+                      Combine · {r.teacher.busy.join(", ")}
                     </Text>
                   </View>
                 ) : (
@@ -1612,6 +1682,7 @@ function PhoneDaySchedule({
                       ((slot?.teacherId && o.teacherId === slot.teacherId) || (!slot?.teacherId && slot?.teacher && o.teacher === slot.teacher))
                   )
                 )
+                .filter((c) => !(slot?.combinedWith ?? []).includes(c.label))
                 .map((c) => c.label)
             : [];
           return (
@@ -1638,6 +1709,11 @@ function PhoneDaySchedule({
                     <Text className="text-xs text-ink-500" numberOfLines={1}>
                       {slot?.teacher || "No teacher"}
                     </Text>
+                    {slot?.combinedWith?.length ? (
+                      <Text className="mt-0.5 text-[11px] font-semibold text-[#1F45C7]" numberOfLines={1}>
+                        Combined with {slot.combinedWith.join(", ")}
+                      </Text>
+                    ) : null}
                     {clashes.length ? (
                       <Text className="mt-0.5 text-[11px] font-semibold text-red-600" numberOfLines={1}>
                         ⚠ Also in {clashes.join(", ")}
@@ -1799,6 +1875,7 @@ function DaySchedule({
                 subject={slotSubject(slot)}
                 teacher={slot?.teacher || ""}
                 covers={slot?.covers}
+                combined={slot?.combinedWith}
                 editable={editable}
                 hint={hold ? "Tap to place" : editable ? "Tap to assign" : ""}
                 onOver={() => onOver(key)}
@@ -1928,6 +2005,7 @@ function WeekGrid({
                                   (!slot?.teacherId && slot?.teacher && o.teacher === slot.teacher))
                             )
                           )
+                          .filter((c) => !(slot?.combinedWith ?? []).includes(c.label))
                           .map((c) => c.label)
                       : [];
                     return (
@@ -1944,6 +2022,7 @@ function WeekGrid({
                           subject={slotSubject(slot)}
                           teacher={slot?.teacher || ""}
                           covers={slot?.covers}
+                          combined={slot?.combinedWith}
                           clashes={clashes}
                           editable={editable}
                           hint={hold ? "Tap or drop" : ""}
@@ -2147,6 +2226,7 @@ function DropCell({
   compact,
   armed,
   clashes,
+  combined,
   onOver,
   onLeave,
   onDrop,
@@ -2159,6 +2239,7 @@ function DropCell({
   teacher: string;
   covers?: { date: string; status?: string; substituteId: string; substitute: string; absentTeacher: string }[];
   clashes?: string[];
+  combined?: string[];
   editable: boolean;
   hint: string;
   tall?: boolean;
@@ -2266,6 +2347,11 @@ function DropCell({
                     {teacher}
                   </Text>
                 </View>
+              ) : null}
+              {combined?.length ? (
+                <Text className="mt-0.5 pl-3 text-[10px] font-semibold text-[#1F45C7]" numberOfLines={1}>
+                  + {combined.join(", ")}
+                </Text>
               ) : null}
               {clash ? (
                 <Text className="mt-0.5 text-[10px] font-semibold text-red-700" numberOfLines={1}>

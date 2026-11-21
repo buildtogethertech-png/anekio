@@ -224,6 +224,7 @@ type SlotSnapshot = {
   teacherId: string | null;
   roomId: string | null;
   activity?: string;
+  combinedId?: string | null;
 };
 type ChangeSnapshot = {
   id: string;
@@ -270,7 +271,7 @@ export async function clearTimetable(user: AccessUser, input: { classId?: string
   const where = await clearScope(user, String(input.classId || ""));
   const slots = await prisma.timetableSlot.findMany({
     where,
-    select: { id: true, classId: true, periodId: true, weekday: true, subjectId: true, teacherId: true, roomId: true, activity: true },
+    select: { id: true, classId: true, periodId: true, weekday: true, subjectId: true, teacherId: true, roomId: true, activity: true, combinedId: true },
   });
   if (!slots.length) return { ok: true as const, removed: 0, snapshot: { slots: [] as SlotSnapshot[], changes: [] as ChangeSnapshot[] } };
   const ids = slots.map((s) => s.id);
@@ -328,6 +329,7 @@ export async function restoreTimetable(user: AccessUser, input: { snapshot?: { s
       teacherId: s.teacherId && okTeacher.has(s.teacherId) ? s.teacherId : null,
       roomId: s.roomId || null,
       activity: typeof s.activity === "string" ? s.activity.slice(0, 40) : "",
+      combinedId: typeof s.combinedId === "string" ? s.combinedId.slice(0, 64) : null,
     });
   }
   const backIds = new Set(back.map((s) => s.id));

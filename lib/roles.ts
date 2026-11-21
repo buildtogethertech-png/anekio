@@ -96,7 +96,12 @@ export async function roleIdBySlug(slug: string) {
   return role.id;
 }
 
-const accessInclude = { role: { include: { grants: true } }, parent: { select: { id: true } }, teacher: { select: { id: true, teachingOnly: true } } } as const;
+const accessInclude = {
+  role: { include: { grants: true } },
+  parent: { select: { id: true } },
+  teacher: { select: { id: true, teachingOnly: true, archivedAt: true } },
+  staffMember: { select: { archivedAt: true } },
+} as const;
 
 /**
  * Loads who is signed in. One login can wear several hats:
@@ -113,8 +118,11 @@ export async function loadAccess(userId: string, as?: "PARENT" | "TEACHER"): Pro
     if (!user?.role) return null;
   }
   const primary = user.role.portal;
+  // Removed from staff: no staff access. One who is also a parent was moved to the Parent role on removal.
+  const removed = Boolean((user.teacher && !user.teacher.teachingOnly && user.teacher.archivedAt) || user.staffMember?.archivedAt);
+  if (removed && primary !== "PARENT") return null;
   const hats: AccessUser["portal"][] = [primary];
-  if (primary === "OFFICE" && user.teacher) hats.push("TEACHER");
+  if (primary === "OFFICE" && user.teacher && !user.teacher.archivedAt) hats.push("TEACHER");
   if (user.parent && primary !== "PARENT") hats.push("PARENT");
   if (as && as !== primary && hats.includes(as)) {
     const hatRole = await prisma.role.findUnique({ where: { slug: as }, include: { grants: true } });

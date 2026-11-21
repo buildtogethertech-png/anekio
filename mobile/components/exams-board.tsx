@@ -1147,6 +1147,7 @@ export function ExamsBoard() {
                   maxMarks: e.maxMarks,
                   startTime: e.startTime || "",
                   endTime: e.endTime || "",
+                  locked: e.workflowStatus === "PUBLISHED" || Boolean(e.resultsPublishedAt) || (e.entered || 0) > 0,
                 })),
               }
             : null

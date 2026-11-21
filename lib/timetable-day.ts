@@ -18,6 +18,7 @@ import { ymd } from "./exams";
 import { skillMatchesSubject } from "./subject-code";
 import { slotLabel } from "./timetable-activity";
 import { notifyNoticeRecipients } from "./push";
+import { combinedKey, combinedSiblings } from "./timetable-combined";
 
 export type DayChangeStatus = "COVERED" | "FREE" | "OPEN";
 const REASONS = ["LEAVE", "ABSENT", "DUTY", "OTHER"] as const;
@@ -106,14 +107,22 @@ async function dayContext(date: string, weekday: number) {
 
 type Ctx = Awaited<ReturnType<typeof dayContext>>;
 
+/** This slot and the other classes taught with it as one combined lesson. */
+function lessonOf(ctx: Ctx, slot: Ctx["slots"][number]) {
+  const key = combinedKey(slot);
+  return key.startsWith("one|") ? [slot] : ctx.slots.filter((s) => combinedKey(s) === key);
+}
+
 /** Is this teacher teaching in this period on the date (after one-day changes)? */
 function busyIn(ctx: Ctx, teacherId: string, periodId: string, exceptSlotId?: string) {
+  const own = exceptSlotId ? ctx.slots.find((s) => s.id === exceptSlotId) : undefined;
+  const except = new Set(own ? lessonOf(ctx, own).map((s) => s.id) : exceptSlotId ? [exceptSlotId] : []);
   const weekly = ctx.slots.some(
-    (s) => s.teacherId === teacherId && s.periodId === periodId && s.id !== exceptSlotId && !ctx.changeBySlot.has(s.id)
+    (s) => s.teacherId === teacherId && s.periodId === periodId && !except.has(s.id) && !ctx.changeBySlot.has(s.id)
   );
   if (weekly) return true;
   return ctx.changes.some((c) => {
-    if (c.substituteId !== teacherId || c.slotId === exceptSlotId) return false;
+    if (c.substituteId !== teacherId || except.has(c.slotId)) return false;
     const slot = ctx.slots.find((s) => s.id === c.slotId);
     return slot?.periodId === periodId;
   });
@@ -200,6 +209,8 @@ function rowFor(ctx: Ctx, slot: Ctx["slots"][number]) {
     slotId: slot.id,
     classId: slot.classId,
     classLabel: `${slot.class.name}-${slot.class.section}`,
+    /** Other classes in the same combined lesson; a cover teacher takes all of them. */
+    combinedWith: lessonOf(ctx, slot).filter((s) => s.id !== slot.id).map((s) => `${s.class.name}-${s.class.section}`),
     periodId: slot.periodId,
     period: slot.period.name,
     startsAt: slot.period.startsAt,
@@ -320,6 +331,8 @@ export async function saveDayChange(
   if (date < ymd(new Date())) throw new Error("Past days cannot be changed.");
 
   const ctx = await dayContext(date, weekday);
+  const lesson = lessonOf(ctx, ctx.slots.find((s) => s.id === slot.id) || (slot as unknown as Ctx["slots"][number]));
+  const lessonIds = lesson.map((s) => s.id);
   const before = ctx.changeBySlot.get(slot.id);
   const leave = slot.teacherId ? ctx.leaveByTeacher.get(slot.teacherId) : undefined;
   const substituteId = status === "COVERED" ? String(input.substituteId || "") : "";
@@ -327,7 +340,7 @@ export async function saveDayChange(
     if (!substituteId) throw new Error("Pick who takes this period");
     if (substituteId === slot.teacherId && !leave) {
       // Back to the weekly teacher: no change needed.
-      await prisma.substituteAssignment.deleteMany({ where: { date, slotId } });
+      await prisma.substituteAssignment.deleteMany({ where: { date, slotId: { in: lessonIds } } });
       return { ok: true as const, cleared: true };
     }
     if (substituteId === slot.teacherId) throw new Error(`${slot.teacher?.user.name || "This teacher"} is on leave that day.`);
@@ -354,14 +367,17 @@ export async function saveDayChange(
     absentTeacherId: slot.teacherId,
     assignedById: user.id,
   };
-  await prisma.substituteAssignment.upsert({
-    where: { date_slotId: { date, slotId } },
-    update: data,
-    create: { ...data, date, slotId },
-  });
+  for (const id of lessonIds) {
+    await prisma.substituteAssignment.upsert({
+      where: { date_slotId: { date, slotId: id } },
+      update: data,
+      create: { ...data, date, slotId: id },
+    });
+  }
 
-  const label = `${slot.period.name} · ${slot.class.name}-${slot.class.section}${slot.subject ? ` ${slot.subject.name}` : slot.activity ? ` ${slot.activity}` : ""}`;
-  const coverLabel = coverSubject ? `${slot.period.name} · ${slot.class.name}-${slot.class.section} ${coverSubject.name}` : label;
+  const classes = lesson.map((s) => `${s.class.name}-${s.class.section}`).join(" + ");
+  const label = `${slot.period.name} · ${classes}${slot.subject ? ` ${slot.subject.name}` : slot.activity ? ` ${slot.activity}` : ""}`;
+  const coverLabel = coverSubject ? `${slot.period.name} · ${classes} ${coverSubject.name}` : label;
   if (substituteId && (before?.substituteId !== substituteId || (before?.subjectId || null) !== (coverSubject?.id || null))) {
     await noticeTo(
       user.id,
@@ -391,9 +407,10 @@ export async function clearDayChange(user: AccessUser, input: { date?: string; s
   });
   if (!row) return { ok: true as const };
   await needEdit(user, [row.slot.classId]);
-  await prisma.substituteAssignment.delete({ where: { id: row.id } });
+  const siblings = await combinedSiblings(row.slot);
+  await prisma.substituteAssignment.deleteMany({ where: { date, slotId: { in: [row.slotId, ...siblings.map((s) => s.id)] } } });
   if (row.substituteId) {
-    const label = `${row.slot.period.name} · ${row.slot.class.name}-${row.slot.class.section}`;
+    const label = `${row.slot.period.name} · ${[row.slot, ...siblings].map((s) => `${s.class.name}-${s.class.section}`).join(" + ")}`;
     await noticeTo(user.id, row.substituteId, `Cover cancelled: ${label}`, `You no longer take ${label} ${whenText(date)}.`, `${slotId}:${date}:cancel`);
   }
   return { ok: true as const };
@@ -516,6 +533,8 @@ export async function autoCoverDay(user: AccessUser, input: { date?: string; fro
     const { weekday } = await openDay(date);
     const ctx = await dayContext(date, weekday);
     const slot = ctx.slots.find((s) => s.id === row.slotId);
+    // Already covered together with another class of its combined lesson.
+    if (ctx.changeBySlot.get(row.slotId)?.substituteId) continue;
     // Only teachers who already teach this class; others are left for the office to pick by hand.
     const best = slot ? rankCandidates(ctx, slot).find((c) => c.tier <= 3) : undefined;
     if (!best) {

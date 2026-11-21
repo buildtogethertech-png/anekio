@@ -21,8 +21,8 @@ export function ActivityPicker({
   activities: { name: string; perWeek: number; placed: number }[];
   /** `activities`: what each teacher takes per class; they are listed first for that activity in this class. */
   teachers: { id: string; name: string; activities?: { name: string; classId: string }[] }[];
-  /** Teachers already in another class in this period. */
-  busyTeacherIds: Set<string>;
+  /** Teachers already in another class in this period, with those classes. Picking one combines the classes. */
+  busyTeacherIds: Map<string, string[]>;
   current?: { subject: string; teacher: string };
   onPick: (payload: { activity: string; teacherId: string | null }) => Promise<void>;
 }) {
@@ -52,8 +52,11 @@ export function ActivityPicker({
   const takes = (t: { activities?: { name: string; classId: string }[] }) =>
     Boolean(activity && t.activities?.some((a) => a.classId === classId && a.name.toLowerCase() === activity.toLowerCase()));
   const free = teachers
-    .filter((t) => !busyTeacherIds.has(t.id))
-    .sort((a, b) => Number(takes(b)) - Number(takes(a)) || a.name.localeCompare(b.name));
+    .slice()
+    .sort(
+      (a, b) =>
+        Number(busyTeacherIds.has(a.id)) - Number(busyTeacherIds.has(b.id)) || Number(takes(b)) - Number(takes(a)) || a.name.localeCompare(b.name)
+    );
   return (
     <View testID="activity-picker">
       <View className="overflow-hidden rounded-xl border border-ink-100">
@@ -106,7 +109,11 @@ export function ActivityPicker({
                 className="flex-row items-center gap-3 border-t border-ink-100 px-3 py-2.5 active:bg-ink-50"
               >
                 <Text className="min-w-0 flex-1 text-[14px] text-ink-900">{t.name}</Text>
-                {takes(t) ? (
+                {busyTeacherIds.has(t.id) ? (
+                  <Text className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800" numberOfLines={1}>
+                    {`Combine with ${busyTeacherIds.get(t.id)!.join(", ")}`}
+                  </Text>
+                ) : takes(t) ? (
                   <Text className="rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-semibold text-violet-700">{`Takes ${activity}`}</Text>
                 ) : null}
                 {busy === t.id ? (
@@ -117,8 +124,8 @@ export function ActivityPicker({
               </Pressable>
             ))}
           </View>
-          {teachers.length > free.length ? (
-            <Text className="mt-1.5 text-[11px] text-ink-400">{`${teachers.length - free.length} teacher${teachers.length - free.length === 1 ? " is" : "s are"} busy in another class then.`}</Text>
+          {busyTeacherIds.size ? (
+            <Text className="mt-1.5 text-[11px] text-ink-400">Teachers already in another class then are listed last. Picking one teaches both classes together.</Text>
           ) : null}
         </View>
       ) : (

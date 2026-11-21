@@ -19,6 +19,7 @@ import { act } from "../lib/mutate";
 import { DateField } from "./date-field";
 import { Select } from "./form/select";
 import { Modal } from "./ui";
+import { ExamConfirm } from "./exam-office-chrome";
 import { ExamTimeField, prettyTimeRange } from "./exam-time-field";
 import type { YearClass, YearPlanItem, YearSeries } from "./exam-year-overview";
 
@@ -54,6 +55,8 @@ export type ScheduleEdit = {
     maxMarks: number;
     startTime?: string;
     endTime?: string;
+    /** Marks entered or results published: this paper cannot be removed. */
+    locked?: boolean;
   }[];
 };
 
@@ -221,6 +224,7 @@ export function ScheduleExamModal({
   const [phoneTab, setPhoneTab] = useState("");
   const [step, setStep] = useState<1 | 2>(1);
   const [review, setReview] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
 
   const teacherName = useMemo(() => new Map(teachers.map((t) => [t.id, t.name])), [teachers]);
   const classById = useMemo(() => new Map(classes.map((c) => [c.id, c])), [classes]);
@@ -288,6 +292,8 @@ export function ScheduleExamModal({
       setDates({ [key]: byKey });
       setTeacherPick(picks);
       setSetterPick(setterPicks);
+      setSkipped({});
+      setConfirmRemove(false);
       setExpanded([]);
       setTeacherOpen([]);
       setCell(null);
@@ -376,7 +382,7 @@ export function ScheduleExamModal({
   }
 
   function skippedFor(group: Group, all?: { key: string; subject: Subject }[]) {
-    if (edit) return [] as string[];
+    if (edit) return skipped[group.key] || [];
     const saved = skipped[group.key];
     if (saved) return saved;
     // Copy "not examined" only from this class's own last exam of the same kind (a unit test without Art, say).
@@ -399,6 +405,7 @@ export function ScheduleExamModal({
   function toggleSkip(group: Group, key: string) {
     const current = skippedFor(group);
     setSkipped((cur) => ({ ...cur, [group.key]: current.includes(key) ? current.filter((k) => k !== key) : [...current, key] }));
+    if (edit) return;
     setDates((cur) => {
       const own = { ...(cur[group.key] || {}) };
       delete own[key];
@@ -515,7 +522,7 @@ export function ScheduleExamModal({
       const klass = classById.get(classId);
       return {
         classId,
-        papers: (klass?.subjects || []).filter((s) => (edit ? edit.exams.some((e) => e.subjectId === s.id) : !skippedFor(group).includes(subjectKey(s)))).map((s) => ({
+        papers: (klass?.subjects || []).filter((s) => (!edit || edit.exams.some((e) => e.subjectId === s.id)) && !skippedFor(group).includes(subjectKey(s))).map((s) => ({
           subjectId: s.id,
           teacherId: teacherFor(classId, s) || null,
           setterId: setterFor(classId, s) || null,
@@ -534,8 +541,14 @@ export function ScheduleExamModal({
   const keptResult = (edit?.resultOn || "").slice(0, 10);
   const resultOn = keptResult && keptResult >= lastCheck ? keptResult : lastCheck ? shiftSchoolDays(lastCheck, offsets.resultAfter, calendar) : "";
 
-  async function submit() {
+  // Editing: subjects taken off the date sheet are removed from this exam on save.
+  const removedNames = edit
+    ? groups.flatMap((group) => skippedFor(group).map((key) => groupSubjects(group).find((x) => x.key === key)?.subject.name || key))
+    : [];
+
+  async function submit(removeOk = false) {
     if (!item) return;
+    if (edit && removedNames.length && !removeOk) return setConfirmRemove(true);
     if (!payload.length) return setError("Pick at least one class.");
     if (badOrder) return setError("Some dates are in the wrong order. Paper ready → exam day → checking done.");
     setBusy(true);
@@ -828,10 +841,17 @@ export function ScheduleExamModal({
       </View>
     ) : null;
 
-  const skipButton = (group: Group, key: string, label: string, color: string) => (
+  const lockedKeys = new Set(
+    edit ? edit.exams.filter((e) => e.locked).map((e) => classById.get(edit.classId)?.subjects?.find((s) => s.id === e.subjectId)).filter(Boolean).map((s) => subjectKey(s!)) : []
+  );
+  const skipButton = (group: Group, key: string, label: string, color: string) => lockedKeys.has(key) ? (
+    <View accessibilityLabel={`${label} has marks, it can't be removed`} className="h-7 w-6 items-center justify-center">
+      <Ionicons name="lock-closed" size={11} color={color} />
+    </View>
+  ) : (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`No ${label} paper in ${item.name}`}
+      accessibilityLabel={edit ? `Remove ${label} from ${item.name}` : `No ${label} paper in ${item.name}`}
       hitSlop={6}
       onPress={() => {
         if (picked?.group === group.key && picked?.key === key) setPicked(null);
@@ -859,14 +879,14 @@ export function ScheduleExamModal({
           <Text className={`text-[13px] font-medium ${on ? "text-white" : "text-ink-900"}`} numberOfLines={1}>{label}</Text>
           {split ? <Text className={`text-[10px] ${on ? "text-white/80" : "text-ink-500"}`}>2 teachers</Text> : null}
         </Pressable>
-        {edit ? null : skipButton(col.group, key, label, on ? "#FFFFFF" : "#94A3B8")}
+        {skipButton(col.group, key, label, on ? "#FFFFFF" : "#94A3B8")}
       </View>
     );
   };
 
   const restingList = sheet.filter((c) => c.off.length).length ? (
     <View className="flex-row flex-wrap items-center gap-1.5">
-      <Text className="text-[12px] text-ink-500">Not examined:</Text>
+      <Text className="text-[12px] text-ink-500">{edit ? "Will be removed:" : "Not examined:"}</Text>
       {sheet.flatMap((col) =>
         col.off.map((key) => {
           const sub = col.all.find((x) => x.key === key);
@@ -976,7 +996,7 @@ export function ScheduleExamModal({
                   <Text className="text-[12px] text-ink-500" numberOfLines={1}>{teacherNames(phoneCol.group, x.key) || "Pick a teacher"}</Text>
                 </View>
                 <Ionicons name={on ? "chevron-up" : "chevron-down"} size={14} color="#94A3B8" />
-                {edit ? null : skipButton(phoneCol.group, x.key, x.subject.name, "#94A3B8")}
+                {skipButton(phoneCol.group, x.key, x.subject.name, "#94A3B8")}
               </Pressable>
               {on ? <View className="px-2 pb-2">{editor}</View> : null}
               </View>
@@ -1235,6 +1255,18 @@ export function ScheduleExamModal({
           </ScrollView>
         </View>
       )}
+      <ExamConfirm
+        open={confirmRemove}
+        title={`Remove ${removedNames.length === 1 ? removedNames[0] : `${removedNames.length} subjects`} from ${item.name}?`}
+        body={`${removedNames.join(", ")} ${removedNames.length === 1 ? "paper is" : "papers are"} deleted from this exam, with its date, teachers and uploaded question paper. Results go out with the remaining papers. Add it back from "Will be removed" before saving if this was a mistake.`}
+        action={removedNames.length === 1 ? "Remove & save" : `Remove ${removedNames.length} & save`}
+        busy={busy}
+        onClose={() => setConfirmRemove(false)}
+        onConfirm={() => {
+          setConfirmRemove(false);
+          void submit(true);
+        }}
+      />
     </Modal>
   );
 }

@@ -16,6 +16,8 @@ type Row = {
   slotId: string;
   classId: string;
   classLabel: string;
+  /** Other classes in the same combined lesson. */
+  combinedWith?: string[];
   periodId: string;
   period: string;
   startsAt: string;
@@ -305,6 +307,7 @@ function PeriodRow({ row, first, showClass, canEdit, onPress }: { row: Row; firs
         <Text className="text-[14px] font-medium text-ink-900" numberOfLines={1}>
           {showClass ? `${row.classLabel} · ` : ""}
           {row.coverSubject && row.status === "COVERED" ? `${row.coverSubject} (instead of ${row.subject})` : row.subject}
+          {row.combinedWith?.length ? <Text className="text-[12px] font-semibold text-[#1F45C7]">{`  + ${row.combinedWith.join(", ")}`}</Text> : null}
         </Text>
         <View className="mt-0.5 flex-row flex-wrap items-center gap-1.5">
           {changed && row.weeklyTeacher ? (
@@ -429,6 +432,12 @@ function ChangeSheet({
               <View className="flex-row items-center gap-2 rounded-lg bg-amber-50 px-3 py-2">
                 <Ionicons name="airplane-outline" size={14} color="#B45309" />
                 <Text className="text-[13px] text-amber-900">{row.weeklyTeacher} is on leave this day.</Text>
+              </View>
+            ) : null}
+            {row.combinedWith?.length ? (
+              <View className="flex-row items-center gap-2 rounded-lg bg-[#EEF3FF] px-3 py-2">
+                <Ionicons name="people-outline" size={14} color="#1F45C7" />
+                <Text className="min-w-0 flex-1 text-[13px] text-[#1F45C7]">{`Combined with ${row.combinedWith.join(", ")}. Whoever takes it teaches ${[row.classLabel, ...row.combinedWith].join(" + ")} together.`}</Text>
               </View>
             ) : null}
             <View>
