@@ -63,6 +63,49 @@ async function currentSession(db: RollDb) {
   return current;
 }
 
+/**
+ * A student who leaves gives their roll back: the enrollment stays (history) but is parked on
+ * -(10000 + roll), so the number is free for others and the old roll can still be read back.
+ */
+const PARKED_ROLL_BASE = 10000;
+
+export function parkedRoll(roll: number) {
+  return -(PARKED_ROLL_BASE + roll);
+}
+
+/** The roll a parked enrollment held before the student left, or null. */
+export function unparkRoll(value: number) {
+  return value < -PARKED_ROLL_BASE ? -value - PARKED_ROLL_BASE : null;
+}
+
+/** Frees this year's roll of a student who left (see parkedRoll). */
+export async function releaseStudentRoll(studentId: string, db: RollDb = prisma) {
+  return serializeAssign(async () => {
+    const session = await db.schoolSession.findFirst({ where: { current: true }, select: { id: true } });
+    if (!session) return;
+    const row = await db.studentClassEnrollment.findFirst({ where: { studentId, sessionId: session.id } });
+    if (!row || row.rollNumber < 1) return;
+    await db.studentClassEnrollment.update({ where: { id: row.id }, data: { active: false, rollNumber: parkedRoll(row.rollNumber) } });
+  });
+}
+
+/**
+ * Roll numbers already held in each class this session, including students who have since left
+ * (their enrollment keeps the roll). The admit form skips these so its suggestion never clashes.
+ */
+export async function takenRollsByClass(classIds: string[]) {
+  const out = new Map<string, number[]>();
+  if (!classIds.length) return out;
+  const session = await prisma.schoolSession.findFirst({ where: { current: true }, select: { id: true } });
+  if (!session) return out;
+  const rows = await prisma.studentClassEnrollment.findMany({
+    where: { sessionId: session.id, classId: { in: classIds }, rollNumber: { gt: 0 } },
+    select: { classId: true, rollNumber: true },
+  });
+  for (const row of rows) out.set(row.classId, [...(out.get(row.classId) || []), Number(row.rollNumber)]);
+  return out;
+}
+
 async function nextRollNumber(db: RollDb, sessionId: string, classId: string) {
   const rows = await db.studentClassEnrollment.findMany({
     where: { sessionId, classId },
@@ -136,6 +179,15 @@ async function assignStudentRollNumberUnlocked(
       select: { id: true },
     });
     if (clash) throw new Error(`Roll ${requested} is already used in this class.`);
+  }
+  if (existing?.classId === input.classId && !requested && existing.rollNumber < 1) {
+    // A parked roll (student had left): give them a real one again.
+    return saveEnrollment(db, existing.id, {
+      classId: existing.classId,
+      rollNumber: await nextRollNumber(db, session.id, input.classId),
+      orgId: stampOrg(existing.orgId, input.orgId),
+      active: true,
+    });
   }
   if (existing?.classId === input.classId) {
     if (!requested || existing.rollNumber === requested) {
@@ -223,7 +275,7 @@ async function runRollNumberBackfill(db: RollDb) {
 export async function classRollNumbers(classId: string, db: RollDb = prisma) {
   const session = await currentSession(db);
   const rows = await db.studentClassEnrollment.findMany({
-    where: { sessionId: session.id, classId },
+    where: { sessionId: session.id, classId, rollNumber: { gt: 0 } },
     select: { id: true, studentId: true, rollNumber: true },
   });
   return { sessionId: session.id, rows };

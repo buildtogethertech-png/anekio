@@ -21,6 +21,7 @@ import { userForLogin, usersForLogin } from "../lib/login";
 import { verifiedGoogleEmail } from "../lib/mobile-google-auth";
 import { serializeUser } from "../lib/http-user";
 import { deviceCheckWanted } from "../lib/device-report";
+import { admissionDocumentFile, admissionKitHtml, readSignedFileToken } from "../lib/admission-kit";
 import { publicNav, navForPortal } from "../lib/nav";
 import { recordPayload } from "../lib/api-v1-record";
 import { queryFeeRegister } from "../lib/fee-register";
@@ -1040,7 +1041,9 @@ app.get("/privacy", (_req, res) => {
 
 app.get("/reset-password", (req, res) => {
   const token = typeof req.query.token === "string" ? req.query.token : "";
-  res.type("html").send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Reset password | Anekio</title><style>body{margin:0;background:#f4f7fb;color:#0f172a;font:16px Inter,Arial,sans-serif}.card{max-width:400px;margin:10vh auto;background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:32px;box-shadow:0 12px 32px #10203312}h1{margin:0 0 8px}p{color:#64748b;line-height:1.5}input,button{box-sizing:border-box;width:100%;padding:13px;border-radius:9px;font:inherit}input{border:1px solid #cbd5e1;margin:16px 0}button{border:0;background:#1d4ed8;color:#fff;font-weight:700;cursor:pointer}#message{margin-top:14px;font-size:14px}</style></head><body><main class="card"><strong>anekio</strong><h1>Reset your password</h1><p>Choose a new password for your account.</p><form id="form"><input id="password" type="password" minlength="8" required placeholder="New password (at least 8 characters)"><input id="confirm" type="password" minlength="8" required placeholder="Confirm new password"><button>Reset password</button></form><div id="message" role="status"></div></main><script>const token=${JSON.stringify(token)};const form=document.querySelector('#form');const message=document.querySelector('#message');form.addEventListener('submit',async(e)=>{e.preventDefault();const password=document.querySelector('#password').value;const confirm=document.querySelector('#confirm').value;if(password!==confirm){message.textContent='Passwords do not match.';return}const r=await fetch('/api/v1/login/password/link/reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,password})});const d=await r.json().catch(()=>({}));message.textContent=r.ok?'Password reset. You can now sign in.':(d.error||'That reset link is invalid or has expired.');if(r.ok)form.hidden=true});</script></body></html>`);
+  // ?new=1: a new parent setting their first password from the admission message.
+  const fresh = req.query.new === "1";
+  res.type("html").send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Reset password | Anekio</title><style>body{margin:0;background:#f4f7fb;color:#0f172a;font:16px Inter,Arial,sans-serif}.card{max-width:400px;margin:10vh auto;background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:32px;box-shadow:0 12px 32px #10203312}h1{margin:0 0 8px}p{color:#64748b;line-height:1.5}input,button{box-sizing:border-box;width:100%;padding:13px;border-radius:9px;font:inherit}input{border:1px solid #cbd5e1;margin:16px 0}button{border:0;background:#1d4ed8;color:#fff;font-weight:700;cursor:pointer}#message{margin-top:14px;font-size:14px}</style></head><body><main class="card"><strong>anekio</strong><h1>${fresh ? "Set your password" : "Reset your password"}</h1><p>${fresh ? "Choose a password for the Anekio parent app. Your user ID is your mobile number." : "Choose a new password for your account."}</p><form id="form"><input id="password" type="password" minlength="8" required placeholder="New password (at least 8 characters)"><input id="confirm" type="password" minlength="8" required placeholder="Confirm new password"><button>${fresh ? "Set password" : "Reset password"}</button></form><div id="message" role="status"></div></main><script>const token=${JSON.stringify(token)};const form=document.querySelector('#form');const message=document.querySelector('#message');form.addEventListener('submit',async(e)=>{e.preventDefault();const password=document.querySelector('#password').value;const confirm=document.querySelector('#confirm').value;if(password!==confirm){message.textContent='Passwords do not match.';return}const r=await fetch('/api/v1/login/password/link/reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,password})});const d=await r.json().catch(()=>({}));if(r.ok){message.innerHTML='Password saved. <a href="/login">Sign in now</a>.';form.hidden=true}else{message.textContent=d.error||'That reset link is invalid or has expired.'}});</script></body></html>`);
 });
 
 app.get("/robots.txt", (_req, res) => {
@@ -1896,6 +1899,44 @@ app.get("/staff/scan/:token", async (req, res) => {
   const row = await findIssuedDocument(req.params.token);
   if (!row || row.type !== "EMPLOYEE_ID") return res.status(404).type("html").send(missingIssuedScanHtml());
   res.type("html").send(identityScanHtml(row, "EMPLOYEE_ID"));
+});
+
+/** The admission pack (confirmation + chosen admission-form files) as one printable multi-page document. */
+app.get("/kit/:token", async (req, res) => {
+  const html = await admissionKitHtml(req.params.token);
+  if (!html) return res.status(404).send("These documents are no longer available. Please contact the school office.");
+  res.setHeader("Cache-Control", "private, no-store");
+  res.type("html").send(html);
+});
+
+/** One admission document shared with the family: lasts while the student is at the school, always the current file. */
+app.get("/files/d/:token", async (req, res) => {
+  const file = await admissionDocumentFile(req.params.token);
+  if (!file) return res.status(404).send("This document is no longer available. Please contact the school office.");
+  try {
+    const { buf, type } = await readUpload(file.path);
+    res.setHeader("Content-Type", type);
+    res.setHeader("Cache-Control", "private, no-store");
+    res.setHeader("Content-Disposition", `inline; filename="${file.name.replace(/["\r\n]/g, "")}"`);
+    res.send(buf);
+  } catch {
+    res.status(404).send("File unavailable");
+  }
+});
+
+/** Admission-form files shared with a family: a signed link that expires after 7 days. */
+app.get("/files/s/:token", async (req, res) => {
+  const file = readSignedFileToken(req.params.token);
+  if (!file) return res.status(404).send("This link has expired. Ask the school office to send it again.");
+  try {
+    const { buf, type } = await readUpload(file.path);
+    res.setHeader("Content-Type", type);
+    res.setHeader("Cache-Control", "private, no-store");
+    res.setHeader("Content-Disposition", `inline; filename="${file.name.replace(/["\r\n]/g, "")}"`);
+    res.send(buf);
+  } catch {
+    res.status(404).send("File unavailable");
+  }
 });
 
 app.get("/documents/:token/file", async (req, res) => {

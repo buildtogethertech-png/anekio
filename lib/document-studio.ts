@@ -30,7 +30,7 @@ import { gradePolicyFrom, seriesRanks, studentSeriesScore } from "./exams";
 import { parentSeesOfficialSeries } from "./exam-marks";
 import { schoolFromConfig } from "./school";
 import { readUploadDataUrl, resolveUploadPath } from "./uploads";
-import { admissionCustomValues, admissionFormFields, type AdmissionFormField } from "./admission-form";
+import { admissionCustomValues, admissionFormFields, documentsReceivedLine, type AdmissionFormField } from "./admission-form";
 import { configuredAdmissionFormJson } from "./admission-form-config";
 
 const DEFAULT_DOCUMENT_SCHOOL_ID = "school";
@@ -308,6 +308,7 @@ export const DOCUMENT_FIELDS = [
   { group: "Fees", id: "fees.forSchool", label: "For school (signature line)" },
   { group: "Fees", id: "fees.thanksLine", label: "Receipt summary line" },
   { group: "School", id: "school.gstinLine", label: "GSTIN line" },
+  { group: "Admission", id: "admission.documentsReceived", label: "Documents received (admission form files)" },
   { group: "Document", id: "document.number", label: "Document number" },
   { group: "Document", id: "document.issueDate", label: "Issue date" },
   { group: "Document", id: "document.dueDate", label: "Due date" },
@@ -1093,39 +1094,7 @@ export function defaultLayout(type: string): DocumentLayout {
     };
   }
   if (type === "ADMISSION_CONFIRMATION") {
-    return {
-      elements: [
-        element("page-bg", "SHAPE", 0, 0, 100, 100, { background: "#EEF2FF", locked: true }),
-        element("paper", "SHAPE", 5, 3.5, 90, 93, { background: "#FFFFFF", borderColor: "#C7D2FE", locked: true }),
-        element("top-band", "SHAPE", 5, 3.5, 90, 13, { background: "#4338CA", locked: true }),
-        element("accent", "SHAPE", 5, 3.5, 1.6, 93, { background: "#F59E0B", locked: true }),
-        element("school-logo", "IMAGE", 8.5, 5.5, 9, 9, { field: "school.logoPath", label: "Logo" }),
-        element("school-name", "FIELD", 19, 5.6, 52, 5, { field: "school.name", label: "School name", fontSize: 22, fontWeight: "bold", color: "#FFFFFF", locked: true }),
-        element("school-address", "FIELD", 19, 11.2, 52, 2.4, { field: "school.address", label: "School address", fontSize: 10, color: "#E0E7FF" }),
-        element("document-number", "FIELD", 72, 8, 20, 3, { field: "document.number", label: "Document number", fontSize: 11, fontWeight: "bold", align: "right", color: "#FFFFFF" }),
-        element("title-bg", "SHAPE", 18, 20, 64, 6, { background: "#4338CA", locked: true }),
-        element("title", "TEXT", 19, 21.2, 62, 3.6, { value: "ADMISSION CONFIRMATION", fontSize: 18, fontWeight: "bold", align: "center", color: "#FFFFFF" }),
-        element("photo", "PHOTO", 10, 30, 16, 18, { field: "student.photo", label: "Photo", borderColor: "#4338CA" }),
-        element("name-label", "TEXT", 30, 31, 22, 2.2, { value: "STUDENT NAME", fontSize: 8, fontWeight: "bold", color: "#64748B" }),
-        element("student-name", "FIELD", 30, 33.6, 54, 4.2, { field: "student.name", label: "Student name", fontSize: 20, fontWeight: "bold" }),
-        element("class-label", "TEXT", 30, 40, 12, 2.2, { value: "CLASS", fontSize: 8, fontWeight: "bold", color: "#64748B" }),
-        element("class", "FIELD", 42, 39.6, 22, 3, { field: "student.classLabel", label: "Class", fontSize: 14, fontWeight: "bold" }),
-        element("adm-label", "TEXT", 66, 40, 16, 2.2, { value: "ADMISSION NO", fontSize: 8, fontWeight: "bold", color: "#64748B" }),
-        element("admission", "FIELD", 82, 39.6, 8, 3, { field: "student.admissionNo", label: "Admission number", fontSize: 13, fontWeight: "bold" }),
-        element("body", "TEXT", 10, 52, 80, 14, {
-          value: "This confirms that the student named above has been admitted as recorded in the official school register for the current academic session.",
-          fontSize: 14,
-          color: "#334155",
-        }),
-        element("date-label", "TEXT", 10, 70, 16, 2, { value: "ISSUE DATE", fontSize: 8, fontWeight: "bold", color: "#64748B" }),
-        element("date", "FIELD", 10, 72.2, 28, 3.2, { field: "document.issueDate", label: "Issue date", fontSize: 13, fontWeight: "bold" }),
-        element("signature", "SIGNATURE", 52, 68, 18, 9, { field: "school.signPath", label: "Authorised signature" }),
-        element("signature-label", "TEXT", 50, 78, 22, 2.2, { value: "Authorised signatory", fontSize: 8, align: "center", color: "#64748B" }),
-        element("verify", "VERIFY_QR", 78, 67, 12, 12, { label: "Verification QR", locked: true }),
-        element("qr-label", "TEXT", 76, 80, 16, 2.2, { value: "Verify document", fontSize: 8, align: "center", color: "#64748B" }),
-        element("footer", "FIELD", 10, 88, 80, 3.4, { field: "school.contact", label: "School contact", fontSize: 10, align: "center", color: "#64748B" }),
-      ],
-    };
+    return admissionConfirmationLayout();
   }
   if (type === "EXAM_DATE_SHEET") {
     return {
@@ -1877,11 +1846,115 @@ function feeDocumentLayout(paid: boolean): DocumentLayout {
   };
 }
 
+/** Admission confirmation in the same family as the fee invoice / receipt: white page, thin brand rules, clear rows. */
+function admissionConfirmationLayout(): DocumentLayout {
+  const brand = "#4338CA";
+  const soft = "#EEF2FF";
+  const line = "#C7D2FE";
+  const ink = "#0F172A";
+  const slate = "#475569";
+  const muted = "#64748B";
+  const rule = "#E2E8F0";
+  const panel = "#F8FAFC";
+  const e = element;
+  const cap = (id: string, x: number, y: number, w: number, value: string, extra: Partial<DocumentElement> = {}) =>
+    e(id, "TEXT", x, y, w, 1.3, { value, fontSize: 7.5, fontWeight: "bold", color: muted, ...extra });
+  const val = (id: string, x: number, y: number, w: number, field: string, name: string, extra: Partial<DocumentElement> = {}) =>
+    e(id, "FIELD", x, y, w, 1.9, { field, label: name, fontSize: 11, fontWeight: "bold", color: ink, ...extra });
+  const row = (id: string, x: number, y: number, key: string, field: string, name: string) => [
+    e(`${id}-k`, "TEXT", x, y, 15, 1.8, { value: key, fontSize: 9, color: slate }),
+    e(`${id}-v`, "FIELD", x + 15, y, 26, 1.8, { field, label: name, fontSize: 10, fontWeight: "bold", color: ink }),
+  ];
+  return {
+    elements: [
+      e("page-bg", "SHAPE", 0, 0, 100, 100, { background: "#FFFFFF", locked: true }),
+      e("top-bar", "SHAPE", 0, 0, 100, 0.9, { background: brand, locked: true }),
+      // Header: school on the left, document identity on the right.
+      e("school-logo", "IMAGE", 6, 3.2, 8, 5.66, { field: "school.logoPath", label: "Logo", background: brand }),
+      e("school-name", "FIELD", 16.5, 3.3, 40, 2.4, { field: "school.name", label: "School name", fontSize: 17, fontWeight: "bold", color: ink, locked: true }),
+      e("school-address", "FIELD", 16.5, 5.9, 40, 1.5, { field: "school.address", label: "School address", fontSize: 8.5, color: slate }),
+      e("school-contact", "FIELD", 16.5, 7.4, 40, 1.5, { field: "school.contact", label: "School contact", fontSize: 8.5, color: slate }),
+      e("school-affiliation", "FIELD", 16.5, 8.9, 40, 1.4, { field: "school.affiliation", label: "Affiliation", fontSize: 8, color: muted }),
+      e("title", "TEXT", 56, 3.1, 38, 2.6, { value: "ADMISSION CONFIRMATION", fontSize: 16, fontWeight: "bold", align: "right", color: brand }),
+      cap("number-l", 56, 6.2, 38, "CERTIFICATE NO.", { align: "right" }),
+      e("document-number", "FIELD", 56, 7.5, 38, 1.8, { field: "document.number", label: "Document number", fontSize: 11.5, fontWeight: "bold", align: "right", color: ink }),
+      e("session", "FIELD", 56, 9.7, 38, 1.7, { field: "school.sessionTitle", label: "Academic session", fontSize: 8.5, fontWeight: "bold", align: "right", color: brand }),
+      e("head-rule", "LINE", 6, 12.4, 88, 0.2, { color: rule }),
+      // The admitted student.
+      e("hero-card", "SHAPE", 6, 14.2, 88, 15.6, { background: soft, borderColor: line, locked: true }),
+      e("photo", "PHOTO", 8.2, 15.4, 10.6, 13.2, { field: "student.photo", label: "Photo", borderColor: line }),
+      cap("hero-l", 21.5, 16, 30, "ADMITTED STUDENT", { color: brand }),
+      e("student-name", "FIELD", 21.5, 17.6, 50, 3, { field: "student.name", label: "Student name", fontSize: 20, fontWeight: "bold", color: ink }),
+      cap("class-l", 21.5, 22.6, 14, "CLASS"),
+      val("class", 21.5, 24, 14, "student.classLabel", "Class"),
+      cap("adm-l", 37, 22.6, 18, "ADMISSION NO."),
+      val("admission", 37, 24, 20, "student.admissionNo", "Admission number"),
+      e("badge", "SHAPE", 75.5, 15.6, 16.5, 2.8, { background: "#DCFCE7", borderColor: "#86EFAC", locked: true }),
+      e("badge-t", "TEXT", 75.5, 16.2, 16.5, 1.6, { value: "✓  ADMITTED", fontSize: 9, fontWeight: "bold", align: "center", color: "#15803D" }),
+      cap("date-l", 66, 22.6, 26, "DATE OF ISSUE", { align: "right" }),
+      val("date", 66, 24, 26, "document.issueDate", "Issue date", { align: "right" }),
+      // Student and guardian details.
+      cap("details-l", 6, 32, 50, "STUDENT & GUARDIAN DETAILS"),
+      e("details-card", "SHAPE", 6, 33.6, 88, 10.6, { background: panel, borderColor: rule, locked: true }),
+      ...row("dob", 8, 34.7, "Date of birth", "student.born", "Date of birth"),
+      ...row("gender", 8, 37.8, "Gender", "student.gender", "Gender"),
+      ...row("roll", 8, 40.9, "Roll number", "student.rollNo", "Roll number"),
+      ...row("parent", 51, 34.7, "Parent / guardian", "student.parent", "Guardian"),
+      ...row("phone", 51, 37.8, "Phone", "student.parentPhone", "Guardian phone"),
+      ...row("year", 51, 40.9, "Academic year", "school.academicYear", "Academic year"),
+      e("details-rule-1", "LINE", 7, 37.1, 86, 0.15, { color: rule }),
+      e("details-rule-2", "LINE", 7, 40.2, 86, 0.15, { color: rule }),
+      // The confirmation itself.
+      cap("body-l", 6, 47.4, 40, "CONFIRMATION", { color: brand, fontSize: 8 }),
+      e("body", "TEXT", 6, 48.9, 88, 4.6, {
+        value:
+          "This is to confirm that the student named above has been granted admission to this school for the academic session shown, and has been entered in the official admission register of the school.",
+        fontSize: 11,
+        color: "#334155",
+      }),
+      e("welcome", "TEXT", 6, 54.4, 88, 2, { value: "We warmly welcome the student and family to our school.", fontSize: 11.5, fontWeight: "bold", color: brand }),
+      e("notes-card", "SHAPE", 6, 59.4, 88, 10.6, { background: panel, borderColor: rule, locked: true }),
+      cap("docs-l", 8, 60.6, 40, "DOCUMENTS RECEIVED", { color: brand, fontSize: 8 }),
+      e("docs", "FIELD", 8, 62.4, 84, 6.4, { field: "admission.documentsReceived", label: "Documents received", fontSize: 10, fontWeight: "bold", color: ink }),
+      e("notes", "TEXT", 6, 71.2, 88, 3.2, {
+        value: "Please keep this letter safe. Submit any pending documents at the school office, and inform the office of any change in student or guardian details.",
+        fontSize: 8.5,
+        color: slate,
+      }),
+      // Verification, stamp and signature.
+      e("verify", "VERIFY_QR", 6, 79.4, 8.4, 5.94, { label: "Verification QR", locked: true }),
+      e("verify-l", "TEXT", 15.6, 80.1, 28, 1.7, { value: "Scan to verify", fontSize: 9.5, fontWeight: "bold", color: ink }),
+      e("verify-s", "TEXT", 15.6, 81.8, 28, 4, { value: "Scan with any phone camera to confirm this admission letter is genuine.", fontSize: 8, color: slate }),
+      e("stamp", "STAMP", 49, 78.8, 13, 6.6, { field: "school.stampPath", label: "School stamp" }),
+      e("signature", "SIGNATURE", 68, 79, 26, 5.2, { field: "school.signPath", label: "Principal signature" }),
+      e("sign-line", "LINE", 68, 84.6, 26, 0.2, { color: "#CBD5E1" }),
+      e("signature-label", "TEXT", 68, 85.1, 26, 1.5, { value: "Principal / Authorised signatory", fontSize: 8, align: "center", color: slate }),
+      e("sign-for", "FIELD", 68, 86.6, 26, 1.5, { field: "school.name", label: "School name", fontSize: 8, fontWeight: "bold", align: "center", color: ink }),
+      // Footer.
+      e("footer-line", "LINE", 6, 93.6, 88, 0.2, { color: rule }),
+      e("footer", "TEXT", 6, 94.3, 60, 1.5, { value: "Computer-generated admission letter. Valid with the verification QR.", fontSize: 7.5, color: muted }),
+      e("footer-web", "FIELD", 66, 94.3, 28, 1.5, { field: "school.website", label: "School website", fontSize: 7.5, align: "right", color: muted }),
+      e("bottom-bar", "SHAPE", 0, 99.1, 100, 0.9, { background: brand, locked: true }),
+    ],
+  };
+}
+
+/** Ids of the admission confirmation layout shipped before 2026-11-21; an untouched copy is upgraded. */
+const LEGACY_ADMISSION_CONFIRMATION_IDS = [
+  "page-bg", "paper", "top-band", "accent", "school-logo", "school-name", "school-address", "document-number", "title-bg", "title",
+  "photo", "name-label", "student-name", "class-label", "class", "adm-label", "admission", "body", "date-label", "date",
+  "signature", "signature-label", "verify", "qr-label", "footer",
+];
+
 /** Old built-in fee designs (before the 2026-11 redesign) are swapped for the current default. */
 function upgradeLegacyFeeLayout(type: string, layout: DocumentLayout): DocumentLayout {
   const ids = new Set(layout.elements.map((item) => item.id));
   if (type === "ADMIT_CARD") {
     return ids.has("header") && ids.has("sheet-l") && ids.has("centre-l") && ids.has("card-l") && !ids.has("roll-card") ? defaultLayout(type) : layout;
+  }
+  if (type === "ADMISSION_CONFIRMATION") {
+    const legacy = ids.size === LEGACY_ADMISSION_CONFIRMATION_IDS.length && LEGACY_ADMISSION_CONFIRMATION_IDS.every((id) => ids.has(id));
+    return legacy ? defaultLayout(type) : layout;
   }
   if (!isFeeDocumentType(type)) return layout;
   if (ids.has("bill-card") && ids.has("sum-3") && ids.has("rail") && ids.has("header")) return defaultLayout(type);
@@ -2161,13 +2234,14 @@ async function renderIssuedHtml(layout: DocumentLayout, data: Record<string, unk
   const feeDoc = isFeeDocumentType(docType);
   const isPreview = verifyUrl === DESIGNER_QR_PREVIEW_URL;
   const admitDoc = docType === "ADMIT_CARD";
-  if (feeDoc || admitDoc) layout = upgradeLegacyFeeLayout(docType, layout);
+  const admissionDoc = docType === "ADMISSION_CONFIRMATION";
+  if (feeDoc || admitDoc || admissionDoc) layout = upgradeLegacyFeeLayout(docType, layout);
   if (feeDoc) data = feeDocumentData(docType, data);
   if (feeDoc) layout = placeFeePayments(layout, data, pageHeight);
   const examDoc = layout.elements.some((item) => item.type === "TABLE" && item.field === "results.marks" && item.value === "bars");
   if (examDoc) layout = placeExamMarks(layout, data, pageHeight);
   const tcDoc = docType === "TRANSFER_CERTIFICATE";
-  if (tcDoc) {
+  if (tcDoc || admissionDoc) {
     // Certificates read dates as "12 Nov 2026", not ISO.
     const issued = String(atPath(data, "document.issueDate") || "");
     if (/^\d{4}-\d{2}-\d{2}$/.test(issued)) {
@@ -2175,7 +2249,7 @@ async function renderIssuedHtml(layout: DocumentLayout, data: Record<string, unk
       data = { ...data, document: { ...((data.document as Record<string, unknown>) || {}), issueDate: pretty } };
     }
   }
-  const designedDoc = feeDoc || admitDoc || examDoc || tcDoc;
+  const designedDoc = feeDoc || admitDoc || examDoc || tcDoc || admissionDoc;
   const docLabel = examDoc || isReportCardType(docType) ? "exam result" : docType === "PAYMENT_RECEIPT" || docType === "CONSOLIDATED_RECEIPT" ? "payment receipt" : docType === "FEE_INVOICE" ? "fee invoice" : tcDoc ? "transfer certificate" : "document";
   const studentName = String(atPath(data, "student.name") || "");
   const schoolName = String(atPath(data, "school.name") || "");
@@ -2362,11 +2436,14 @@ async function withAdmissionData(data: Record<string, unknown>, studentId: strin
   const student = await prisma.student.findFirst({ where: { id: studentId }, select: { admissionDataJson: true } }).catch(() => null);
   if (!student) return data;
   const values = admissionCustomValues(student.admissionDataJson);
-  const photoField = admissionPhotoField(await schoolAdmissionForm().catch(() => [] as AdmissionFormField[]));
+  const form = await schoolAdmissionForm().catch(() => [] as AdmissionFormField[]);
+  const photoField = admissionPhotoField(form);
   const studentIn = (data.student && typeof data.student === "object" ? data.student : {}) as Record<string, unknown>;
+  const fileFields = form.filter((field) => field.type === "file" && !field.builtin && field.visible);
+  const documentsReceived = documentsReceivedLine(fileFields.map((field) => ({ label: field.label, path: values[field.id] || "" })));
   return {
     ...data,
-    admission: { ...((data.admission && typeof data.admission === "object" ? data.admission : {}) as Record<string, unknown>), ...values },
+    admission: { ...((data.admission && typeof data.admission === "object" ? data.admission : {}) as Record<string, unknown>), ...values, documentsReceived },
     student: { ...studentIn, photo: (photoField && values[photoField.id]) || studentIn.photo || "" },
   };
 }
@@ -2561,6 +2638,16 @@ export async function previewDocumentTemplateCore(user: AccessUser, input: Recor
   // Preview with the sample student: show a placeholder face so the layout can be judged.
   const previewStudent = (data.student && typeof data.student === "object" ? data.student : null) as Record<string, unknown> | null;
   if (previewStudent && !previewStudent.photo) data = { ...data, student: { ...previewStudent, photo: SAMPLE_PHOTO_SRC } };
+  if (type === "ADMISSION_CONFIRMATION" && !atPath(data, "admission.documentsReceived")) {
+    const admissionIn = (data.admission && typeof data.admission === "object" ? data.admission : {}) as Record<string, unknown>;
+    data = { ...data, admission: { ...admissionIn, documentsReceived: documentsReceivedLine([
+      { label: "Birth certificate", path: "x" },
+      { label: "Previous report card", path: "x" },
+      { label: "Aadhaar card", path: "x" },
+      { label: "Photos", path: "x" },
+      { label: "Transfer certificate", path: "" },
+    ]) } };
+  }
   const documentIn = (data.document && typeof data.document === "object" ? data.document : {}) as Record<string, unknown>;
   data.document = {
     ...documentIn,
@@ -2635,8 +2722,9 @@ export async function issueDocumentCore(user: AccessUser, input: Record<string, 
   }
   const now = new Date();
   const year = now.getFullYear();
-  const count = await prisma.issuedDocument.count({ where: { schoolId, type: template.type, issuedAt: { gte: new Date(year, 0, 1), lt: new Date(year + 1, 0, 1) } } });
   const code = template.type.split("_").map((word) => word[0]).join("").slice(0, 4);
+  // Count by number prefix, not type: different types can share a code (ADMIT_CARD and ADMISSION_CONFIRMATION are both "AC").
+  const count = await prisma.issuedDocument.count({ where: { schoolId, documentNumber: { startsWith: `${code}-${year}-` } } });
   const documentNumber = `${code}-${year}-${String(count + 1).padStart(6, "0")}`;
   const verifyToken = randomBytes(24).toString("base64url");
   const verifyUrl = `${publicOrigin()}/verify/${verifyToken}`;
@@ -2719,8 +2807,8 @@ export async function uploadStudentDocumentCore(user: AccessUser, input: Record<
   const template = await resolveUploadTemplate(user, type, schoolId);
   const now = new Date();
   const year = now.getFullYear();
-  const count = await prisma.issuedDocument.count({ where: { schoolId, type, issuedAt: { gte: new Date(year, 0, 1), lt: new Date(year + 1, 0, 1) } } });
   const code = type.split("_").map((word) => word[0]).join("").slice(0, 4);
+  const count = await prisma.issuedDocument.count({ where: { schoolId, documentNumber: { startsWith: `${code}-${year}-` } } });
   const documentNumber = `${code}-${year}-${String(count + 1).padStart(6, "0")}`;
   const verifyToken = randomBytes(24).toString("base64url");
   const verifyUrl = `${publicOrigin()}/verify/${verifyToken}`;

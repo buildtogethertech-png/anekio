@@ -375,3 +375,10 @@ export function studentAdmissionCustomValues(fieldsValue: unknown, input: unknow
   }
   return values;
 }
+
+/** "✓ Birth certificate   ✓ Photos   ✗ Transfer certificate (pending)" for the admission confirmation. */
+export function documentsReceivedLine(files: { label: string; path: string }[]) {
+  if (!files.length) return "No documents were asked for on the admission form.";
+  const ordered = [...files.filter((file) => file.path), ...files.filter((file) => !file.path)];
+  return ordered.map((file) => (file.path ? `✓ ${file.label}` : `✗ ${file.label} (pending)`)).join("     ");
+}

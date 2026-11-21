@@ -2,7 +2,7 @@ import { prisma } from "./prisma";
 import { assertSeatsFor } from "./seats";
 import { can, type AccessUser } from "./permissions";
 import { createNextSchoolSession, ensureSchoolSessions, sessionLabel } from "./school-session";
-import { ensureCurrentSessionStudentRollNumbers } from "./student-rolls";
+import { ensureCurrentSessionStudentRollNumbers, releaseStudentRoll, unparkRoll } from "./student-rolls";
 
 /**
  * School-year rollover.
@@ -541,6 +541,8 @@ export async function markStudentLeftCore(user: AccessUser, input: { studentId?:
       joinsClassId: null,
     },
   });
+  // Their roll is free for the class again (the old number stays readable on the parked row).
+  await releaseStudentRoll(student.id);
   return { name: student.name };
 }
 
@@ -559,10 +561,13 @@ export async function restoreStudentCore(user: AccessUser, input: { studentId?: 
     const enrolled = await db.studentClassEnrollment.findFirst({ where: { studentId: student.id, sessionId: current.id } });
     const used = await db.studentClassEnrollment.findMany({ where: { sessionId: current.id, classId: klass.id }, select: { rollNumber: true } });
     const taken = new Set(used.map((u) => u.rollNumber));
+    // Back in the same class: their old roll again when nobody has taken it, else the first free one.
+    const before = enrolled && enrolled.classId === klass.id ? (enrolled.rollNumber > 0 ? enrolled.rollNumber : unparkRoll(enrolled.rollNumber)) : null;
     let roll = 1;
     while (taken.has(roll)) roll += 1;
+    if (before && (!taken.has(before) || enrolled?.rollNumber === before)) roll = before;
     if (enrolled) {
-      if (enrolled.classId !== klass.id) {
+      if (enrolled.classId !== klass.id || enrolled.rollNumber !== roll || !enrolled.active) {
         await db.studentClassEnrollment.update({ where: { id: enrolled.id }, data: { classId: klass.id, rollNumber: roll, active: true } });
       }
     } else {

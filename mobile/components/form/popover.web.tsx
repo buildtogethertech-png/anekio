@@ -44,6 +44,9 @@ export function Popover({
     },
     placement: align === "end" ? "bottom-end" : "bottom-start",
     strategy: "fixed",
+    // Position with left/top, not transform: the .anekio-pop open animation animates transform,
+    // which would otherwise wipe the translate and flash the panel in the top-left corner.
+    transform: false,
     whileElementsMounted: autoUpdate,
     middleware: [
       offset(6),

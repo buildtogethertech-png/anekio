@@ -6,6 +6,7 @@ import { DocViewer } from "./doc-viewer";
 import { MoveOutModal } from "./move-out";
 import { openInAppDoc } from "../lib/in-app-doc";
 import type { ReactNode } from "react";
+import { AdmissionKitModal } from "./admission-kit-modal";
 import { Alert, FlatList, Linking, Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -39,6 +40,7 @@ import { lastAttendanceDots } from "../lib/attendance-summary";
 import { calendarFrom, closedCaption, closedReason, ymd } from "../lib/calendar";
 import { QuickDocumentButton } from "./document-studio";
 import { cloneFields, FormBuilderModal } from "./form-builder";
+import { COMMON_ENQUIRY_FIELDS } from "../lib/common-form-fields";
 import { StaffTimesheet } from "./staff-timesheet";
 import { StaffSalaryBoard } from "./staff-salary-board";
 import { StaffPhoneReport } from "./staff-phone-report";
@@ -1249,6 +1251,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   const { width } = useWindowDimensions();
   const wide = width >= 768;
   const toast = useToast();
+  const [kitFor, setKitFor] = useState<{ id: string; headline: string } | null>(null);
   const params = useLocalSearchParams<{ student?: string | string[]; tab?: string | string[] }>();
   const incoming = Array.isArray(params.student) ? params.student[0] : params.student;
   const incomingTab = studentTabFromParam(params.tab);
@@ -1581,17 +1584,14 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
     }
   }
 
+  // Errors go back to the form, which shows them (a toast would sit behind the full-screen form).
   async function addStudent(values: StudentAdmitPayload, files: StudentAdmitFiles) {
-    try {
-      const { result, failedUploads } = await createStudentWithFiles(token, values, files);
-      setAdd(null);
-      setForm({});
-      toast.show(studentAddedMessage(result, failedUploads));
-      await reload();
-    } catch (e) {
-      toast.show(e instanceof Error ? e.message : "Could not save.");
-      throw e;
-    }
+    const { result, failedUploads } = await createStudentWithFiles(token, values, files);
+    setAdd(null);
+    setForm({});
+    if (result.studentId) setKitFor({ id: result.studentId, headline: studentAddedMessage(result, failedUploads) });
+    else toast.show(studentAddedMessage(result, failedUploads));
+    await reload();
   }
 
   async function saveFile() {
@@ -3473,6 +3473,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
           </SafeAreaView>
         </RnModal>
       ) : null}
+      {kitFor ? <AdmissionKitModal token={token} studentId={kitFor.id} headline={kitFor.headline} onClose={() => setKitFor(null)} /> : null}
       <Modal
         open={Boolean(add) && !(phoneAdmit && add === "student")}
         title={add === "parent" ? "Add parent" : "Add student"}
@@ -4085,6 +4086,7 @@ export function AdmissionsBoard() {
   const { data, reload } = useRecord();
   const { token, user } = useSession();
   const toast = useToast();
+  const [kitFor, setKitFor] = useState<{ id: string; headline: string } | null>(null);
   const router = useRouter();
   const leads = data?.school?.admissionLeads || [];
   // Enquiries (website and walk-in) use the website enquiry form.
@@ -4228,16 +4230,13 @@ export function AdmissionsBoard() {
 
   async function admitLead(values: StudentAdmitPayload, files: StudentAdmitFiles) {
     if (!selected) return;
-    try {
-      const { result, failedUploads } = await createStudentWithFiles(token, { ...values, leadId: selected.id }, files);
-      setAdmitOpen(false);
-      setLeadOpen(false);
-      toast.show(studentAddedMessage(result, failedUploads, "Student admitted"));
-      await reload();
-    } catch (e) {
-      toast.show(e instanceof Error ? e.message : "Could not admit student.");
-      throw e;
-    }
+    // Errors go back to the form, which shows them.
+    const { result, failedUploads } = await createStudentWithFiles(token, { ...values, leadId: selected.id }, files);
+    setAdmitOpen(false);
+    setLeadOpen(false);
+    if (result.studentId) setKitFor({ id: result.studentId, headline: studentAddedMessage(result, failedUploads, "Student admitted") });
+    else toast.show(studentAddedMessage(result, failedUploads, "Student admitted"));
+    await reload();
   }
 
   /** Edit the website enquiry form right here; the walk-in form reopens with the new fields once saved. */
@@ -4576,6 +4575,7 @@ export function AdmissionsBoard() {
         audience="parents"
         fields={websiteFormDraft || []}
         suggestions={data?.school?.platformForms?.website ?? []}
+        commonFields={COMMON_ENQUIRY_FIELDS}
         lockedIds={["studentName", "classWanted", "phone"]}
         classOptions={[...new Set(classOptions.map((option) => option.label))]}
         canEdit={can(user, "school.edit")}
@@ -4613,6 +4613,7 @@ export function AdmissionsBoard() {
           </SafeAreaView>
         </RnModal>
       ) : null}
+      {kitFor ? <AdmissionKitModal token={token} studentId={kitFor.id} headline={kitFor.headline} onClose={() => setKitFor(null)} /> : null}
       <Modal open={admissionsWide && admitOpen && Boolean(selected)} wide title={selected ? `Admit ${selected.studentName || "student"}` : "Admit student"} onClose={() => setAdmitOpen(false)}>
         {selected ? (
           <View className="gap-3">

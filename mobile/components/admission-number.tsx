@@ -32,9 +32,23 @@ export function useNextAdmissionNo(enabled = true) {
 /** Read-only admission number on the Add student form. */
 export function AdmissionNoPreview({ compact = false }: { compact?: boolean }) {
   const info = useNextAdmissionNo();
+  if (compact) {
+    // Phone wizard: same height as the roll box beside it, no helper line.
+    return (
+      <View>
+        <Text className="mb-1.5 text-xs font-medium text-ink-700">Admission no.</Text>
+        <View className="flex-row items-center gap-1.5 rounded-xl border border-ink-200 bg-ink-50 px-3 py-3">
+          <Text className="min-w-0 flex-1 text-[15px] font-semibold text-ink-900" numberOfLines={1}>{info?.next || "On save"}</Text>
+          <View className="rounded-full border border-ink-200 bg-white px-2 py-0.5">
+            <Text className="text-[11px] font-semibold text-ink-600">Auto</Text>
+          </View>
+        </View>
+      </View>
+    );
+  }
   return (
     <View>
-      <Text className={`${compact ? "mb-1.5 text-sm font-medium text-ink-800" : "mb-1.5 text-xs font-medium text-ink-700"}`}>Admission no.</Text>
+      <Text className="mb-1.5 text-xs font-medium text-ink-700">Admission no.</Text>
       <View className="h-11 flex-row items-center gap-2 rounded-lg border border-ink-200 bg-ink-50 px-3">
         <Ionicons name="lock-closed-outline" size={14} color="#64748b" />
         <Text className="flex-1 text-sm font-semibold text-ink-900" numberOfLines={1}>{info?.next || "Assigned on save"}</Text>

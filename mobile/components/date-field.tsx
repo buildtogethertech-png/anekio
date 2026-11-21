@@ -404,7 +404,7 @@ export function DateField({
         compact ? "min-h-9 gap-1 rounded-md border border-ink-200 bg-white px-2 py-1.5" : bare ? "min-h-[44px] gap-2 py-1" : "min-h-[44px] rounded-md border border-ink-200 bg-white px-3 py-2.5"
       } ${plain && !compact ? "gap-2" : ""}`}
     >
-      <Text className={`min-w-0 flex-1 text-sm ${value ? "text-ink-900" : "text-ink-700"}`} numberOfLines={1}>
+      <Text className={`min-w-0 flex-1 text-sm ${value ? "font-medium text-ink-900" : "text-ink-400"}`} numberOfLines={1}>
         {value
           ? compact
             ? prettyDay(value, false)
@@ -585,7 +585,7 @@ export function MonthField({
       onPress={toggle}
       className="min-h-[44px] w-full flex-row items-center gap-2 rounded-md border border-ink-200 bg-white px-3 py-2.5"
     >
-      <Text className={`min-w-0 flex-1 text-sm ${valid ? "text-ink-900" : "text-ink-700"}`} numberOfLines={1}>{label}</Text>
+      <Text className={`min-w-0 flex-1 text-sm ${valid ? "font-medium text-ink-900" : "text-ink-400"}`} numberOfLines={1}>{label}</Text>
       <Ionicons name="calendar-outline" size={18} color="#3d4f66" />
     </Pressable>
   );

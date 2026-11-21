@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Image, Linking, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Button, Chip, DateField, Field, Input, Select } from "./form";
@@ -365,7 +365,7 @@ export function StudentAdmitForm({
   classOnly?: boolean;
   /** classId → monthly fee, shown when a class is picked. */
   monthlyFees?: Record<string, number>;
-  classes: { id: string; label: string }[];
+  classes: { id: string; label: string; takenRolls?: number[] }[];
   parents: { id: string; name: string; phone?: string }[];
   admissionFeeLines: { id: string; classId: string; label: string; amount: number; sortOrder: number }[];
   /** The school's admission form (School setup → Forms & Templates). Labels and extra fields follow it live. */
@@ -377,15 +377,24 @@ export function StudentAdmitForm({
   const enquiryFiles = initial?.enquiryFiles || {};
   const record = useOptionalRecord();
   const people = record?.data?.people ?? [];
+  const recordClasses = record?.data?.classes ?? [];
+  const takenFor = (classId: string) =>
+    classes.find((c) => c.id === classId)?.takenRolls || recordClasses.find((c) => c.id === classId)?.takenRolls || [];
+  const rollFor = (classId: string) => nextClassRoll(people, classId, takenFor(classId));
   const [wizStep, setWizStep] = useState(0);
+  // Wizard: the field Next stopped on (red border + message), and where each field sits to scroll to it.
+  const [invalid, setInvalid] = useState("");
+  const [rollMsg, setRollMsg] = useState("");
+  const scrollRef = useRef<ScrollView>(null);
+  const fieldY = useRef<Record<string, number>>({});
   const [form, setForm] = useState<StudentAdmitPayload>(() => {
-    const base = { ...emptyForm(classes), parentId: wizard || !parents.length ? "__new__" : "", ...(wizard && !classOnly ? { classId: "" } : {}) };
+    const base = { ...emptyForm(classes), parentId: wizard || !parents.length ? "__new__" : "", ...(wizard && !classOnly ? { classId: classes.length === 1 ? classes[0].id : "" } : {}) };
     if (!initial) {
-      return { ...base, rollNumber: nextClassRoll(people, base.classId) };
+      return { ...base, rollNumber: rollFor(base.classId) };
     }
     const { enquiryFiles: _files, ...values } = initial;
     const merged = { ...base, ...Object.fromEntries(Object.entries(values).filter(([, value]) => value !== undefined && value !== "")) } as StudentAdmitPayload;
-    return { ...merged, rollNumber: merged.rollNumber || nextClassRoll(people, merged.classId) };
+    return { ...merged, rollNumber: merged.rollNumber || rollFor(merged.classId) };
   });
   const [files, setFiles] = useState<StudentAdmitFiles>({});
   // "Admit for": this year or next year — always offered (schools take next year's admissions any time).
@@ -407,11 +416,11 @@ export function StudentAdmitForm({
   const yearPicker =
     !classOnly && offerNextYear && thisYear && nextYear ? (
       <View>
-        <Text className="mb-1.5 text-sm font-medium text-ink-800">Admit for *</Text>
+        <Text className="mb-1.5 text-xs font-medium text-ink-700">Admit for *</Text>
         <View className="flex-row gap-2">
           {[
             { next: false, title: thisYear.label, sub: "Joins now" },
-            { next: true, title: nextYear.label, sub: `Joins next year · billing from ${nextYear.startMonth}` },
+            { next: true, title: nextYear.label, sub: "Joins next year" },
           ].map((opt) => {
             const on = Boolean(form.forNextYear) === opt.next;
             return (
@@ -427,7 +436,7 @@ export function StudentAdmitForm({
                       : form.billingStartPeriod >= nextYear.startMonth ? thisMonth : form.billingStartPeriod,
                   })
                 }
-                className={`flex-1 rounded-xl border px-3 py-2.5 ${on ? "border-[#1F45C7] bg-[#EEF3FF]" : "border-ink-200 bg-white"}`}
+                className={`min-h-[56px] flex-1 justify-center rounded-xl border px-3 py-2.5 ${on ? "border-[#1F45C7] bg-[#EEF3FF]" : "border-ink-200 bg-white"}`}
               >
                 <Text className={`text-sm font-semibold ${on ? "text-[#1F45C7]" : "text-ink-900"}`}>{opt.title}</Text>
                 <Text className="mt-0.5 text-xs text-ink-700">{opt.sub}</Text>
@@ -483,6 +492,8 @@ export function StudentAdmitForm({
 
   function patch(part: Partial<StudentAdmitPayload>) {
     setError("");
+    setInvalid("");
+    setRollMsg("");
     setForm((prev) => ({ ...prev, ...part }));
   }
 
@@ -495,11 +506,12 @@ export function StudentAdmitForm({
   }
 
   function pickClass(classId: string) {
-    patch({ classId, rollNumber: nextClassRoll(people, classId) });
+    patch({ classId, rollNumber: rollFor(classId) });
   }
 
   function setCustom(id: string, value: string) {
     setError("");
+    setInvalid("");
     setForm((prev) => ({ ...prev, customValues: { ...prev.customValues, [id]: value } }));
   }
 
@@ -535,15 +547,45 @@ export function StudentAdmitForm({
       return;
     }
     setError("");
+    setRollMsg("");
     setBusy(true);
+    let values = form;
+    const justTaken: number[] = [];
     try {
-      await onSubmit(form, files);
-      const next = { ...emptyForm(classes), parentId: wizard || !parents.length ? "__new__" : "", ...(wizard && !classOnly ? { classId: "" } : {}) };
-      setForm({ ...next, rollNumber: nextClassRoll(people, next.classId) });
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          await onSubmit(values, files);
+          break;
+        } catch (e) {
+          const message = e instanceof Error ? e.message : "Could not save.";
+          const clash = /Roll (\d+) is already used/.exec(message);
+          // The roll we suggested was taken meanwhile (someone else admitted a student): take the next free one and save again.
+          const suggested = values.rollNumber === nextClassRoll(people, values.classId, [...takenFor(values.classId), ...justTaken]);
+          if (clash && suggested && attempt < 3) {
+            justTaken.push(Number(clash[1]));
+            values = { ...values, rollNumber: nextClassRoll(people, values.classId, [...takenFor(values.classId), ...justTaken]) };
+            continue;
+          }
+          if (clash) {
+            // A roll the office typed: send them back to it.
+            setForm(values);
+            setRollMsg(`Roll ${clash[1]} is already taken in this class. Enter another roll.`);
+            if (wizard) {
+              setWizStep(0);
+              setInvalid("roll");
+            } else {
+              setError(message);
+            }
+          } else {
+            setError(message);
+          }
+          return;
+        }
+      }
+      const next = { ...emptyForm(classes), parentId: wizard || !parents.length ? "__new__" : "", ...(wizard && !classOnly ? { classId: classes.length === 1 ? classes[0].id : "" } : {}) };
+      setForm({ ...next, rollNumber: rollFor(next.classId) });
       setWizStep(0);
       setFiles({});
-    } catch {
-      /* parent shows the error; keep the form */
     } finally {
       setBusy(false);
     }
@@ -562,37 +604,66 @@ export function StudentAdmitForm({
     const linked = !newParent ? parents.find((row) => row.id === form.parentId) : undefined;
     const monthly = form.classId ? monthlyFees?.[form.classId] || 0 : 0;
 
-    function stepMissing(name: string) {
+    function stepMissing(name: string): { key: string; label: string } | null {
       if (name === "Details") {
-        if (!form.name.trim()) return builtinLabel("studentName", "Student name");
-        if (dobRequired && !form.dateOfBirth) return dobLabel;
-        if (!form.classId) return "Class";
-        if (showRoll && !form.rollNumber.trim()) return builtinLabel("rollNumber", "Roll no");
-        if (!form.billingStartPeriod) return builtinLabel("billingStartPeriod", "Billing starts from");
+        if (!form.name.trim()) return { key: "name", label: builtinLabel("studentName", "Student name") };
+        if (dobRequired && !form.dateOfBirth) return { key: "dob", label: dobLabel };
+        if (!form.classId) return { key: "class", label: "Class" };
+        if (showRoll && !form.rollNumber.trim()) return { key: "roll", label: builtinLabel("rollNumber", "Roll no") };
         for (const field of detailFields) {
-          if (field.required && !String(form.customValues[field.id] || "").trim()) return field.label;
+          if (field.required && !String(form.customValues[field.id] || "").trim()) return { key: field.id, label: field.label };
         }
       }
       if (name === "Documents") {
         for (const field of fileFields) {
-          if (field.required && !files[field.id] && !enquiryFiles[field.id]) return field.label;
+          if (field.required && !files[field.id] && !enquiryFiles[field.id]) return { key: "", label: field.label };
         }
       }
-      return "";
+      return null;
     }
 
     function next() {
       const missing = stepMissing(current);
       if (missing) {
-        setError(`${missing} is required.`);
+        if (missing.key) {
+          // Point at the field itself: red border, message under it, and scroll it into view.
+          setError("");
+          setInvalid(missing.key);
+          const y = fieldY.current[missing.key];
+          if (y != null) scrollRef.current?.scrollTo({ y: Math.max(0, y - 16), animated: true });
+        } else {
+          setError(`${missing.label} is required.`);
+        }
         return;
       }
       setError("");
+      setInvalid("");
       setWizStep((n) => Math.min(n + 1, steps.length - 1));
     }
 
-    const label = (text: string) => <Text className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500">{text}</Text>;
-    const box = "rounded-xl border border-ink-200 bg-white px-3 py-3 text-[15px] text-ink-900";
+    const at = (key: string) => ({
+      onLayout: (e: { nativeEvent: { layout: { y: number } } }) => {
+        fieldY.current[key] = e.nativeEvent.layout.y;
+      },
+    });
+    const needText = (key: string, text: string) =>
+      invalid === key ? <Text className="mt-1.5 text-xs font-medium text-red-600">{text}</Text> : null;
+    const boxFor = (key: string) =>
+      invalid === key
+        ? "rounded-xl border border-red-400 bg-white px-3 py-3 text-[15px] font-medium text-ink-900"
+        : "rounded-xl border border-ink-200 bg-white px-3 py-3 text-[15px] font-medium text-ink-900";
+    const ageOf = (dob: string) => {
+      const born = new Date(`${dob}T00:00:00`);
+      if (Number.isNaN(born.getTime())) return null;
+      const now = new Date();
+      let years = now.getFullYear() - born.getFullYear();
+      if (now.getMonth() < born.getMonth() || (now.getMonth() === born.getMonth() && now.getDate() < born.getDate())) years -= 1;
+      return years >= 0 ? years : null;
+    };
+    const classCount = (id: string) => recordClasses.find((c) => c.id === id)?.students;
+
+    const label = (text: string) => <Text className="mb-1.5 text-xs font-medium text-ink-700">{text}</Text>;
+    const box = "rounded-xl border border-ink-200 bg-white px-3 py-3 text-[15px] font-medium text-ink-900";
 
     return (
       <View className="min-h-0 flex-1">
@@ -629,96 +700,107 @@ export function StudentAdmitForm({
               </View>
             ))}
           </View>
+          <Text className="mt-2 text-center text-[11px] font-medium text-ink-500">{`Step ${Math.min(wizStep, steps.length - 1) + 1} of ${steps.length}`}</Text>
         </View>
-        <ScrollView className="flex-1" contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24, gap: 16 }} keyboardShouldPersistTaps="handled">
+        <ScrollView ref={scrollRef} className="flex-1" contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24, gap: 16 }} keyboardShouldPersistTaps="handled">
           {current === "Details" ? (
             <>
-              {!classOnly ? (
-              <View className="flex-row items-center justify-between gap-3 rounded-xl border border-ink-200 bg-white px-3 py-3">
-                <View className="min-w-0 flex-1">
-                  <Text className="text-sm font-semibold text-ink-900">Old student</Text>
-                  <Text className="mt-0.5 text-xs leading-4 text-ink-500">On: old due only. Off: admission fee only.</Text>
-                </View>
-                <Switch on={form.existingStudent} onPress={() => setExistingStudent(!form.existingStudent)} />
-              </View>
-              ) : null}
               <View>
-                {label(`${builtinLabel("studentName", "Student name")} *`)}
+                <Text className="text-[15px] font-semibold text-ink-900">Basic details</Text>
+                <Text className="mt-0.5 text-xs text-ink-500">Class, roll and admission number for the school record.</Text>
+              </View>
+              <View {...at("name")}>
+                <Text className="text-xs font-medium text-ink-700">{`${builtinLabel("studentName", "Student name")} *`}</Text>
+                <Text className="mb-1.5 text-[11px] text-ink-500">As on the birth certificate</Text>
                 <TextInput
                   value={form.name}
                   onChangeText={(name) => patch({ name })}
+                  onBlur={() => {
+                    // Typed all in small letters (web keyboards don't capitalise): "riya verma" → "Riya Verma".
+                    if (form.name && form.name === form.name.toLowerCase()) {
+                      patch({ name: form.name.replace(/(^|\s)(\S)/g, (_m, space: string, ch: string) => space + ch.toUpperCase()) });
+                    }
+                  }}
                   autoComplete="name"
-                  placeholder="Full name as on birth certificate"
-                  placeholderTextColor="#94a3b8"
-                  className={box}
+                  autoCapitalize="words"
+                  placeholder="e.g. Aarav Sharma"
+                  placeholderTextColor="#A3AEC2"
+                  className={boxFor("name")}
                   style={{ includeFontPadding: false }}
                 />
+                {needText("name", "Enter the student's name.")}
               </View>
               {showDob ? (
-                <View>
+                <View {...at("dob")}>
                   {label(`${dobLabel}${star(dobRequired)}`)}
                   <DateField birthDate value={form.dateOfBirth} max={new Date().toISOString().slice(0, 10)} onChange={(dateOfBirth) => patch({ dateOfBirth })} />
+                  {form.dateOfBirth && ageOf(form.dateOfBirth) != null ? (
+                    <Text className="mt-1.5 text-xs text-ink-600">{`Age ${ageOf(form.dateOfBirth)} ${ageOf(form.dateOfBirth) === 1 ? "year" : "years"}`}</Text>
+                  ) : null}
+                  {needText("dob", "Pick the date of birth.")}
                 </View>
               ) : null}
               {yearPicker}
-              <View>
+              <View {...at("class")}>
                 {label("Class *")}
                 {classes.length ? (
-                  <View className="flex-row flex-wrap gap-2">
-                    {classes.map((c) => {
-                      const on = form.classId === c.id;
-                      return (
-                        <Pressable
-                          key={c.id}
-                          accessibilityRole="button"
-                          accessibilityState={{ selected: on }}
-                          onPress={() => pickClass(c.id)}
-                          className={`min-w-[56px] items-center rounded-xl border px-3 py-2.5 ${on ? "border-[#1F45C7] bg-[#1F45C7]" : "border-ink-200 bg-white"}`}
-                        >
-                          <Text className={`text-sm font-semibold ${on ? "text-white" : "text-ink-800"}`}>{c.label}</Text>
-                        </Pressable>
-                      );
+                  <Select
+                    value={form.classId}
+                    placeholder="Pick a class"
+                    options={classes.map((c) => {
+                      const n = classCount(c.id);
+                      return { id: c.id, label: n != null ? `${c.label} · ${n} ${n === 1 ? "student" : "students"}` : c.label, searchText: c.label };
                     })}
-                  </View>
+                    onChange={pickClass}
+                  />
                 ) : (
                   <Text className="text-sm text-ink-700">Add a class first, then come back.</Text>
                 )}
                 {form.classId && monthly ? (
                   <View className="mt-2 flex-row items-center gap-2 rounded-lg bg-[#EEF3FF] px-3 py-2">
                     <Ionicons name="wallet-outline" size={15} color="#1F45C7" />
-                    <Text className="flex-1 text-sm text-[#1F45C7]">{rupees(monthly)}/mo</Text>
+                    <Text className="flex-1 text-sm text-[#1F45C7]">{`Monthly fee ${rupees(monthly)}`}</Text>
                   </View>
                 ) : null}
+                {needText("class", "Pick a class.")}
               </View>
-              <AdmissionNoPreview compact />
-              {showRoll ? (
-                <View>
-                  {label(`${builtinLabel("rollNumber", "Roll no")} *`)}
-                  <TextInput
-                    value={form.rollNumber}
-                    onChangeText={(rollNumber) => patch({ rollNumber: rollNumber.replace(/\D/g, "").slice(0, 4) })}
-                    keyboardType="number-pad"
-                    placeholder={form.classId ? `Next roll in this class` : "Pick a class first"}
-                    placeholderTextColor="#94a3b8"
-                    className={box}
-                    style={{ includeFontPadding: false }}
-                  />
+              <View className="flex-row gap-3" {...at("roll")}>
+                {showRoll ? (
+                  <View className="flex-1">
+                    {label(`${builtinLabel("rollNumber", "Roll no")} *`)}
+                    <TextInput
+                      value={form.rollNumber}
+                      onChangeText={(rollNumber) => patch({ rollNumber: rollNumber.replace(/\D/g, "").slice(0, 4) })}
+                      keyboardType="number-pad"
+                      editable={Boolean(form.classId)}
+                      placeholder={form.classId ? "Next roll" : "Pick a class"}
+                      placeholderTextColor="#A3AEC2"
+                      className={`${boxFor("roll")} ${form.classId ? "" : "bg-ink-50"}`}
+                      style={{ includeFontPadding: false }}
+                    />
+                    {needText("roll", rollMsg || "Enter a roll number.")}
+                  </View>
+                ) : null}
+                <View className="flex-1">
+                  <AdmissionNoPreview compact />
+                </View>
+              </View>
+              {detailFields.length ? (
+                <View className="mt-1 border-t border-ink-100 pt-4">
+                  <Text className="text-[15px] font-semibold text-ink-900">More details</Text>
+                  <Text className="mt-0.5 text-xs text-ink-500">From your school&apos;s admission form.</Text>
                 </View>
               ) : null}
-              {!classOnly ? (
-              <View>
-                {label(`${builtinLabel("billingStartPeriod", "Billing starts from")} *`)}
-                <MonthField value={form.billingStartPeriod} onChange={(billingStartPeriod) => patch({ billingStartPeriod })} />
-              </View>
-              ) : null}
               {detailFields.map((field) => (
-                <AdmissionCustomField
-                  key={field.id}
-                  field={field}
-                  value={form.customValues[field.id] || ""}
-                  onChange={(value) => setCustom(field.id, value)}
-                  onFile={() => undefined}
-                />
+                <View key={field.id} {...at(field.id)}>
+                  <AdmissionCustomField
+                    field={field}
+                    value={form.customValues[field.id] || ""}
+                    onChange={(value) => setCustom(field.id, value)}
+                    onFile={() => undefined}
+                  />
+                  {needText(field.id, `${field.label} is required.`)}
+                </View>
               ))}
             </>
           ) : null}
@@ -823,7 +905,7 @@ export function StudentAdmitForm({
                         onChangeText={(parentPhone) => patch({ parentPhone })}
                         keyboardType="phone-pad"
                         placeholder={parentPhoneRequired ? "10-digit mobile number" : "Optional · creates the parent login"}
-                        placeholderTextColor="#94a3b8"
+                        placeholderTextColor="#A3AEC2"
                         className={box}
                         style={{ includeFontPadding: false }}
                       />
@@ -852,7 +934,7 @@ export function StudentAdmitForm({
                             onChangeText={(parentName) => patch({ parentName })}
                             autoComplete="name"
                             placeholder="Full name"
-                            placeholderTextColor="#94a3b8"
+                            placeholderTextColor="#A3AEC2"
                             className={box}
                             style={{ includeFontPadding: false }}
                           />
@@ -867,7 +949,7 @@ export function StudentAdmitForm({
                             keyboardType="email-address"
                             autoCapitalize="none"
                             placeholder="parent@email.com"
-                            placeholderTextColor="#94a3b8"
+                            placeholderTextColor="#A3AEC2"
                             className={box}
                             style={{ includeFontPadding: false }}
                           />
@@ -887,6 +969,26 @@ export function StudentAdmitForm({
                 </>
               )}
 
+              {classOnly ? null : (
+                <>
+                  <View className="mt-1 border-t border-ink-100 pt-4">
+                    <Text className="text-[15px] font-semibold text-ink-900">Fees</Text>
+                  </View>
+                  <View>
+                    {label(`${builtinLabel("billingStartPeriod", "Billing starts from")} *`)}
+                    <MonthField value={form.billingStartPeriod} onChange={(billingStartPeriod) => patch({ billingStartPeriod })} />
+                  </View>
+                  <View className="flex-row items-center justify-between gap-3 rounded-xl border border-ink-200 bg-white px-3 py-3">
+                    <View className="min-w-0 flex-1">
+                      <Text className="text-sm font-semibold text-ink-900">Already studying here</Text>
+                      <Text className="mt-0.5 text-xs leading-4 text-ink-500">
+                        {form.existingStudent ? "No admission fee. Add any old due below." : "Turn on for a student who joined before Anekio."}
+                      </Text>
+                    </View>
+                    <Switch on={form.existingStudent} onPress={() => setExistingStudent(!form.existingStudent)} />
+                  </View>
+                </>
+              )}
               {classOnly ? null : !form.existingStudent ? (
               <View className="overflow-hidden rounded-xl border border-ink-100 bg-white">
                 <View className="flex-row items-center justify-between px-3 py-3">
@@ -939,7 +1041,7 @@ export function StudentAdmitForm({
                         value={form.paymentReference}
                         onChangeText={(paymentReference) => patch({ paymentReference })}
                         placeholder={form.paymentMethod === "CHEQUE" ? "Cheque number" : "UTR / reference"}
-                        placeholderTextColor="#94a3b8"
+                        placeholderTextColor="#A3AEC2"
                         className={box}
                         style={{ includeFontPadding: false }}
                       />
@@ -964,7 +1066,7 @@ export function StudentAdmitForm({
                       onChangeText={(openingDueAmount) => patch({ openingDueAmount: openingDueAmount.replace(/[^\d]/g, "") })}
                       keyboardType="number-pad"
                       placeholder="0"
-                      placeholderTextColor="#94a3b8"
+                      placeholderTextColor="#A3AEC2"
                       className={box}
                       style={{ includeFontPadding: false }}
                     />
@@ -978,7 +1080,6 @@ export function StudentAdmitForm({
                 </View>
               </View>
               )}
-              <Text className="text-xs text-ink-500">Admission number is given automatically.</Text>
             </>
           ) : null}
         </ScrollView>

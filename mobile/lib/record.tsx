@@ -496,6 +496,8 @@ export type RecordPayload = {
     section?: string;
     students?: number;
     subjects?: { id: string; name: string; code?: string; label?: string; teacherId?: string }[];
+    /** Rolls held this session, including students who left (the server refuses these). */
+    takenRolls?: number[];
   }[];
   feeTemplates?: {
     id: string;

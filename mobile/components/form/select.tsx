@@ -111,7 +111,7 @@ export function Select({
             Platform.OS === "web" ? " hover:border-ink-500 hover:bg-ink-50" : ""
           }`}
         >
-          <Text className={`min-w-0 flex-1 text-sm ${value ? "text-ink-900" : "text-ink-700"}`} numberOfLines={1}>
+          <Text className={`min-w-0 flex-1 text-sm ${value ? "font-medium text-ink-900" : "text-ink-400"}`} numberOfLines={1}>
             {current}
           </Text>
           <View style={{ transform: [{ rotate: open ? "180deg" : "0deg" }] }}>

@@ -1,3 +1,4 @@
+import { takenRollsByClass } from "./student-rolls";
 import {
   getClassRoster,
   getClassExamPapers,
@@ -776,11 +777,15 @@ async function teacherPayload(user: AccessUser) {
     breakout: desk?.breakout ?? 0,
     notices: noticeRows,
     subjects: hostClasses.flatMap((row) => row.subjects),
-    classes: hostClasses.map((row) => ({
-      id: row.id,
-      label: row.label,
-      subjects: row.subjects,
-    })),
+    classes: await (async () => {
+      const taken = await takenRollsByClass(hostClasses.map((row) => row.id));
+      return hostClasses.map((row) => ({
+        id: row.id,
+        label: row.label,
+        subjects: row.subjects,
+        takenRolls: taken.get(row.id) || [],
+      }));
+    })(),
     people: roster.map((s) => {
       const totals = seeFees
         ? s.feeInvoices.reduce(
@@ -1319,14 +1324,18 @@ async function officePayload(user: AccessUser) {
         };
       }),
     },
-    classes: people.classes.map((c) => ({
-      id: c.id,
-      label: `${c.name}-${c.section}`,
-      name: c.name,
-      section: c.section,
-      students: c._count.students,
-      subjects: (c.subjects || []).map((s) => ({ ...subjectDto(s), teacherId: s.teacherId || "" })),
-    })),
+    classes: await (async () => {
+      const taken = await takenRollsByClass(people.classes.map((c) => c.id));
+      return people.classes.map((c) => ({
+        id: c.id,
+        label: `${c.name}-${c.section}`,
+        name: c.name,
+        section: c.section,
+        students: c._count.students,
+        subjects: (c.subjects || []).map((s) => ({ ...subjectDto(s), teacherId: s.teacherId || "" })),
+        takenRolls: taken.get(c.id) || [],
+      }));
+    })(),
     feeTemplates: (
       await prisma.feeTemplate.findMany({
         include: { lines: { orderBy: { sortOrder: "asc" } }, class: true },

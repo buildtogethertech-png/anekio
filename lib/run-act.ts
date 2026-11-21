@@ -153,6 +153,7 @@ import {
 import { issueFeeReceiptCore } from "./fee-register";
 import { savePushTokenCore } from "./push";
 import { saveDeviceReportCore } from "./device-report";
+import { admissionKitCore, admissionKitLinkCore } from "./admission-kit";
 import { pastExamMarksCore, readPastExamSheetCore, savePastExamMarksCore } from "./past-exams";
 import { reassignExamRoleCore, scheduleExamForClassesCore } from "./exam-schedule-all";
 import { editPublishedMarksCore } from "./exam-mark-edits";
@@ -762,6 +763,10 @@ export async function runAct(
     case "reportDevice":
       await saveDeviceReportCore(user, body as never);
       break;
+    case "admissionKit":
+      return { ok: true, ...(await admissionKitCore(user, body as never)) };
+    case "admissionKitLink":
+      return { ok: true, ...(await admissionKitLinkCore(user, body as never)) };
     case "ensurePayToken": {
       const token = await ensureInvoiceShareTokenCore(user, String(body.invoiceId || ""));
       return { ok: true, token };

@@ -79,6 +79,29 @@ export async function createTrialWelcomeResetLink(orgId: string, email: string, 
   return `${origin.replace(/\/$/, "")}/reset-password?token=${encodeURIComponent(`${id}.${code}`)}`;
 }
 
+/** A new family's one-time "set your password" link, shared by the office on WhatsApp after admission. */
+const PARENT_SET_PASSWORD_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+export async function createParentSetPasswordLink(userId: string, origin: string) {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, orgId: true, email: true, phone: true } });
+  if (!user) throw new Error("Parent login not found.");
+  const id = randomUUID();
+  const code = randomBytes(32).toString("base64url");
+  await prisma.authChallenge.create({
+    data: {
+      id,
+      orgId: user.orgId,
+      userId: user.id,
+      identifierHash: identifierHash(user.phone || user.email),
+      destination: "",
+      purpose: "PASSWORD_RESET",
+      codeHash: authCodeHash(id, "PASSWORD_RESET", code),
+      expiresAt: new Date(Date.now() + PARENT_SET_PASSWORD_TTL_MS),
+    },
+  });
+  return `${origin.replace(/\/$/, "")}/reset-password?new=1&token=${encodeURIComponent(`${id}.${code}`)}`;
+}
+
 function deliverableEmail(value: string | null | undefined) {
   const email = String(value || "").trim().toLowerCase();
   return email.includes("@") && !email.endsWith(".local") ? email : "";

@@ -20,4 +20,9 @@ describe("nextClassRoll", () => {
     expect(nextClassRoll(roster, "1-a")).toBe("3");
     expect(nextClassRoll(roster, "2-a")).toBe("2");
   });
+
+  it("skips rolls the server still holds for students who left", () => {
+    expect(nextClassRoll(roster, "1-a", [3])).toBe("5");
+    expect(nextClassRoll(roster, "3-a", [1, 2])).toBe("3");
+  });
 });

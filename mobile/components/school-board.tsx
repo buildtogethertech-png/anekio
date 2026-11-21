@@ -25,6 +25,7 @@ import { useRecord, type AdmissionFormField, type RecordPayload } from "../lib/r
 import { useSession } from "../lib/session";
 import { pickFile, uploadFile, type PickedFile } from "../lib/upload";
 import { cloneFields, FormBuilderModal } from "./form-builder";
+import { COMMON_ADMISSION_FIELDS, COMMON_ENQUIRY_FIELDS, COMMON_STAFF_FIELDS } from "../lib/common-form-fields";
 import { AdmissionNumberCard } from "./admission-number";
 
 /** Mirrors LOCKED_ADMISSION_FIELD_IDS on the server: every enquiry needs these. */
@@ -3424,6 +3425,7 @@ export function SchoolBoard() {
         audience="the office"
         fields={form.admissionForm}
         suggestions={data?.school?.platformForms?.admission ?? []}
+        commonFields={COMMON_ADMISSION_FIELDS}
         lockedIds={LOCKED_STUDENT_ADMISSION_FIELDS}
         classOptions={admissionClassOptions}
         canEdit={edit}
@@ -3439,6 +3441,7 @@ export function SchoolBoard() {
         audience="parents"
         fields={form.websiteForm}
         suggestions={data?.school?.platformForms?.website ?? []}
+        commonFields={COMMON_ENQUIRY_FIELDS}
         lockedIds={LOCKED_ADMISSION_FIELDS}
         classOptions={admissionClassOptions}
         canEdit={edit}
@@ -3456,6 +3459,7 @@ export function SchoolBoard() {
         lockedIds={LOCKED_STAFF_ONBOARDING_FIELDS}
         roleOptions={(data?.staffRoles ?? []).filter((r) => r.portal !== "PARENT" && r.portal !== "STUDENT").map((r) => r.name)}
         suggestions={data?.school?.platformForms?.staff ?? []}
+        commonFields={COMMON_STAFF_FIELDS}
         canEdit={edit}
         onChange={(fields) => patch("staffOnboardingForm", fields)}
         onSave={() => saveForm("saveStaffOnboardingForm", form.staffOnboardingForm, "Staff onboarding form saved.", () => setStaffFormOpen(false))}

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { KeyboardAvoidingView, Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -510,6 +510,7 @@ export function FormBuilderModal({
   audience,
   fields,
   suggestions = [],
+  commonFields = [],
   lockedIds = [],
   classOptions = [],
   roleOptions,
@@ -526,6 +527,8 @@ export function FormBuilderModal({
   fields: AdmissionFormField[];
   /** Fields from the Anekio default form that this school has not added yet. */
   suggestions?: AdmissionFormField[];
+  /** Fields schools commonly use (Aadhaar, category, bank details…), offered next to the defaults as Quick add. */
+  commonFields?: AdmissionFormField[];
   lockedIds?: readonly string[];
   classOptions?: string[];
   /** Staff form only: the school's role names, for the "School role" field type. */
@@ -540,11 +543,59 @@ export function FormBuilderModal({
   const [saving, setSaving] = useState(false);
   // Two-tap delete on the row: first tap arms it, second tap within a few seconds removes the field.
   const [confirmDeleteId, setConfirmDeleteId] = useState("");
+  // Two-tap reset, like delete: first tap arms it, second tap swaps in the Anekio default form (saved only on Save form).
+  const [confirmReset, setConfirmReset] = useState(false);
+  // Cancel or close puts back the form as it was when opened; only Save form keeps changes.
+  const [opened, setOpened] = useState<AdmissionFormField[] | null>(null);
+  useEffect(() => {
+    setOpened(open ? fields : null);
+    if (!open) setConfirmReset(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+  function cancel() {
+    if (opened && opened !== fields) onChange(opened);
+    onClose();
+  }
   const editing = fields.find((field) => field.id === editingId);
-  const available = suggestions.filter((suggestion) => !fields.some((field) => sameField(field, suggestion)));
+  // Quick add: Anekio's defaults first, then common school fields, minus anything the form already has.
+  // A common field also counts as present when one label contains the other ("Cancelled cheque" vs "Cancelled cheque or passbook").
+  const nameOf = (field: AdmissionFormField) => field.label.trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const covered = (field: AdmissionFormField, suggestion: AdmissionFormField) =>
+    sameField(field, suggestion) || (Boolean(nameOf(field)) && (nameOf(field).includes(nameOf(suggestion)) || nameOf(suggestion).includes(nameOf(field))));
+  const available = [...suggestions, ...commonFields].filter(
+    (suggestion, i, all) => !fields.some((field) => covered(field, suggestion)) && all.findIndex((row) => sameField(row, suggestion)) === i
+  );
+  const availableDetails = available.filter((field) => field.type !== "file");
+  const availableDocs = available.filter((field) => field.type === "file");
   const locked = (id: string) => lockedIds.includes(id);
   const shown = fields.filter((field) => field.visible).length;
   const required = fields.filter((field) => field.required).length;
+
+  function resetToDefault() {
+    if (!confirmReset) {
+      setConfirmReset(true);
+      setTimeout(() => setConfirmReset(false), 4000);
+      return;
+    }
+    setConfirmReset(false);
+    setEditingId("");
+    onChange(suggestions.map((field) => ({ ...field, options: [...(field.options || [])] })));
+  }
+
+  const resetButton =
+    canEdit && suggestions.length ? (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Reset to default form"
+        onPress={resetToDefault}
+        className={`h-9 flex-row items-center gap-1.5 rounded-md px-3 ${confirmReset ? "bg-red-50" : "active:bg-ink-50"}`}
+      >
+        <Ionicons name="refresh-outline" size={15} color={confirmReset ? "#b91c1c" : "#475569"} />
+        <Text className={`text-[13px] font-medium ${confirmReset ? "text-red-700" : "text-ink-600"}`}>
+          {confirmReset ? "Tap again to reset" : "Reset to default"}
+        </Text>
+      </Pressable>
+    ) : null;
 
   function patchField(id: string, change: Partial<AdmissionFormField>) {
     onChange(fields.map((field) => (field.id === id ? { ...field, ...change } : field)));
@@ -624,10 +675,10 @@ export function FormBuilderModal({
   ) : null;
 
   const phoneMain = (
-    <RnModal visible={open} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
+    <RnModal visible={open} animationType="slide" presentationStyle="fullScreen" onRequestClose={cancel}>
       <SafeAreaView className="flex-1 bg-white" edges={["top", "bottom"]}>
         <View className="h-14 flex-row items-center border-b border-ink-100 px-2">
-          <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} className="h-11 w-11 items-center justify-center">
+          <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={cancel} className="h-11 w-11 items-center justify-center">
             <Ionicons name="close" size={24} color="#0f2744" />
           </Pressable>
           <View className="min-w-0 flex-1 items-center">
@@ -684,24 +735,30 @@ export function FormBuilderModal({
                 <Ionicons name="add" size={18} color="#1F45C7" />
                 <Text className="text-sm font-semibold text-[#1F45C7]">Add field</Text>
               </Pressable>
-              {available.length ? (
-                <View className="flex-row flex-wrap gap-1.5">
-                  {available.map((field) => (
-                    <Pressable
-                      key={field.id}
-                      onPress={() => onChange([...fields, newField({ ...field })])}
-                      className="h-8 justify-center rounded-full bg-ink-50 px-3 active:bg-ink-100"
-                    >
-                      <Text className="text-xs font-medium text-ink-700">+ {field.label}</Text>
-                    </Pressable>
-                  ))}
-                </View>
-              ) : null}
+              {[["Quick add · details", availableDetails], ["Quick add · documents", availableDocs]].map(([title, list]) =>
+                (list as AdmissionFormField[]).length ? (
+                  <View key={title as string} className="gap-1.5">
+                    <Text className="text-[11px] font-semibold text-ink-500">{title as string}</Text>
+                    <View className="flex-row flex-wrap gap-1.5">
+                      {(list as AdmissionFormField[]).map((field) => (
+                        <Pressable
+                          key={field.id}
+                          onPress={() => onChange([...fields, newField({ ...field })])}
+                          className="h-8 justify-center rounded-full bg-ink-50 px-3 active:bg-ink-100"
+                        >
+                          <Text className="text-xs font-medium text-ink-700">+ {field.label}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  </View>
+                ) : null
+              )}
             </View>
           ) : null}
         </ScrollView>
         {canEdit ? (
           <View className="gap-1.5 border-t border-ink-100 px-4 pb-3 pt-3">
+            {resetButton ? <View className="items-center">{resetButton}</View> : null}
             <Pressable
               disabled={saving || fields.some((field) => Boolean(fieldError(field)))}
               onPress={() => void save()}
@@ -722,7 +779,7 @@ export function FormBuilderModal({
   return (
     <>
       {phone ? phoneMain : null}
-      <Modal open={!phone && open && !editing} title={title} onClose={onClose} wide>
+      <Modal open={!phone && open && !editing} title={title} onClose={cancel} wide>
         <View className="gap-4">
           <View className="flex-row flex-wrap items-center justify-between gap-2 rounded-md border border-blue-100 bg-blue-50/60 px-3 py-2.5">
             <Text className="min-w-0 flex-1 text-xs leading-5 text-ink-800">{intro}</Text>
@@ -733,28 +790,35 @@ export function FormBuilderModal({
             <View className="rounded-md border border-ink-200 bg-white p-3">
               <View className="flex-row flex-wrap items-center justify-between gap-2">
                 <View className="min-w-0 flex-1">
-                  <Text className="text-sm font-semibold text-ink-900">Suggested fields</Text>
-                  <Text className="mt-0.5 text-[11px] leading-4 text-ink-700">From Anekio's default form. Pick any to add.</Text>
+                  <Text className="text-sm font-semibold text-ink-900">Quick add</Text>
+                  <Text className="mt-0.5 text-[11px] leading-4 text-ink-700">Fields schools commonly use. Pick any, then Add.</Text>
                 </View>
                 <Button variant="ghost" disabled={!picked.length} onPress={addPicked}>
                   {picked.length ? `Add ${picked.length}` : "Add"}
                 </Button>
               </View>
-              <View className="mt-3 flex-row flex-wrap gap-2">
-                {available.map((field) => {
-                  const on = picked.includes(field.id);
-                  return (
-                    <Pressable
-                      key={field.id}
-                      onPress={() => setPicked((rows) => (on ? rows.filter((row) => row !== field.id) : [...rows, field.id]))}
-                      className={`flex-row items-center gap-1 rounded-md border px-2.5 py-1.5 ${on ? "border-blue-300 bg-blue-50" : "border-ink-200 bg-white"}`}
-                    >
-                      <Ionicons name={on ? "checkbox-outline" : field.type === "file" ? "document-attach-outline" : "add-circle-outline"} size={15} color={on ? "#1d4ed8" : "#3d4f66"} />
-                      <Text className={`text-[11px] font-medium ${on ? "text-blue-900" : "text-ink-800"}`}>{field.label}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
+              {[["Details", availableDetails], ["Documents", availableDocs]].map(([title, list]) =>
+                (list as AdmissionFormField[]).length ? (
+                  <View key={title as string} className="mt-3">
+                    <Text className="mb-1.5 text-[11px] font-semibold text-ink-500">{title as string}</Text>
+                    <View className="flex-row flex-wrap gap-2">
+                      {(list as AdmissionFormField[]).map((field) => {
+                        const on = picked.includes(field.id);
+                        return (
+                          <Pressable
+                            key={field.id}
+                            onPress={() => setPicked((rows) => (on ? rows.filter((row) => row !== field.id) : [...rows, field.id]))}
+                            className={`flex-row items-center gap-1 rounded-md border px-2.5 py-1.5 ${on ? "border-blue-300 bg-blue-50" : "border-ink-200 bg-white"}`}
+                          >
+                            <Ionicons name={on ? "checkbox-outline" : field.type === "file" ? "document-attach-outline" : "add-circle-outline"} size={15} color={on ? "#1d4ed8" : "#3d4f66"} />
+                            <Text className={`text-[11px] font-medium ${on ? "text-blue-900" : "text-ink-800"}`}>{field.label}</Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ) : null
+              )}
             </View>
           ) : null}
 
@@ -874,7 +938,8 @@ export function FormBuilderModal({
 
           {canEdit ? (
             <View className="flex-row items-center justify-end gap-2">
-              <Button variant="ghost" onPress={onClose}>Cancel</Button>
+              {resetButton ? <View className="mr-auto">{resetButton}</View> : null}
+              <Button variant="ghost" onPress={cancel}>Cancel</Button>
               <Button disabled={saving || fields.some((field) => Boolean(fieldError(field)))} onPress={() => void save()}>
                 {saving ? "Saving…" : "Save form"}
               </Button>
