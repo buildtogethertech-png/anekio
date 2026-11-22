@@ -55,6 +55,7 @@ export const PERMISSIONS = [
   { key: "papers.upload", group: "Exams", label: "Upload papers", hint: "Question paper and copies", portals: ["OFFICE", "TEACHER"] },
   { key: "exams.publish", group: "Exams", label: "Publish results", hint: "Lock and share report cards", portals: ["OFFICE"] },
   { key: "roles.manage", group: "Roles", label: "Roles and access", hint: "Who can see what", portals: ["OFFICE"], see: true },
+  { key: "users.loginAs", group: "Roles", label: "Log in as staff / parent", hint: "Use Anekio as one of your staff or parents (everything they can do), for up to 1 hour. Every change is logged.", portals: ["OFFICE"] },
   { key: "notices.view", group: "Notices", label: "See notices", hint: "Circulars on the board", portals: ["OFFICE"], see: true },
   { key: "notices.publish", group: "Notices", label: "Post notices", hint: "Pick who and which class", portals: ["OFFICE"] },
   { key: "attendance.mark", group: "Teaching", label: "Mark attendance", hint: "Own classes", portals: ["TEACHER"], see: true },

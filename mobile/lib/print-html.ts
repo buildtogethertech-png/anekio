@@ -120,3 +120,19 @@ export async function openRoutinePdf(
   if (!res.ok) throw new Error(errorFromBody(html, "Routine unavailable."));
   await openHtmlDocument(html);
 }
+
+/** Exam date sheet: all classes of one exam (or one class), opened to print / Save as PDF. */
+export async function openExamDateSheetPdf(token: string | null, query: { planItemId: string; sessionId: string; classId?: string }) {
+  if (!token) throw new Error("Sign in again.");
+  const opened = Platform.OS === "web" && typeof window !== "undefined" ? window.open("", "_blank") : null;
+  const qs = new URLSearchParams({ planItemId: query.planItemId, sessionId: query.sessionId, ...(query.classId ? { classId: query.classId } : {}) });
+  try {
+    const res = await fetch(`${apiBase()}/api/v1/exams/datesheet?${qs.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
+    const html = await res.text();
+    if (!res.ok) throw new Error(errorFromBody(html, "Date sheet unavailable."));
+    await openHtmlDocument(html, opened);
+  } catch (e) {
+    opened?.close();
+    throw e;
+  }
+}

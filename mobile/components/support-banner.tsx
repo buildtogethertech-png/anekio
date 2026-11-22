@@ -1,22 +1,31 @@
 import { Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 import { useSession } from "../lib/session";
 
 /** Always-visible marker while an Anekio admin is signed in as a school user. */
 export function SupportBanner() {
-  const { user, signOut } = useSession();
+  const { user, signOut, viewingAs, backToMyAccount } = useSession();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   if (!user?.support) return null;
   const until = new Date(user.support.expiresAt);
   const time = until.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   return (
     <View pointerEvents="box-none" style={{ position: "absolute", top: insets.top + 6, left: 0, right: 0, alignItems: "center", zIndex: 1000 }}>
-      <View className="flex-row items-center gap-3 rounded-full bg-red-700 px-4 py-2" style={{ elevation: 6 }}>
-        <Text className="text-xs font-semibold text-white" numberOfLines={1}>
-          Support view · {user.name} ({user.roleName}) · until {time}
+      <View className={`max-w-[94%] flex-row items-center gap-3 rounded-full px-4 py-2 ${viewingAs ? "bg-[#B45309]" : "bg-red-700"}`} style={{ elevation: 6 }}>
+        <Text className="min-w-0 shrink text-xs font-semibold text-white" numberOfLines={1}>
+          {viewingAs ? `Logged in as ${user.name} (${user.roleName}) · until ${time}` : `Support view · ${user.name} (${user.roleName}) · until ${time}`}
         </Text>
-        <Pressable accessibilityRole="button" onPress={() => void signOut()} className="rounded-full bg-white/20 px-2.5 py-1">
-          <Text className="text-xs font-bold text-white">Exit</Text>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => {
+            if (!viewingAs) return void signOut();
+            void backToMyAccount().then(() => router.replace("/(app)" as never));
+          }}
+          className="rounded-full bg-white px-3 py-1"
+        >
+          <Text className={`text-xs font-bold ${viewingAs ? "text-[#B45309]" : "text-red-700"}`}>{viewingAs ? "Back to my account" : "Exit"}</Text>
         </Pressable>
       </View>
     </View>

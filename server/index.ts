@@ -41,6 +41,7 @@ import {
   endSupportSession,
   recordSupportWrite,
   redeemSupportCode,
+  startSchoolLoginAs,
 } from "../lib/support-session";
 import {
   completePresignedFileUpload,
@@ -56,6 +57,7 @@ import { captureRazorpayPayment, captureRazorpayMonths, verifyWebhookSignature }
 import { issueDueFeesCore } from "../lib/fee-run";
 import { marksheetHtmlForUser, publicResultHtml } from "../lib/marksheet-html";
 import { routineHtmlForUser } from "../lib/timetable-html";
+import { examDateSheetForUser } from "../lib/exam-datesheet";
 import { runExamCronNotifications } from "../lib/exam-notification-run";
 import { ensureAccessRoles, loadAccess } from "../lib/roles";
 import { scopePolicyFor } from "../lib/permissions";
@@ -518,6 +520,19 @@ app.post("/api/v1/session/switch", async (req, res) => {
   }
 });
 
+/** School admin → log in as a staff member or a student's parent (permission users.loginAs). */
+app.post("/api/v1/support/login-as", async (req, res) => {
+  const user = await requireUser(req, res);
+  if (!user) return;
+  try {
+    const started = await startSchoolLoginAs(user, { userId: req.body?.userId, studentId: req.body?.studentId });
+    res.json(await loginSession(started.userId, { override: { token: started.token, support: { adminEmail: started.support.adminEmail, expiresAt: started.support.expiresAt } } }));
+  } catch (error) {
+    if (error instanceof SupportSessionError) return sendError(res, error.status, error.message);
+    sendUnexpectedError(res, error, "Could not log in as this person.");
+  }
+});
+
 app.post("/api/v1/support/end", async (req, res) => {
   const user = await userFromAuthHeader(req.headers.authorization);
   if (user?.support) await endSupportSession(user.support.sessionId);
@@ -561,6 +576,19 @@ app.get("/api/v1/timetable/print", async (req, res) => {
     res.type("html").send(html);
   } catch (e) {
     sendError(res, 400, e instanceof Error ? e.message : "Routine unavailable");
+  }
+});
+
+/** Exam date sheet (print / Save as PDF): one exam, all its classes or ?classId=. */
+app.get("/api/v1/exams/datesheet", async (req, res) => {
+  const user = await requireUser(req, res);
+  if (!user) return;
+  if (!(await requireActiveSubscription(user.id, res))) return;
+  try {
+    const html = await examDateSheetForUser(user, { planItemId: String(req.query.planItemId || ""), sessionId: String(req.query.sessionId || ""), classId: String(req.query.classId || "") });
+    res.type("html").send(html);
+  } catch (e) {
+    sendError(res, 400, e instanceof Error ? e.message : "Date sheet unavailable");
   }
 });
 

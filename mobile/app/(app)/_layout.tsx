@@ -20,7 +20,7 @@ import { useAssetUrl } from "../../lib/assets";
 import { api } from "../../lib/api";
 import { isStaffScanPath } from "../../lib/staff-attendance-scan";
 import { SupportBanner } from "../../components/support-banner";
-import { getLastWorkspaceRoute, getLauncherPosition, setLastWorkspaceRoute, setLauncherPosition, type LauncherPosition } from "../../lib/storage";
+import { getLastWorkspaceRoute, getLauncherPosition, setLastWorkspaceRoute, setLauncherPosition, takeSkipRestore, type LauncherPosition } from "../../lib/storage";
 
 const RESUMABLE_PATHS = new Set([
   "/",
@@ -401,16 +401,19 @@ export default function AppLayout() {
   const scanOnly = isStaffScanPath(pathname);
   const restoredUserId = useRef<string | null>(null);
 
+  // A "Log in as" / support session neither saves nor restores the last page (it is someone else's account).
   useEffect(() => {
-    if (!user) return;
+    if (!user || user.support) return;
     if (pathname === "/" && restoredUserId.current !== user.id) return;
     const route = resumableRoute(pathname, params);
     if (route) void setLastWorkspaceRoute(user.id, route);
   }, [params, pathname, user]);
 
   useEffect(() => {
-    if (!user || restoredUserId.current === user.id || pathname !== "/") return;
+    if (!user || user.support || restoredUserId.current === user.id || pathname !== "/") return;
     restoredUserId.current = user.id;
+    // Just switched accounts ("Log in as" / "Back to my account"): stay on home.
+    if (takeSkipRestore()) return;
     void getLastWorkspaceRoute(user.id).then((route) => {
       if (route && route !== "/") router.replace(route as never);
     });

@@ -28,6 +28,8 @@ import { SalaryPayCard } from "./salary-pay-card";
 import { SetPasswordModal } from "./set-password-modal";
 import { RemoveStaffModal } from "./remove-staff-modal";
 import { ReviseSalaryModal } from "./revise-salary";
+import { confirmLoginAs } from "../lib/login-as";
+import { useRouter } from "expo-router";
 import { useSession } from "../lib/session";
 
 type StaffPerson = NonNullable<RecordPayload["staff"]>[number];
@@ -223,7 +225,9 @@ export function StaffAttendanceDetail({
   const [section, setSection] = useState<"attendance" | "leave" | "pay">("attendance");
   const [moreOpen, setMoreOpen] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
-  const { user: me } = useSession();
+  const { user: me, loginAs } = useSession();
+  const router = useRouter();
+  const canLoginAs = Boolean(person.userId && person.userId !== me?.id && me?.permissions?.includes("users.loginAs"));
   const canSetPassword = Boolean(person.userId && me?.permissions?.includes("roles.manage") && person.userId !== me?.id);
   const [removeOpen, setRemoveOpen] = useState(false);
   const [reviseOpen, setReviseOpen] = useState(false);
@@ -612,6 +616,26 @@ export function StaffAttendanceDetail({
     ["download-outline", "Download register", salaryAccess.view ? "CSV of this month's attendance and pay" : "CSV of this month's attendance", exportCsv],
     ["print-outline", "Print register", "Opens a printable page", printRegister],
     ...(onReviseSalary ? ([["trending-up-outline", "Revise salary", "New salary from a month; old salaries stay in history", onReviseSalary]] as const) : []),
+    ...(canLoginAs
+      ? ([
+          [
+            "log-in-outline",
+            `Log in as ${person.name.split(" ")[0]}`,
+            "Use Anekio as them, for up to 1 hour",
+            () =>
+              confirmLoginAs(person.name, () => {
+                void (async () => {
+                  try {
+                    await loginAs({ userId: person.userId! });
+                    router.replace("/(app)" as never);
+                  } catch (e) {
+                    toast.show(e instanceof Error ? e.message : "Could not log in as them.");
+                  }
+                })();
+              }),
+          ],
+        ] as const)
+      : []),
     ...(phone && onEditSalary ? ([["create-outline", "Edit profile", "Role, reporting manager, details", onEditSalary]] as const) : []),
     ...(phone && canSetPassword ? ([["key-outline", "Change password", "Set a new password for their login", () => setPasswordOpen(true)]] as const) : []),
     ...(phone && onEditSalary && person.kind === "staff"

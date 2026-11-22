@@ -55,6 +55,7 @@ import { ClassRollNumbers } from "./class-roll-numbers";
 import { AdhocInvoiceModal } from "./adhoc-invoice";
 import { openSalaryProof } from "./salary-pay-sheet";
 import { ReviseSalaryModal } from "./revise-salary";
+import { confirmLoginAs } from "../lib/login-as";
 import { FillFieldScreen } from "./quick-fill";
 
 export const FeesBoard = RefactoredFeesBoard;
@@ -1259,7 +1260,7 @@ function monthlyFeeByClass(data: ReturnType<typeof useRecord>["data"]) {
 
 export function PeopleBoard({ studentOnly = false, title = "Students" }: { studentOnly?: boolean; title?: string }) {
   const { data, reload } = useRecord();
-  const { token, user } = useSession();
+  const { token, user, loginAs } = useSession();
   const [parentPasswordFor, setParentPasswordFor] = useState<{ parentId: string; name: string } | null>(null);
   // Result viewer lives inside the student sheet so it opens on top of it.
   const [resultDoc, setResultDocState] = useState<{ url: string; title: string } | null>(null);
@@ -1804,6 +1805,19 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
     }
   }
 
+  function loginAsParent(studentId: string, name: string) {
+    confirmLoginAs(name, () => {
+      void (async () => {
+        try {
+          await loginAs({ studentId });
+          router.replace("/(app)" as never);
+        } catch (e) {
+          toast.show(e instanceof Error ? e.message : "Could not log in as the parent.");
+        }
+      })();
+    });
+  }
+
   async function uploadAdmissionDocument(field: AdmissionFormField) {
     if (!selected) return;
     const file = await pickFile(admissionFileAccept(field)).catch(() => null);
@@ -2267,6 +2281,17 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                   <Ionicons name="logo-whatsapp" size={15} color="#16a34a" />
                 </Pressable>
               ) : null}
+              {selected.parentId && can(user, "users.loginAs") ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Log in as parent"
+                  onPress={() => loginAsParent(selected.id, selected.parent || "the parent")}
+                  className="h-9 flex-row items-center gap-1.5 rounded-lg border border-ink-200 px-2.5"
+                >
+                  <Ionicons name="log-in-outline" size={14} color="#334155" />
+                  <Text className="text-[12px] font-medium text-ink-800">Log in as</Text>
+                </Pressable>
+              ) : null}
               {selected.parentId && can(user, "roles.manage") ? (
                 <Pressable
                   accessibilityRole="button"
@@ -2497,6 +2522,17 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                   {selected.parentId ? `Parent · ${selected.parentPhone || "no phone"}` : "Edit the student and add a parent mobile to create a parent login."}
                 </Text>
               </View>
+              {selected.parentId && can(user, "users.loginAs") ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Log in as parent"
+                  onPress={() => loginAsParent(selected.id, selected.parent || "the parent")}
+                  className="h-9 flex-row items-center gap-1.5 rounded-lg border border-ink-200 px-2.5"
+                >
+                  <Ionicons name="log-in-outline" size={14} color="#334155" />
+                  <Text className="text-[12px] font-medium text-ink-800">Log in as</Text>
+                </Pressable>
+              ) : null}
               {selected.parentId && can(user, "roles.manage") ? (
                 <Pressable
                   accessibilityRole="button"

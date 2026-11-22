@@ -140,3 +140,55 @@ export async function getRenewalNoticeSeen() {
 export async function setRenewalNoticeSeen(value: string) {
   await writeStore(RENEWAL_NOTICE_KEY, value);
 }
+
+/** The admin's own login, kept aside while they use "Log in as" (staff / parent), so they can go back. */
+const ADMIN_KEY = "anekio.token.admin";
+
+export async function getAdminToken() {
+  if (Platform.OS === "web") {
+    try {
+      return localStorage.getItem(ADMIN_KEY);
+    } catch {
+      return null;
+    }
+  }
+  return SecureStore.getItemAsync(ADMIN_KEY);
+}
+
+export async function setAdminToken(token: string) {
+  if (Platform.OS === "web") {
+    localStorage.setItem(ADMIN_KEY, token);
+    return;
+  }
+  await SecureStore.setItemAsync(ADMIN_KEY, token);
+}
+
+export async function clearAdminToken() {
+  if (Platform.OS === "web") {
+    localStorage.removeItem(ADMIN_KEY);
+    return;
+  }
+  await SecureStore.deleteItemAsync(ADMIN_KEY);
+}
+
+/** After "Log in as" / "Back to my account" the app opens on home: the next "resume last page" is skipped once. */
+let skipRestore = false;
+export function markSkipRestore() {
+  skipRestore = true;
+  if (Platform.OS === "web") {
+    try {
+      sessionStorage.setItem("anekio.skipRestore", "1");
+    } catch {}
+  }
+}
+export function takeSkipRestore() {
+  let hit = skipRestore;
+  skipRestore = false;
+  if (Platform.OS === "web") {
+    try {
+      hit = hit || sessionStorage.getItem("anekio.skipRestore") === "1";
+      sessionStorage.removeItem("anekio.skipRestore");
+    } catch {}
+  }
+  return hit;
+}

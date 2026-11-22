@@ -1,6 +1,8 @@
 import { createHmac, randomInt } from "node:crypto";
 import { signSupportToken } from "./app-jwt";
 import { prisma } from "./prisma";
+import { randomBytes } from "node:crypto";
+import { can, type AccessUser } from "./permissions";
 
 /** One-time code lifetime (admin → phone/web hand-off). */
 export const SUPPORT_CODE_TTL_MS = 5 * 60_000;
@@ -148,4 +150,54 @@ export async function recentSupportSessions(orgId: string, take = 10) {
     take,
     include: { targetUser: { select: { name: true } } },
   });
+}
+
+/**
+ * School admin → "Log in as" a staff member or a student's parent, straight from the app (no code to type).
+ * Same session as an Anekio support login: 60 minutes, blocked ops, every write logged — under the admin's name.
+ */
+export async function startSchoolLoginAs(actor: AccessUser, input: { userId?: string; studentId?: string }) {
+  if (actor.support) throw new SupportSessionError(403, "Go back to your own account first.");
+  if (!can(actor, "users.loginAs")) throw new SupportSessionError(403, "You can't log in as other people. Ask your admin for this permission.");
+  let userId = String(input.userId || "").trim();
+  if (!userId && input.studentId) {
+    const student = await prisma.student.findFirst({
+      where: { id: String(input.studentId), orgId: actor.orgId ?? undefined, OR: [{ leftOn: null }, { leftOn: { not: null } }] },
+      select: { parent: { select: { userId: true } } },
+    });
+    userId = student?.parent?.userId ?? "";
+    if (!userId) throw new SupportSessionError(404, "This student's parent has no login yet.");
+  }
+  if (!userId) throw new SupportSessionError(400, "Pick who to log in as.");
+  if (userId === actor.id) throw new SupportSessionError(400, "That's you.");
+  const target = await prisma.user.findFirst({
+    where: { id: userId, orgId: actor.orgId ?? undefined },
+    select: { id: true, name: true, orgId: true, role: { select: { name: true, grants: { select: { permission: true } } } } },
+  });
+  if (!target) throw new SupportSessionError(404, "That person is not in your school.");
+  if (target.role.grants.some((g) => g.permission === "roles.manage" || g.permission === "users.loginAs")) {
+    throw new SupportSessionError(403, "You can't log in as another admin.");
+  }
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + SUPPORT_SESSION_TTL_MS);
+  const by = actor.email || actor.name || actor.id;
+  const reason = `School admin ${actor.name || ""} (${actor.id})`.trim();
+  const session = await prisma.supportSession.create({
+    data: {
+      orgId: target.orgId,
+      targetUserId: target.id,
+      adminEmail: String(by).toLowerCase(),
+      reason,
+      codeHash: supportCodeHash(randomBytes(16).toString("hex")),
+      codeExpiresAt: now,
+      redeemedAt: now,
+      expiresAt,
+    },
+  });
+  await audit(target.orgId, by, "SCHOOL_LOGIN_AS_STARTED", `${actor.name || by} as ${target.name} (${target.role.name})`, target.id);
+  return {
+    userId: target.id,
+    token: signSupportToken(target.id, session.id, expiresAt),
+    support: { sessionId: session.id, adminEmail: String(by).toLowerCase(), expiresAt: expiresAt.toISOString() } satisfies SupportContext,
+  };
 }

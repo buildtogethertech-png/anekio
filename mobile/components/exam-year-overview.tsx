@@ -355,7 +355,10 @@ export function ExamClassesPage({
   onEdit,
   onDuplicate,
   onDelete,
+  onDateSheet,
 }: {
+  /** Print / Save as PDF the date sheet of this exam: every class (one page each), or just classId. */
+  onDateSheet?: (classId?: string) => void;
   onEdit?: () => void;
   onDuplicate?: () => void;
   onDelete?: () => void;
@@ -389,6 +392,7 @@ export function ExamClassesPage({
     .filter((row): row is NonNullable<typeof row> => Boolean(row))
     .sort((x, y) => classes.indexOf(x.klass) - classes.indexOf(y.klass));
   const doneCount = rows.filter((r) => r.total && r.published === r.total).length;
+  const [sheetPick, setSheetPick] = useState(false);
   // Once any marks are in (or published), the exam is history — it can be edited, not deleted.
   const locked = rows.some((r) => r.entered > 0 || r.published > 0);
 
@@ -429,6 +433,41 @@ export function ExamClassesPage({
 
   return (
     <View className="gap-4">
+      {onDateSheet ? (
+        <Modal open={sheetPick} title="Date sheet" onClose={() => setSheetPick(false)}>
+          <View className="gap-1">
+            <Text className="mb-2 text-[13px] text-ink-600">One page per class, with date, day and subject. Print it or save as PDF.</Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                setSheetPick(false);
+                onDateSheet();
+              }}
+              className="h-12 flex-row items-center gap-3 rounded-xl bg-[#EEF3FF] px-3 hover:bg-[#DCE6FF]"
+            >
+              <Ionicons name="copy-outline" size={17} color="#1F45C7" />
+              <Text className="flex-1 text-[14px] font-semibold text-[#1F45C7]">{`All classes (${rows.length})`}</Text>
+              <Ionicons name="download-outline" size={16} color="#1F45C7" />
+            </Pressable>
+            <View className="mt-2 flex-row flex-wrap gap-2">
+              {rows.map((row) => (
+                <Pressable
+                  key={row.klass.id}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Date sheet for ${row.klass.label}`}
+                  onPress={() => {
+                    setSheetPick(false);
+                    onDateSheet(row.klass.id);
+                  }}
+                  className="h-10 min-w-[72px] items-center justify-center rounded-lg border border-ink-200 bg-white px-3 hover:border-[#1F45C7] hover:bg-[#EEF3FF]"
+                >
+                  <Text className="text-[14px] font-semibold text-ink-900">{row.klass.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        </Modal>
+      ) : null}
       <View className={compact ? "gap-4" : "flex-row items-end justify-between gap-4"}>
         <View className="min-w-0 flex-1">
           <BackLink label={sessionLabel ? `All ${sessionLabel} exams` : "All exams"} onPress={onBack} />
@@ -466,11 +505,12 @@ export function ExamClassesPage({
             </View>
           ) : null}
         </View>
-        {canRun && (onEdit || onDuplicate || onDelete) ? (
+        {(canRun && (onEdit || onDuplicate || onDelete)) || (onDateSheet && mine.length) ? (
           <View className="flex-row flex-wrap items-center gap-2">
-            {onEdit ? <RowButton label="Edit" icon="create-outline" onPress={onEdit} /> : null}
-            {onDuplicate ? <RowButton label="Duplicate" icon="copy-outline" onPress={onDuplicate} /> : null}
-            {onDelete && !locked ? <RowButton label="Delete" icon="trash-outline" quiet onPress={onDelete} /> : null}
+            {onDateSheet && mine.length ? <RowButton label="Date sheet (PDF)" icon="print-outline" onPress={() => setSheetPick(true)} /> : null}
+            {canRun && onEdit ? <RowButton label="Edit" icon="create-outline" onPress={onEdit} /> : null}
+            {canRun && onDuplicate ? <RowButton label="Duplicate" icon="copy-outline" onPress={onDuplicate} /> : null}
+            {canRun && onDelete && !locked ? <RowButton label="Delete" icon="trash-outline" quiet onPress={onDelete} /> : null}
           </View>
         ) : null}
         {canRun && mine.length ? (

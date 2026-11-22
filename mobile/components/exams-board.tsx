@@ -1,3 +1,4 @@
+import { openExamDateSheetPdf } from "../lib/print-html";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { openSalaryProof as openPrivateFile } from "./salary-pay-sheet";
 import { Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
@@ -692,6 +693,9 @@ export function ExamsBoard() {
                     })
                   }
                   onDelete={() => setDeleteExamId(item.id)}
+                  onDateSheet={(onlyClassId) => {
+                    void openExamDateSheetPdf(token, { planItemId: item.id, sessionId: session?.id || sessionId, classId: onlyClassId }).catch((e) => toast.show(e instanceof Error ? e.message : "Could not open the date sheet."));
+                  }}
                   series={(pack?.series ?? []).filter((s) => s.sessionId === (session?.id || sessionId))}
                   sessionStart={session?.startsOn}
                   sessionLabel={session?.label || ""}

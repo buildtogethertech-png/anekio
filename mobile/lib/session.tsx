@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, type NavItem, type SessionUser } from "./api";
 import { act } from "./mutate";
-import { clearToken, getToken, setToken } from "./storage";
+import { Platform } from "react-native";
+import { clearAdminToken, clearToken, getAdminToken, getToken, markSkipRestore, setAdminToken, setToken } from "./storage";
 
 type Session = {
   ready: boolean;
@@ -19,6 +20,12 @@ type Session = {
   signOut: () => Promise<void>;
   /** Teacher/office login that is also a parent: open the parent app ("PARENT") or go back to the staff app. */
   switchHat: (as: "PARENT" | "TEACHER" | "STAFF") => Promise<void>;
+  /** School admin: see Anekio as this staff member (userId) or this student's parent (studentId). */
+  loginAs: (target: { userId?: string; studentId?: string }) => Promise<void>;
+  /** Ends "Log in as" and puts the admin's own login back. Both open on the home screen. */
+  backToMyAccount: () => Promise<void>;
+  /** True while an admin is using "Log in as" and can go back to their own account. */
+  viewingAs: boolean;
 };
 
 export type AuthAccountChoice = {
@@ -51,12 +58,28 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [token, setTok] = useState<string | null>(null);
   const [user, setUser] = useState<SessionUser | null>(null);
   const [nav, setNav] = useState<NavItem[]>([]);
+  const [viewingAs, setViewingAs] = useState(false);
 
   async function hydrate(next: string) {
     const me = await api<{ user: SessionUser; nav: NavItem[] }>("/me", next);
     setTok(next);
     setUser(me.user);
     setNav(me.nav);
+  }
+
+  /** Ends a "Log in as" and puts the admin's own login back. False when there is none to go back to. */
+  async function backToAdmin() {
+    const admin = await getAdminToken();
+    if (!admin) return false;
+    await clearAdminToken();
+    setViewingAs(false);
+    try {
+      await setToken(admin);
+      await hydrate(admin);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async function applyLogin(response: LoginSessionResponse) {
@@ -72,6 +95,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (!expiresAt) return;
     const ms = new Date(expiresAt).getTime() - Date.now();
     const clear = async () => {
+      if (await backToAdmin()) return;
       await clearToken();
       setTok(null);
       setUser(null);
@@ -88,11 +112,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     (async () => {
       const saved = await getToken();
+      setViewingAs(Boolean(await getAdminToken()));
       if (saved) {
         try {
           await hydrate(saved);
         } catch {
-          await clearToken();
+          if (!(await backToAdmin())) await clearToken();
         }
       }
       setReady(true);
@@ -168,7 +193,48 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         });
         await applyLogin(res);
       },
+      viewingAs,
+      async loginAs(target) {
+        if (!token) return;
+        const res = await api<LoginSessionResponse>("/support/login-as", token, { method: "POST", body: JSON.stringify(target) });
+        await setAdminToken(token);
+        await setToken(res.token);
+        markSkipRestore();
+        // Web: a clean load on home, so nothing from the admin's screen stays on. Native: the caller opens home.
+        if (Platform.OS === "web" && typeof window !== "undefined") {
+          window.location.replace("/");
+          return;
+        }
+        setViewingAs(true);
+        await applyLogin(res);
+      },
+      async backToMyAccount() {
+        if (token && user?.support) {
+          try {
+            await api<{ ok: true }>("/support/end", token, { method: "POST", body: "{}" });
+          } catch {
+            /* the session expires on its own */
+          }
+        }
+        markSkipRestore();
+        const admin = await getAdminToken();
+        if (Platform.OS === "web" && typeof window !== "undefined" && admin) {
+          await clearAdminToken();
+          await setToken(admin);
+          window.location.replace("/");
+          return;
+        }
+        await backToAdmin();
+      },
       async signOut() {
+        if (token && user?.support && (await getAdminToken())) {
+          try {
+            await api<{ ok: true }>("/support/end", token, { method: "POST", body: "{}" });
+          } catch {
+            /* the session expires on its own */
+          }
+          if (await backToAdmin()) return;
+        }
         try {
           if (token && user?.support) {
             // End the support session; never clear the real user's push token.
@@ -185,7 +251,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setNav([]);
       },
     }),
-    [ready, token, user, nav]
+    [ready, token, user, nav, viewingAs]
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
