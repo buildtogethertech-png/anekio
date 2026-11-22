@@ -567,6 +567,26 @@ export function DeskBoard() {
       live = false;
     };
   }, [attDate, todayYmd, token]);
+  // Collection trend: the 7 days ending today, or an earlier week picked with ‹ ›.
+  const [colEnd, setColEnd] = useState(todayYmd);
+  const [pastCollection, setPastCollection] = useState<{ weekAmount: number; series: { date: string; label: string; amount: number }[] } | null>(null);
+  useEffect(() => {
+    if (colEnd === todayYmd) {
+      setPastCollection(null);
+      return;
+    }
+    let live = true;
+    act<{ weekAmount: number; series: { date: string; label: string; amount: number }[] }>(token, "collectionWeek", { endDate: colEnd })
+      .then((r) => {
+        if (live) setPastCollection({ weekAmount: r.weekAmount, series: r.series ?? [] });
+      })
+      .catch(() => {
+        if (live) setPastCollection({ weekAmount: 0, series: [] });
+      });
+    return () => {
+      live = false;
+    };
+  }, [colEnd, todayYmd, token]);
   const desk = data?.desk;
   const salaryOwed = useMemo(() => {
     if (!can(user, "salary.view")) return { total: 0, people: 0 };
@@ -587,8 +607,24 @@ export function DeskBoard() {
   const desktop = width >= 900;
   const canSeeFees = can(user, "fees.view");
   const overdue = desk.overdueCount ?? 0;
-  const series = desk.series ?? [];
+  const colIsNow = colEnd === todayYmd;
+  const series = colIsNow
+    ? desk.series ?? []
+    : (pastCollection?.series ?? []).map((d) => ({ label: `${d.label} ${Number(d.date.slice(8, 10))}`, amount: d.amount, isToday: false }));
   const max = Math.max(...series.map((d) => d.amount), 1);
+  const colWeekLabel = (() => {
+    const end = new Date(`${colEnd}T00:00:00`);
+    const start = new Date(end);
+    start.setDate(start.getDate() - 6);
+    const f = (d: Date) => d.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+    return `${f(start)} – ${f(end)}`;
+  })();
+  const shiftColWeek = (delta: number) => {
+    const d = new Date(`${colEnd}T00:00:00`);
+    d.setDate(d.getDate() + delta * 7);
+    const next = ymd(d);
+    setColEnd(next > todayYmd ? todayYmd : next);
+  };
   const first = (user?.name || "").split(" ")[0] || "there";
   const fees = data?.fees ?? [];
   const feePaid = fees.filter((fee) => fee.status === "paid").length;
@@ -807,19 +843,32 @@ export function DeskBoard() {
           <View className="flex-row items-start justify-between gap-3">
             <View className="min-w-0 flex-1">
               <Text className="text-base font-semibold text-ink-900">Collection trend</Text>
-              <Text className="mt-0.5 text-xs text-ink-700">Last seven days</Text>
+              <Text className="mt-0.5 text-xs text-ink-700">{colIsNow ? "Last seven days" : colWeekLabel}</Text>
             </View>
             <View className="items-end">
               {canSeeFees ? (
                 <>
-                  <Text className="text-xl font-semibold text-ink-900">{desk.weekAmount || "₹0"}</Text>
-                  <Text className="text-xs text-ink-700">Today {desk.todayAmount || "₹0"}</Text>
+                  <Text className="text-xl font-semibold text-ink-900">{colIsNow ? desk.weekAmount || "₹0" : pastCollection ? inr(pastCollection.weekAmount) : "…"}</Text>
+                  <Text className="text-xs text-ink-700">{colIsNow ? `Today ${desk.todayAmount || "₹0"}` : "That week"}</Text>
                 </>
               ) : (
                 <Badge tone="ink">Locked</Badge>
               )}
             </View>
           </View>
+          {canSeeFees ? (
+            <View className="mt-3 flex-row items-center gap-1 self-start">
+              <Pressable accessibilityRole="button" accessibilityLabel="Previous week" onPress={() => shiftColWeek(-1)} className="h-8 w-8 items-center justify-center rounded-lg border border-ink-200 hover:bg-ink-50">
+                <Ionicons name="chevron-back" size={15} color="#334155" />
+              </Pressable>
+              <Pressable accessibilityRole="button" accessibilityLabel="Back to this week" disabled={colIsNow} onPress={() => setColEnd(todayYmd)} className="h-8 items-center justify-center rounded-lg border border-ink-200 px-2.5 hover:bg-ink-50">
+                <Text className={`text-[12px] font-semibold ${colIsNow ? "text-ink-900" : "text-[#1F45C7]"}`}>{colIsNow ? "This week" : colWeekLabel}</Text>
+              </Pressable>
+              <Pressable accessibilityRole="button" accessibilityLabel="Next week" disabled={colIsNow} onPress={() => shiftColWeek(1)} className={`h-8 w-8 items-center justify-center rounded-lg border border-ink-200 ${colIsNow ? "opacity-40" : "hover:bg-ink-50"}`}>
+                <Ionicons name="chevron-forward" size={15} color="#334155" />
+              </Pressable>
+            </View>
+          ) : null}
           {canSeeFees ? (
             <View className="mt-5 h-40 flex-row items-end gap-2">
               {series.map((point) => (

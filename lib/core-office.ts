@@ -6,6 +6,7 @@ import { FeeLineKind, InvoiceStatus, PaperType, PathTag } from "@prisma/client";
 import { sendAisensyWhatsApp, getAisensyConfig } from "./aisensy";
 import { can, type AccessUser } from "./permissions";
 import { prisma } from "./prisma";
+import { buildCollectionSeries, collectionWindow } from "./desk";
 import { roleIdBySlug } from "./roles";
 import { issueTemplateMonthlyInvoices, reminderCopy } from "./fee-run";
 import {
@@ -2004,6 +2005,20 @@ export async function importPeopleSheetCore(user: AccessUser, input: { kind?: st
   }
   if (!created.length) throw new Error(skipped[0] || "Nothing imported.");
   return { created: created.length, skipped };
+}
+
+/** Dashboard → collection trend for the 7 days ending on `endDate` (YYYY-MM-DD), for ‹ › week paging. */
+export async function collectionWeekCore(user: AccessUser, input: { endDate?: string }) {
+  need(user, "fees.view");
+  const endDate = String(input.endDate || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(endDate)) throw new Error("Pick a day.");
+  const end = new Date(`${endDate}T12:00:00`);
+  const { from, days } = collectionWindow(end);
+  const until = new Date(days[days.length - 1].getTime() + 86400000);
+  const payments = await prisma.payment.findMany({ where: { paidAt: { gte: from, lt: until } }, select: { amount: true, paidAt: true } });
+  const { series, weekAmount } = buildCollectionSeries(payments, end);
+  const ymdOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return { weekAmount, series: series.map((d) => ({ date: ymdOf(d.date), label: d.label, amount: d.amount })) };
 }
 
 /** Dashboard → attendance for another day: per class, how many were marked present / out that day. */
