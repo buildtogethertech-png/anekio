@@ -192,11 +192,25 @@ function unescapeIcs(value: string) {
     .trim();
 }
 
+/** A real calendar day as YYYY-MM-DD, or "" (so 31 Feb or month 20 never gets saved). */
+function realYmd(y: number, m: number, d: number) {
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) return "";
+  return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+/**
+ * Holiday dates from a sheet: 2026-12-25, 25-12-2026, 25/12/26, 25.12.2026 (day first, as in India),
+ * 20261225 / 20261225T000000 (calendar files), or text like "25 Dec 2026".
+ */
 function toYmd(raw: string) {
   const s = raw.trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  const compact = icsDate(s);
-  if (compact) return compact;
+  let m = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/.exec(s);
+  if (m) return realYmd(Number(m[1]), Number(m[2]), Number(m[3]));
+  m = /^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2}|\d{4})$/.exec(s);
+  if (m) return realYmd(m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]), Number(m[2]), Number(m[1]));
+  m = /^(\d{4})(\d{2})(\d{2})(T\d*)?Z?$/.exec(s);
+  if (m) return realYmd(Number(m[1]), Number(m[2]), Number(m[3]));
   const parsed = parseDob(s);
   return parsed ? ymd(parsed) : "";
 }
