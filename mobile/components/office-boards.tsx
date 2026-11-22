@@ -541,6 +541,32 @@ export function DeskBoard() {
   const [autoBusy, setAutoBusy] = useState(false);
   const [decideBusy, setDecideBusy] = useState("");
   const [reviewId, setReviewId] = useState("");
+  // Attendance card: today, or an earlier day picked with ‹ ›.
+  const todayYmd = ymd(new Date());
+  const [attDate, setAttDate] = useState(todayYmd);
+  const [pastAttendance, setPastAttendance] = useState<Record<string, { present: number; absent: number; marked: number }> | null>(null);
+  const [pastBusy, setPastBusy] = useState(false);
+  useEffect(() => {
+    if (attDate === todayYmd) {
+      setPastAttendance(null);
+      return;
+    }
+    let live = true;
+    setPastBusy(true);
+    act<{ classes: { classId: string; present: number; absent: number; marked: number }[] }>(token, "classAttendanceOn", { date: attDate })
+      .then((r) => {
+        if (live) setPastAttendance(Object.fromEntries((r.classes ?? []).map((c) => [c.classId, c])));
+      })
+      .catch(() => {
+        if (live) setPastAttendance({});
+      })
+      .finally(() => {
+        if (live) setPastBusy(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [attDate, todayYmd, token]);
   const desk = data?.desk;
   const salaryOwed = useMemo(() => {
     if (!can(user, "salary.view")) return { total: 0, people: 0 };
@@ -588,7 +614,29 @@ export function DeskBoard() {
     }
   }
   const selectedLeave = upcomingLeave.find((leave) => leave.requestId === coverageFor) || null;
-  const classAttendance = desk.classAttendance ?? [];
+  const attCalendar = calendarFrom(data?.school?.holidays, data?.timetable?.weekdays);
+  const attClosed = closedReason(attDate, attCalendar);
+  const attIsToday = attDate === todayYmd;
+  const attDayLabel = new Date(`${attDate}T00:00:00`).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
+  const shiftAttDate = (delta: number) => {
+    const d = new Date(`${attDate}T00:00:00`);
+    d.setDate(d.getDate() + delta);
+    const next = ymd(d);
+    if (next <= todayYmd) setAttDate(next);
+  };
+  const classAttendance = (desk.classAttendance ?? []).map((klass) => {
+    // A holiday / weekly off: nothing is "unmarked" that day.
+    if (attIsToday) return attClosed ? { ...klass, unmarked: 0 } : klass;
+    const day = pastAttendance?.[klass.classId] ?? { present: 0, absent: 0, marked: 0 };
+    return {
+      ...klass,
+      present: day.present,
+      absent: day.absent,
+      unmarked: attClosed ? 0 : Math.max(0, klass.total - day.marked),
+      percent: klass.total ? Math.round((day.present / klass.total) * 100) : 0,
+      teacherStatus: "",
+    };
+  });
   const attendanceTotals = classAttendance.reduce(
     (sum, klass) => ({
       present: sum.present + klass.present,
@@ -829,11 +877,28 @@ export function DeskBoard() {
         <Card className={`p-5 ${desktop ? "min-h-0 flex-[1.4]" : "w-full shrink-0"}`}>
           <View className="flex-row items-start justify-between gap-3">
             <View className="min-w-0 flex-1">
-              <Text className="text-base font-semibold text-ink-900">Today’s attendance</Text>
+              <Text className="text-base font-semibold text-ink-900">{attIsToday ? "Today’s attendance" : `Attendance · ${attDayLabel}`}</Text>
               <Text className="mt-0.5 text-xs text-ink-700">Present, out, and still unmarked by class</Text>
             </View>
-            <Pressable onPress={() => router.push("/people")} className="shrink-0"><Text className="text-sm text-clay-600">Open people</Text></Pressable>
+            <View className="shrink-0 flex-row items-center gap-1">
+              <Pressable accessibilityRole="button" accessibilityLabel="Previous day" onPress={() => shiftAttDate(-1)} className="h-8 w-8 items-center justify-center rounded-lg border border-ink-200 hover:bg-ink-50">
+                <Ionicons name="chevron-back" size={15} color="#334155" />
+              </Pressable>
+              <Pressable accessibilityRole="button" accessibilityLabel="Back to today" disabled={attIsToday} onPress={() => setAttDate(todayYmd)} className="h-8 min-w-[64px] items-center justify-center rounded-lg border border-ink-200 px-2 hover:bg-ink-50">
+                <Text className={`text-[12px] font-semibold ${attIsToday ? "text-ink-900" : "text-[#1F45C7]"}`}>{attIsToday ? "Today" : attDayLabel}</Text>
+              </Pressable>
+              <Pressable accessibilityRole="button" accessibilityLabel="Next day" disabled={attIsToday} onPress={() => shiftAttDate(1)} className={`h-8 w-8 items-center justify-center rounded-lg border border-ink-200 ${attIsToday ? "opacity-40" : "hover:bg-ink-50"}`}>
+                <Ionicons name="chevron-forward" size={15} color="#334155" />
+              </Pressable>
+            </View>
           </View>
+          {attClosed ? (
+            <View className="mt-4 flex-row items-center gap-2 rounded-lg bg-ink-50 px-3 py-2.5">
+              <Ionicons name="cafe-outline" size={16} color="#475569" />
+              <Text className="min-w-0 flex-1 text-[13px] text-ink-700">{`${closedCaption(attClosed)} · no attendance needed${attIsToday ? " today" : ""}.`}</Text>
+            </View>
+          ) : null}
+          {pastBusy ? <Text className="mt-3 text-[12px] text-ink-500">Loading that day…</Text> : null}
           <View className="mt-6 h-4 flex-row overflow-hidden rounded-full bg-ink-100">
             {attendanceTotals.present ? <View className="h-full bg-emerald-500" style={{ width: `${(attendanceTotals.present / Math.max(1, attendanceTotals.total)) * 100}%` }} /> : null}
             {attendanceTotals.absent ? <View className="h-full bg-red-500" style={{ width: `${(attendanceTotals.absent / Math.max(1, attendanceTotals.total)) * 100}%` }} /> : null}
@@ -856,13 +921,15 @@ export function DeskBoard() {
               const marked = klass.present + klass.absent;
               const teacherAway = klass.teacherStatus === "ABSENT" || klass.teacherStatus === "LEAVE";
               const status = !marked
-                ? teacherAway
-                  ? `Teacher ${klass.teacherStatus.toLowerCase()} · not taken`
-                  : "Attendance not taken"
+                ? attClosed
+                  ? "School closed"
+                  : teacherAway
+                    ? `Teacher ${klass.teacherStatus.toLowerCase()} · not taken`
+                    : "Attendance not taken"
                 : klass.unmarked
                   ? `${klass.unmarked} unmarked`
                   : `${klass.percent}% · ${klass.absent} out`;
-              const reminder = `Hi ${klass.teacherName}, attendance for ${klass.label} is still unmarked today. Please update it when possible.`;
+              const reminder = `Hi ${klass.teacherName}, attendance for ${klass.label} is still unmarked ${attIsToday ? "today" : `for ${attDayLabel}`}. Please update it when possible.`;
               const teacherTel = phoneHref(klass.teacherPhone);
               const teacherWa = whatsappHref(klass.teacherPhone, reminder);
               return (
@@ -872,7 +939,7 @@ export function DeskBoard() {
                   </View>
                   <View className="min-w-0 flex-1">
                     <Text className="text-xs font-medium text-ink-900" numberOfLines={1}>{klass.teacherName}</Text>
-                    <Text className={`text-[10px] ${!marked ? "text-amber-700" : klass.percent < 75 ? "text-red-600" : "text-ink-700"}`} numberOfLines={1}>{status}</Text>
+                    <Text className={`text-[10px] ${!marked ? (attClosed ? "text-ink-500" : "text-amber-700") : klass.percent < 75 ? "text-red-600" : "text-ink-700"}`} numberOfLines={1}>{status}</Text>
                   </View>
                   <View className="flex-row items-center gap-4">
                     {teacherWa ? <Pressable accessibilityLabel={`WhatsApp ${klass.teacherName}`} onPress={() => void Linking.openURL(teacherWa)}><Ionicons name="logo-whatsapp" size={20} color="#16a34a" /></Pressable> : null}

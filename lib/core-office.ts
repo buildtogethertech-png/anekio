@@ -2006,6 +2006,25 @@ export async function importPeopleSheetCore(user: AccessUser, input: { kind?: st
   return { created: created.length, skipped };
 }
 
+/** Dashboard → attendance for another day: per class, how many were marked present / out that day. */
+export async function classAttendanceOnCore(user: AccessUser, input: { date?: string }) {
+  need(user, "desk.view");
+  const date = String(input.date || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Pick a day.");
+  // Attendance is stored at local midnight of the day (same as the dashboard's "today").
+  const day = new Date(`${date}T00:00:00`);
+  const rows = await prisma.attendance.findMany({ where: { date: day }, select: { status: true, student: { select: { classId: true } } } });
+  const byClass = new Map<string, { classId: string; present: number; absent: number; marked: number }>();
+  for (const row of rows) {
+    const c = byClass.get(row.student.classId) ?? { classId: row.student.classId, present: 0, absent: 0, marked: 0 };
+    c.marked += 1;
+    if (row.status === "PRESENT" || row.status === "LATE") c.present += 1;
+    else c.absent += 1;
+    byClass.set(row.student.classId, c);
+  }
+  return { date, classes: [...byClass.values()] };
+}
+
 /**
  * What still uses a class, before deleting it. Blockers are real history or live setup (students, routine,
  * exams, invoices, …): a class with any of them can only be archived. Links (class teacher, subjects, fee plan,

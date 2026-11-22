@@ -111,6 +111,7 @@ import {
 import {
   archiveClassCore,
   classUsageCore,
+  classAttendanceOnCore,
   archivedClassesCore,
   deleteClassCore,
   approveExamMarksCore,
@@ -721,6 +722,8 @@ export async function runAct(
       return { ok: true, ...(await previewOnboardingImport(user, body as never)) };
     case "applyOnboardingImport":
       return { ok: true, ...(await applyOnboardingImport(user, body as never)) };
+    case "classAttendanceOn":
+      return { ok: true, ...(await classAttendanceOnCore(user, body as never)) };
     case "archivedClasses":
       return { ok: true, ...(await archivedClassesCore(user)) };
     case "classUsage":
