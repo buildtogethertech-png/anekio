@@ -43,6 +43,7 @@ import { QuickDocumentButton } from "./document-studio";
 import { cloneFields, FormBuilderModal } from "./form-builder";
 import { COMMON_ENQUIRY_FIELDS } from "../lib/common-form-fields";
 import { StaffTimesheet } from "./staff-timesheet";
+import { StaffMonthlyReport } from "./staff-monthly-report";
 import { StaffSalaryBoard } from "./staff-salary-board";
 import { StaffPhoneReport } from "./staff-phone-report";
 import { FEATURES } from "../lib/features";
@@ -5480,6 +5481,8 @@ export function StaffBoard() {
   const phone = width < 768;
   const staff = data?.staff ?? [];
   const [q, setQ] = useState("");
+  // Phone: the search box opens from the 🔍 in the toolbar (it stays open while there's text).
+  const [phoneSearch, setPhoneSearch] = useState(false);
   const [marks, setMarks] = useState<Record<string, string>>({});
   const [times, setTimes] = useState<Record<string, string>>({});
   const staffParams = useLocalSearchParams<{ view?: string | string[]; person?: string | string[] }>();
@@ -5491,6 +5494,17 @@ export function StaffBoard() {
   useEffect(() => {
     if (viewParam === "salary") setStaffView("salary");
   }, [viewParam]);
+  // The open tab lives in the URL (?view=monthly|salary|phone) so a refresh stays on it.
+  function pickStaffTab(id: string) {
+    if (id === "timesheet") {
+      setTimesheetOpen(true);
+      setGridOpen(false);
+    } else {
+      setTimesheetOpen(false);
+      setStaffView(id as typeof staffView);
+    }
+    router.setParams({ view: id === "timesheet" ? "monthly" : id === "today" ? undefined : id });
+  }
   const [detailMonth, setDetailMonth] = useState<string | undefined>(undefined);
   const [dirKind, setDirKind] = useState<"" | "teacher" | "staff">("");
   const [staffFilter, setStaffFilter] = useState<"" | "PRESENT" | "LATE" | "ABSENT" | "LEAVE" | "UNMARKED">("");
@@ -5506,9 +5520,11 @@ export function StaffBoard() {
     setSavedTimes({});
   }, [data?.staff]);
   marksRef.current = marks;
-  const [timesheetOpen, setTimesheetOpen] = useState(false);
+  const [timesheetOpen, setTimesheetOpen] = useState(viewParam === "monthly");
+  const [gridOpen, setGridOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [staffMenuOpen, setStaffMenuOpen] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [infoFor, setInfoFor] = useState<(typeof staff)[number] | null>(null);
   const [reviseFor, setReviseFor] = useState<(typeof staff)[number] | null>(null);
@@ -5567,7 +5583,8 @@ export function StaffBoard() {
     if (saved === "LEAVE" || onLeave || (date === today && (p.today || "").toUpperCase() === "LEAVE")) return "LEAVE";
     if (local === "PRESENT" || local === "ABSENT" || local === "LATE") return local;
     if (saved === "PRESENT" || saved === "ABSENT" || saved === "LATE") return saved;
-    if (!locked) return "PRESENT";
+    // Staff not marked yet start as Absent: Present has to be marked (or scanned).
+    if (!locked) return "ABSENT";
     return "";
   }
 
@@ -5732,7 +5749,29 @@ export function StaffBoard() {
     if (staffFilter === "UNMARKED") return arrivalOf(p) !== "LEAVE" && !isMarked(p);
     return arrivalOf(p) === staffFilter && (staffFilter === "LEAVE" || isMarked(p));
   };
-  const shown = staff.filter((p) => (!needle || p.name.toLowerCase().includes(needle)) && matchesFilter(p));
+  const shown = staff.filter(
+    (p) =>
+      (!needle || [p.name, p.role, p.phone, p.employeeId || ""].join(" ").toLowerCase().includes(needle)) &&
+      (!dirKind || (dirKind === "teacher" ? p.kind === "teacher" : p.kind !== "teacher")) &&
+      matchesFilter(p)
+  );
+  // Teachers / Staff chips (only when the school has both).
+  const kindChips =
+    staff.some((p) => p.kind === "teacher") && staff.some((p) => p.kind !== "teacher") ? (
+      <View className="flex-row items-center gap-1.5">
+        {([["", "All"], ["teacher", "Teachers"], ["staff", "Staff"]] as const).map(([id, label]) => (
+          <Pressable
+            key={id || "all"}
+            accessibilityRole="radio"
+            accessibilityState={{ checked: dirKind === id }}
+            onPress={() => setDirKind(id)}
+            className={`h-8 justify-center rounded-full px-3 ${dirKind === id ? "bg-ink-900" : "border border-ink-200 bg-white"}`}
+          >
+            <Text className={`text-[13px] font-medium ${dirKind === id ? "text-white" : "text-ink-700"}`}>{label}</Text>
+          </Pressable>
+        ))}
+      </View>
+    ) : null;
   const editRoleOptions = editFor?.kind === "teacher"
     ? (data?.staffRoles ?? []).filter((r) => r.portal === "TEACHER")
     : (data?.staffRoles ?? []).filter((r) => r.portal !== "TEACHER" && r.portal !== "PARENT" && r.portal !== "STUDENT");
@@ -5760,14 +5799,31 @@ export function StaffBoard() {
   const staffTabs = (
     [
       ["today", "Today", canMark],
-      ["timesheet", "Timesheet", canMark],
+      ["timesheet", "Monthly", canMark],
       ["salary", "Salary", salaryAccess.view],
       ["phone", "Phone use", FEATURES.teacherPhones && Boolean(data?.school?.schoolDay?.enabled)],
-      ["directory", phone ? "Directory" : `Directory · ${staff.length}`, canDirectory],
     ] as const
   ).filter(([, , on]) => on);
   const tabsBar =
     staffTabs.length > 1 ? (
+      // Plain underline tabs (no grey box), on phone and desktop.
+      <View className={`flex-row border-b border-ink-100 ${phone ? "mx-3 mt-1" : "mx-4 mt-2 gap-6"}`}>
+        {staffTabs.map(([id, label]) => {
+          const on = (timesheetOpen ? "timesheet" : canMark ? staffView : "directory") === id;
+          return (
+            <Pressable
+              key={id}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: on }}
+              onPress={() => pickStaffTab(id)}
+              className={`-mb-px justify-center border-b-2 ${phone ? "h-11 min-w-0 flex-1 items-center" : "h-11"} ${on ? "border-[#1F45C7]" : "border-transparent"}`}
+            >
+              <Text numberOfLines={1} className={`${phone ? "text-[14px]" : "text-[14px]"} font-semibold ${on ? "text-[#1F45C7]" : "text-ink-500 hover:text-ink-800"}`}>{label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    ) : staffTabs.length > 1 ? (
       <View className={`flex-row rounded-xl bg-ink-100 p-1 ${phone ? "mx-3 mt-3" : "mx-4 mt-4 self-start"}`}>
         {staffTabs.map(([id, label]) => {
           const on = (timesheetOpen ? "timesheet" : canMark ? staffView : "directory") === id;
@@ -5776,14 +5832,7 @@ export function StaffBoard() {
               key={id}
               accessibilityRole="tab"
               accessibilityState={{ selected: on }}
-              onPress={() => {
-                if (id === "timesheet") {
-                  setTimesheetOpen(true);
-                  return;
-                }
-                setTimesheetOpen(false);
-                setStaffView(id);
-              }}
+              onPress={() => pickStaffTab(id)}
               className={`h-9 items-center justify-center rounded-lg ${phone ? "min-w-0 flex-1 px-1" : "px-4"} ${on ? "bg-white" : ""}`}
               style={on ? { shadowColor: "#0f172a", shadowOpacity: 0.08, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } } : undefined}
             >
@@ -5906,151 +5955,293 @@ export function StaffBoard() {
     </Card>
   );
 
+  // Narrow laptops: icon-only (label shows on hover) so the toolbar stays on one line.
+  const deskLabels = width >= 1280;
+  const deskBtn = `h-11 flex-row items-center justify-center gap-2 rounded-lg border border-ink-200 bg-white hover:bg-ink-50 ${deskLabels ? "px-3.5" : "w-11"}`;
+  const staffMoreMenu = !phone ? (
+    // Desktop has room: show the two actions as plain buttons, no ⋯ menu.
+    <>
+      {canHours ? (
+        <Pressable accessibilityRole="button" accessibilityLabel="Payroll rules" {...({ title: "Payroll rules" } as object)} onPress={() => router.push("/school?tab=payroll" as never)} className={deskBtn}>
+          <Ionicons name="options-outline" size={17} color="#334155" />
+          {deskLabels ? <Text className="text-[14px] font-medium text-ink-800">Payroll rules</Text> : null}
+        </Pressable>
+      ) : null}
+      {canManage ? (
+        <Pressable accessibilityRole="button" accessibilityLabel="Import employees" {...({ title: "Import employees" } as object)} onPress={() => setBulkOpen(true)} className={deskBtn}>
+          <Ionicons name="cloud-upload-outline" size={17} color="#334155" />
+          {deskLabels ? <Text className="text-[14px] font-medium text-ink-800">Import</Text> : null}
+        </Pressable>
+      ) : null}
+    </>
+  ) :
+    canHours || canManage ? (
+
+            <View className="relative">
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="More staff actions"
+                onPress={() => setStaffMenuOpen((v) => !v)}
+                className={phone ? "h-9 w-8 items-center justify-center rounded-full" : "h-10 w-10 items-center justify-center rounded-lg hover:bg-ink-50"}
+              >
+                <Ionicons name="ellipsis-horizontal" size={18} color="#334155" />
+              </Pressable>
+              {phone ? (
+                <Sheet open={staffMenuOpen} onClose={() => setStaffMenuOpen(false)}>
+                  <View className="gap-1 px-2 pb-2">
+                    {(
+                      [
+                        canHours ? ["Payroll rules", "Late timing, salary basis, leave rules", "options-outline", () => router.push("/school?tab=payroll" as never)] : null,
+                        canManage ? ["Import employees", "Add many from an Excel or CSV sheet", "cloud-upload-outline", () => setTimeout(() => setBulkOpen(true), 250)] : null,
+                      ].filter(Boolean) as [string, string, keyof typeof Ionicons.glyphMap, () => void][]
+                    ).map(([label, hint, icon, go]) => (
+                      <Pressable
+                        key={label}
+                        accessibilityRole="button"
+                        accessibilityLabel={label}
+                        onPress={() => {
+                          setStaffMenuOpen(false);
+                          go();
+                        }}
+                        className="flex-row items-center gap-3 rounded-xl px-2 py-3 active:bg-ink-50"
+                      >
+                        <View className="h-10 w-10 items-center justify-center rounded-xl bg-[#EEF3FF]">
+                          <Ionicons name={icon} size={19} color="#1F45C7" />
+                        </View>
+                        <View className="min-w-0 flex-1">
+                          <Text className="text-[15px] font-semibold text-ink-900">{label}</Text>
+                          <Text className="text-[12px] text-ink-500">{hint}</Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={16} color="#94a3b8" />
+                      </Pressable>
+                    ))}
+                  </View>
+                </Sheet>
+              ) : staffMenuOpen ? (
+                <View className="absolute right-0 top-11 w-52 rounded-xl border border-ink-100 bg-white p-1 shadow-xl">
+                  {canHours ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Payroll rules"
+                      onPress={() => {
+                        setStaffMenuOpen(false);
+                        router.push("/school?tab=payroll" as never);
+                      }}
+                      className="h-10 flex-row items-center gap-2 rounded-lg px-3 hover:bg-ink-50"
+                    >
+                      <Ionicons name="options-outline" size={15} color="#475569" />
+                      <Text className="text-[13px] text-ink-800">Payroll rules</Text>
+                    </Pressable>
+                  ) : null}
+                  {canManage ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Import employees"
+                      onPress={() => {
+                        setStaffMenuOpen(false);
+                        setBulkOpen(true);
+                      }}
+                      className="h-10 flex-row items-center gap-2 rounded-lg px-3 hover:bg-ink-50"
+                    >
+                      <Ionicons name="cloud-upload-outline" size={15} color="#475569" />
+                      <Text className="text-[13px] text-ink-800">Import employees</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              ) : null}
+            </View>
+          
+    ) : null;
+
   const register = (
-    <Card className="min-h-0 flex-1">
+    <Card className={phone ? "min-h-0 flex-1 border-transparent shadow-none" : "min-h-0 flex-1"}>
       {tabsBar}
       <View className={phone ? "gap-2 border-b border-ink-100 px-3 py-2" : "gap-3 border-b border-ink-100 px-4 py-4"}>
         {phone ? (
           <>
-            <View testID="staff-toolbar-controls" className="flex-row items-center gap-2">
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Previous day"
-                onPress={() => {
-                  setDate(shiftDay(date, -1));
-                  setMarks({});
-                  setTimes({});
-                }}
-                className="h-10 w-10 items-center justify-center rounded-full border border-ink-200 bg-white"
-              >
-                <Ionicons name="chevron-back" size={18} color="#1F45C7" />
-              </Pressable>
-              <View testID="staff-date" className="min-w-0 flex-1">
-                <DateField
-                  compact
-                  plain
-                  value={date}
-                  max={today}
-                  closedReason={(value) => closedReason(value, calendar)}
-                  onChange={(next) => {
-                    setDate(next);
+            <View testID="staff-toolbar-controls" className="z-10 gap-2">
+              <View className="flex-row items-center gap-1">
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Previous day"
+                  onPress={() => {
+                    setDate(shiftDay(date, -1));
                     setMarks({});
                     setTimes({});
                   }}
-                />
+                  className="h-10 w-10 items-center justify-center rounded-full border border-ink-200 bg-white"
+                >
+                  <Ionicons name="chevron-back" size={18} color="#1F45C7" />
+                </Pressable>
+                <View testID="staff-date" className="min-w-0 flex-1">
+                  <DateField
+                    title
+                    value={date}
+                    max={today}
+                    closedReason={(value) => closedReason(value, calendar)}
+                    onChange={(next) => {
+                      setDate(next);
+                      setMarks({});
+                      setTimes({});
+                    }}
+                  />
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Next day"
+                  disabled={date >= today}
+                  onPress={() => {
+                    setDate(shiftDay(date, 1));
+                    setMarks({});
+                    setTimes({});
+                  }}
+                  className={`h-10 w-10 items-center justify-center rounded-full border border-ink-200 bg-white ${date >= today ? "opacity-40" : ""}`}
+                >
+                  <Ionicons name="chevron-forward" size={18} color="#1F45C7" />
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Search staff"
+                  onPress={() => setPhoneSearch((v) => !v || Boolean(q))}
+                  className={`h-9 w-8 items-center justify-center rounded-full ${phoneSearch || q ? "bg-[#EEF3FF]" : ""}`}
+                >
+                  <Ionicons name="search" size={18} color={phoneSearch || q ? "#1F45C7" : "#334155"} />
+                </Pressable>
+                {staffMoreMenu}
+                {canManage ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="+ Add employee"
+                    onPress={() => setAddOpen(true)}
+                    className="h-9 w-9 items-center justify-center rounded-full bg-[#1F45C7]"
+                  >
+                    <Ionicons name="add" size={20} color="#fff" />
+                  </Pressable>
+                ) : null}
               </View>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Next day"
-                disabled={date >= today}
-                onPress={() => {
-                  setDate(shiftDay(date, 1));
-                  setMarks({});
-                  setTimes({});
-                }}
-                className={`h-10 w-10 items-center justify-center rounded-full border border-ink-200 bg-white ${date >= today ? "opacity-40" : ""}`}
-              >
-                <Ionicons name="chevron-forward" size={18} color="#1F45C7" />
-              </Pressable>
+              {phoneSearch || q ? (
+                <View className="h-10 flex-row items-center rounded-lg bg-ink-50 pl-3">
+                  <Ionicons name="search-outline" size={16} color="#94a3b8" />
+                  <TextInput
+                    value={q}
+                    onChangeText={setQ}
+                    placeholder="Name"
+                    placeholderTextColor="#94a3b8"
+                    accessibilityLabel="Search"
+                    autoFocus={!q}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    className="h-full min-w-0 flex-1 px-2 text-sm text-ink-900"
+                    style={{ includeFontPadding: false }}
+                  />
+                  {q ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Clear search"
+                      onPress={() => {
+                        setQ("");
+                        setPhoneSearch(false);
+                      }}
+                      className="h-10 w-10 items-center justify-center"
+                    >
+                      <Ionicons name="close-circle" size={16} color="#94a3b8" />
+                    </Pressable>
+                  ) : null}
+                </View>
+              ) : null}
             </View>
-            {pendingWaiting.length ? (
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => setLeaveOpen(true)}
-                className="flex-row items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5"
-              >
-                <Ionicons name="airplane-outline" size={16} color="#b45309" />
-                <Text className="flex-1 text-sm font-medium text-amber-900">
-                  {pendingWaiting.length} leave {pendingWaiting.length === 1 ? "request" : "requests"} waiting
-                </Text>
-                <Text className="text-sm font-semibold text-amber-800">Review</Text>
-                <Ionicons name="chevron-forward" size={14} color="#b45309" />
-              </Pressable>
-            ) : pendingLeave.length ? (
-              <Pressable accessibilityRole="button" onPress={() => setLeaveOpen(true)} className="self-start">
-                <Text className="text-xs font-medium text-[#1F45C7]">Leave requests ({pendingLeave.length})</Text>
-              </Pressable>
-            ) : null}
             {!canMark ? (
-              <View className="flex-row items-center gap-2 rounded-xl bg-ink-50 px-3 py-2.5">
-                <Ionicons name="eye-outline" size={15} color="#64748b" />
-                <Text className="min-w-0 flex-1 text-[12px] leading-4 text-ink-600">
-                  View only. Turn on "Mark staff attendance" for {user?.roleName || "your role"} in Roles & permissions.
-                </Text>
-              </View>
+              <Text className="text-[12px] leading-4 text-ink-500">
+                View only. Turn on "Mark staff attendance" for {user?.roleName || "your role"} in Roles & permissions.
+              </Text>
             ) : null}
             <View testID="staff-toolbar-summary">
-              {locked ? (
-                <Text className="text-sm text-amber-800">{lockedNote.replace(/\.$/, "")}.</Text>
-              ) : (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
-                  {(
-                    [
-                      ["PRESENT", `${Math.max(0, yes - unmarked)} in`, "#047857", "#ECFDF5", true],
-                      ["LATE", `${late} late`, "#b45309", "#FFFBEB", late > 0],
-                      ["ABSENT", `${no} absent`, "#b91c1c", "#FEF2F2", no > 0],
-                      ["LEAVE", `${onLeave} on leave`, "#0369a1", "#F0F9FF", onLeave > 0],
-                      ["UNMARKED", `${unmarked} not marked`, "#475569", "#F1F5F9", unmarked > 0],
-                    ] as const
-                  )
-                    .filter(([, , , , on]) => on)
-                    .map(([id, label, fg, bg]) => {
-                      const active = staffFilter === id;
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, alignItems: "center" }}>
+                {locked ? <Text className="mr-1 text-[13px] text-amber-800">{lockedNote.replace(/\.$/, "")}.</Text> : null}
+                {(locked
+                  ? []
+                  : (
+                      [
+                        ["UNMARKED", `${unmarked} not marked`, "#475569", "#F1F5F9", unmarked > 0],
+                        ["PRESENT", `${yes} in`, "#047857", "#ECFDF5", true],
+                        ["LATE", `${late} late`, "#b45309", "#FFFBEB", late > 0],
+                        ["ABSENT", `${Math.max(0, no - unmarked)} absent`, "#b91c1c", "#FEF2F2", no - unmarked > 0],
+                        ["LEAVE", `${onLeave} on leave`, "#0369a1", "#F0F9FF", onLeave > 0],
+                      ] as const
+                    ).filter(([, , , , on]) => on)
+                ).map(([id, label, fg, bg]) => {
+                  const active = staffFilter === id;
+                  return (
+                    <Pressable
+                      key={id}
+                      onPress={() => setStaffFilter(active ? "" : id)}
+                      className="h-8 flex-row items-center gap-1 rounded-full px-3"
+                      style={{ backgroundColor: active ? fg : bg }}
+                    >
+                      <Text className="text-[13px] font-semibold" style={{ color: active ? "#fff" : fg }}>{label}</Text>
+                      {active ? <Ionicons name="close" size={12} color="#fff" /> : null}
+                    </Pressable>
+                  );
+                })}
+                {pendingLeave.length ? (
+                  <Pressable accessibilityRole="button" accessibilityLabel={`Leave requests (${pendingLeave.length})`} onPress={() => setLeaveOpen(true)} className="h-8 flex-row items-center gap-1 rounded-full bg-amber-50 px-3">
+                    <Ionicons name="airplane-outline" size={13} color="#b45309" />
+                    <Text className="text-[13px] font-semibold text-amber-800">{`${pendingWaiting.length || pendingLeave.length} leave`}</Text>
+                  </Pressable>
+                ) : null}
+                {staff.some((p) => p.kind === "teacher") && staff.some((p) => p.kind !== "teacher")
+                  ? ([["teacher", "Teachers"], ["staff", "Staff"]] as const).map(([id, label]) => {
+                      const on = dirKind === id;
                       return (
                         <Pressable
                           key={id}
-                          onPress={() => setStaffFilter(active ? "" : id)}
-                          className="h-8 flex-row items-center gap-1 rounded-full border px-3"
-                          style={{ backgroundColor: active ? fg : bg, borderColor: active ? fg : "transparent" }}
+                          accessibilityRole="radio"
+                          accessibilityState={{ checked: on }}
+                          onPress={() => setDirKind(on ? "" : id)}
+                          className={`h-8 flex-row items-center gap-1 rounded-full px-3 ${on ? "bg-ink-900" : "border border-ink-200 bg-white"}`}
                         >
-                          <Text className="text-[13px] font-semibold" style={{ color: active ? "#fff" : fg }}>{label}</Text>
-                          {active ? <Ionicons name="close" size={12} color="#fff" /> : null}
+                          <Text className={`text-[13px] font-medium ${on ? "text-white" : "text-ink-700"}`}>{label}</Text>
+                          {on ? <Ionicons name="close" size={12} color="#fff" /> : null}
                         </Pressable>
                       );
-                    })}
-                </ScrollView>
-              )}
-            </View>
-            <View className="flex-row items-center rounded-xl border border-ink-200 bg-white pl-3">
-              <Ionicons name="search-outline" size={16} color="#94a3b8" />
-              <TextInput
-                value={q}
-                onChangeText={setQ}
-                placeholder="Search staff"
-                placeholderTextColor="#94a3b8"
-                accessibilityLabel="Search"
-                autoCapitalize="none"
-                autoCorrect={false}
-                className="min-w-0 flex-1 px-2 py-2.5 text-sm text-ink-900"
-                style={{ includeFontPadding: false }}
-              />
+                    })
+                  : null}
+              </ScrollView>
             </View>
           </>
         ) : (
           <>
-        <View
-          testID="staff-toolbar-controls"
-          className="flex-row flex-wrap items-end gap-2"
-        >
-          <View className="min-w-0 flex-1">
-            <Field label="Search">
-              <View className="flex-row items-center rounded-md border border-ink-200 bg-white pl-2.5">
-                <Ionicons name="search-outline" size={18} color="#3d4f66" />
-                <Input
-                  value={q}
-                  onChangeText={setQ}
-                  placeholder="Name"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  className="min-w-0 flex-1 border-0"
-                />
-              </View>
-            </Field>
+        <View testID="staff-toolbar-controls" className="z-10 flex-row flex-wrap items-center gap-2">
+          <View className="h-10 min-w-[150px] flex-1 flex-row items-center rounded-lg bg-ink-50 pl-3">
+            <Ionicons name="search-outline" size={16} color="#94a3b8" />
+            <TextInput
+              value={q}
+              onChangeText={setQ}
+              placeholder="Name"
+              placeholderTextColor="#94a3b8"
+              accessibilityLabel="Search"
+              autoCapitalize="none"
+              autoCorrect={false}
+              className="h-full min-w-0 flex-1 px-2 text-sm text-ink-900"
+              style={{ outlineStyle: "none" } as object}
+            />
           </View>
-          <View className="w-[220px] shrink-0">
-            <Field label="Date">
+          <View testID="staff-date" className="flex-row items-center gap-2">
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Previous day"
+              onPress={() => {
+                setDate(shiftDay(date, -1));
+                setMarks({});
+                setTimes({});
+              }}
+              className="h-10 w-10 items-center justify-center rounded-full border border-ink-200 bg-white hover:bg-ink-50"
+            >
+              <Ionicons name="chevron-back" size={18} color="#1F45C7" />
+            </Pressable>
+            <View className="w-[160px]">
               <DateField
-                plain
+                title
                 value={date}
                 max={today}
                 closedReason={(value) => closedReason(value, calendar)}
@@ -6060,14 +6251,21 @@ export function StaffBoard() {
                   setTimes({});
                 }}
               />
-            </Field>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Next day"
+              disabled={date >= today}
+              onPress={() => {
+                setDate(shiftDay(date, 1));
+                setMarks({});
+                setTimes({});
+              }}
+              className={`h-10 w-10 items-center justify-center rounded-full border border-ink-200 bg-white hover:bg-ink-50 ${date >= today ? "opacity-40" : ""}`}
+            >
+              <Ionicons name="chevron-forward" size={18} color="#1F45C7" />
+            </Pressable>
           </View>
-
-          {canHours ? (
-            <Button variant="ghost" accessibilityLabel="Payroll rules" onPress={() => router.push("/school?tab=payroll" as never)}>
-              Payroll rules
-            </Button>
-          ) : null}
 
           {canMark && qrOn ? <StaffAttendanceQrScanButton token={token} disabled={locked} onMessage={toast.show} onDone={reload} /> : null}
           {data?.staffAttendanceSelf && qrOn ? (
@@ -6079,19 +6277,62 @@ export function StaffBoard() {
               onMessage={toast.show}
             />
           ) : null}
+
+          {staffMoreMenu}
+          {canManage ? (
+            <Button accessibilityLabel="+ Add employee" onPress={() => setAddOpen(true)}>
+              + Add employee
+            </Button>
+          ) : null}
         </View>
+        {pendingWaiting.length ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setLeaveOpen(true)}
+            className="flex-row items-center gap-2 rounded-lg bg-amber-50 px-3 py-2"
+          >
+            <Ionicons name="airplane-outline" size={15} color="#b45309" />
+            <Text className="flex-1 text-[13px] font-medium text-amber-900">
+              {`${pendingWaiting.length} leave ${pendingWaiting.length === 1 ? "request" : "requests"} waiting`}
+            </Text>
+            <Text className="text-[13px] font-semibold text-amber-800">Review</Text>
+            <Ionicons name="chevron-forward" size={13} color="#b45309" />
+          </Pressable>
+        ) : null}
         <View testID="staff-toolbar-summary" className="flex-row flex-wrap items-center justify-between gap-2">
           {locked ? (
             <Text className="text-sm text-amber-800">{lockedNote.replace(/\.$/, "")}.</Text>
           ) : (
-            <View className="flex-row flex-wrap gap-2">
-              <Badge tone="leaf">{`${yes} P`}</Badge>
-              {late ? <Badge tone="warn">{`${late} late`}</Badge> : null}
-              <Badge tone="danger">{`${no} A`}</Badge>
-              {onLeave ? <Badge tone="sky">{`${onLeave} on leave`}</Badge> : null}
-              {needle ? <Badge>{`${shown.length} shown`}</Badge> : null}
+            <View className="flex-row flex-wrap items-center gap-1.5">
+              {(
+                [
+                  ["PRESENT", `${yes} present`, "#047857", "#ECFDF5", true],
+                  ["LATE", `${late} late`, "#b45309", "#FFFBEB", late > 0],
+                  ["ABSENT", `${Math.max(0, no - unmarked)} absent`, "#b91c1c", "#FEF2F2", true],
+                  ["LEAVE", `${onLeave} on leave`, "#0369a1", "#F0F9FF", onLeave > 0],
+                  ["UNMARKED", `${unmarked} not marked`, "#475569", "#F1F5F9", unmarked > 0],
+                ] as const
+              )
+                .filter(([, , , , on]) => on)
+                .map(([id, label, fg, bg]) => {
+                  const active = staffFilter === id;
+                  return (
+                    <Pressable
+                      key={id}
+                      accessibilityRole="button"
+                      onPress={() => setStaffFilter(active ? "" : id)}
+                      className="h-7 flex-row items-center gap-1 rounded-full px-2.5"
+                      style={{ backgroundColor: active ? fg : bg }}
+                    >
+                      <Text className="text-[12px] font-semibold" style={{ color: active ? "#fff" : fg }}>{label}</Text>
+                      {active ? <Ionicons name="close" size={11} color="#fff" /> : null}
+                    </Pressable>
+                  );
+                })}
+              {needle ? <Text className="ml-1 text-[12px] text-ink-500">{`${shown.length} shown`}</Text> : null}
             </View>
           )}
+          {kindChips}
         </View>
           </>
         )}
@@ -6149,11 +6390,15 @@ export function StaffBoard() {
                   }}
                   accessibilityRole="button"
                   accessibilityLabel={`${p.name} monthly attendance`}
-                  className="min-w-0 flex-1"
+                  className="min-w-0 flex-1 rounded-lg active:bg-ink-50"
                 >
-                  <Text className="text-[15px] font-semibold text-ink-900" numberOfLines={1}>
-                    {p.name}
-                  </Text>
+                  {/* The › shows the name opens their profile (attendance, pay, details). */}
+                  <View className="flex-row items-center gap-1">
+                    <Text className="min-w-0 shrink text-[15px] font-semibold text-ink-900" numberOfLines={1}>
+                      {p.name}
+                    </Text>
+                    <Ionicons name="chevron-forward" size={14} color="#94a3b8" />
+                  </View>
                   <Text className="text-xs text-ink-500" numberOfLines={1}>
                     {p.kind === "teacher" ? "Teacher" : p.teaches ? `${p.role} · Teaches` : p.role}
                     {(() => {
@@ -6188,21 +6433,12 @@ export function StaffBoard() {
                       accessibilityLabel={`${p.name} monthly attendance`}
                       hitSlop={4}
                     >
-                      <Text className="min-w-0 shrink text-sm font-medium text-clay-500 underline" numberOfLines={1}>
+                      <Text className="min-w-0 shrink text-[14px] font-semibold text-ink-900 hover:text-[#1F45C7] hover:underline" numberOfLines={1}>
                         {p.name}
                       </Text>
                     </Pressable>
-                    <Pressable
-                      onPress={() => setInfoFor(p)}
-                      hitSlop={8}
-                      accessibilityRole="button"
-                      accessibilityLabel={`View ${p.name} details`}
-                      className="h-7 w-7 items-center justify-center rounded-full"
-                    >
-                      <Ionicons name="information-circle-outline" size={17} color="#1d4ed8" />
-                    </Pressable>
                   </View>
-                  <Text className="text-xs text-ink-700" numberOfLines={1}>
+                  <Text className="text-xs text-ink-500" numberOfLines={1}>
                     {p.kind === "teacher" ? "Teacher" : p.teaches ? `${p.role} · Teaches` : p.role}
                   </Text>
                 </View>
@@ -6295,9 +6531,47 @@ export function StaffBoard() {
               : undefined
           }
         />
-      ) : timesheetOpen ? (
-        <View className="min-h-0 flex-1">
-        {tabsBar ? <View className="mb-2">{tabsBar}</View> : null}
+      ) : (
+        <>
+      {phone ? null : (
+      <PageHeader
+        title="Employees"
+        lede={
+          timesheetOpen
+            ? "How each person did this month: attendance, late days and late time."
+            : staffView === "salary"
+            ? "Approve each month's salary, pay it, and keep proof of every payment."
+            : staffView === "directory" && !timesheetOpen
+              ? "Profiles, roles, documents and who reports to whom."
+              : "Mark Present, Late, or Absent, then Save the day. In and Out times are under Monthly → Edit times."
+        }
+        action={
+          // On Today a waiting request shows as a strip above the list instead.
+          pendingLeave.length && !(staffView === "today" && !timesheetOpen && pendingWaiting.length && canMark) ? (
+            <Button variant="ghost" onPress={() => setLeaveOpen(true)}>
+              {`Leave requests (${pendingLeave.length})`}
+            </Button>
+          ) : undefined
+        }
+      />
+      )}
+      {timesheetOpen ? (
+        <Card className={phone ? "min-h-0 flex-1 border-transparent shadow-none" : "min-h-0 flex-1"}>
+          {tabsBar}
+        {!gridOpen ? (
+          <StaffMonthlyReport
+            staff={staff}
+            calendar={calendar}
+            rules={payrollRules}
+            phone={phone}
+            onOpen={(p, month) => {
+              setDetailMonth(month);
+              setDetailFor(p);
+            }}
+            onEditTimes={phone ? undefined : () => setGridOpen(true)}
+          />
+        ) : (
+        <View className={phone ? "min-h-0 flex-1 px-3 pt-2" : "min-h-0 flex-1 px-4 pt-3"}>
         <StaffTimesheet
           staff={staff}
           calendar={calendar}
@@ -6306,8 +6580,8 @@ export function StaffBoard() {
           canEdit={canMark}
           overlayDate={savedDate}
           overlayTimes={savedTimes}
-          onBack={() => setTimesheetOpen(false)}
-          showBack={!tabsBar}
+          onBack={() => setGridOpen(false)}
+          showBack
           onSaved={reload}
           onStamp={(kind, id, inAt) => {
             const key = `${kind}:${id}`;
@@ -6317,28 +6591,9 @@ export function StaffBoard() {
           }}
         />
         </View>
-      ) : (
-        <>
-      {phone ? null : (
-      <PageHeader
-        title="Employees"
-        lede={
-          staffView === "salary"
-            ? "Approve each month's salary, pay it, and keep proof of every payment."
-            : staffView === "directory" && !timesheetOpen
-              ? "Profiles, roles, documents and who reports to whom."
-              : "Mark Present, Late, or Absent, then Save the day. In and Out times live on Timesheet."
-        }
-        action={
-          pendingLeave.length ? (
-            <Button variant="ghost" onPress={() => setLeaveOpen(true)}>
-              {`Leave requests (${pendingLeave.length})`}
-            </Button>
-          ) : undefined
-        }
-      />
-      )}
-      {staffView === "phone" && FEATURES.teacherPhones && data?.school?.schoolDay?.enabled ? (
+        )}
+        </Card>
+      ) : staffView === "phone" && FEATURES.teacherPhones && data?.school?.schoolDay?.enabled ? (
         <Card className="min-h-0 flex-1">
           {tabsBar}
           <StaffPhoneReport token={token} phone={phone} />

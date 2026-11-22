@@ -139,6 +139,7 @@ export function DateField({
   plain,
   bare,
   compact,
+  title,
   placeholder = "Pick a date",
   birthDate,
   time,
@@ -159,6 +160,8 @@ export function DateField({
   plain?: boolean;
   bare?: boolean;
   compact?: boolean;
+  /** Centered heading look (like a month title between ‹ › buttons): no box, tap opens the calendar. */
+  title?: boolean;
   placeholder?: string;
 }) {
   const { width } = useWindowDimensions();
@@ -395,7 +398,19 @@ export function DateField({
     setOpen((v) => !v);
   }
 
-  const trigger = (
+  const trigger = title ? (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={value ? prettyDay(value, true) : placeholder}
+      onPress={toggle}
+      className="min-h-10 w-full flex-row items-center justify-center gap-1 rounded-lg hover:bg-ink-50"
+    >
+      <Text className="text-[16px] font-semibold text-ink-900" numberOfLines={1}>
+        {value ? `${WEEKDAY_LONG[selected.getDay()].slice(0, 3)}, ${prettyDay(value, false)}` : placeholder}
+      </Text>
+      <Ionicons name="chevron-down" size={14} color="#64748b" />
+    </Pressable>
+  ) : (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={value ? prettyDay(value, true) : placeholder}

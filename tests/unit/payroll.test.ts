@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CALENDAR } from "../../lib/calendar";
-import { classifyFromIn, liveMarkFromIn, salaryPayState, summarizePayroll, type PayrollRules } from "../../lib/payroll";
+import { classifyFromIn, liveMarkFromIn, parsePayrollRules, salaryPayState, summarizePayroll, type PayrollRules } from "../../lib/payroll";
 
 const RULES: PayrollRules = {
   presentCredit: 1,
@@ -290,10 +290,9 @@ describe("summarizePayroll salary basis", () => {
     expect(s.payableDays).toBe(28);
   });
 
-  it("treats unmarked past days as present by default", () => {
-    const s = run({ salaryBasis: "CALENDAR", unmarkedAs: "PRESENT" }, new Map());
-    expect(s.payableDays).toBe(31);
-    expect(s.finalAmount).toBe(31000);
+  it("counts unmarked past staff days as absent, even if an old setting said present", () => {
+    expect(parsePayrollRules(JSON.stringify({ unmarkedAs: "PRESENT" })).unmarkedAs).toBe("ABSENT");
+    expect(parsePayrollRules("").unmarkedAs).toBe("ABSENT");
   });
 
   it("can cut half a day per batch of lates", () => {

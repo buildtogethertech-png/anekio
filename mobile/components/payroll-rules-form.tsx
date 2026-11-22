@@ -248,18 +248,6 @@ export function PayrollRulesForm({
       </Section>
 
       <Section icon="checkmark-done-outline" title="Counting attendance">
-        <Field label="Days nobody marked" hint="If attendance wasn't saved for a past working day.">
-          <Chips
-            label="Unmarked days"
-            value={d.unmarkedAs}
-            disabled={!canEdit}
-            options={[
-              { id: "PRESENT", label: "Count as present" },
-              { id: "ABSENT", label: "Count as absent" },
-            ]}
-            onChange={(v) => set("unmarkedAs", v)}
-          />
-        </Field>
         <ToggleRow
           title="Sandwich rule"
           body={offsCount ? "Absent on Saturday and Monday? The Sunday in between is unpaid too." : "Not used with working-days basis, since offs aren't counted."}

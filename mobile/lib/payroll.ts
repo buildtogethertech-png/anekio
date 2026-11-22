@@ -63,7 +63,7 @@ export const DEFAULT_PAYROLL_RULES: PayrollRules = {
   paidWeeklyOffs: true,
   paidHolidays: true,
   sandwichRule: false,
-  unmarkedAs: "PRESENT",
+  unmarkedAs: "ABSENT",
 };
 
 const SALARY_BASES = new Set<SalaryBasis>(["CALENDAR", "FIXED", "WORKING"]);
@@ -99,7 +99,8 @@ export function parsePayrollRules(raw?: string | null): PayrollRules {
       paidWeeklyOffs: bool(parsed.paidWeeklyOffs, DEFAULT_PAYROLL_RULES.paidWeeklyOffs),
       paidHolidays: bool(parsed.paidHolidays, DEFAULT_PAYROLL_RULES.paidHolidays),
       sandwichRule: bool(parsed.sandwichRule, DEFAULT_PAYROLL_RULES.sandwichRule),
-      unmarkedAs: parsed.unmarkedAs === "ABSENT" ? "ABSENT" : "PRESENT",
+      // Not marked on a past working day = absent, always. Present has to be marked.
+      unmarkedAs: "ABSENT",
     };
   } catch {
     return { ...DEFAULT_PAYROLL_RULES };
