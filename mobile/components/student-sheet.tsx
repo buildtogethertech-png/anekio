@@ -5,6 +5,7 @@ import type { AdmissionFormField, RecordPayload } from "../lib/record";
 import { act } from "../lib/mutate";
 import { useAssetUrl } from "../lib/assets";
 import { pickFile, uploadFile } from "../lib/upload";
+import { ColumnMenu, filterLabel, matchFilter, type ColumnFilter, type FilterKind } from "./column-filter";
 import { Button, Card, Modal, Switch } from "./ui";
 
 /**
@@ -168,6 +169,15 @@ function buildCols(form: AdmissionFormField[]): Col[] {
 
 const DEFAULT_HIDDEN = new Set(["address", "state"]);
 
+function filterKindOf(c: Col): FilterKind {
+  if (c.file) return "file";
+  if (c.key === "class" || c.kind === "choice") return "set";
+  if (c.kind === "date") return "date";
+  if (c.kind === "number") return "number";
+  if (c.kind === "phone") return "phone";
+  return "text";
+}
+
 const sticky = (left: number): ViewStyle =>
   Platform.OS === "web" ? ({ position: "sticky", left, zIndex: 2 } as unknown as ViewStyle) : {};
 
@@ -236,17 +246,29 @@ export function StudentSheet({
   const editCols = cols.filter((c) => c.editable);
 
   const [sort, setSort] = useState<{ key: string; dir: 1 | -1 } | null>(null);
+  // Column filters (header menu); several combine with AND.
+  const [colFilters, setColFilters] = useState<ColumnFilter[]>([]);
+  const [colMenu, setColMenu] = useState<{ key: string; top: number; left: number } | null>(null);
+  const anyCol = useMemo(() => new Map<string, Col>([["name", nameCol], ["adm", admCol], ...allCols.map((c) => [c.key, c] as const)]), [allCols]);
+  const filteredStudents = useMemo(() => {
+    const active = colFilters.filter((f) => anyCol.has(f.key));
+    if (!active.length) return students;
+    return students.filter((s) => active.every((f) => {
+      const c = anyCol.get(f.key)!;
+      return matchFilter(f, filterKindOf(c), c.read(s));
+    }));
+  }, [students, colFilters, anyCol]);
   const sortedRows = useMemo(() => {
-    if (!sort) return students;
+    if (!sort) return filteredStudents;
     const col = sort.key === "name" ? null : sort.key === "adm" ? admCol : allCols.find((c) => c.key === sort.key);
     const val = (s: Student) => (col ? (col.sortValue ? col.sortValue(s) : col.read(s).toLowerCase()) : s.name.toLowerCase());
-    return [...students].sort((a, b) => {
+    return [...filteredStudents].sort((a, b) => {
       const x = val(a), y = val(b);
       const empty = (v: string | number) => v === "" || v === 99999;
       if (empty(x) !== empty(y)) return empty(x) ? 1 : -1;
       return (typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true })) * sort.dir;
     });
-  }, [students, sort, allCols]);
+  }, [filteredStudents, sort, allCols]);
 
   const [editing, setEditing] = useState(false);
   // Editing only these students (picked rows), or everyone in view when null.
@@ -514,19 +536,37 @@ export function StudentSheet({
 
   function headerCell(c: Col, left?: number) {
     const on = sort?.key === c.key;
+    const filtered = colFilters.some((f) => f.key === c.key);
+    const open = colMenu?.key === c.key;
     return (
       <Pressable
         key={c.key}
         accessibilityRole="button"
-        accessibilityLabel={`Sort by ${c.label}`}
-        onPress={() => setSort(on ? (sort!.dir === 1 ? { key: c.key, dir: -1 } : null) : { key: c.key, dir: 1 })}
-        style={[{ width: c.width, height: editing ? 30 : 34 }, left !== undefined ? sticky(left) : null]}
-        className={`flex-row items-center gap-1 border-b border-ink-200 px-3 ${c.file?.image ? "justify-center" : ""} ${editing ? `border-r border-r-ink-200 ${c.editable || c.file ? "bg-[#F1F5F9]" : "bg-[#F8FAFC]"}` : `bg-white ${c.key === "name" ? "border-r border-r-ink-100" : ""}`}`}
+        accessibilityLabel={`${c.label} column: sort and filter`}
+        onPress={(e) => {
+          const el = (e.nativeEvent as unknown as { target?: HTMLElement }).target?.closest?.("[role=button]") as HTMLElement | null | undefined;
+          const r = el?.getBoundingClientRect?.();
+          setColMenu({ key: c.key, top: r ? r.bottom + 4 : 120, left: r ? r.left : 120 });
+        }}
+        style={[
+          { width: c.width, height: editing ? 30 : 34 },
+          left !== undefined ? sticky(left) : null,
+          Platform.OS === "web" ? ({ cursor: "pointer" } as object) : null,
+        ]}
+        className={`flex-row items-center gap-1 border-b border-ink-200 px-3 ${c.file?.image ? "justify-center" : ""} ${
+          filtered || open
+            ? `bg-[#EEF3FF] ${editing ? "border-r border-r-ink-200" : c.key === "name" ? "border-r border-r-ink-100" : ""}`
+            : editing
+              ? `border-r border-r-ink-200 hover:bg-[#E8EEF8] ${c.editable || c.file ? "bg-[#F1F5F9]" : "bg-[#F8FAFC]"}`
+              : `bg-white hover:bg-ink-50 ${c.key === "name" ? "border-r border-r-ink-100" : ""}`
+        }`}
       >
-        <Text numberOfLines={1} className={`min-w-0 shrink text-[11px] font-semibold uppercase tracking-wider ${on ? "text-ink-900" : "text-ink-500"}`}>
+        {filtered ? <Ionicons name="funnel" size={11} color="#1F45C7" /> : null}
+        <Text numberOfLines={1} className={`min-w-0 shrink text-[11px] font-semibold uppercase tracking-wider ${filtered || open ? "text-[#1F45C7]" : on ? "text-ink-900" : "text-ink-500"}`}>
           {c.label}
         </Text>
-        {on ? <Ionicons name={sort!.dir === 1 ? "arrow-up" : "arrow-down"} size={11} color="#0f172a" /> : null}
+        {on ? <Ionicons name={sort!.dir === 1 ? "arrow-up" : "arrow-down"} size={11} color={filtered ? "#1F45C7" : "#0f172a"} /> : null}
+        {!c.file?.image ? <Ionicons name="chevron-down" size={11} color={filtered || open ? "#1F45C7" : "#CBD5E1"} /> : null}
         {editing && !c.editable && !c.file && c.width >= 100 ? <Ionicons name="lock-closed" size={10} color="#94A3B8" /> : null}
       </Pressable>
     );
@@ -740,6 +780,39 @@ export function StudentSheet({
           ) : null}
         </View>
       </RnModal>
+      {colMenu && anyCol.get(colMenu.key) ? (() => {
+        const c = anyCol.get(colMenu.key)!;
+        const kind = filterKindOf(c);
+        const values = kind === "set" ? [...new Set([...(c.options ?? []), ...students.map((st) => c.read(st).trim()).filter(Boolean)])].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })) : [];
+        return (
+          <ColumnMenu
+            label={c.label}
+            colKey={c.key}
+            kind={kind}
+            options={values}
+            filter={colFilters.find((f) => f.key === c.key)}
+            sortDir={sort?.key === c.key ? sort.dir : 0}
+            at={{ top: colMenu.top, left: colMenu.left }}
+            onSort={(dir) => {
+              setSort(dir ? { key: c.key, dir } : null);
+              setColMenu(null);
+            }}
+            onApply={(f) => {
+              setColFilters((list) => [...list.filter((x) => x.key !== c.key), ...(f ? [{ ...f, key: c.key }] : [])]);
+              setColMenu(null);
+            }}
+            onHide={
+              c.key === "name" || c.key === "adm"
+                ? undefined
+                : () => {
+                    setHidden((h) => new Set(h).add(c.key));
+                    setColMenu(null);
+                  }
+            }
+            onClose={() => setColMenu(null)}
+          />
+        );
+      })() : null}
       <View className="z-10 flex-row items-start gap-2 px-3 py-2.5">
         <View className="min-w-0 flex-1">{tools}</View>
         {search ? <View className="w-[300px] shrink-0">{search}</View> : null}
@@ -753,6 +826,42 @@ export function StudentSheet({
           <Ionicons name="ellipsis-horizontal" size={18} color="#334155" />
         </Pressable>
       </View>
+      {colFilters.length ? (
+        <View className="flex-row flex-wrap items-center gap-1.5 px-3 pb-2">
+          <Ionicons name="funnel-outline" size={13} color="#64748b" />
+          {colFilters.map((f) => {
+            const c = anyCol.get(f.key);
+            if (!c) return null;
+            return (
+              <View key={f.key} className="h-7 flex-row items-center overflow-hidden rounded-full border border-[#C7D5FF] bg-[#EEF3FF]">
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={(e) => {
+                    const el = (e.nativeEvent as unknown as { target?: HTMLElement }).target?.closest?.("[role=button]") as HTMLElement | null | undefined;
+                    const r = el?.getBoundingClientRect?.();
+                    setColMenu({ key: f.key, top: r ? r.bottom + 4 : 120, left: r ? r.left : 120 });
+                  }}
+                  className="h-full justify-center pl-2.5 pr-1"
+                >
+                  <Text numberOfLines={1} className="max-w-[260px] text-[12px] font-medium text-[#1F45C7]">{filterLabel(f, filterKindOf(c), c.label)}</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove ${c.label} filter`}
+                  onPress={() => setColFilters((list) => list.filter((x) => x.key !== f.key))}
+                  className="h-full w-7 items-center justify-center hover:bg-[#DCE6FF]"
+                >
+                  <Ionicons name="close" size={13} color="#1F45C7" />
+                </Pressable>
+              </View>
+            );
+          })}
+          <Pressable accessibilityRole="button" onPress={() => setColFilters([])} hitSlop={6} className="ml-1">
+            <Text className="text-[12px] font-semibold text-ink-500 hover:text-ink-800">Clear all</Text>
+          </Pressable>
+          <Text className="ml-auto text-[12px] text-ink-500">{`${sortedRows.length} of ${students.length} shown`}</Text>
+        </View>
+      ) : null}
 
       {banner ? (
         <View pointerEvents="box-none" className="absolute left-0 right-0 top-14 z-20 items-center">
