@@ -18,6 +18,7 @@ import {
   summarizePayroll,
   type PayrollMark,
   type PayrollRules,
+  salaryForMonth,
 } from "../lib/payroll";
 import { useOptionalRecord, type RecordPayload } from "../lib/record";
 import { Select } from "./form";
@@ -26,6 +27,7 @@ import { EmployeeLeaveCard } from "./leave-balances";
 import { SalaryPayCard } from "./salary-pay-card";
 import { SetPasswordModal } from "./set-password-modal";
 import { RemoveStaffModal } from "./remove-staff-modal";
+import { ReviseSalaryModal } from "./revise-salary";
 import { useSession } from "../lib/session";
 
 type StaffPerson = NonNullable<RecordPayload["staff"]>[number];
@@ -192,6 +194,7 @@ export function StaffAttendanceDetail({
   onBack,
   onSaved,
   onEditSalary,
+  canReviseSalary,
   inSheet,
   salaryAccess = { view: false, approve: false, pay: false },
 }: {
@@ -210,6 +213,8 @@ export function StaffAttendanceDetail({
   onBack: () => void;
   onSaved: () => Promise<void>;
   onEditSalary?: () => void;
+  /** Shows "Revise salary": a new salary from a month, kept in salary history. */
+  canReviseSalary?: boolean;
 }) {
   const toast = useToast();
   const { width } = useWindowDimensions();
@@ -221,6 +226,9 @@ export function StaffAttendanceDetail({
   const { user: me } = useSession();
   const canSetPassword = Boolean(person.userId && me?.permissions?.includes("roles.manage") && person.userId !== me?.id);
   const [removeOpen, setRemoveOpen] = useState(false);
+  const [reviseOpen, setReviseOpen] = useState(false);
+  // On iOS a modal can't open while the phone menu is still sliding away, so wait for it.
+  const onReviseSalary = canReviseSalary ? () => setTimeout(() => setReviseOpen(true), Platform.OS === "ios" && moreOpen ? 400 : 0) : undefined;
   const canRemove = Boolean(onEditSalary && me?.permissions?.includes("staff.edit") && (!person.userId || person.userId !== me?.id));
 
   /** "Also a teacher": adds or removes this employee's teaching profile (Office ↔ Teacher switch). */
@@ -329,10 +337,10 @@ export function StaffAttendanceDetail({
         marks,
         paidLeave,
         rules: payrollRules,
-        salary: person.salary ?? 30000,
+        salary: salaryForMonth(person.salaryHistory, month, person.salary ?? 30000),
         otherAdj: run?.otherAdj || 0,
       }),
-    [calendar, dates, marks, now, paidLeave, payrollRules, person.salary, run?.otherAdj]
+    [calendar, dates, marks, now, paidLeave, payrollRules, person.salary, person.salaryHistory, month, run?.otherAdj]
   );
   const summary = !run || run.status === "PENDING" ? live : { ...live, attendanceAdj: run.attendanceAdj, finalAmount: run.finalAmount, salary: run.salary, payableDays: run.payableDays, working: run.workingDays, otherAdj: run.otherAdj };
   const weeks = useMemo(() => {
@@ -603,7 +611,8 @@ export function StaffAttendanceDetail({
   const moreItems = [
     ["download-outline", "Download register", salaryAccess.view ? "CSV of this month's attendance and pay" : "CSV of this month's attendance", exportCsv],
     ["print-outline", "Print register", "Opens a printable page", printRegister],
-    ...(phone && onEditSalary ? ([["create-outline", "Edit salary & profile", "Salary, role, reporting manager", onEditSalary]] as const) : []),
+    ...(onReviseSalary ? ([["trending-up-outline", "Revise salary", "New salary from a month; old salaries stay in history", onReviseSalary]] as const) : []),
+    ...(phone && onEditSalary ? ([["create-outline", "Edit profile", "Role, reporting manager, details", onEditSalary]] as const) : []),
     ...(phone && canSetPassword ? ([["key-outline", "Change password", "Set a new password for their login", () => setPasswordOpen(true)]] as const) : []),
     ...(phone && onEditSalary && person.kind === "staff"
       ? ([
@@ -919,7 +928,7 @@ export function StaffAttendanceDetail({
             </Text>
           </View>
           <Text className="mt-4 text-[15px] font-semibold text-ink-900">Monthly Payment</Text>
-          <PayRow label="Monthly Salary" value={inr(summary.salary)} onEdit={salaryAccess.approve ? onEditSalary : undefined} />
+          <PayRow label="Monthly Salary" value={inr(summary.salary)} onEdit={onReviseSalary} />
           <PayRow label="Salary basis" value={salaryBasisLabel(payrollRules, live.divisor)} />
           <PayRow label="Working Days" value={String(summary.working)} />
           <PayRow label="Payable Days" value={String(summary.payableDays)} />
@@ -999,6 +1008,16 @@ export function StaffAttendanceDetail({
         </View>
       ) : null}
 
+      <ReviseSalaryModal
+        open={reviseOpen}
+        token={token}
+        person={{ kind: person.kind, id: person.id, name: person.name, salary: person.salary }}
+        onClose={() => setReviseOpen(false)}
+        onSaved={(message) => {
+          toast.show(message);
+          void onSaved();
+        }}
+      />
       <RemoveStaffModal
         open={removeOpen}
         person={{ kind: person.kind === "teacher" ? "teacher" : "staff", id: person.id, name: person.name }}

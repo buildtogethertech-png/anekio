@@ -4,6 +4,7 @@ import { can, type AccessUser } from "./permissions";
 import { admissionCustomValues, admissionFormFields, type AdmissionFormField } from "./admission-form";
 import { configuredAdmissionFormJson } from "./admission-form-config";
 import { notifyNoticeRecipients } from "./push";
+import { saveStudentAnswers, studentAnswersFrom } from "./custom-fields";
 
 /**
  * Parents fill in admission-form details the school is still missing (text answers or files).
@@ -27,7 +28,7 @@ async function ownChild(user: AccessUser, studentId: string) {
   if (user.portal !== Portal.PARENT) throw new Error("Only parents can send details here.");
   const parent = await prisma.parent.findUnique({
     where: { userId: user.id },
-    include: { students: { select: { id: true, name: true, admissionDataJson: true, class: { select: { name: true, section: true } } } } },
+    include: { students: { include: { fieldValues: { select: { fieldId: true, valueText: true } }, class: { select: { name: true, section: true } } } } },
   });
   const child = parent?.students.find((s) => s.id === studentId) || (!studentId ? parent?.students[0] : undefined);
   if (!child) throw new Error("This child is not linked to your account.");
@@ -64,7 +65,7 @@ export async function parentDetailsFor(user: AccessUser, studentId: string) {
   ensureTable();
   const child = await ownChild(user, studentId);
   const fields = await schoolFields();
-  const values = admissionCustomValues(child.admissionDataJson);
+  const values = studentAnswersFrom(child);
   const requests = await prisma.profileRequest.findMany({
     where: { studentId: child.id },
     orderBy: { createdAt: "desc" },
@@ -157,11 +158,9 @@ export async function reviewProfileRequestCore(user: AccessUser, input: { id?: s
   const note = String(input.note || "").trim().slice(0, 300);
   if (!approve && !note) throw new Error("Tell the parent what to fix.");
   if (approve) {
-    const student = await prisma.student.findFirst({ where: { id: row.studentId }, select: { id: true, admissionDataJson: true } });
+    const student = await prisma.student.findFirst({ where: { id: row.studentId }, select: { id: true, orgId: true } });
     if (!student) throw new Error("Student not found.");
-    const values = admissionCustomValues(student.admissionDataJson);
-    values[row.fieldId] = row.value;
-    await prisma.student.update({ where: { id: student.id }, data: { admissionDataJson: JSON.stringify(values) } });
+    await saveStudentAnswers(prisma, student.id, { orgId: student.orgId ?? null, actorId: user.id, answers: { [row.fieldId]: row.value } });
   }
   await prisma.profileRequest.update({
     where: { id: row.id },

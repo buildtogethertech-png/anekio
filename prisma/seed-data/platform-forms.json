@@ -20,6 +20,15 @@
       "builtin": true
     },
     {
+      "id": "dateOfBirth",
+      "label": "Date of birth",
+      "type": "date",
+      "required": false,
+      "visible": true,
+      "options": [],
+      "builtin": true
+    },
+    {
       "id": "classWanted",
       "label": "Class",
       "type": "text",
@@ -66,16 +75,7 @@
       "builtin": true
     },
     {
-      "id": "message",
-      "label": "Notes",
-      "type": "textarea",
-      "required": false,
-      "visible": false,
-      "options": [],
-      "builtin": true
-    },
-    {
-      "id": "custom_gender",
+      "id": "gender",
       "label": "Gender",
       "type": "select",
       "required": true,
@@ -88,7 +88,7 @@
       "builtin": false
     },
     {
-      "id": "custom_blood_group",
+      "id": "bloodGroup",
       "label": "Blood group",
       "type": "select",
       "required": false,
@@ -107,7 +107,41 @@
       "builtin": false
     },
     {
-      "id": "custom_address",
+      "id": "category",
+      "label": "Category",
+      "type": "select",
+      "required": false,
+      "visible": true,
+      "options": [
+        "General",
+        "OBC",
+        "SC",
+        "ST",
+        "EWS"
+      ],
+      "builtin": false
+    },
+    {
+      "id": "motherTongue",
+      "label": "Mother tongue",
+      "type": "text",
+      "required": false,
+      "visible": true,
+      "options": [],
+      "builtin": false
+    },
+    {
+      "id": "apaarId",
+      "label": "APAAR ID",
+      "type": "text",
+      "required": false,
+      "visible": true,
+      "options": [],
+      "builtin": false,
+      "helpText": "One Nation One Student ID, if the student has one."
+    },
+    {
+      "id": "homeAddress",
       "label": "Home address",
       "type": "textarea",
       "required": true,
@@ -116,28 +150,7 @@
       "builtin": false
     },
     {
-      "id": "custom_previous_school",
-      "label": "Previous school",
-      "type": "text",
-      "required": false,
-      "visible": true,
-      "options": [],
-      "builtin": false
-    },
-    {
-      "id": "custom_birth_certificate",
-      "label": "Birth certificate",
-      "type": "file",
-      "required": true,
-      "visible": true,
-      "options": [],
-      "builtin": false,
-      "helpText": "Upload a readable document.",
-      "fileType": "image_pdf",
-      "maxFileSizeMb": 5
-    },
-    {
-      "id": "custom_student_photo",
+      "id": "studentPhoto",
       "label": "Student photo",
       "type": "file",
       "required": true,
@@ -146,54 +159,6 @@
       "builtin": false,
       "helpText": "Passport-size photo, plain background.",
       "fileType": "image",
-      "maxFileSizeMb": 5
-    },
-    {
-      "id": "custom_transfer_certificate",
-      "label": "Transfer certificate",
-      "type": "file",
-      "required": false,
-      "visible": false,
-      "options": [],
-      "builtin": false,
-      "helpText": "From the previous school, if any.",
-      "fileType": "pdf",
-      "maxFileSizeMb": 5
-    },
-    {
-      "id": "custom_previous_marksheet",
-      "label": "Previous marksheet",
-      "type": "file",
-      "required": false,
-      "visible": false,
-      "options": [],
-      "builtin": false,
-      "helpText": "Last class result.",
-      "fileType": "image_pdf",
-      "maxFileSizeMb": 5
-    },
-    {
-      "id": "custom_parent_id_proof",
-      "label": "Parent ID proof",
-      "type": "file",
-      "required": false,
-      "visible": false,
-      "options": [],
-      "builtin": false,
-      "helpText": "Any government ID of the parent.",
-      "fileType": "image_pdf",
-      "maxFileSizeMb": 5
-    },
-    {
-      "id": "custom_address_proof",
-      "label": "Address proof",
-      "type": "file",
-      "required": false,
-      "visible": false,
-      "options": [],
-      "builtin": false,
-      "helpText": "Electricity bill, rent agreement or similar.",
-      "fileType": "image_pdf",
       "maxFileSizeMb": 5
     }
   ],
@@ -286,78 +251,6 @@
         "Other"
       ],
       "builtin": false
-    },
-    {
-      "id": "custom_birth_certificate",
-      "label": "Birth certificate",
-      "type": "file",
-      "required": false,
-      "visible": false,
-      "options": [],
-      "builtin": false,
-      "helpText": "Upload a readable document.",
-      "fileType": "image_pdf",
-      "maxFileSizeMb": 5
-    },
-    {
-      "id": "custom_student_photo",
-      "label": "Student photo",
-      "type": "file",
-      "required": false,
-      "visible": false,
-      "options": [],
-      "builtin": false,
-      "helpText": "Passport-size photo, plain background.",
-      "fileType": "image",
-      "maxFileSizeMb": 5
-    },
-    {
-      "id": "custom_transfer_certificate",
-      "label": "Transfer certificate",
-      "type": "file",
-      "required": false,
-      "visible": false,
-      "options": [],
-      "builtin": false,
-      "helpText": "From the previous school, if any.",
-      "fileType": "pdf",
-      "maxFileSizeMb": 5
-    },
-    {
-      "id": "custom_previous_marksheet",
-      "label": "Previous marksheet",
-      "type": "file",
-      "required": false,
-      "visible": false,
-      "options": [],
-      "builtin": false,
-      "helpText": "Last class result.",
-      "fileType": "image_pdf",
-      "maxFileSizeMb": 5
-    },
-    {
-      "id": "custom_parent_id_proof",
-      "label": "Parent ID proof",
-      "type": "file",
-      "required": false,
-      "visible": false,
-      "options": [],
-      "builtin": false,
-      "helpText": "Any government ID of the parent.",
-      "fileType": "image_pdf",
-      "maxFileSizeMb": 5
-    },
-    {
-      "id": "custom_address_proof",
-      "label": "Address proof",
-      "type": "file",
-      "required": false,
-      "visible": false,
-      "options": [],
-      "builtin": false,
-      "helpText": "Electricity bill, rent agreement or similar.",
-      "fileType": "image_pdf",
-      "maxFileSizeMb": 5
     }
   ],
   "staffOnboardingFormJson": [
@@ -446,15 +339,16 @@
       "options": []
     },
     {
-      "id": "custom_date_of_birth",
+      "id": "dateOfBirth",
       "label": "Date of birth",
       "type": "date",
       "required": false,
       "visible": true,
-      "options": []
+      "options": [],
+      "builtin": false
     },
     {
-      "id": "custom_gender",
+      "id": "gender",
       "label": "Gender",
       "type": "select",
       "required": false,
@@ -463,15 +357,17 @@
         "Female",
         "Male",
         "Other"
-      ]
+      ],
+      "builtin": false
     },
     {
-      "id": "custom_emergency_contact",
+      "id": "emergencyPhone",
       "label": "Emergency contact number",
       "type": "phone",
       "required": false,
       "visible": true,
-      "options": []
+      "options": [],
+      "builtin": false
     },
     {
       "id": "custom_bank_account",
@@ -560,26 +456,6 @@
       "options": [],
       "fileType": "image_pdf",
       "maxFileSizeMb": 5
-    },
-    {
-      "id": "custom_police_verification",
-      "label": "Police verification",
-      "type": "file",
-      "required": false,
-      "visible": false,
-      "options": [],
-      "fileType": "image_pdf",
-      "maxFileSizeMb": 5
-    },
-    {
-      "id": "custom_signature",
-      "label": "Signature",
-      "type": "file",
-      "required": false,
-      "visible": false,
-      "options": [],
-      "fileType": "image",
-      "maxFileSizeMb": 2
     }
   ]
 }

@@ -213,6 +213,12 @@ model User {
   orgId            String?
   org              SaasOrg?                @relation(fields: [orgId], references: [id], onDelete: SetNull)
 
+  studentFieldValuesCreated StudentFieldValue[] @relation("StudentFieldValueCreatedBy")
+  studentFieldValuesUpdated StudentFieldValue[] @relation("StudentFieldValueUpdatedBy")
+  staffFieldValuesCreated   StaffFieldValue[]   @relation("StaffFieldValueCreatedBy")
+  staffFieldValuesUpdated   StaffFieldValue[]   @relation("StaffFieldValueUpdatedBy")
+  salaryRevisionsCreated SalaryRevision[] @relation("SalaryRevisionCreatedBy")
+  salaryRevisionsUpdated SalaryRevision[] @relation("SalaryRevisionUpdatedBy")
   @@unique([orgId, email])
   @@unique([orgId, phone])
   @@index([orgId])
@@ -297,6 +303,19 @@ model Teacher {
   /// Removed from staff (Staff → Remove). Kept for history; day-to-day lists skip it (lib/prisma.ts).
   archivedAt            DateTime?
 
+  /// Core profile fields (same in every school). Filled from the onboarding form's quick-add fields too.
+  gender          String            @default("")
+  dateOfBirth     String            @default("")
+  bloodGroup      String            @default("")
+  maritalStatus   String            @default("")
+  experienceYears Int?
+  emergencyPhone  String            @default("")
+  panNumber       String            @default("")
+  uan             String            @default("")
+  esic            String            @default("")
+  /// The school's own onboarding-form fields, one row each (filterable). onboardingDataJson keeps a copy for now.
+  fieldValues     StaffFieldValue[]
+  salaryRevisions       SalaryRevision[]
   @@unique([orgId, employeeId])
 }
 
@@ -410,6 +429,18 @@ model Student {
   /// When the student was admitted (set from now on; older students have none).
   admittedAt          DateTime?
 
+  /// Core profile fields (same in every school). Filled from the admission form's quick-add fields too.
+  gender          String              @default("")
+  bloodGroup      String              @default("")
+  category        String              @default("")
+  motherTongue    String              @default("")
+  apaarId         String              @default("")
+  /// Home address from the admission form (the family's address also lives on Parent).
+  homeAddress     String              @default("")
+  /// Stored path of the student's photo (the admission form's photo upload). ID cards read it.
+  photoPath       String              @default("")
+  /// The school's own admission-form fields, one row each (filterable). admissionDataJson keeps a copy for now.
+  fieldValues     StudentFieldValue[]
   @@unique([orgId, admissionNo])
 }
 
@@ -1413,6 +1444,20 @@ model StaffMember {
   days          StaffDay[]
   leaveRequests LeaveRequest[]
 
+  /// Core profile fields (same in every school). Filled from the onboarding form's quick-add fields too.
+  gender          String            @default("")
+  dateOfBirth     String            @default("")
+  bloodGroup      String            @default("")
+  maritalStatus   String            @default("")
+  experienceYears Int?
+  emergencyPhone  String            @default("")
+  panNumber       String            @default("")
+  uan             String            @default("")
+  esic            String            @default("")
+  /// The school's own onboarding-form fields, one row each (filterable). onboardingDataJson keeps a copy for now.
+  qualification   String            @default("")
+  fieldValues     StaffFieldValue[]
+  salaryRevisions       SalaryRevision[]
   @@unique([orgId, employeeId])
 }
 
@@ -2114,4 +2159,78 @@ model Expense {
   @@index([orgId, paidOn])
   @@index([orgId, forMonth])
   @@index([recurringId, forMonth])
+}
+
+/// One answer to a school's own admission-form field for one student. fieldId = the form's custom id
+/// ("custom_house_…"), unique within that school's form. Every value is kept as text; number and date fields
+/// also fill valueNumber / valueDate so they sort and range-filter properly.
+model StudentFieldValue {
+  id          String   @id @default(cuid())
+  orgId       String?
+  studentId   String
+  student     Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  fieldId     String
+  valueText   String   @default("")
+  valueNumber Float?
+  valueDate   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String?
+  updatedById String?
+  createdBy   User?    @relation("StudentFieldValueCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy   User?    @relation("StudentFieldValueUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@unique([studentId, fieldId])
+  @@index([orgId, fieldId, valueText])
+  @@index([orgId, fieldId, valueDate])
+}
+
+/// Same as StudentFieldValue for staff onboarding-form fields. Exactly one of teacherId / staffMemberId is set.
+model StaffFieldValue {
+  id            String       @id @default(cuid())
+  orgId         String?
+  teacherId     String?
+  teacher       Teacher?     @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  staffMemberId String?
+  staffMember   StaffMember? @relation(fields: [staffMemberId], references: [id], onDelete: Cascade)
+  fieldId       String
+  valueText     String       @default("")
+  valueNumber   Float?
+  valueDate     String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  createdById   String?
+  updatedById   String?
+  createdBy     User?        @relation("StaffFieldValueCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy     User?        @relation("StaffFieldValueUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@unique([teacherId, fieldId])
+  @@unique([staffMemberId, fieldId])
+  @@index([orgId, fieldId, valueText])
+  @@index([orgId, fieldId, valueDate])
+}
+
+/// Every monthly salary a teacher / staff member has had, never overwritten. The salary for a month is the latest
+/// row whose effectiveFrom (YYYY-MM) is on or before that month; monthlySalary on the person keeps today's figure.
+/// Exactly one of teacherId / staffMemberId is set.
+model SalaryRevision {
+  id            String       @id @default(cuid())
+  orgId         String?
+  teacherId     String?
+  teacher       Teacher?     @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  staffMemberId String?
+  staffMember   StaffMember? @relation(fields: [staffMemberId], references: [id], onDelete: Cascade)
+  amount        Int
+  effectiveFrom String
+  reason        String       @default("")
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  createdById   String?
+  updatedById   String?
+  createdBy     User?        @relation("SalaryRevisionCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy     User?        @relation("SalaryRevisionUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([teacherId, effectiveFrom])
+  @@index([staffMemberId, effectiveFrom])
+  @@index([orgId])
 }

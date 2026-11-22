@@ -222,6 +222,14 @@ export async function runAct(
     case "updateStudent":
       await updateStudentCore(user, body as never);
       break;
+    case "reviseSalary": {
+      const { reviseSalaryCore } = await import("./salary-history");
+      return await reviseSalaryCore(user, body as never);
+    }
+    case "bulkUpdateStudents": {
+      const { bulkUpdateStudentsCore } = await import("./student-bulk-update");
+      return { ok: true, ...(await bulkUpdateStudentsCore(user, body as never)) };
+    }
     case "createParent":
       await createParentCore(user, body as never);
       break;

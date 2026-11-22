@@ -68,13 +68,80 @@ function customId(value: unknown, index: number) {
 }
 
 /** Parses a saved form. Built-in ids are the code's field contract; everything else is the school's own field. */
+/**
+ * Profile answers that have their own column on Student (admission form) or Teacher / StaffMember (staff form).
+ * Fixed ids, the same in every school; saved straight into that column. Every other answer is the school's own
+ * field and goes to StudentFieldValue / StaffFieldValue. Not built-in: a school can hide or remove them.
+ */
+export type CoreField = { column: string; type: AdmissionFieldType; kind?: "yesno" | "int" };
+export const STUDENT_CORE_FIELDS = {
+  gender: { column: "gender", type: "select" },
+  bloodGroup: { column: "bloodGroup", type: "select" },
+  category: { column: "category", type: "select" },
+  motherTongue: { column: "motherTongue", type: "text" },
+  apaarId: { column: "apaarId", type: "text" },
+  homeAddress: { column: "homeAddress", type: "textarea" },
+  studentPhoto: { column: "photoPath", type: "file" },
+} as const satisfies Record<string, CoreField>;
+export type StudentCoreId = keyof typeof STUDENT_CORE_FIELDS;
+export const STUDENT_CORE_IDS = Object.keys(STUDENT_CORE_FIELDS) as StudentCoreId[];
+/** Earlier ids of the same answers (quick add / Anekio default); forms saved with them read as the core id. */
+export const LEGACY_STUDENT_CORE_IDS: Record<string, StudentCoreId> = {
+  custom_gender: "gender",
+  custom_blood_group: "bloodGroup",
+  custom_category: "category",
+  custom_mother_tongue: "motherTongue",
+  custom_apaar_id: "apaarId",
+  custom_address: "homeAddress",
+  custom_home_address: "homeAddress",
+  custom_student_photo: "studentPhoto",
+};
+export function isStudentCoreId(id: string): id is StudentCoreId {
+  return Object.prototype.hasOwnProperty.call(STUDENT_CORE_FIELDS, id);
+}
+
+export const STAFF_CORE_FIELDS = {
+  gender: { column: "gender", type: "select" },
+  dateOfBirth: { column: "dateOfBirth", type: "date" },
+  bloodGroup: { column: "bloodGroup", type: "select" },
+  maritalStatus: { column: "maritalStatus", type: "select" },
+  experienceYears: { column: "experienceYears", type: "number", kind: "int" },
+  emergencyPhone: { column: "emergencyPhone", type: "phone" },
+  panNumber: { column: "panNumber", type: "text" },
+  uan: { column: "uan", type: "text" },
+  esic: { column: "esic", type: "text" },
+} as const satisfies Record<string, CoreField>;
+export type StaffCoreId = keyof typeof STAFF_CORE_FIELDS;
+export const STAFF_CORE_IDS = Object.keys(STAFF_CORE_FIELDS) as StaffCoreId[];
+export const LEGACY_STAFF_CORE_IDS: Record<string, StaffCoreId> = {
+  custom_gender: "gender",
+  custom_dob: "dateOfBirth",
+  custom_date_of_birth: "dateOfBirth",
+  custom_blood_group: "bloodGroup",
+  custom_marital_status: "maritalStatus",
+  custom_experience_years: "experienceYears",
+  custom_emergency_contact: "emergencyPhone",
+  custom_pan_number: "panNumber",
+  custom_uan: "uan",
+  custom_esic: "esic",
+};
+export function isStaffCoreId(id: string): id is StaffCoreId {
+  return Object.prototype.hasOwnProperty.call(STAFF_CORE_FIELDS, id);
+}
+const coreTypesOf = (fields: Record<string, CoreField>) =>
+  Object.fromEntries(Object.entries(fields).map(([id, f]) => [id, f.type])) as Record<string, AdmissionFieldType>;
+const STUDENT_CORE_TYPES = coreTypesOf(STUDENT_CORE_FIELDS);
+const STAFF_CORE_TYPES = coreTypesOf(STAFF_CORE_FIELDS);
+
 function parseFormFields(
   value: unknown,
   builtinIds: readonly string[],
   lockedIds: readonly string[] = [],
   allowRole = false,
   lockedOptionalIds: readonly string[] = [],
-  fixedTypes: Record<string, AdmissionFieldType> = {}
+  fixedTypes: Record<string, AdmissionFieldType> = {},
+  coreTypes: Record<string, AdmissionFieldType> = {},
+  legacyIds: Record<string, string> = {}
 ): AdmissionFormField[] {
   let parsed = value;
   if (typeof value === "string") {
@@ -87,7 +154,8 @@ function parseFormFields(
     .map((row, index): AdmissionFormField | null => {
       const rawId = String(row.id || "");
       const builtin = builtinIds.includes(rawId);
-      const id = builtin ? rawId : customId(rawId, index);
+      const coreId = coreTypes[rawId] ? rawId : coreTypes[legacyIds[rawId] || ""] ? legacyIds[rawId] : "";
+      const id = builtin ? rawId : coreId || customId(rawId, index);
       if (used.has(id)) return null;
       used.add(id);
       let type = ADMISSION_FIELD_TYPES.includes(String(row.type || "") as AdmissionFieldType)
@@ -95,7 +163,8 @@ function parseFormFields(
       // "School role" lists the school's live roles; only the staff form has it, and its built-in Role field always uses it.
       if ((type === "role" || type === "manager") && !allowRole) type = "text";
       if (builtin && fixedTypes[rawId]) type = fixedTypes[rawId];
-      const fileType = ADMISSION_FILE_TYPES.includes(String(row.fileType || "") as AdmissionFileType)
+      if (coreId) type = coreTypes[coreId];
+      const fileType = coreId === "studentPhoto" ? "image" : ADMISSION_FILE_TYPES.includes(String(row.fileType || "") as AdmissionFileType)
         ? String(row.fileType) as AdmissionFileType : "image_pdf";
       const lockedOptional = builtin && lockedOptionalIds.includes(id);
       const locked = builtin && (lockedIds.includes(id) || lockedOptional);
@@ -131,7 +200,6 @@ const DEFAULT_STUDENT_ADMISSION_FIELDS: AdmissionFormField[] = [
   { id: "guardianName", label: "Parent name", type: "text", required: false, visible: true, options: [], builtin: true },
   { id: "phone", label: "Parent mobile", type: "phone", required: false, visible: true, options: [], builtin: true, helpText: "Optional. A mobile or email creates the parent login." },
   { id: "email", label: "Parent email", type: "email", required: false, visible: true, options: [], builtin: true },
-  { id: "message", label: "Notes", type: "textarea", required: false, visible: false, options: [], builtin: true },
 ];
 
 function withLockedStudentAdmissionFields(fields: AdmissionFormField[]) {
@@ -162,7 +230,7 @@ function withLockedStudentAdmissionFields(fields: AdmissionFormField[]) {
 /** Student admission form: used by Add student in the office. */
 export function admissionFormFields(value: unknown): AdmissionFormField[] {
   return withLockedStudentAdmissionFields(
-    parseFormFields(value, BUILTIN_IDS, LOCKED_STUDENT_ADMISSION_FIELD_IDS, false, [], STUDENT_FIXED_TYPES)
+    parseFormFields(value, BUILTIN_IDS, LOCKED_STUDENT_ADMISSION_FIELD_IDS, false, [], STUDENT_FIXED_TYPES, STUDENT_CORE_TYPES, LEGACY_STUDENT_CORE_IDS)
   );
 }
 
@@ -263,7 +331,7 @@ function withLockedStaffFields(fields: AdmissionFormField[]) {
 
 export function staffOnboardingFormFields(value: unknown): AdmissionFormField[] {
   return withLockedStaffFields(
-    parseFormFields(value, STAFF_ONBOARDING_BUILTIN_IDS, LOCKED_STAFF_FIELD_IDS, true, LOCKED_OPTIONAL_STAFF_FIELD_IDS, STAFF_FIXED_TYPES)
+    parseFormFields(value, STAFF_ONBOARDING_BUILTIN_IDS, LOCKED_STAFF_FIELD_IDS, true, LOCKED_OPTIONAL_STAFF_FIELD_IDS, STAFF_FIXED_TYPES, STAFF_CORE_TYPES, LEGACY_STAFF_CORE_IDS)
   );
 }
 

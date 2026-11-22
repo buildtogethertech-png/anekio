@@ -32,6 +32,7 @@ import { schoolFromConfig } from "./school";
 import { readUploadDataUrl, resolveUploadPath } from "./uploads";
 import { admissionCustomValues, admissionFormFields, documentsReceivedLine, type AdmissionFormField } from "./admission-form";
 import { configuredAdmissionFormJson } from "./admission-form-config";
+import { FIELD_VALUES_INCLUDE, studentAnswersFrom } from "./custom-fields";
 
 const DEFAULT_DOCUMENT_SCHOOL_ID = "school";
 const DESIGNER_QR_PREVIEW_URL = "https://verify.anekio.example/preview";
@@ -2433,9 +2434,9 @@ const SAMPLE_PHOTO_SRC = `data:image/svg+xml;base64,${Buffer.from('<svg xmlns="h
 /** Adds the student's admission answers as `admission.*` and fills `student.photo` from the mapped photo field. Server-side, so issued documents never depend on what the app sent. */
 async function withAdmissionData(data: Record<string, unknown>, studentId: string) {
   if (!studentId) return data;
-  const student = await prisma.student.findFirst({ where: { id: studentId }, select: { admissionDataJson: true } }).catch(() => null);
+  const student = await prisma.student.findFirst({ where: { id: studentId }, include: FIELD_VALUES_INCLUDE }).catch(() => null);
   if (!student) return data;
-  const values = admissionCustomValues(student.admissionDataJson);
+  const values = studentAnswersFrom(student);
   const form = await schoolAdmissionForm().catch(() => [] as AdmissionFormField[]);
   const photoField = admissionPhotoField(form);
   const studentIn = (data.student && typeof data.student === "object" ? data.student : {}) as Record<string, unknown>;
@@ -2444,7 +2445,7 @@ async function withAdmissionData(data: Record<string, unknown>, studentId: strin
   return {
     ...data,
     admission: { ...((data.admission && typeof data.admission === "object" ? data.admission : {}) as Record<string, unknown>), ...values, documentsReceived },
-    student: { ...studentIn, photo: (photoField && values[photoField.id]) || studentIn.photo || "" },
+    student: { ...studentIn, photo: student.photoPath || (photoField && values[photoField.id]) || studentIn.photo || "" },
   };
 }
 

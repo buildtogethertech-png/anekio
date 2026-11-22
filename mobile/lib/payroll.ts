@@ -382,3 +382,10 @@ export function salaryPayState(
 
 export const SALARY_PAY_MODES = ["CASH", "UPI", "BANK", "CHEQUE"] as const;
 export type SalaryPayMode = (typeof SALARY_PAY_MODES)[number];
+
+/** The salary in force for `month` (YYYY-MM): the latest history row from that month or before; `fallback` when none. */
+export function salaryForMonth(history: { amount: number; effectiveFrom: string }[] | undefined, month: string, fallback: number) {
+  let best: { amount: number; effectiveFrom: string } | null = null;
+  for (const row of history ?? []) if (row.effectiveFrom <= month && (!best || row.effectiveFrom >= best.effectiveFrom)) best = row;
+  return best ? best.amount : fallback;
+}

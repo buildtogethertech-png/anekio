@@ -49,6 +49,8 @@ import { admissionCustomValues, admissionFormFields, applySchoolClassOptions, cl
 import { subscriptionLockForUser, subscriptionOverviewForUser } from "./anekio-site";
 import { configuredAdmissionFormJson } from "./admission-form-config";
 import { combinedWithLabels, groupCombined } from "./timetable-combined";
+import { staffAnswersFrom, studentAnswersFrom } from "./custom-fields";
+import { monthOf, salaryForMonth, salaryHistoryOf } from "./salary-history";
 
 function inDate(value: Date | string) {
   return new Date(value).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
@@ -818,7 +820,10 @@ async function teacherPayload(user: AccessUser) {
         parentCity: s.parent?.city || "",
         parentState: s.parent?.state || "",
         parentPincode: s.parent?.pincode || "",
-        admissionData: admissionCustomValues(s.admissionDataJson),
+        admissionData: studentAnswersFrom(s),
+        gender: s.gender,
+        bloodGroup: s.bloodGroup,
+        category: s.category,
         born: s.dateOfBirth ? s.dateOfBirth.toLocaleDateString("en-IN") : "",
         dateOfBirth: s.dateOfBirth ? ymd(s.dateOfBirth) : "",
         attendance: s.attendance.map((attendance) => ({ status: attendance.status })),
@@ -1242,7 +1247,10 @@ async function officePayload(user: AccessUser) {
         parentCity: s.parent?.city || "",
         parentState: s.parent?.state || "",
         parentPincode: s.parent?.pincode || "",
-        admissionData: admissionCustomValues(s.admissionDataJson),
+        admissionData: studentAnswersFrom(s),
+        gender: s.gender,
+        bloodGroup: s.bloodGroup,
+        category: s.category,
         billed: formatInr(totals.billed),
         paid: formatInr(totals.paid),
         dueNow: formatInr(totals.due),
@@ -1447,11 +1455,12 @@ async function officePayload(user: AccessUser) {
           today: today ? today.status : "",
           days: mapPersonStaffDays(staff.days, "teacher", t.id),
           leaveDays: staffLeaveDays(staff.leave, "teacher", t.id),
-          salary: seeSalary ? t.monthlySalary : undefined,
+          salary: seeSalary ? salaryForMonth(t.salaryRevisions, monthOf(), t.monthlySalary) : undefined,
+          salaryHistory: seeSalary ? salaryHistoryOf(t) : undefined,
           department: staffDepartment("teacher"),
           managerId: t.user.managerId || "",
           managerName: t.user.manager?.name || "",
-          onboardingValues: admissionCustomValues(t.onboardingDataJson),
+          onboardingValues: staffAnswersFrom(t),
         };
       }),
       ...staff.staff.map((s) => {
@@ -1476,11 +1485,12 @@ async function officePayload(user: AccessUser) {
           today: today ? today.status : "",
           days: mapPersonStaffDays(staff.days, "staff", s.id),
           leaveDays: staffLeaveDays(staff.leave, "staff", s.id),
-          salary: seeSalary ? s.monthlySalary : undefined,
+          salary: seeSalary ? salaryForMonth(s.salaryRevisions, monthOf(), s.monthlySalary) : undefined,
+          salaryHistory: seeSalary ? salaryHistoryOf(s) : undefined,
           department: staffDepartment("staff", s.role?.portal),
           managerId: s.user?.managerId || "",
           managerName: s.user?.manager?.name || "",
-          onboardingValues: admissionCustomValues(s.onboardingDataJson),
+          onboardingValues: staffAnswersFrom(s),
         };
       }),
     ],

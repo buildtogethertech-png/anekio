@@ -18,6 +18,7 @@ import { admissionFormFields, parentAdmissionContact, staffOnboardingFormFields,
 import { configuredAdmissionFormJson, configuredFormJson } from "./admission-form-config";
 import { assignStudentRollNumber } from "./student-rolls";
 import { feePeriodAfter, OPENING_LINE_LABEL, openingInvoiceTitle } from "./fees";
+import { reconcileSalaryHistory } from "./salary-history";
 
 const ONBOARDING_STATE_ID = "school";
 function onboardingStateId(orgId: string) {
@@ -2171,6 +2172,8 @@ async function applyTeachers(
       }
     }
   }
+  // The sheet sets salaries directly; give everyone a matching salary history row.
+  await reconcileSalaryHistory(db, setup.orgId);
   return { created, updated };
 }
 

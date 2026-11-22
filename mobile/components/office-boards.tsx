@@ -7,6 +7,7 @@ import { MoveOutModal } from "./move-out";
 import { openInAppDoc } from "../lib/in-app-doc";
 import type { ReactNode } from "react";
 import { AdmissionKitModal } from "./admission-kit-modal";
+import { StudentSheet } from "./student-sheet";
 import { Alert, FlatList, Linking, Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -14,10 +15,10 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { GeneratePayment } from "./generate-payment";
 import { InvoiceReceipts, receiptPageUrl } from "./invoice-receipts";
 import { Dropdown } from "./form";
-import { Badge, Button, Card, Chip, Empty, Field, Input, Modal, PageHeader, Segmented, Sheet, Stat, Switch, Toast, useToast } from "./ui";
+import { Badge, Button, Card, Chip, CloseButton, Empty, Field, Input, Modal, PageHeader, Segmented, Sheet, Stat, Switch, Toast, useToast } from "./ui";
 import { Select } from "./form/select";
 import { DateField, MonthField } from "./date-field";
-import { FilterBar, type FilterConfig, type FilterValues } from "./filter";
+import { FilterBar, type FilterConfig, type FilterValues, SearchBox } from "./filter";
 import { StaffAdmitForm, type StaffAdmitFiles, type StaffAdmitPayload } from "./staff-admit-form";
 import { StaffAttendanceDetail } from "./staff-attendance-detail";
 import { SectionCard, StudentAdmitForm, type StudentAdmitFiles, type StudentAdmitInitial, type StudentAdmitPayload } from "./student-admit-form";
@@ -53,6 +54,7 @@ import { ManageFeeBody, MonthlyFeeBillSummary, feeAssignmentFromStudent } from "
 import { ClassRollNumbers } from "./class-roll-numbers";
 import { AdhocInvoiceModal } from "./adhoc-invoice";
 import { openSalaryProof } from "./salary-pay-sheet";
+import { ReviseSalaryModal } from "./revise-salary";
 
 export const FeesBoard = RefactoredFeesBoard;
 
@@ -106,6 +108,12 @@ function Row({ title, hint }: { title: string; hint?: string }) {
       {hint ? <Text className="mt-1 text-sm text-ink-700">{hint}</Text> : null}
     </Card>
   );
+}
+
+/** "2026-04" → "Apr 2026". */
+function monthLabelOf(month: string) {
+  const [y, m] = month.split("-").map(Number);
+  return y && m ? new Date(y, m - 1, 1).toLocaleDateString("en-IN", { month: "short", year: "numeric" }) : month;
 }
 
 function FactRow({ label, value }: { label: string; value: string }) {
@@ -1258,8 +1266,15 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   const [q, setQ] = useState("");
   const [kind, setKind] = useState<PeopleKind>("student");
   const [classIds, setClassIds] = useState<string[]>([]);
-  const [parentQuery, setParentQuery] = useState("");
+  const [parentIds, setParentIds] = useState<string[]>([]);
+  // Profile filters (real columns on the student: gender, category, blood group).
+  const [profile, setProfile] = useState<{ gender: string[]; category: string[]; bloodGroup: string[] }>({
+    gender: [],
+    category: [],
+    bloodGroup: [],
+  });
   const [feeFilter, setFeeFilter] = useState<"all" | "due" | "overdue" | "clear">(incoming ? "due" : "all");
+  const [photoFilter, setPhotoFilter] = useState<"" | "has" | "missing">("");
   const [studentSort, setStudentSort] = useState<StudentSort>("name");
   const [picked, setPicked] = useState<{ kind: PeopleKind; id: string } | null>(
     incoming ? { kind: "student", id: incoming } : null
@@ -1291,12 +1306,38 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   const [documentUploadPending, setDocumentUploadPending] = useState("");
   const [docView, setDocView] = useState<"uploaded" | "issued">("uploaded");
   // Current students, "Past students" (passed out / left) or "Joining" (admitted for next year). All stay openable.
-  const [listMode, setListMode] = useState<"current" | "past" | "joining">("current");
-  const pastMode = listMode === "past";
+  // Which students are listed; several can be on at once (e.g. current + past). Current alone is the default.
+  type ListGroup = "current" | "past" | "joining";
+  const [groups, setGroups] = useState<ListGroup[]>(["current"]);
+  const listMode: ListGroup = groups.length === 1 ? groups[0] : groups.includes("current") ? "current" : groups[0];
+  const onlyCurrent = groups.length === 1 && groups[0] === "current";
+  function setListMode(mode: ListGroup) {
+    setGroups([mode]);
+  }
+  // Web / wide screens: the students as one sortable table across the page instead of the list + file panes.
+  const [tableView, setTableViewState] = useState(() => {
+    try {
+      return Platform.OS === "web" && globalThis.localStorage?.getItem("anekio.students.view") === "table";
+    } catch {
+      return false;
+    }
+  });
+  function setTableView(on: boolean) {
+    setTableViewState(on);
+    try {
+      if (Platform.OS === "web") globalThis.localStorage?.setItem("anekio.students.view", on ? "table" : "list");
+    } catch {}
+  }
+  // Table view: a student opens in a panel over the table, so the table (scroll, selection, edits) stays put.
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const currentPeople = data?.people ?? [];
   const pastPeople = data?.pastPeople ?? [];
   const joiningPeople = data?.joiningPeople ?? [];
-  const people: typeof currentPeople = listMode === "past" ? pastPeople : listMode === "joining" ? joiningPeople : currentPeople;
+  const people: typeof currentPeople = [
+    ...(groups.includes("current") ? currentPeople : []),
+    ...(groups.includes("past") ? pastPeople : []),
+    ...(groups.includes("joining") ? joiningPeople : []),
+  ];
   const allPeople: typeof currentPeople = [...currentPeople, ...pastPeople, ...joiningPeople];
   const teachersAll = data?.peopleTeachers ?? [];
   const parentsAll = data?.peopleParents ?? [];
@@ -1317,16 +1358,19 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   const admitForm = classStudents ? classStudents.admissionForm : data?.school?.admissionForm ?? [];
   const admitFeeLines = classStudents ? [] : data?.admissionFeeLines ?? [];
   const needle = q.trim().toLowerCase();
-  const parentNeedle = parentQuery.trim().toLowerCase();
   const showStudents = studentOnly || kind === "student";
   const showTeachers = !studentOnly && kind === "teacher";
   const showParents = false;
   const filtered = people.filter((s) => {
-    if (listMode === "current" && classIds.length && !classIds.includes(s.classId || "")) return false;
+    if (classIds.length && !classIds.includes(s.classId || "")) return false;
     if (showFees && feeFilter === "due" && !(s.dueAmount && s.dueAmount > 0)) return false;
     if (showFees && feeFilter === "overdue" && !(s.overdueCount && s.overdueCount > 0)) return false;
     if (showFees && feeFilter === "clear" && (s.dueAmount || 0) > 0) return false;
-    if (parentNeedle && ![s.parent, s.parentEmail, s.parentPhone].join(" ").toLowerCase().includes(parentNeedle)) return false;
+    if (parentIds.length && !parentIds.includes(s.parentId || "")) return false;
+    if (profile.gender.length && !profile.gender.includes(s.gender || "")) return false;
+    if (profile.category.length && !profile.category.includes(s.category || "")) return false;
+    if (profile.bloodGroup.length && !profile.bloodGroup.includes(s.bloodGroup || "")) return false;
+    if (photoFilter && Boolean(s.admissionData?.studentPhoto) !== (photoFilter === "has")) return false;
     if (!needle) return true;
     return [s.name, s.rollNumber, s.admissionNo, s.parent, s.classLabel, s.parentEmail, s.parentPhone].join(" ").toLowerCase().includes(needle);
   });
@@ -1439,8 +1483,39 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
         endsPeriod: template.endsPeriod || "",
       }))
   );
+  const parentOptions = useMemo(() => {
+    const byId = new Map<string, { id: string; label: string }>();
+    for (const s of people) {
+      if (!s.parentId || byId.has(s.parentId)) continue;
+      const name = (s.parent || "").trim() || "Parent";
+      byId.set(s.parentId, { id: s.parentId, label: s.parentPhone ? `${name} · ${s.parentPhone}` : name });
+    }
+    return [...byId.values()].sort((a, b) => a.label.localeCompare(b.label));
+  }, [people]);
+  /** Standard choices plus any other value a school typed, each with how many students have it. */
+  function profileOptions(key: "gender" | "category" | "bloodGroup", standard: string[]) {
+    const counts = new Map<string, number>();
+    for (const s of people) {
+      const v = (s[key] || "").trim();
+      if (v) counts.set(v, (counts.get(v) || 0) + 1);
+    }
+    const extra = [...counts.keys()].filter((v) => !standard.some((x) => x.toLowerCase() === v.toLowerCase())).sort();
+    return [...standard, ...extra].map((v) => ({ id: v, label: counts.get(v) ? `${v} · ${counts.get(v)}` : v }));
+  }
   const studentFilters = useMemo<FilterConfig[]>(() => {
     const filters: FilterConfig[] = [
+      // Which students: this year's (default, no chip), past (left / passed out) or joining next year.
+      {
+        key: "group",
+        label: "Students",
+        type: "multi-select",
+        defaultValue: ["current"],
+        options: [
+          { id: "current", label: `Current · ${currentPeople.length}` },
+          { id: "past", label: `Past (left) · ${pastPeople.length}` },
+          ...(joiningPeople.length || groups.includes("joining") ? [{ id: "joining", label: `Joining next year · ${joiningPeople.length}` }] : []),
+        ],
+      },
       {
         key: "classIds",
         label: "Class",
@@ -1448,10 +1523,22 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
         options: (data?.classes ?? []).map((c) => ({ id: c.id, label: c.label })),
       },
       {
-        key: "parentQuery",
+        key: "parentIds",
         label: "Parent",
-        type: "text",
-        placeholder: "Name, phone, or email",
+        type: "multi-select",
+        options: parentOptions,
+      },
+      { key: "gender", label: "Gender", type: "multi-select", options: profileOptions("gender", ["Boy", "Girl", "Other"]) },
+      { key: "category", label: "Category", type: "multi-select", options: profileOptions("category", ["General", "OBC", "SC", "ST", "EWS"]) },
+      { key: "bloodGroup", label: "Blood group", type: "multi-select", options: profileOptions("bloodGroup", ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"]) },
+      {
+        key: "photo",
+        label: "Photo",
+        type: "single-select",
+        options: [
+          { id: "has", label: `Has photo · ${people.filter((s) => s.admissionData?.studentPhoto).length}` },
+          { id: "missing", label: `No photo · ${people.filter((s) => !s.admissionData?.studentPhoto).length}` },
+        ],
       },
     ];
     if (showFees) {
@@ -1467,22 +1554,37 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       });
     }
     return filters;
-  }, [data?.classes, showFees]);
+  }, [data?.classes, showFees, currentPeople.length, pastPeople.length, joiningPeople.length, groups, parentOptions, people]);
   const studentFilterValues = useMemo<FilterValues>(
     () => ({
+      group: groups,
       classIds,
-      parentQuery,
+      parentIds,
+      gender: profile.gender,
+      category: profile.category,
+      bloodGroup: profile.bloodGroup,
+      photo: photoFilter,
       feeStatus: feeFilter === "all" ? "" : feeFilter,
     }),
-    [classIds, parentQuery, feeFilter]
+    [classIds, parentIds, feeFilter, groups, profile, photoFilter]
   );
 
   function applyStudentFilters(values: FilterValues) {
+    const picked = (Array.isArray(values.group) ? values.group : []).filter((g): g is ListGroup => g === "current" || g === "past" || g === "joining");
+    const nextGroups: ListGroup[] = picked.length ? (["current", "past", "joining"] as const).filter((g) => picked.includes(g)) : ["current"];
+    if (nextGroups.join() !== groups.join()) {
+      setGroups(nextGroups);
+      setPicked(null);
+      if (!(nextGroups.length === 1 && nextGroups[0] === "current") && studentSort === "roll") setStudentSort("name");
+    }
     const nextClassIds = values.classIds;
-    const nextParentQuery = values.parentQuery;
+    const nextParentIds = values.parentIds;
     const nextFeeStatus = values.feeStatus;
     setClassIds(Array.isArray(nextClassIds) ? nextClassIds : []);
-    setParentQuery(typeof nextParentQuery === "string" ? nextParentQuery : "");
+    setParentIds(Array.isArray(nextParentIds) ? nextParentIds : []);
+    const list = (v: unknown) => (Array.isArray(v) ? v.map(String) : []);
+    setProfile({ gender: list(values.gender), category: list(values.category), bloodGroup: list(values.bloodGroup) });
+    setPhotoFilter(values.photo === "has" || values.photo === "missing" ? values.photo : "");
     setFeeFilter(nextFeeStatus === "due" || nextFeeStatus === "overdue" || nextFeeStatus === "clear" ? nextFeeStatus : "all");
   }
 
@@ -1517,40 +1619,8 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       )}
       {showStudents ? (
         <View className="flex-row flex-wrap items-center gap-1.5">
-          {joiningPeople.length || listMode === "joining" ? (
-            <Pressable
-              onPress={() => {
-                setListMode(listMode === "joining" ? "current" : "joining");
-                setPicked(null);
-                setStudentSort("name");
-              }}
-              accessibilityRole="button"
-              accessibilityState={{ selected: listMode === "joining" }}
-              className={`flex-row items-center gap-1 rounded-full px-2.5 py-1 ${listMode === "joining" ? "bg-[#1F45C7]" : "border border-ink-200 bg-white"}`}
-            >
-              <Ionicons name="calendar-outline" size={12} color={listMode === "joining" ? "#fff" : "#3d4f66"} />
-              <Text className={`text-xs font-medium ${listMode === "joining" ? "text-white" : "text-ink-700"}`}>
-                Joining next year · {joiningPeople.length}
-              </Text>
-            </Pressable>
-          ) : null}
-          <Pressable
-            onPress={() => {
-              setListMode(pastMode ? "current" : "past");
-              setPicked(null);
-              setStudentSort("name");
-            }}
-            accessibilityRole="button"
-            accessibilityState={{ selected: pastMode }}
-            className={`flex-row items-center gap-1 rounded-full px-2.5 py-1 ${pastMode ? "bg-amber-600" : "border border-ink-200 bg-white"}`}
-          >
-            <Ionicons name="archive-outline" size={12} color={pastMode ? "#fff" : "#3d4f66"} />
-            <Text className={`text-xs font-medium ${pastMode ? "text-white" : "text-ink-700"}`}>
-              Past students{pastPeople.length ? ` · ${pastPeople.length}` : ""}
-            </Text>
-          </Pressable>
-          <View className="mx-0.5 h-4 w-px bg-ink-200" />
-          {((listMode !== "current" ? ["name", "class", "due"] : ["name", "roll", "class", "due"]) as StudentSort[]).map((id) => (
+          <Text className="mr-0.5 text-xs text-ink-500">Sort</Text>
+          {((!onlyCurrent ? ["name", "class", "due"] : ["name", "roll", "class", "due"]) as StudentSort[]).map((id) => (
             <Pressable
               key={id}
               onPress={() => setStudentSort(id)}
@@ -3435,6 +3505,41 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
     </Card>
   );
 
+  // Table view: one compact line (search + filter, then which students) — sorting lives in the column headers.
+  const tableTools = (
+    <FilterBar
+      hideSearch
+      searchValue={q}
+      onSearchChange={setQ}
+      filters={studentFilters}
+      values={studentFilterValues}
+      onApply={applyStudentFilters}
+    />
+  );
+
+  const studentTable = (
+    <StudentSheet
+      students={sortedStudents}
+      admissionForm={admitForm}
+      showFees={showFees}
+      canEdit={canEditStudent && onlyCurrent}
+      token={token}
+      tools={tableTools}
+      search={<SearchBox value={q} onChange={setQ} placeholder="Search name, adm. no., parent, mobile" />}
+      onOpen={(id) => {
+        // Not through the URL: a ?student= link also turns on the "fees due" filter when the page reloads.
+        setKind("student");
+        setPicked({ kind: "student", id });
+        setFileTab("overview");
+        setDrawerOpen(true);
+      }}
+      onSaved={async (message) => {
+        toast.show(message);
+        await reload();
+      }}
+    />
+  );
+
   const addModals = (
     <>
       {canSetRolls ? (
@@ -3541,28 +3646,39 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
           <Text className="text-2xl font-semibold text-ink-900">{title}</Text>
           <Text className="mt-1 text-xs text-ink-700">{visibleCount} {visibleNoun}{visibleCount === 1 ? "" : "s"} in view</Text>
         </View>
-        <View className="flex-row flex-wrap gap-2">
+        <View className="flex-row flex-wrap items-center gap-2">
+          {wide && showStudents ? (
+            <View accessibilityRole="radiogroup" className="h-9 flex-row items-center rounded-lg bg-ink-100 p-0.5">
+              {([["list", "List", "list-outline"], ["table", "Table", "grid-outline"]] as const).map(([id, label, icon]) => {
+                const on = (id === "table") === tableView;
+                return (
+                  <Pressable
+                    key={id}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: on }}
+                    accessibilityLabel={`${label} view`}
+                    onPress={() => setTableView(id === "table")}
+                    className={`h-8 flex-row items-center gap-1.5 rounded-md px-3 ${on ? "bg-white shadow-sm" : ""}`}
+                  >
+                    <Ionicons name={icon} size={14} color={on ? "#0f172a" : "#64748b"} />
+                    <Text className={`text-[13px] font-semibold ${on ? "text-ink-900" : "text-ink-500"}`}>{label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
           {can(user, "people.import") || can(user, "people.edit") ? (
-            <Button
-              variant="ghost"
-              onPress={() => setImportOpen(true)}
-            >
-              Import
-            </Button>
+            <HeaderButton icon="cloud-upload-outline" label="Import" onPress={() => setImportOpen(true)} />
           ) : null}
-          {canSetRolls ? (
-            <Button variant="ghost" onPress={() => setRollsOpen(true)}>
-              Roll numbers
-            </Button>
-          ) : null}
-          {canAddStudent ? (
-            <Button onPress={() => setAdd("student")}>Add student</Button>
-          ) : null}
+          {canSetRolls ? <HeaderButton icon="list-outline" label="Roll numbers" onPress={() => setRollsOpen(true)} /> : null}
+          {canAddStudent ? <HeaderButton primary icon="add" label="Add student" onPress={() => setAdd("student")} /> : null}
         </View>
       </View>
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
 
-      {wide ? (
+      {wide && showStudents && tableView ? (
+        studentTable
+      ) : wide ? (
         <View className="min-h-0 flex-1 flex-row gap-5">
           {peopleList}
           <View className="min-h-0 flex-1">
@@ -3576,6 +3692,20 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       <Sheet fixed={0.74} open={!wide && Boolean(picked)} onClose={() => setPicked(null)}>
         {FilePane({ bare: true })}
       </Sheet>
+
+      <RnModal visible={wide && tableView && drawerOpen && Boolean(picked)} transparent animationType="fade" onRequestClose={() => setDrawerOpen(false)}>
+        <View className="flex-1 flex-row justify-end">
+          <Pressable accessibilityRole="button" accessibilityLabel="Close student" onPress={() => setDrawerOpen(false)} className="absolute inset-0 bg-black/30" />
+          <View className="h-full bg-white shadow-xl" style={{ width: Math.min(760, Math.round(width * 0.9)) }}>
+            <View className="flex-row justify-end px-3 pt-3">
+              <CloseButton onPress={() => setDrawerOpen(false)} />
+            </View>
+            <ScrollView className="flex-1" keyboardShouldPersistTaps="handled">
+              {FilePane({ bare: true })}
+            </ScrollView>
+          </View>
+        </View>
+      </RnModal>
 
       <Modal
         open={Boolean(openCard)}
@@ -5079,8 +5209,9 @@ export function StaffBoard() {
   const [q, setQ] = useState("");
   const [marks, setMarks] = useState<Record<string, string>>({});
   const [times, setTimes] = useState<Record<string, string>>({});
-  const staffParams = useLocalSearchParams<{ view?: string | string[] }>();
+  const staffParams = useLocalSearchParams<{ view?: string | string[]; person?: string | string[] }>();
   const viewParam = Array.isArray(staffParams.view) ? staffParams.view[0] : staffParams.view;
+  const personParam = (Array.isArray(staffParams.person) ? staffParams.person[0] : staffParams.person) || "";
   const [staffView, setStaffView] = useState<"today" | "directory" | "salary" | "phone">(
     viewParam === "salary" ? "salary" : viewParam === "phone" ? "phone" : "today"
   );
@@ -5107,7 +5238,24 @@ export function StaffBoard() {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [infoFor, setInfoFor] = useState<(typeof staff)[number] | null>(null);
-  const [detailFor, setDetailFor] = useState<(typeof staff)[number] | null>(null);
+  const [reviseFor, setReviseFor] = useState<(typeof staff)[number] | null>(null);
+  const [detailFor, setDetailState] = useState<(typeof staff)[number] | null>(null);
+  // The open profile lives in the URL (?person=staff:<id>) so a refresh lands back on it.
+  function setDetailFor(p: (typeof staff)[number] | null) {
+    setDetailState(p);
+    router.setParams({ person: p ? `${p.kind}:${p.id}` : undefined });
+  }
+  const lastPersonParam = useRef(personParam);
+  useEffect(() => {
+    const before = lastPersonParam.current;
+    lastPersonParam.current = personParam;
+    if (!personParam) {
+      if (before) setDetailState(null);
+      return;
+    }
+    const [kind, id] = personParam.split(":");
+    setDetailState((cur) => (cur && cur.kind === kind && cur.id === id ? cur : staff.find((row) => row.kind === kind && row.id === id) ?? cur));
+  }, [personParam, staff]);
   const [editFor, setEditFor] = useState<(typeof staff)[number] | null>(null);
   const [decidedOpen, setDecidedOpen] = useState(false);
   const [leaveBusy, setLeaveBusy] = useState("");
@@ -5261,14 +5409,15 @@ export function StaffBoard() {
         pincode: values.pincode,
         qualification: customValues.qualification ?? editFor.qualification ?? "",
         managerId: values.managerId || null,
-        monthlySalary: values.monthlySalary,
         classId: values.classId || null,
         customValues,
       });
     } else {
+      // Salary changes go through Revise salary (history), never through Edit.
+      const { monthlySalary: _salary, ...rest } = values;
       await act(token, "updateStaffMember", {
         staffId: editFor.id,
-        ...values,
+        ...rest,
         customValues,
         managerId: values.managerId || null,
       });
@@ -5818,6 +5967,17 @@ export function StaffBoard() {
   return (
     <View className="min-h-0 flex-1">
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
+      <ReviseSalaryModal
+        open={Boolean(reviseFor)}
+        token={token}
+        person={reviseFor ? { kind: reviseFor.kind, id: reviseFor.id, name: reviseFor.name, salary: reviseFor.salary } : null}
+        onClose={() => setReviseFor(null)}
+        onSaved={(message) => {
+          setInfoFor(null);
+          toast.show(message);
+          void reload();
+        }}
+      />
       {phone && detailFor ? (
         <Sheet fixed={0.92} open onClose={() => setDetailFor(null)}>
           <StaffAttendanceDetail
@@ -5833,6 +5993,7 @@ export function StaffBoard() {
             onBack={() => setDetailFor(null)}
             onSaved={reload}
             salaryAccess={salaryAccess}
+            canReviseSalary={salaryAccess.approve}
             onEditSalary={
               canManage
                 ? () => setEditFor(staff.find((row) => row.id === detailFor.id && row.kind === detailFor.kind) || detailFor)
@@ -5854,6 +6015,7 @@ export function StaffBoard() {
           onBack={() => setDetailFor(null)}
           onSaved={reload}
           salaryAccess={salaryAccess}
+          canReviseSalary={salaryAccess.approve}
           onEditSalary={
             canManage
               ? () => setEditFor(staff.find((row) => row.id === detailFor.id && row.kind === detailFor.kind) || detailFor)
@@ -6118,6 +6280,29 @@ export function StaffBoard() {
             <FactRow label="Joined" value={infoFor.joinedOn ? joinedHint(infoFor.joinedOn).replace(/^Joined /, "") : "—"} />
             <FactRow label="Reports to" value={infoFor.managerName || "—"} />
             {salaryAccess.view ? <FactRow label="Monthly salary" value={inr(infoFor.salary ?? 30000)} /> : null}
+            {salaryAccess.approve ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setReviseFor(infoFor)}
+                className="mt-1 h-9 flex-row items-center justify-center gap-1.5 self-start rounded-lg border border-ink-200 bg-white px-3"
+              >
+                <Ionicons name="trending-up" size={15} color="#1F45C7" />
+                <Text className="text-[13px] font-semibold text-[#1F45C7]">Revise salary</Text>
+              </Pressable>
+            ) : null}
+            {salaryAccess.view && (infoFor.salaryHistory?.length ?? 0) > 0 ? (
+              <View className="gap-1.5 py-2.5">
+                <Text className="text-xs text-ink-700">Salary history</Text>
+                {[...(infoFor.salaryHistory ?? [])].reverse().map((r, i) => (
+                  <View key={`${r.effectiveFrom}-${i}`} className="flex-row items-center justify-between gap-3">
+                    <Text className={`text-sm tabular-nums ${i === 0 ? "font-semibold text-ink-900" : "text-ink-500"}`}>{inr(r.amount)}</Text>
+                    <Text className="min-w-0 flex-1 text-right text-xs text-ink-500" numberOfLines={1}>
+                      {`from ${monthLabelOf(r.effectiveFrom)}${r.reason ? ` · ${r.reason}` : ""}`}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
           </View>
         ) : null}
       </Modal>
@@ -6191,7 +6376,7 @@ export function StaffBoard() {
                 wizard
                 editing
                 alsoTeaches={editFor?.kind === "staff" && Boolean(editFor?.teaches)}
-                salaryEditable={salaryAccess.approve}
+                salaryEditable={false}
                 staffForm={data?.school?.staffOnboardingForm ?? []}
                 roles={editRoleOptions}
                 managers={data?.managers ?? []}
@@ -6218,7 +6403,7 @@ export function StaffBoard() {
           <StaffAdmitForm
             editing
             alsoTeaches={editFor?.kind === "staff" && Boolean(editFor?.teaches)}
-            salaryEditable={salaryAccess.approve}
+            salaryEditable={false}
             staffForm={data?.school?.staffOnboardingForm ?? []}
             roles={editRoleOptions}
             managers={data?.managers ?? []}
@@ -7426,6 +7611,20 @@ const SCOPE_LABEL: Record<string, string> = {
   REPORTS: "Direct reports",
   SCHOOL: "Whole school",
 };
+
+/** Students page header: one height (36px) for the view switch and the buttons beside it. */
+function HeaderButton({ icon, label, onPress, primary }: { icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void; primary?: boolean }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      className={`h-9 flex-row items-center gap-1.5 rounded-lg px-3.5 active:opacity-80 ${primary ? "bg-clay-500" : "border border-ink-200 bg-white"}`}
+    >
+      <Ionicons name={icon} size={16} color={primary ? "#fff" : "#334155"} />
+      <Text className={`text-[13px] font-semibold ${primary ? "text-white" : "text-ink-800"}`}>{label}</Text>
+    </Pressable>
+  );
+}
 
 function initials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);

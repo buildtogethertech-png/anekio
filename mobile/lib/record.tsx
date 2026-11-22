@@ -543,6 +543,9 @@ export type RecordPayload = {
     parentState?: string;
     parentPincode?: string;
     admissionData?: Record<string, string>;
+    gender?: string;
+    bloodGroup?: string;
+    category?: string;
     born?: string;
     dateOfBirth?: string;
     dueAmount?: number;
@@ -667,6 +670,8 @@ export type RecordPayload = {
     }[];
     leaveDays?: { date: string; reason: string; paid: boolean; typeName: string }[];
     salary?: number;
+    /** Every salary they have had, oldest first (only for people who can see salaries). */
+    salaryHistory?: { amount: number; effectiveFrom: string; reason: string; at: string }[];
     department?: string;
     managerId?: string;
     managerName?: string;

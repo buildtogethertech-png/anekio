@@ -18,6 +18,7 @@ import { prisma } from "./prisma";
 import { runWithoutTenant, setTenantOrg } from "./tenant-context";
 import { schoolFromConfig } from "./school";
 import { publicOrigin } from "./utils";
+import { FIELD_VALUES_INCLUDE, studentAnswersFrom } from "./custom-fields";
 
 const FILE_LINK_DAYS = 7;
 const PLAY_URL = "https://play.google.com/store/apps/details?id=in.anekio.school";
@@ -61,12 +62,13 @@ function fileExtension(path: string) {
 }
 
 /** The school's admission-form file fields: what was received and what is still pending. */
-export async function admissionFilesFor(admissionDataJson: string) {
+/** `student` must include FIELD_VALUES_INCLUDE (and the photoPath column). */
+export async function admissionFilesFor(student: object) {
   const config = await prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { admissionFormJson: true } });
   const fields = admissionFormFields(await configuredAdmissionFormJson(config?.admissionFormJson)).filter(
     (field) => field.type === "file" && !field.builtin && field.visible
   );
-  const values = admissionCustomValues(admissionDataJson);
+  const values = studentAnswersFrom(student);
   return fields.map((field) => ({ id: field.id, label: field.label, path: values[field.id] || "", required: field.required }));
 }
 
@@ -88,7 +90,7 @@ export async function admissionKitCore(user: AccessUser, input: { studentId?: st
   await assertStudentAccess(user, studentId, [CLASS_STUDENTS_ADD, CLASS_STUDENTS_EDIT]);
   const student = await prisma.student.findFirst({
     where: { id: studentId },
-    include: { class: { select: { name: true, section: true } }, parent: { include: { user: { select: { name: true, phone: true } } } } },
+    include: { class: { select: { name: true, section: true } }, parent: { include: { user: { select: { name: true, phone: true } } } }, ...FIELD_VALUES_INCLUDE },
   });
   if (!student) throw new Error("Student not found.");
   const classLabel = `${student.class.name}-${student.class.section}`;
@@ -99,7 +101,7 @@ export async function admissionKitCore(user: AccessUser, input: { studentId?: st
     ? await createParentSetPasswordLink(student.parent.userId, publicOrigin()).catch(() => "")
     : "";
   const parent = student.parent ? { name: student.parent.user.name, phone: parentPhone, ...(setPasswordUrl ? { setPasswordUrl } : {}) } : null;
-  const files = await admissionFilesFor(student.admissionDataJson);
+  const files = await admissionFilesFor(student);
   const received = files.filter((file) => file.path);
 
   // Admission confirmation: reuse a valid one, else issue it (published template, or the built-in design).
@@ -215,9 +217,9 @@ export async function admissionDocumentFile(token: string): Promise<{ path: stri
   if (!claims.s || !claims.f) return null;
   return runWithoutTenant(async () => {
     setTenantOrg(claims.o ?? null);
-    const student = await prisma.student.findFirst({ where: { id: claims.s }, select: { admissionDataJson: true, leftOn: true } });
+    const student = await prisma.student.findFirst({ where: { id: claims.s }, select: { photoPath: true, leftOn: true, ...FIELD_VALUES_INCLUDE } });
     if (!student || student.leftOn) return null;
-    const file = (await admissionFilesFor(student.admissionDataJson)).find((row) => row.id === claims.f);
+    const file = (await admissionFilesFor(student)).find((row) => row.id === claims.f);
     if (!file?.path) return null;
     return { path: file.path, name: `${file.label}${fileExtension(file.path)}` };
   });
@@ -290,10 +292,10 @@ export async function admissionKitHtml(token: string): Promise<string | null> {
   if (!claims) return null;
   return runWithoutTenant(async () => {
     setTenantOrg(claims.o);
-    const student = await prisma.student.findFirst({ where: { id: claims.s }, select: { id: true, name: true, admissionNo: true, admissionDataJson: true, leftOn: true } });
+    const student = await prisma.student.findFirst({ where: { id: claims.s }, select: { id: true, name: true, admissionNo: true, photoPath: true, leftOn: true, ...FIELD_VALUES_INCLUDE } });
     // The pack stays open while the student is at the school; it closes once they leave.
     if (!student || student.leftOn) return null;
-    const files = (await admissionFilesFor(student.admissionDataJson)).filter((file) => file.path && claims.f.includes(file.id));
+    const files = (await admissionFilesFor(student)).filter((file) => file.path && claims.f.includes(file.id));
     const pages = files
       .map((file) => {
         const url = `/files/s/${signedFileToken(file.path, `${file.label}${fileExtension(file.path)}`)}`;

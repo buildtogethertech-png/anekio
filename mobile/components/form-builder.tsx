@@ -83,6 +83,30 @@ const STUDENT_FIXED_TYPES: Record<string, string> = {
   billingStartPeriod: "month",
 };
 
+/** Student profile fields saved to their own columns (server: STUDENT_CORE_FIELDS). Their type can't change. */
+const STUDENT_CORE_TYPES: Record<string, string> = {
+  gender: "select",
+  bloodGroup: "select",
+  category: "select",
+  motherTongue: "text",
+  apaarId: "text",
+  homeAddress: "textarea",
+  studentPhoto: "file",
+};
+
+/** Staff profile fields saved to their own columns (server: STAFF_CORE_FIELDS). Their type can't change. */
+const STAFF_CORE_TYPES: Record<string, string> = {
+  gender: "select",
+  dateOfBirth: "date",
+  bloodGroup: "select",
+  maritalStatus: "select",
+  experienceYears: "number",
+  emergencyPhone: "phone",
+  panNumber: "text",
+  uan: "text",
+  esic: "text",
+};
+
 /** Staff form built-ins whose type the code depends on. */
 const STAFF_FIXED_TYPES: Record<string, string> = {
   staffName: "text",
@@ -102,13 +126,13 @@ function typeLabelOf(type: string) {
 
 function typeOptions(field: AdmissionFormField, classOptions: string[], roleOptions?: string[]) {
   // Staff form: locked built-ins keep their type; custom fields may also pick "School role".
-  if (roleOptions && field.builtin && STAFF_FIXED_TYPES[field.id]) {
-    const fixed = STAFF_FIXED_TYPES[field.id];
+  if (roleOptions && (field.builtin ? STAFF_FIXED_TYPES[field.id] : STAFF_CORE_TYPES[field.id])) {
+    const fixed = field.builtin ? STAFF_FIXED_TYPES[field.id] : STAFF_CORE_TYPES[field.id];
     return [fixed === "role" ? ROLE_FIELD_OPTION : fixed === "manager" ? MANAGER_FIELD_OPTION : FIELD_TYPE_OPTIONS.find((o) => o.id === fixed) || { id: fixed, label: fixed }];
   }
   if (roleOptions) return [...FIELD_TYPE_OPTIONS.slice(0, 7), ROLE_FIELD_OPTION, ...FIELD_TYPE_OPTIONS.slice(7)];
-  if (!roleOptions && field.builtin && STUDENT_FIXED_TYPES[field.id]) {
-    const fixed = STUDENT_FIXED_TYPES[field.id];
+  if (!roleOptions && (field.builtin ? STUDENT_FIXED_TYPES[field.id] : STUDENT_CORE_TYPES[field.id])) {
+    const fixed = field.builtin ? STUDENT_FIXED_TYPES[field.id] : STUDENT_CORE_TYPES[field.id];
     return [FIELD_TYPE_OPTIONS.find((o) => o.id === fixed) || { id: fixed, label: fixed }];
   }
   if (field.id === "classWanted" && classOptions.length) return [{ id: SCHOOL_CLASSES_FIELD_TYPE, label: "School classes" }];
@@ -540,6 +564,7 @@ export function FormBuilderModal({
 }) {
   const [editingId, setEditingId] = useState("");
   const [picked, setPicked] = useState<string[]>([]);
+  const [showAllQuick, setShowAllQuick] = useState(false);
   const [saving, setSaving] = useState(false);
   // Two-tap delete on the row: first tap arms it, second tap within a few seconds removes the field.
   const [confirmDeleteId, setConfirmDeleteId] = useState("");
@@ -565,8 +590,10 @@ export function FormBuilderModal({
   const available = [...suggestions, ...commonFields].filter(
     (suggestion, i, all) => !fields.some((field) => covered(field, suggestion)) && all.findIndex((row) => sameField(row, suggestion)) === i
   );
-  const availableDetails = available.filter((field) => field.type !== "file");
-  const availableDocs = available.filter((field) => field.type === "file");
+  // The 10 most used first (lists are in priority order); the rest under "More".
+  const QUICK_LIMIT = 10;
+  const quickShown = showAllQuick ? available : available.slice(0, QUICK_LIMIT);
+  const quickMore = available.length - QUICK_LIMIT;
   const locked = (id: string) => lockedIds.includes(id);
   const shown = fields.filter((field) => field.visible).length;
   const required = fields.filter((field) => field.required).length;
@@ -735,24 +762,28 @@ export function FormBuilderModal({
                 <Ionicons name="add" size={18} color="#1F45C7" />
                 <Text className="text-sm font-semibold text-[#1F45C7]">Add field</Text>
               </Pressable>
-              {[["Quick add · details", availableDetails], ["Quick add · documents", availableDocs]].map(([title, list]) =>
-                (list as AdmissionFormField[]).length ? (
-                  <View key={title as string} className="gap-1.5">
-                    <Text className="text-[11px] font-semibold text-ink-500">{title as string}</Text>
-                    <View className="flex-row flex-wrap gap-1.5">
-                      {(list as AdmissionFormField[]).map((field) => (
-                        <Pressable
-                          key={field.id}
-                          onPress={() => onChange([...fields, newField({ ...field })])}
-                          className="h-8 justify-center rounded-full bg-ink-50 px-3 active:bg-ink-100"
-                        >
-                          <Text className="text-xs font-medium text-ink-700">+ {field.label}</Text>
-                        </Pressable>
-                      ))}
-                    </View>
+              {quickShown.length ? (
+                <View className="gap-1.5">
+                  <Text className="text-[11px] font-semibold text-ink-500">Quick add</Text>
+                  <View className="flex-row flex-wrap gap-1.5">
+                    {quickShown.map((field) => (
+                      <Pressable
+                        key={field.id}
+                        onPress={() => onChange([...fields, newField({ ...field })])}
+                        className="h-8 flex-row items-center gap-1 rounded-full border border-ink-200 bg-white px-3 active:bg-ink-50"
+                      >
+                        <Ionicons name={field.type === "file" ? "document-attach-outline" : "add"} size={13} color="#64748b" />
+                        <Text className="text-xs font-medium text-ink-800">{field.label}</Text>
+                      </Pressable>
+                    ))}
+                    {quickMore > 0 ? (
+                      <Pressable onPress={() => setShowAllQuick((v) => !v)} className="h-8 justify-center px-2">
+                        <Text className="text-xs font-semibold text-[#1F45C7]">{showAllQuick ? "Show less" : `More (${quickMore})`}</Text>
+                      </Pressable>
+                    ) : null}
                   </View>
-                ) : null
-              )}
+                </View>
+              ) : null}
             </View>
           ) : null}
         </ScrollView>
@@ -787,38 +818,52 @@ export function FormBuilderModal({
           </View>
 
           {available.length && canEdit ? (
-            <View className="rounded-md border border-ink-200 bg-white p-3">
-              <View className="flex-row flex-wrap items-center justify-between gap-2">
+            <View className="gap-3 rounded-xl border border-ink-200 bg-white p-4">
+              <View className="flex-row items-center justify-between gap-3">
                 <View className="min-w-0 flex-1">
-                  <Text className="text-sm font-semibold text-ink-900">Quick add</Text>
-                  <Text className="mt-0.5 text-[11px] leading-4 text-ink-700">Fields schools commonly use. Pick any, then Add.</Text>
+                  <Text className="text-[15px] font-semibold text-ink-900">Quick add</Text>
+                  <Text className="mt-0.5 text-xs text-ink-500">Popular fields. Tap to pick, then add them in one go.</Text>
                 </View>
-                <Button variant="ghost" disabled={!picked.length} onPress={addPicked}>
-                  {picked.length ? `Add ${picked.length}` : "Add"}
-                </Button>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={!picked.length}
+                  onPress={addPicked}
+                  className={`h-9 flex-row items-center gap-1.5 rounded-lg px-3.5 ${picked.length ? "bg-[#1F45C7]" : "bg-ink-100"}`}
+                >
+                  <Ionicons name="add" size={16} color={picked.length ? "#fff" : "#94a3b8"} />
+                  <Text className={`text-[13px] font-semibold ${picked.length ? "text-white" : "text-ink-400"}`}>
+                    {picked.length ? `Add ${picked.length} field${picked.length === 1 ? "" : "s"}` : "Add"}
+                  </Text>
+                </Pressable>
               </View>
-              {[["Details", availableDetails], ["Documents", availableDocs]].map(([title, list]) =>
-                (list as AdmissionFormField[]).length ? (
-                  <View key={title as string} className="mt-3">
-                    <Text className="mb-1.5 text-[11px] font-semibold text-ink-500">{title as string}</Text>
-                    <View className="flex-row flex-wrap gap-2">
-                      {(list as AdmissionFormField[]).map((field) => {
-                        const on = picked.includes(field.id);
-                        return (
-                          <Pressable
-                            key={field.id}
-                            onPress={() => setPicked((rows) => (on ? rows.filter((row) => row !== field.id) : [...rows, field.id]))}
-                            className={`flex-row items-center gap-1 rounded-md border px-2.5 py-1.5 ${on ? "border-blue-300 bg-blue-50" : "border-ink-200 bg-white"}`}
-                          >
-                            <Ionicons name={on ? "checkbox-outline" : field.type === "file" ? "document-attach-outline" : "add-circle-outline"} size={15} color={on ? "#1d4ed8" : "#3d4f66"} />
-                            <Text className={`text-[11px] font-medium ${on ? "text-blue-900" : "text-ink-800"}`}>{field.label}</Text>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-                  </View>
-                ) : null
-              )}
+              <View className="flex-row flex-wrap gap-2">
+                {quickShown.map((field) => {
+                  const on = picked.includes(field.id);
+                  return (
+                    <Pressable
+                      key={field.id}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: on }}
+                      accessibilityLabel={field.label}
+                      onPress={() => setPicked((rows) => (on ? rows.filter((row) => row !== field.id) : [...rows, field.id]))}
+                      className={`h-9 flex-row items-center gap-1.5 rounded-full border px-3.5 ${on ? "border-[#1F45C7] bg-[#EEF3FF]" : "border-ink-200 bg-white"}`}
+                    >
+                      <Ionicons
+                        name={on ? "checkmark-circle" : field.type === "file" ? "document-attach-outline" : "add"}
+                        size={15}
+                        color={on ? "#1F45C7" : "#64748b"}
+                      />
+                      <Text className={`text-[13px] ${on ? "font-semibold text-[#1F45C7]" : "text-ink-800"}`}>{field.label}</Text>
+                    </Pressable>
+                  );
+                })}
+                {quickMore > 0 ? (
+                  <Pressable accessibilityRole="button" onPress={() => setShowAllQuick((v) => !v)} className="h-9 flex-row items-center gap-1 rounded-full px-3">
+                    <Text className="text-[13px] font-semibold text-[#1F45C7]">{showAllQuick ? "Show less" : `More (${quickMore})`}</Text>
+                    <Ionicons name={showAllQuick ? "chevron-up" : "chevron-down"} size={14} color="#1F45C7" />
+                  </Pressable>
+                ) : null}
+              </View>
             </View>
           ) : null}
 

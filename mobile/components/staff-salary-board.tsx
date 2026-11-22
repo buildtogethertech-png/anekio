@@ -8,7 +8,7 @@ import { PayMethodTiles, payMethodLabel, ProofAttach, SalaryPaidSuccess, SalaryS
 import type { PickedFile } from "../lib/upload";
 import { act } from "../lib/mutate";
 import { ymd } from "../lib/calendar";
-import { inr, monthTitle, personKey, salaryPayState, shiftMonth, SALARY_PAY_MODES, type SalaryPayState } from "../lib/payroll";
+import { inr, monthTitle, personKey, salaryForMonth, salaryPayState, shiftMonth, SALARY_PAY_MODES, type SalaryPayState } from "../lib/payroll";
 import type { RecordPayload } from "../lib/record";
 
 type Person = NonNullable<RecordPayload["staff"]>[number];
@@ -63,7 +63,9 @@ export function StaffSalaryBoard({
         const key = personKey(p.kind === "teacher" ? "teacher" : "staff", p.id);
         const run = (runs ?? []).find((r) => r.personKey === key && r.month === month);
         const s = salaryPayState(run, (payments ?? []).filter((x) => x.personKey === key && x.month === month));
-        return { person: p, key, ...s };
+        // Salary of this month from their history (a raise from next month doesn't change this one).
+        const monthSalary = p.salary === undefined ? undefined : salaryForMonth(p.salaryHistory, month, p.salary);
+        return { person: { ...p, salary: monthSalary }, key, ...s };
       })
       .sort((a, b) => b.balance - a.balance || a.person.name.localeCompare(b.person.name));
   }, [month, payments, runs, staff]);

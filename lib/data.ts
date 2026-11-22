@@ -12,6 +12,7 @@ import { classifyNotice } from "./notices";
 import { ensureSchoolSessions } from "./school-session";
 import { ensureCurrentSessionStudentRollNumbers } from "./student-rolls";
 import { runWithoutTenant } from "./tenant-context";
+import { SALARY_HISTORY_INCLUDE } from "./salary-history";
 
 export async function getParentWithChildren(userId: string) {
   await ensureCurrentSessionStudentRollNumbers();
@@ -107,6 +108,7 @@ export async function getClassRoster(classId: string) {
       parent: { include: { user: { select: { name: true, phone: true, email: true } } } },
       enrollments: { where: { active: true, session: { current: true } }, select: { rollNumber: true, classId: true } },
       interests: true,
+      fieldValues: { select: { fieldId: true, valueText: true } },
       attendance: { orderBy: { date: "desc" }, take: 400 },
       examResults: { include: { exam: { include: { subject: true, series: true } } } },
       feeInvoices: { include: { payments: true }, orderBy: { dueDate: "desc" } },
@@ -696,6 +698,7 @@ export async function getPeople() {
     class: true,
     enrollments: { where: { active: true, session: { current: true } }, select: { rollNumber: true, classId: true } },
     interests: true,
+    fieldValues: { select: { fieldId: true, valueText: true } },
     parent: { include: { user: true } },
     user: true,
     feeInvoices: {
@@ -960,7 +963,7 @@ export async function getStaffRoster(date = startOfDay()) {
   const [teachers, staff, days, leave, payrollRuns, audits, salaryPayments] = await Promise.all([
     prisma.teacher.findMany({
       where: { teachingOnly: false }, // office staff who also teach are listed once, as staff
-      include: { user: { include: { manager: { select: { id: true, name: true } } } }, class: true },
+      include: { user: { include: { manager: { select: { id: true, name: true } } } }, class: true, fieldValues: { select: { fieldId: true, valueText: true } }, ...SALARY_HISTORY_INCLUDE },
       orderBy: { employeeId: "asc" },
     }),
     prisma.staffMember.findMany({
@@ -968,6 +971,8 @@ export async function getStaffRoster(date = startOfDay()) {
       include: {
         role: { select: { id: true, name: true, portal: true } },
         user: { select: { id: true, email: true, managerId: true, manager: { select: { id: true, name: true } } } },
+        fieldValues: { select: { fieldId: true, valueText: true } },
+        ...SALARY_HISTORY_INCLUDE,
       },
       orderBy: { employeeId: "asc" },
     }),
