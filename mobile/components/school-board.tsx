@@ -26,6 +26,7 @@ import { pickFile, uploadFile, type PickedFile } from "../lib/upload";
 import { cloneFields, FormBuilderModal } from "./form-builder";
 import { COMMON_ADMISSION_FIELDS, COMMON_ENQUIRY_FIELDS, COMMON_STAFF_FIELDS } from "../lib/common-form-fields";
 import { AdmissionNumberCard } from "./admission-number";
+import { ArchivedClasses, ClassRemoveModal } from "./class-remove";
 
 /** Mirrors LOCKED_ADMISSION_FIELD_IDS on the server: every enquiry needs these. */
 const LOCKED_ADMISSION_FIELDS = ["studentName", "classWanted", "phone"];
@@ -778,8 +779,6 @@ function PhoneExamSettings(props: {
   );
 }
 
-const CLASS_GRADES = ["Nursery", "LKG", "UKG", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
-const CLASS_SECTIONS = ["A", "B", "C", "D", "E"];
 
 function NewClassSheet({
   open,
@@ -787,17 +786,18 @@ function NewClassSheet({
   initial,
   onClose,
   onCreate,
+  onDelete,
 }: {
   open: boolean;
   classes: { id?: string; label: string; name?: string; section?: string }[];
   initial?: { id?: string; name: string; section: string } | null;
   onClose: () => void;
   onCreate: (name: string, section: string) => Promise<void>;
+  /** Editing a class: "Delete class" (checks what uses it first). */
+  onDelete?: () => void;
 }) {
   const [grade, setGrade] = useState("");
-  const [otherGrade, setOtherGrade] = useState(false);
   const [section, setSection] = useState("A");
-  const [otherSection, setOtherSection] = useState(false);
   const [busy, setBusy] = useState(false);
   const editing = Boolean(initial?.id);
   const key = (name: string, sec: string) => `${name.trim()}-${sec.trim()}`.toLowerCase();
@@ -806,22 +806,13 @@ function NewClassSheet({
       .filter((c) => !initial?.id || c.id !== initial.id)
       .map((c) => (c.name ? key(c.name, c.section || "") : c.label.toLowerCase()))
   );
-  const gradeHas = (g: string) =>
-    classes.some(
-      (c) =>
-        (!initial?.id || c.id !== initial.id) &&
-        (c.name || c.label.split("-")[0] || "").trim().toLowerCase() === g.toLowerCase()
-    );
-  const nextFree = (g: string) => CLASS_SECTIONS.find((sec) => !taken.has(key(g, sec))) || "";
 
   useEffect(() => {
     if (!open) return;
     const startName = initial?.name || "";
     const startSection = (initial?.section || "A").toUpperCase();
     setGrade(startName);
-    setOtherGrade(Boolean(startName) && !CLASS_GRADES.includes(startName));
     setSection(startSection);
-    setOtherSection(Boolean(startSection) && !CLASS_SECTIONS.includes(startSection));
     setBusy(false);
   }, [open, initial?.id, initial?.name, initial?.section]);
 
@@ -831,18 +822,6 @@ function NewClassSheet({
   const duplicate = Boolean(label && taken.has(key(name, sec)));
   const ready = Boolean(label) && !duplicate && !busy;
 
-  const chip = (text: string, on: boolean, onPress: () => void, dot?: boolean) => (
-    <Pressable
-      key={text}
-      accessibilityRole="button"
-      accessibilityState={{ selected: on }}
-      onPress={onPress}
-      className={`min-w-[52px] items-center rounded-xl border px-3 py-2.5 ${on ? "border-[#1F45C7] bg-[#1F45C7]" : "border-ink-200 bg-white"}`}
-    >
-      <Text className={`text-sm font-semibold ${on ? "text-white" : "text-ink-800"}`}>{text}</Text>
-      {dot ? <View className={`absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full ${on ? "bg-white" : "bg-[#1F45C7]"}`} /> : null}
-    </Pressable>
-  );
 
   return (
     <RnModal visible={open} transparent animationType="slide" onRequestClose={onClose}>
@@ -860,70 +839,36 @@ function NewClassSheet({
               </Pressable>
             </View>
             <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 12 }} keyboardShouldPersistTaps="handled">
-              <View className="items-center py-3">
-                <View className={`min-w-[96px] items-center rounded-2xl px-5 py-3 ${duplicate ? "bg-red-50" : label ? "bg-[#EEF3FF]" : "bg-ink-50"}`}>
-                  <Text className={`text-[28px] font-bold ${duplicate ? "text-red-700" : label ? "text-[#1F45C7]" : "text-ink-300"}`}>{label || "—"}</Text>
+              <View className="flex-row gap-3 pt-2">
+                <View className="min-w-0 flex-[2]">
+                  <Text className="mb-1.5 text-[12px] font-semibold text-ink-600">Class</Text>
+                  <TextInput
+                    value={grade}
+                    onChangeText={(v) => setGrade(v.slice(0, 30))}
+                    autoFocus={!editing}
+                    placeholder="e.g. 8, Nursery"
+                    placeholderTextColor="#94a3b8"
+                    returnKeyType="next"
+                    className="h-12 rounded-xl border border-ink-200 px-3 text-[16px] font-semibold text-ink-900"
+                    style={Platform.OS === "web" ? ({ outlineStyle: "none", includeFontPadding: false } as object) : { includeFontPadding: false }}
+                  />
                 </View>
-                <Text className={`mt-1.5 text-xs ${duplicate ? "font-semibold text-red-700" : "text-ink-500"}`}>
-                  {duplicate ? `${label} already exists` : label ? (editing ? "Class name" : "New class") : "Pick a class"}
-                </Text>
+                <View className="min-w-0 flex-1">
+                  <Text className="mb-1.5 text-[12px] font-semibold text-ink-600">Section</Text>
+                  <TextInput
+                    value={section}
+                    onChangeText={(v) => setSection(v.slice(0, 12).toUpperCase())}
+                    autoCapitalize="characters"
+                    placeholder="A"
+                    placeholderTextColor="#94a3b8"
+                    className="h-12 rounded-xl border border-ink-200 px-3 text-[16px] font-semibold text-ink-900"
+                    style={Platform.OS === "web" ? ({ outlineStyle: "none", includeFontPadding: false } as object) : { includeFontPadding: false }}
+                  />
+                </View>
               </View>
-
-              <Text className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-500">Class</Text>
-              <View className="flex-row flex-wrap gap-2">
-                {CLASS_GRADES.map((g) =>
-                  chip(g, !otherGrade && grade === g, () => {
-                    setOtherGrade(false);
-                    setGrade(g);
-                    if (!otherSection) {
-                      const free = nextFree(g);
-                      if (free) setSection(free);
-                    }
-                  }, gradeHas(g))
-                )}
-                {chip("Other", otherGrade, () => {
-                  setOtherGrade(true);
-                  setGrade("");
-                })}
-              </View>
-              {otherGrade ? (
-                <TextInput
-                  value={grade}
-                  onChangeText={setGrade}
-                  autoFocus
-                  placeholder="Class name, e.g. Playgroup"
-                  placeholderTextColor="#94a3b8"
-                  className="mt-2 rounded-xl border border-ink-200 px-3 py-3 text-sm text-ink-900"
-                  style={{ includeFontPadding: false }}
-                />
-              ) : null}
-
-              <Text className="mb-2 mt-5 text-xs font-semibold uppercase tracking-wide text-ink-500">Section</Text>
-              <View className="flex-row flex-wrap gap-2">
-                {CLASS_SECTIONS.map((sc) =>
-                  chip(sc, !otherSection && section === sc, () => {
-                    setOtherSection(false);
-                    setSection(sc);
-                  }, Boolean(name) && taken.has(key(name, sc)))
-                )}
-                {chip("Other", otherSection, () => {
-                  setOtherSection(true);
-                  setSection("");
-                })}
-              </View>
-              {otherSection ? (
-                <TextInput
-                  value={section}
-                  onChangeText={(v) => setSection(v.slice(0, 12))}
-                  autoFocus
-                  autoCapitalize="characters"
-                  placeholder="Section, e.g. Rose"
-                  placeholderTextColor="#94a3b8"
-                  className="mt-2 rounded-xl border border-ink-200 px-3 py-3 text-sm text-ink-900"
-                  style={{ includeFontPadding: false }}
-                />
-              ) : null}
-              <Text className="mt-3 text-[11px] text-ink-400">● already has a class</Text>
+              <Text className={`mt-2.5 text-[13px] ${duplicate ? "font-semibold text-red-700" : label ? "text-ink-600" : "text-ink-400"}`}>
+                {duplicate ? `Class ${label} already exists.` : label ? `${editing ? "Will be renamed to" : "Creates"} class ${label}` : "Type the class and its section."}
+              </Text>
             </ScrollView>
             <View className="border-t border-ink-100 px-5 pb-2 pt-3">
               <Pressable
@@ -943,6 +888,12 @@ function NewClassSheet({
                   {busy ? (editing ? "Saving…" : "Creating…") : label && !duplicate ? (editing ? `Save ${label}` : `Create ${label}`) : editing ? "Save class" : "Create class"}
                 </Text>
               </Pressable>
+              {editing && onDelete ? (
+                <Pressable accessibilityRole="button" onPress={onDelete} className="mt-1 h-11 flex-row items-center justify-center gap-1.5">
+                  <Ionicons name="trash-outline" size={15} color="#b91c1c" />
+                  <Text className="text-[14px] font-semibold text-red-700">Delete class</Text>
+                </Pressable>
+              ) : null}
             </View>
           </SafeAreaView>
         </View>
@@ -1891,6 +1842,8 @@ export function SchoolBoard() {
   const { data, reload } = useRecord();
   const { token, user } = useSession();
   const toast = useToast();
+  const [removeClassId, setRemoveClassId] = useState("");
+  const [archivedKey, setArchivedKey] = useState(0);
   const { width } = useWindowDimensions();
   const wide = width >= 1024;
   const phone = width < 640;
@@ -2569,6 +2522,11 @@ export function SchoolBoard() {
                 onGo={(href) => router.push(href as never)}
               />
             ) : null}
+            {tab === "classes" && phone && edit ? (
+              <View className="mt-3">
+                <ArchivedClasses token={token} refreshKey={archivedKey} onRestored={(m) => { toast.show(m); void reload(); }} />
+              </View>
+            ) : null}
             {tab === "classes" && !phone ? (
               <View className="gap-3">
                 <Text className="text-sm text-ink-700">
@@ -2630,6 +2588,7 @@ export function SchoolBoard() {
                     <Text className="mt-3 text-sm text-ink-700">No classes yet. Add 1-A, 2-B, and so on.</Text>
                   )}
                 </View>
+                {edit ? <ArchivedClasses token={token} refreshKey={archivedKey} onRestored={(m) => { toast.show(m); void reload(); }} /> : null}
               </View>
             ) : null}
 
@@ -3601,6 +3560,15 @@ export function SchoolBoard() {
           classes={(data?.classes ?? []).map((c) => ({ id: c.id, label: c.label, name: c.name, section: c.section }))}
           initial={classDraft.id ? { id: classDraft.id, name: classDraft.name, section: classDraft.section } : null}
           onClose={() => setClassOpen(false)}
+          onDelete={
+            classDraft.id
+              ? () => {
+                  const id = classDraft.id;
+                  setClassOpen(false);
+                  setTimeout(() => setRemoveClassId(id), 350);
+                }
+              : undefined
+          }
           onCreate={async (name, section) => {
             if (classDraft.id) {
               await run("updateClass", { classId: classDraft.id, name, section }, `Class renamed to ${name}-${section}.`);
@@ -3645,8 +3613,33 @@ export function SchoolBoard() {
           >
             {classDraft.id ? "Save class" : "Create class"}
           </Button>
+          {classDraft.id && edit ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                const id = classDraft.id;
+                setClassOpen(false);
+                setTimeout(() => setRemoveClassId(id), 200);
+              }}
+              className="flex-row items-center justify-center gap-1.5 py-1"
+            >
+              <Ionicons name="trash-outline" size={14} color="#b91c1c" />
+              <Text className="text-[13px] font-semibold text-red-700">Delete class</Text>
+            </Pressable>
+          ) : null}
         </View>
       </Modal>
+      <ClassRemoveModal
+        classId={removeClassId}
+        token={token}
+        onClose={() => setRemoveClassId("")}
+        onDone={(message) => {
+          setRemoveClassId("");
+          setArchivedKey((k) => k + 1);
+          toast.show(message);
+          void reload();
+        }}
+      />
     </View>
   );
 }

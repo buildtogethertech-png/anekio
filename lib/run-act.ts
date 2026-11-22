@@ -110,6 +110,9 @@ import {
 } from "./core-actions";
 import {
   archiveClassCore,
+  classUsageCore,
+  archivedClassesCore,
+  deleteClassCore,
   approveExamMarksCore,
   collectAllStudentFeesCore,
   completeExamWorkCore,
@@ -718,6 +721,12 @@ export async function runAct(
       return { ok: true, ...(await previewOnboardingImport(user, body as never)) };
     case "applyOnboardingImport":
       return { ok: true, ...(await applyOnboardingImport(user, body as never)) };
+    case "archivedClasses":
+      return { ok: true, ...(await archivedClassesCore(user)) };
+    case "classUsage":
+      return { ok: true, ...(await classUsageCore(user, body as never)) };
+    case "deleteClass":
+      return await deleteClassCore(user, body as never);
     case "archiveClass":
       await archiveClassCore(user, body as never);
       break;

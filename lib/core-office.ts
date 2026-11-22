@@ -2006,6 +2006,88 @@ export async function importPeopleSheetCore(user: AccessUser, input: { kind?: st
   return { created: created.length, skipped };
 }
 
+/**
+ * What still uses a class, before deleting it. Blockers are real history or live setup (students, routine,
+ * exams, invoices, …): a class with any of them can only be archived. Links (class teacher, subjects, fee plan,
+ * notices) are setup that is removed together with the class.
+ */
+export async function classUsageCore(user: AccessUser, input: { classId?: string }) {
+  need(user, "people.edit");
+  const classId = String(input.classId || "");
+  const klass = await prisma.class.findFirst({ where: { id: classId }, select: { id: true, name: true, section: true, archivedAt: true } });
+  if (!klass) throw new Error("Class not found.");
+  if (klass.section === "—") throw new Error("This is a built-in holding class and can't be changed.");
+  const [students, joining, history, slots, exams, series, invoices, promotions, covers, classTeachers, teacherLinks, skills, subjects, feePlans, admissionFees, notices] =
+    await Promise.all([
+      prisma.student.count({ where: { classId, OR: [{ leftOn: null }, { leftOn: { not: null } }] } }),
+      prisma.student.count({ where: { joinsClassId: classId, OR: [{ leftOn: null }, { leftOn: { not: null } }] } }),
+      prisma.studentClassEnrollment.count({ where: { classId } }),
+      prisma.timetableSlot.count({ where: { classId } }),
+      prisma.exam.count({ where: { classId } }),
+      prisma.examSeries.count({ where: { classId } }),
+      prisma.feeInvoice.count({ where: { classId } }),
+      prisma.promotionDecision.count({ where: { OR: [{ fromClassId: classId }, { toClassId: classId }] } }),
+      prisma.classAttendanceCover.count({ where: { classId } }),
+      prisma.teacher.count({ where: { classId, OR: [{ archivedAt: null }, { archivedAt: { not: null } }] } }),
+      prisma.teacherClass.count({ where: { classId } }),
+      prisma.teacherSkill.count({ where: { classId } }),
+      prisma.subject.count({ where: { classId } }),
+      prisma.feeTemplate.count({ where: { classId } }),
+      prisma.admissionFeeLine.count({ where: { classId } }),
+      prisma.noticeClass.count({ where: { classId } }),
+    ]);
+  const n = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
+  const blockers = [
+    students ? { key: "students", label: `${n(students, "student")} in this class`, fix: "Move them to another class (Students), or mark them as left." } : null,
+    joining ? { key: "joining", label: `${n(joining, "student")} joining it next year`, fix: "Change their class for next year in Students." } : null,
+    history ? { key: "history", label: `${n(history, "past record")} of students in this class`, fix: "Old years' records need the class. Archive it instead." } : null,
+    slots ? { key: "routine", label: `${n(slots, "period")} in the routine`, fix: "Clear this class's periods in Routine." } : null,
+    exams || series ? { key: "exams", label: `${n(exams, "exam paper")} scheduled`, fix: "Delete those exams for this class in Exams first." } : null,
+    invoices ? { key: "fees", label: `${n(invoices, "fee invoice")} raised`, fix: "Fee history needs the class. Archive it instead." } : null,
+    promotions ? { key: "promotions", label: `${n(promotions, "promotion decision")}`, fix: "Promotion history needs the class. Archive it instead." } : null,
+    covers ? { key: "covers", label: `${n(covers, "attendance cover")}`, fix: "Attendance history needs the class. Archive it instead." } : null,
+  ].filter(Boolean) as { key: string; label: string; fix: string }[];
+  const links = [
+    classTeachers ? `Class teacher (${n(classTeachers, "teacher")})` : "",
+    teacherLinks || skills ? `${n(teacherLinks + skills, "subject teacher link")}` : "",
+    subjects ? `${n(subjects, "subject")}` : "",
+    feePlans ? `${n(feePlans, "fee plan")}` : "",
+    admissionFees ? `${n(admissionFees, "admission fee line")}` : "",
+    notices ? `Sent-to on ${n(notices, "notice")} (the notices stay)` : "",
+  ].filter(Boolean);
+  return { label: `${klass.name}-${klass.section}`, archived: Boolean(klass.archivedAt), canDelete: blockers.length === 0, blockers, links };
+}
+
+/** Archived (hidden) classes, to bring one back. */
+export async function archivedClassesCore(user: AccessUser) {
+  need(user, "people.edit");
+  // The hidden "Past students" / "Joining next year" holding classes (section "—") are the app's own, never listed.
+  const rows = await prisma.class.findMany({ where: { archivedAt: { not: null }, NOT: { section: "—" } }, select: { id: true, name: true, section: true, archivedAt: true } });
+  return {
+    classes: rows
+      .map((c) => ({ id: c.id, label: `${c.name}-${c.section}`, archivedAt: c.archivedAt!.toISOString() }))
+      .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true })),
+  };
+}
+
+/** Deletes a class that nothing important uses (checked again here), with its setup links. */
+export async function deleteClassCore(user: AccessUser, input: { classId?: string }) {
+  const usage = await classUsageCore(user, input);
+  if (!usage.canDelete) throw new Error(`${usage.label} can't be deleted: ${usage.blockers.map((b) => b.label).join(", ")}.`);
+  const classId = String(input.classId || "");
+  await prisma.$transaction(async (tx) => {
+    await tx.teacher.updateMany({ where: { classId, OR: [{ archivedAt: null }, { archivedAt: { not: null } }] }, data: { classId: null } });
+    await tx.teacherSkill.deleteMany({ where: { classId } });
+    await tx.teacherClass.deleteMany({ where: { classId } });
+    await tx.subject.deleteMany({ where: { classId } });
+    await tx.feeTemplate.deleteMany({ where: { classId } });
+    await tx.admissionFeeLine.deleteMany({ where: { classId } });
+    await tx.noticeClass.deleteMany({ where: { classId } });
+    await tx.class.delete({ where: { id: classId } });
+  });
+  return { ok: true as const, label: usage.label };
+}
+
 export async function archiveClassCore(user: AccessUser, input: { classId: string; restore?: boolean }) {
   need(user, "people.edit");
   const classId = String(input.classId || "");
