@@ -359,8 +359,7 @@ export async function runAct(
       await startNextSchoolSessionCore(user);
       break;
     case "addSchoolHoliday":
-      await addSchoolHolidayCore(user, body as never);
-      break;
+      return { ok: true, ...(await addSchoolHolidayCore(user, body as never)) };
     case "deleteSchoolHoliday":
       await deleteSchoolHolidayCore(user, body as never);
       break;

@@ -4333,66 +4333,83 @@ export async function deleteSchoolSessionCore(user: AccessUser, input: { session
   await deleteSchoolSession(String(input.sessionId || ""));
 }
 
-async function holidaySessionId(input: { sessionId?: string }) {
-  const requested = String(input.sessionId || "");
-  if (requested) {
-    const found = await prisma.schoolSession.findUnique({ where: { id: requested }, select: { id: true } });
-    if (!found) throw new Error("Session missing");
-    return found.id;
-  }
-  const { current } = await ensureSchoolSessions();
-  return current.id;
-}
-
-export async function addSchoolHolidayCore(user: AccessUser, input: { sessionId?: string; date?: string; name?: string }) {
+/**
+ * One holiday, or a range ("Chhath Puja", 2–9 Nov): one row per day, so exams and attendance skip each day.
+ * Each day goes to the school year that holds its date — nobody has to pick the year.
+ */
+export async function addSchoolHolidayCore(user: AccessUser, input: { date?: string; toDate?: string; name?: string }) {
   need(user, "school.edit");
-  const sessionId = await holidaySessionId(input);
   const date = String(input.date || "").slice(0, 10);
+  const toDate = String(input.toDate || "").slice(0, 10) || date;
   const name = String(input.name || "").trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !name) throw new Error("Date and name are required");
-  const existing = await prisma.schoolHoliday.findUnique({ where: { sessionId_date: { sessionId, date } } });
-  const merged =
-    existing && existing.name !== name && !existing.name.split(" · ").includes(name)
-      ? `${existing.name} · ${name}`
-      : name;
-  await prisma.schoolHoliday.upsert({
-    where: { sessionId_date: { sessionId, date } },
-    update: { name: existing ? merged : name },
-    create: { sessionId, date, name, source: "manual" },
-  });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(toDate) || toDate < date) throw new Error("The end date must be on or after the start date.");
+  const days: string[] = [];
+  for (let d = new Date(`${date}T00:00:00Z`); d.toISOString().slice(0, 10) <= toDate; d.setUTCDate(d.getUTCDate() + 1)) {
+    days.push(d.toISOString().slice(0, 10));
+    if (days.length > 62) throw new Error("A holiday can be at most 62 days long.");
+  }
+  await ensureSchoolSessions();
+  const years = await prisma.schoolSession.findMany({ select: { id: true, label: true, startsOn: true, endsOn: true } });
+  const yearOf = (day: string) => years.find((y) => y.startsOn && y.endsOn && y.startsOn <= day && day <= y.endsOn);
+  const missing = days.find((day) => !yearOf(day));
+  if (missing) throw new Error(`No school year covers ${missing}. Add that year under Sessions first.`);
+  for (const day of days) {
+    const sessionId = yearOf(day)!.id;
+    const existing = await prisma.schoolHoliday.findUnique({ where: { sessionId_date: { sessionId, date: day } } });
+    const merged =
+      existing && existing.name !== name && !existing.name.split(" · ").includes(name)
+        ? `${existing.name} · ${name}`
+        : name;
+    await prisma.schoolHoliday.upsert({
+      where: { sessionId_date: { sessionId, date: day } },
+      update: { name: existing ? merged : name },
+      create: { sessionId, date: day, name, source: "manual" },
+    });
+  }
+  const first = yearOf(days[0])!;
+  return { sessionId: first.id, label: first.label };
 }
 
-export async function deleteSchoolHolidayCore(user: AccessUser, input: { id?: string }) {
+/** Removes one holiday day, or every day of a range (ids). */
+export async function deleteSchoolHolidayCore(user: AccessUser, input: { id?: string; ids?: string[] }) {
   need(user, "school.edit");
-  const id = String(input.id || "");
-  if (!id) throw new Error("Holiday required");
-  await prisma.schoolHoliday.delete({ where: { id } });
+  const ids = [...new Set([String(input.id || ""), ...(Array.isArray(input.ids) ? input.ids.map(String) : [])].filter(Boolean))];
+  if (!ids.length) throw new Error("Holiday required");
+  await prisma.schoolHoliday.deleteMany({ where: { id: { in: ids } } });
 }
 
-export async function importSchoolHolidaysCore(user: AccessUser, input: { sessionId?: string; pasted?: string }) {
+export async function importSchoolHolidaysCore(user: AccessUser, input: { pasted?: string }) {
   need(user, "school.edit");
-  const sessionId = await holidaySessionId(input);
   const text = String(input.pasted || "");
   const rows = parseHolidayText(text);
   if (!rows.length) throw new Error("No holidays found. Use a CSV (date, name) or an .ics calendar.");
-  const existing = await prisma.schoolHoliday.findMany({ where: { sessionId } });
-  const byDate = new Map(existing.map((h) => [h.date, h]));
+  // Each date goes into the school year that holds it.
+  await ensureSchoolSessions();
+  const years = await prisma.schoolSession.findMany({ select: { id: true, startsOn: true, endsOn: true } });
+  const yearOf = (day: string) => years.find((y) => y.startsOn && y.endsOn && y.startsOn <= day && day <= y.endsOn)?.id;
+  const existing = await prisma.schoolHoliday.findMany({ where: { sessionId: { in: years.map((y) => y.id) } } });
+  const byKey = new Map(existing.map((h) => [`${h.sessionId}:${h.date}`, h]));
   const source = /BEGIN:VEVENT/i.test(text) ? "ics" : "csv";
   let added = 0;
+  const noYear: string[] = [];
   for (const row of rows) {
-    const prev = byDate.get(row.date);
+    const sessionId = yearOf(row.date);
+    if (!sessionId) {
+      noYear.push(row.date);
+      continue;
+    }
+    const prev = byKey.get(`${sessionId}:${row.date}`);
     if (!prev) {
       await prisma.schoolHoliday.create({ data: { sessionId, date: row.date, name: row.name, source } });
       added += 1;
       continue;
     }
     if (prev.name === row.name || prev.name.split(" · ").includes(row.name)) continue;
-    await prisma.schoolHoliday.update({
-      where: { id: prev.id },
-      data: { name: `${prev.name} · ${row.name}` },
-    });
+    await prisma.schoolHoliday.update({ where: { id: prev.id }, data: { name: `${prev.name} · ${row.name}` } });
     added += 1;
   }
+  if (!added && noYear.length) throw new Error(`No school year covers ${noYear[0]}. Add that year under Sessions first.`);
   if (!added) throw new Error("Those dates are already on the calendar.");
 }
 

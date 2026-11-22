@@ -6,7 +6,6 @@ import { Image, KeyboardAvoidingView, Linking, Modal as RnModal, Platform, Press
 import { SafeAreaView } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Dropdown } from "./form";
 import { BackLink, Badge, Button, Card, Field, Input, Modal, PageHeader, Switch, Toast, useToast } from "./ui";
 import { LeaveCreditFields, MONTHS, Step as LeaveStep, leaveCreditSummary } from "./leave-credit";
 import { LeaveBalancesSheet } from "./leave-balances";
@@ -1908,14 +1907,13 @@ export function SchoolBoard() {
   const [form, setForm] = useState<SchoolForm>(blankForm(s));
   const [websiteSlugStatus, setWebsiteSlugStatus] = useState<{ slug: string; kind: "idle" | "checking" | "available" | "taken" | "invalid"; message: string }>({ slug: "", kind: "idle", message: "" });
   const [webOpen, setWebOpen] = useState<Record<string, boolean>>({ address: true, hero: true, about: true });
-  const [holiday, setHoliday] = useState({ date: "", name: "" });
+  const [holiday, setHoliday] = useState({ date: "", toDate: "", name: "" });
   const [addOpen, setAddOpen] = useState(false);
   const [classOpen, setClassOpen] = useState(false);
   const [calendarImportOpen, setCalendarImportOpen] = useState(false);
   const [classDraft, setClassDraft] = useState({ id: "", name: "", section: "A" });
   const [viewYear, setViewYear] = useState<string | null>(null);
   const [sessionDraft, setSessionDraft] = useState({ startsOn: "", endsOn: "", copyFromId: "", makeCurrent: true });
-  const [calendarSessionId, setCalendarSessionId] = useState(s?.sessionId || "");
   const [bands, setBands] = useState(s?.policy?.bands?.length ? s.policy.bands : DEFAULT_GRADE_BANDS);
   const [passPercent, setPassPercent] = useState(String(s?.policy?.passPercent ?? 33));
   const [showRank, setShowRank] = useState(Boolean(s?.policy?.showRank));
@@ -1964,7 +1962,6 @@ export function SchoolBoard() {
     setReportCardUnpaidMonths(String(s.policy?.reportCardUnpaidMonths ?? 0));
     setAdmitCardPendingMonths(String(s.policy?.admitCardPendingMonths ?? 0));
     setPlan(normalizeExamPlan(s.plan));
-    setCalendarSessionId((current) => current || s.sessionId || "");
     if (data?.leaveTypes?.length) setLeaveTypes(normalizeLeaveTypes(data.leaveTypes));
     if (data?.leaveYearStartMonth) setLeaveYearStart(data.leaveYearStartMonth);
   }, [s, data?.leaveTypes, data?.leaveYearStartMonth]);
@@ -1990,20 +1987,50 @@ export function SchoolBoard() {
   }, [tab, token, form.websiteSlug, form.websiteEnabled]);
 
   const sessions = s?.sessions ?? [];
-  const calendarSession = sessions.find((row) => row.id === calendarSessionId) ?? sessions.find((row) => row.current) ?? sessions[0];
-  const activeCalendarSessionId = calendarSession?.id || s?.sessionId || "";
-  const sessionOptions = sessions.map((row) => ({
-    id: row.id,
-    label: row.current ? `${row.label} (Current)` : row.label,
-    searchText: row.label,
-  }));
   const holidays = s?.holidays ?? [];
-  const inSession = holidays.filter((h) => {
-    if ((h.sessionId || s?.sessionId || "") !== activeCalendarSessionId) return false;
-    if (calendarSession?.startsOn && h.date < calendarSession.startsOn) return false;
-    if (calendarSession?.endsOn && h.date > calendarSession.endsOn) return false;
-    return true;
-  });
+  // Every holiday saved for this year shows (one outside the year's dates is flagged, so it can be removed).
+  // All holidays, any school year: the year comes from each date. Shown under year headings, this year first.
+  const yearLabelOf = (day: string) => sessions.find((y) => y.startsOn && y.endsOn && y.startsOn <= day && day <= y.endsOn)?.label || day.slice(0, 4);
+  const currentYear = sessions.find((y) => y.current)?.label || "";
+  const inSession = holidays;
+  // Consecutive days with the same name show as one row ("Chhath Puja · 2–9 Nov · 8 days").
+  const holidayGroups = (() => {
+    const sorted = [...inSession].sort((a, b) => a.date.localeCompare(b.date));
+    const groups: { ids: string[]; name: string; from: string; to: string; days: number }[] = [];
+    const next = (d: string) => {
+      const x = new Date(`${d.slice(0, 10)}T00:00:00Z`);
+      x.setUTCDate(x.getUTCDate() + 1);
+      return x.toISOString().slice(0, 10);
+    };
+    for (const h of sorted) {
+      const last = groups[groups.length - 1];
+      if (last && last.name === h.name && next(last.to) === h.date.slice(0, 10)) {
+        last.ids.push(h.id);
+        last.to = h.date.slice(0, 10);
+        last.days += 1;
+      } else groups.push({ ids: [h.id], name: h.name, from: h.date.slice(0, 10), to: h.date.slice(0, 10), days: 1 });
+    }
+    return groups;
+  })();
+  const todayYmd = new Date().toLocaleDateString("en-CA");
+  const nextHolidayId = holidayGroups.find((g) => g.to >= todayYmd)?.ids[0] ?? "";
+  const holidayYears = (() => {
+    const byYear = new Map<string, typeof holidayGroups>();
+    for (const g of holidayGroups) {
+      const label = yearLabelOf(g.from);
+      byYear.set(label, [...(byYear.get(label) ?? []), g]);
+    }
+    const labels = [...byYear.keys()].sort((a, b) => {
+      if (a === currentYear) return -1;
+      if (b === currentYear) return 1;
+      return a < currentYear === b < currentYear ? a.localeCompare(b) : a < currentYear ? 1 : -1;
+    });
+    return labels.map((label) => ({ label, groups: byYear.get(label)!, days: byYear.get(label)!.reduce((n, g) => n + g.days, 0) }));
+  })();
+  const rangeDays =
+    holiday.date && holiday.toDate && holiday.toDate >= holiday.date
+      ? Math.round((Date.parse(`${holiday.toDate}T00:00:00Z`) - Date.parse(`${holiday.date}T00:00:00Z`)) / 86400000) + 1
+      : 1;
   const weight = plan.reduce((n, r) => n + r.weight, 0);
   const planNames = plan.map((row) => row.name.trim().toLowerCase()).filter(Boolean);
   const planChecks = [
@@ -2133,7 +2160,7 @@ export function SchoolBoard() {
   }
 
   async function importHolidayCsv(csv: string) {
-    await run("importSchoolHolidays", { pasted: csv, sessionId: activeCalendarSessionId }, "Holiday calendar imported.");
+    await run("importSchoolHolidays", { pasted: csv }, "Holiday calendar imported.");
     setCalendarImportOpen(false);
   }
 
@@ -2710,39 +2737,47 @@ export function SchoolBoard() {
             ) : null}
 
             {tab === "calendar" ? (
-              <View className="mt-4 gap-3">
-                <View className={phone ? "gap-3" : "flex-row flex-wrap items-start justify-between gap-3"}>
-                  <View className={phone ? "" : "min-w-0 flex-1"}>
-                    <Text className="text-sm font-medium text-ink-900">Holiday calendar</Text>
-                    <Text className="mt-0.5 text-xs text-ink-700">
-                      Exam papers skip these days for {calendarSession?.label || "this session"}. Weekly offs stay on Clock.
-                    </Text>
+              <View className="mt-4 gap-4">
+                <View className="flex-row items-start justify-between gap-3">
+                  <View className="min-w-0 flex-1">
+                    <Text className="text-[17px] font-semibold text-ink-900">Holidays</Text>
+                    <Text className="mt-0.5 text-[12px] leading-4 text-ink-500">Exams and attendance skip these days. Weekly offs are set in Clock.</Text>
                   </View>
-                  <View className="flex-row items-center gap-2">
-                    <View className={phone ? "min-w-0 flex-1" : "w-56"}>
-                      <Dropdown
-                        value={activeCalendarSessionId}
-                        options={sessionOptions}
-                        placeholder="Pick session"
-                        onChange={setCalendarSessionId}
-                        className="w-full"
-                      />
-                    </View>
-                    {edit ? (
-                      <Button variant="ghost" onPress={() => setCalendarImportOpen(true)}>
-                        Import CSV
-                      </Button>
-                    ) : null}
-                  </View>
+                  {edit ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() => setCalendarImportOpen(true)}
+                      className="h-9 flex-row items-center gap-1.5 rounded-lg border border-ink-200 bg-white px-3 hover:bg-ink-50"
+                    >
+                      <Ionicons name="cloud-upload-outline" size={15} color="#334155" />
+                      <Text className="text-[13px] font-medium text-ink-800">Import</Text>
+                    </Pressable>
+                  ) : null}
                 </View>
 
-                <View className="rounded-2xl border border-ink-200 bg-white p-3">
-                  <Text className="mb-2 text-sm font-semibold text-ink-900">Add a holiday</Text>
+                <View className="rounded-2xl border border-[#DCE6FF] bg-[#F8FAFF] p-3.5">
+                  <View className="mb-3 flex-row items-center gap-2">
+                    <View className="h-7 w-7 items-center justify-center rounded-lg bg-[#1F45C7]">
+                      <Ionicons name="add" size={16} color="#fff" />
+                    </View>
+                    <Text className="text-[14px] font-semibold text-ink-900">Add a holiday</Text>
+                  </View>
                   <View className={phone ? "gap-3" : "flex-row flex-wrap items-end gap-3"}>
-                    <View className={phone ? "" : wide ? "w-44" : "min-w-[12rem] flex-1"}>
-                      <Field label="Date">
-                        <DateField value={holiday.date} placeholder="Pick date" onChange={(date) => setHoliday({ ...holiday, date })} />
-                      </Field>
+                    <View className={phone ? "flex-row gap-3" : "flex-row gap-3"}>
+                      <View className={phone ? "min-w-0 flex-1" : wide ? "w-44" : "min-w-[10rem] flex-1"}>
+                        <Field label="From">
+                          <DateField
+                            value={holiday.date}
+                            placeholder="Pick date"
+                            onChange={(date) => setHoliday({ ...holiday, date, toDate: holiday.toDate && holiday.toDate < date ? "" : holiday.toDate })}
+                          />
+                        </Field>
+                      </View>
+                      <View className={phone ? "min-w-0 flex-1" : wide ? "w-44" : "min-w-[10rem] flex-1"}>
+                        <Field label="To (optional)">
+                          <DateField value={holiday.toDate} placeholder="Same day" onChange={(toDate) => setHoliday({ ...holiday, toDate })} />
+                        </Field>
+                      </View>
                     </View>
                     <View className={phone ? "" : "min-w-[14rem] flex-1"}>
                       <Field label="Holiday name">
@@ -2752,59 +2787,99 @@ export function SchoolBoard() {
                     {edit ? (
                       <Button
                         className={phone ? "w-full" : undefined}
-                        disabled={!holiday.date || !holiday.name.trim()}
+                        disabled={!holiday.date || !holiday.name.trim() || Boolean(holiday.toDate && holiday.toDate < holiday.date)}
                         onPress={async () => {
-                          await run("addSchoolHoliday", { ...holiday, sessionId: activeCalendarSessionId }, "Holiday added.");
-                          setHoliday({ date: "", name: "" });
+                          // The school year comes from the date itself; the list then shows that year.
+                          try {
+                            const res = await act<{ sessionId?: string; label?: string }>(token, "addSchoolHoliday", { ...holiday, toDate: holiday.toDate || holiday.date });
+                            toast.show(`${rangeDays > 1 ? `${rangeDays} days of holiday added` : "Holiday added"}${res?.label ? ` to ${res.label}` : ""}.`);
+                            setHoliday({ date: "", toDate: "", name: "" });
+                            await reload();
+                          } catch (e) {
+                            toast.show(e instanceof Error ? e.message : "Could not save.");
+                          }
                         }}
                       >
-                        Add holiday
+                        {rangeDays > 1 ? `Add holiday (${rangeDays} days)` : "Add holiday"}
                       </Button>
                     ) : null}
                   </View>
                 </View>
 
                 {inSession.length ? (
-                  <View className="overflow-hidden rounded-2xl border border-ink-200 bg-white">
-                    <View className="flex-row items-center justify-between gap-2 border-b border-ink-100 bg-ink-50 px-3 py-2">
-                      <Text className="text-xs font-medium text-ink-700">{calendarSession?.label || "This session"}</Text>
-                      <Text className="text-xs text-ink-700">{inSession.length} day{inSession.length === 1 ? "" : "s"}</Text>
+                  <View className="gap-4">
+                  {holidayYears.map((year) => (
+                  <View key={year.label} className="gap-2">
+                    <View className="flex-row items-center justify-between px-1">
+                      <View className="flex-row items-center gap-2">
+                        <Text className="text-[12px] font-semibold uppercase tracking-wider text-ink-500">{year.label}</Text>
+                        {year.label === currentYear ? (
+                          <View className="rounded-full bg-emerald-50 px-2 py-0.5">
+                            <Text className="text-[10px] font-semibold text-emerald-700">This year</Text>
+                          </View>
+                        ) : null}
+                      </View>
+                      <Text className="text-[12px] text-ink-500">{`${year.groups.length} holiday${year.groups.length === 1 ? "" : "s"} · ${year.days} day${year.days === 1 ? "" : "s"}`}</Text>
                     </View>
-                    {inSession.map((h) => (
-                      <View key={h.id} className="flex-row items-center gap-3 border-b border-ink-100 px-3 py-2.5 last:border-b-0">
-                        <View className="h-11 w-11 items-center justify-center rounded-xl bg-amber-50">
-                          <Text className="text-[10px] font-semibold uppercase text-amber-800">
-                            {new Date(`${h.date.slice(0, 10)}T00:00:00`).toLocaleDateString("en-IN", { month: "short" })}
+                    <View className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
+                    {year.groups.map((h, i) => {
+                      const past = h.to < todayYmd;
+                      const next = h.ids[0] === nextHolidayId;
+                      return (
+                      <View key={h.ids[0]} className={`flex-row items-center gap-3 px-3.5 py-3 ${i ? "border-t border-ink-100" : ""} ${next ? "bg-amber-50/40" : ""}`}>
+                        <View className={`h-12 w-12 items-center justify-center rounded-xl ${past ? "bg-ink-50" : "bg-amber-50"}`}>
+                          <Text className={`text-[10px] font-semibold uppercase ${past ? "text-ink-400" : "text-amber-700"}`}>
+                            {new Date(`${h.from}T00:00:00`).toLocaleDateString("en-IN", { month: "short" })}
                           </Text>
-                          <Text className="text-base font-bold leading-5 text-amber-900">{Number(h.date.slice(8, 10))}</Text>
+                          <Text className={`text-[18px] font-bold leading-5 ${past ? "text-ink-400" : "text-amber-900"}`}>{Number(h.from.slice(8, 10))}</Text>
                         </View>
                         <View className="min-w-0 flex-1">
-                          <Text className="text-sm font-medium text-ink-900" numberOfLines={1}>{h.name}</Text>
-                          <Text className="text-xs text-ink-700">{prettyDay(h.date)}</Text>
+                          <View className="flex-row items-center gap-1.5">
+                            <Text className={`min-w-0 shrink text-[15px] font-semibold ${past ? "text-ink-500" : "text-ink-900"}`} numberOfLines={1}>{h.name}</Text>
+                            {next ? (
+                              <View className="rounded-full bg-amber-100 px-1.5 py-0.5">
+                                <Text className="text-[10px] font-semibold text-amber-800">Next</Text>
+                              </View>
+                            ) : null}
+                          </View>
+                          <View className="mt-0.5 flex-row items-center gap-1.5">
+                            <Text className="text-[12px] text-ink-500">{h.days > 1 ? `${prettyDay(h.from)} – ${prettyDay(h.to)}` : prettyDay(h.from)}</Text>
+                            {h.days > 1 ? (
+                              <View className="rounded-full bg-ink-100 px-1.5 py-0.5">
+                                <Text className="text-[10px] font-semibold text-ink-700">{`${h.days} days`}</Text>
+                              </View>
+                            ) : null}
+                          </View>
                         </View>
                         {edit ? (
                           <Pressable
                             accessibilityRole="button"
                             accessibilityLabel={`Remove ${h.name}`}
                             hitSlop={8}
-                            className="h-8 w-8 items-center justify-center"
-                            onPress={() => run("deleteSchoolHoliday", { id: h.id }, "Holiday removed.")}
+                            className="h-9 w-9 items-center justify-center rounded-lg hover:bg-red-50"
+                            onPress={() => run("deleteSchoolHoliday", { ids: h.ids }, h.days > 1 ? `${h.days} days removed.` : "Holiday removed.")}
                           >
-                            <Ionicons name="close-circle-outline" size={20} color="#b91c1c" />
+                            <Ionicons name="trash-outline" size={17} color="#b91c1c" />
                           </Pressable>
                         ) : null}
                       </View>
-                    ))}
+                      );
+                    })}
+                    </View>
+                  </View>
+                  ))}
                   </View>
                 ) : (
-                  <Text className="text-sm text-ink-700">
-                    No holidays yet. Import a calendar so Annual and Term papers jump over those days.
-                  </Text>
+                  <View className="items-center rounded-2xl border border-dashed border-ink-200 px-6 py-10">
+                    <Ionicons name="calendar-outline" size={28} color="#94A3B8" />
+                    <Text className="mt-2 text-[14px] font-semibold text-ink-800">No holidays yet</Text>
+                    <Text className="mt-1 text-center text-[12px] text-ink-500">Add them above, or import a calendar, so exams and attendance skip those days.</Text>
+                  </View>
                 )}
 
                 <Modal open={calendarImportOpen} title="Upload holiday CSV" onClose={() => setCalendarImportOpen(false)} wide>
                   <UploadCsvPanel
-                    description={`Upload holidays for ${calendarSession?.label || "this session"}.`}
+                    description="Upload holidays. Each date goes into its own school year."
                     requiredColumns="date, name"
                     note="No fixed column order needed. Existing holiday dates are skipped during import."
                     onBrowse={() => void uploadHolidayCsv()}
