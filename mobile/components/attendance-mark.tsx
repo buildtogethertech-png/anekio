@@ -29,7 +29,9 @@ export function AttendanceDots({
         const fill =
           dot.letter === "P"
             ? "bg-emerald-600"
-            : dot.letter === "A"
+            : dot.kind === "unmarked"
+              ? "bg-red-300"
+              : dot.letter === "A"
               ? "bg-red-600"
               : dot.kind === "late"
                 ? "bg-amber-500"

@@ -5744,6 +5744,8 @@ export function StaffBoard() {
   };
   const unmarked = locked ? 0 : staff.filter((p) => arrivalOf(p) !== "LEAVE" && !isMarked(p)).length;
   const leaveAsked = new Set(pendingWaiting.map((r) => r.subjectId));
+  // First day the school marked staff attendance in the app; empty days before it aren't "absent".
+  const staffStarted = staff.reduce((min, p) => (p.days ?? []).reduce((m, d) => (dayKey(d.date) && dayKey(d.date) < m ? dayKey(d.date) : m), min), "9999-12-31");
   const matchesFilter = (p: (typeof staff)[number]) => {
     if (!staffFilter) return true;
     if (staffFilter === "UNMARKED") return arrivalOf(p) !== "LEAVE" && !isMarked(p);
@@ -6346,7 +6348,14 @@ export function StaffBoard() {
           shown.map((p) => {
             const st = statusOf(p).toUpperCase();
             const overlay = locked ? undefined : st || undefined;
-            const dots = lastAttendanceDots(p.days ?? [], date, overlay, 7, calendar);
+            const onLeave = new Set((p.leaveDays ?? []).map((d) => dayKey(d.date)));
+            const joined = String(p.joinedOn || "").slice(0, 10);
+            // A past working day nobody marked is absent for staff: show a light "A".
+            const dots = lastAttendanceDots(p.days ?? [], date, overlay, 7, calendar).map((d) =>
+              d.date && !d.letter && !d.kind && d.date < today && d.date >= staffStarted && !onLeave.has(d.date) && !(joined && d.date < joined)
+                ? { ...d, letter: "A" as const, kind: "unmarked" }
+                : d
+            );
             const mark = (
               <View className="shrink-0 items-end gap-1">
                 {st === "LEAVE" ? (
