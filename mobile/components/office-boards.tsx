@@ -8,7 +8,7 @@ import { openInAppDoc } from "../lib/in-app-doc";
 import type { ReactNode } from "react";
 import { AdmissionKitModal } from "./admission-kit-modal";
 import { StudentSheet } from "./student-sheet";
-import { Alert, FlatList, Linking, Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { Alert, FlatList, Image, Linking, Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -55,6 +55,7 @@ import { ClassRollNumbers } from "./class-roll-numbers";
 import { AdhocInvoiceModal } from "./adhoc-invoice";
 import { openSalaryProof } from "./salary-pay-sheet";
 import { ReviseSalaryModal } from "./revise-salary";
+import { FillFieldScreen } from "./quick-fill";
 
 export const FeesBoard = RefactoredFeesBoard;
 
@@ -138,13 +139,27 @@ function SectionLabel({ children }: { children: string }) {
 }
 
 function FeeText({ label, tone }: { label?: string; tone?: string }) {
-  const color =
-    tone === "paid" ? "text-leaf-600" : tone === "overdue" ? "text-amber-800" : "text-amber-800";
-  const bg = tone === "paid" ? "bg-emerald-50" : tone === "overdue" ? "bg-amber-50" : "bg-orange-50";
-  if (!label) return null;
+  // Only dues are worth a badge; a paid-up row stays plain.
+  const color = tone === "overdue" ? "text-red-700" : "text-amber-800";
+  const bg = tone === "overdue" ? "bg-red-50" : "bg-amber-50";
+  if (!label || tone === "paid") return null;
   return (
     <View className={`shrink-0 rounded px-2 py-1 ${bg}`}>
       <Text className={`text-[11px] font-semibold ${color}`}>{label}</Text>
+    </View>
+  );
+}
+
+/** A student's photo when there is one, else their initials. */
+function StudentAvatar({ name, photo, size, on }: { name: string; photo?: string; size: number; on?: boolean }) {
+  const url = useAssetUrl(photo || null);
+  return (
+    <View style={{ width: size, height: size, borderRadius: size / 2 }} className={`items-center justify-center overflow-hidden ${on ? "bg-white" : "bg-[#EEF3FF]"}`}>
+      {url ? (
+        <Image source={{ uri: url }} resizeMode="cover" style={{ width: size, height: size }} />
+      ) : (
+        <Text style={{ fontSize: Math.round(size * 0.34) }} className="font-semibold text-[#1F45C7]">{initials(name)}</Text>
+      )}
     </View>
   );
 }
@@ -1295,6 +1310,9 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   const [add, setAdd] = useState<PeopleKind | null>(null);
   const phoneAdmit = width < 768;
   const [importOpen, setImportOpen] = useState(false);
+  const [quickFill, setQuickFill] = useState(false);
+  // Phone: the ⋯ menu (Import, Roll numbers) and the Sort picker open as bottom sheets.
+  const [phoneSheet, setPhoneSheet] = useState<"" | "more" | "sort">("");
   const [fileTab, setFileTab] = useState<StudentTab>(() => incomingTab);
   const [fileEdit, setFileEdit] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
@@ -1604,7 +1622,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   }
 
   const listTools = (
-    <View className="gap-3 p-3">
+    <View className={wide ? "gap-3 p-3" : "gap-3 px-5 pb-2 pt-3"}>
       {showStudents ? (
         <FilterBar
           searchPlaceholder="Search students"
@@ -1617,7 +1635,34 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       ) : (
         <Input placeholder="Search" value={q} onChangeText={setQ} className="border-ink-100 bg-ink-50" />
       )}
-      {showStudents ? (
+      {showStudents && !wide && can(user, "people.edit") ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => setQuickFill(true)}
+          className="flex-row items-center gap-3 rounded-2xl border border-ink-100 bg-[#F8FAFF] px-3 py-2.5 active:bg-[#EEF3FF]"
+        >
+          <View className="h-9 w-9 items-center justify-center rounded-xl bg-[#1F45C7]">
+            <Ionicons name="create-outline" size={17} color="#fff" />
+          </View>
+          <View className="min-w-0 flex-1">
+            <Text className="text-[14px] font-semibold text-ink-900">Fill a field</Text>
+            <Text numberOfLines={1} className="text-[11px] text-ink-500">Photo, Aadhaar, blood group… class-wise</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+        </Pressable>
+      ) : null}
+      {showStudents && !wide ? (
+        <View className="flex-row items-center justify-between">
+          <Text className="text-[13px] text-ink-500">{`${sortedStudents.length} student${sortedStudents.length === 1 ? "" : "s"}`}</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel="Sort students" onPress={() => setPhoneSheet("sort")} hitSlop={8} className="flex-row items-center gap-1">
+            <Ionicons name="swap-vertical" size={14} color="#64748b" />
+            <Text className="text-[13px] text-ink-700">
+              Sort: <Text className="font-semibold text-ink-900">{studentSort === "name" ? "Name" : studentSort === "roll" ? "Roll no." : studentSort === "class" ? "Class" : "Due"}</Text>
+            </Text>
+            <Ionicons name="chevron-down" size={14} color="#64748b" />
+          </Pressable>
+        </View>
+      ) : showStudents ? (
         <View className="flex-row flex-wrap items-center gap-1.5">
           <Text className="mr-0.5 text-xs text-ink-500">Sort</Text>
           {((!onlyCurrent ? ["name", "class", "due"] : ["name", "roll", "class", "due"]) as StudentSort[]).map((id) => (
@@ -3427,7 +3472,10 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
     ...(showParents ? filteredParents.map((item) => ({ kind: "parent" as const, item })) : []),
   ];
   const peopleList = (
-    <Card className={`min-h-0 overflow-hidden border-transparent shadow-sm ${wide ? "" : "flex-1"}`} style={wide ? { width: 372 } : undefined}>
+    <Card
+      className={wide ? "min-h-0 overflow-hidden border-transparent shadow-sm" : "-mx-6 min-h-0 flex-1 overflow-hidden rounded-none border-x-0 border-b-0 border-t-ink-100 shadow-none"}
+      style={wide ? { width: 372 } : undefined}
+    >
       {listTools}
       {listEmpty ? (
         <Text className="px-4 py-10 text-center text-sm text-ink-700">No people match that filter.</Text>
@@ -3451,16 +3499,16 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                 <Pressable
                   key={`student-${s.id}`}
                   onPress={() => selectStudent(s.id)}
-                  className={`mx-2 mb-1 flex-row items-center gap-3 rounded-md px-3 py-2.5 ${
-                    on ? "bg-blue-50" : "bg-white"
-                  }`}
+                  className={
+                    wide
+                      ? `mx-2 mb-1 flex-row items-center gap-3 rounded-md px-3 py-2.5 ${on ? "bg-blue-50" : "bg-white"}`
+                      : `flex-row items-center gap-3 border-b border-ink-50 px-5 py-3 active:bg-ink-50 ${on ? "bg-blue-50" : "bg-white"}`
+                  }
                 >
-                  <View className={`h-9 w-9 items-center justify-center rounded-full ${on ? "bg-white" : "bg-ink-100"}`}>
-                    <Text className="text-xs font-semibold text-ink-900">{initials(s.name)}</Text>
-                  </View>
+                  <StudentAvatar name={s.name} photo={s.admissionData?.studentPhoto} size={wide ? 36 : 42} on={on} />
                   <View className="min-w-0 flex-1">
-                    <Text className="font-medium text-ink-900" numberOfLines={1}>{s.name}</Text>
-                    <Text className="mt-0.5 text-xs text-ink-700">
+                    <Text className={`font-medium text-ink-900 ${wide ? "" : "text-[15px]"}`} numberOfLines={1}>{s.name}</Text>
+                    <Text className={`mt-0.5 ${wide ? "text-xs text-ink-700" : "text-[13px] text-ink-500"}`} numberOfLines={1}>
                       {studentMetaLine(s)}
                     </Text>
                   </View>
@@ -3644,7 +3692,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       <View className="mb-4 flex-row items-center justify-between gap-2">
         <View>
           <Text className="text-2xl font-semibold text-ink-900">{title}</Text>
-          <Text className="mt-1 text-xs text-ink-700">{visibleCount} {visibleNoun}{visibleCount === 1 ? "" : "s"} in view</Text>
+          {wide || !showStudents ? <Text className="mt-1 text-xs text-ink-700">{visibleCount} {visibleNoun}{visibleCount === 1 ? "" : "s"} in view</Text> : null}
         </View>
         <View className="flex-row flex-wrap items-center gap-2">
           {wide && showStudents ? (
@@ -3667,11 +3715,16 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
               })}
             </View>
           ) : null}
-          {can(user, "people.import") || can(user, "people.edit") ? (
+          {wide && (can(user, "people.import") || can(user, "people.edit")) ? (
             <HeaderButton icon="cloud-upload-outline" label="Import" onPress={() => setImportOpen(true)} />
           ) : null}
-          {canSetRolls ? <HeaderButton icon="list-outline" label="Roll numbers" onPress={() => setRollsOpen(true)} /> : null}
+          {wide && canSetRolls ? <HeaderButton icon="list-outline" label="Roll numbers" onPress={() => setRollsOpen(true)} /> : null}
           {canAddStudent ? <HeaderButton primary icon="add" label="Add student" onPress={() => setAdd("student")} /> : null}
+          {!wide && (can(user, "people.import") || can(user, "people.edit") || canSetRolls) ? (
+            <Pressable accessibilityRole="button" accessibilityLabel="More actions" onPress={() => setPhoneSheet("more")} className="h-9 w-9 items-center justify-center rounded-lg border border-ink-200 bg-white">
+              <Ionicons name="ellipsis-horizontal" size={18} color="#334155" />
+            </Pressable>
+          ) : null}
         </View>
       </View>
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
@@ -3692,6 +3745,74 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       <Sheet fixed={0.74} open={!wide && Boolean(picked)} onClose={() => setPicked(null)}>
         {FilePane({ bare: true })}
       </Sheet>
+      <RnModal visible={!wide && Boolean(phoneSheet)} transparent animationType="slide" onRequestClose={() => setPhoneSheet("")}>
+        <View className="flex-1 justify-end">
+          <Pressable accessibilityLabel="Close" className="absolute inset-0 bg-black/40" onPress={() => setPhoneSheet("")} />
+          <View className="rounded-t-3xl bg-white px-3 pb-8 pt-2">
+            <View className="mb-2 items-center">
+              <View className="h-1 w-10 rounded-full bg-ink-200" />
+            </View>
+            {phoneSheet === "sort" ? (
+              <>
+                <Text className="px-3 pb-2 text-[13px] font-semibold text-ink-500">Sort students by</Text>
+                {((!onlyCurrent ? ["name", "class", "due"] : ["name", "roll", "class", "due"]) as StudentSort[]).map((id) => {
+                  const on = studentSort === id;
+                  return (
+                    <Pressable
+                      key={id}
+                      accessibilityRole="radio"
+                      accessibilityState={{ checked: on }}
+                      onPress={() => {
+                        setStudentSort(id);
+                        setPhoneSheet("");
+                      }}
+                      className="h-12 flex-row items-center justify-between rounded-xl px-3 active:bg-ink-50"
+                    >
+                      <Text className={`text-[15px] ${on ? "font-semibold text-[#1F45C7]" : "text-ink-900"}`}>
+                        {id === "name" ? "Name" : id === "roll" ? "Roll no." : id === "class" ? "Class" : "Fees due"}
+                      </Text>
+                      {on ? <Ionicons name="checkmark" size={18} color="#1F45C7" /> : null}
+                    </Pressable>
+                  );
+                })}
+              </>
+            ) : (
+              ([
+                ...(can(user, "people.import") || can(user, "people.edit") ? [["cloud-upload-outline", "Import students", "From an Excel or CSV file", () => setImportOpen(true)] as const] : []),
+                ...(canSetRolls ? [["list-outline", "Roll numbers", "Set this class's roll numbers", () => setRollsOpen(true)] as const] : []),
+              ]).map(([icon, label, hint, fn]) => (
+                <Pressable
+                  key={label}
+                  onPress={() => {
+                    setPhoneSheet("");
+                    setTimeout(fn, Platform.OS === "ios" ? 400 : 0);
+                  }}
+                  className="flex-row items-center gap-3 rounded-xl px-3 py-3 active:bg-ink-50"
+                >
+                  <View className="h-10 w-10 items-center justify-center rounded-xl bg-[#EEF3FF]">
+                    <Ionicons name={icon} size={18} color="#1F45C7" />
+                  </View>
+                  <View className="min-w-0 flex-1">
+                    <Text className="text-[15px] font-medium text-ink-900">{label}</Text>
+                    <Text className="text-[12px] text-ink-500">{hint}</Text>
+                  </View>
+                </Pressable>
+              ))
+            )}
+          </View>
+        </View>
+      </RnModal>
+      <FillFieldScreen
+        open={quickFill}
+        students={currentPeople}
+        classes={(data?.classes ?? []).map((c) => ({ id: c.id, label: c.label }))}
+        form={data?.school?.admissionForm ?? []}
+        token={token}
+        onClose={(changed) => {
+          setQuickFill(false);
+          if (changed) void reload();
+        }}
+      />
 
       <RnModal visible={wide && tableView && drawerOpen && Boolean(picked)} transparent animationType="fade" onRequestClose={() => setDrawerOpen(false)}>
         <View className="flex-1 flex-row justify-end">

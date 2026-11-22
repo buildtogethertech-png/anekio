@@ -111,7 +111,7 @@ function check(col: Col, raw: string): { value: string; error?: string } {
   }
 }
 
-function buildCols(form: AdmissionFormField[], showFees: boolean): Col[] {
+function buildCols(form: AdmissionFormField[]): Col[] {
   const base: Col[] = [
     // Adm. no. and Student are the two fixed (sticky) columns; these follow.
     { key: "class", label: "Class", width: 72, icon: "school-outline", kind: "text", editable: false, read: (s) => s.classLabel || "" },
@@ -162,11 +162,8 @@ function buildCols(form: AdmissionFormField[], showFees: boolean): Col[] {
       read: (s) => s.admissionData?.[f.id] || "",
     });
   }
-  const fees: Col[] = showFees
-    ? [{ key: "due", label: "Fees", width: 124, icon: "wallet-outline", kind: "number", editable: false, read: (s) => s.feeLabel || "", sortValue: (s) => -(s.dueAmount || 0) }]
-    : [];
   // Documents go last by default; the person can reorder (Columns).
-  return [...photos, ...base, ...custom, ...fees, ...docs];
+  return [...photos, ...base, ...custom, ...docs];
 }
 
 const DEFAULT_HIDDEN = new Set(["address", "state"]);
@@ -177,7 +174,6 @@ const sticky = (left: number): ViewStyle =>
 export function StudentSheet({
   students,
   admissionForm,
-  showFees,
   canEdit,
   token,
   tools,
@@ -212,11 +208,11 @@ export function StudentSheet({
   }, [order]);
   // The person's order first; columns they haven't placed (new form fields) keep their default spot at the end.
   const allCols = useMemo(() => {
-    const built = buildCols(admissionForm, showFees);
+    const built = buildCols(admissionForm);
     if (!order.length) return built;
     const rank = new Map(order.map((k, i) => [k, i]));
     return [...built].sort((a, b) => (rank.get(a.key) ?? 1000 + built.indexOf(a)) - (rank.get(b.key) ?? 1000 + built.indexOf(b)));
-  }, [admissionForm, showFees, order]);
+  }, [admissionForm, order]);
   const [drag, setDrag] = useState<{ key: string; from: number; to: number; startY: number } | null>(null);
   const colList = useMemo(() => {
     if (!drag) return allCols;
