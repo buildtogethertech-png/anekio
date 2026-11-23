@@ -1,161 +1,192 @@
 {
-  "title": "Anekio",
-  "uid": "anekio-server",
-  "tags": [
-    "anekio"
-  ],
-  "timezone": "Asia/Kolkata",
-  "schemaVersion": 39,
-  "refresh": "1m",
-  "time": {
-    "from": "now-3h",
-    "to": "now"
-  },
-  "graphTooltip": 1,
-  "editable": true,
-  "templating": {
+  "annotations": {
     "list": [
       {
-        "name": "prom",
-        "type": "datasource",
-        "query": "prometheus",
-        "regex": "/-prom$/",
-        "hide": 2,
-        "current": {}
-      },
-      {
-        "name": "loki",
-        "type": "datasource",
-        "query": "loki",
-        "regex": "/-logs$/",
-        "hide": 2,
-        "current": {}
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
       }
     ]
   },
   "description": "One page: server, database, traffic, app. Data from Grafana Alloy (deploy/server/config.alloy).",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
   "panels": [
     {
-      "id": 1,
-      "title": "Server",
-      "type": "stat",
       "datasource": {
         "type": "prometheus",
         "uid": "${prom}"
       },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "red",
+                  "index": 0,
+                  "text": "DOWN"
+                },
+                "1": {
+                  "color": "green",
+                  "index": 1,
+                  "text": "UP"
+                }
+              },
+              "type": "value"
+            },
+            {
+              "options": {
+                "match": "null",
+                "result": {
+                  "color": "red",
+                  "index": 2,
+                  "text": "DOWN"
+                }
+              },
+              "type": "special"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
       "gridPos": {
-        "x": 0,
-        "y": 0,
+        "h": 4,
         "w": 3,
-        "h": 4
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value"
       },
       "targets": [
         {
-          "refId": "A",
           "datasource": {
             "type": "prometheus",
             "uid": "${prom}"
           },
           "expr": "max(up{job=\"integrations/node_exporter\",instance=\"anekio-prod\"})",
           "instant": true,
-          "range": false
+          "range": false,
+          "refId": "A"
         }
       ],
+      "title": "Server",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prom}"
+      },
       "fieldConfig": {
         "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
+              },
+              {
+                "color": "orange",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 90
               }
             ]
           },
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [
-            {
-              "type": "value",
-              "options": {
-                "0": {
-                  "text": "DOWN",
-                  "color": "red",
-                  "index": 0
-                },
-                "1": {
-                  "text": "UP",
-                  "color": "green",
-                  "index": 1
-                }
-              }
-            },
-            {
-              "type": "special",
-              "options": {
-                "match": "null",
-                "result": {
-                  "text": "DOWN",
-                  "color": "red",
-                  "index": 2
-                }
-              }
-            }
-          ]
+          "unit": "percent"
         },
         "overrides": []
       },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 3,
+        "y": 0
+      },
+      "id": 2,
       "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
           ]
         },
-        "colorMode": "background",
-        "graphMode": "none",
-        "textMode": "value",
-        "justifyMode": "center"
-      }
-    },
-    {
-      "id": 2,
-      "title": "CPU",
-      "type": "stat",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${prom}"
-      },
-      "gridPos": {
-        "x": 3,
-        "y": 0,
-        "w": 4,
-        "h": 4
+        "textMode": "value"
       },
       "targets": [
         {
-          "refId": "A",
           "datasource": {
             "type": "prometheus",
             "uid": "${prom}"
           },
           "expr": "100 - avg(rate(node_cpu_seconds_total{mode=\"idle\",instance=\"anekio-prod\"}[5m])) * 100",
           "instant": true,
-          "range": false
+          "range": false,
+          "refId": "A"
         }
       ],
+      "title": "CPU",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prom}"
+      },
       "fieldConfig": {
         "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "orange",
-                "value": 70
+                "value": 75
               },
               {
                 "color": "red",
@@ -163,60 +194,59 @@
               }
             ]
           },
-          "color": {
-            "mode": "thresholds"
-          },
-          "unit": "percent",
-          "decimals": 0
+          "unit": "percent"
         },
         "overrides": []
       },
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 7,
+        "y": 0
+      },
+      "id": 3,
       "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
           ]
         },
-        "colorMode": "background",
-        "graphMode": "none",
-        "textMode": "value",
-        "justifyMode": "center"
-      }
-    },
-    {
-      "id": 3,
-      "title": "RAM",
-      "type": "stat",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${prom}"
-      },
-      "gridPos": {
-        "x": 7,
-        "y": 0,
-        "w": 3,
-        "h": 4
+        "textMode": "value"
       },
       "targets": [
         {
-          "refId": "A",
           "datasource": {
             "type": "prometheus",
             "uid": "${prom}"
           },
           "expr": "max((1 - node_memory_MemAvailable_bytes{instance=\"anekio-prod\"} / node_memory_MemTotal_bytes{instance=\"anekio-prod\"}) * 100)",
           "instant": true,
-          "range": false
+          "range": false,
+          "refId": "A"
         }
       ],
+      "title": "RAM",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prom}"
+      },
       "fieldConfig": {
         "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "orange",
@@ -228,208 +258,141 @@
               }
             ]
           },
-          "color": {
-            "mode": "thresholds"
-          },
-          "unit": "percent",
-          "decimals": 0
+          "unit": "percent"
         },
         "overrides": []
       },
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 10,
+        "y": 0
+      },
+      "id": 4,
       "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
           ]
         },
-        "colorMode": "background",
-        "graphMode": "none",
-        "textMode": "value",
-        "justifyMode": "center"
-      }
-    },
-    {
-      "id": 4,
-      "title": "Disk",
-      "type": "stat",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${prom}"
-      },
-      "gridPos": {
-        "x": 10,
-        "y": 0,
-        "w": 3,
-        "h": 4
+        "textMode": "value"
       },
       "targets": [
         {
-          "refId": "A",
           "datasource": {
             "type": "prometheus",
             "uid": "${prom}"
           },
           "expr": "max((1 - node_filesystem_avail_bytes{mountpoint=\"/\",instance=\"anekio-prod\"} / node_filesystem_size_bytes{mountpoint=\"/\",instance=\"anekio-prod\"}) * 100)",
           "instant": true,
-          "range": false
+          "range": false,
+          "refId": "A"
         }
       ],
+      "title": "Disk",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prom}"
+      },
       "fieldConfig": {
         "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "red",
+                  "index": 0,
+                  "text": "DOWN"
+                },
+                "1": {
+                  "color": "green",
+                  "index": 1,
+                  "text": "UP"
+                }
+              },
+              "type": "value"
+            },
+            {
+              "options": {
+                "match": "null",
+                "result": {
+                  "color": "red",
+                  "index": 2,
+                  "text": "DOWN"
+                }
+              },
+              "type": "special"
+            }
+          ],
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 75
-              },
-              {
-                "color": "red",
-                "value": 90
+                "color": "green"
               }
             ]
-          },
-          "color": {
-            "mode": "thresholds"
-          },
-          "unit": "percent",
-          "decimals": 0
+          }
         },
         "overrides": []
       },
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 13,
+        "y": 0
+      },
+      "id": 5,
       "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
           ]
         },
-        "colorMode": "background",
-        "graphMode": "none",
-        "textMode": "value",
-        "justifyMode": "center"
-      }
-    },
-    {
-      "id": 5,
-      "title": "Database",
-      "type": "stat",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${prom}"
-      },
-      "gridPos": {
-        "x": 13,
-        "y": 0,
-        "w": 3,
-        "h": 4
+        "textMode": "value"
       },
       "targets": [
         {
-          "refId": "A",
           "datasource": {
             "type": "prometheus",
             "uid": "${prom}"
           },
           "expr": "max(pg_up{instance=\"anekio-prod-db\"})",
           "instant": true,
-          "range": false
+          "range": false,
+          "refId": "A"
         }
       ],
-      "fieldConfig": {
-        "defaults": {
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [
-            {
-              "type": "value",
-              "options": {
-                "0": {
-                  "text": "DOWN",
-                  "color": "red",
-                  "index": 0
-                },
-                "1": {
-                  "text": "UP",
-                  "color": "green",
-                  "index": 1
-                }
-              }
-            },
-            {
-              "type": "special",
-              "options": {
-                "match": "null",
-                "result": {
-                  "text": "DOWN",
-                  "color": "red",
-                  "index": 2
-                }
-              }
-            }
-          ]
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "background",
-        "graphMode": "none",
-        "textMode": "value",
-        "justifyMode": "center"
-      }
+      "title": "Database",
+      "type": "stat"
     },
     {
-      "id": 26,
-      "title": "DB CPU",
-      "type": "stat",
       "datasource": {
         "type": "prometheus",
         "uid": "${prom}"
       },
-      "gridPos": {
-        "x": 16,
-        "y": 0,
-        "w": 4,
-        "h": 4
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${prom}"
-          },
-          "expr": "max(aws_rds_cpuutilization_average{dimension_DBInstanceIdentifier=\"anekio-prod-db\"})",
-          "instant": true,
-          "range": false
-        }
-      ],
       "fieldConfig": {
         "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "orange",
@@ -441,39 +404,134 @@
               }
             ]
           },
-          "color": {
-            "mode": "thresholds"
-          },
-          "unit": "percent",
-          "decimals": 0
+          "unit": "percent"
         },
         "overrides": []
       },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 0
+      },
+      "id": 26,
       "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
           ]
         },
-        "colorMode": "background",
-        "graphMode": "none",
-        "textMode": "value",
-        "justifyMode": "center"
-      }
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prom}"
+          },
+          "expr": "max(aws_rds_cpuutilization_average{dimension_DBInstanceIdentifier=\"anekio-prod-db\"})",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "DB CPU",
+      "type": "stat"
     },
     {
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 0
+      },
       "id": 6,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "sum(count_over_time({job=\"anekio-nginx\"} | json status=\"status\" | status >= 500 [$__range])) or vector(0)",
+          "queryType": "instant",
+          "refId": "A"
+        }
+      ],
       "title": "Errors (5xx)",
-      "type": "stat",
+      "type": "stat"
+    },
+    {
+      "type": "row",
+      "id": 37,
+      "title": "🔎  Log search (type in “Search logs” above)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "panels": []
+    },
+    {
+      "type": "logs",
+      "id": 38,
+      "title": "Matching log lines",
       "datasource": {
         "type": "loki",
         "uid": "${loki}"
       },
       "gridPos": {
-        "x": 20,
-        "y": 0,
-        "w": 4,
-        "h": 4
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "dedupStrategy": "none"
       },
       "targets": [
         {
@@ -482,105 +540,391 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "sum(count_over_time({job=\"anekio-nginx\"} | json status=\"status\" | status >= 500 [$__range])) or vector(0)",
-          "queryType": "instant"
+          "expr": "{job=~\"anekio-app|anekio-app-error|anekio-cron\"} |~ \"(?i)${search:regex}\"",
+          "queryType": "range",
+          "maxLines": 500
         }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 1
-              }
-            ]
-          },
-          "color": {
-            "mode": "thresholds"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "background",
-        "graphMode": "none",
-        "textMode": "value",
-        "justifyMode": "center"
-      }
+      ]
     },
     {
-      "id": 10,
       "type": "row",
-      "title": "\ud83d\udda5\ufe0f  EC2 server",
+      "id": 39,
+      "title": "📍  GPS check-in failures",
       "collapsed": true,
       "gridPos": {
-        "x": 0,
-        "y": 4,
+        "h": 1,
         "w": 24,
-        "h": 1
+        "x": 0,
+        "y": 18
       },
       "panels": [
         {
-          "id": 7,
-          "title": "CPU %",
-          "type": "timeseries",
+          "type": "stat",
+          "id": 40,
+          "title": "Failed GPS marks",
           "datasource": {
-            "type": "prometheus",
-            "uid": "${prom}"
+            "type": "loki",
+            "uid": "${loki}"
           },
           "gridPos": {
+            "h": 6,
+            "w": 4,
             "x": 0,
-            "y": 5,
-            "w": 8,
-            "h": 7
+            "y": 19
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
           },
           "targets": [
             {
               "refId": "A",
+              "datasource": {
+                "type": "loki",
+                "uid": "${loki}"
+              },
+              "expr": "sum(count_over_time({job=\"anekio-app-error\"} | json msg=\"msg\", reason=\"reason\", school=\"school\", platform=\"platform\" | msg=~\"geo_.*\" [$__range])) or vector(0)",
+              "queryType": "instant"
+            }
+          ]
+        },
+        {
+          "type": "table",
+          "id": 41,
+          "title": "By reason",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 7,
+            "x": 4,
+            "y": 19
+          },
+          "options": {
+            "showHeader": true,
+            "sortBy": [
+              {
+                "displayName": "Failures",
+                "desc": true
+              }
+            ]
+          },
+          "transformations": [
+            {
+              "id": "reduce",
+              "options": {
+                "reducers": [
+                  "lastNotNull"
+                ],
+                "mode": "seriesToRows"
+              }
+            },
+            {
+              "id": "organize",
+              "options": {
+                "renameByName": {
+                  "Field": "Reason",
+                  "Last *": "Failures",
+                  "Last": "Failures"
+                }
+              }
+            }
+          ],
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "loki",
+                "uid": "${loki}"
+              },
+              "expr": "sum by (reason) (count_over_time({job=\"anekio-app-error\"} | json msg=\"msg\", reason=\"reason\", school=\"school\", platform=\"platform\" | msg=~\"geo_.*\" [$__range]))",
+              "queryType": "instant",
+              "legendFormat": "{{reason}}"
+            }
+          ]
+        },
+        {
+          "type": "table",
+          "id": 42,
+          "title": "By school",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 7,
+            "x": 11,
+            "y": 19
+          },
+          "options": {
+            "showHeader": true,
+            "sortBy": [
+              {
+                "displayName": "Failures",
+                "desc": true
+              }
+            ]
+          },
+          "transformations": [
+            {
+              "id": "reduce",
+              "options": {
+                "reducers": [
+                  "lastNotNull"
+                ],
+                "mode": "seriesToRows"
+              }
+            },
+            {
+              "id": "organize",
+              "options": {
+                "renameByName": {
+                  "Field": "School",
+                  "Last *": "Failures",
+                  "Last": "Failures"
+                }
+              }
+            }
+          ],
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "loki",
+                "uid": "${loki}"
+              },
+              "expr": "sum by (school) (count_over_time({job=\"anekio-app-error\"} | json msg=\"msg\", reason=\"reason\", school=\"school\", platform=\"platform\" | msg=~\"geo_.*\" [$__range]))",
+              "queryType": "instant",
+              "legendFormat": "{{school}}"
+            }
+          ]
+        },
+        {
+          "type": "table",
+          "id": 43,
+          "title": "By phone",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 6,
+            "x": 18,
+            "y": 19
+          },
+          "options": {
+            "showHeader": true,
+            "sortBy": [
+              {
+                "displayName": "Failures",
+                "desc": true
+              }
+            ]
+          },
+          "transformations": [
+            {
+              "id": "reduce",
+              "options": {
+                "reducers": [
+                  "lastNotNull"
+                ],
+                "mode": "seriesToRows"
+              }
+            },
+            {
+              "id": "organize",
+              "options": {
+                "renameByName": {
+                  "Field": "Platform",
+                  "Last *": "Failures",
+                  "Last": "Failures"
+                }
+              }
+            }
+          ],
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "loki",
+                "uid": "${loki}"
+              },
+              "expr": "sum by (platform) (count_over_time({job=\"anekio-app-error\"} | json msg=\"msg\", reason=\"reason\", school=\"school\", platform=\"platform\" | msg=~\"geo_.*\" [$__range]))",
+              "queryType": "instant",
+              "legendFormat": "{{platform}}"
+            }
+          ]
+        },
+        {
+          "type": "logs",
+          "id": 44,
+          "title": "GPS failure lines (reason, accuracy ±m, distance, school, phone, build)",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "gridPos": {
+            "h": 10,
+            "w": 24,
+            "x": 0,
+            "y": 25
+          },
+          "options": {
+            "showTime": true,
+            "wrapLogMessage": true,
+            "sortOrder": "Descending",
+            "enableLogDetails": true,
+            "dedupStrategy": "none"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "loki",
+                "uid": "${loki}"
+              },
+              "expr": "{job=\"anekio-app-error\"} |= \"geo_\"",
+              "queryType": "range"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 19
+      },
+      "id": 10,
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prom}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "fillOpacity": 15,
+                "lineWidth": 2,
+                "showPoints": "never"
+              },
+              "max": 100,
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  }
+                ]
+              },
+              "unit": "percent"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 0,
+            "y": 5
+          },
+          "id": 7,
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": false
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
               "datasource": {
                 "type": "prometheus",
                 "uid": "${prom}"
               },
               "expr": "100 - avg(rate(node_cpu_seconds_total{mode=\"idle\",instance=\"anekio-prod\"}[5m])) * 100",
-              "legendFormat": "CPU"
+              "legendFormat": "CPU",
+              "refId": "A"
             }
           ],
+          "title": "CPU %",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prom}"
+          },
           "fieldConfig": {
             "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              },
               "color": {
                 "mode": "palette-classic"
               },
-              "unit": "percent",
-              "min": 0,
-              "max": 100,
               "custom": {
                 "fillOpacity": 15,
                 "lineWidth": 2,
                 "showPoints": "never"
-              }
+              },
+              "max": 100,
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  }
+                ]
+              },
+              "unit": "percent"
             },
             "overrides": []
           },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 8,
+            "y": 5
+          },
+          "id": 8,
           "options": {
             "legend": {
               "displayMode": "list",
@@ -590,58 +934,55 @@
             "tooltip": {
               "mode": "multi"
             }
-          }
-        },
-        {
-          "id": 8,
-          "title": "RAM %",
-          "type": "timeseries",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${prom}"
-          },
-          "gridPos": {
-            "x": 8,
-            "y": 5,
-            "w": 8,
-            "h": 7
           },
           "targets": [
             {
-              "refId": "A",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${prom}"
               },
               "expr": "max((1 - node_memory_MemAvailable_bytes{instance=\"anekio-prod\"} / node_memory_MemTotal_bytes{instance=\"anekio-prod\"}) * 100)",
-              "legendFormat": "RAM"
+              "legendFormat": "RAM",
+              "refId": "A"
             }
           ],
+          "title": "RAM %",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prom}"
+          },
           "fieldConfig": {
             "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              },
               "color": {
                 "mode": "palette-classic"
               },
-              "unit": "percent",
-              "min": 0,
-              "max": 100,
               "custom": {
                 "fillOpacity": 15,
                 "lineWidth": 2,
                 "showPoints": "never"
-              }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  }
+                ]
+              },
+              "unit": "Bps"
             },
             "overrides": []
           },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 16,
+            "y": 5
+          },
+          "id": 9,
           "options": {
             "legend": {
               "displayMode": "list",
@@ -651,174 +992,110 @@
             "tooltip": {
               "mode": "multi"
             }
-          }
-        },
-        {
-          "id": 9,
-          "title": "Network",
-          "type": "timeseries",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${prom}"
-          },
-          "gridPos": {
-            "x": 16,
-            "y": 5,
-            "w": 8,
-            "h": 7
           },
           "targets": [
             {
-              "refId": "A",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${prom}"
               },
               "expr": "sum(rate(node_network_receive_bytes_total{device!=\"lo\",instance=\"anekio-prod\"}[5m])) or vector(0)",
-              "legendFormat": "in"
+              "legendFormat": "in",
+              "refId": "A"
             }
           ],
+          "title": "Network",
+          "type": "timeseries"
+        }
+      ],
+      "title": "🖥️  EC2 server",
+      "type": "row"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 20
+      },
+      "id": 16,
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prom}"
+          },
           "fieldConfig": {
             "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              },
               "color": {
                 "mode": "palette-classic"
               },
-              "unit": "Bps",
               "custom": {
                 "fillOpacity": 15,
                 "lineWidth": 2,
                 "showPoints": "never"
-              }
+              },
+              "max": 100,
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  }
+                ]
+              },
+              "unit": "percent"
             },
             "overrides": []
           },
+          "gridPos": {
+            "h": 7,
+            "w": 16,
+            "x": 0,
+            "y": 6
+          },
+          "id": 27,
           "options": {
             "legend": {
-              "displayMode": "list",
-              "placement": "bottom",
               "showLegend": false
             },
             "tooltip": {
               "mode": "multi"
             }
-          }
-        }
-      ]
-    },
-    {
-      "id": 16,
-      "type": "row",
-      "title": "\ud83d\udc18  RDS database",
-      "collapsed": true,
-      "gridPos": {
-        "x": 0,
-        "y": 5,
-        "w": 24,
-        "h": 1
-      },
-      "panels": [
-        {
-          "id": 27,
-          "title": "DB CPU %",
-          "type": "timeseries",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${prom}"
-          },
-          "gridPos": {
-            "x": 0,
-            "y": 6,
-            "w": 16,
-            "h": 7
           },
           "targets": [
             {
-              "refId": "A",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${prom}"
               },
               "expr": "max(aws_rds_cpuutilization_average{dimension_DBInstanceIdentifier=\"anekio-prod-db\"})",
-              "legendFormat": "CPU"
+              "legendFormat": "CPU",
+              "refId": "A"
             }
           ],
-          "fieldConfig": {
-            "defaults": {
-              "unit": "percent",
-              "min": 0,
-              "max": 100,
-              "custom": {
-                "fillOpacity": 15,
-                "lineWidth": 2,
-                "showPoints": "never"
-              },
-              "color": {
-                "mode": "palette-classic"
-              },
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              }
-            },
-            "overrides": []
-          },
-          "options": {
-            "legend": {
-              "showLegend": false
-            },
-            "tooltip": {
-              "mode": "multi"
-            }
-          }
+          "title": "DB CPU %",
+          "type": "timeseries"
         },
         {
-          "id": 28,
-          "title": "CPU credits left",
-          "type": "stat",
           "datasource": {
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "gridPos": {
-            "x": 16,
-            "y": 6,
-            "w": 8,
-            "h": 7
-          },
-          "targets": [
-            {
-              "refId": "A",
-              "datasource": {
-                "type": "prometheus",
-                "uid": "${prom}"
-              },
-              "expr": "max(aws_rds_cpucredit_balance_average{dimension_DBInstanceIdentifier=\"anekio-prod-db\"})",
-              "instant": true,
-              "range": false
-            }
-          ],
+          "description": "RDS t4g runs in unlimited mode: below 0 it keeps full speed but AWS bills extra CPU.",
           "fieldConfig": {
             "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "decimals": 0,
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "red",
-                    "value": null
+                    "color": "red"
                   },
                   {
                     "color": "orange",
@@ -829,61 +1106,59 @@
                     "value": 10
                   }
                 ]
-              },
-              "color": {
-                "mode": "thresholds"
-              },
-              "decimals": 0
+              }
             },
             "overrides": []
           },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 16,
+            "y": 6
+          },
+          "id": 28,
           "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "center",
             "reduceOptions": {
               "calcs": [
                 "lastNotNull"
               ]
             },
-            "colorMode": "value",
-            "graphMode": "none",
-            "textMode": "value",
-            "justifyMode": "center"
-          },
-          "description": "RDS t4g runs in unlimited mode: below 0 it keeps full speed but AWS bills extra CPU."
-        },
-        {
-          "id": 29,
-          "title": "DB free memory",
-          "type": "stat",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${prom}"
-          },
-          "gridPos": {
-            "x": 0,
-            "y": 13,
-            "w": 12,
-            "h": 4
+            "textMode": "value"
           },
           "targets": [
             {
-              "refId": "A",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${prom}"
               },
-              "expr": "max(aws_rds_freeable_memory_average{dimension_DBInstanceIdentifier=\"anekio-prod-db\"})",
+              "expr": "max(aws_rds_cpucredit_balance_average{dimension_DBInstanceIdentifier=\"anekio-prod-db\"})",
               "instant": true,
-              "range": false
+              "range": false,
+              "refId": "A"
             }
           ],
+          "title": "CPU credits left",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prom}"
+          },
+          "description": "1 GB instance; Postgres keeps most of it as cache, so ~100 MB free is normal.",
           "fieldConfig": {
             "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "red",
-                    "value": null
+                    "color": "red"
                   },
                   {
                     "color": "orange",
@@ -895,60 +1170,58 @@
                   }
                 ]
               },
-              "color": {
-                "mode": "thresholds"
-              },
               "unit": "bytes"
             },
             "overrides": []
           },
+          "gridPos": {
+            "h": 4,
+            "w": 12,
+            "x": 0,
+            "y": 13
+          },
+          "id": 29,
           "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "center",
             "reduceOptions": {
               "calcs": [
                 "lastNotNull"
               ]
             },
-            "colorMode": "value",
-            "graphMode": "none",
-            "textMode": "value",
-            "justifyMode": "center"
-          },
-          "description": "1 GB instance; Postgres keeps most of it as cache, so ~100 MB free is normal."
-        },
-        {
-          "id": 30,
-          "title": "DB free storage",
-          "type": "stat",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${prom}"
-          },
-          "gridPos": {
-            "x": 12,
-            "y": 13,
-            "w": 12,
-            "h": 4
+            "textMode": "value"
           },
           "targets": [
             {
-              "refId": "A",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${prom}"
               },
-              "expr": "max(aws_rds_free_storage_space_average{dimension_DBInstanceIdentifier=\"anekio-prod-db\"})",
+              "expr": "max(aws_rds_freeable_memory_average{dimension_DBInstanceIdentifier=\"anekio-prod-db\"})",
               "instant": true,
-              "range": false
+              "range": false,
+              "refId": "A"
             }
           ],
+          "title": "DB free memory",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prom}"
+          },
           "fieldConfig": {
             "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "red",
-                    "value": null
+                    "color": "red"
                   },
                   {
                     "color": "orange",
@@ -960,59 +1233,58 @@
                   }
                 ]
               },
-              "color": {
-                "mode": "thresholds"
-              },
               "unit": "bytes"
             },
             "overrides": []
           },
+          "gridPos": {
+            "h": 4,
+            "w": 12,
+            "x": 12,
+            "y": 13
+          },
+          "id": 30,
           "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "center",
             "reduceOptions": {
               "calcs": [
                 "lastNotNull"
               ]
             },
-            "colorMode": "value",
-            "graphMode": "none",
-            "textMode": "value",
-            "justifyMode": "center"
-          }
-        },
-        {
-          "id": 11,
-          "title": "Connections",
-          "type": "stat",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${prom}"
-          },
-          "gridPos": {
-            "x": 0,
-            "y": 17,
-            "w": 6,
-            "h": 4
+            "textMode": "value"
           },
           "targets": [
             {
-              "refId": "A",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${prom}"
               },
-              "expr": "sum(pg_stat_database_numbackends{datname=\"anekio\",instance=\"anekio-prod-db\"})",
+              "expr": "max(aws_rds_free_storage_space_average{dimension_DBInstanceIdentifier=\"anekio-prod-db\"})",
               "instant": true,
-              "range": false
+              "range": false,
+              "refId": "A"
             }
           ],
+          "title": "DB free storage",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prom}"
+          },
           "fieldConfig": {
             "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green",
-                    "value": null
+                    "color": "green"
                   },
                   {
                     "color": "orange",
@@ -1023,245 +1295,246 @@
                     "value": 80
                   }
                 ]
-              },
-              "color": {
-                "mode": "thresholds"
               }
             },
             "overrides": []
           },
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 0,
+            "y": 17
+          },
+          "id": 11,
           "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "center",
             "reduceOptions": {
               "calcs": [
                 "lastNotNull"
               ]
             },
-            "colorMode": "value",
-            "graphMode": "none",
-            "textMode": "value",
-            "justifyMode": "center"
-          }
+            "textMode": "value"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${prom}"
+              },
+              "expr": "sum(pg_stat_database_numbackends{datname=\"anekio\",instance=\"anekio-prod-db\"})",
+              "instant": true,
+              "range": false,
+              "refId": "A"
+            }
+          ],
+          "title": "Connections",
+          "type": "stat"
         },
         {
-          "id": 12,
-          "title": "Size",
-          "type": "stat",
           "datasource": {
             "type": "prometheus",
             "uid": "${prom}"
           },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  }
+                ]
+              },
+              "unit": "bytes"
+            },
+            "overrides": []
+          },
           "gridPos": {
-            "x": 6,
-            "y": 17,
+            "h": 4,
             "w": 6,
-            "h": 4
+            "x": 6,
+            "y": 17
+          },
+          "id": 12,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "center",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "textMode": "value"
           },
           "targets": [
             {
-              "refId": "A",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${prom}"
               },
               "expr": "max(pg_database_size_bytes{datname=\"anekio\",instance=\"anekio-prod-db\"})",
               "instant": true,
-              "range": false
+              "range": false,
+              "refId": "A"
             }
           ],
+          "title": "Size",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prom}"
+          },
           "fieldConfig": {
             "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "decimals": 1,
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green",
-                    "value": null
+                    "color": "green"
                   }
                 ]
               },
-              "color": {
-                "mode": "thresholds"
-              },
-              "unit": "bytes"
+              "unit": "percentunit"
             },
             "overrides": []
           },
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 12,
+            "y": 17
+          },
+          "id": 13,
           "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "center",
             "reduceOptions": {
               "calcs": [
                 "lastNotNull"
               ]
             },
-            "colorMode": "value",
-            "graphMode": "none",
-            "textMode": "value",
-            "justifyMode": "center"
-          }
-        },
-        {
-          "id": 13,
-          "title": "Cache hit",
-          "type": "stat",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${prom}"
-          },
-          "gridPos": {
-            "x": 12,
-            "y": 17,
-            "w": 6,
-            "h": 4
+            "textMode": "value"
           },
           "targets": [
             {
-              "refId": "A",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${prom}"
               },
               "expr": "sum(rate(pg_stat_database_blks_hit{datname=\"anekio\",instance=\"anekio-prod-db\"}[1h])) / clamp_min(sum(rate(pg_stat_database_blks_hit{datname=\"anekio\",instance=\"anekio-prod-db\"}[1h])) + sum(rate(pg_stat_database_blks_read{datname=\"anekio\",instance=\"anekio-prod-db\"}[1h])), 1)",
               "instant": true,
-              "range": false
+              "range": false,
+              "refId": "A"
             }
           ],
-          "fieldConfig": {
-            "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              },
-              "color": {
-                "mode": "thresholds"
-              },
-              "unit": "percentunit",
-              "decimals": 1
-            },
-            "overrides": []
-          },
-          "options": {
-            "reduceOptions": {
-              "calcs": [
-                "lastNotNull"
-              ]
-            },
-            "colorMode": "value",
-            "graphMode": "none",
-            "textMode": "value",
-            "justifyMode": "center"
-          }
+          "title": "Cache hit",
+          "type": "stat"
         },
         {
-          "id": 14,
-          "title": "Deadlocks (24h)",
-          "type": "stat",
           "datasource": {
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "gridPos": {
-            "x": 18,
-            "y": 17,
-            "w": 6,
-            "h": 4
-          },
-          "targets": [
-            {
-              "refId": "A",
-              "datasource": {
-                "type": "prometheus",
-                "uid": "${prom}"
-              },
-              "expr": "max(increase(pg_stat_database_deadlocks{datname=\"anekio\",instance=\"anekio-prod-db\"}[24h])) or vector(0)",
-              "instant": true,
-              "range": false
-            }
-          ],
           "fieldConfig": {
             "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green",
-                    "value": null
+                    "color": "green"
                   },
                   {
                     "color": "red",
                     "value": 1
                   }
                 ]
-              },
-              "color": {
-                "mode": "thresholds"
               }
             },
             "overrides": []
           },
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 18,
+            "y": 17
+          },
+          "id": 14,
           "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "center",
             "reduceOptions": {
               "calcs": [
                 "lastNotNull"
               ]
             },
-            "colorMode": "value",
-            "graphMode": "none",
-            "textMode": "value",
-            "justifyMode": "center"
-          }
-        },
-        {
-          "id": 15,
-          "title": "Queries / sec",
-          "type": "timeseries",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${prom}"
-          },
-          "gridPos": {
-            "x": 0,
-            "y": 21,
-            "w": 24,
-            "h": 6
+            "textMode": "value"
           },
           "targets": [
             {
-              "refId": "A",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${prom}"
               },
-              "expr": "sum(rate(pg_stat_database_xact_commit{datname=\"anekio\",instance=\"anekio-prod-db\"}[5m]))",
-              "legendFormat": "transactions"
+              "expr": "max(increase(pg_stat_database_deadlocks{datname=\"anekio\",instance=\"anekio-prod-db\"}[24h])) or vector(0)",
+              "instant": true,
+              "range": false,
+              "refId": "A"
             }
           ],
+          "title": "Deadlocks (24h)",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prom}"
+          },
           "fieldConfig": {
             "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              },
               "color": {
                 "mode": "palette-classic"
               },
-              "unit": "ops",
               "custom": {
                 "fillOpacity": 15,
                 "lineWidth": 2,
                 "showPoints": "never"
-              }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  }
+                ]
+              },
+              "unit": "ops"
             },
             "overrides": []
           },
+          "gridPos": {
+            "h": 6,
+            "w": 24,
+            "x": 0,
+            "y": 21
+          },
+          "id": 15,
           "options": {
             "legend": {
               "displayMode": "list",
@@ -1271,59 +1544,42 @@
             "tooltip": {
               "mode": "multi"
             }
-          }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${prom}"
+              },
+              "expr": "sum(rate(pg_stat_database_xact_commit{datname=\"anekio\",instance=\"anekio-prod-db\"}[5m]))",
+              "legendFormat": "transactions",
+              "refId": "A"
+            }
+          ],
+          "title": "Queries / sec",
+          "type": "timeseries"
         }
-      ]
+      ],
+      "title": "🐘  RDS database",
+      "type": "row"
     },
     {
-      "id": 20,
-      "type": "row",
-      "title": "\ud83c\udf10  Traffic (access logs)",
       "collapsed": true,
       "gridPos": {
-        "x": 0,
-        "y": 6,
+        "h": 1,
         "w": 24,
-        "h": 1
+        "x": 0,
+        "y": 21
       },
+      "id": 20,
       "panels": [
         {
-          "id": 17,
-          "title": "Requests / min",
-          "type": "timeseries",
           "datasource": {
             "type": "loki",
             "uid": "${loki}"
           },
-          "gridPos": {
-            "x": 0,
-            "y": 7,
-            "w": 16,
-            "h": 7
-          },
-          "targets": [
-            {
-              "refId": "A",
-              "datasource": {
-                "type": "loki",
-                "uid": "${loki}"
-              },
-              "expr": "sum by (status) (count_over_time({job=\"anekio-nginx\"} | json status=\"status\" [1m]))",
-              "queryType": "range",
-              "legendFormat": "{{status}}"
-            }
-          ],
           "fieldConfig": {
             "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              },
               "color": {
                 "mode": "palette-classic"
               },
@@ -1331,10 +1587,25 @@
                 "fillOpacity": 15,
                 "lineWidth": 2,
                 "showPoints": "never"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  }
+                ]
               }
             },
             "overrides": []
           },
+          "gridPos": {
+            "h": 7,
+            "w": 16,
+            "x": 0,
+            "y": 7
+          },
+          "id": 17,
           "options": {
             "legend": {
               "displayMode": "list",
@@ -1344,54 +1615,66 @@
             "tooltip": {
               "mode": "multi"
             }
-          }
-        },
-        {
-          "id": 18,
-          "title": "Slowest pages (p95)",
-          "type": "table",
-          "datasource": {
-            "type": "loki",
-            "uid": "${loki}"
-          },
-          "gridPos": {
-            "x": 16,
-            "y": 7,
-            "w": 8,
-            "h": 7
           },
           "targets": [
             {
-              "refId": "A",
               "datasource": {
                 "type": "loki",
                 "uid": "${loki}"
               },
-              "expr": "topk(10, quantile_over_time(0.95, {job=\"anekio-nginx\"} | json path=\"path\", rt=\"rt\" | unwrap rt | __error__=\"\" [$__range]) by (path))",
-              "queryType": "instant"
+              "expr": "sum by (status) (count_over_time({job=\"anekio-nginx\"} | json status=\"status\" [1m]))",
+              "legendFormat": "{{status}}",
+              "queryType": "range",
+              "refId": "A"
             }
           ],
+          "title": "Requests / min",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
           "fieldConfig": {
             "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green",
-                    "value": null
+                    "color": "green"
                   }
                 ]
-              },
-              "color": {
-                "mode": "palette-classic"
               },
               "unit": "s"
             },
             "overrides": []
           },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 16,
+            "y": 7
+          },
+          "id": 18,
           "options": {
             "showHeader": true
           },
+          "targets": [
+            {
+              "datasource": {
+                "type": "loki",
+                "uid": "${loki}"
+              },
+              "expr": "topk(10, quantile_over_time(0.95, {job=\"anekio-nginx\"} | json path=\"path\", rt=\"rt\" | unwrap rt | __error__=\"\" [$__range]) by (path))",
+              "queryType": "instant",
+              "refId": "A"
+            }
+          ],
+          "title": "Slowest pages (p95)",
           "transformations": [
             {
               "id": "reduce",
@@ -1401,186 +1684,183 @@
                 ]
               }
             }
-          ]
+          ],
+          "type": "table"
         },
         {
-          "id": 19,
-          "title": "Errors (4xx / 5xx)",
-          "type": "logs",
           "datasource": {
             "type": "loki",
             "uid": "${loki}"
           },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
           "gridPos": {
-            "x": 0,
-            "y": 14,
+            "h": 8,
             "w": 24,
-            "h": 8
+            "x": 0,
+            "y": 14
+          },
+          "id": 19,
+          "options": {
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true
           },
           "targets": [
             {
-              "refId": "A",
               "datasource": {
                 "type": "loki",
                 "uid": "${loki}"
               },
               "expr": "{job=\"anekio-nginx\"} | json status=\"status\" | status >= 400",
-              "queryType": "range"
+              "queryType": "range",
+              "refId": "A"
             }
           ],
-          "fieldConfig": {
-            "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              },
-              "color": {
-                "mode": "palette-classic"
-              }
-            },
-            "overrides": []
-          },
-          "options": {
-            "showTime": true,
-            "wrapLogMessage": true,
-            "sortOrder": "Descending"
-          }
+          "title": "Errors (4xx / 5xx)",
+          "type": "logs"
         }
-      ]
+      ],
+      "title": "🌐  Traffic (access logs)",
+      "type": "row"
     },
     {
-      "id": 31,
-      "type": "row",
-      "title": "\ud83c\udfeb  Schools activity (their own actions, support logins excluded)",
       "collapsed": true,
       "gridPos": {
-        "x": 0,
-        "y": 7,
+        "h": 1,
         "w": 24,
-        "h": 1
+        "x": 0,
+        "y": 22
       },
+      "id": 31,
       "panels": [
         {
-          "id": 32,
-          "title": "Active schools",
-          "type": "stat",
           "datasource": {
             "type": "loki",
             "uid": "${loki}"
           },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
           "gridPos": {
-            "x": 0,
-            "y": 8,
+            "h": 5,
             "w": 6,
-            "h": 5
+            "x": 0,
+            "y": 8
+          },
+          "id": 32,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "center",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "textMode": "value"
           },
           "targets": [
             {
-              "refId": "A",
               "datasource": {
                 "type": "loki",
                 "uid": "${loki}"
               },
               "expr": "count(sum by (school) (count_over_time({job=\"anekio-app\"} | json msg=\"msg\", school=\"school\", support=\"support\" | msg=\"req\" | school!=\"\" | support!=\"true\" [$__range])))",
-              "queryType": "instant"
+              "queryType": "instant",
+              "refId": "A"
             }
           ],
-          "fieldConfig": {
-            "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              },
-              "color": {
-                "mode": "thresholds"
-              }
-            },
-            "overrides": []
-          },
-          "options": {
-            "reduceOptions": {
-              "calcs": [
-                "lastNotNull"
-              ]
-            },
-            "colorMode": "value",
-            "graphMode": "none",
-            "textMode": "value",
-            "justifyMode": "center"
-          }
+          "title": "Active schools",
+          "type": "stat"
         },
         {
-          "id": 33,
-          "title": "Activity by school",
-          "type": "table",
           "datasource": {
             "type": "loki",
             "uid": "${loki}"
           },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
           "gridPos": {
-            "x": 6,
-            "y": 8,
+            "h": 5,
             "w": 18,
-            "h": 5
+            "x": 6,
+            "y": 8
+          },
+          "id": 33,
+          "options": {
+            "cellHeight": "sm",
+            "showHeader": true
           },
           "targets": [
             {
-              "refId": "A",
               "datasource": {
                 "type": "loki",
                 "uid": "${loki}"
               },
               "expr": "sum by (school) (count_over_time({job=\"anekio-app\"} | json msg=\"msg\", school=\"school\", support=\"support\" | msg=\"req\" | school!=\"\" | support!=\"true\" [$__range]))",
-              "queryType": "instant"
+              "queryType": "instant",
+              "refId": "A"
             }
           ],
-          "fieldConfig": {
-            "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              },
-              "color": {
-                "mode": "thresholds"
-              }
-            },
-            "overrides": []
-          },
-          "options": {
-            "showHeader": true,
-            "cellHeight": "sm"
-          },
+          "title": "Activity by school",
           "transformations": [
             {
               "id": "reduce",
               "options": {
+                "labelsToFields": true,
                 "reducers": [
                   "lastNotNull"
-                ],
-                "labelsToFields": true
+                ]
               }
             },
             {
               "id": "organize",
               "options": {
                 "renameByName": {
-                  "Last *": "Actions",
-                  "Field": "Detail"
+                  "Field": "Detail",
+                  "Last *": "Actions"
                 }
               }
             },
@@ -1589,76 +1869,75 @@
               "options": {
                 "sort": [
                   {
-                    "field": "Last *",
-                    "desc": true
+                    "desc": true,
+                    "field": "Last *"
                   }
                 ]
               }
             }
-          ]
+          ],
+          "type": "table"
         },
         {
-          "id": 34,
-          "title": "What each school did",
-          "type": "table",
           "datasource": {
             "type": "loki",
             "uid": "${loki}"
           },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
           "gridPos": {
-            "x": 0,
-            "y": 13,
+            "h": 10,
             "w": 24,
-            "h": 10
+            "x": 0,
+            "y": 13
+          },
+          "id": 34,
+          "options": {
+            "cellHeight": "sm",
+            "showHeader": true
           },
           "targets": [
             {
-              "refId": "A",
               "datasource": {
                 "type": "loki",
                 "uid": "${loki}"
               },
               "expr": "topk(50, sum by (school, op) (count_over_time({job=\"anekio-app\"} | json msg=\"msg\", school=\"school\", support=\"support\", op=\"op\" | msg=\"req\" | school!=\"\" | support!=\"true\" | op!=\"\" [$__range])))",
-              "queryType": "instant"
+              "queryType": "instant",
+              "refId": "A"
             }
           ],
-          "fieldConfig": {
-            "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              },
-              "color": {
-                "mode": "thresholds"
-              }
-            },
-            "overrides": []
-          },
-          "options": {
-            "showHeader": true,
-            "cellHeight": "sm"
-          },
+          "title": "What each school did",
           "transformations": [
             {
               "id": "reduce",
               "options": {
+                "labelsToFields": true,
                 "reducers": [
                   "lastNotNull"
-                ],
-                "labelsToFields": true
+                ]
               }
             },
             {
               "id": "organize",
               "options": {
                 "renameByName": {
-                  "Last *": "Actions",
-                  "Field": "Detail"
+                  "Field": "Detail",
+                  "Last *": "Actions"
                 }
               }
             },
@@ -1667,292 +1946,338 @@
               "options": {
                 "sort": [
                   {
-                    "field": "Last *",
-                    "desc": true
+                    "desc": true,
+                    "field": "Last *"
                   }
                 ]
               }
             }
-          ]
+          ],
+          "type": "table"
         },
         {
-          "id": 35,
-          "title": "Recent changes (create / edit / delete)",
-          "type": "logs",
           "datasource": {
             "type": "loki",
             "uid": "${loki}"
           },
-          "gridPos": {
-            "x": 0,
-            "y": 23,
-            "w": 24,
-            "h": 10
-          },
-          "targets": [
-            {
-              "refId": "A",
-              "datasource": {
-                "type": "loki",
-                "uid": "${loki}"
-              },
-              "expr": "{job=\"anekio-app\"} | json msg=\"msg\", school=\"school\", support=\"support\", method=\"method\", op=\"op\", role=\"role\", status=\"status\", path=\"path\" | msg=\"req\" | school!=\"\" | support!=\"true\" | method!=\"GET\" | path!~\"/api/v1/(login|me|app-version).*\" | line_format \"{{.school}} \u00b7 {{.role}} \u00b7 {{if .op}}{{.op}}{{else}}{{.method}} {{.path}}{{end}} \u00b7 {{.status}}\"",
-              "queryType": "range"
-            }
-          ],
           "fieldConfig": {
             "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green",
-                    "value": null
+                    "color": "green"
                   }
                 ]
-              },
-              "color": {
-                "mode": "thresholds"
               }
             },
             "overrides": []
           },
+          "gridPos": {
+            "h": 10,
+            "w": 24,
+            "x": 0,
+            "y": 23
+          },
+          "id": 35,
           "options": {
+            "enableLogDetails": true,
             "showTime": true,
-            "wrapLogMessage": true,
             "sortOrder": "Descending",
-            "enableLogDetails": true
-          }
+            "wrapLogMessage": true
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "loki",
+                "uid": "${loki}"
+              },
+              "expr": "{job=\"anekio-app\"} | json msg=\"msg\", school=\"school\", support=\"support\", method=\"method\", op=\"op\", role=\"role\", status=\"status\", path=\"path\" | msg=\"req\" | school!=\"\" | support!=\"true\" | method!=\"GET\" | path!~\"/api/v1/(login|me|app-version).*\" | line_format \"{{.school}} · {{.role}} · {{if .op}}{{.op}}{{else}}{{.method}} {{.path}}{{end}} · {{.status}}\"",
+              "queryType": "range",
+              "refId": "A"
+            }
+          ],
+          "title": "Recent changes (create / edit / delete)",
+          "type": "logs"
         }
-      ]
+      ],
+      "title": "🏫  Schools activity (their own actions, support logins excluded)",
+      "type": "row"
     },
     {
-      "id": 25,
-      "type": "row",
-      "title": "\ud83d\udcf1  App usage & errors",
       "collapsed": true,
       "gridPos": {
-        "x": 0,
-        "y": 8,
+        "h": 1,
         "w": 24,
-        "h": 1
+        "x": 0,
+        "y": 23
       },
+      "id": 25,
       "panels": [
         {
-          "id": 21,
-          "title": "Active users",
-          "type": "stat",
           "datasource": {
             "type": "loki",
             "uid": "${loki}"
           },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
           "gridPos": {
-            "x": 0,
-            "y": 9,
+            "h": 4,
             "w": 8,
-            "h": 4
+            "x": 0,
+            "y": 9
+          },
+          "id": 21,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "center",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "textMode": "value"
           },
           "targets": [
             {
-              "refId": "A",
               "datasource": {
                 "type": "loki",
                 "uid": "${loki}"
               },
               "expr": "count(sum by (user) (count_over_time({job=\"anekio-app\"} | json msg=\"msg\", user=\"user\" | msg=\"req\" | user!=\"\" [$__range])))",
-              "queryType": "instant"
+              "queryType": "instant",
+              "refId": "A"
             }
           ],
+          "title": "Active users",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
           "fieldConfig": {
             "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green",
-                    "value": null
+                    "color": "green"
                   }
                 ]
-              },
-              "color": {
-                "mode": "thresholds"
               }
             },
             "overrides": []
           },
+          "gridPos": {
+            "h": 4,
+            "w": 8,
+            "x": 8,
+            "y": 9
+          },
+          "id": 22,
           "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "center",
             "reduceOptions": {
               "calcs": [
                 "lastNotNull"
               ]
             },
-            "colorMode": "value",
-            "graphMode": "none",
-            "textMode": "value",
-            "justifyMode": "center"
-          }
-        },
-        {
-          "id": 22,
-          "title": "Active schools",
-          "type": "stat",
-          "datasource": {
-            "type": "loki",
-            "uid": "${loki}"
-          },
-          "gridPos": {
-            "x": 8,
-            "y": 9,
-            "w": 8,
-            "h": 4
+            "textMode": "value"
           },
           "targets": [
             {
-              "refId": "A",
               "datasource": {
                 "type": "loki",
                 "uid": "${loki}"
               },
               "expr": "count(sum by (org) (count_over_time({job=\"anekio-app\"} | json msg=\"msg\", org=\"org\" | msg=\"req\" | org!=\"\" [$__range])))",
-              "queryType": "instant"
+              "queryType": "instant",
+              "refId": "A"
             }
           ],
-          "fieldConfig": {
-            "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              },
-              "color": {
-                "mode": "thresholds"
-              }
-            },
-            "overrides": []
-          },
-          "options": {
-            "reduceOptions": {
-              "calcs": [
-                "lastNotNull"
-              ]
-            },
-            "colorMode": "value",
-            "graphMode": "none",
-            "textMode": "value",
-            "justifyMode": "center"
-          }
+          "title": "Active schools",
+          "type": "stat"
         },
         {
-          "id": 23,
-          "title": "Slow API calls (> 2 s)",
-          "type": "stat",
           "datasource": {
             "type": "loki",
             "uid": "${loki}"
           },
-          "gridPos": {
-            "x": 16,
-            "y": 9,
-            "w": 8,
-            "h": 4
-          },
-          "targets": [
-            {
-              "refId": "A",
-              "datasource": {
-                "type": "loki",
-                "uid": "${loki}"
-              },
-              "expr": "sum(count_over_time({job=\"anekio-app\"} | json msg=\"msg\", ms=\"ms\" | msg=\"req\" | ms > 2000 [$__range])) or vector(0)",
-              "queryType": "instant"
-            }
-          ],
           "fieldConfig": {
             "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green",
-                    "value": null
+                    "color": "green"
                   },
                   {
                     "color": "orange",
                     "value": 1
                   }
                 ]
-              },
-              "color": {
-                "mode": "thresholds"
               }
             },
             "overrides": []
           },
+          "gridPos": {
+            "h": 4,
+            "w": 8,
+            "x": 16,
+            "y": 9
+          },
+          "id": 23,
           "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "center",
             "reduceOptions": {
               "calcs": [
                 "lastNotNull"
               ]
             },
-            "colorMode": "value",
-            "graphMode": "none",
-            "textMode": "value",
-            "justifyMode": "center"
-          }
+            "textMode": "value"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "loki",
+                "uid": "${loki}"
+              },
+              "expr": "sum(count_over_time({job=\"anekio-app\"} | json msg=\"msg\", ms=\"ms\" | msg=\"req\" | ms > 2000 [$__range])) or vector(0)",
+              "queryType": "instant",
+              "refId": "A"
+            }
+          ],
+          "title": "Slow API calls (> 2 s)",
+          "type": "stat"
         },
         {
-          "id": 24,
-          "title": "App errors",
-          "type": "logs",
           "datasource": {
             "type": "loki",
             "uid": "${loki}"
           },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
           "gridPos": {
-            "x": 0,
-            "y": 13,
+            "h": 8,
             "w": 24,
-            "h": 8
+            "x": 0,
+            "y": 13
+          },
+          "id": 24,
+          "options": {
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true
           },
           "targets": [
             {
-              "refId": "A",
               "datasource": {
                 "type": "loki",
                 "uid": "${loki}"
               },
               "expr": "{job=~\"anekio-app.*\", level=~\"error|warn\"}",
-              "queryType": "range"
+              "queryType": "range",
+              "refId": "A"
             }
           ],
-          "fieldConfig": {
-            "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              },
-              "color": {
-                "mode": "palette-classic"
-              }
-            },
-            "overrides": []
-          },
-          "options": {
-            "showTime": true,
-            "wrapLogMessage": true,
-            "sortOrder": "Descending"
-          }
+          "title": "App errors",
+          "type": "logs"
         }
-      ]
+      ],
+      "title": "📱  App usage & errors",
+      "type": "row"
     }
-  ]
+  ],
+  "refresh": "1m",
+  "schemaVersion": 42,
+  "tags": [
+    "anekio"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "hide": 2,
+        "name": "prom",
+        "options": [],
+        "query": "prometheus",
+        "regex": "/-prom$/",
+        "type": "datasource"
+      },
+      {
+        "current": {},
+        "hide": 2,
+        "name": "loki",
+        "options": [],
+        "query": "loki",
+        "regex": "/-logs$/",
+        "type": "datasource"
+      },
+      {
+        "name": "search",
+        "label": "Search logs",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "hide": 0,
+        "description": "Text to look for in app logs (name, school, op, error…). Case doesn't matter."
+      }
+    ]
+  },
+  "time": {
+    "from": "now-3h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "Asia/Kolkata",
+  "title": "Anekio2",
+  "uid": "anekio-server",
+  "weekStart": ""
 }
