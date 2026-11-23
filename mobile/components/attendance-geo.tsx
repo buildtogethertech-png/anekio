@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ActivityIndicator, Dimensions, Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Dimensions, Linking, Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { createFixWatcher, distanceMeters, formatDistance, GEO_MAX_ACCURACY_M, GEO_RADIUS_CHOICES, readFix, waitForFix, type Fix, type FixWatcher, type StaffAttendanceSetup } from "../lib/attendance-geo";
+import { createFixWatcher, distanceMeters, fixCountsInside, formatDistance, GEO_MAX_ACCURACY_M, GEO_RADIUS_CHOICES, GeoError, readFix, waitForFix, type Fix, type FixWatcher, type GeoFailCode, type StaffAttendanceSetup } from "../lib/attendance-geo";
 import { act } from "../lib/mutate";
 import { useOptionalRecord } from "../lib/record";
 import { closingMinute, hms, teacherPeriodsOn, useFocusDay } from "../lib/class-focus";
@@ -75,9 +75,25 @@ function hoursText(inAt: string, until: string) {
  * One mark (in or out) from the phone: GPS (warm watcher when there is one), then the server.
  * `onStep` says what is happening, for the button text.
  */
-async function markHere(token: string | null, watcher: FixWatcher | null, onStep: (step: "gps" | "check") => void, earlyReason?: string) {
+async function markHere(
+  token: string | null,
+  watcher: FixWatcher | null,
+  onStep: (step: "gps" | "check") => void,
+  earlyReason?: string,
+  onProgress?: (fix: Fix) => void
+) {
   onStep("gps");
-  const fix = Platform.OS === "web" || !watcher ? await readFix() : await waitForFix(watcher);
+  const started = Date.now();
+  let fix: Fix;
+  try {
+    fix = Platform.OS === "web" || !watcher ? await readFix() : await waitForFix(watcher, onProgress);
+  } catch (e) {
+    // Never reached the server: tell it anyway, so these show up in the logs (fire and forget).
+    if (e instanceof GeoError) {
+      void act(token, "reportGeoFail", { reason: e.code, accuracy: e.accuracy ?? watcher?.best()?.accuracy, waitedMs: Date.now() - started }).catch(() => undefined);
+    }
+    throw e;
+  }
   onStep("check");
   return act<Marked>(token, "markStaffAttendanceHere", earlyReason ? { ...fix, earlyReason } : fix);
 }
@@ -353,6 +369,8 @@ export function MarkHereSheet({
   const [step, setStep] = useState<"gps" | "check">("gps");
   const [done, setDone] = useState<Marked | null>(null);
   const [error, setError] = useState("");
+  const [errorCode, setErrorCode] = useState<GeoFailCode | "weak" | "">("");
+  const [liveAcc, setLiveAcc] = useState<number | null>(null);
   const [leaveReason, setLeaveReason] = useState("");
   const [leaveNote, setLeaveNote] = useState("");
   const [picking, setPicking] = useState(false);
@@ -412,8 +430,10 @@ export function MarkHereSheet({
   async function mark(earlyReason?: string) {
     setPhase("locating");
     setError("");
+    setErrorCode("");
+    setLiveAcc(null);
     try {
-      const res = await markHere(token, watcher.current, setStep, earlyReason);
+      const res = await markHere(token, watcher.current, setStep, earlyReason, (f) => setLiveAcc(f.accuracy));
       setDone(res);
       setPhase("done");
       // Checking out ends the phone's school day (the guard goes off), even in the middle of a class.
@@ -422,11 +442,25 @@ export function MarkHereSheet({
       setTimeout(close, 1600);
     } catch (e) {
       setError(errorText(e));
+      setErrorCode(e instanceof GeoError ? e.code : errorText(e).startsWith("Weak GPS") ? "weak" : "");
       setPhase(earlyReason ? "leaving" : "error");
     }
   }
 
-  const busyText = locating ? (step === "gps" ? "Finding your location…" : "Checking you're at school…") : "";
+  const busyText = locating
+    ? step === "gps"
+      ? liveAcc != null
+        ? `Finding location… ±${liveAcc} m`
+        : "Finding your location…"
+      : "Checking you're at school…"
+    : "";
+  // Problems only the phone's settings can fix get a button straight there.
+  const settingsFix = errorCode === "permission" || errorCode === "approximate" || errorCode === "services_off";
+  function openLocationSettings() {
+    if (errorCode === "services_off" && Platform.OS === "android") {
+      void Linking.sendIntent("android.settings.LOCATION_SOURCE_SETTINGS").catch(() => Linking.openSettings());
+    } else void Linking.openSettings();
+  }
   const status = !isIn
     ? { icon: "time-outline" as const, bg: "bg-ink-100", color: "#475569", title: "Not checked in yet", sub: "Check in once you're inside school." }
     : outAt
@@ -523,9 +557,19 @@ export function MarkHereSheet({
         ) : null}
 
         {error ? (
-          <View className="flex-row items-start gap-2 rounded-2xl bg-red-50 px-4 py-3">
-            <Ionicons name="alert-circle" size={18} color="#B91C1C" />
-            <Text className="min-w-0 flex-1 text-[13px] text-red-800">{error}</Text>
+          <View className="gap-2 rounded-2xl bg-red-50 px-4 py-3">
+            <View className="flex-row items-start gap-2">
+              <Ionicons name="alert-circle" size={18} color="#B91C1C" />
+              <Text className="min-w-0 flex-1 text-[13px] text-red-800">{error}</Text>
+            </View>
+            {settingsFix && Platform.OS !== "web" ? (
+              <Pressable accessibilityRole="button" accessibilityLabel="Open settings" onPress={openLocationSettings} className="self-start rounded-full bg-white px-3.5 py-2" style={{ borderWidth: 1, borderColor: "#FCA5A5" }}>
+                <Text className="text-[13px] font-semibold text-red-800">Open settings</Text>
+              </Pressable>
+            ) : null}
+            {(errorCode === "weak" || errorCode === "no_fix") && Platform.OS === "android" ? (
+              <Text className="text-[12px] leading-4 text-red-700">Tip: keep Wi-Fi on (even if not connected). It helps the phone find its location indoors.</Text>
+            ) : null}
           </View>
         ) : null}
 
@@ -702,7 +746,7 @@ export function StaffAttendanceSettings({
   function testHere() {
     void withFix("test", (fix) => {
       const m = Math.round(distanceMeters(draft, fix));
-      const ok = m <= draft.radiusM && fix.accuracy <= GEO_MAX_ACCURACY_M && !fix.mocked;
+      const ok = fixCountsInside(m, fix.accuracy, draft.radiusM) && !fix.mocked;
       setNote(
         ok
           ? { tone: "success", title: `${formatDistance(m)} from the school point`, body: `Marking works here (±${fix.accuracy} m).` }
@@ -710,7 +754,7 @@ export function StaffAttendanceSettings({
               tone: "warn",
               title: `${formatDistance(m)} from the school point`,
               body:
-                fix.accuracy > GEO_MAX_ACCURACY_M
+                m - fix.accuracy <= draft.radiusM
                   ? `GPS is rough here (±${fix.accuracy} m), so marking would be refused.`
                   : `Outside ${draft.radiusM} m: marking would be refused here. Pick a bigger distance if this is inside the school.`,
             }

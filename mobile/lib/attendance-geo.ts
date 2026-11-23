@@ -9,6 +9,25 @@ export const GEO_RADIUS_CHOICES = [100, 150, 200, 300];
 /** Same limit as the server: a rougher fix cannot tell inside from outside the school. */
 export const GEO_MAX_ACCURACY_M = 50;
 
+/**
+ * The reading counts as at school when its whole uncertainty circle fits inside the radius
+ * (distance + accuracy), or when it is sharp (±50 m) and inside. Same rule as the server.
+ */
+export function fixCountsInside(meters: number, accuracy: number, radiusM: number) {
+  return meters + accuracy <= radiusM || (accuracy <= GEO_MAX_ACCURACY_M && meters <= radiusM);
+}
+
+/** A location problem found on the phone (never reached the server), with a code we can log and act on. */
+export type GeoFailCode = "permission" | "services_off" | "approximate" | "no_fix";
+export class GeoError extends Error {
+  constructor(readonly code: GeoFailCode, message: string, readonly accuracy?: number) {
+    super(message);
+  }
+}
+export const PRECISE_OFF_TEXT = "Precise location is off for Anekio. Turn on “Precise location” in settings, then try again.";
+/** iOS doesn't say when Precise Location is off; a reading this rough means it is. */
+const APPROXIMATE_M = 1000;
+
 /** "9 m", "450 m", then "1.2 km", "5 km": metres under a kilometre, kilometres after. */
 export function formatDistance(meters: number) {
   const m = Math.max(0, Math.round(meters));
@@ -78,13 +97,16 @@ export function createFixWatcher(): FixWatcher {
   }
 
   async function begin(ask: boolean) {
-    const perm = ask ? await Location.requestForegroundPermissionsAsync() : await Location.getForegroundPermissionsAsync();
+    const current = await Location.getForegroundPermissionsAsync();
+    const perm = ask && current.status !== "granted" ? await Location.requestForegroundPermissionsAsync() : current;
     if (perm.status !== "granted") {
-      if (ask) throw new Error("Allow location for Anekio to mark attendance here.");
+      if (ask) throw new GeoError("permission", "Allow location for Anekio to mark attendance here.");
       return;
     }
+    // Android "Approximate" only: readings are hundreds of metres off, so marking can never pass.
+    if (ask && perm.android?.accuracy === "coarse") throw new GeoError("approximate", PRECISE_OFF_TEXT);
     if (!(await Location.hasServicesEnabledAsync())) {
-      if (ask) throw new Error("Turn on Location on your phone and try again.");
+      if (ask) throw new GeoError("services_off", "Turn on Location on your phone and try again.");
       return;
     }
     if (sub || stopped) return;
@@ -103,6 +125,11 @@ export function createFixWatcher(): FixWatcher {
     async start(ask) {
       stopped = false;
       if (starting) await starting.catch(() => undefined);
+      if (sub && ask) {
+        // Already running (warmed up when the sheet opened): still check the permission is precise.
+        const perm = await Location.getForegroundPermissionsAsync();
+        if (perm.android?.accuracy === "coarse") throw new GeoError("approximate", PRECISE_OFF_TEXT);
+      }
       if (sub) return;
       starting = begin(ask);
       try {
@@ -126,11 +153,16 @@ export function createFixWatcher(): FixWatcher {
   };
 }
 
+/** After this long, a ±100 m reading is sent too (the server accepts it when the whole circle is inside the school). */
+const ROUGH_OK_MS = 10_000;
+const ROUGH_OK_M = 100;
+
 /**
  * Waits for a reading good enough to mark: at once when it is very good (or fake, so the server can
- * say so), after a short settle when it is within the server's limit, else the best one after `waitMs`.
+ * say so), after a short settle when it is within ±50 m, after 10 s when within ±100 m, else the best
+ * one after `waitMs`. Indoors GPS often needs 15–20 s, so the default wait is 20 s.
  */
-export async function waitForFix(watcher: FixWatcher, onProgress?: (fix: Fix) => void, waitMs = 10_000): Promise<Fix> {
+export async function waitForFix(watcher: FixWatcher, onProgress?: (fix: Fix) => void, waitMs = 20_000): Promise<Fix> {
   await watcher.start(true);
   return new Promise((resolve, reject) => {
     let over = false;
@@ -140,14 +172,15 @@ export async function waitForFix(watcher: FixWatcher, onProgress?: (fix: Fix) =>
       clearInterval(tick);
       clearTimeout(timer);
       unsub();
-      if (fix) resolve(fix);
-      else reject(new Error("Could not find your location. Step near a window or outside and try again."));
+      if (fix && Platform.OS === "ios" && fix.accuracy >= APPROXIMATE_M) reject(new GeoError("approximate", PRECISE_OFF_TEXT, fix.accuracy));
+      else if (fix) resolve(fix);
+      else reject(new GeoError("no_fix", "Could not find your location. Step near a window or outside and try again."));
     };
     const check = () => {
       const b = watcher.best();
       if (!b) return;
-      const settled = Date.now() - watcher.since() >= SETTLE_MS;
-      if (b.mocked || b.accuracy <= GREAT_ACCURACY_M || (settled && b.accuracy <= GEO_MAX_ACCURACY_M)) finish(b);
+      const ran = Date.now() - watcher.since();
+      if (b.mocked || b.accuracy <= GREAT_ACCURACY_M || (ran >= SETTLE_MS && b.accuracy <= GEO_MAX_ACCURACY_M) || (ran >= ROUGH_OK_MS && b.accuracy <= ROUGH_OK_M)) finish(b);
     };
     const unsub = watcher.subscribe((fix) => {
       onProgress?.(fix);
@@ -162,7 +195,7 @@ export async function waitForFix(watcher: FixWatcher, onProgress?: (fix: Fix) =>
 }
 
 /** One reading (Settings: school point, Test here). */
-export async function readFix(waitMs = 10_000): Promise<Fix> {
+export async function readFix(waitMs = 20_000): Promise<Fix> {
   if (Platform.OS === "web") return readWebFix(waitMs);
   const watcher = createFixWatcher();
   try {

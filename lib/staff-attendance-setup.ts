@@ -94,18 +94,38 @@ export async function saveStaffAttendanceSetupCore(
   return { ok: true as const, staffAttendanceSetup: setup };
 }
 
+/** Why a location mark was refused, with the numbers, so the server can log it. */
+export class GeoCheckError extends Error {
+  constructor(message: string, readonly geo: { reason: "off" | "mocked" | "no_fix" | "weak" | "far"; accuracy?: number; meters?: number; radiusM?: number }) {
+    super(message);
+  }
+}
+
+/**
+ * The reading counts as at school when its whole uncertainty circle fits inside the radius
+ * (distance + accuracy), or, as before, when it is sharp (±50 m) and inside.
+ */
+export function fixCountsInside(meters: number, accuracy: number, radiusM: number) {
+  return meters + accuracy <= radiusM || (accuracy <= GEO_MAX_ACCURACY_M && meters <= radiusM);
+}
+
 /** Throws a message the teacher can act on when this fix does not count as "at school". */
 export function checkAtSchool(setup: StaffAttendanceSetup, fix: { lat?: number; lng?: number; accuracy?: number; mocked?: boolean }) {
-  if (!setup.location) throw new Error("Location attendance is off for your school.");
-  if (fix.mocked) throw new Error("Fake location is on for this phone. Turn it off to mark attendance.");
+  if (!setup.location) throw new GeoCheckError("Location attendance is off for your school.", { reason: "off" });
+  if (fix.mocked) throw new GeoCheckError("Fake location is on for this phone. Turn it off to mark attendance.", { reason: "mocked" });
   const lat = Number(fix.lat);
   const lng = Number(fix.lng);
-  if (!validPoint(lat, lng)) throw new Error("Could not read your location. Try again.");
+  if (!validPoint(lat, lng)) throw new GeoCheckError("Could not read your location. Try again.", { reason: "no_fix" });
   const accuracy = Math.round(Number(fix.accuracy));
-  if (!Number.isFinite(accuracy) || accuracy <= 0 || accuracy > GEO_MAX_ACCURACY_M) {
-    throw new Error("Weak GPS signal. Step near a window or outside and try again.");
-  }
+  if (!Number.isFinite(accuracy) || accuracy <= 0) throw new GeoCheckError("Could not read your location. Try again.", { reason: "no_fix" });
   const meters = Math.round(distanceMeters(setup, { lat, lng }));
-  if (meters > setup.radiusM) throw new Error(`You are ${formatDistance(meters)} from school. Mark when you are inside (within ${setup.radiusM} m).`);
+  const geo = { accuracy, meters, radiusM: setup.radiusM };
+  if (!fixCountsInside(meters, accuracy, setup.radiusM)) {
+    // Outside even if the reading is off by its full accuracy: really away. Otherwise GPS is just too rough to tell.
+    if (meters - accuracy > setup.radiusM) {
+      throw new GeoCheckError(`You are ${formatDistance(meters)} from school. Mark when you are inside (within ${setup.radiusM} m).`, { reason: "far", ...geo });
+    }
+    throw new GeoCheckError(`Weak GPS signal (±${accuracy} m). Step near a window or outside and try again.`, { reason: "weak", ...geo });
+  }
   return { lat: Math.round(lat * 1e6) / 1e6, lng: Math.round(lng * 1e6) / 1e6, acc: accuracy, m: meters };
 }

@@ -788,11 +788,31 @@ app.post("/api/v1/act", async (req, res) => {
     if (SUPPORT_BLOCKED_OPS.has(op)) return sendError(res, 403, "Not available during a support login.");
   }
   if (actOp(body) === "reportDevice") body.ip = req.ip || "";
+  const who = () => ({
+    user: user.id,
+    role: user.role,
+    school: orgName(user.orgId),
+    platform: req.header("x-app-platform") || "",
+    build: req.header("x-app-build") || "",
+  });
+  // App-side location failures that never reached a mark (no permission, location off, approximate only, no reading).
+  if (actOp(body) === "reportGeoFail") {
+    const num = (v: unknown) => (Number.isFinite(Number(v)) ? Math.round(Number(v)) : undefined);
+    logger.warn("geo_client_failed", {
+      ...who(),
+      reason: String(body.reason || "").slice(0, 40),
+      accuracy: num(body.accuracy),
+      waitedMs: num(body.waitedMs),
+    });
+    return res.json({ ok: true });
+  }
   try {
     const result = await runAct(user, body);
     if (user.support) await recordSupportWrite(user, actOp(body));
     res.json(result);
   } catch (e) {
+    const geo = (e as { geo?: Record<string, unknown> } | null)?.geo;
+    if (geo && actOp(body) === "markStaffAttendanceHere") logger.warn("geo_mark_failed", { ...who(), ...geo });
     sendError(res, 400, e instanceof Error ? e.message : "Could not save.");
   }
 });
