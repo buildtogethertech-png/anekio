@@ -35,6 +35,7 @@ export const HIDDEN_TAB_SCREENS = [
   "timetable",
   "fees",
   "expenses",
+  "beacon",
   "exams",
   "roles",
   "subscription",

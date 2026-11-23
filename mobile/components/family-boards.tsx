@@ -853,6 +853,13 @@ export function TeacherDeskBoard() {
 
   return (
     <View>
+      {Platform.OS !== "web" ? (
+        <Pressable accessibilityRole="button" onPress={() => router.push("/beacon" as never)} className="mb-3 flex-row items-center gap-3 rounded-xl border border-[#C9D6FF] bg-[#EEF3FF] px-3 py-2.5">
+          <Ionicons name="bluetooth" size={18} color="#1F45C7" />
+          <Text className="flex-1 text-sm font-semibold text-[#1F45C7]">Test school beacon</Text>
+          <Ionicons name="chevron-forward" size={16} color="#1F45C7" />
+        </Pressable>
+      ) : null}
       {phoneDashboard ? (
         <View className="mb-4 flex-row items-center justify-between gap-3 px-1">
           <View className="min-w-0 flex-1">

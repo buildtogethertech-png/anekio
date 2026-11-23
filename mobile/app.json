@@ -66,6 +66,14 @@
         }
       ],
       [
+        "react-native-ble-plx",
+        {
+          "isBackgroundEnabled": false,
+          "modes": [],
+          "bluetoothAlwaysPermission": "Anekio uses Bluetooth to check that you are at school when you mark your attendance."
+        }
+      ],
+      [
         "expo-build-properties",
         {
           "android": {
