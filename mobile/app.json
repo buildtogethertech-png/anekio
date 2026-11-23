@@ -73,6 +73,7 @@
           "bluetoothAlwaysPermission": "Anekio uses Bluetooth to check that you are at school when you mark your attendance."
         }
       ],
+      "./plugins/with-ble-beacon-scan",
       [
         "expo-build-properties",
         {

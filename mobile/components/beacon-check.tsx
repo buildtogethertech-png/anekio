@@ -17,11 +17,28 @@ const WINDOW = 8;
 type Reading = { rssi: number; at: number };
 type BeaconInfo = { major: number; minor: number; tx: number } | null;
 
+const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/** Plain base64 → bytes (no atob dependency). */
 function decodeBase64(b64: string) {
-  const bin = globalThis.atob ? globalThis.atob(b64) : "";
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i);
-  return out;
+  const clean = b64.replace(/[^A-Za-z0-9+/]/g, "");
+  const out: number[] = [];
+  let buf = 0;
+  let bits = 0;
+  for (const ch of clean) {
+    buf = (buf << 6) | B64.indexOf(ch);
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      out.push((buf >> bits) & 0xff);
+    }
+  }
+  return Uint8Array.from(out);
+}
+
+function hexOf(b64?: string | null) {
+  if (!b64) return "";
+  return [...decodeBase64(b64)].map((x) => x.toString(16).padStart(2, "0")).join("");
 }
 
 /** Apple iBeacon frame: 4C 00 02 15 <uuid 16> <major 2> <minor 2> <tx 1>. */
@@ -54,6 +71,9 @@ export function BeaconCheck() {
   const [info, setInfo] = useState<BeaconInfo>(null);
   const [threshold, setThreshold] = useState(-80);
   const [now, setNow] = useState(Date.now());
+  const [seen, setSeen] = useState(0);
+  const [nearby, setNearby] = useState<Record<string, { name: string; rssi: number; mfr: string; at: number }>>({});
+  const logged = useRef(new Set<string>());
   const manager = useRef<import("react-native-ble-plx").BleManager | null>(null);
 
   useEffect(() => {
@@ -85,7 +105,7 @@ export function BeaconCheck() {
         return;
       }
       setScanning(true);
-      manager.current.startDeviceScan(null, { allowDuplicates: true }, (err, device) => {
+      manager.current.startDeviceScan(null, { allowDuplicates: true, scanMode: 2 }, (err, device) => {
         if (err) {
           setError(err.message);
           setScanning(false);
@@ -93,7 +113,20 @@ export function BeaconCheck() {
         }
         if (!device || device.rssi == null) return;
         const beacon = parseIBeacon(device.manufacturerData);
-        const ours = beacon?.uuid === SCHOOL_UUID || device.name === BEACON_NAME || device.localName === BEACON_NAME;
+        const mfr = hexOf(device.manufacturerData);
+        if (!logged.current.has(device.id)) {
+          logged.current.add(device.id);
+          console.log(`[beacon] ${device.id} rssi=${device.rssi} name=${device.name} local=${device.localName} mfr=${mfr} svc=${JSON.stringify(device.serviceUUIDs)}`);
+        }
+        setSeen((n) => n + 1);
+        setNearby((prev) => ({ ...prev, [device.id]: { name: device.localName || device.name || "", rssi: device.rssi ?? -127, mfr, at: Date.now() } }));
+        const ours =
+          beacon?.uuid === SCHOOL_UUID ||
+          mfr.includes(SCHOOL_UUID.replace(/-/g, "")) ||
+          // ESP32 BLEBeacon sends the UUID bytes reversed.
+          mfr.includes(SCHOOL_UUID.replace(/-/g, "").match(/../g)!.reverse().join("")) ||
+          device.name === BEACON_NAME ||
+          device.localName === BEACON_NAME;
         if (!ours) return;
         if (beacon) setInfo({ major: beacon.major, minor: beacon.minor, tx: beacon.tx });
         const rssi = device.rssi;
@@ -173,6 +206,23 @@ export function BeaconCheck() {
             <Text className="text-[10px] text-ink-400">older</Text>
             <Text className="text-[10px] text-ink-400">now</Text>
           </View>
+        </Card>
+      ) : null}
+
+      {scanning ? (
+        <Card className="p-4">
+          <Text className="text-sm font-semibold text-ink-900">{`Bluetooth around you · ${seen} signals`}</Text>
+          {Object.entries(nearby)
+            .filter(([, d]) => now - d.at < 10000)
+            .sort((a, b) => b[1].rssi - a[1].rssi)
+            .slice(0, 6)
+            .map(([id, d]) => (
+              <View key={id} className="mt-1.5 flex-row items-center gap-2">
+                <Text className="w-12 text-xs font-semibold text-ink-900">{d.rssi}</Text>
+                <Text className="min-w-0 flex-1 text-xs text-ink-700" numberOfLines={1}>{d.name || id}</Text>
+                <Text className="w-24 text-[10px] text-ink-400" numberOfLines={1}>{d.mfr.slice(0, 12) || "—"}</Text>
+              </View>
+            ))}
         </Card>
       ) : null}
 
