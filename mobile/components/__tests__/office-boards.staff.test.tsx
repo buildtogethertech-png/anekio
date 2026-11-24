@@ -311,6 +311,41 @@ describe("StaffBoard leave requests", () => {
     expect(within(screen.getByTestId(actionRow)).getByRole("button", { name: "+ Add employee" })).toBeTruthy();
   });
 
+  it("shows a check in by a rough location as rough, with its accuracy", () => {
+    mockUseWindowDimensions.mockReturnValue({ width: 390, height: 844, scale: 1, fontScale: 1 });
+    jest.useFakeTimers({ advanceTimers: true });
+    jest.setSystemTime(new Date(2026, 8, 9, 10, 0, 0));
+    currentData = {
+      ...record(),
+      staff: [
+        {
+          id: "teacher-1",
+          kind: "teacher" as const,
+          name: "Priya Rough",
+          role: "Teacher",
+          today: "PRESENT",
+          days: [{ date: "2026-09-09", status: "PRESENT", inAt: "08:05", inVia: "location", inAcc: 200 }],
+        },
+        {
+          id: "teacher-2",
+          kind: "teacher" as const,
+          name: "Gita Sharp",
+          role: "Teacher",
+          today: "PRESENT",
+          days: [{ date: "2026-09-09", status: "PRESENT", inAt: "08:01", inVia: "location", inAcc: 12 }],
+        },
+      ],
+    };
+    const view = render(<StaffBoard />);
+    expect(screen.getByText(/In 08:05 📍 rough ±200 m/)).toBeTruthy();
+    expect(screen.getByText(/In 08:01 📍$/)).toBeTruthy();
+    // Desktop shows the same line under the name.
+    mockUseWindowDimensions.mockReturnValue({ width: 1200, height: 800, scale: 1, fontScale: 1 });
+    view.rerender(<StaffBoard />);
+    expect(screen.getByText(/In 08:05 📍 rough ±200 m/)).toBeTruthy();
+    jest.useRealTimers();
+  });
+
   it("defaults unmarked staff to Absent until Present is marked", async () => {
     jest.useFakeTimers({ advanceTimers: true });
     jest.setSystemTime(new Date(2026, 8, 9, 7, 22, 0));

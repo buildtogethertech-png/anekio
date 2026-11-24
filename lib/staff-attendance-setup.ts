@@ -15,6 +15,11 @@ export const GEO_RADIUS_CHOICES = [100, 150, 200, 300];
 export const GEO_DEFAULT_RADIUS = 150;
 /** A fix worse than this (metres) is too rough to tell inside from outside the school. */
 export const GEO_MAX_ACCURACY_M = 50;
+/**
+ * A rough reading (phones that never get a GPS lock indoors give ±100–300 m from mobile towers) still counts
+ * when its middle is inside the school. Such a mark is kept with its accuracy, so the office sees it as rough.
+ */
+export const GEO_ROUGH_MAX_M = 300;
 
 const DEFAULT_SETUP: StaffAttendanceSetup = { qr: true, location: false, lat: 0, lng: 0, radiusM: GEO_DEFAULT_RADIUS };
 
@@ -124,6 +129,10 @@ export function checkAtSchool(setup: StaffAttendanceSetup, fix: { lat?: number; 
     // Outside even if the reading is off by its full accuracy: really away. Otherwise GPS is just too rough to tell.
     if (meters - accuracy > setup.radiusM) {
       throw new GeoCheckError(`You are ${formatDistance(meters)} from school. Mark when you are inside (within ${setup.radiusM} m).`, { reason: "far", ...geo });
+    }
+    // Rough but centred inside the school: accept it (the office sees "Rough location ±N m" on the day).
+    if (accuracy <= GEO_ROUGH_MAX_M && meters <= setup.radiusM) {
+      return { lat: Math.round(lat * 1e6) / 1e6, lng: Math.round(lng * 1e6) / 1e6, acc: accuracy, m: meters };
     }
     throw new GeoCheckError(`Weak GPS signal (±${accuracy} m). Step near a window or outside and try again.`, { reason: "weak", ...geo });
   }

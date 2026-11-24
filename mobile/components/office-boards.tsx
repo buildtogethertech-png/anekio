@@ -58,6 +58,7 @@ import { openSalaryProof } from "./salary-pay-sheet";
 import { ReviseSalaryModal } from "./revise-salary";
 import { confirmLoginAs } from "../lib/login-as";
 import { FillFieldScreen } from "./quick-fill";
+import { GEO_MAX_ACCURACY_M } from "../lib/attendance-geo";
 
 export const FeesBoard = RefactoredFeesBoard;
 
@@ -6374,6 +6375,19 @@ export function StaffBoard() {
                 )}
               </View>
             );
+            // " · In 08:05 📍 rough ±200 m · Out 14:00", shared by the phone and desktop rows.
+            const timesLine = (() => {
+              const inAt = timesOf(p);
+              if (st === "LEAVE") return null;
+              const day = inAt ? dayOn(p.days, date) : undefined;
+              const outAt = day?.outAt || "";
+              // Marked by location: a pin, and "rough ±N m" when the phone had no GPS lock (accepted, but not GPS-confirmed).
+              const pin = (via?: string, acc?: number | null) =>
+                via !== "location" ? "" : acc != null && acc > GEO_MAX_ACCURACY_M ? ` 📍 rough ±${acc} m` : " 📍";
+              if (inAt) return <Text className={st === "LATE" ? "text-amber-700" : "text-emerald-700"}>{` · ${st === "LATE" ? "Late, in" : "In"} ${inAt}${pin(day?.inVia, day?.inAcc)}${outAt ? ` · Out ${outAt}${pin(day?.outVia, day?.outAcc)}` : ""}`}</Text>;
+              if (!locked && !isMarked(p)) return <Text className="text-ink-400"> · Not marked</Text>;
+              return null;
+            })();
             const who = phone ? (
               <View className="min-w-0 flex-1 flex-row items-center gap-2.5">
                 <Pressable
@@ -6410,16 +6424,7 @@ export function StaffBoard() {
                   </View>
                   <Text className="text-xs text-ink-500" numberOfLines={1}>
                     {p.kind === "teacher" ? "Teacher" : p.teaches ? `${p.role} · Teaches` : p.role}
-                    {(() => {
-                      const inAt = timesOf(p);
-                      if (st === "LEAVE") return null;
-                      const day = inAt ? dayOn(p.days, date) : undefined;
-                      const outAt = day?.outAt || "";
-                      const pin = (via?: string) => (via === "location" ? " 📍" : "");
-                      if (inAt) return <Text className={st === "LATE" ? "text-amber-700" : "text-emerald-700"}>{` · ${st === "LATE" ? "Late, in" : "In"} ${inAt}${pin(day?.inVia)}${outAt ? ` · Out ${outAt}${pin(day?.outVia)}` : ""}`}</Text>;
-                      if (!locked && !isMarked(p)) return <Text className="text-ink-400"> · Not marked</Text>;
-                      return null;
-                    })()}
+                    {timesLine}
                   </Text>
                   {leaveAsked.has(p.id) ? (
                     <View className="mt-1 flex-row items-center gap-1 self-start rounded-full bg-amber-50 px-2 py-0.5">
@@ -6447,8 +6452,9 @@ export function StaffBoard() {
                       </Text>
                     </Pressable>
                   </View>
-                  <Text className="text-xs text-ink-500" numberOfLines={1}>
+                  <Text className="text-xs text-ink-500" numberOfLines={2}>
                     {p.kind === "teacher" ? "Teacher" : p.teaches ? `${p.role} · Teaches` : p.role}
+                    {timesLine}
                   </Text>
                 </View>
               </View>

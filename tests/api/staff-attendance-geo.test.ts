@@ -90,7 +90,7 @@ describe.sequential("staff attendance by location", () => {
     const far = await act(teacherToken, "markStaffAttendanceHere", FAR);
     expect(far.status).toBe(400);
     expect(far.body.error).toMatch(/You are 5\d\d m from school/);
-    const rough = await act(teacherToken, "markStaffAttendanceHere", { ...INSIDE, accuracy: 120 });
+    const rough = await act(teacherToken, "markStaffAttendanceHere", { ...INSIDE, accuracy: 400 });
     expect(rough.body.error).toMatch(/Weak GPS/);
     const fake = await act(teacherToken, "markStaffAttendanceHere", { ...INSIDE, mocked: true });
     expect(fake.body.error).toMatch(/Fake location/);
@@ -250,5 +250,16 @@ describe.sequential("staff attendance by location", () => {
     expect(none.body.error).toMatch(/QR attendance is off/);
     const scan = await act(officeToken, "scanStaffAttendanceQr", { code: qr.body.qrText });
     expect(scan.body.error).toMatch(/QR attendance is off/);
+  });
+
+  it("a rough reading inside the school is accepted, and the office sees it as rough", async () => {
+    await act(officeToken, "saveStaffAttendanceSetup", { qr: false, location: true, ...SCHOOL, radiusM: 150 });
+    const rough = await act(teacherToken, "markStaffAttendanceHere", { ...INSIDE, accuracy: 200 });
+    expect(rough.status).toBe(200);
+    expect(rough.body).toMatchObject({ accuracy: 200 });
+    const staff = (await record(officeToken)).body.staff as { id: string; days: { date: string; inAcc: number | null; outAcc: number | null }[] }[];
+    const tara = staff.find((p) => p.id === "teacher-tara");
+    const today = tara?.days.find((d) => d.date === "2026-11-04");
+    expect(rough.body.checkedOut ? today?.outAcc : today?.inAcc).toBe(200);
   });
 });

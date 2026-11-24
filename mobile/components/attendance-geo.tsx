@@ -6,6 +6,7 @@ import {
   createFixWatcher,
   distanceMeters,
   fixCountsInside,
+  fixCountsRough,
   formatDistance,
   GEO_MAX_ACCURACY_M,
   GEO_RADIUS_CHOICES,
@@ -830,10 +831,13 @@ export function StaffAttendanceSettings({
     void withFix("test", (fix) => {
       const m = Math.round(distanceMeters(draft, fix));
       const ok = fixCountsInside(m, fix.accuracy, draft.radiusM) && !fix.mocked;
+      const rough = fixCountsRough(m, fix.accuracy, draft.radiusM) && !fix.mocked;
       setNote(
         ok
           ? { tone: "success", title: `${formatDistance(m)} from the school point`, body: `Marking works here (±${fix.accuracy} m).` }
-          : {
+          : rough
+            ? { tone: "warn", title: `${formatDistance(m)} from the school point`, body: `Marking works, but GPS is rough here (±${fix.accuracy} m): the office sees it as a rough location.` }
+            : {
               tone: "warn",
               title: `${formatDistance(m)} from the school point`,
               body:

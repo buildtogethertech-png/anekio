@@ -667,6 +667,9 @@ export type RecordPayload = {
       inVia?: string;
       outVia?: string;
       outLog?: { at: string; via: string }[];
+      /** GPS accuracy (m) of a check in / out by location; worse than ±50 m means a rough reading. */
+      inAcc?: number | null;
+      outAcc?: number | null;
     }[];
     leaveDays?: { date: string; reason: string; paid: boolean; typeName: string }[];
     salary?: number;

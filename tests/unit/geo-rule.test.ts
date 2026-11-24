@@ -25,8 +25,14 @@ describe("location rule", () => {
     expect(reason({ lat: north(140), lng: 77.2, accuracy: 30 })).toBe("ok");
   });
 
-  it("says weak GPS when the rough reading could be outside", () => {
-    expect(reason({ lat: north(100), lng: 77.2, accuracy: 90 })).toBe("weak");
+  it("accepts a rough reading (no GPS lock) when its middle is inside the radius", () => {
+    expect(reason({ lat: north(100), lng: 77.2, accuracy: 90 })).toBe("ok");
+    expect(reason({ lat: north(140), lng: 77.2, accuracy: 300 })).toBe("ok");
+  });
+
+  it("says weak GPS when the reading is too rough, or its middle is outside", () => {
+    expect(reason({ lat: north(100), lng: 77.2, accuracy: 400 })).toBe("weak");
+    expect(reason({ lat: north(170), lng: 77.2, accuracy: 60 })).toBe("weak");
   });
 
   it("says too far only when the person is outside even at the reading's best", () => {

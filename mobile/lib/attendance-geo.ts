@@ -13,6 +13,12 @@ export const GEO_MAX_ACCURACY_M = 50;
  * The reading counts as at school when its whole uncertainty circle fits inside the radius
  * (distance + accuracy), or when it is sharp (±50 m) and inside. Same rule as the server.
  */
+/** Same as the server: a rough reading (no GPS lock) still counts when its middle is inside, and is shown as rough. */
+export const GEO_ROUGH_MAX_M = 300;
+export function fixCountsRough(meters: number, accuracy: number, radiusM: number) {
+  return !fixCountsInside(meters, accuracy, radiusM) && accuracy <= GEO_ROUGH_MAX_M && meters <= radiusM;
+}
+
 export function fixCountsInside(meters: number, accuracy: number, radiusM: number) {
   return meters + accuracy <= radiusM || (accuracy <= GEO_MAX_ACCURACY_M && meters <= radiusM);
 }

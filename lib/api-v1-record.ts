@@ -210,6 +210,7 @@ function mapPersonStaffDays(
     inVia?: string;
     outVia?: string;
     outLogJson?: string;
+    geoJson?: string;
   }[],
   kind: "teacher" | "staff",
   id: string
@@ -226,7 +227,19 @@ function mapPersonStaffDays(
     inVia: d.inVia || "",
     outVia: d.outVia || "",
     outLog: parseOutLog(d.outLogJson),
+    // GPS accuracy of a check in / out by location (metres), so the office can see a rough one.
+    inAcc: geoAccuracy(d.geoJson, "in"),
+    outAcc: geoAccuracy(d.geoJson, "out"),
   }));
+}
+
+function geoAccuracy(raw: string | null | undefined, side: "in" | "out") {
+  try {
+    const acc = Number(JSON.parse(raw || "{}")?.[side]?.acc);
+    return Number.isFinite(acc) && acc > 0 ? Math.round(acc) : null;
+  } catch {
+    return null;
+  }
 }
 
 function staffDepartment(kind: "teacher" | "staff", portal?: string | null) {
