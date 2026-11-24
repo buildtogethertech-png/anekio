@@ -1,8 +1,25 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ActivityIndicator, Dimensions, Linking, Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, AppState, Dimensions, Linking, Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { createFixWatcher, distanceMeters, fixCountsInside, formatDistance, GEO_MAX_ACCURACY_M, GEO_RADIUS_CHOICES, GeoError, readFix, waitForFix, type Fix, type FixWatcher, type GeoFailCode, type StaffAttendanceSetup } from "../lib/attendance-geo";
+import {
+  createFixWatcher,
+  distanceMeters,
+  fixCountsInside,
+  formatDistance,
+  GEO_MAX_ACCURACY_M,
+  GEO_RADIUS_CHOICES,
+  GeoError,
+  phoneLocation,
+  phoneLocationProblem,
+  readFix,
+  turnOnPhoneLocation,
+  waitForFix,
+  type Fix,
+  type FixWatcher,
+  type GeoFailCode,
+  type StaffAttendanceSetup,
+} from "../lib/attendance-geo";
 import { act } from "../lib/mutate";
 import { useOptionalRecord } from "../lib/record";
 import { closingMinute, hms, teacherPeriodsOn, useFocusDay } from "../lib/class-focus";
@@ -90,12 +107,15 @@ async function markHere(
   } catch (e) {
     // Never reached the server: tell it anyway, so these show up in the logs (fire and forget).
     if (e instanceof GeoError) {
-      void act(token, "reportGeoFail", { reason: e.code, accuracy: e.accuracy ?? watcher?.best()?.accuracy, waitedMs: Date.now() - started }).catch(() => undefined);
+      const device = Platform.OS === "web" ? undefined : await phoneLocation().catch(() => undefined);
+      void act(token, "reportGeoFail", { reason: e.code, accuracy: e.accuracy ?? watcher?.best()?.accuracy, waitedMs: Date.now() - started, device }).catch(() => undefined);
     }
     throw e;
   }
   onStep("check");
-  return act<Marked>(token, "markStaffAttendanceHere", earlyReason ? { ...fix, earlyReason } : fix);
+  // The phone's location state goes with the mark, so the logs say why a refused one failed (GPS off, approximate…).
+  const device = Platform.OS === "web" ? undefined : await phoneLocation().catch(() => undefined);
+  return act<Marked>(token, "markStaffAttendanceHere", earlyReason ? { ...fix, earlyReason, device } : { ...fix, device });
 }
 
 const EARLY_REASONS: { label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
@@ -392,6 +412,35 @@ export function MarkHereSheet({
     };
   }, [open]);
 
+  // Found before they tap: location off, GPS off (Battery saver), approximate only. Checked again when they come
+  // back from Settings, so the warning goes away by itself once it's fixed.
+  const [phoneIssue, setPhoneIssue] = useState<GeoFailCode | null>(null);
+  const [fixingPhone, setFixingPhone] = useState(false);
+  useEffect(() => {
+    if (!open || Platform.OS === "web") return;
+    let live = true;
+    const check = () => void phoneLocationProblem().then((p) => live && setPhoneIssue(p)).catch(() => undefined);
+    check();
+    const sub = AppState.addEventListener("change", (s) => s === "active" && check());
+    return () => {
+      live = false;
+      sub.remove();
+    };
+  }, [open]);
+
+  async function fixPhone() {
+    if (phoneIssue === "gps_off") {
+      void Linking.sendIntent("android.settings.BATTERY_SAVER_SETTINGS").catch(() => Linking.openSettings());
+      return;
+    }
+    setFixingPhone(true);
+    try {
+      setPhoneIssue(await turnOnPhoneLocation());
+    } finally {
+      setFixingPhone(false);
+    }
+  }
+
   // Before the school day ends (teachers): Check out asks why, and shows the classes still left today.
   const data = record?.data;
   const nowMin = now.getHours() * 60 + now.getMinutes();
@@ -455,9 +504,13 @@ export function MarkHereSheet({
       : "Checking you're at school…"
     : "";
   // Problems only the phone's settings can fix get a button straight there.
-  const settingsFix = errorCode === "permission" || errorCode === "approximate" || errorCode === "services_off";
+  const settingsFix = errorCode === "permission" || errorCode === "approximate" || errorCode === "services_off" || errorCode === "gps_off";
+  // Problems Android can fix with its own one-tap dialog: "Turn on" asks again and carries on with the check in.
+  const turnOn = Platform.OS === "android" && (errorCode === "permission" || errorCode === "approximate" || errorCode === "services_off");
   function openLocationSettings() {
-    if (errorCode === "services_off" && Platform.OS === "android") {
+    if (errorCode === "gps_off" && Platform.OS === "android") {
+      void Linking.sendIntent("android.settings.BATTERY_SAVER_SETTINGS").catch(() => Linking.openSettings());
+    } else if (errorCode === "services_off" && Platform.OS === "android") {
       void Linking.sendIntent("android.settings.LOCATION_SOURCE_SETTINGS").catch(() => Linking.openSettings());
     } else void Linking.openSettings();
   }
@@ -556,6 +609,29 @@ export function MarkHereSheet({
           />
         ) : null}
 
+        {phoneIssue && !error && !(isIn && outAt) ? (
+          <View testID="phone-location-warning" className="flex-row items-center gap-3 rounded-2xl bg-amber-50 px-4 py-3">
+            <Ionicons name="warning-outline" size={20} color="#B45309" />
+            <Text className="min-w-0 flex-1 text-[13px] text-amber-900">
+              {phoneIssue === "gps_off"
+                ? "GPS is off on this phone (often Battery saver). Check in may fail."
+                : phoneIssue === "approximate"
+                  ? "Precise location is off for Anekio. Check in may fail."
+                  : "Location or location accuracy is off on this phone."}
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={phoneIssue === "gps_off" ? "Battery saver settings" : "Turn on location"}
+              disabled={fixingPhone}
+              onPress={() => void fixPhone()}
+              className="rounded-full px-3.5 py-2"
+              style={{ backgroundColor: "#B45309" }}
+            >
+              <Text className="text-[13px] font-semibold text-white">{phoneIssue === "gps_off" ? "Settings" : fixingPhone ? "…" : "Turn on"}</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
         {error ? (
           <View className="gap-2 rounded-2xl bg-red-50 px-4 py-3">
             <View className="flex-row items-start gap-2">
@@ -563,9 +639,16 @@ export function MarkHereSheet({
               <Text className="min-w-0 flex-1 text-[13px] text-red-800">{error}</Text>
             </View>
             {settingsFix && Platform.OS !== "web" ? (
-              <Pressable accessibilityRole="button" accessibilityLabel="Open settings" onPress={openLocationSettings} className="self-start rounded-full bg-white px-3.5 py-2" style={{ borderWidth: 1, borderColor: "#FCA5A5" }}>
-                <Text className="text-[13px] font-semibold text-red-800">Open settings</Text>
-              </Pressable>
+              <View className="flex-row flex-wrap gap-2">
+                {turnOn ? (
+                  <Pressable accessibilityRole="button" accessibilityLabel="Turn on location" onPress={() => void mark()} className="rounded-full px-3.5 py-2" style={{ backgroundColor: "#B91C1C" }}>
+                    <Text className="text-[13px] font-semibold text-white">Turn on</Text>
+                  </Pressable>
+                ) : null}
+                <Pressable accessibilityRole="button" accessibilityLabel="Open settings" onPress={openLocationSettings} className="rounded-full bg-white px-3.5 py-2" style={{ borderWidth: 1, borderColor: "#FCA5A5" }}>
+                  <Text className="text-[13px] font-semibold text-red-800">{errorCode === "gps_off" ? "Battery saver settings" : "Open settings"}</Text>
+                </Pressable>
+              </View>
             ) : null}
             {(errorCode === "weak" || errorCode === "no_fix") && Platform.OS === "android" ? (
               <Text className="text-[12px] leading-4 text-red-700">Tip: keep Wi-Fi on (even if not connected). It helps the phone find its location indoors.</Text>

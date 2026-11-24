@@ -3,7 +3,7 @@ import { Platform } from "react-native";
 import { MarkHereButton, MarkHereSheet, StaffAttendanceSettings } from "../attendance-geo";
 import { QrDockButton } from "../staff-attendance-qr";
 import { act as mutate } from "../../lib/mutate";
-import { readFix } from "../../lib/attendance-geo";
+import { phoneLocationProblem, readFix, turnOnPhoneLocation } from "../../lib/attendance-geo";
 import { useOptionalRecord } from "../../lib/record";
 import { useFocusDay } from "../../lib/class-focus";
 
@@ -13,6 +13,9 @@ jest.mock("../../lib/attendance-geo", () => {
   return {
     ...jest.requireActual("../../lib/attendance-geo"),
     readFix,
+    phoneLocation: jest.fn(() => Promise.resolve({ on: true, gps: true, net: true, precise: true, allowed: true })),
+    phoneLocationProblem: jest.fn(() => Promise.resolve(null)),
+    turnOnPhoneLocation: jest.fn(() => Promise.resolve(null)),
     createFixWatcher: () => ({ start: () => Promise.resolve(), best: () => null, since: () => 0, subscribe: () => () => undefined, stop: () => undefined }),
     waitForFix: (_w: unknown, onProgress?: (f: unknown) => void) =>
       readFix().then((f: unknown) => {
@@ -67,7 +70,7 @@ describe("Check in from the tile", () => {
     expect(mockAct).not.toHaveBeenCalled();
     fireEvent.press(screen.getByLabelText("Check in here"));
     expect(await screen.findByText("Checked in at 8:52 AM")).toBeTruthy();
-    expect(mockAct).toHaveBeenCalledWith("t", "markStaffAttendanceHere", { lat: 28.6143, lng: 77.209, accuracy: 12, mocked: false });
+    expect(mockAct).toHaveBeenCalledWith("t", "markStaffAttendanceHere", expect.objectContaining({ lat: 28.6143, lng: 77.209, accuracy: 12, mocked: false }));
     expect(onDone).toHaveBeenCalled();
   });
 
@@ -318,5 +321,34 @@ describe("StaffAttendanceSettings", () => {
     fireEvent.press(screen.getByLabelText("Test here"));
     expect(await screen.findByText(/^5\d\d m from the school point$/)).toBeTruthy();
     expect(screen.getByText(/marking would be refused here/)).toBeTruthy();
+  });
+});
+
+describe("phone location warning", () => {
+  const problem = phoneLocationProblem as jest.MockedFunction<typeof phoneLocationProblem>;
+  const turnOn = turnOnPhoneLocation as jest.MockedFunction<typeof turnOnPhoneLocation>;
+
+  it("shows before Check in when location accuracy is off, and Turn on clears it", async () => {
+    problem.mockResolvedValue("services_off");
+    turnOn.mockResolvedValue(null);
+    render(<MarkHereSheet open token="t" today={{ marked: false }} onClose={jest.fn()} onDone={jest.fn()} />);
+    expect(await screen.findByTestId("phone-location-warning")).toBeTruthy();
+    fireEvent.press(screen.getByLabelText("Turn on location"));
+    await waitFor(() => expect(turnOn).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByTestId("phone-location-warning")).toBeNull());
+  });
+
+  it("GPS off (Battery saver): says so and offers Battery saver settings", async () => {
+    problem.mockResolvedValue("gps_off");
+    render(<MarkHereSheet open token="t" today={{ marked: false }} onClose={jest.fn()} onDone={jest.fn()} />);
+    expect(await screen.findByText(/GPS is off on this phone/)).toBeTruthy();
+    expect(screen.getByLabelText("Battery saver settings")).toBeTruthy();
+  });
+
+  it("no warning when the phone is fine", async () => {
+    problem.mockResolvedValue(null);
+    render(<MarkHereSheet open token="t" today={{ marked: false }} onClose={jest.fn()} onDone={jest.fn()} />);
+    await waitFor(() => expect(problem).toHaveBeenCalled());
+    expect(screen.queryByTestId("phone-location-warning")).toBeNull();
   });
 });

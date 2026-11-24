@@ -18,7 +18,7 @@ export function fixCountsInside(meters: number, accuracy: number, radiusM: numbe
 }
 
 /** A location problem found on the phone (never reached the server), with a code we can log and act on. */
-export type GeoFailCode = "permission" | "services_off" | "approximate" | "no_fix";
+export type GeoFailCode = "permission" | "services_off" | "gps_off" | "approximate" | "no_fix";
 export class GeoError extends Error {
   constructor(readonly code: GeoFailCode, message: string, readonly accuracy?: number) {
     super(message);
@@ -27,6 +27,68 @@ export class GeoError extends Error {
 export const PRECISE_OFF_TEXT = "Precise location is off for Anekio. Turn on “Precise location” in settings, then try again.";
 /** iOS doesn't say when Precise Location is off; a reading this rough means it is. */
 const APPROXIMATE_M = 1000;
+
+export const GPS_OFF_TEXT = "GPS is off on this phone (often Battery saver). Turn off Battery saver, then try again.";
+
+/** What the phone allows right now, for the logs and for the "Turn on" prompts. */
+export type PhoneLocation = { on: boolean; gps: boolean; net: boolean; precise: boolean | null; allowed: boolean };
+
+export async function phoneLocation(): Promise<PhoneLocation> {
+  const perm = await Location.getForegroundPermissionsAsync().catch(() => null);
+  const allowed = perm?.status === "granted";
+  const precise = perm?.android?.accuracy ? perm.android.accuracy === "fine" : null;
+  if (Platform.OS !== "android") {
+    const on = await Location.hasServicesEnabledAsync().catch(() => true);
+    return { on, gps: on, net: on, precise, allowed };
+  }
+  const s = await Location.getProviderStatusAsync().catch(() => null);
+  if (!s) return { on: true, gps: true, net: true, precise, allowed };
+  return { on: s.locationServicesEnabled, gps: s.gpsAvailable !== false, net: s.networkAvailable !== false, precise, allowed };
+}
+
+/**
+ * Something on the phone that will make Check in fail, found without asking anything (for the warning
+ * shown when the sheet opens). Not asked for location yet is not a problem: Check in asks.
+ */
+export async function phoneLocationProblem(): Promise<GeoFailCode | null> {
+  if (Platform.OS === "web") return null;
+  const s = await phoneLocation().catch(() => null);
+  if (!s) return null;
+  if (!s.on) return "services_off";
+  if (s.allowed && s.precise === false) return "approximate";
+  if (!s.gps) return "gps_off";
+  if (Platform.OS === "android" && !s.net) return "services_off";
+  return null;
+}
+
+/**
+ * Android: location off, or on without GPS (Battery saver / "low accuracy" mode), gives readings hundreds of
+ * metres off. Show Android's own "Turn on location / Location accuracy" dialog: one tap fixes it. Battery saver
+ * can't be turned off by an app, so that one ends in a message. True when it changed something.
+ */
+async function ensurePhoneLocationOn() {
+  let s = await phoneLocation();
+  if (s.on && s.gps && s.net) return false;
+  await Location.enableNetworkProviderAsync().catch(() => undefined);
+  s = await phoneLocation();
+  if (!s.on) throw new GeoError("services_off", "Location is off. Tap Turn on and allow it.");
+  if (!s.gps) throw new GeoError("gps_off", GPS_OFF_TEXT);
+  return true;
+}
+
+/** The warning's "Turn on": Android's own dialogs (precise location, then location / accuracy). Returns what is still wrong. */
+export async function turnOnPhoneLocation(): Promise<GeoFailCode | null> {
+  const perm = await Location.getForegroundPermissionsAsync().catch(() => null);
+  if (perm?.status === "granted" && perm.android?.accuracy === "coarse") await Location.requestForegroundPermissionsAsync().catch(() => null);
+  if (Platform.OS === "android") await Location.enableNetworkProviderAsync().catch(() => undefined);
+  return phoneLocationProblem();
+}
+
+/** Android "Approximate" only: asking again shows Android's "Change to precise location?" dialog. */
+async function askPrecise() {
+  const again = await Location.requestForegroundPermissionsAsync().catch(() => null);
+  if (again?.android?.accuracy !== "fine") throw new GeoError("approximate", PRECISE_OFF_TEXT);
+}
 
 /** "9 m", "450 m", then "1.2 km", "5 km": metres under a kilometre, kilometres after. */
 export function formatDistance(meters: number) {
@@ -104,8 +166,9 @@ export function createFixWatcher(): FixWatcher {
       return;
     }
     // Android "Approximate" only: readings are hundreds of metres off, so marking can never pass.
-    if (ask && perm.android?.accuracy === "coarse") throw new GeoError("approximate", PRECISE_OFF_TEXT);
-    if (!(await Location.hasServicesEnabledAsync())) {
+    if (ask && perm.android?.accuracy === "coarse") await askPrecise();
+    if (ask && Platform.OS === "android") await ensurePhoneLocationOn();
+    else if (!(await Location.hasServicesEnabledAsync())) {
       if (ask) throw new GeoError("services_off", "Turn on Location on your phone and try again.");
       return;
     }
@@ -126,9 +189,20 @@ export function createFixWatcher(): FixWatcher {
       stopped = false;
       if (starting) await starting.catch(() => undefined);
       if (sub && ask) {
-        // Already running (warmed up when the sheet opened): still check the permission is precise.
+        // Already running (warmed up when the sheet opened): still check precise, location and GPS are on.
         const perm = await Location.getForegroundPermissionsAsync();
-        if (perm.android?.accuracy === "coarse") throw new GeoError("approximate", PRECISE_OFF_TEXT);
+        let changed = false;
+        if (perm.android?.accuracy === "coarse") {
+          await askPrecise();
+          changed = true;
+        }
+        if (Platform.OS === "android" && (await ensurePhoneLocationOn())) changed = true;
+        // Turned on just now: restart GPS so the old rough readings aren't used.
+        if (changed) {
+          safeRemove(sub);
+          sub = null;
+          best = null;
+        }
       }
       if (sub) return;
       starting = begin(ask);
