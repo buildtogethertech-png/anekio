@@ -27,7 +27,7 @@
         "foregroundImage": "./assets/anekio-mark-adaptive.png",
         "backgroundColor": "#FFFFFF"
       },
-      "versionCode": 23
+      "versionCode": 24
     },
     "web": {
       "bundler": "metro",
