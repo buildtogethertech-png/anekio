@@ -674,6 +674,9 @@ export function DeskBoard() {
       unmarked: attClosed ? 0 : Math.max(0, klass.total - day.marked),
       percent: klass.total ? Math.round((day.present / klass.total) * 100) : 0,
       teacherStatus: "",
+      coverTeacherId: "",
+      coverName: "",
+      coverPhone: "",
     };
   });
   const attendanceTotals = classAttendance.reduce(
@@ -972,20 +975,32 @@ export function DeskBoard() {
             {classAttendance.map((klass, index) => {
               const marked = klass.present + klass.absent;
               const isAway = (status: string) => status === "ABSENT" || status === "LEAVE";
-              // A class can have more than one class teacher: remind the first one who is in today.
-              const contact = klass.classTeachers.find((t) => !isAway(t.status)) || klass.classTeachers[0] || null;
-              const teacherAway = Boolean(contact && isAway(contact.status));
+              // A class can have more than one class teacher: the first one who is in today is the contact.
+              const primary = klass.classTeachers.find((t) => !isAway(t.status)) || klass.classTeachers[0] || null;
+              const teacherAway = Boolean(primary && isAway(primary.status));
               const teacherNames = klass.classTeachers.map((t) => t.name).join(", ") || "Not assigned";
+              // Handed to another teacher today: show and remind them, not the class teacher who is out.
+              const cover = attIsToday && klass.coverName ? { name: klass.coverName, phone: klass.coverPhone || "" } : null;
+              const forTeacher = cover ? `for ${teacherNames}${teacherAway && primary ? ` (${primary.status.toLowerCase()})` : ""}` : "";
+              const taken = klass.unmarked ? `${klass.unmarked} unmarked` : `${klass.percent}% · ${klass.absent} out`;
               const status = !marked
                 ? attClosed
                   ? "School closed"
-                  : teacherAway && contact
-                    ? `Teacher ${contact.status.toLowerCase()} · not taken`
-                    : "Attendance not taken"
-                : klass.unmarked
-                  ? `${klass.unmarked} unmarked`
-                  : `${klass.percent}% · ${klass.absent} out`;
-              const reminder = `Hi ${contact?.name || "there"}, attendance for ${klass.label} is still unmarked ${attIsToday ? "today" : `for ${attDayLabel}`}. Please update it when possible.`;
+                  : cover
+                    ? `Given ${forTeacher} · not taken`
+                    : teacherAway && primary
+                      ? `Teacher ${primary.status.toLowerCase()} · not taken`
+                      : "Attendance not taken"
+                : cover
+                  ? `${taken} · ${forTeacher}`
+                  : taken;
+              const who = cover?.name || teacherNames;
+              const contact = cover || primary;
+              const reminder = cover
+                ? `Hi ${cover.name.split(" ")[0]}, ${
+                    teacherAway && primary ? `${primary.name} is ${primary.status === "LEAVE" ? "on leave" : "absent"} today, so ` : ""
+                  }${klass.label}'s attendance is with you. It is still not taken. Please take it when possible.`
+                : `Hi ${primary?.name || "there"}, attendance for ${klass.label} is still unmarked ${attIsToday ? "today" : `for ${attDayLabel}`}. Please update it when possible.`;
               const teacherTel = phoneHref(contact?.phone || "");
               const teacherWa = whatsappHref(contact?.phone || "", reminder);
               return (
@@ -994,7 +1009,7 @@ export function DeskBoard() {
                     <Text className="text-xs font-semibold text-ink-900" numberOfLines={1}>{klass.label}</Text>
                   </View>
                   <View className="min-w-0 flex-1">
-                    <Text className="text-xs font-medium text-ink-900" numberOfLines={1}>{teacherNames}</Text>
+                    <Text className="text-xs font-medium text-ink-900" numberOfLines={1}>{who}</Text>
                     <Text className={`text-[10px] ${!marked ? (attClosed ? "text-ink-500" : "text-amber-700") : klass.percent < 75 ? "text-red-600" : "text-ink-700"}`} numberOfLines={1}>{status}</Text>
                   </View>
                   <View className="flex-row items-center gap-4">

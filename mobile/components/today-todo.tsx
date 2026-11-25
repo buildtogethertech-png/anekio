@@ -58,6 +58,51 @@ function initials(name: string) {
 
 const first = (name: string) => name.split(" ")[0] || name;
 
+/** Day-change reasons where the weekly teacher is out (timetable-day REASON_LABEL). */
+const OUT_LABELS = new Set(["Absent", "On leave", "On duty"]);
+
+/** One done item under "done today", with Undo in case it was picked by mistake. */
+function DoneLine({
+  title,
+  sub,
+  first,
+  busy,
+  disabled,
+  onUndo,
+}: {
+  title: string;
+  sub: string;
+  first: boolean;
+  busy: boolean;
+  disabled: boolean;
+  onUndo: () => void;
+}) {
+  return (
+    <View className={`flex-row items-center gap-2.5 px-3 py-2 ${first ? "" : "border-t border-ink-100"}`}>
+      <Ionicons name="checkmark-circle" size={16} color="#059669" />
+      <View className="min-w-0 flex-1">
+        <Text className="text-[13px] font-medium text-ink-900" numberOfLines={1}>
+          {title}
+        </Text>
+        <Text className="text-[12px] text-ink-500" numberOfLines={1}>
+          {sub}
+        </Text>
+      </View>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Undo: ${title} → ${sub}`}
+        disabled={disabled}
+        onPress={onUndo}
+        hitSlop={6}
+        className={`flex-row items-center gap-1 rounded-full border px-3 py-1 ${disabled ? "border-ink-100 bg-ink-50" : "border-[#C7D4F7] bg-white active:bg-[#EEF3FF]"}`}
+      >
+        <Ionicons name="arrow-undo" size={12} color={disabled ? "#94A3B8" : "#1F45C7"} />
+        <Text className={`text-[12px] font-bold ${disabled ? "text-ink-400" : "text-[#1F45C7]"}`}>{busy ? "Undoing…" : "Undo"}</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 function prettyRange(from: string, to: string) {
   const pretty = (value: string) => new Date(`${value}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
   return from === to ? pretty(from) : `${pretty(from)}–${pretty(to)}`;
@@ -287,6 +332,8 @@ export function TodayTodo({
     return { key, name: r.weeklyTeacher || "Teacher", why: (r.reasonLabel || "Out").toLowerCase(), coming: mine.filter((x) => !isOver(x)), over: mine.filter(isOver) };
   });
   const covered = rows.filter((r) => r.status === "COVERED" || r.status === "FREE").sort((a, b) => a.sortOrder - b.sortOrder);
+  const handovers = gaps?.handovers ?? [];
+  const doneCount = covered.length + handovers.length;
   const attendance = (gaps?.gaps ?? []).filter((g) => g.classId && !g.attendanceBy && !g.attendanceDone);
   const waiting = leave.waiting;
   const planAhead = leave.upcoming
@@ -579,25 +626,68 @@ export function TodayTodo({
         </View>
       )}
 
-      {covered.length ? (
-        <View className="border-t border-ink-100 bg-ink-50/60 px-4 py-2">
-          <Pressable onPress={() => setShowDone((v) => !v)} className="flex-row items-center gap-2" hitSlop={6}>
-            <Text className="text-[12px] font-medium text-emerald-700">{`✓ ${covered.length} done today`}</Text>
-            <View className="flex-1" />
-            <Ionicons name={showDone ? "chevron-up" : "chevron-down"} size={14} color="#64748B" />
+      {doneCount ? (
+        <View className="border-t border-ink-100">
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setShowDone((v) => !v)}
+            className="flex-row items-center gap-3 px-4 py-2.5 active:bg-ink-50"
+          >
+            <View className="h-9 w-9 items-center justify-center rounded-full bg-emerald-50">
+              <Ionicons name="checkmark-done" size={17} color="#15803D" />
+            </View>
+            <View className="min-w-0 flex-1">
+              <Text className="text-[14px] font-semibold text-ink-900">{`${doneCount} done today`}</Text>
+              <Text className="text-[12px] text-ink-500" numberOfLines={2}>
+                {[
+                  handovers.length ? `${handovers.length} attendance handed over` : "",
+                  covered.length ? `${covered.length} period${covered.length === 1 ? "" : "s"} covered` : "",
+                  showDone ? "" : "tap to see or undo",
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </Text>
+            </View>
+            <Ionicons name={showDone ? "chevron-up" : "chevron-down"} size={15} color="#94A3B8" />
           </Pressable>
-          {showDone
-            ? covered.map((row) => (
-                <View key={row.slotId} className="mt-1.5 flex-row items-center gap-2">
-                  <Ionicons name="checkmark-circle" size={14} color="#059669" />
-                  <Text className="min-w-0 flex-1 text-[12px] text-ink-700" numberOfLines={1}>
-                    {`${row.period} · ${row.classLabel}${row.subject ? ` ${row.subject}` : ""} → ${
-                      row.status === "FREE" ? "free period" : `${row.teacher}${row.coverSubject ? ` (${row.coverSubject})` : ""}`
-                    }`}
-                  </Text>
-                </View>
-              ))
-            : null}
+          {showDone ? (
+            <View className="mx-4 mb-3 overflow-hidden rounded-xl border border-ink-100 bg-white">
+              {handovers.map((h, i) => (
+                <DoneLine
+                  key={`att:${h.classId}`}
+                  first={i === 0}
+                  title={`${h.classLabel} attendance`}
+                  sub={`→ ${h.teacherName} takes it today`}
+                  busy={busy === `undo:att:${h.classId}`}
+                  disabled={Boolean(busy)}
+                  onUndo={() =>
+                    void run(`undo:att:${h.classId}`, () => act(token, "clearAttendanceCover", { date, classId: h.classId }), `${h.classLabel} attendance is not handed over now.`)
+                  }
+                />
+              ))}
+              {covered.map((row, i) => (
+                <DoneLine
+                  key={row.slotId}
+                  first={!handovers.length && i === 0}
+                  title={`${row.period} · ${row.classLabel}${row.subject ? ` ${row.subject}` : ""}`}
+                  sub={row.status === "FREE" ? "→ Free period" : `→ ${row.teacher}${row.coverSubject ? ` · teaches ${row.coverSubject}` : ""}`}
+                  busy={busy === `undo:${row.slotId}`}
+                  disabled={Boolean(busy)}
+                  onUndo={() =>
+                    void run(
+                      `undo:${row.slotId}`,
+                      // The teacher is still out: the period needs a teacher again. Any other change goes back to the usual timetable.
+                      () =>
+                        OUT_LABELS.has(row.reasonLabel)
+                          ? act(token, "saveDayChange", { date, slotId: row.slotId, status: "OPEN" })
+                          : act(token, "clearDayChange", { date, slotId: row.slotId }),
+                      `${row.period} · ${row.classLabel} is undone.`
+                    )
+                  }
+                />
+              ))}
+            </View>
+          ) : null}
         </View>
       ) : null}
 

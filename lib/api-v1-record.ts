@@ -1168,7 +1168,7 @@ async function officePayload(user: AccessUser) {
   coverUntil.setDate(coverUntil.getDate() + 7);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const [substituteAssignments, todayAttendance] = await Promise.all([
+  const [substituteAssignments, todayAttendance, attendanceCovers] = await Promise.all([
     prisma.substituteAssignment.findMany({
       where: { date: { gte: todayKey, lte: ymd(coverUntil) } },
       include: {
@@ -1181,7 +1181,13 @@ async function officePayload(user: AccessUser) {
       where: { date: today },
       select: { status: true, student: { select: { classId: true } } },
     }),
+    // Classes whose attendance the office handed to another teacher today (class teacher out).
+    prisma.classAttendanceCover.findMany({
+      where: { date: staffToday },
+      select: { classId: true, teacher: { select: { id: true, user: { select: { name: true, phone: true } } } } },
+    }),
   ]);
+  const attendanceCoverByClass = new Map(attendanceCovers.map((c) => [c.classId, c.teacher]));
   const attendanceByClass = new Map<string, { present: number; absent: number; marked: number }>();
   for (const row of todayAttendance) {
     const current = attendanceByClass.get(row.student.classId) ?? { present: 0, absent: 0, marked: 0 };
@@ -1340,6 +1346,8 @@ async function officePayload(user: AccessUser) {
               managerPhone: teacher.user.manager?.phone || "",
             };
           });
+        // Today's attendance handed to another teacher (class teacher out).
+        const cover = attendanceCoverByClass.get(klass.id);
         return {
           classId: klass.id,
           label: `${klass.name}-${klass.section}`,
@@ -1349,6 +1357,9 @@ async function officePayload(user: AccessUser) {
           unmarked: Math.max(0, total - marked.marked),
           percent: total ? Math.round((marked.present / total) * 100) : 0,
           classTeachers,
+          coverTeacherId: cover?.id || "",
+          coverName: cover?.user.name || "",
+          coverPhone: cover?.user.phone || "",
         };
       }),
     },

@@ -150,14 +150,17 @@ export type DayGap = {
   candidates: { id: string; name: string; hint: string }[];
 };
 
+/** A class's attendance handed to another teacher for the day: shown as done, with Undo. */
+export type DayHandover = { classId: string; classLabel: string; teacherName: string };
+
 /** Office list of teachers out on a date with what still needs doing. Only teachers with something open are returned. */
 export async function dayGaps(user: AccessUser, input: { date?: string } = {}) {
   const date = cleanDate(input.date || schoolToday());
   const cal = await loadSchoolCalendar();
   const closed = closedReason(date, cal);
-  if (closed || !can(user, "timetable.edit")) return { date, closed: closed || "", gaps: [] as DayGap[] };
+  if (closed || !can(user, "timetable.edit")) return { date, closed: closed || "", gaps: [] as DayGap[], handovers: [] as DayHandover[] };
   const out = await teachersOutOn(date);
-  if (!out.size) return { date, closed: "", gaps: [] as DayGap[] };
+  if (!out.size) return { date, closed: "", gaps: [] as DayGap[], handovers: [] as DayHandover[] };
   const team = scopeFor(user, "timetable.edit") === "REPORTS" ? await teamClassIds(user.id) : null;
   const weekday = weekdayOfYmd(date);
   const ids = [...out.keys()];
@@ -168,7 +171,10 @@ export async function dayGaps(user: AccessUser, input: { date?: string } = {}) {
     }),
     prisma.timetableSlot.findMany({ where: { teacherId: { in: ids }, weekday }, include: { period: true } }),
     prisma.substituteAssignment.findMany({ where: { date }, select: { slotId: true, status: true } }),
-    prisma.classAttendanceCover.findMany({ where: { date }, include: { teacher: { select: { id: true, user: { select: { name: true } } } } } }),
+    prisma.classAttendanceCover.findMany({
+      where: { date },
+      include: { teacher: { select: { id: true, user: { select: { name: true } } } }, class: { select: { name: true, section: true } } },
+    }),
   ]);
   const changeBySlot = new Map(changes.map((c) => [c.slotId, c]));
   const coverByClass = new Map(covers.map((c) => [c.classId, c]));
@@ -183,7 +189,6 @@ export async function dayGaps(user: AccessUser, input: { date?: string } = {}) {
   const presentClassTeacher = (classId: string) =>
     coClassTeachers.find((t) => t.classId === classId && !out.has(t.teacherId))?.teacher.user.name || "";
   const gaps: DayGap[] = [];
-  const { from, to } = staffDayWindow(date);
   for (const teacher of teachers) {
     const mine = slots.filter((s) => s.teacherId === teacher.id && !s.period.isBreak && (!team || team.includes(s.classId)));
     const openPeriods = mine.filter((s) => {
@@ -203,7 +208,8 @@ export async function dayGaps(user: AccessUser, input: { date?: string } = {}) {
       }
       const cover = coverByClass.get(klass.id);
       const attendanceBy = cover ? { id: cover.teacher.id, name: cover.teacher.user.name } : null;
-      const attendanceDone = (await prisma.attendance.count({ where: { date: { gte: from, lte: to }, student: { classId: klass.id } } })) > 0;
+      // Student attendance is stored at local midnight of its day: match that day only, not yesterday's.
+      const attendanceDone = (await prisma.attendance.count({ where: { date: new Date(`${date}T00:00:00`), student: { classId: klass.id } } })) > 0;
       const candidates =
         !attendanceBy && !attendanceDone
           ? (await attendanceCandidates(date, klass.id, out)).map(({ id, name, hint }) => ({ id, name, hint }))
@@ -215,7 +221,11 @@ export async function dayGaps(user: AccessUser, input: { date?: string } = {}) {
     gaps.push(...(rows.length ? rows : [{ ...base, classId: "", classLabel: "", attendanceBy: null, coClassTeacher: "", attendanceDone: false, candidates: [] }]));
   }
   gaps.sort((a, b) => a.teacherName.localeCompare(b.teacherName));
-  return { date, closed: "", gaps };
+  const handovers: DayHandover[] = covers
+    .filter((c) => !team || team.includes(c.classId))
+    .map((c) => ({ classId: c.classId, classLabel: `${c.class.name}-${c.class.section}`, teacherName: c.teacher.user.name }))
+    .sort((a, b) => a.classLabel.localeCompare(b.classLabel));
+  return { date, closed: "", gaps, handovers };
 }
 
 /** Hand a class's attendance on one date to a teacher (replaces an earlier pick for that date). */

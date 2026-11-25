@@ -98,6 +98,15 @@ describe.sequential.skipIf(!schoolDay)("class attendance cover", () => {
     expect(gap.candidates.map((c: { id: string }) => c.id)).toContain("teacher-rhea");
   });
 
+  it("yesterday's class attendance does not count as taken today", async () => {
+    const yesterday = new Date(`${addDays(today, -1)}T00:00:00`);
+    await prisma.attendance.create({ data: { studentId: fixture.studentId, date: yesterday, status: "PRESENT" } });
+    const office = await record(officeToken);
+    const gap = office.body.dayGaps.gaps.find((g: { teacherId: string }) => g.teacherId === "teacher-tara");
+    expect(gap).toMatchObject({ classId: fixture.classId, attendanceDone: false });
+    await prisma.attendance.deleteMany({ where: { studentId: fixture.studentId, date: yesterday } });
+  });
+
   it("another teacher cannot mark the class until the office hands it over", async () => {
     const before = await act(rheaToken, "markAttendance", { date: today, rows: [{ studentId: fixture.studentId, status: "PRESENT" }] });
     expect(before.status).toBe(400);
@@ -147,7 +156,15 @@ describe.sequential.skipIf(!schoolDay)("class attendance cover", () => {
   it("the office can remove a hand-over", async () => {
     expect((await markTara("ABSENT")).status).toBe(200);
     expect((await act(officeToken, "assignAttendanceCover", { date: today, classId: fixture.classId, teacherId: "teacher-rhea" })).status).toBe(200);
+    // Today's attendance card names who takes it now.
+    const card = (await record(officeToken)).body.desk.classAttendance.find((c: { classId: string }) => c.classId === fixture.classId);
+    expect(card).toMatchObject({ coverTeacherId: "teacher-rhea", coverName: "Rhea Fixture" });
+    expect(card.classTeachers).toEqual([expect.objectContaining({ id: "teacher-tara", status: "ABSENT" })]);
+    // The office To-do lists it as done, with Undo.
+    const handed = await act(officeToken, "loadDayGaps", { date: today });
+    expect(handed.body.handovers).toEqual([{ classId: fixture.classId, classLabel: "6-A", teacherName: "Rhea Fixture" }]);
     expect((await act(officeToken, "clearAttendanceCover", { date: today, classId: fixture.classId })).status).toBe(200);
+    expect((await act(officeToken, "loadDayGaps", { date: today })).body.handovers).toEqual([]);
     expect(await prisma.classAttendanceCover.count({ where: { date: today } })).toBe(0);
     expect((await record(rheaToken)).body.attendanceCovers).toHaveLength(0);
   });
