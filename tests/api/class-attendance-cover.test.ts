@@ -98,6 +98,15 @@ describe.sequential.skipIf(!schoolDay)("class attendance cover", () => {
     expect(gap.candidates.map((c: { id: string }) => c.id)).toContain("teacher-rhea");
   });
 
+  it("yesterday's class attendance does not count as taken today", async () => {
+    const yesterday = new Date(`${addDays(today, -1)}T00:00:00`);
+    await prisma.attendance.create({ data: { studentId: fixture.studentId, date: yesterday, status: "PRESENT" } });
+    const office = await record(officeToken);
+    const gap = office.body.dayGaps.gaps.find((g: { teacherId: string }) => g.teacherId === "teacher-tara");
+    expect(gap).toMatchObject({ classId: fixture.classId, attendanceDone: false });
+    await prisma.attendance.deleteMany({ where: { studentId: fixture.studentId, date: yesterday } });
+  });
+
   it("another teacher cannot mark the class until the office hands it over", async () => {
     const before = await act(rheaToken, "markAttendance", { date: today, rows: [{ studentId: fixture.studentId, status: "PRESENT" }] });
     expect(before.status).toBe(400);

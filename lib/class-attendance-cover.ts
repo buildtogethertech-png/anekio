@@ -193,8 +193,8 @@ export async function dayGaps(user: AccessUser, input: { date?: string } = {}) {
     if (classId) {
       const cover = coverByClass.get(classId);
       attendanceBy = cover ? { id: cover.teacher.id, name: cover.teacher.user.name } : null;
-      const { from, to } = staffDayWindow(date);
-      attendanceDone = (await prisma.attendance.count({ where: { date: { gte: from, lte: to }, student: { classId } } })) > 0;
+      // Student attendance is stored at local midnight of its day: match that day only, not yesterday's.
+      attendanceDone = (await prisma.attendance.count({ where: { date: new Date(`${date}T00:00:00`), student: { classId } } })) > 0;
       if (!attendanceBy && !attendanceDone) {
         candidates = (await attendanceCandidates(date, classId, out)).map(({ id, name, hint }) => ({ id, name, hint }));
       }
