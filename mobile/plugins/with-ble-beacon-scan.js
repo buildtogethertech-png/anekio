@@ -16,6 +16,16 @@ module.exports = function withBleBeaconScan(config) {
     delete scan.$["android:usesPermissionFlags"];
     scan.$["tools:remove"] = "android:usesPermissionFlags";
     manifest.manifest["uses-permission"] = perms;
+
+    // The BLUETOOTH permissions make Play treat Bluetooth as required hardware and drop devices without it.
+    // Bluetooth is only for beacon check in (the app falls back to GPS), so mark it optional.
+    const features = manifest.manifest["uses-feature"] || [];
+    for (const name of ["android.hardware.bluetooth", "android.hardware.bluetooth_le"]) {
+      const feature = features.find((f) => f.$["android:name"] === name);
+      if (feature) feature.$["android:required"] = "false";
+      else features.push({ $: { "android:name": name, "android:required": "false" } });
+    }
+    manifest.manifest["uses-feature"] = features;
     return cfg;
   });
 };
