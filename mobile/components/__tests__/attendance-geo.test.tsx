@@ -6,6 +6,7 @@ import { act as mutate } from "../../lib/mutate";
 import { readFix } from "../../lib/attendance-geo";
 import { useOptionalRecord } from "../../lib/record";
 import { useFocusDay } from "../../lib/class-focus";
+import { scanForBeacon } from "../../lib/beacon-scan";
 
 jest.mock("../../lib/mutate", () => ({ act: jest.fn() }));
 jest.mock("../../lib/attendance-geo", () => {
@@ -22,6 +23,7 @@ jest.mock("../../lib/attendance-geo", () => {
   };
 });
 jest.mock("expo-location", () => ({}));
+jest.mock("../../lib/beacon-scan", () => ({ ...jest.requireActual("../../lib/beacon-scan"), scanForBeacon: jest.fn() }));
 jest.mock("../../lib/class-focus", () => ({
   ...jest.requireActual("../../lib/class-focus"),
   useFocusDay: jest.fn(() => null),
@@ -42,6 +44,22 @@ const mockAct = mutate as jest.MockedFunction<typeof mutate>;
 const mockReadFix = readFix as jest.MockedFunction<typeof readFix>;
 const mockUseOptionalRecord = useOptionalRecord as jest.MockedFunction<typeof useOptionalRecord>;
 const mockUseFocusDay = useFocusDay as jest.MockedFunction<typeof useFocusDay>;
+const mockScan = scanForBeacon as jest.MockedFunction<typeof scanForBeacon>;
+const BEACON_SCHOOL = {
+  qr: false,
+  location: false,
+  beacon: true,
+  lat: 28.6139,
+  lng: 77.209,
+  radiusM: 150,
+  beaconUuid: "8ec76ea3-6668-48da-9866-75be8bc86f4d",
+  beaconName: "Anekio-Gate-1",
+  beaconRssi: -80,
+  gpsBackup: true,
+};
+function withSetup(setup: object) {
+  mockUseOptionalRecord.mockReturnValue({ data: { staffAttendanceSelf: { attendanceSetup: setup } } } as never);
+}
 const SCHOOL = { qr: false, location: true, lat: 28.6139, lng: 77.209, radiusM: 150 };
 const originalOs = Platform.OS;
 
@@ -307,7 +325,11 @@ describe("StaffAttendanceSettings", () => {
     fireEvent.press(screen.getByText("200 m"));
     fireEvent.press(screen.getByLabelText("Save staff attendance"));
     await waitFor(() =>
-      expect(mockAct).toHaveBeenCalledWith("t", "saveStaffAttendanceSetup", { qr: false, location: true, lat: 28.6139, lng: 77.209, radiusM: 200 })
+      expect(mockAct).toHaveBeenCalledWith(
+        "t",
+        "saveStaffAttendanceSetup",
+        expect.objectContaining({ qr: false, location: true, beacon: false, lat: 28.6139, lng: 77.209, radiusM: 200 })
+      )
     );
     expect(onSaved).toHaveBeenCalled();
   });
@@ -318,5 +340,90 @@ describe("StaffAttendanceSettings", () => {
     fireEvent.press(screen.getByLabelText("Test here"));
     expect(await screen.findByText(/^5\d\d m from the school point$/)).toBeTruthy();
     expect(screen.getByText(/marking would be refused here/)).toBeTruthy();
+  });
+});
+
+describe("Bluetooth beacon", () => {
+  afterEach(() => mockUseOptionalRecord.mockReset());
+
+  it("checks in by the beacon when it is heard, without GPS", async () => {
+    withSetup(BEACON_SCHOOL);
+    mockScan.mockResolvedValue({ hit: { uuid: BEACON_SCHOOL.beaconUuid, rssi: -64 }, problem: null, rssi: -64 });
+    mockAct.mockResolvedValue({ ok: true, inAt: "08:40", outAt: "", checkedOut: false } as never);
+    render(<MarkHereSheet open token="t" today={{ marked: false }} onClose={jest.fn()} onDone={jest.fn()} />);
+    fireEvent.press(screen.getByLabelText("Check in here"));
+    expect(await screen.findByText("Checked in at 8:40 AM")).toBeTruthy();
+    expect(mockScan).toHaveBeenCalledWith(expect.objectContaining({ uuid: BEACON_SCHOOL.beaconUuid, name: "Anekio-Gate-1", minRssi: -80 }));
+    expect(mockAct).toHaveBeenCalledWith("t", "markStaffAttendanceHere", { beacon: { uuid: BEACON_SCHOOL.beaconUuid, rssi: -64 } });
+    expect(mockReadFix).not.toHaveBeenCalled();
+  });
+
+  it("beacon not heard: falls back to GPS when the backup is on", async () => {
+    withSetup(BEACON_SCHOOL);
+    mockScan.mockResolvedValue({ hit: null, problem: "not_found" });
+    mockReadFix.mockResolvedValue({ lat: 28.6143, lng: 77.209, accuracy: 12, mocked: false });
+    mockAct.mockResolvedValue({ ok: true, inAt: "08:41", outAt: "", checkedOut: false } as never);
+    render(<MarkHereSheet open token="t" today={{ marked: false }} onClose={jest.fn()} onDone={jest.fn()} />);
+    fireEvent.press(screen.getByLabelText("Check in here"));
+    expect(await screen.findByText("Checked in at 8:41 AM")).toBeTruthy();
+    expect(mockAct).toHaveBeenCalledWith("t", "reportGeoFail", expect.objectContaining({ reason: "beacon_not_found" }));
+    expect(mockAct).toHaveBeenCalledWith("t", "markStaffAttendanceHere", { lat: 28.6143, lng: 77.209, accuracy: 12, mocked: false });
+  });
+
+  it("beacon only: says what to do and offers Bluetooth settings", async () => {
+    withSetup({ ...BEACON_SCHOOL, gpsBackup: false });
+    mockScan.mockResolvedValue({ hit: null, problem: "bluetooth_off" });
+    mockAct.mockResolvedValue({ ok: true } as never);
+    render(<MarkHereSheet open token="t" today={{ marked: false }} onClose={jest.fn()} onDone={jest.fn()} />);
+    fireEvent.press(screen.getByLabelText("Check in here"));
+    expect(await screen.findByText("Turn on Bluetooth, then try again.")).toBeTruthy();
+    expect(screen.getByLabelText("Open settings")).toBeTruthy();
+    expect(mockAct).not.toHaveBeenCalledWith("t", "markStaffAttendanceHere", expect.anything());
+  });
+
+  it("settings: pick Bluetooth beacon, turn off the GPS backup, save", async () => {
+    mockAct.mockResolvedValue({ ok: true } as never);
+    render(<StaffAttendanceSettings token="t" setup={{ qr: true, location: false, lat: 0, lng: 0, radiusM: 150 }} canEdit onSaved={jest.fn()} />);
+    fireEvent.press(screen.getByRole("radio", { name: "Bluetooth beacon" }));
+    expect(screen.getByLabelText("Beacon ID").props.value).toBe("8ec76ea3-6668-48da-9866-75be8bc86f4d");
+    expect(screen.getByText("Set the school point to save")).toBeTruthy();
+    // Switches: rotating code, then GPS backup.
+    fireEvent.press(screen.getAllByRole("switch")[1]);
+    fireEvent.press(screen.getByText("5 m"));
+    fireEvent.press(screen.getByLabelText("Save staff attendance"));
+    await waitFor(() =>
+      expect(mockAct).toHaveBeenCalledWith(
+        "t",
+        "saveStaffAttendanceSetup",
+        expect.objectContaining({ qr: false, location: false, beacon: true, gpsBackup: false, beaconRssi: -65, beaconName: "Anekio-Gate-1" })
+      )
+    );
+  });
+
+  it("settings: Test beacon here says if check in works from this spot", async () => {
+    mockScan.mockResolvedValue({ hit: null, problem: "weak", rssi: -86 });
+    render(<StaffAttendanceSettings token="t" setup={BEACON_SCHOOL} canEdit onSaved={jest.fn()} />);
+    fireEvent.press(screen.getByLabelText("Test beacon here"));
+    expect(await screen.findByText("Beacon too weak here (-86 dBm)")).toBeTruthy();
+  });
+
+  it("settings: rotating code on shows the beacon key line for the sketch", async () => {
+    mockAct.mockResolvedValue({ ok: true, key: "00112233445566778899aabbccddeeff" } as never);
+    render(<StaffAttendanceSettings token="t" setup={BEACON_SCHOOL} canEdit onSaved={jest.fn()} />);
+    fireEvent.press(screen.getAllByRole("switch")[0]);
+    fireEvent.press(screen.getByLabelText("Show beacon key"));
+    expect(await screen.findByText('const char* BEACON_KEY = "00112233445566778899aabbccddeeff";')).toBeTruthy();
+    expect(mockAct).toHaveBeenCalledWith("t", "beaconKey", {});
+  });
+
+  it("check in with the rotating code sends the newest code", async () => {
+    withSetup({ ...BEACON_SCHOOL, beaconSecure: true });
+    mockScan.mockResolvedValue({ hit: { boot: "a7f2c001", ctr: 12, code: "1a2b3c4d", rssi: -61 }, problem: null, rssi: -61 });
+    mockAct.mockResolvedValue({ ok: true, inAt: "08:45", outAt: "", checkedOut: false } as never);
+    render(<MarkHereSheet open token="t" today={{ marked: false }} onClose={jest.fn()} onDone={jest.fn()} />);
+    fireEvent.press(screen.getByLabelText("Check in here"));
+    expect(await screen.findByText("Checked in at 8:45 AM")).toBeTruthy();
+    expect(mockScan).toHaveBeenCalledWith(expect.objectContaining({ secure: true }));
+    expect(mockAct).toHaveBeenCalledWith("t", "markStaffAttendanceHere", { beacon: { boot: "a7f2c001", ctr: 12, code: "1a2b3c4d", rssi: -61 } });
   });
 });

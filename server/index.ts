@@ -795,6 +795,13 @@ app.post("/api/v1/act", async (req, res) => {
     platform: req.header("x-app-platform") || "",
     build: req.header("x-app-build") || "",
   });
+  // The phone's location state the app sends with a check in: location on, GPS on, network on, precise.
+  const device = () => {
+    const d = body.device as Record<string, unknown> | undefined;
+    if (!d || typeof d !== "object") return {};
+    const yn = (v: unknown) => (v === true ? "yes" : v === false ? "no" : undefined);
+    return { locOn: yn(d.on), gps: yn(d.gps), net: yn(d.net), precise: yn(d.precise) };
+  };
   // App-side location failures that never reached a mark (no permission, location off, approximate only, no reading).
   if (actOp(body) === "reportGeoFail") {
     const num = (v: unknown) => (Number.isFinite(Number(v)) ? Math.round(Number(v)) : undefined);
@@ -802,7 +809,9 @@ app.post("/api/v1/act", async (req, res) => {
       ...who(),
       reason: String(body.reason || "").slice(0, 40),
       accuracy: num(body.accuracy),
+      rssi: num(body.rssi),
       waitedMs: num(body.waitedMs),
+      ...device(),
     });
     return res.json({ ok: true });
   }
@@ -812,7 +821,7 @@ app.post("/api/v1/act", async (req, res) => {
     res.json(result);
   } catch (e) {
     const geo = (e as { geo?: Record<string, unknown> } | null)?.geo;
-    if (geo && actOp(body) === "markStaffAttendanceHere") logger.warn("geo_mark_failed", { ...who(), ...geo });
+    if (geo && actOp(body) === "markStaffAttendanceHere") logger.warn("geo_mark_failed", { ...who(), ...geo, ...device() });
     sendError(res, 400, e instanceof Error ? e.message : "Could not save.");
   }
 });

@@ -270,6 +270,10 @@ export async function runAct(
       const { saveStaffAttendanceSetupCore } = await import("./staff-attendance-setup");
       return await saveStaffAttendanceSetupCore(user, body as never);
     }
+    case "beaconKey": {
+      const { beaconKeyCore } = await import("./staff-attendance-setup");
+      return { ok: true, ...(await beaconKeyCore(user, body as never)) };
+    }
     case "correctStaffAttendance":
       await correctStaffAttendanceCore(user, body as never);
       break;

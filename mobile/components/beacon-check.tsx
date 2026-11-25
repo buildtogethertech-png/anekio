@@ -1,67 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { PermissionsAndroid, Platform, Pressable, Text, View } from "react-native";
+import { Platform, Pressable, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { BackLink, Card } from "./ui";
+import { askBlePermissions, beaconAverage, hexOf, matchSchoolBeacon, parseIBeacon, parseRotating } from "../lib/beacon-scan";
+import { BEACON_DEFAULT_NAME, BEACON_DEFAULT_RSSI, BEACON_DEFAULT_UUID, BEACON_RSSI_CHOICES, type StaffAttendanceSetup } from "../lib/attendance-geo";
+import { useOptionalRecord } from "../lib/record";
 
 /**
  * Test screen for the school Bluetooth beacon (ESP32 sending iBeacon "Anekio-Gate-1").
- * Shows live signal strength and whether this phone would count as "at school".
+ * Shows live signal strength and whether Check in would work here: same beacon ID and name, same
+ * range and same averaging as Check in, taken from the school's Settings → Staff attendance.
  */
-
-const SCHOOL_UUID = "8ec76ea3-6668-48da-9866-75be8bc86f4d";
-const BEACON_NAME = "Anekio-Gate-1";
-const THRESHOLDS = [-70, -80, -90];
-const WINDOW = 8;
 
 type Reading = { rssi: number; at: number };
 type BeaconInfo = { major: number; minor: number; tx: number } | null;
-
-const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-/** Plain base64 → bytes (no atob dependency). */
-function decodeBase64(b64: string) {
-  const clean = b64.replace(/[^A-Za-z0-9+/]/g, "");
-  const out: number[] = [];
-  let buf = 0;
-  let bits = 0;
-  for (const ch of clean) {
-    buf = (buf << 6) | B64.indexOf(ch);
-    bits += 6;
-    if (bits >= 8) {
-      bits -= 8;
-      out.push((buf >> bits) & 0xff);
-    }
-  }
-  return Uint8Array.from(out);
-}
-
-function hexOf(b64?: string | null) {
-  if (!b64) return "";
-  return [...decodeBase64(b64)].map((x) => x.toString(16).padStart(2, "0")).join("");
-}
-
-/** Apple iBeacon frame: 4C 00 02 15 <uuid 16> <major 2> <minor 2> <tx 1>. */
-function parseIBeacon(manufacturerData?: string | null): (BeaconInfo & { uuid: string }) | null {
-  if (!manufacturerData) return null;
-  const b = decodeBase64(manufacturerData);
-  if (b.length < 25 || b[0] !== 0x4c || b[1] !== 0x00 || b[2] !== 0x02 || b[3] !== 0x15) return null;
-  const hex = [...b.slice(4, 20)].map((x) => x.toString(16).padStart(2, "0")).join("");
-  const uuid = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-  const tx = b[24] > 127 ? b[24] - 256 : b[24];
-  return { uuid, major: (b[20] << 8) | b[21], minor: (b[22] << 8) | b[23], tx };
-}
-
-async function askPermissions() {
-  if (Platform.OS !== "android") return true;
-  const api = Number(Platform.Version);
-  const wanted =
-    api >= 31
-      ? [PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN, PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT, PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION]
-      : [PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION];
-  const result = await PermissionsAndroid.requestMultiple(wanted);
-  return wanted.every((p) => result[p] === PermissionsAndroid.RESULTS.GRANTED);
-}
 
 export function BeaconCheck() {
   const router = useRouter();
@@ -69,7 +22,16 @@ export function BeaconCheck() {
   const [error, setError] = useState("");
   const [readings, setReadings] = useState<Reading[]>([]);
   const [info, setInfo] = useState<BeaconInfo>(null);
-  const [threshold, setThreshold] = useState(-80);
+  const [rot, setRot] = useState<{ boot: string; ctr: number; code: string } | null>(null);
+  const record = useOptionalRecord();
+  const recordData = record?.data as { staffAttendanceSelf?: { attendanceSetup?: StaffAttendanceSetup }; staffAttendanceSetup?: StaffAttendanceSetup } | undefined;
+  const setup = recordData?.staffAttendanceSelf?.attendanceSetup ?? recordData?.staffAttendanceSetup;
+  const SCHOOL_UUID = setup?.beaconUuid || BEACON_DEFAULT_UUID;
+  const BEACON_NAME = setup?.beaconName ?? BEACON_DEFAULT_NAME;
+  const schoolRssi = setup?.beaconRssi ?? BEACON_DEFAULT_RSSI;
+  const secure = Boolean(setup?.beaconSecure);
+  const [threshold, setThreshold] = useState(schoolRssi);
+  useEffect(() => setThreshold(schoolRssi), [schoolRssi]);
   const [now, setNow] = useState(Date.now());
   const [seen, setSeen] = useState(0);
   const [nearby, setNearby] = useState<Record<string, { name: string; rssi: number; mfr: string; at: number }>>({});
@@ -92,7 +54,7 @@ export function BeaconCheck() {
       setError("Open this in the Anekio phone app. A browser can't scan for the beacon.");
       return;
     }
-    if (!(await askPermissions())) {
+    if (!(await askBlePermissions())) {
       setError("Allow Bluetooth and Location (Nearby devices) for Anekio, then try again.");
       return;
     }
@@ -120,13 +82,9 @@ export function BeaconCheck() {
         }
         setSeen((n) => n + 1);
         setNearby((prev) => ({ ...prev, [device.id]: { name: device.localName || device.name || "", rssi: device.rssi ?? -127, mfr, at: Date.now() } }));
-        const ours =
-          beacon?.uuid === SCHOOL_UUID ||
-          mfr.includes(SCHOOL_UUID.replace(/-/g, "")) ||
-          // ESP32 BLEBeacon sends the UUID bytes reversed.
-          mfr.includes(SCHOOL_UUID.replace(/-/g, "").match(/../g)!.reverse().join("")) ||
-          device.name === BEACON_NAME ||
-          device.localName === BEACON_NAME;
+        const ours = matchSchoolBeacon(device, { uuid: SCHOOL_UUID, name: BEACON_NAME, secure });
+        const frame = parseRotating(device.manufacturerData);
+        if (frame && (ours || device.localName === BEACON_NAME || device.name === BEACON_NAME)) setRot(frame);
         if (!ours) return;
         if (beacon) setInfo({ major: beacon.major, minor: beacon.minor, tx: beacon.tx });
         const rssi = device.rssi;
@@ -145,10 +103,9 @@ export function BeaconCheck() {
 
   const last = readings[readings.length - 1];
   const fresh = last && now - last.at < 5000;
-  const recent = readings.slice(-WINDOW);
-  const avg = recent.length ? Math.round(recent.reduce((s, r) => s + r.rssi, 0) / recent.length) : null;
+  const avg = beaconAverage(readings.map((r) => r.rssi));
   const inside = fresh && avg != null && avg >= threshold;
-  const status = !scanning ? "Not scanning" : !last ? "Looking for the beacon…" : !fresh ? "Beacon lost" : inside ? "At school" : "Too far";
+  const status = !scanning ? "Not scanning" : !last ? "Looking for the beacon…" : !fresh ? "Beacon lost" : inside ? "Check in works here" : "Too far for check in";
   const tone = !scanning || !last ? "bg-ink-100 text-ink-800" : !fresh ? "bg-red-50 text-red-700" : inside ? "bg-emerald-50 text-green-700" : "bg-amber-50 text-amber-800";
   const icon = !scanning || !last ? "bluetooth-outline" : !fresh ? "close-circle" : inside ? "checkmark-circle" : "walk-outline";
 
@@ -177,20 +134,27 @@ export function BeaconCheck() {
       </Card>
 
       <Card className="p-4">
-        <Text className="text-sm font-semibold text-ink-900">Count as "at school" when signal is at least</Text>
-        <View className="mt-2 flex-row gap-2">
-          {THRESHOLDS.map((t) => (
+        <Text className="text-sm font-semibold text-ink-900">Check in works when the beacon is</Text>
+        <View className="mt-2 flex-row gap-1.5">
+          {BEACON_RSSI_CHOICES.map((c) => (
             <Pressable
-              key={t}
+              key={c.rssi}
               accessibilityRole="button"
-              onPress={() => setThreshold(t)}
-              className={`flex-1 items-center rounded-lg border py-2 ${threshold === t ? "border-[#1F45C7] bg-[#EEF3FF]" : "border-ink-200"}`}
+              accessibilityLabel={`${c.label}, ${c.rssi} dBm`}
+              onPress={() => setThreshold(c.rssi)}
+              className={`flex-1 items-center rounded-lg border py-1.5 ${threshold === c.rssi ? "border-[#1F45C7] bg-[#EEF3FF]" : "border-ink-200"}`}
             >
-              <Text className={`text-sm font-semibold ${threshold === t ? "text-[#1F45C7]" : "text-ink-700"}`}>{`${t} dBm`}</Text>
+              <Text className={`text-sm font-semibold ${threshold === c.rssi ? "text-[#1F45C7]" : "text-ink-700"}`}>{c.label}</Text>
+              <Text className="text-[10px] text-ink-500">{`${c.rssi}`}</Text>
+              {c.rssi === schoolRssi ? <View className="mt-0.5 h-1 w-1 rounded-full bg-[#1F45C7]" /> : null}
             </Pressable>
           ))}
         </View>
-        <Text className="mt-2 text-[11px] text-ink-500">−40 to −60 is right next to it · −75 to −90 is a wall or two away.</Text>
+        <Text className="mt-2 text-[11px] text-ink-500">
+          {threshold === schoolRssi
+            ? `Your school's setting (dot). Same rule as Check in: average of the last 5 readings.`
+            : `Trying ${threshold} dBm. Check in still uses the school's setting (${schoolRssi} dBm, dot) until the admin changes it.`}
+        </Text>
       </Card>
 
       {readings.length ? (
@@ -225,6 +189,20 @@ export function BeaconCheck() {
             ))}
         </Card>
       ) : null}
+
+      <Card className="p-4">
+        <Text className="text-sm font-semibold text-ink-900">Rotating code</Text>
+        <Text className="mt-1 text-xs text-ink-600">
+          {rot
+            ? `Code ${rot.code.toUpperCase()} · slot ${rot.ctr} · power-on ${rot.boot.toUpperCase()}. It changes every 30 s.`
+            : scanning
+              ? "Not seen. This beacon sends a fixed ID only (old sketch)."
+              : "Start to see the beacon's code."}
+        </Text>
+        <Text className="mt-1 text-[11px] text-ink-500">
+          {secure ? "Your school needs the code: a beacon without it can't be used to check in." : "Your school doesn't need the code yet (Settings → Staff attendance → Rotating code)."}
+        </Text>
+      </Card>
 
       {info ? (
         <Card className="p-4">

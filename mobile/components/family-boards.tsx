@@ -34,6 +34,7 @@ import { ManagerPicker } from "./manager-picker";
 import { TeacherMonthlyRegister } from "./teacher-monthly-register";
 import { StaffAttendanceQrButton } from "./staff-attendance-qr";
 import { MarkHereButton } from "./attendance-geo";
+import { selfCheckIn } from "../lib/attendance-geo";
 import { MyAttendanceTile } from "./my-attendance";
 import { compareByRollThenName, matchesStudentQuery, rollLabel, studentMetaLine } from "../lib/student-label";
 
@@ -480,12 +481,12 @@ export function TeacherDeskBoard() {
             </Text>
             <Text className="mt-1 text-sm leading-5 text-ink-700">{scheduleText}</Text>
           </View>
-          {data?.staffAttendanceSelf?.attendanceSetup?.location ? (
+          {selfCheckIn(data?.staffAttendanceSelf?.attendanceSetup) ? (
             <View className={phoneDashboard ? "w-full" : "shrink-0"}>
               <MarkHereButton
                 token={token}
                 disabled={Boolean(todayClosed)}
-                today={data.staffAttendanceSelf.today}
+                today={data?.staffAttendanceSelf?.today}
                 onDone={() => void reloadSilently()}
               />
             </View>
@@ -613,12 +614,12 @@ export function TeacherDeskBoard() {
     if (!data?.staffAttendanceSelf) actions.push({ icon: "time-outline", label: "Timetable", route: "/timetable" });
     return (
       <View className="mb-4 flex-row justify-between rounded-3xl bg-white px-3 py-4" style={CARD_SHADOW}>
-        {data?.staffAttendanceSelf?.attendanceSetup?.location ? (
+        {selfCheckIn(data?.staffAttendanceSelf?.attendanceSetup) ? (
           <MarkHereButton
             token={token}
             tile
             disabled={Boolean(todayClosed)}
-            today={data.staffAttendanceSelf.today}
+            today={data?.staffAttendanceSelf?.today}
             onDone={() => void reloadSilently()}
           />
         ) : data?.staffAttendanceSelf ? (
@@ -853,13 +854,6 @@ export function TeacherDeskBoard() {
 
   return (
     <View>
-      {Platform.OS !== "web" ? (
-        <Pressable accessibilityRole="button" onPress={() => router.push("/beacon" as never)} className="mb-3 flex-row items-center gap-3 rounded-xl border border-[#C9D6FF] bg-[#EEF3FF] px-3 py-2.5">
-          <Ionicons name="bluetooth" size={18} color="#1F45C7" />
-          <Text className="flex-1 text-sm font-semibold text-[#1F45C7]">Test school beacon</Text>
-          <Ionicons name="chevron-forward" size={16} color="#1F45C7" />
-        </Pressable>
-      ) : null}
       {phoneDashboard ? (
         <View className="mb-4 flex-row items-center justify-between gap-3 px-1">
           <View className="min-w-0 flex-1">

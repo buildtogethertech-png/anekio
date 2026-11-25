@@ -2220,7 +2220,7 @@ export function SchoolBoard() {
     }
     {
       const sa = data?.staffAttendanceSetup;
-      const ways = [sa?.qr !== false ? "QR" : "", sa?.location ? "Location" : ""].filter(Boolean);
+      const ways = [sa?.qr !== false ? "QR" : "", sa?.location ? "Location" : "", sa?.beacon ? "Bluetooth beacon" : ""].filter(Boolean);
       out.staffAttendance = { text: ways.length ? ways.join(" + ") : "By hand only" };
     }
     const pay = [s?.upiId ? "UPI" : "", s?.pay?.gateway && s.pay.gateway !== "NONE" ? s.pay.gateway.charAt(0) + s.pay.gateway.slice(1).toLowerCase() : ""].filter(Boolean);
