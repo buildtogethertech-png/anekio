@@ -19,7 +19,8 @@ describe("force update screen", () => {
     expect(screen.getByText("Update on Play Store")).toBeTruthy();
     expect(screen.getByText("Update to keep using Anekio.")).toBeTruthy();
     // A fade of our own used to start at opacity 0 and could stay there on Android: nothing may be transparent.
-    const hidden = screen.UNSAFE_root.findAll((node) => StyleSheet.flatten(node.props.style)?.opacity === 0);
+    const opacityOf = (style: unknown) => (StyleSheet.flatten(style as never) as { opacity?: number } | undefined)?.opacity;
+    const hidden = screen.UNSAFE_root.findAll((node: { props: { style?: unknown } }) => opacityOf(node.props.style) === 0);
     expect(hidden).toHaveLength(0);
   });
 });
