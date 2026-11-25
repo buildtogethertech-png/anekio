@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useEffect, useRef, useState } from "react";
-import { Animated, AppState, BackHandler, Image, Linking, Modal as RnModal, Pressable, ScrollView, Text, View } from "react-native";
+import { useEffect, useState } from "react";
+import { AppState, BackHandler, Image, Linking, Modal as RnModal, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { apiBase } from "../lib/api";
 import { appBuild, appVersionName, checkForUpdate, useUpdateState, type UpdateState } from "../lib/app-version";
@@ -67,14 +67,9 @@ function waLink(phone: string) {
 
 /** Full-screen, cannot be closed. Branded so users trust it is really Anekio asking. */
 function UpdateRequiredScreen({ update }: { update: UpdateState }) {
-  const fade = useRef(new Animated.Value(0)).current;
   const [opening, setOpening] = useState(false);
   const version = appVersionName();
   const build = appBuild();
-
-  useEffect(() => {
-    Animated.timing(fade, { toValue: 1, duration: 320, useNativeDriver: true }).start();
-  }, [fade]);
 
   function update_() {
     setOpening(true);
@@ -86,7 +81,9 @@ function UpdateRequiredScreen({ update }: { update: UpdateState }) {
     <RnModal visible animationType="fade" statusBarTranslucent onRequestClose={() => undefined}>
       <View className="flex-1 bg-white">
         <SafeAreaView className="flex-1" edges={["top", "bottom"]}>
-          <Animated.View style={{ flex: 1, opacity: fade, transform: [{ translateY: fade.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }] }}>
+          {/* No fade of our own: a native-driver fade started while the Modal opens often never runs on Android,
+              leaving the content at opacity 0 (a white screen) until something redraws it. The Modal fades already. */}
+          <View style={{ flex: 1 }}>
             <ScrollView className="flex-1" contentContainerClassName="flex-grow justify-center px-7 pb-6 pt-4">
               {/* Soft brand card behind logo + title, sized to its content (never cuts through the text). */}
               <View className="items-center overflow-hidden rounded-[28px] bg-[#EEF3FF] px-5 pb-6 pt-8">
@@ -149,7 +146,7 @@ function UpdateRequiredScreen({ update }: { update: UpdateState }) {
                 <View className="h-3" />
               )}
             </View>
-          </Animated.View>
+          </View>
         </SafeAreaView>
       </View>
     </RnModal>
