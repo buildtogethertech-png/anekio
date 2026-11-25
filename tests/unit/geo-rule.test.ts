@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { checkAtSchool, fixCountsInside, GeoCheckError } from "../../lib/staff-attendance-setup";
+import { checkAtSchool, fixCountsInside, GeoCheckError, parseStaffAttendanceSetup } from "../../lib/staff-attendance-setup";
 
 // School point, 150 m radius. 0.0001° latitude ≈ 11 m.
-const setup = { qr: false, location: true, lat: 28.6, lng: 77.2, radiusM: 150 };
+const setup = parseStaffAttendanceSetup(JSON.stringify({ location: true, lat: 28.6, lng: 77.2, radiusM: 150 }));
 const north = (m: number) => 28.6 + m / 111_195;
 
 function reason(fix: { lat: number; lng: number; accuracy: number; mocked?: boolean }) {

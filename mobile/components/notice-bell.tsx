@@ -9,6 +9,7 @@ import { useSession } from "../lib/session";
 import { NoticeList } from "./notice-list";
 import { QrDockButton } from "./staff-attendance-qr";
 import { MarkHereButton } from "./attendance-geo";
+import { selfCheckIn } from "../lib/attendance-geo";
 import { ProfileMenuButton } from "./profile-menu";
 import { useRecord } from "../lib/record";
 import { visibleTabs } from "../lib/nav-icons";
@@ -168,10 +169,10 @@ export function PhoneTopBar() {
             <Ionicons name="chatbubble-ellipses-outline" size={21} color="#0f2744" />
           </Pressable>
         ) : null}
-        {office && self && setup?.location ? (
+        {office && self && selfCheckIn(setup) ? (
           <MarkHereButton icon token={token} today={self.today} onDone={() => void reloadSilently()} />
         ) : null}
-        {office && self && !setup?.location ? <QrDockButton token={token} hasSelfQr /> : null}
+        {office && self && !selfCheckIn(setup) ? <QrDockButton token={token} hasSelfQr /> : null}
         {/* The scan desk stays after the scanner marks their own attendance (QR schools only). */}
         <QrDockButton token={token} hasSelfQr={false} canScan={canScan} onScanned={() => void reload()} />
         <NoticeBell />

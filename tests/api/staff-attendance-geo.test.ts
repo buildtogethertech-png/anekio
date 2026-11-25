@@ -81,7 +81,7 @@ describe.sequential("staff attendance by location", () => {
     expect(odd.status).toBe(400);
     const saved = await act(officeToken, "saveStaffAttendanceSetup", { qr: false, location: true, ...SCHOOL, radiusM: 150 });
     expect(saved.status).toBe(200);
-    expect(saved.body.staffAttendanceSetup).toEqual({ qr: false, location: true, ...SCHOOL, radiusM: 150 });
+    expect(saved.body.staffAttendanceSetup).toMatchObject({ qr: false, location: true, beacon: false, ...SCHOOL, radiusM: 150 });
     expect((await record(officeToken)).body.staffAttendanceSetup).toMatchObject({ location: true, radiusM: 150 });
     expect((await record(teacherToken)).body.staffAttendanceSelf.attendanceSetup).toMatchObject({ location: true, radiusM: 150 });
   });
@@ -261,5 +261,72 @@ describe.sequential("staff attendance by location", () => {
     const tara = staff.find((p) => p.id === "teacher-tara");
     const today = tara?.days.find((d) => d.date === "2026-11-04");
     expect(rough.body.checkedOut ? today?.outAcc : today?.inAcc).toBe(200);
+  });
+
+  it("marks by the school beacon, and uses GPS when the beacon is not heard", async () => {
+    const BEACON = { uuid: "8ec76ea3-6668-48da-9866-75be8bc86f4d", rssi: -62 };
+    const saved = await act(officeToken, "saveStaffAttendanceSetup", { qr: false, location: false, beacon: true, ...SCHOOL, radiusM: 150, beaconRssi: -80 });
+    expect(saved.status).toBe(200);
+    expect(saved.body.staffAttendanceSetup).toMatchObject({ beacon: true, location: false, qr: false, gpsBackup: true, beaconRssi: -80 });
+    expect((await record(teacherToken)).body.staffAttendanceSelf.attendanceSetup).toMatchObject({ beacon: true });
+
+    const weak = await act(teacherToken, "markStaffAttendanceHere", { beacon: { ...BEACON, rssi: -91 } });
+    expect(weak.status).toBe(400);
+    expect(weak.body.error).toMatch(/too far from the school beacon/);
+
+    const other = await act(teacherToken, "markStaffAttendanceHere", { beacon: { uuid: "11111111-2222-3333-4444-555555555555", rssi: -50 } });
+    expect(other.body.error).toMatch(/not your school's beacon/);
+
+    const byBeacon = await act(teacherToken, "markStaffAttendanceHere", { beacon: BEACON });
+    expect(byBeacon.status).toBe(200);
+    expect(byBeacon.body).toMatchObject({ via: "beacon", rssi: -62 });
+
+    const byGps = await act(teacherToken, "markStaffAttendanceHere", INSIDE);
+    expect(byGps.status).toBe(200);
+    expect(byGps.body).toMatchObject({ via: "location" });
+
+    await act(officeToken, "saveStaffAttendanceSetup", { qr: false, beacon: true, gpsBackup: false, ...SCHOOL, radiusM: 150 });
+    const noBackup = await act(teacherToken, "markStaffAttendanceHere", INSIDE);
+    expect(noBackup.body.error).toMatch(/School beacon not found/);
+  });
+
+  it("with the rotating code on, only a fresh code from the school's key marks", async () => {
+    const { beaconCodeFor } = await import("../../lib/staff-attendance-setup");
+    expect((await act(teacherToken, "beaconKey")).status).toBe(400);
+    const saved = await act(officeToken, "saveStaffAttendanceSetup", { qr: false, beacon: true, beaconSecure: true, gpsBackup: false, ...SCHOOL, radiusM: 150 });
+    expect(saved.body.staffAttendanceSetup).toMatchObject({ beaconSecure: true });
+    expect(JSON.stringify(saved.body)).not.toMatch(/beaconSecret/);
+    expect(JSON.stringify((await record(teacherToken)).body)).not.toMatch(/beaconSecret|beaconBoots/);
+    const { key } = (await act(officeToken, "beaconKey")).body;
+    expect(key).toMatch(/^[0-9a-f]{32}$/);
+    expect((await act(officeToken, "beaconKey")).body.key).toBe(key);
+
+    const staticOnly = await act(teacherToken, "markStaffAttendanceHere", { beacon: { name: "Anekio-Gate-1", rssi: -60 } });
+    expect(staticOnly.body.error).toMatch(/does not send the school's code/);
+    const fake = await act(teacherToken, "markStaffAttendanceHere", { beacon: { rssi: -60, boot: "0000beef", ctr: 3, code: "12345678" } });
+    expect(fake.body.error).toMatch(/not your school's beacon/);
+    const good = await act(teacherToken, "markStaffAttendanceHere", { beacon: { rssi: -60, boot: "0000beef", ctr: 3, code: beaconCodeFor(key, "0000beef", 3) } });
+    expect(good.status).toBe(200);
+    expect(good.body).toMatchObject({ via: "beacon" });
+    // Same boot, a slot far from now: an old copied code.
+    const old = await act(teacherToken, "markStaffAttendanceHere", { beacon: { rssi: -60, boot: "0000beef", ctr: 40, code: beaconCodeFor(key, "0000beef", 40) } });
+    expect(old.body.error).toMatch(/expired/);
+
+    // Saving settings keeps the key; a new key stops the old one.
+    await act(officeToken, "saveStaffAttendanceSetup", { qr: false, beacon: true, beaconSecure: true, gpsBackup: false, ...SCHOOL, radiusM: 150, beaconRssi: -70 });
+    expect((await act(officeToken, "beaconKey")).body.key).toBe(key);
+    const fresh = (await act(officeToken, "beaconKey", { rotate: true })).body.key;
+    expect(fresh).not.toBe(key);
+    const stale = await act(teacherToken, "markStaffAttendanceHere", { beacon: { rssi: -60, boot: "1111aaaa", ctr: 0, code: beaconCodeFor(key, "1111aaaa", 0) } });
+    expect(stale.body.error).toMatch(/not your school's beacon/);
+  });
+
+  it("refuses a beacon setup with a bad ID, or a GPS backup without the school point", async () => {
+    const bad = await act(officeToken, "saveStaffAttendanceSetup", { qr: false, beacon: true, beaconUuid: "abc", ...SCHOOL, radiusM: 150 });
+    expect(bad.body.error).toMatch(/Beacon ID/);
+    const noPoint = await act(officeToken, "saveStaffAttendanceSetup", { qr: false, beacon: true, lat: 0, lng: 0, radiusM: 150 });
+    expect(noPoint.body.error).toMatch(/GPS backup/);
+    const ok = await act(officeToken, "saveStaffAttendanceSetup", { qr: false, beacon: true, gpsBackup: false, lat: 0, lng: 0, radiusM: 150 });
+    expect(ok.body.staffAttendanceSetup).toMatchObject({ beacon: true, gpsBackup: false });
   });
 });

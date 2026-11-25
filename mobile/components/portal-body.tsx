@@ -36,6 +36,7 @@ import { ParentExamination, ParentExaminationError, ParentExaminationLoading } f
 import { OnboardingBoard } from "./onboarding-board";
 import { SubscriptionBoard } from "./subscription-board";
 import { ExpensesBoard } from "./expenses-board";
+import { BeaconCheck } from "./beacon-check";
 import { PORTAL_PATH, examsScreenForKind, testsScreenForKind } from "../lib/paths";
 import { useRecord } from "../lib/record";
 import { useSession } from "../lib/session";
@@ -238,6 +239,7 @@ export function PortalBody({ screen }: { screen: string }) {
     return <FamilyTests />;
   }
   if (screen === "expenses") return <ExpensesBoard />;
+  if (screen === "beacon") return <BeaconCheck />;
   if (screen === "roles") return <RolesBoard />;
   if (screen === "subscription") return <SubscriptionBoard />;
   if (screen === "attendance") {

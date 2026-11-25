@@ -1,8 +1,36 @@
 import * as Location from "expo-location";
 import { Platform } from "react-native";
 
-/** Settings → Staff attendance: which ways the school takes it, and the school point for location. */
-export type StaffAttendanceSetup = { qr: boolean; location: boolean; lat: number; lng: number; radiusM: number };
+/** Settings → Staff attendance: which way the school takes it, the school point, and the beacon. Same shape as the server. */
+export type StaffAttendanceSetup = {
+  qr: boolean;
+  location: boolean;
+  beacon?: boolean;
+  lat: number;
+  lng: number;
+  radiusM: number;
+  beaconUuid?: string;
+  beaconName?: string;
+  beaconRssi?: number;
+  gpsBackup?: boolean;
+  beaconSecure?: boolean;
+};
+
+export const BEACON_DEFAULT_UUID = "8ec76ea3-6668-48da-9866-75be8bc86f4d";
+export const BEACON_DEFAULT_NAME = "Anekio-Gate-1";
+export const BEACON_DEFAULT_RSSI = -80;
+export const BEACON_RSSI_CHOICES = [
+  { rssi: -60, label: "2 m", hint: "About 1–2 m: standing right at the beacon" },
+  { rssi: -65, label: "5 m", hint: "About 3–5 m: near the desk" },
+  { rssi: -70, label: "Room", hint: "Same room" },
+  { rssi: -80, label: "Walls", hint: "A wall or two away" },
+  { rssi: -90, label: "Far", hint: "Most of the building" },
+];
+
+/** Staff check in from their own phone (location or beacon), not by QR at the desk. */
+export function selfCheckIn(setup?: Partial<StaffAttendanceSetup> | null) {
+  return Boolean(setup?.location || setup?.beacon);
+}
 export type Fix = { lat: number; lng: number; accuracy: number; mocked: boolean };
 
 export const GEO_RADIUS_CHOICES = [100, 150, 200, 300];

@@ -809,6 +809,7 @@ app.post("/api/v1/act", async (req, res) => {
       ...who(),
       reason: String(body.reason || "").slice(0, 40),
       accuracy: num(body.accuracy),
+      rssi: num(body.rssi),
       waitedMs: num(body.waitedMs),
       ...device(),
     });

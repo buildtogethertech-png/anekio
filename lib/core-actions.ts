@@ -1669,7 +1669,7 @@ type StaffPerson = { kind: "teacher" | "staff"; id: string; name: string; employ
 function withOut(raw: string | null | undefined, at: string, via: string) {
   return JSON.stringify([...parseOutLog(raw), { at, via }].slice(-20));
 }
-type StaffFix = { lat: number; lng: number; acc: number; m: number };
+type StaffFix = { lat: number; lng: number; acc: number; m: number } | { rssi: number };
 
 function mergeGeo(raw: string | null | undefined, side: "in" | "out", fix?: StaffFix) {
   let prev: Record<string, unknown> = {};
@@ -1690,7 +1690,7 @@ function mergeGeo(raw: string | null | undefined, side: "in" | "out", fix?: Staf
 async function stampStaffInOut(
   person: StaffPerson,
   markerId: string,
-  via: "qr" | "location",
+  via: "qr" | "location" | "beacon",
   remark: string,
   fix?: StaffFix
 ) {
@@ -1745,16 +1745,26 @@ async function stampStaffInOut(
 /** "Mark here": staff mark their own in / out from their phone when it is at school. */
 export async function markStaffAttendanceHereCore(
   user: AccessUser,
-  input: { lat?: number; lng?: number; accuracy?: number; mocked?: boolean; earlyReason?: string }
+  input: {
+    lat?: number;
+    lng?: number;
+    accuracy?: number;
+    mocked?: boolean;
+    earlyReason?: string;
+    beacon?: import("./staff-attendance-setup").BeaconHit | null;
+  }
 ) {
   const self = await resolveStaffAttendanceSelf(user);
   if (!self) throw new Error("No staff profile is linked to this account.");
-  const { loadStaffAttendanceSetup, checkAtSchool } = await import("./staff-attendance-setup");
-  const fix = checkAtSchool(await loadStaffAttendanceSetup(), input);
-  const result = await stampStaffInOut(self, user.id, "location", "Marked by location at school.", fix);
+  const { loadStaffAttendanceSetup, checkSelfMark, assertBeaconCode } = await import("./staff-attendance-setup");
+  const setup = await loadStaffAttendanceSetup();
+  const { via, fix } = checkSelfMark(setup, input);
+  if (via === "beacon" && setup.beaconSecure) await assertBeaconCode(input.beacon ?? undefined);
+  const remark = via === "beacon" ? "Marked by the school beacon." : "Marked by location at school.";
+  const result = await stampStaffInOut(self, user.id, via, remark, fix);
   const reason = String(input.earlyReason || "").trim().slice(0, 120);
   const early = result.checkedOut && reason ? await leftEarly(user, self, result.date, result.outAt, reason) : null;
-  return { ...result, meters: fix.m, accuracy: fix.acc, early };
+  return "m" in fix ? { ...result, via, meters: fix.m, accuracy: fix.acc, early } : { ...result, via, rssi: fix.rssi, early };
 }
 
 /**

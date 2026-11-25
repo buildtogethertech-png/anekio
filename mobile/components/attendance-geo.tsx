@@ -3,6 +3,10 @@ import { ActivityIndicator, AppState, Dimensions, Linking, Modal as RnModal, Pla
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
+  BEACON_DEFAULT_NAME,
+  BEACON_DEFAULT_RSSI,
+  BEACON_DEFAULT_UUID,
+  BEACON_RSSI_CHOICES,
   createFixWatcher,
   distanceMeters,
   fixCountsInside,
@@ -21,11 +25,12 @@ import {
   type GeoFailCode,
   type StaffAttendanceSetup,
 } from "../lib/attendance-geo";
+import { BEACON_PROBLEM_TEXT, scanForBeacon, type BeaconProblem } from "../lib/beacon-scan";
 import { act } from "../lib/mutate";
 import { useOptionalRecord } from "../lib/record";
 import { closingMinute, hms, teacherPeriodsOn, useFocusDay } from "../lib/class-focus";
 import { useRouter } from "expo-router";
-import { Badge, Button, Segmented } from "./ui";
+import { Badge, Button, Field, Input, Segmented, Switch } from "./ui";
 
 type Note = { tone: "success" | "warn" | "danger"; title: string; body: string };
 
@@ -89,17 +94,48 @@ function hoursText(inAt: string, until: string) {
   return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
 }
 
+/** The school beacon was not heard well enough (and there is no GPS backup). */
+export class BeaconError extends Error {
+  constructor(readonly code: BeaconProblem, message: string) {
+    super(message);
+  }
+}
+
+function beaconWant(setup: Partial<StaffAttendanceSetup>) {
+  return {
+    uuid: setup.beaconUuid || BEACON_DEFAULT_UUID,
+    name: setup.beaconName ?? BEACON_DEFAULT_NAME,
+    minRssi: setup.beaconRssi ?? BEACON_DEFAULT_RSSI,
+    secure: Boolean(setup.beaconSecure),
+  };
+}
+
 /**
- * One mark (in or out) from the phone: GPS (warm watcher when there is one), then the server.
+ * One mark (in or out) from the phone: the school beacon first when the school uses one, else (or when it
+ * is not heard and GPS backup is on) GPS with the warm watcher, then the server.
  * `onStep` says what is happening, for the button text.
  */
 async function markHere(
   token: string | null,
   watcher: FixWatcher | null,
-  onStep: (step: "gps" | "check") => void,
+  onStep: (step: "beacon" | "gps" | "check") => void,
   earlyReason?: string,
-  onProgress?: (fix: Fix) => void
+  onProgress?: (fix: Fix) => void,
+  setup?: Partial<StaffAttendanceSetup> | null,
+  onBeacon?: (rssi: number) => void
 ) {
+  const extra = earlyReason ? { earlyReason } : {};
+  if (setup?.beacon) {
+    onStep("beacon");
+    const started = Date.now();
+    const scan = await scanForBeacon({ ...beaconWant(setup), onRssi: onBeacon });
+    if (scan.hit) {
+      onStep("check");
+      return act<Marked>(token, "markStaffAttendanceHere", { beacon: scan.hit, ...extra });
+    }
+    void act(token, "reportGeoFail", { reason: `beacon_${scan.problem}`, rssi: scan.rssi, waitedMs: Date.now() - started }).catch(() => undefined);
+    if (!setup.gpsBackup) throw new BeaconError(scan.problem!, BEACON_PROBLEM_TEXT[scan.problem!]);
+  }
   onStep("gps");
   const started = Date.now();
   let fix: Fix;
@@ -114,9 +150,9 @@ async function markHere(
     throw e;
   }
   onStep("check");
-  // The phone's location state goes with the mark, so the logs say why a refused one failed (GPS off, approximate…).
+  // The phone's location state goes with the mark, so a refused one says why in the logs (GPS off, approximate…).
   const device = Platform.OS === "web" ? undefined : await phoneLocation().catch(() => undefined);
-  return act<Marked>(token, "markStaffAttendanceHere", earlyReason ? { ...fix, earlyReason, device } : { ...fix, device });
+  return act<Marked>(token, "markStaffAttendanceHere", { ...fix, ...extra, device });
 }
 
 const EARLY_REASONS: { label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
@@ -387,11 +423,12 @@ export function MarkHereSheet({
   const router = useRouter();
   const focus = useFocusDay();
   const [phase, setPhase] = useState<Phase>("idle");
-  const [step, setStep] = useState<"gps" | "check">("gps");
+  const [step, setStep] = useState<"beacon" | "gps" | "check">("gps");
   const [done, setDone] = useState<Marked | null>(null);
   const [error, setError] = useState("");
-  const [errorCode, setErrorCode] = useState<GeoFailCode | "weak" | "">("");
+  const [errorCode, setErrorCode] = useState<GeoFailCode | "weak" | `beacon_${BeaconProblem}` | "">("");
   const [liveAcc, setLiveAcc] = useState<number | null>(null);
+  const [liveRssi, setLiveRssi] = useState<number | null>(null);
   const [leaveReason, setLeaveReason] = useState("");
   const [leaveNote, setLeaveNote] = useState("");
   const [picking, setPicking] = useState(false);
@@ -400,10 +437,13 @@ export function MarkHereSheet({
   const watcher = useRef<FixWatcher | null>(null);
   const checkedIn = Boolean(today?.marked && today?.inAt);
   const phoneDay = focus?.enabled && focus.day && focus.day.status !== "ended" ? focus.day : null;
+  const recordData = record?.data as { staffAttendanceSelf?: { attendanceSetup?: StaffAttendanceSetup }; staffAttendanceSetup?: StaffAttendanceSetup } | undefined;
+  const setup = recordData?.staffAttendanceSelf?.attendanceSetup ?? recordData?.staffAttendanceSetup ?? null;
+  const gpsNeeded = !setup?.beacon || Boolean(setup.gpsBackup);
 
   // Start GPS as soon as the sheet opens (only if already allowed), so the tap is usually instant.
   useEffect(() => {
-    if (!open || Platform.OS === "web") return;
+    if (!open || Platform.OS === "web" || !gpsNeeded) return;
     const w = createFixWatcher();
     watcher.current = w;
     void w.start(false).catch(() => undefined);
@@ -411,7 +451,7 @@ export function MarkHereSheet({
       w.stop();
       watcher.current = null;
     };
-  }, [open]);
+  }, [open, gpsNeeded]);
 
   // Found before they tap: location off, GPS off (Battery saver), approximate only. Checked again when they come
   // back from Settings, so the warning goes away by itself once it's fixed.
@@ -482,8 +522,9 @@ export function MarkHereSheet({
     setError("");
     setErrorCode("");
     setLiveAcc(null);
+    setLiveRssi(null);
     try {
-      const res = await markHere(token, watcher.current, setStep, earlyReason, (f) => setLiveAcc(f.accuracy));
+      const res = await markHere(token, watcher.current, setStep, earlyReason, (f) => setLiveAcc(f.accuracy), setup, setLiveRssi);
       setDone(res);
       setPhase("done");
       // Checking out ends the phone's school day (the guard goes off), even in the middle of a class.
@@ -492,31 +533,50 @@ export function MarkHereSheet({
       setTimeout(close, 1600);
     } catch (e) {
       setError(errorText(e));
-      setErrorCode(e instanceof GeoError ? e.code : errorText(e).startsWith("Weak GPS") ? "weak" : "");
+      setErrorCode(e instanceof GeoError ? e.code : e instanceof BeaconError ? `beacon_${e.code}` : errorText(e).startsWith("Weak GPS") ? "weak" : "");
       setPhase(earlyReason ? "leaving" : "error");
     }
   }
 
   const busyText = locating
-    ? step === "gps"
+    ? step === "beacon"
+      ? liveRssi != null
+        ? `School beacon… ${liveRssi} dBm`
+        : "Looking for the school beacon…"
+      : step === "gps"
       ? liveAcc != null
         ? `Finding location… ±${liveAcc} m`
         : "Finding your location…"
       : "Checking you're at school…"
     : "";
   // Problems only the phone's settings can fix get a button straight there.
-  const settingsFix = errorCode === "permission" || errorCode === "approximate" || errorCode === "services_off" || errorCode === "gps_off";
+  const settingsFix =
+    errorCode === "permission" ||
+    errorCode === "approximate" ||
+    errorCode === "services_off" ||
+    errorCode === "gps_off" ||
+    errorCode === "beacon_permission" ||
+    errorCode === "beacon_bluetooth_off";
   // Problems Android can fix with its own one-tap dialog: "Turn on" asks again and carries on with the check in.
   const turnOn = Platform.OS === "android" && (errorCode === "permission" || errorCode === "approximate" || errorCode === "services_off");
   function openLocationSettings() {
     if (errorCode === "gps_off" && Platform.OS === "android") {
       void Linking.sendIntent("android.settings.BATTERY_SAVER_SETTINGS").catch(() => Linking.openSettings());
+    } else if (errorCode === "beacon_bluetooth_off" && Platform.OS === "android") {
+      void Linking.sendIntent("android.settings.BLUETOOTH_SETTINGS").catch(() => Linking.openSettings());
     } else if (errorCode === "services_off" && Platform.OS === "android") {
       void Linking.sendIntent("android.settings.LOCATION_SOURCE_SETTINGS").catch(() => Linking.openSettings());
     } else void Linking.openSettings();
   }
   const status = !isIn
-    ? { icon: "time-outline" as const, bg: "bg-ink-100", color: "#475569", title: "Not checked in yet", sub: "Check in once you're inside school." }
+    ? {
+        icon: "time-outline" as const,
+        bg: "bg-ink-100",
+        color: "#475569",
+        title: "Not checked in yet",
+        // Beacon schools: the phone has to hear the beacon, so send them to it, not just "inside school".
+        sub: setup?.beacon ? "Go near the school beacon (in the office), then tap Check in." : "Check in once you're inside school.",
+      }
     : outAt
       ? { icon: "moon" as const, bg: "bg-violet-100", color: "#6D28D9", title: "Done for today", sub: `In ${clock(inAt)} · Out ${clock(outAt)}` }
       : { icon: "checkmark" as const, bg: "bg-green-100", color: "#15803D", title: "You're checked in", sub: `Since ${clock(inAt)}` };
@@ -794,10 +854,16 @@ export function StaffAttendanceSettings({
   canEdit: boolean;
   onSaved: (message: string) => void;
 }) {
+  const router = useRouter();
   const [draft, setDraft] = useState<StaffAttendanceSetup>(setup);
-  const [busy, setBusy] = useState<"" | "point" | "test" | "save">("");
+  const [busy, setBusy] = useState<"" | "point" | "test" | "save" | "beacon">("");
   const [note, setNote] = useState<Note | null>(null);
+  const [beaconRssi, setBeaconRssi] = useState<number | null>(null);
+  const [beaconKey, setBeaconKey] = useState("");
+  const [newKeyAsk, setNewKeyAsk] = useState(false);
   const hasPoint = Boolean(draft.lat || draft.lng);
+  const gpsBackup = draft.gpsBackup !== false;
+  const needsPoint = draft.location || (Boolean(draft.beacon) && gpsBackup);
   const changed = JSON.stringify(draft) !== JSON.stringify(setup);
 
   async function withFix(kind: "point" | "test", use: (fix: Fix) => void) {
@@ -862,11 +928,87 @@ export function StaffAttendanceSettings({
     }
   }
 
-  const choose = (key: "qr" | "location") => {
+  async function testBeacon() {
+    setBusy("beacon");
+    setNote(null);
+    setBeaconRssi(null);
+    try {
+      const want = beaconWant(draft);
+      const scan = await scanForBeacon({ ...want, timeoutMs: 8000, onRssi: setBeaconRssi });
+      const level = BEACON_RSSI_CHOICES.find((c) => c.rssi === want.minRssi)?.label ?? "";
+      setNote(
+        scan.hit
+          ? { tone: "success", title: `Beacon heard here (${scan.hit.rssi} dBm)`, body: "Check in works from this spot." }
+          : scan.problem === "weak"
+            ? { tone: "warn", title: `Beacon too weak here (${scan.rssi} dBm)`, body: `${level} needs ${want.minRssi} dBm or stronger. Pick a farther setting if this spot is inside the school.` }
+            : { tone: "danger", title: "Beacon not heard", body: BEACON_PROBLEM_TEXT[scan.problem!] }
+      );
+    } finally {
+      setBusy("");
+      setBeaconRssi(null);
+    }
+  }
+
+  async function loadBeaconKey(rotate = false) {
+    setBusy("beacon");
+    setNote(null);
+    try {
+      const res = await act<{ ok: true; key: string }>(token, "beaconKey", rotate ? { rotate: true } : {});
+      setBeaconKey(res.key);
+      setNewKeyAsk(false);
+      if (rotate) setNote({ tone: "warn", title: "New beacon key made", body: "Put it on the beacon now. Until then, check in by the beacon won't work." });
+    } catch (error) {
+      setNote({ tone: "danger", title: "No key", body: errorText(error) });
+    } finally {
+      setBusy("");
+    }
+  }
+
+  const choose = (key: "qr" | "location" | "beacon") => {
     if (!canEdit) return;
     setNote(null);
-    setDraft((d) => ({ ...d, qr: key === "qr", location: key === "location" }));
+    setDraft((d) => ({
+      ...d,
+      qr: key === "qr",
+      location: key === "location",
+      beacon: key === "beacon",
+      beaconUuid: d.beaconUuid || BEACON_DEFAULT_UUID,
+      beaconName: d.beaconName ?? BEACON_DEFAULT_NAME,
+      beaconRssi: d.beaconRssi ?? BEACON_DEFAULT_RSSI,
+      gpsBackup: d.gpsBackup ?? true,
+    }));
   };
+
+  const pointBlock = (
+    <>
+      <View className="gap-2">
+        <Text className="text-sm font-semibold text-ink-900">School point</Text>
+        <Text testID="geo-point" className="text-xs text-ink-600">
+          {hasPoint ? place(draft) : "Not set. Stand in the middle of the school and take it from your phone."}
+        </Text>
+        {canEdit ? (
+          <Button variant="ghost" accessibilityLabel="Use my current location" disabled={busy !== ""} onPress={takePoint}>
+            {busy === "point" ? "Finding location…" : hasPoint ? "Take it again from here" : "Use my current location"}
+          </Button>
+        ) : null}
+        {Platform.OS === "web" ? <Text className="text-xs text-amber-800">A laptop's location can be far off. Take the point from a phone at school.</Text> : null}
+      </View>
+      <View className="gap-2">
+        <Text className="text-sm font-semibold text-ink-900">Counts as at school within</Text>
+        <Segmented
+          options={GEO_RADIUS_CHOICES.map((m) => ({ id: String(m), label: `${m} m` }))}
+          value={String(draft.radiusM)}
+          onChange={(id) => canEdit && setDraft((d) => ({ ...d, radiusM: Number(id) }))}
+        />
+        <Text className="text-xs text-ink-500">150 m suits most schools. Bigger campus: 200–300 m.</Text>
+      </View>
+      {hasPoint ? (
+        <Button variant="ghost" accessibilityLabel="Test here" disabled={busy !== ""} onPress={testHere}>
+          {busy === "test" ? "Checking…" : "Test here (walk to the gate, staff room…)"}
+        </Button>
+      ) : null}
+    </>
+  );
 
   return (
     <View testID="staff-attendance-settings" className="gap-3">
@@ -879,32 +1021,103 @@ export function StaffAttendanceSettings({
         on={draft.location}
         onSelect={() => choose("location")}
       >
-        <View className="gap-2">
-          <Text className="text-sm font-semibold text-ink-900">School point</Text>
-          <Text testID="geo-point" className="text-xs text-ink-600">
-            {hasPoint ? place(draft) : "Not set. Stand in the middle of the school and take it from your phone."}
-          </Text>
-          {canEdit ? (
-            <Button variant="ghost" accessibilityLabel="Use my current location" disabled={busy !== ""} onPress={takePoint}>
-              {busy === "point" ? "Finding location…" : hasPoint ? "Take it again from here" : "Use my current location"}
-            </Button>
-          ) : null}
-          {Platform.OS === "web" ? <Text className="text-xs text-amber-800">A laptop's location can be far off. Take the point from a phone at school.</Text> : null}
-        </View>
-        <View className="gap-2">
-          <Text className="text-sm font-semibold text-ink-900">Counts as at school within</Text>
-          <Segmented
-            options={GEO_RADIUS_CHOICES.map((m) => ({ id: String(m), label: `${m} m` }))}
-            value={String(draft.radiusM)}
-            onChange={(id) => canEdit && setDraft((d) => ({ ...d, radiusM: Number(id) }))}
+        {pointBlock}
+      </MethodRow>
+      <MethodRow
+        icon="bluetooth-outline"
+        title="Bluetooth beacon"
+        body="Staff tap “Check in” near the school's beacon (a small Bluetooth device in the office). Needs the latest app."
+        on={Boolean(draft.beacon)}
+        onSelect={() => choose("beacon")}
+      >
+        <Field label="Beacon ID" hint="The iBeacon UUID your beacon sends. Leave it as is for the Anekio beacon.">
+          <Input
+            accessibilityLabel="Beacon ID"
+            value={draft.beaconUuid ?? ""}
+            editable={canEdit}
+            autoCapitalize="none"
+            autoCorrect={false}
+            onChangeText={(v) => setDraft((d) => ({ ...d, beaconUuid: v.trim() }))}
           />
-          <Text className="text-xs text-ink-500">150 m suits most schools. Bigger campus: 200–300 m.</Text>
+        </Field>
+        <Field label="Beacon name" hint="Its Bluetooth name. iPhones find the beacon by this.">
+          <Input
+            accessibilityLabel="Beacon name"
+            value={draft.beaconName ?? ""}
+            editable={canEdit}
+            autoCapitalize="none"
+            autoCorrect={false}
+            onChangeText={(v) => setDraft((d) => ({ ...d, beaconName: v }))}
+          />
+        </Field>
+        <View className="gap-2">
+          <Text className="text-sm font-semibold text-ink-900">Counts as at school when the beacon is</Text>
+          <Segmented
+            options={BEACON_RSSI_CHOICES.map((c) => ({ id: String(c.rssi), label: c.label }))}
+            value={String(draft.beaconRssi ?? BEACON_DEFAULT_RSSI)}
+            onChange={(id) => canEdit && setDraft((d) => ({ ...d, beaconRssi: Number(id) }))}
+          />
+          <Text className="text-xs text-ink-500">
+            {BEACON_RSSI_CHOICES.find((c) => c.rssi === (draft.beaconRssi ?? BEACON_DEFAULT_RSSI))?.hint}. Distances are rough: phones differ. Check with “Test beacon here”.
+          </Text>
         </View>
-        {hasPoint ? (
-          <Button variant="ghost" accessibilityLabel="Test here" disabled={busy !== ""} onPress={testHere}>
-            {busy === "test" ? "Checking…" : "Test here (walk to the gate, staff room…)"}
+        {Platform.OS !== "web" ? (
+          <Button variant="ghost" accessibilityLabel="Test beacon here" disabled={busy !== ""} onPress={() => void testBeacon()}>
+            {busy === "beacon" ? (beaconRssi != null ? `Listening… ${beaconRssi} dBm` : "Listening for the beacon…") : "Test beacon here (walk around the school)"}
           </Button>
         ) : null}
+        {Platform.OS !== "web" ? (
+          // Admin-only (this is Settings): live signal, beacon ID and rotating code, for setting the beacon up.
+          <Button variant="ghost" accessibilityLabel="Open beacon tester" onPress={() => router.push("/beacon" as never)}>
+            Open beacon tester (live signal and code)
+          </Button>
+        ) : null}
+        <View className="flex-row items-center gap-3">
+          <View className="min-w-0 flex-1">
+            <Text className="text-sm font-semibold text-ink-900">Rotating code (stops fake beacons)</Text>
+            <Text className="mt-0.5 text-xs leading-4 text-ink-500">The beacon sends a code that changes every 30 s. A copied code or a fake beacon app won't work. Needs the beacon key on the beacon.</Text>
+          </View>
+          <Switch on={Boolean(draft.beaconSecure)} disabled={!canEdit} onPress={() => setDraft((d) => ({ ...d, beaconSecure: !d.beaconSecure }))} />
+        </View>
+        {draft.beaconSecure && canEdit ? (
+          <View testID="beacon-key" className="gap-2 rounded-lg bg-ink-50 p-3">
+            {beaconKey ? (
+              <>
+                <Text className="text-xs text-ink-600">Put this line in the beacon sketch, then upload it to the ESP32. Keep it private.</Text>
+                <Text selectable className="font-mono text-[12px] text-ink-900">{`const char* BEACON_KEY = "${beaconKey}";`}</Text>
+                {newKeyAsk ? (
+                  <View className="gap-2">
+                    <Text className="text-xs text-amber-800">A new key stops beacons with this key until you upload the new one.</Text>
+                    <View className="flex-row gap-2">
+                      <Button variant="ghost" accessibilityLabel="Cancel new key" onPress={() => setNewKeyAsk(false)}>
+                        Cancel
+                      </Button>
+                      <Button accessibilityLabel="Make the new key" disabled={busy !== ""} onPress={() => void loadBeaconKey(true)}>
+                        Make the new key
+                      </Button>
+                    </View>
+                  </View>
+                ) : (
+                  <Button variant="ghost" accessibilityLabel="New beacon key" onPress={() => setNewKeyAsk(true)}>
+                    New key (if it leaked)
+                  </Button>
+                )}
+              </>
+            ) : (
+              <Button variant="ghost" accessibilityLabel="Show beacon key" disabled={busy !== ""} onPress={() => void loadBeaconKey()}>
+                Show beacon key
+              </Button>
+            )}
+          </View>
+        ) : null}
+        <View className="flex-row items-center gap-3">
+          <View className="min-w-0 flex-1">
+            <Text className="text-sm font-semibold text-ink-900">Use GPS when the beacon isn't found</Text>
+            <Text className="mt-0.5 text-xs leading-4 text-ink-500">Keeps check in working in a power cut, or on an old app. Needs the school point.</Text>
+          </View>
+          <Switch on={gpsBackup} disabled={!canEdit} onPress={() => setDraft((d) => ({ ...d, gpsBackup: !(d.gpsBackup !== false) }))} />
+        </View>
+        {gpsBackup ? pointBlock : null}
       </MethodRow>
       <MethodRow icon="card-outline" title="RFID card" body="Staff tap their ID card on a reader at the gate." soon />
       <MethodRow icon="finger-print-outline" title="Fingerprint" body="Staff put a finger on a biometric device at the gate." soon />
@@ -913,10 +1126,10 @@ export function StaffAttendanceSettings({
         <View className="flex-row justify-end">
           <Button
             accessibilityLabel="Save staff attendance"
-            disabled={busy !== "" || !changed || (draft.location && !hasPoint)}
+            disabled={busy !== "" || !changed || (needsPoint && !hasPoint)}
             onPress={() => void save()}
           >
-            {busy === "save" ? "Saving…" : draft.location && !hasPoint ? "Set the school point to save" : "Save"}
+            {busy === "save" ? "Saving…" : needsPoint && !hasPoint ? "Set the school point to save" : "Save"}
           </Button>
         </View>
       ) : null}
