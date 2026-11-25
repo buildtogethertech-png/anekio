@@ -673,6 +673,9 @@ export function DeskBoard() {
       unmarked: attClosed ? 0 : Math.max(0, klass.total - day.marked),
       percent: klass.total ? Math.round((day.present / klass.total) * 100) : 0,
       teacherStatus: "",
+      coverTeacherId: "",
+      coverName: "",
+      coverPhone: "",
     };
   });
   const attendanceTotals = classAttendance.reduce(
@@ -971,30 +974,41 @@ export function DeskBoard() {
             {classAttendance.map((klass, index) => {
               const marked = klass.present + klass.absent;
               const teacherAway = klass.teacherStatus === "ABSENT" || klass.teacherStatus === "LEAVE";
+              // Handed to another teacher today: show and remind them, not the class teacher who is out.
+              const cover = attIsToday && klass.coverName ? { name: klass.coverName, phone: klass.coverPhone || "" } : null;
+              const forTeacher = cover ? `for ${klass.teacherName}${teacherAway ? ` (${klass.teacherStatus.toLowerCase()})` : ""}` : "";
+              const taken = klass.unmarked ? `${klass.unmarked} unmarked` : `${klass.percent}% · ${klass.absent} out`;
               const status = !marked
                 ? attClosed
                   ? "School closed"
-                  : teacherAway
-                    ? `Teacher ${klass.teacherStatus.toLowerCase()} · not taken`
-                    : "Attendance not taken"
-                : klass.unmarked
-                  ? `${klass.unmarked} unmarked`
-                  : `${klass.percent}% · ${klass.absent} out`;
-              const reminder = `Hi ${klass.teacherName}, attendance for ${klass.label} is still unmarked ${attIsToday ? "today" : `for ${attDayLabel}`}. Please update it when possible.`;
-              const teacherTel = phoneHref(klass.teacherPhone);
-              const teacherWa = whatsappHref(klass.teacherPhone, reminder);
+                  : cover
+                    ? `Given ${forTeacher} · not taken`
+                    : teacherAway
+                      ? `Teacher ${klass.teacherStatus.toLowerCase()} · not taken`
+                      : "Attendance not taken"
+                : cover
+                  ? `${taken} · ${forTeacher}`
+                  : taken;
+              const who = cover?.name || klass.teacherName;
+              const reminder = cover
+                ? `Hi ${cover.name.split(" ")[0]}, ${
+                    teacherAway ? `${klass.teacherName} is ${klass.teacherStatus === "LEAVE" ? "on leave" : "absent"} today, so ` : ""
+                  }${klass.label}'s attendance is with you. It is still not taken. Please take it when possible.`
+                : `Hi ${who}, attendance for ${klass.label} is still unmarked ${attIsToday ? "today" : `for ${attDayLabel}`}. Please update it when possible.`;
+              const teacherTel = phoneHref(cover ? cover.phone : klass.teacherPhone);
+              const teacherWa = whatsappHref(cover ? cover.phone : klass.teacherPhone, reminder);
               return (
                 <View key={klass.classId} className={`flex-row items-center gap-3 px-3 py-2.5 ${index ? "border-t border-ink-100" : ""}`}>
                   <View className="w-16 shrink-0">
                     <Text className="text-xs font-semibold text-ink-900" numberOfLines={1}>{klass.label}</Text>
                   </View>
                   <View className="min-w-0 flex-1">
-                    <Text className="text-xs font-medium text-ink-900" numberOfLines={1}>{klass.teacherName}</Text>
+                    <Text className="text-xs font-medium text-ink-900" numberOfLines={1}>{who}</Text>
                     <Text className={`text-[10px] ${!marked ? (attClosed ? "text-ink-500" : "text-amber-700") : klass.percent < 75 ? "text-red-600" : "text-ink-700"}`} numberOfLines={1}>{status}</Text>
                   </View>
                   <View className="flex-row items-center gap-4">
-                    {teacherWa ? <Pressable accessibilityLabel={`WhatsApp ${klass.teacherName}`} onPress={() => void Linking.openURL(teacherWa)}><Ionicons name="logo-whatsapp" size={20} color="#16a34a" /></Pressable> : null}
-                    {teacherTel ? <Pressable accessibilityLabel={`Call ${klass.teacherName}`} onPress={() => void Linking.openURL(teacherTel)}><Ionicons name="call-outline" size={19} color="#2454d8" /></Pressable> : null}
+                    {teacherWa ? <Pressable accessibilityLabel={`WhatsApp ${who}`} onPress={() => void Linking.openURL(teacherWa)}><Ionicons name="logo-whatsapp" size={20} color="#16a34a" /></Pressable> : null}
+                    {teacherTel ? <Pressable accessibilityLabel={`Call ${who}`} onPress={() => void Linking.openURL(teacherTel)}><Ionicons name="call-outline" size={19} color="#2454d8" /></Pressable> : null}
                     {!teacherWa && !teacherTel ? <Text className="text-[10px] text-ink-700">No phone</Text> : null}
                   </View>
                 </View>

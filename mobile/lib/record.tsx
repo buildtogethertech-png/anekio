@@ -487,6 +487,10 @@ export type RecordPayload = {
       teacherName: string;
       teacherPhone: string;
       teacherStatus: string;
+      /** Today's attendance handed to another teacher (class teacher out). */
+      coverTeacherId?: string;
+      coverName?: string;
+      coverPhone?: string;
       managerName: string;
       managerPhone: string;
     }[];

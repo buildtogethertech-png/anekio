@@ -156,6 +156,9 @@ describe.sequential.skipIf(!schoolDay)("class attendance cover", () => {
   it("the office can remove a hand-over", async () => {
     expect((await markTara("ABSENT")).status).toBe(200);
     expect((await act(officeToken, "assignAttendanceCover", { date: today, classId: fixture.classId, teacherId: "teacher-rhea" })).status).toBe(200);
+    // Today's attendance card names who takes it now.
+    const card = (await record(officeToken)).body.desk.classAttendance.find((c: { classId: string }) => c.classId === fixture.classId);
+    expect(card).toMatchObject({ teacherStatus: "ABSENT", coverTeacherId: "teacher-rhea", coverName: "Rhea Fixture" });
     // The office To-do lists it as done, with Undo.
     const handed = await act(officeToken, "loadDayGaps", { date: today });
     expect(handed.body.handovers).toEqual([{ classId: fixture.classId, classLabel: "6-A", teacherName: "Rhea Fixture" }]);

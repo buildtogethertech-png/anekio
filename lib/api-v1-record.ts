@@ -1166,7 +1166,7 @@ async function officePayload(user: AccessUser) {
   coverUntil.setDate(coverUntil.getDate() + 7);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const [substituteAssignments, todayAttendance] = await Promise.all([
+  const [substituteAssignments, todayAttendance, attendanceCovers] = await Promise.all([
     prisma.substituteAssignment.findMany({
       where: { date: { gte: todayKey, lte: ymd(coverUntil) } },
       include: {
@@ -1179,7 +1179,13 @@ async function officePayload(user: AccessUser) {
       where: { date: today },
       select: { status: true, student: { select: { classId: true } } },
     }),
+    // Classes whose attendance the office handed to another teacher today (class teacher out).
+    prisma.classAttendanceCover.findMany({
+      where: { date: staffToday },
+      select: { classId: true, teacher: { select: { id: true, user: { select: { name: true, phone: true } } } } },
+    }),
   ]);
+  const attendanceCoverByClass = new Map(attendanceCovers.map((c) => [c.classId, c.teacher]));
   const attendanceByClass = new Map<string, { present: number; absent: number; marked: number }>();
   for (const row of todayAttendance) {
     const current = attendanceByClass.get(row.student.classId) ?? { present: 0, absent: 0, marked: 0 };
@@ -1328,6 +1334,7 @@ async function officePayload(user: AccessUser) {
         const teacherDay = classTeacher
           ? staff.days.find((day) => day.teacherId === classTeacher.id && staffDayYmd(day.date) === staffToday)
           : null;
+        const cover = attendanceCoverByClass.get(klass.id);
         return {
           classId: klass.id,
           label: `${klass.name}-${klass.section}`,
@@ -1340,6 +1347,9 @@ async function officePayload(user: AccessUser) {
           teacherName: classTeacher?.user.name || "Not assigned",
           teacherPhone: classTeacher?.user.phone || "",
           teacherStatus: teacherDay?.status || "",
+          coverTeacherId: cover?.id || "",
+          coverName: cover?.user.name || "",
+          coverPhone: cover?.user.phone || "",
           managerName: classTeacher?.user.manager?.name || "",
           managerPhone: classTeacher?.user.manager?.phone || "",
         };
