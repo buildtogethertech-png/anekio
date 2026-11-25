@@ -51,7 +51,9 @@ export type DayGap = {
   candidates: { id: string; name: string; hint: string }[];
 };
 
-export type DayGaps = { date: string; closed: string; gaps: DayGap[] };
+/** A class's attendance handed to another teacher for the day. */
+export type DayHandover = { classId: string; classLabel: string; teacherName: string };
+export type DayGaps = { date: string; closed: string; gaps: DayGap[]; handovers?: DayHandover[] };
 
 /** Teachers' phones during the school day (Settings → HR & Payroll → Teacher phones). */
 export type SchoolDaySettings = {

@@ -156,7 +156,11 @@ describe.sequential.skipIf(!schoolDay)("class attendance cover", () => {
   it("the office can remove a hand-over", async () => {
     expect((await markTara("ABSENT")).status).toBe(200);
     expect((await act(officeToken, "assignAttendanceCover", { date: today, classId: fixture.classId, teacherId: "teacher-rhea" })).status).toBe(200);
+    // The office To-do lists it as done, with Undo.
+    const handed = await act(officeToken, "loadDayGaps", { date: today });
+    expect(handed.body.handovers).toEqual([{ classId: fixture.classId, classLabel: "6-A", teacherName: "Rhea Fixture" }]);
     expect((await act(officeToken, "clearAttendanceCover", { date: today, classId: fixture.classId })).status).toBe(200);
+    expect((await act(officeToken, "loadDayGaps", { date: today })).body.handovers).toEqual([]);
     expect(await prisma.classAttendanceCover.count({ where: { date: today } })).toBe(0);
     expect((await record(rheaToken)).body.attendanceCovers).toHaveLength(0);
   });
