@@ -37,6 +37,27 @@ export type RosterStudent = {
   days?: { date: string; status: string }[];
 };
 
+/** Teacher: one class they are class teacher of, with its attendance register. */
+export type Homeroom = {
+  classId: string;
+  classLabel: string;
+  studentCount: number;
+  markedToday: boolean;
+  outToday: string[];
+  roster: RosterStudent[];
+};
+
+/** Office: one class teacher of a class on the dashboard (a class can have more than one). */
+export type ClassTeacherContact = {
+  id: string;
+  name: string;
+  phone: string;
+  /** Today's staff attendance mark ("" = not marked). */
+  status: string;
+  managerName: string;
+  managerPhone: string;
+};
+
 export type DayGap = {
   teacherId: string;
   teacherName: string;
@@ -367,14 +388,12 @@ export type RecordPayload = {
       }[];
     }[];
   } | null;
-  classLabel?: string;
-  classId?: string;
+  /** Teacher: true when they are class teacher of at least one class. */
   classTeacher?: boolean;
-  /** Teacher: class teacher may add / edit students in own class (Roles → Teacher). */
+  /** Teacher: every class they are class teacher of, in class order. */
+  homerooms?: Homeroom[];
+  /** Teacher: class teacher may add / edit students in own classes (Roles → Teacher). */
   classStudents?: { canAdd: boolean; canEdit: boolean; canRolls?: boolean; admissionForm: AdmissionFormField[] };
-  markedToday?: boolean;
-  studentCount?: number;
-  outToday?: string[];
   /** Teacher: next 7 days of one-day timetable changes (periods I cover / periods taken from me). */
   dayChanges?: {
     date: string;
@@ -432,12 +451,11 @@ export type RecordPayload = {
     isChecker?: boolean;
     students: { id: string; name: string; admissionNo: string; rollNumber?: number | null; marks: number | null; absent: boolean; correctionNote?: string; correctionRequested?: boolean }[];
   }[];
-  callHome?: { id: string; name: string; days: number; parentName: string; phone: string; wa: string }[];
+  callHome?: { id: string; name: string; classLabel: string; days: number; parentName: string; phone: string; wa: string }[];
   weekPapers?: { id: string; title: string; subject: string; date: string; classLabel: string }[];
   needsAttention?: string[];
   breakout?: number;
   subjects?: { id: string; name: string }[];
-  roster?: RosterStudent[];
   /** Teacher: classes handed to me for today's attendance (their class teacher is out). */
   attendanceCovers?: {
     date: string;
@@ -481,12 +499,7 @@ export type RecordPayload = {
       absent: number;
       unmarked: number;
       percent: number;
-      teacherId: string;
-      teacherName: string;
-      teacherPhone: string;
-      teacherStatus: string;
-      managerName: string;
-      managerPhone: string;
+      classTeachers: ClassTeacherContact[];
     }[];
   };
   classes?: {
@@ -615,8 +628,9 @@ export type RecordPayload = {
     employeeId: string;
     role: string;
     qualification?: string;
-    classId?: string;
-    classLabel?: string;
+    /** Classes they are class teacher of. */
+    classIds?: string[];
+    classLabels?: string[];
     managerId?: string;
     managerName?: string;
   }[];
@@ -639,8 +653,8 @@ export type RecordPayload = {
     kind?: "teacher" | "staff";
     /** Office employee marked "Also a teacher". */
     teaches?: boolean;
-    /** Office employee who also teaches: the class they are class teacher of. */
-    teachClassId?: string;
+    /** Office employee who also teaches: the classes they are class teacher of. */
+    teachClassIds?: string[];
     name: string;
     email?: string;
     employeeId?: string;
@@ -648,8 +662,9 @@ export type RecordPayload = {
     role: string;
     phone: string;
     qualification?: string;
-    classId?: string;
-    classLabel?: string;
+    /** Teachers: classes they are class teacher of. */
+    classIds?: string[];
+    classLabels?: string[];
     address?: string;
     city?: string;
     state?: string;

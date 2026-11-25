@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import { randomBytes } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
+import { CLASS_TEACHER_LINKS, sortClassesByLabel } from "./class-teacher-access";
 import { can, type AccessUser } from "./permissions";
 import { ymd } from "./exams";
 
@@ -31,7 +32,7 @@ async function loadTarget(input: { kind?: string; id?: string }) {
   if (kind === "teacher") {
     const teacher = await prisma.teacher.findUnique({
       where: { id },
-      select: { id: true, userId: true, teachingOnly: true, archivedAt: true, classId: true, user: { select: { name: true } } },
+      select: { id: true, userId: true, teachingOnly: true, archivedAt: true, user: { select: { name: true } } },
     });
     if (!teacher || teacher.archivedAt || teacher.teachingOnly) throw new Error("Employee not found.");
     return { kind, id, name: teacher.user.name, userId: teacher.userId as string | null, teacher, staffMemberId: null as string | null };
@@ -40,15 +41,15 @@ async function loadTarget(input: { kind?: string; id?: string }) {
   if (!staff || staff.archivedAt) throw new Error("Employee not found.");
   const teacher = await prisma.teacher.findFirst({
     where: { OR: [{ staffMemberId: staff.id }, ...(staff.userId ? [{ userId: staff.userId }] : [])], archivedAt: null },
-    select: { id: true, userId: true, teachingOnly: true, archivedAt: true, classId: true, user: { select: { name: true } } },
+    select: { id: true, userId: true, teachingOnly: true, archivedAt: true, user: { select: { name: true } } },
   });
   return { kind, id, name: staff.name, userId: staff.userId, teacher, staffMemberId: staff.id };
 }
 
 /** Everything the teaching profile owns right now, grouped the way it is handed over. */
 async function teachingLoad(teacherId: string, today: string) {
-  const [klass, subjects, slots, exams, covers, attendanceCovers] = await Promise.all([
-    prisma.teacher.findUnique({ where: { id: teacherId }, select: { class: { select: { id: true, name: true, section: true } } } }),
+  const [classLinks, subjects, slots, exams, covers, attendanceCovers] = await Promise.all([
+    prisma.teacherClass.findMany({ where: { teacherId, classTeacher: true }, select: { class: { select: { id: true, name: true, section: true } } } }),
     prisma.subject.findMany({ where: { teacherId }, select: { id: true, name: true, classId: true, class: { select: { name: true, section: true } } } }),
     prisma.timetableSlot.findMany({
       where: { teacherId },
@@ -106,7 +107,8 @@ async function teachingLoad(teacherId: string, today: string) {
 
   const paper = exams.filter((e) => !e.paperAt && (e.setterId || e.teacherId) === teacherId);
   const checking = exams.filter((e) => e.teacherId === teacherId);
-  return { klass: klass?.class || null, groups: [...groups.values()], slots, paper, checking, covers, attendanceCovers };
+  const classes = sortClassesByLabel(classLinks.map((link) => link.class));
+  return { classes, groups: [...groups.values()], slots, paper, checking, covers, attendanceCovers };
 }
 
 function examLabel(e: { title: string; class: { name: string; section: string }; subject: { name: string } }) {
@@ -125,10 +127,13 @@ function shortDate(value: string | Date) {
 async function activeTeachers(excludeId: string | null) {
   const rows = await prisma.teacher.findMany({
     where: { archivedAt: null, ...(excludeId ? { NOT: { id: excludeId } } : {}) },
-    select: { id: true, teachingOnly: true, class: { select: { name: true, section: true } }, user: { select: { name: true } } },
+    select: { id: true, teachingOnly: true, classes: CLASS_TEACHER_LINKS, user: { select: { name: true } } },
     orderBy: { user: { name: "asc" } },
   });
-  return rows.map((t) => ({ id: t.id, name: t.user.name, detail: t.class ? `Class teacher ${t.class.name}-${t.class.section}` : t.teachingOnly ? "Office · also teaches" : "Teacher" }));
+  return rows.map((t) => {
+    const classes = sortClassesByLabel(t.classes.map((link) => link.class)).map((c) => `${c.name}-${c.section}`);
+    return { id: t.id, name: t.user.name, detail: classes.length ? `Class teacher ${classes.join(", ")}` : t.teachingOnly ? "Office · also teaches" : "Teacher" };
+  });
 }
 
 /** Staff logins that can be a reporting manager or own a parent conversation. */
@@ -158,12 +163,12 @@ export async function staffRemovalPlanCore(user: AccessUser, input: { kind?: str
 
   if (target.teacher) {
     const load = await teachingLoad(target.teacher.id, today);
-    if (load.klass) {
+    if (load.classes.length) {
       sections.push({
         key: "class",
         title: "Class teacher",
         hint: "Marks attendance and owns the class's leave and parent messages.",
-        items: [{ key: `class:${load.klass.id}`, label: `${load.klass.name}-${load.klass.section}`, detail: "Class teacher", pool: "teacher" }],
+        items: load.classes.map((c) => ({ key: `class:${c.id}`, label: `${c.name}-${c.section}`, detail: "Class teacher", pool: "teacher" as const })),
       });
     }
     if (load.groups.length) {
@@ -290,15 +295,6 @@ export async function removeStaffCore(
   const load = oldTeacherId ? await teachingLoad(oldTeacherId, today) : null;
   const problems: string[] = [];
 
-  // Class teacher: a teacher keeps one class.
-  if (load?.klass) {
-    const to = picks[`class:${load.klass.id}`];
-    const other = await prisma.teacher.findUnique({ where: { id: to }, select: { class: { select: { id: true, name: true, section: true } } } });
-    if (other?.class && other.class.id !== load.klass.id) {
-      problems.push(`${nameOf.get(to)} is already class teacher of ${other.class.name}-${other.class.section}.`);
-    }
-  }
-
   // Periods: the new teacher must be free in each moved period (a combined lesson they already share is fine).
   if (load) {
     const slotById = new Map(load.slots.map((s) => [s.id, s]));
@@ -342,14 +338,13 @@ export async function removeStaffCore(
   const ops: Prisma.PrismaPromise<unknown>[] = [];
 
   if (load && oldTeacherId) {
-    if (load.klass) {
-      const to = picks[`class:${load.klass.id}`];
+    for (const c of load.classes) {
+      const to = picks[`class:${c.id}`];
       ops.push(
-        prisma.teacher.update({ where: { id: to }, data: { classId: load.klass.id } }),
         prisma.teacherClass.upsert({
-          where: { teacherId_classId: { teacherId: to, classId: load.klass.id } },
-          update: {},
-          create: { teacherId: to, classId: load.klass.id },
+          where: { teacherId_classId: { teacherId: to, classId: c.id } },
+          update: { classTeacher: true },
+          create: { teacherId: to, classId: c.id, classTeacher: true },
         })
       );
     }
@@ -393,7 +388,7 @@ export async function removeStaffCore(
       prisma.classAttendanceCover.deleteMany({ where: { absentTeacherId: oldTeacherId, date: { gte: today } } }),
       prisma.teacherClass.deleteMany({ where: { teacherId: oldTeacherId } }),
       prisma.teacherSkill.deleteMany({ where: { teacherId: oldTeacherId } }),
-      prisma.teacher.update({ where: { id: oldTeacherId }, data: { classId: null, activities: "[]", archivedAt: now } })
+      prisma.teacher.update({ where: { id: oldTeacherId }, data: { activities: "[]", archivedAt: now } })
     );
   }
 

@@ -251,7 +251,7 @@ export function PortalBody({ screen }: { screen: string }) {
     return <FamilyAttendance />;
   }
   if (screen === "class") {
-    if (data.kind === "TEACHER") return <PeopleBoard studentOnly title={data.classLabel || "Class"} />;
+    if (data.kind === "TEACHER") return <PeopleBoard studentOnly title={(data.homerooms ?? []).map((h) => h.classLabel).join(", ") || "Class"} />;
     return <Empty title="No access" body="This page is for the class teacher." />;
   }
   if (screen === "leave") {

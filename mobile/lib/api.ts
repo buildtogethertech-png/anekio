@@ -89,7 +89,7 @@ export type HomePayload =
       kicker: string;
       title: string;
       lede: string;
-      classLabel: string;
+      classLabels: string[];
       classTeacher: boolean;
       markedToday: boolean;
     }

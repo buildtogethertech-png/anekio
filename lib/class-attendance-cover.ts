@@ -12,6 +12,7 @@ import { loadSchoolCalendar } from "./leave";
 import { closedReason, prettyDay, weekdayOfYmd } from "./calendar";
 import { staffDayWindow, staffDayYmd } from "./staff-day";
 import { notifyNoticeRecipients } from "./push";
+import { CLASS_TEACHER_LINKS, classTeacherClassIds, sortClassesByLabel } from "./class-teacher-access";
 
 const OUT_MARKS = new Set(["ABSENT", "LEAVE"]);
 
@@ -103,9 +104,8 @@ async function attendanceCandidates(date: string, classId: string, out: Map<stri
     prisma.teacher.findMany({
       select: {
         id: true,
-        classId: true,
         user: { select: { name: true } },
-        classes: { select: { classId: true } },
+        classes: { select: { classId: true, classTeacher: true } },
         subjects: { select: { classId: true } },
       },
       orderBy: { user: { name: "asc" } },
@@ -124,7 +124,7 @@ async function attendanceCandidates(date: string, classId: string, out: Map<stri
   const teachesClass = (t: (typeof teachers)[number]) =>
     t.classes.some((c) => c.classId === classId) || t.subjects.some((s) => s.classId === classId) || slots.some((s) => s.teacherId === t.id);
   return teachers
-    .filter((t) => !out.has(t.id) && t.classId !== classId)
+    .filter((t) => !out.has(t.id) && !t.classes.some((c) => c.classId === classId && c.classTeacher))
     .map((t) => {
       const tier = t.id === firstPeriodTeacher ? 1 : teachesClass(t) ? 2 : 3;
       const hint = tier === 1 ? "1st period in this class" : tier === 2 ? "Teaches this class" : "";
@@ -133,6 +133,7 @@ async function attendanceCandidates(date: string, classId: string, out: Map<stri
     .sort((a, b) => a.tier - b.tier || a.name.localeCompare(b.name));
 }
 
+/** One row per absent teacher and class of theirs that still needs attendance (classId "" = periods only). */
 export type DayGap = {
   teacherId: string;
   teacherName: string;
@@ -163,7 +164,7 @@ export async function dayGaps(user: AccessUser, input: { date?: string } = {}) {
   const [teachers, slots, changes, covers] = await Promise.all([
     prisma.teacher.findMany({
       where: { id: { in: ids } },
-      select: { id: true, classId: true, user: { select: { name: true } }, class: { select: { id: true, name: true, section: true } } },
+      select: { id: true, user: { select: { name: true } }, classes: CLASS_TEACHER_LINKS },
     }),
     prisma.timetableSlot.findMany({ where: { teacherId: { in: ids }, weekday }, include: { period: true } }),
     prisma.substituteAssignment.findMany({ where: { date }, select: { slotId: true, status: true } }),
@@ -172,48 +173,46 @@ export async function dayGaps(user: AccessUser, input: { date?: string } = {}) {
   const changeBySlot = new Map(changes.map((c) => [c.slotId, c]));
   const coverByClass = new Map(covers.map((c) => [c.classId, c]));
   // A class with another class teacher who is in that day needs no hand-over.
-  const classIds = [...new Set(teachers.map((t) => t.classId).filter(Boolean))] as string[];
+  const classIds = [...new Set(teachers.flatMap((t) => t.classes.map((c) => c.classId)))];
   const coClassTeachers = classIds.length
-    ? await prisma.teacher.findMany({ where: { classId: { in: classIds } }, select: { id: true, classId: true, user: { select: { name: true } } } })
+    ? await prisma.teacherClass.findMany({
+        where: { classId: { in: classIds }, classTeacher: true, teacher: { archivedAt: null } },
+        select: { classId: true, teacherId: true, teacher: { select: { user: { select: { name: true } } } } },
+      })
     : [];
-  const classTeacherIn = (classId: string) => coClassTeachers.some((t) => t.classId === classId && !out.has(t.id));
-  const presentClassTeacher = (classId: string) => coClassTeachers.find((t) => t.classId === classId && !out.has(t.id))?.user.name || "";
+  const presentClassTeacher = (classId: string) =>
+    coClassTeachers.find((t) => t.classId === classId && !out.has(t.teacherId))?.teacher.user.name || "";
   const gaps: DayGap[] = [];
+  const { from, to } = staffDayWindow(date);
   for (const teacher of teachers) {
     const mine = slots.filter((s) => s.teacherId === teacher.id && !s.period.isBreak && (!team || team.includes(s.classId)));
     const openPeriods = mine.filter((s) => {
       const change = changeBySlot.get(s.id);
       return !change || change.status === "OPEN";
     }).length;
-    const classId =
-      teacher.classId && (!team || team.includes(teacher.classId)) && !classTeacherIn(teacher.classId) ? teacher.classId : "";
-    let attendanceBy: DayGap["attendanceBy"] = null;
-    let attendanceDone = false;
-    let candidates: DayGap["candidates"] = [];
-    if (classId) {
-      const cover = coverByClass.get(classId);
-      attendanceBy = cover ? { id: cover.teacher.id, name: cover.teacher.user.name } : null;
-      const { from, to } = staffDayWindow(date);
-      attendanceDone = (await prisma.attendance.count({ where: { date: { gte: from, lte: to }, student: { classId } } })) > 0;
-      if (!attendanceBy && !attendanceDone) {
-        candidates = (await attendanceCandidates(date, classId, out)).map(({ id, name, hint }) => ({ id, name, hint }));
+    const base = { teacherId: teacher.id, teacherName: teacher.user.name, why: out.get(teacher.id)?.why || "Absent", periods: mine.length, openPeriods };
+    const rows: DayGap[] = [];
+    for (const klass of sortClassesByLabel(teacher.classes.map((link) => link.class))) {
+      if (team && !team.includes(klass.id)) continue;
+      const classLabel = `${klass.name}-${klass.section}`;
+      const coClassTeacher = presentClassTeacher(klass.id);
+      // Another class teacher of this class is in: they take attendance, nothing to hand over.
+      if (coClassTeacher) {
+        rows.push({ ...base, classId: "", classLabel, attendanceBy: null, coClassTeacher, attendanceDone: false, candidates: [] });
+        continue;
       }
+      const cover = coverByClass.get(klass.id);
+      const attendanceBy = cover ? { id: cover.teacher.id, name: cover.teacher.user.name } : null;
+      const attendanceDone = (await prisma.attendance.count({ where: { date: { gte: from, lte: to }, student: { classId: klass.id } } })) > 0;
+      const candidates =
+        !attendanceBy && !attendanceDone
+          ? (await attendanceCandidates(date, klass.id, out)).map(({ id, name, hint }) => ({ id, name, hint }))
+          : [];
+      rows.push({ ...base, classId: klass.id, classLabel, attendanceBy, coClassTeacher: "", attendanceDone, candidates });
     }
-    const classPending = Boolean(classId) && !attendanceBy && !attendanceDone;
+    const classPending = rows.some((row) => row.classId && !row.attendanceBy && !row.attendanceDone);
     if (!openPeriods && !classPending) continue;
-    gaps.push({
-      teacherId: teacher.id,
-      teacherName: teacher.user.name,
-      why: out.get(teacher.id)?.why || "Absent",
-      periods: mine.length,
-      openPeriods,
-      classId,
-      classLabel: teacher.class ? `${teacher.class.name}-${teacher.class.section}` : "",
-      attendanceBy,
-      coClassTeacher: teacher.classId && !classId ? presentClassTeacher(teacher.classId) : "",
-      attendanceDone,
-      candidates,
-    });
+    gaps.push(...(rows.length ? rows : [{ ...base, classId: "", classLabel: "", attendanceBy: null, coClassTeacher: "", attendanceDone: false, candidates: [] }]));
   }
   gaps.sort((a, b) => a.teacherName.localeCompare(b.teacherName));
   return { date, closed: "", gaps };
@@ -232,12 +231,12 @@ export async function assignAttendanceCover(user: AccessUser, input: { date?: st
   if (closed) throw new Error(`School is closed ${prettyDay(date)} (${closed}).`);
   const [klass, teacher, classTeachers] = await Promise.all([
     prisma.class.findUnique({ where: { id: classId }, select: { name: true, section: true } }),
-    prisma.teacher.findUnique({ where: { id: teacherId }, select: { id: true, classId: true, user: { select: { name: true } } } }),
-    prisma.teacher.findMany({ where: { classId }, select: { id: true, user: { select: { name: true } } } }),
+    prisma.teacher.findUnique({ where: { id: teacherId }, select: { id: true, user: { select: { name: true } }, classes: { where: { classId, classTeacher: true }, select: { classId: true } } } }),
+    prisma.teacher.findMany({ where: { classes: { some: { classId, classTeacher: true } } }, select: { id: true, user: { select: { name: true } } } }),
   ]);
   if (!klass) throw new Error("Class not found");
   if (!teacher) throw new Error("Teacher not found");
-  if (teacher.classId === classId) throw new Error(`${teacher.user.name} is already this class's teacher.`);
+  if (teacher.classes.length) throw new Error(`${teacher.user.name} is already this class's teacher.`);
   const out = await teachersOutOn(date);
   if (out.has(teacherId)) throw new Error(`${teacher.user.name} is out ${whenText(date)}.`);
   const classTeacher = classTeachers.find((t) => out.has(t.id)) || classTeachers[0] || null;
@@ -304,14 +303,13 @@ export async function attendanceCoversFor(teacherId: string, date = schoolToday(
 }
 
 /**
- * Teacher logins may save attendance only for their own class, or a class handed to them for that date.
+ * Teacher logins may save attendance only for classes they are class teacher of, or a class handed to them for that date.
  * Office logins (people.edit / timetable.edit) and non-teacher portals keep their current access.
  */
 export async function assertAttendanceClasses(user: AccessUser, date: string, studentIds: string[]) {
   if (user.portal !== "TEACHER" || can(user, "people.edit") || !studentIds.length) return;
-  const teacher = await prisma.teacher.findUnique({ where: { userId: user.id }, select: { id: true, classId: true } });
-  const allowed = new Set<string>();
-  if (teacher?.classId) allowed.add(teacher.classId);
+  const teacher = await prisma.teacher.findUnique({ where: { userId: user.id }, select: { id: true } });
+  const allowed = new Set<string>(teacher ? await classTeacherClassIds(teacher.id) : []);
   if (teacher) for (const row of await attendanceCoversFor(teacher.id, date)) allowed.add(row.classId);
   const students = await prisma.student.findMany({ where: { id: { in: [...new Set(studentIds)] } }, select: { classId: true } });
   if (students.length !== new Set(studentIds).size || students.some((s) => !s.classId || !allowed.has(s.classId))) {

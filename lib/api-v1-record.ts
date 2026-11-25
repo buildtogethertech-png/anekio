@@ -51,6 +51,7 @@ import { configuredAdmissionFormJson } from "./admission-form-config";
 import { combinedWithLabels, groupCombined } from "./timetable-combined";
 import { staffAnswersFrom, studentAnswersFrom } from "./custom-fields";
 import { monthOf, salaryForMonth, salaryHistoryOf } from "./salary-history";
+import { sortClassesByLabel } from "./class-teacher-access";
 
 function inDate(value: Date | string) {
   return new Date(value).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
@@ -733,6 +734,17 @@ async function parentStudentPayload(user: AccessUser, requestedChildId?: string 
   };
 }
 
+/** A teacher's class-teacher classes for staff and people rows: ids, labels and the role line. */
+function classTeacherFields(links: { classId: string; class: { name: string; section: string } }[]) {
+  const classes = sortClassesByLabel(links.map((link) => ({ id: link.classId, ...link.class })));
+  const classLabels = classes.map((c) => `${c.name}-${c.section}`);
+  return {
+    role: classLabels.length ? `Class teacher ${classLabels.join(", ")}` : "Teacher",
+    classIds: classes.map((c) => c.id),
+    classLabels,
+  };
+}
+
 async function teacherPayload(user: AccessUser) {
   const [desk, teacher, noticeRows] = await Promise.all([
     getTeacherDesk(user.id),
@@ -744,18 +756,23 @@ async function teacherPayload(user: AccessUser) {
         .map(noticeSummary)
     ),
   ]);
-  const roster = teacher?.classId ? await getClassRoster(teacher.classId) : [];
+  // Classes this teacher is class teacher of (desk.homerooms is already in class order).
+  const homeroomRows = desk?.homerooms ?? [];
+  const homeroomIds = homeroomRows.map((h) => h.classId);
+  const labelOfClass = new Map(homeroomRows.map((h) => [h.classId, h.classLabel]));
+  const rosters = await Promise.all(homeroomIds.map((classId) => getClassRoster(classId)));
+  const roster = rosters.flat();
   const today = ymd(new Date());
   const { config, periods } = await getScheduleSetup();
   const weekdays = parseWeekdays(config?.weekdays);
   const slots = teacher ? await getTeacherTimetable(teacher.id) : [];
   const hostClasses = teacher ? await teacherClassTestChoices(teacher.id) : [];
-  const peopleExamPack = teacher?.classId ? await getPeopleExamPack() : null;
+  const peopleExamPack = homeroomIds.length ? await getPeopleExamPack() : null;
   const seeFees = can(user, "fees.view");
   // Class teacher add / edit students (Roles → Teacher). Only sent with a class to work on.
-  const classStudentAdd = Boolean(teacher?.classId) && can(user, "class.students.add");
-  const classStudentEdit = Boolean(teacher?.classId) && can(user, "class.students.edit");
-  const classRollsEdit = Boolean(teacher?.classId) && can(user, "class.rolls.edit");
+  const classStudentAdd = homeroomIds.length > 0 && can(user, "class.students.add");
+  const classStudentEdit = homeroomIds.length > 0 && can(user, "class.students.edit");
+  const classRollsEdit = homeroomIds.length > 0 && can(user, "class.rolls.edit");
   const classStudents = classStudentAdd || classStudentEdit || classRollsEdit
     ? {
         canAdd: classStudentAdd,
@@ -777,12 +794,8 @@ async function teacherPayload(user: AccessUser) {
     dayChanges: teacher ? await (await import("./timetable-day")).teacherDayChanges(teacher.id) : [],
     attendanceCovers: teacher ? await attendanceCoverRosters(teacher.id, today) : [],
     schoolDay: await loadSchoolDay(),
-    classId: teacher?.classId || "",
-    classLabel: desk?.classLabel || "",
-    classTeacher: Boolean(desk?.classTeacher),
-    markedToday: Boolean(desk?.markedToday),
-    studentCount: desk?.studentCount ?? 0,
-    outToday: desk?.outToday ?? [],
+    classTeacher: homeroomRows.length > 0,
+    homerooms: homeroomRows.map((h, i) => ({ ...h, roster: rosters[i].map((s) => rosterRow(s, today)) })),
     todos: desk?.todos ?? [],
     doneWork: desk?.doneWork ?? [],
     markSheets: desk?.markSheets ?? [],
@@ -820,7 +833,7 @@ async function teacherPayload(user: AccessUser) {
         id: s.id,
         name: s.name,
         classId: s.classId,
-        classLabel: desk?.classLabel || "",
+        classLabel: labelOfClass.get(s.classId) || "",
         rollNumber: currentRoll(s),
         parent: s.parent?.user.name || "",
         parentPhone: s.parent?.phone || s.parent?.user.phone || "",
@@ -860,23 +873,9 @@ async function teacherPayload(user: AccessUser) {
           school: peopleExamPack.school,
           policy: peopleExamPack.policy,
           planBySession: peopleExamPack.planBySession,
-          series: peopleExamPack.series.filter((series) => series.classId === teacher?.classId),
+          series: peopleExamPack.series.filter((series) => homeroomIds.includes(series.classId)),
         }
       : undefined,
-    roster: roster.map((s) => {
-      const todayRow = s.attendance.find((a) => ymd(a.date) === today);
-      return {
-        id: s.id,
-        name: s.name,
-        admissionNo: s.admissionNo,
-        rollNumber: currentRoll(s),
-        today: todayRow ? todayRow.status.toLowerCase() : "not marked",
-        dateOfBirth: s.dateOfBirth ? ymd(s.dateOfBirth) : "",
-        parentName: s.parent?.user.name || "",
-        phone: s.parent?.phone || s.parent?.user.phone || "",
-        days: s.attendance.map((a) => ({ date: ymd(a.date), status: a.status })),
-      };
-    }),
     exams: (desk?.todos ?? []).map((t) => ({
       id: t.id,
       title: t.title,
@@ -894,13 +893,29 @@ async function teacherPayload(user: AccessUser) {
       userId: user.id,
       staffLeaveScope: can(user, "leave.decide") ? scopeFor(user, "leave.decide") : undefined,
       teacherId: teacher?.id || null,
-      classId: teacher?.classId || null,
+      classIds: homeroomIds,
     })),
     ...(await teacherRecordExtras(user, weekdays, periods, slots)),
   };
 }
 
-/** Classes handed to this teacher for today's attendance, with the register in the same shape as `roster`. */
+/** One student in an attendance register (a homeroom's or a handed-over class's). */
+function rosterRow(s: Awaited<ReturnType<typeof getClassRoster>>[number], today: string) {
+  const todayRow = s.attendance.find((a) => ymd(a.date) === today);
+  return {
+    id: s.id,
+    name: s.name,
+    admissionNo: s.admissionNo,
+    rollNumber: currentRoll(s),
+    today: todayRow ? todayRow.status.toLowerCase() : "not marked",
+    dateOfBirth: s.dateOfBirth ? ymd(s.dateOfBirth) : "",
+    parentName: s.parent?.user.name || "",
+    phone: s.parent?.phone || s.parent?.user.phone || "",
+    days: s.attendance.map((a) => ({ date: ymd(a.date), status: a.status })),
+  };
+}
+
+/** Classes handed to this teacher for today's attendance, with the register in the same shape as a homeroom's. */
 async function attendanceCoverRosters(teacherId: string, today: string) {
   const { attendanceCoversFor } = await import("./class-attendance-cover");
   const covers = await attendanceCoversFor(teacherId, today);
@@ -912,20 +927,7 @@ async function attendanceCoverRosters(teacherId: string, today: string) {
           ? prisma.teacher.findUnique({ where: { id: cover.absentTeacherId }, select: { user: { select: { name: true } } } })
           : null,
       ]);
-      const roster = students.map((s) => {
-        const todayRow = s.attendance.find((a) => ymd(a.date) === today);
-        return {
-          id: s.id,
-          name: s.name,
-          admissionNo: s.admissionNo,
-          rollNumber: currentRoll(s),
-          today: todayRow ? todayRow.status.toLowerCase() : "not marked",
-          dateOfBirth: s.dateOfBirth ? ymd(s.dateOfBirth) : "",
-          parentName: s.parent?.user.name || "",
-          phone: s.parent?.phone || s.parent?.user.phone || "",
-          days: s.attendance.map((a) => ({ date: ymd(a.date), status: a.status })),
-        };
-      });
+      const roster = students.map((s) => rosterRow(s, today));
       return {
         date: cover.date,
         classId: cover.classId,
@@ -1324,10 +1326,20 @@ async function officePayload(user: AccessUser) {
       classAttendance: people.classes.map((klass) => {
         const total = klass._count.students;
         const marked = attendanceByClass.get(klass.id) ?? { present: 0, absent: 0, marked: 0 };
-        const classTeacher = people.teachers.find((teacher) => teacher.classId === klass.id);
-        const teacherDay = classTeacher
-          ? staff.days.find((day) => day.teacherId === classTeacher.id && staffDayYmd(day.date) === staffToday)
-          : null;
+        // Every class teacher of this class (one teacher can also be class teacher of several classes).
+        const classTeachers = people.teachers
+          .filter((teacher) => teacher.classes.some((link) => link.classId === klass.id))
+          .map((teacher) => {
+            const day = staff.days.find((row) => row.teacherId === teacher.id && staffDayYmd(row.date) === staffToday);
+            return {
+              id: teacher.id,
+              name: teacher.user.name,
+              phone: teacher.user.phone || "",
+              status: day?.status || "",
+              managerName: teacher.user.manager?.name || "",
+              managerPhone: teacher.user.manager?.phone || "",
+            };
+          });
         return {
           classId: klass.id,
           label: `${klass.name}-${klass.section}`,
@@ -1336,12 +1348,7 @@ async function officePayload(user: AccessUser) {
           absent: marked.absent,
           unmarked: Math.max(0, total - marked.marked),
           percent: total ? Math.round((marked.present / total) * 100) : 0,
-          teacherId: classTeacher?.id || "",
-          teacherName: classTeacher?.user.name || "Not assigned",
-          teacherPhone: classTeacher?.user.phone || "",
-          teacherStatus: teacherDay?.status || "",
-          managerName: classTeacher?.user.manager?.name || "",
-          managerPhone: classTeacher?.user.manager?.phone || "",
+          classTeachers,
         };
       }),
     },
@@ -1417,10 +1424,8 @@ async function officePayload(user: AccessUser) {
       email: t.user.email,
       phone: t.user.phone || "",
       employeeId: t.employeeId,
-      role: t.class ? `Class teacher ${t.class.name}-${t.class.section}` : "Teacher",
+      ...classTeacherFields(t.classes),
       qualification: t.qualification || "",
-      classId: t.classId || "",
-      classLabel: t.class ? `${t.class.name}-${t.class.section}` : "",
       managerId: t.user.managerId || "",
       managerName: t.user.manager?.name || "",
     })),
@@ -1455,11 +1460,9 @@ async function officePayload(user: AccessUser) {
           email: t.user.email,
           employeeId: t.employeeId,
           roleId: t.user.roleId,
-          role: t.class ? `Class teacher ${t.class.name}-${t.class.section}` : "Teacher",
+          ...classTeacherFields(t.classes),
           phone: t.user.phone || "",
           qualification: t.qualification || "",
-          classId: t.classId || "",
-          classLabel: t.class ? `${t.class.name}-${t.class.section}` : "",
           address: t.address || "",
           city: t.city || "",
           state: t.state || "",
@@ -1485,7 +1488,7 @@ async function officePayload(user: AccessUser) {
           name: s.name,
           email: s.user?.email || "",
           teaches: staff.teachingStaffIds.has(s.id),
-          teachClassId: staff.teachingClassByStaff.get(s.id) || "",
+          teachClassIds: staff.teachingClassesByStaff.get(s.id) || [],
           employeeId: s.employeeId,
           roleId: s.roleId || "",
           role: s.role?.name || s.title || "Staff",

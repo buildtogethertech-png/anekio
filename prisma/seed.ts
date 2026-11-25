@@ -330,14 +330,13 @@ async function main() {
             employeeId: family.teacher.employeeId,
             joinedOn: session.startsOn,
             qualification: family.teacher.qualification,
-            classId: klass.id,
             skills: {
               create: [
                 { subjectName: gradeSubjectCode("ENG", family.grade), classId: klass.id },
                 { subjectName: gradeSubjectCode("MAT", family.grade), classId: klass.id },
               ],
             },
-            classes: { create: [{ classId: klass.id }] },
+            classes: { create: [{ classId: klass.id, classTeacher: true }] },
           },
         },
       },

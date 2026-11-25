@@ -364,7 +364,7 @@ async function upcomingTeacherLeave(requestIds: string[], cal: SchoolCalendar): 
                   ...teacher.skills.filter((s) => s.classId === slot.classId).map((s) => s.subjectName),
                 ]),
               ];
-              const isClassTeacher = teacher.classId === slot.classId || teacher.classes.some((c) => c.classId === slot.classId);
+              const isClassTeacher = teacher.classes.some((c) => c.classId === slot.classId);
               const teachesClass = ownSubjects.length > 0 || isClassTeacher;
               const teachesSubject =
                 Boolean(slot.subject) &&
@@ -447,7 +447,8 @@ export async function leaveBundleFor(input: {
   teacherId?: string | null;
   staffId?: string | null;
   studentIds?: string[];
-  classId?: string | null;
+  /** Teacher: classes they are class teacher of (student leave waits on them). */
+  classIds?: string[];
 }) {
   const types = (await listLeaveTypes()).map(serializeLeaveType);
   const cal = await loadSchoolCalendar();
@@ -468,12 +469,9 @@ export async function leaveBundleFor(input: {
       : [];
   if (input.portal === "OFFICE") {
     pendingLeave = teamLeave;
-  } else if (input.portal === "TEACHER" && input.classId) {
-    const klass = await prisma.class.findUnique({
-      where: { id: input.classId },
-      select: { students: { select: { id: true } } },
-    });
-    const ids = (klass?.students ?? []).map((s) => s.id);
+  } else if (input.portal === "TEACHER" && input.classIds?.length) {
+    const students = await prisma.student.findMany({ where: { classId: { in: input.classIds } }, select: { id: true } });
+    const ids = students.map((s) => s.id);
     pendingLeave = ids.length
       ? (await loadLeaveRequests({ studentId: { in: ids }, status: { in: ["WAITING"] } })).filter(
           (r) => r.waitingOn === "teacher"

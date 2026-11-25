@@ -91,7 +91,7 @@ describe("notice targeting and kinds", () => {
         password,
         name: "Teacher B",
         roleId: "role-teacher",
-        teacher: { create: { id: "teacher-b", employeeId: "T-FIX-B", classId: "class-7-b" } },
+        teacher: { create: { id: "teacher-b", employeeId: "T-FIX-B", classes: { create: [{ classId: "class-7-b", classTeacher: true }] } } },
       },
     });
 

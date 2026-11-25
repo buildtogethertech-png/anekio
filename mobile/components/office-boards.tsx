@@ -19,7 +19,7 @@ import { Badge, Button, Card, Chip, CloseButton, Empty, Field, Input, Modal, Pag
 import { Select } from "./form/select";
 import { DateField, MonthField } from "./date-field";
 import { FilterBar, type FilterConfig, type FilterValues, SearchBox } from "./filter";
-import { StaffAdmitForm, type StaffAdmitFiles, type StaffAdmitPayload } from "./staff-admit-form";
+import { classTeachersByClass, StaffAdmitForm, type StaffAdmitFiles, type StaffAdmitPayload } from "./staff-admit-form";
 import { StaffAttendanceDetail } from "./staff-attendance-detail";
 import { SectionCard, StudentAdmitForm, type StudentAdmitFiles, type StudentAdmitInitial, type StudentAdmitPayload } from "./student-admit-form";
 import { useAssetUrl } from "../lib/assets";
@@ -53,6 +53,7 @@ import { studentMetaLine } from "../lib/student-label";
 import { FeesBoard as RefactoredFeesBoard } from "./fees-board";
 import { ManageFeeBody, MonthlyFeeBillSummary, feeAssignmentFromStudent } from "./manage-fee";
 import { ClassRollNumbers } from "./class-roll-numbers";
+import { ClassSwitch } from "./class-switch";
 import { AdhocInvoiceModal } from "./adhoc-invoice";
 import { openSalaryProof } from "./salary-pay-sheet";
 import { ReviseSalaryModal } from "./revise-salary";
@@ -970,31 +971,35 @@ export function DeskBoard() {
           <View className="mt-5 overflow-hidden rounded-md border border-ink-100">
             {classAttendance.map((klass, index) => {
               const marked = klass.present + klass.absent;
-              const teacherAway = klass.teacherStatus === "ABSENT" || klass.teacherStatus === "LEAVE";
+              const isAway = (status: string) => status === "ABSENT" || status === "LEAVE";
+              // A class can have more than one class teacher: remind the first one who is in today.
+              const contact = klass.classTeachers.find((t) => !isAway(t.status)) || klass.classTeachers[0] || null;
+              const teacherAway = Boolean(contact && isAway(contact.status));
+              const teacherNames = klass.classTeachers.map((t) => t.name).join(", ") || "Not assigned";
               const status = !marked
                 ? attClosed
                   ? "School closed"
-                  : teacherAway
-                    ? `Teacher ${klass.teacherStatus.toLowerCase()} · not taken`
+                  : teacherAway && contact
+                    ? `Teacher ${contact.status.toLowerCase()} · not taken`
                     : "Attendance not taken"
                 : klass.unmarked
                   ? `${klass.unmarked} unmarked`
                   : `${klass.percent}% · ${klass.absent} out`;
-              const reminder = `Hi ${klass.teacherName}, attendance for ${klass.label} is still unmarked ${attIsToday ? "today" : `for ${attDayLabel}`}. Please update it when possible.`;
-              const teacherTel = phoneHref(klass.teacherPhone);
-              const teacherWa = whatsappHref(klass.teacherPhone, reminder);
+              const reminder = `Hi ${contact?.name || "there"}, attendance for ${klass.label} is still unmarked ${attIsToday ? "today" : `for ${attDayLabel}`}. Please update it when possible.`;
+              const teacherTel = phoneHref(contact?.phone || "");
+              const teacherWa = whatsappHref(contact?.phone || "", reminder);
               return (
                 <View key={klass.classId} className={`flex-row items-center gap-3 px-3 py-2.5 ${index ? "border-t border-ink-100" : ""}`}>
                   <View className="w-16 shrink-0">
                     <Text className="text-xs font-semibold text-ink-900" numberOfLines={1}>{klass.label}</Text>
                   </View>
                   <View className="min-w-0 flex-1">
-                    <Text className="text-xs font-medium text-ink-900" numberOfLines={1}>{klass.teacherName}</Text>
+                    <Text className="text-xs font-medium text-ink-900" numberOfLines={1}>{teacherNames}</Text>
                     <Text className={`text-[10px] ${!marked ? (attClosed ? "text-ink-500" : "text-amber-700") : klass.percent < 75 ? "text-red-600" : "text-ink-700"}`} numberOfLines={1}>{status}</Text>
                   </View>
                   <View className="flex-row items-center gap-4">
-                    {teacherWa ? <Pressable accessibilityLabel={`WhatsApp ${klass.teacherName}`} onPress={() => void Linking.openURL(teacherWa)}><Ionicons name="logo-whatsapp" size={20} color="#16a34a" /></Pressable> : null}
-                    {teacherTel ? <Pressable accessibilityLabel={`Call ${klass.teacherName}`} onPress={() => void Linking.openURL(teacherTel)}><Ionicons name="call-outline" size={19} color="#2454d8" /></Pressable> : null}
+                    {teacherWa ? <Pressable accessibilityLabel={`WhatsApp ${contact?.name || ""}`} onPress={() => void Linking.openURL(teacherWa)}><Ionicons name="logo-whatsapp" size={20} color="#16a34a" /></Pressable> : null}
+                    {teacherTel ? <Pressable accessibilityLabel={`Call ${contact?.name || ""}`} onPress={() => void Linking.openURL(teacherTel)}><Ionicons name="call-outline" size={19} color="#2454d8" /></Pressable> : null}
                     {!teacherWa && !teacherTel ? <Text className="text-[10px] text-ink-700">No phone</Text> : null}
                   </View>
                 </View>
@@ -1230,8 +1235,12 @@ function TeacherRoster({
   const { data } = useRecord();
   const router = useRouter();
   const [q, setQ] = useState("");
-  const todayById = new Map((data?.roster ?? []).map((row) => [row.id, rosterStatus(row.today)]));
-  const students = [...(data?.people ?? [])].sort(
+  // Class teacher of several classes: one class at a time, like the register.
+  const homerooms = data?.homerooms ?? [];
+  const [classId, setClassId] = useState("");
+  const homeroom = homerooms.find((h) => h.classId === classId) || homerooms[0] || null;
+  const todayById = new Map((homeroom?.roster ?? []).map((row) => [row.id, rosterStatus(row.today)]));
+  const students = (data?.people ?? []).filter((s) => !homeroom || s.classId === homeroom.classId).sort(
     (a, b) => (a.rollNumber ?? 9999) - (b.rollNumber ?? 9999) || a.name.localeCompare(b.name)
   );
   const needle = q.trim().toLowerCase();
@@ -1243,7 +1252,7 @@ function TeacherRoster({
     const status = todayById.get(s.id);
     if (status) counts[status as keyof typeof counts] += 1;
   }
-  const marked = Boolean(data?.markedToday);
+  const marked = Boolean(homeroom?.markedToday);
   const attended = counts.present + counts.late;
   const pct = students.length && marked ? Math.round((attended / students.length) * 100) : null;
   const { user } = useSession();
@@ -1253,13 +1262,22 @@ function TeacherRoster({
     <View className="flex-1">
       <View className="mb-4 flex-row items-end justify-between gap-3 px-1">
         <View className="min-w-0 flex-1">
-          <Text className="text-[26px] font-bold leading-8 text-ink-900">{title}</Text>
+          <Text className="text-[26px] font-bold leading-8 text-ink-900">{homeroom?.classLabel || title}</Text>
           <Text className="mt-0.5 text-sm text-ink-700" numberOfLines={1}>
             {students.length} student{students.length === 1 ? "" : "s"}
             {teacherName ? ` · Class teacher ${teacherName}` : " · Your class"}
           </Text>
         </View>
       </View>
+      <ClassSwitch
+        testID="teacher-roster-switch"
+        options={homerooms.map((h) => ({ id: h.classId, label: h.classLabel, hint: `${h.studentCount} students` }))}
+        value={homeroom?.classId || ""}
+        onChange={(id) => {
+          setClassId(id);
+          setQ("");
+        }}
+      />
 
       <Pressable
         onPress={() => router.push("/attendance")}
@@ -1484,13 +1502,14 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   const officeEdit = can(user, "people.edit");
   const canAddStudent = officeEdit || Boolean(classStudents?.canAdd);
   const canEditStudent = officeEdit || Boolean(classStudents?.canEdit);
-  const canSetRolls = Boolean(classStudents?.canRolls && data?.classId);
-  const [rollsOpen, setRollsOpen] = useState(false);
-  const admitClasses = classStudents
-    ? data?.classId
-      ? [{ id: data.classId, label: data.classLabel || "My class" }]
-      : []
-    : data?.classes ?? [];
+  // Class teacher: the classes they are class teacher of (one roll-number sheet each).
+  const ownClasses = classStudents ? (data?.homerooms ?? []).map((h) => ({ id: h.classId, label: h.classLabel })) : [];
+  const rollClasses = classStudents?.canRolls ? ownClasses : [];
+  const canSetRolls = rollClasses.length > 0;
+  const [rollsClassId, setRollsClassId] = useState("");
+  const rollsClass = rollClasses.find((c) => c.id === rollsClassId) || null;
+  const rollsLabel = (c: { label: string }) => (rollClasses.length > 1 ? `Roll numbers · ${c.label}` : "Roll numbers");
+  const admitClasses = classStudents ? ownClasses : data?.classes ?? [];
   const admitParents = classStudents ? [] : data?.peopleParents ?? [];
   const admitForm = classStudents ? classStudents.admissionForm : data?.school?.admissionForm ?? [];
   const admitFeeLines = classStudents ? [] : data?.admissionFeeLines ?? [];
@@ -1531,7 +1550,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
   });
   const filteredTeachers = teachersAll.filter((t) => {
     if (!needle) return true;
-    return [t.name, t.email, t.employeeId, t.qualification, t.classLabel, t.role, t.managerName]
+    return [t.name, t.email, t.employeeId, t.qualification, (t.classLabels ?? []).join(" "), t.role, t.managerName]
       .join(" ")
       .toLowerCase()
       .includes(needle);
@@ -1999,7 +2018,8 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
     if (!selected) {
       return <Empty title="Pick a student" body="Family details and report cards show here." />;
     }
-    const classTeacher = teachersAll.find((teacher) => teacher.classId && teacher.classId === selected.classId);
+    // A class can have more than one class teacher.
+    const classTeachers = teachersAll.filter((teacher) => teacher.classIds?.includes(selected.classId || ""));
     const latestIdCard = (data?.documentStudio?.issued || [])
       .filter((row) => row.type === "STUDENT_ID" && row.subjectType === "STUDENT" && row.subjectId === selected.id)
       .sort((a, b) => new Date(b.issuedAt).getTime() - new Date(a.issuedAt).getTime())[0];
@@ -2322,7 +2342,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       const wa = whatsappHref(selected.parentPhone);
       const dob = selected.dateOfBirth ? new Date(selected.dateOfBirth) : null;
       const age = dob && !Number.isNaN(dob.getTime()) ? Math.floor((Date.now() - dob.getTime()) / (365.25 * 86400000)) : null;
-      const teacherName = classTeacher?.name || (studentOnly && user?.portal === "TEACHER" ? user.name : "");
+      const teacherName = classTeachers.map((t) => t.name).join(", ") || (studentOnly && user?.portal === "TEACHER" ? user.name : "");
       const initials = (selected.parent || "P").split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() || "").join("");
       const row = (label: string, value?: string | null) =>
         value ? (
@@ -2337,7 +2357,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
             )}
           </View>
         ) : null;
-      const selfTeacher = studentOnly && user?.portal === "TEACHER" && (!classTeacher || classTeacher.name === user.name);
+      const selfTeacher = studentOnly && user?.portal === "TEACHER" && (!classTeachers.length || classTeachers.some((t) => t.name === user.name));
       const low = attPct !== null && attPct < 75;
       const actions: { icon: keyof typeof Ionicons.glyphMap; label: string; bg: string; fg: string; onPress?: () => void }[] = [
         { icon: "call", label: "Call", bg: "#EEF3FF", fg: "#1F45C7", onPress: parentTel ? () => void Linking.openURL(parentTel) : undefined },
@@ -3420,7 +3440,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
             <Text className="text-2xl font-semibold text-ink-900">{selectedTeacher.name}</Text>
             <Text className="mt-1 text-sm text-ink-700">
               {selectedTeacher.employeeId}
-              {selectedTeacher.classLabel ? ` · ${selectedTeacher.classLabel}` : ""}
+              {selectedTeacher.classLabels?.length ? ` · ${selectedTeacher.classLabels.join(", ")}` : ""}
             </Text>
           </View>
           <View className="flex-row flex-wrap gap-2">
@@ -3528,7 +3548,10 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
         {childCards.length ? (
           <View className="mt-3 gap-2">
             {childCards.map((child) => {
-              const classTeacher = teachersAll.find((teacher) => teacher.classId && teacher.classId === child.classId);
+              const classTeacherNames = teachersAll
+                .filter((teacher) => teacher.classIds?.includes(child.classId || ""))
+                .map((teacher) => teacher.name)
+                .join(", ");
               const openBills = (child.invoices || []).filter((invoice) => invoice.status !== "paid" && (invoice.dueNow || 0) > 0);
               return (
                 <Pressable
@@ -3552,7 +3575,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
                   <View className="mt-3 flex-row flex-wrap gap-x-6 gap-y-2 border-t border-ink-100 pt-3">
                     <View className="min-w-[42%] flex-1">
                       <Text className="text-xs text-ink-700">Class teacher</Text>
-                      <Text className="mt-0.5 text-sm font-medium text-ink-900">{classTeacher?.name || "Not assigned"}</Text>
+                      <Text className="mt-0.5 text-sm font-medium text-ink-900">{classTeacherNames || "Not assigned"}</Text>
                     </View>
                     <View className="min-w-[42%] flex-1">
                       <Text className="text-xs text-ink-700">Open bills</Text>
@@ -3746,11 +3769,13 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
     <>
       {canSetRolls ? (
         <ClassRollNumbers
-          open={rollsOpen}
-          onClose={() => setRollsOpen(false)}
-          classId={data?.classId || ""}
-          classLabel={data?.classLabel}
-          students={currentPeople.map((p) => ({ id: p.id, name: p.name, admissionNo: p.admissionNo, rollNumber: p.rollNumber ?? null }))}
+          open={Boolean(rollsClass)}
+          onClose={() => setRollsClassId("")}
+          classId={rollsClass?.id || ""}
+          classLabel={rollsClass?.label}
+          students={currentPeople
+            .filter((p) => p.classId === rollsClass?.id)
+            .map((p) => ({ id: p.id, name: p.name, admissionNo: p.admissionNo, rollNumber: p.rollNumber ?? null }))}
           onSaved={async (message) => {
             toast.show(message);
             await reload();
@@ -3823,11 +3848,11 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       <View className="flex-1">
         {canAddStudent || canSetRolls ? (
           <View className="mb-3 flex-row justify-end gap-2">
-            {canSetRolls ? (
-              <Button variant="ghost" onPress={() => setRollsOpen(true)}>
-                Roll numbers
+            {rollClasses.map((c) => (
+              <Button key={c.id} variant="ghost" onPress={() => setRollsClassId(c.id)}>
+                {rollsLabel(c)}
               </Button>
-            ) : null}
+            ))}
             {canAddStudent ? <Button onPress={() => setAdd("student")}>Add student</Button> : null}
           </View>
         ) : null}
@@ -3872,7 +3897,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
           {wide && (can(user, "people.import") || can(user, "people.edit")) ? (
             <HeaderButton icon="cloud-upload-outline" label="Import" onPress={() => setImportOpen(true)} />
           ) : null}
-          {wide && canSetRolls ? <HeaderButton icon="list-outline" label="Roll numbers" onPress={() => setRollsOpen(true)} /> : null}
+          {wide ? rollClasses.map((c) => <HeaderButton key={c.id} icon="list-outline" label={rollsLabel(c)} onPress={() => setRollsClassId(c.id)} />) : null}
           {canAddStudent ? <HeaderButton primary icon="add" label="Add student" onPress={() => setAdd("student")} /> : null}
           {!wide && (can(user, "people.import") || can(user, "people.edit") || canSetRolls) ? (
             <Pressable accessibilityRole="button" accessibilityLabel="More actions" onPress={() => setPhoneSheet("more")} className="h-9 w-9 items-center justify-center rounded-lg border border-ink-200 bg-white">
@@ -3933,7 +3958,7 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
             ) : (
               ([
                 ...(can(user, "people.import") || can(user, "people.edit") ? [["cloud-upload-outline", "Import students", "From an Excel or CSV file", () => setImportOpen(true)] as const] : []),
-                ...(canSetRolls ? [["list-outline", "Roll numbers", "Set this class's roll numbers", () => setRollsOpen(true)] as const] : []),
+                ...rollClasses.map((c) => ["list-outline", rollsLabel(c), `Set ${c.label}'s roll numbers`, () => setRollsClassId(c.id)] as const),
               ]).map(([icon, label, hint, fn]) => (
                 <Pressable
                   key={label}
@@ -5700,7 +5725,7 @@ export function StaffBoard() {
         pincode: values.pincode,
         qualification: customValues.qualification ?? editFor.qualification ?? "",
         managerId: values.managerId || null,
-        classId: values.classId || null,
+        classIds: values.classIds,
         customValues,
       });
     } else {
@@ -5713,8 +5738,9 @@ export function StaffBoard() {
         managerId: values.managerId || null,
       });
       // "Also a teacher": class teacher lives on their teaching profile.
-      if (editFor.teaches && (values.classId || "") !== (editFor.teachClassId || "")) {
-        await act(token, "setStaffClassTeacher", { staffId: editFor.id, classId: values.classId || "" });
+      const before = [...(editFor.teachClassIds ?? [])].sort().join(",");
+      if (editFor.teaches && [...values.classIds].sort().join(",") !== before) {
+        await act(token, "setStaffClassTeacher", { staffId: editFor.id, classIds: values.classIds });
       }
     }
     const failed: string[] = [];
@@ -5783,7 +5809,7 @@ export function StaffBoard() {
         name: editFor.name,
         phone: editFor.phone || "",
         roleId: editFor.roleId || editRoleOptions[0]?.id || "",
-        classId: editFor.classId || editFor.teachClassId || "",
+        classIds: editFor.classIds ?? editFor.teachClassIds ?? [],
         joinedOn: editFor.joinedOn || today,
         email: editFor.email || "",
         address: editFor.address || "",
@@ -5929,7 +5955,7 @@ export function StaffBoard() {
                 <Text className="text-[15px] font-semibold text-ink-900" numberOfLines={1}>{p.name}</Text>
                 <Text className="text-xs text-ink-500" numberOfLines={1}>
                   {p.kind === "teacher" ? "Teacher" : p.teaches ? `${p.role} · Teaches` : p.role}
-                  {p.classLabel ? ` · Class ${p.classLabel}` : ""}
+                  {p.classLabels?.length ? ` · Class ${p.classLabels.join(", ")}` : ""}
                   {p.employeeId ? ` · ${p.employeeId}` : ""}
                 </Text>
               </View>
@@ -6502,7 +6528,8 @@ export function StaffBoard() {
           void reload();
         }}
       />
-      {phone && detailFor ? (
+      {/* Hidden while Edit employee is open, so the editor is on top; closing it brings the details back. */}
+      {phone && detailFor && !editFor ? (
         <Sheet fixed={0.92} open onClose={() => setDetailFor(null)}>
           <StaffAttendanceDetail
             inSheet
@@ -6816,7 +6843,7 @@ export function StaffBoard() {
             </View>
             <FactRow label="Type" value={infoFor.kind === "teacher" ? "Teacher" : "Employee"} />
             {infoFor.employeeId ? <FactRow label="Employee ID" value={infoFor.employeeId} /> : null}
-            {infoFor.classLabel ? <FactRow label="Class" value={infoFor.classLabel} /> : null}
+            {infoFor.classLabels?.length ? <FactRow label={infoFor.classLabels.length > 1 ? "Classes" : "Class"} value={infoFor.classLabels.join(", ")} /> : null}
             <FactRow label="Phone" value={infoFor.phone || "—"} />
             <FactRow label="Email" value={infoFor.email || "—"} />
             {infoFor.qualification ? <FactRow label="Qualification" value={infoFor.qualification} /> : null}
@@ -6867,6 +6894,7 @@ export function StaffBoard() {
               roles={data?.staffRoles ?? []}
               managers={data?.managers ?? []}
               classes={data?.classes ?? []}
+              classTeachers={classTeachersByClass(data?.staff ?? [])}
               user={user}
               salaryEditable={salaryAccess.approve}
               submitLabel="Add employee"
@@ -6888,6 +6916,7 @@ export function StaffBoard() {
           roles={data?.staffRoles ?? []}
           managers={data?.managers ?? []}
           classes={data?.classes ?? []}
+          classTeachers={classTeachersByClass(data?.staff ?? [])}
           user={user}
           salaryEditable={salaryAccess.approve}
           submitLabel="Add employee"
@@ -6924,6 +6953,7 @@ export function StaffBoard() {
                 roles={editRoleOptions}
                 managers={data?.managers ?? []}
                 classes={data?.classes ?? []}
+                classTeachers={classTeachersByClass(data?.staff ?? [], editFor?.id)}
                 user={user}
                 initialValues={editInitial}
                 submitLabel="Save employee"
@@ -6951,6 +6981,7 @@ export function StaffBoard() {
             roles={editRoleOptions}
             managers={data?.managers ?? []}
             classes={data?.classes ?? []}
+            classTeachers={classTeachersByClass(data?.staff ?? [], editFor?.id)}
             user={user}
             initialValues={editInitial}
             submitLabel="Save employee"

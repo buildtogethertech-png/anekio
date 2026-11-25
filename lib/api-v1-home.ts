@@ -89,17 +89,17 @@ export async function homePayload(user: AccessUser, requestedChildId?: string | 
 
   if (user.portal === "TEACHER") {
     const desk = await getTeacherDesk(user.id);
+    const homerooms = desk?.homerooms ?? [];
+    const classLabels = homerooms.map((h) => h.classLabel);
     return {
       kind: "TEACHER" as const,
       school,
       kicker: "Teacher · Reports",
       title: "The desk",
-      lede: desk?.classTeacher
-        ? `Morning work for ${desk.classLabel}.`
-        : "Papers you set or mark.",
-      classLabel: desk?.classLabel || "",
-      classTeacher: Boolean(desk?.classTeacher),
-      markedToday: Boolean(desk?.markedToday),
+      lede: classLabels.length ? `Morning work for ${classLabels.join(", ")}.` : "Papers you set or mark.",
+      classLabels,
+      classTeacher: homerooms.length > 0,
+      markedToday: homerooms.length > 0 && homerooms.every((h) => h.markedToday),
     };
   }
 

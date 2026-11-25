@@ -1,5 +1,6 @@
 import { can, type AccessUser } from "./permissions";
 import { prisma } from "./prisma";
+import { ownClassIdsFor } from "./class-teacher-access";
 import { invoiceBalance, monthLabelFromTitle, parseFeeLines, PAYMENT_LABEL } from "./fees";
 import { formatInr, publicOrigin } from "./utils";
 import { ensureSchoolSessions } from "./school-session";
@@ -418,11 +419,9 @@ export async function queryFeeRegister(user: AccessUser, raw: Record<string, unk
   const filter = parseFeeRegisterQuery(raw);
   const { sessions, current } = await ensureSchoolSessions();
   const session = sessions.find((row) => row.id === filter.sessionId) || current || sessions[0];
-  const teacher =
-    user.portal === "TEACHER"
-      ? await prisma.teacher.findUnique({ where: { userId: user.id }, select: { classId: true } })
-      : null;
-  if (user.portal === "TEACHER" && !teacher?.classId) {
+  // A teacher sees only the classes they are class teacher of (one picked, or all of them).
+  const ownClassIds = user.portal === "TEACHER" ? await ownClassIdsFor(user) : null;
+  if (ownClassIds && !ownClassIds.length) {
     return {
       asOf: new Date().toISOString(),
       summary: { students: 0, billed: 0, paid: 0, outstanding: 0, overdue: 0, partial: 0, noReceipt: 0 },
@@ -445,7 +444,8 @@ export async function queryFeeRegister(user: AccessUser, raw: Record<string, unk
       methods: Object.entries(PAYMENT_LABEL).map(([id, label]) => ({ id, label })),
     };
   }
-  const classWhere = teacher?.classId ? { classId: teacher.classId } : filter.classId ? { classId: filter.classId } : {};
+  const classId = ownClassIds ? (ownClassIds.includes(filter.classId || "") ? filter.classId : "") : filter.classId;
+  const classWhere = classId ? { classId } : ownClassIds ? { classId: { in: ownClassIds } } : {};
 
   const invoices = await prisma.feeInvoice.findMany({
     where: classWhere,
@@ -508,12 +508,12 @@ export async function queryFeeRegister(user: AccessUser, raw: Record<string, unk
     templateName: row.template?.name || "",
     payments: row.payments,
   }));
-  const built = buildFeeRegister(source, receipts, { ...filter, classId: teacher?.classId || filter.classId }, {
+  const built = buildFeeRegister(source, receipts, { ...filter, classId: classId || "" }, {
     sessionStart: session?.startsOn,
     sessionEnd: session?.endsOn,
   });
   const classes = await prisma.class.findMany({
-    where: { archivedAt: null, ...(teacher?.classId ? { id: teacher.classId } : {}) },
+    where: { archivedAt: null, ...(ownClassIds ? { id: { in: ownClassIds } } : {}) },
     select: { id: true, name: true, section: true },
     orderBy: [{ name: "asc" }, { section: "asc" }],
   });

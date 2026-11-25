@@ -1,5 +1,6 @@
 import { Portal } from "@prisma/client";
 import { prisma } from "./prisma";
+import { classTeacherOf } from "./class-teacher-access";
 import { can, type AccessUser } from "./permissions";
 import { notifyNoticeRecipients } from "./push";
 
@@ -47,17 +48,22 @@ async function officeInboxUserIds() {
   return users.map((u) => u.id);
 }
 
-async function classTeacherUserId(classId: string) {
-  const teacher = await prisma.teacher.findFirst({ where: { classId }, select: { userId: true } });
-  return teacher?.userId || "";
+/** Class teachers of a class (a class can have more than one), by name. */
+async function classTeachersOfClass(classId: string) {
+  const rows = await prisma.teacher.findMany({
+    where: classTeacherOf(classId),
+    select: { user: { select: { id: true, name: true } } },
+    orderBy: { user: { name: "asc" } },
+  });
+  return rows.map((t) => ({ userId: t.user.id, name: t.user.name }));
 }
 
 /** Teachers a parent may write to for this child: anyone with a period or subject in the child's class. */
 export async function inboxRecipients(user: AccessUser, studentId: string) {
   ensureInboxTables();
   const student = await childForParent(user, studentId);
-  const [classTeacher, teachers] = await Promise.all([
-    prisma.teacher.findFirst({ where: { classId: student.classId }, include: { user: { select: { id: true, name: true } } } }),
+  const [classTeachers, teachers] = await Promise.all([
+    classTeachersOfClass(student.classId),
     prisma.teacher.findMany({
       where: {
         OR: [
@@ -73,9 +79,9 @@ export async function inboxRecipients(user: AccessUser, studentId: string) {
     }),
   ]);
   return {
-    classTeacher: classTeacher ? { userId: classTeacher.user.id, name: classTeacher.user.name } : null,
+    classTeachers,
     teachers: teachers
-      .filter((t) => t.user.id !== classTeacher?.user.id)
+      .filter((t) => !classTeachers.some((c) => c.userId === t.user.id))
       .map((t) => ({ userId: t.user.id, name: t.user.name, subject: t.subjects.map((s) => s.name).join(", ") }))
       .sort((a, b) => a.name.localeCompare(b.name)),
   };
@@ -142,12 +148,11 @@ export async function startInboxThreadCore(
   let staffIds: string[] = [];
   if (target === "OFFICE") staffIds = await officeInboxUserIds();
   else if (target === "CLASS_TEACHER") {
-    const id = await classTeacherUserId(child.classId);
-    if (!id) throw new Error("This class has no class teacher yet. Send it to the office instead.");
-    staffIds = [id];
+    staffIds = (await classTeachersOfClass(child.classId)).map((t) => t.userId);
+    if (!staffIds.length) throw new Error("This class has no class teacher yet. Send it to the office instead.");
   } else {
     const recipients = await inboxRecipients(user, child.id);
-    const pick = [recipients.classTeacher, ...recipients.teachers].find((t) => t?.userId === input.teacherUserId);
+    const pick = [...recipients.classTeachers, ...recipients.teachers].find((t) => t.userId === input.teacherUserId);
     if (!pick) throw new Error("Pick one of your child's teachers.");
     staffIds = [pick.userId];
   }

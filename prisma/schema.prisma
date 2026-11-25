@@ -287,8 +287,9 @@ model Teacher {
   qualification         String?
   /// Answers to the school's staff onboarding form (custom fields + uploaded file paths).
   onboardingDataJson    String                 @default("{}")
-  classId               String?
-  class                 Class?                 @relation(fields: [classId], references: [id])
+  /// Old single "class teacher of" column, replaced by TeacherClass.classTeacher. Kept only so
+  /// scripts/backfill-class-teachers.ts can copy it; nothing else reads it. Drop once the backfill is verified.
+  legacyClassId         String?                @map("classId")
   subjects              Subject[]
   slots                 TimetableSlot[]
   skills                TeacherSkill[]
@@ -338,6 +339,9 @@ model TeacherClass {
   teacher   Teacher @relation(fields: [teacherId], references: [id], onDelete: Cascade)
   classId   String
   class     Class   @relation(fields: [classId], references: [id], onDelete: Cascade)
+  /// True when this teacher is class teacher of this class. A teacher can be class teacher of several
+  /// classes, and a class can have several class teachers.
+  classTeacher Boolean @default(false)
 
   @@unique([teacherId, classId])
 }
@@ -363,7 +367,6 @@ model Class {
   archivedAt        DateTime?
   students          Student[]
   enrollments       StudentClassEnrollment[]
-  teachers          Teacher[]
   subjects          Subject[]
   exams             Exam[]
   examSeries        ExamSeries[]

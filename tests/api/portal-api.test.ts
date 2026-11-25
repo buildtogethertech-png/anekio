@@ -851,8 +851,9 @@ describe("Express portal API", () => {
         expect.arrayContaining([expect.objectContaining({ slug: "ADMIN", isSystem: true })])
       );
     } else if (kind === "teacher") {
-      expect(response.body).toMatchObject({ classId: fixture.classId, classLabel: "6-A", studentCount: 1 });
-      expect(response.body.roster).toEqual(
+      expect(response.body.classTeacher).toBe(true);
+      expect(response.body.homerooms).toEqual([expect.objectContaining({ classId: fixture.classId, classLabel: "6-A", studentCount: 1 })]);
+      expect(response.body.homerooms[0].roster).toEqual(
         expect.arrayContaining([expect.objectContaining({ id: fixture.studentId, name: "Anaya Student" })])
       );
       expect(response.body.notices).toEqual(
@@ -1683,7 +1684,7 @@ describe("Express portal API", () => {
         password: "unused",
         name: "Outside Teacher",
         roleId: "role-teacher",
-        teacher: { create: { id: "teacher-outside-report", employeeId: "T-FIX-2", classId: "class-7-b" } },
+        teacher: { create: { id: "teacher-outside-report", employeeId: "T-FIX-2", classes: { create: [{ classId: "class-7-b", classTeacher: true }] } } },
       },
     });
     await prisma.leaveRequest.createMany({

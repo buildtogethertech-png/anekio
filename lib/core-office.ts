@@ -106,7 +106,6 @@ async function needExamClass(user: AccessUser, classId: string, mode: "mark" | "
   });
   if (!teacher) throw new Error("Not your class");
   const linked =
-    teacher.classId === classId ||
     teacher.subjects.some((s) => s.classId === classId) ||
     teacher.classes.some((c) => c.classId === classId);
   const assigned = linked
@@ -122,7 +121,7 @@ async function needExamClass(user: AccessUser, classId: string, mode: "mark" | "
         },
       });
   if (!assigned) throw new Error("Not your class");
-  if (mode === "run" && teacher.classId !== classId) {
+  if (mode === "run" && !teacher.classes.some((c) => c.classId === classId && c.classTeacher)) {
     throw new Error("Only the class teacher or admin can do that");
   }
 }
@@ -2062,8 +2061,8 @@ export async function classUsageCore(user: AccessUser, input: { classId?: string
       prisma.feeInvoice.count({ where: { classId } }),
       prisma.promotionDecision.count({ where: { OR: [{ fromClassId: classId }, { toClassId: classId }] } }),
       prisma.classAttendanceCover.count({ where: { classId } }),
-      prisma.teacher.count({ where: { classId, OR: [{ archivedAt: null }, { archivedAt: { not: null } }] } }),
-      prisma.teacherClass.count({ where: { classId } }),
+      prisma.teacherClass.count({ where: { classId, classTeacher: true } }),
+      prisma.teacherClass.count({ where: { classId, classTeacher: false } }),
       prisma.teacherSkill.count({ where: { classId } }),
       prisma.subject.count({ where: { classId } }),
       prisma.feeTemplate.count({ where: { classId } }),
@@ -2110,7 +2109,6 @@ export async function deleteClassCore(user: AccessUser, input: { classId?: strin
   if (!usage.canDelete) throw new Error(`${usage.label} can't be deleted: ${usage.blockers.map((b) => b.label).join(", ")}.`);
   const classId = String(input.classId || "");
   await prisma.$transaction(async (tx) => {
-    await tx.teacher.updateMany({ where: { classId, OR: [{ archivedAt: null }, { archivedAt: { not: null } }] }, data: { classId: null } });
     await tx.teacherSkill.deleteMany({ where: { classId } });
     await tx.teacherClass.deleteMany({ where: { classId } });
     await tx.subject.deleteMany({ where: { classId } });

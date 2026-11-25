@@ -1,5 +1,6 @@
 import { prisma } from "./prisma";
 import { can, type AccessUser } from "./permissions";
+import { checkedClassTeacherPicks, classTeacherClassIds, setClassTeacherClasses, sortClassesByLabel } from "./class-teacher-access";
 
 /**
  * "Also a teacher" for office employees.
@@ -46,14 +47,14 @@ export async function setStaffTeachingCore(user: AccessUser, input: { staffId?: 
   if (!existing) return { on: false };
   if (!existing.teachingOnly) throw new Error(`${staff.name} is a full teacher account; change their role instead.`);
   const id = existing.id;
-  const [klass, periods, papersChecking, papersSetting] = await Promise.all([
-    prisma.teacher.findUnique({ where: { id }, select: { classId: true } }),
+  const [classTeacherOf, periods, papersChecking, papersSetting] = await Promise.all([
+    prisma.teacherClass.count({ where: { teacherId: id, classTeacher: true } }),
     prisma.timetableSlot.count({ where: { teacherId: id } }),
     prisma.exam.count({ where: { teacherId: id, workflowStatus: { not: "PUBLISHED" } } }),
     prisma.exam.count({ where: { setterId: id, workflowStatus: { not: "PUBLISHED" } } }),
   ]);
   const left = [
-    klass?.classId ? "class teacher of a class" : "",
+    classTeacherOf ? "class teacher of a class" : "",
     periods ? `${periods} timetable period${periods === 1 ? "" : "s"}` : "",
     papersChecking + papersSetting ? `${papersChecking + papersSetting} exam paper${papersChecking + papersSetting === 1 ? "" : "s"}` : "",
   ].filter(Boolean);
@@ -64,10 +65,10 @@ export async function setStaffTeachingCore(user: AccessUser, input: { staffId?: 
 }
 
 /**
- * Class teacher for an office employee who is "Also a teacher". Sets the class on their teaching profile.
- * A class keeps one class teacher: whoever had it before is cleared, and named in the reply.
+ * Class teacher for an office employee who is "Also a teacher": the classes on their teaching profile.
+ * Like Edit employee, other class teachers of those classes stay (a class can have more than one).
  */
-export async function setStaffClassTeacherCore(user: AccessUser, input: { staffId?: string; classId?: string | null }) {
+export async function setStaffClassTeacherCore(user: AccessUser, input: { staffId?: string; classIds?: string[] }) {
   if (!can(user, "staff.edit")) throw new Error("You need permission to manage employees.");
   const staff = await prisma.staffMember.findUnique({
     where: { id: String(input.staffId || "") },
@@ -76,30 +77,13 @@ export async function setStaffClassTeacherCore(user: AccessUser, input: { staffI
   if (!staff || staff.archivedAt) throw new Error("Employee not found.");
   const teacher = await prisma.teacher.findFirst({
     where: { OR: [{ staffMemberId: staff.id }, ...(staff.userId ? [{ userId: staff.userId }] : [])] },
-    select: { id: true, classId: true },
+    select: { id: true },
   });
   if (!teacher) throw new Error(`Turn on "Also a teacher" for ${staff.name} first.`);
-  const classId = String(input.classId || "").trim();
-  if (!classId) {
-    await prisma.teacher.update({ where: { id: teacher.id }, data: { classId: null } });
-    return { classId: "", classLabel: "", replaced: "" };
-  }
-  const klass = await prisma.class.findFirst({ where: { id: classId, archivedAt: null }, select: { id: true, name: true, section: true } });
-  if (!klass) throw new Error("Class not found.");
-  const classLabel = `${klass.name}-${klass.section}`;
-  if (teacher.classId === klass.id) return { classId: klass.id, classLabel, replaced: "" };
-  const previous = await prisma.teacher.findMany({
-    where: { classId: klass.id, NOT: { id: teacher.id } },
-    select: { id: true, user: { select: { name: true } } },
-  });
-  await prisma.$transaction([
-    ...previous.map((row) => prisma.teacher.update({ where: { id: row.id }, data: { classId: null } })),
-    prisma.teacher.update({ where: { id: teacher.id }, data: { classId: klass.id } }),
-    prisma.teacherClass.upsert({
-      where: { teacherId_classId: { teacherId: teacher.id, classId: klass.id } },
-      update: {},
-      create: { teacherId: teacher.id, classId: klass.id },
-    }),
-  ]);
-  return { classId: klass.id, classLabel, replaced: previous.map((row) => row.user.name).join(", ") };
+  await setClassTeacherClasses(teacher.id, await checkedClassTeacherPicks(input.classIds));
+  const classIds = await classTeacherClassIds(teacher.id);
+  const classes = sortClassesByLabel(
+    await prisma.class.findMany({ where: { id: { in: classIds } }, select: { id: true, name: true, section: true } })
+  );
+  return { classIds, classLabels: classes.map((c) => `${c.name}-${c.section}`) };
 }

@@ -6,6 +6,7 @@ import { AttendanceStatus, ExamWorkflowStatus, InvoiceStatus, Prisma, type Role 
 import { randomUUID } from "node:crypto";
 import { can, type AccessUser } from "./permissions";
 import { prisma } from "./prisma";
+import { CLASS_TEACHER_LINKS, setClassTeacherClasses, sortClassesByLabel } from "./class-teacher-access";
 import { normalizeMobile } from "./phone";
 import { ensureAccessRoles, roleIdBySlug } from "./roles";
 import { parseClassLabel, parseCsv, parsePathTags } from "./sheet";
@@ -248,6 +249,20 @@ function parseClass(value: string) {
   const parts = value.trim().split(/\s*[-/]\s*/);
   if (parts.length >= 2 && parts[0] && parts[1]) return { name: parts[0], section: parts.slice(1).join("-").toUpperCase() };
   return null;
+}
+
+/** "Class teacher of" cell: one or more classes, e.g. "1-A" or "1-A, 2-A". Null when any part is not a class. */
+function parseClassList(value: string) {
+  const parts = value.split(/[,;]+/).map((part) => part.trim()).filter(Boolean);
+  const classes = parts.map(parseClass);
+  return classes.every(Boolean) ? (classes as { name: string; section: string }[]) : null;
+}
+
+/** "1-A, 2-A" for a teacher's class-teacher classes (empty when none). */
+function classTeacherText(links: { class: { name: string; section: string } }[]) {
+  return sortClassesByLabel(links.map((link) => link.class))
+    .map((c) => `${c.name}-${c.section}`)
+    .join(", ");
 }
 
 function classFromImportRow(row: ImportRow, fields: AdmissionFormField[]) {
@@ -853,7 +868,7 @@ async function csvRowsFor(kind: ImportKind): Promise<CsvCell[][]> {
   if (kind === "teachers") {
     await ensureAccessRoles();
     const [teachers, staffMembers, forms] = await Promise.all([
-      prisma.teacher.findMany({ where: { teachingOnly: false }, include: { user: { include: { role: true } }, class: true }, orderBy: { user: { name: "asc" } } }),
+      prisma.teacher.findMany({ where: { teachingOnly: false }, include: { user: { include: { role: true } }, classes: CLASS_TEACHER_LINKS }, orderBy: { user: { name: "asc" } } }),
       prisma.staffMember.findMany({ include: { user: { include: { role: true } }, role: true }, orderBy: { name: "asc" } }),
       configuredImportForms(),
     ]);
@@ -866,7 +881,7 @@ async function csvRowsFor(kind: ImportKind): Promise<CsvCell[][]> {
           mobile: teacher.user.phone || "",
           email: teacher.user.email.endsWith("@local.anekio.invalid") ? "" : teacher.user.email,
           role: roleLabel(teacher.user.role),
-          classTeacherOf: teacher.class ? `${teacher.class.name}-${teacher.class.section}` : "",
+          classTeacherOf: classTeacherText(teacher.classes),
           salary: teacher.monthlySalary,
           qualification: teacher.qualification || "",
           joiningDate: teacher.joinedOn,
@@ -997,7 +1012,7 @@ async function staffAttendanceTemplateWorkbook(options: { sampleData?: boolean }
     prisma.schoolHoliday.findMany({ where: { sessionId: session.id }, orderBy: { date: "asc" } }),
     prisma.teacher.findMany({
       where: { teachingOnly: false },
-      include: { user: { include: { role: true } }, class: true },
+      include: { user: { include: { role: true } }, classes: CLASS_TEACHER_LINKS },
       orderBy: { user: { name: "asc" } },
     }),
     prisma.staffMember.findMany({
@@ -1024,7 +1039,7 @@ async function staffAttendanceTemplateWorkbook(options: { sampleData?: boolean }
         "teacher",
         teacher.employeeId,
         teacher.user.name,
-        teacher.class ? `Class teacher ${teacher.class.name}-${teacher.class.section}` : roleLabel(teacher.user.role),
+        teacher.classes.length ? `Class teacher ${classTeacherText(teacher.classes)}` : roleLabel(teacher.user.role),
         ...dates.map(markForDate),
         "",
       ]);
@@ -1047,7 +1062,7 @@ async function staffAttendanceTemplateWorkbook(options: { sampleData?: boolean }
         "teacher",
         teacher.employeeId,
         teacher.user.name,
-        teacher.class ? `Class teacher ${teacher.class.name}-${teacher.class.section}` : roleLabel(teacher.user.role),
+        teacher.classes.length ? `Class teacher ${classTeacherText(teacher.classes)}` : roleLabel(teacher.user.role),
         ...dates.map(markForDate),
         "",
       ]);
@@ -1507,7 +1522,7 @@ function normalizeStaffKind(value: string): StaffAttendancePerson["kind"] | "" {
 
 async function staffAttendancePeople(db: Pick<typeof prisma, "teacher" | "staffMember"> = prisma): Promise<StaffAttendancePerson[]> {
   const [teachers, staffMembers] = await Promise.all([
-    db.teacher.findMany({ where: { teachingOnly: false }, include: { user: { include: { role: true } }, class: true } }),
+    db.teacher.findMany({ where: { teachingOnly: false }, include: { user: { include: { role: true } }, classes: CLASS_TEACHER_LINKS } }),
     db.staffMember.findMany({ where: { archivedAt: null }, include: { role: true, user: { include: { role: true } } } }),
   ]);
   return [
@@ -1516,7 +1531,7 @@ async function staffAttendancePeople(db: Pick<typeof prisma, "teacher" | "staffM
       id: teacher.id,
       employeeId: teacher.employeeId,
       name: teacher.user.name,
-      role: teacher.class ? `Class teacher ${teacher.class.name}-${teacher.class.section}` : roleLabel(teacher.user.role),
+      role: teacher.classes.length ? `Class teacher ${classTeacherText(teacher.classes)}` : roleLabel(teacher.user.role),
     })),
     ...staffMembers.map((staff) => ({
       kind: "staff" as const,
@@ -1599,7 +1614,6 @@ async function validateRows(kind: ImportKind, rows: ImportRow[], coveragePeriod?
   const openingAdmissionRows = new Map<string, string>();
   const examStudentsById = new Map(examStudents.map((row) => [row.id, row]));
   const examStudentsByAdmission = new Map(examStudents.map((row) => [row.admissionNo.toLowerCase(), row]));
-  const classTeacherRows = new Map<string, string>();
   const rollRows = new Map<string, string>();
   const rollsInFile = new Map<string, string>();
   const existingRolls = kind === "students"
@@ -1745,14 +1759,7 @@ async function validateRows(kind: ImportKind, rows: ImportRow[], coveragePeriod?
         }
       }
       const classText = sheetCell(row, "Class teacher of", "Class teacher", "Class");
-      const klass = classText ? parseClass(classText) : null;
-      if (classText && !klass) errors.push(rowError(row, "class teacher value must look like 1-A."));
-      if (klass) {
-        const classKey = `${klass.name}-${klass.section}`;
-        const firstRow = classTeacherRows.get(classKey);
-        if (firstRow) errors.push(rowError(row, `${classKey} already has a class teacher in row ${firstRow}.`));
-        else classTeacherRows.set(classKey, row._row);
-      }
+      if (classText && !parseClassList(classText)) errors.push(rowError(row, "class teacher value must look like 1-A, or 1-A, 2-A for more than one class."));
       if (!salaryIsValid(row)) errors.push(rowError(row, "monthly salary must be zero or more."));
       return;
     }
@@ -2069,8 +2076,8 @@ async function applyTeachers(
     const teacherId = sheetCell(row, "Anekio teacher ID");
     let employeeId = sheetCell(row, "Employee ID");
     const classText = sheetCell(row, "Class teacher of", "Class teacher", "Class");
-    const klass = classText ? parseClass(classText) : null;
-    const classRow = klass ? await ensureClassForImport(db, klass) : null;
+    const classRows: { id: string }[] = [];
+    for (const klass of (classText ? parseClassList(classText) : null) ?? []) classRows.push(await ensureClassForImport(db, klass));
     const salary = monthlySalaryFrom(row, role.portal === "TEACHER" ? 30000 : 25000);
     const joinedOn = configuredImportValue(row, forms.staff, "joiningDate", "Joining date");
     const address = configuredImportValue(row, forms.staff, "address", "Address");
@@ -2092,15 +2099,10 @@ async function applyTeachers(
         await db.user.update({ where: { id: existing.userId }, data: { orgId: setup.orgId, name, email, phone, roleId: role.id } });
         await db.teacher.update({
           where: { id: existing.id },
-          data: { orgId: setup.orgId, employeeId, monthlySalary: salary, qualification: qualification || null, ...(joinedOn ? { joinedOn } : {}), ...(address ? { address } : {}), ...(classRow ? { classId: classRow.id } : {}) },
+          data: { orgId: setup.orgId, employeeId, monthlySalary: salary, qualification: qualification || null, ...(joinedOn ? { joinedOn } : {}), ...(address ? { address } : {}) },
         });
-        if (classRow) {
-          await db.teacherClass.upsert({
-            where: { teacherId_classId: { teacherId: existing.id, classId: classRow.id } },
-            update: {},
-            create: { teacherId: existing.id, classId: classRow.id },
-          });
-        }
+        // A filled "Class teacher of" cell is the full list; a blank one leaves their classes as they are.
+        if (classRows.length) await setClassTeacherClasses(existing.id, classRows.map((c) => c.id), db);
         updated += 1;
       } else {
         let createdUser: { teacher: { id: string } | null };
@@ -2121,7 +2123,6 @@ async function applyTeachers(
                   qualification: qualification || null,
                   ...(joinedOn ? { joinedOn } : {}),
                   ...(address ? { address } : {}),
-                  ...(classRow ? { classId: classRow.id } : {}),
                 },
               },
             },
@@ -2130,9 +2131,7 @@ async function applyTeachers(
         } catch (error) {
           throw onboardingImportWriteError(row, error);
         }
-        if (classRow && createdUser.teacher) {
-          await db.teacherClass.create({ data: { teacherId: createdUser.teacher.id, classId: classRow.id } });
-        }
+        if (classRows.length && createdUser.teacher) await setClassTeacherClasses(createdUser.teacher.id, classRows.map((c) => c.id), db);
         created += 1;
       }
     } else {
@@ -2188,11 +2187,10 @@ async function applyClassTeachers(db: OnboardingDb, rows: ImportRow[], orgId: st
       ? await db.teacher.findFirst({ where: { orgId, employeeId }, include: { user: true } })
       : await db.teacher.findFirst({ where: { user: { name: { equals: teacherName } } }, include: { user: true } });
     if (!teacher) throw new Error(rowError(row, "teacher no longer exists."));
-    await db.teacher.update({ where: { id: teacher.id }, data: { classId: classRow.id } });
     await db.teacherClass.upsert({
       where: { teacherId_classId: { teacherId: teacher.id, classId: classRow.id } },
-      update: {},
-      create: { teacherId: teacher.id, classId: classRow.id },
+      update: { classTeacher: true },
+      create: { teacherId: teacher.id, classId: classRow.id, classTeacher: true },
     });
     updated += 1;
   }

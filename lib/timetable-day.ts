@@ -153,7 +153,6 @@ function rankCandidates(ctx: Ctx, slot: Ctx["slots"][number]) {
     .filter((t) => !busyIn(ctx, t.id, slot.periodId, slot.id))
     .map((t) => {
       const teachesClass =
-        t.classId === slot.classId ||
         t.classes.some((c) => c.classId === slot.classId) ||
         t.subjects.some((s) => s.classId === slot.classId) ||
         t.skills.some((s) => s.classId === slot.classId) ||

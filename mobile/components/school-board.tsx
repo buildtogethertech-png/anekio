@@ -913,7 +913,8 @@ function PhoneClassList({
   onGo,
 }: {
   classes: { id: string; label: string; name?: string; section?: string; students?: number }[];
-  staff: { kind?: string; name: string; classId?: string | null }[];
+  /** Everyone with their class-teacher classes (a class can have more than one class teacher). */
+  staff: { name: string; classIds: string[] }[];
   templates: { classId: string; sessionId: string; startsPeriod?: string; lines: { amount: number; scope?: string }[] }[];
   sessionId: string;
   canAdd: boolean;
@@ -924,7 +925,10 @@ function PhoneClassList({
   const [openId, setOpenId] = useState<string | null>(null);
   const total = classes.reduce((sum, c) => sum + (c.students || 0), 0);
   const rows = classes.map((c) => {
-    const teacher = staff.find((row) => row.kind === "teacher" && row.classId === c.id)?.name || "";
+    const teacher = staff
+      .filter((row) => row.classIds.includes(c.id))
+      .map((row) => row.name)
+      .join(", ");
     const tpl = templates
       .filter((row) => row.classId === c.id && (!sessionId || !row.sessionId || row.sessionId === sessionId))
       .sort((a, b) => (b.startsPeriod || "").localeCompare(a.startsPeriod || ""))[0];
@@ -2498,7 +2502,7 @@ export function SchoolBoard() {
             {tab === "classes" && phone ? (
               <PhoneClassList
                 classes={data?.classes ?? []}
-                staff={(data?.staff ?? []).map((row) => ({ kind: row.kind, name: row.name, classId: row.classId }))}
+                staff={(data?.staff ?? []).map((row) => ({ name: row.name, classIds: row.classIds ?? row.teachClassIds ?? [] }))}
                 templates={(data?.feeTemplates ?? []).map((row) => ({
                   classId: row.classId,
                   sessionId: row.sessionId,

@@ -38,9 +38,9 @@ type PaperSeed = {
 
 async function ensureClassSubjects(
   db: PrismaClient,
-  klass: { id: string; name: string; subjects: { id: string; name: string; teacherId: string | null }[]; teachers: { id: string }[] }
+  klass: { id: string; name: string; subjects: { id: string; name: string; teacherId: string | null }[]; teacherLinks: { teacherId: string }[] }
 ) {
-  const teacherId = klass.subjects[0]?.teacherId || klass.teachers[0]?.id;
+  const teacherId = klass.subjects[0]?.teacherId || klass.teacherLinks[0]?.teacherId;
   if (!teacherId) return klass.subjects;
   for (const name of EXTRA_SUBJECTS) {
     if (klass.subjects.some((s) => s.name === name)) continue;
@@ -201,7 +201,7 @@ export async function seedExamDemo(client = prisma) {
     include: {
       subjects: true,
       students: { orderBy: { name: "asc" } },
-      teachers: true,
+      teacherLinks: { where: { classTeacher: true }, select: { teacherId: true } },
     },
     orderBy: { name: "asc" },
   });
@@ -210,7 +210,7 @@ export async function seedExamDemo(client = prisma) {
   for (const klass of classes) {
     await ensureClassSubjects(client, klass);
     const teacherBySubject = new Map(
-      klass.subjects.map((s) => [s.name, s.teacherId || klass.teachers[0]?.id || ""])
+      klass.subjects.map((s) => [s.name, s.teacherId || klass.teacherLinks[0]?.teacherId || ""])
     );
     const base = {
       classId: klass.id,

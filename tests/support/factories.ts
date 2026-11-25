@@ -115,8 +115,8 @@ export async function seedPortalFixture(prisma: PrismaClient): Promise<PortalFix
         create: {
           id: "teacher-tara",
           employeeId: "T-FIX-1",
-          classId,
           joinedOn: "2026-04-01",
+          classes: { create: [{ classId, classTeacher: true }] },
         },
       },
     },

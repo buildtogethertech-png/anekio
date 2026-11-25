@@ -71,7 +71,10 @@ async function loadInput(): Promise<SolverInput & { names: { teachers: Map<strin
   const [allPeriods, classes, teachers, slots] = await Promise.all([
     prisma.period.findMany({ orderBy: { sortOrder: "asc" } }),
     prisma.class.findMany({ where: { archivedAt: null }, include: { subjects: true }, orderBy: [{ name: "asc" }, { section: "asc" }] }),
-    prisma.teacher.findMany({ include: { user: { select: { name: true } }, skills: true }, orderBy: { user: { name: "asc" } } }),
+    prisma.teacher.findMany({
+      include: { user: { select: { name: true } }, skills: true, classes: { where: { classTeacher: true }, select: { classId: true } } },
+      orderBy: { user: { name: "asc" } },
+    }),
     prisma.timetableSlot.findMany({ where: { weekday: { in: days } }, select: { classId: true, weekday: true, periodId: true, subjectId: true, teacherId: true } }),
   ]);
   const periods = allPeriods.filter((p) => !p.isBreak);
@@ -94,7 +97,8 @@ async function loadInput(): Promise<SolverInput & { names: { teachers: Map<strin
     classes: classes.map((c) => ({
       id: c.id,
       label: `${c.name}-${c.section}`,
-      classTeacherId: teachers.find((t) => t.classId === c.id)?.id || null,
+      // The solver favours one class teacher per class: the first by name when a class has more than one.
+      classTeacherId: teachers.find((t) => t.classes.some((link) => link.classId === c.id))?.id || null,
       subjects: c.subjects
         .filter((s) => s.weightage > 0)
         .map((s) => ({
@@ -371,8 +375,11 @@ export async function loadTimetableRules(user: AccessUser) {
     prisma.schoolConfig.findUnique({ where: { id: "school" }, select: { weekdays: true, timetableRulesJson: true } }),
     prisma.period.findMany({ where: { isBreak: false }, orderBy: { sortOrder: "asc" }, select: { id: true, name: true, startsAt: true } }),
     prisma.subject.findMany({ where: { class: { archivedAt: null }, weightage: { gt: 0 } }, select: { name: true, weightage: true } }),
-    prisma.teacher.findMany({ select: { id: true, classId: true, user: { select: { name: true } } }, orderBy: { user: { name: "asc" } } }),
-    prisma.class.findMany({ where: { archivedAt: null }, select: { id: true } }),
+    prisma.teacher.findMany({ select: { id: true, user: { select: { name: true } } }, orderBy: { user: { name: "asc" } } }),
+    prisma.class.findMany({
+      where: { archivedAt: null },
+      select: { id: true, teacherLinks: { where: { classTeacher: true, teacher: { archivedAt: null } }, select: { id: true }, take: 1 } },
+    }),
   ]);
   const days = parseWeekdays(config?.weekdays);
   const names = new Map<string, { name: string; maxNeed: number }>();
@@ -382,14 +389,13 @@ export async function loadTimetableRules(user: AccessUser) {
     row.maxNeed = Math.max(row.maxNeed, s.weightage);
     names.set(k, row);
   }
-  const classIds = new Set(classes.map((c) => c.id));
   return {
     rules: parseTimetableRules(config?.timetableRulesJson),
     days: days.map((d) => ({ n: d, label: WEEKDAY_SHORT[d] || String(d) })),
     periods,
     subjects: [...names.entries()].map(([key, v]) => ({ key, name: v.name, maxNeed: v.maxNeed })).sort((a, b) => a.name.localeCompare(b.name)),
     teachers: teachers.map((t) => ({ id: t.id, name: t.user.name })),
-    classesWithoutClassTeacher: classes.length - new Set(teachers.map((t) => t.classId).filter((id): id is string => Boolean(id && classIds.has(id)))).size,
+    classesWithoutClassTeacher: classes.filter((c) => !c.teacherLinks.length).length,
   };
 }
 

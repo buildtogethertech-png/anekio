@@ -2491,7 +2491,12 @@ async function hydrateIssuedDocumentData(
     const dbStudent = await prisma.student.findUnique({
       where: { id: subjectId },
       include: {
-        class: { include: { students: { select: { id: true, name: true } }, teachers: { include: { user: true } } } },
+        class: {
+          include: {
+            students: { select: { id: true, name: true } },
+            teacherLinks: { where: { classTeacher: true, teacher: { archivedAt: null } }, select: { teacher: { select: { user: { select: { name: true } } } } } },
+          },
+        },
         attendance: { select: { status: true } },
         enrollments: { where: { active: true, session: { current: true } }, select: { classId: true, rollNumber: true } },
       },
@@ -2499,7 +2504,7 @@ async function hydrateIssuedDocumentData(
     if (dbStudent) {
       const classLabel = `${dbStudent.class.name}-${dbStudent.class.section}`;
       const classParts = splitClassLabel(classLabel);
-      const classTeacher = dbStudent.class.teachers.find((row) => row.classId === dbStudent.classId);
+      const classTeacherName = dbStudent.class.teacherLinks.map((link) => link.teacher.user.name).join(", ");
       next = mergeReportCardData(next, {
         school: {
           name: school.name,
@@ -2526,7 +2531,7 @@ async function hydrateIssuedDocumentData(
           born: dbStudent.dateOfBirth ? dbStudent.dateOfBirth.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "",
         },
         staff: {
-          classTeacherName: classTeacher?.user.name || "",
+          classTeacherName,
           principalName: school.signatory || "Principal",
         },
       });

@@ -298,18 +298,21 @@ export function TodayTodo({
 
   for (const t of teachers) {
     const comingNeed = t.coming.length;
-    // Their class's attendance today: a co-class teacher who is in, someone handed it, or already taken.
-    const gap = (gaps?.gaps ?? []).find((g) => g.teacherId === t.key);
-    const klass = gap?.classLabel || "";
-    const attendance = !klass
-      ? ""
-      : gap?.attendanceDone
-        ? `${klass} attendance taken`
-        : gap?.attendanceBy
-          ? `${klass} attendance: ${first(gap.attendanceBy.name)}`
-          : gap?.coClassTeacher
-            ? `${klass} attendance: ${first(gap.coClassTeacher)} (class teacher)`
-            : "";
+    // Their classes' attendance today (one row per class): a co-class teacher who is in, someone handed it, or already taken.
+    const attendance = (gaps?.gaps ?? [])
+      .filter((g) => g.teacherId === t.key && g.classLabel)
+      .map((gap) => {
+        const klass = gap.classLabel;
+        return gap.attendanceDone
+          ? `${klass} attendance taken`
+          : gap.attendanceBy
+            ? `${klass} attendance: ${first(gap.attendanceBy.name)}`
+            : gap.coClassTeacher
+              ? `${klass} attendance: ${first(gap.coClassTeacher)} (class teacher)`
+              : "";
+      })
+      .filter(Boolean)
+      .join(" · ");
     const sub = [comingNeed ? `${comingNeed} period${comingNeed === 1 ? "" : "s"} need a teacher` : "", t.over.length ? `${t.over.length} already over` : "", attendance]
       .filter(Boolean)
       .join(" · ");

@@ -20,7 +20,7 @@ async function main() {
       where: { name: "1", section: "A" },
       include: {
         subjects: true,
-        teachers: { include: { user: true } },
+        teacherLinks: { where: { classTeacher: true }, select: { teacherId: true } },
         slots: true,
       },
     });
@@ -31,7 +31,7 @@ async function main() {
     });
     const english = klass?.subjects.find((row) => row.code === "ENG");
     const maths = klass?.subjects.find((row) => row.code === "MAT");
-    const teacherId = english?.teacherId || maths?.teacherId || klass?.teachers[0]?.id;
+    const teacherId = english?.teacherId || maths?.teacherId || klass?.teacherLinks[0]?.teacherId;
     const room = await prisma.room.findFirst({ where: { name: "Classroom 1-A" } });
     if (klass && period1 && english && teacherId) {
       await prisma.timetableSlot.create({

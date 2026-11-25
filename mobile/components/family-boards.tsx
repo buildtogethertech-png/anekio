@@ -5,6 +5,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { DateField } from "./date-field";
 import { NewConversationSheet } from "./inbox-board";
 import { ChildPill } from "./child-pill";
+import { ClassSwitch } from "./class-switch";
 import { DocViewer } from "./doc-viewer";
 import { ParentDetailsCard, ParentDetailsSheet, useParentDetails } from "./parent-details";
 import { Badge, Button, Card, Chip, ChipScroller, CloseButton, Empty, Field, Input, Modal, PageHeader, Sheet, Stat, Toast, useToast } from "./ui";
@@ -275,11 +276,16 @@ export function TeacherDeskBoard() {
         urgency: info.late ? ("overdue" as const) : info.primary?.kind === "waiting" ? ("soon" as const) : ("" as const),
       };
     });
-  const roster = data?.roster ?? [];
+  // Classes this teacher is class teacher of. The home cards add them up; Attendance and Class pick one.
+  const homerooms = data?.homerooms ?? [];
+  const roster = homerooms.flatMap((h) => h.roster);
+  const studentCount = homerooms.reduce((n, h) => n + h.studentCount, 0);
+  const pendingHomerooms = homerooms.filter((h) => !h.markedToday);
+  const markedToday = homerooms.length > 0 && !pendingHomerooms.length;
   const notices = data?.notices ?? [];
   const needsAttention = data?.needsAttention ?? [];
   const lateToday = roster.filter((s) => s.today === "late").map((s) => s.name);
-  const outToday = data?.outToday ?? [];
+  const outToday = homerooms.flatMap((h) => h.outToday);
   const birthdays = roster.filter((s) => birthdayToday(s.dateOfBirth)).map((s) => s.name);
   const taughtClasses = [...new Set((data?.timetable?.slots ?? []).map((s) => s.classLabel).filter(Boolean))];
   const taughtSubjects = [...new Set((data?.timetable?.slots ?? []).map((s) => s.subject).filter((s) => s && s !== "—"))];
@@ -291,7 +297,7 @@ export function TeacherDeskBoard() {
     [data?.calendar, data?.timetable?.weekdays]
   );
   const todayClosed = closedReason(ymd(new Date()), calendar);
-  const homeroomLabel = data?.classTeacher && data.classLabel ? data.classLabel : "";
+  const homeroomLabel = homerooms.map((h) => h.classLabel).join(", ");
   const { width } = useWindowDimensions();
   const wideDashboard = width >= 1000;
   const phoneDashboard = width < 768;
@@ -342,8 +348,8 @@ export function TeacherDeskBoard() {
   }
 
   let greeting = `Hi ${first}`;
-  if (data?.classTeacher && data.classLabel) {
-    greeting = `Hi ${first} · Class teacher ${data.classLabel}${data.studentCount ? ` · ${data.studentCount}` : ""}`;
+  if (homeroomLabel) {
+    greeting = `Hi ${first} · Class teacher ${homeroomLabel}${studentCount ? ` · ${studentCount}` : ""}`;
   } else if (taughtSubjects.length) {
     greeting = `Hi ${first} · ${taughtSubjects.join(", ")}${day.periods.length ? ` · ${day.periods.length} periods today` : ""}`;
   } else if (day.periods.length) {
@@ -410,8 +416,10 @@ export function TeacherDeskBoard() {
     const closed = todayClosed ? closedDayVoice(todayClosed) : null;
     const headline = closed
       ? closed.register
-      : !data.markedToday
-        ? "Not marked"
+      : !markedToday
+        ? homerooms.length > 1
+          ? `${pendingHomerooms.map((h) => h.classLabel).join(", ")} not marked`
+          : "Not marked"
         : out && late
           ? `${out} out · ${late} late`
           : out
@@ -422,21 +430,21 @@ export function TeacherDeskBoard() {
     const names = [...outToday, ...lateToday].filter(Boolean);
     return (
       <Pressable className="flex-1" onPress={() => router.push("/attendance")}>
-        <Card className={`h-full p-4 ${!closed && !data.markedToday ? "border-clay-500" : ""}`}>
+        <Card className={`h-full p-4 ${!closed && !markedToday ? "border-clay-500" : ""}`}>
           <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">Today’s register</Text>
-          <Text className={`mt-1 text-2xl font-semibold ${!closed && !data.markedToday ? "text-red-600" : "text-ink-900"}`}>
+          <Text className={`mt-1 text-2xl font-semibold ${!closed && !markedToday ? "text-red-600" : "text-ink-900"}`}>
             {headline}
           </Text>
           <Text className="mt-1 text-sm text-ink-700">
             {closed
               ? "No register today."
-              : data.markedToday
+              : markedToday
                 ? names.length
                   ? names.join(", ")
-                  : `${data.studentCount} marked. Open Attendance to change it.`
+                  : `${studentCount} marked. Open Attendance to change it.`
                 : "Open Attendance and tick who is out."}
           </Text>
-          {data.markedToday && classAtt ? (
+          {markedToday && classAtt ? (
             <Text className="mt-1 text-xs text-ink-700">
               {classAtt.pct}% class
               {cbse ? ` · ${cbse}` : ""}
@@ -453,13 +461,13 @@ export function TeacherDeskBoard() {
       ? homeroomLabel
         ? `${homeroomLabel} register closed`
         : "Register closed"
-      : data?.markedToday
+      : markedToday
         ? homeroomLabel
           ? `${homeroomLabel} register marked`
           : "Class register marked"
         : data?.classTeacher
-          ? homeroomLabel
-            ? `${homeroomLabel} register pending`
+          ? pendingHomerooms.length
+            ? `${pendingHomerooms.map((h) => h.classLabel).join(", ")} register pending`
             : "Class register pending"
           : "No class register";
     const scheduleText = next
@@ -509,11 +517,11 @@ export function TeacherDeskBoard() {
             className="min-w-[160px] flex-1 rounded-md border border-ink-100 bg-ink-50 px-3 py-3"
           >
             <Text className="text-xs font-medium uppercase tracking-wide text-ink-700">Attendance</Text>
-            <Text className={`mt-1 text-base font-semibold ${!closed && data?.classTeacher && !data.markedToday ? "text-red-700" : "text-ink-900"}`}>
+            <Text className={`mt-1 text-base font-semibold ${!closed && data?.classTeacher && !markedToday ? "text-red-700" : "text-ink-900"}`}>
               {registerText}
             </Text>
             <Text className="mt-1 text-xs text-ink-700">
-              {closed ? "QR and register are unavailable today." : data?.markedToday ? "Open to review or correct." : "Open to mark the class."}
+              {closed ? "QR and register are unavailable today." : markedToday ? "Open to review or correct." : "Open to mark the class."}
             </Text>
           </Pressable>
           <Pressable
@@ -536,7 +544,7 @@ export function TeacherDeskBoard() {
   /** Current lesson, as the one strong card on the phone dashboard. Owns the register call-to-action. */
   function PhoneHeroCard() {
     const closed = todayClosed ? closedDayVoice(todayClosed) : null;
-    const registerDue = Boolean(data?.classTeacher && !data.markedToday && !closed);
+    const registerDue = Boolean(data?.classTeacher && !markedToday && !closed);
     const progress = next ? lessonProgress(next.start, next.end) : null;
     const label = closed
       ? "Today"
@@ -776,12 +784,12 @@ export function TeacherDeskBoard() {
     if (!phoneDashboard) return null;
     const attendancePct = classAtt
       ? classAtt.pct
-      : data?.markedToday
-        ? Math.max(0, 100 - Math.round((outToday.length / Math.max(1, data.studentCount || roster.length)) * 100))
+      : markedToday
+        ? Math.max(0, 100 - Math.round((outToday.length / Math.max(1, studentCount || roster.length)) * 100))
         : null;
     const stats: { value: string; label: string; route: string; tone?: string }[] = [
       {
-        value: String(data?.classTeacher ? data.studentCount || roster.length : taughtClasses.length),
+        value: String(data?.classTeacher ? studentCount || roster.length : taughtClasses.length),
         label: data?.classTeacher ? `Students in ${homeroomLabel || "class"}` : "Classes you teach",
         route: "/class",
       },
@@ -885,7 +893,7 @@ export function TeacherDeskBoard() {
             <Text className="mt-0.5 text-xl font-semibold text-ink-900">{homeroomLabel}</Text>
           </View>
         ) : !phoneDashboard ? (
-          <Text className="text-xs text-ink-700">{todayClosed ? "Closed day" : data?.markedToday ? "Register marked" : "Needs attention"}</Text>
+          <Text className="text-xs text-ink-700">{todayClosed ? "Closed day" : markedToday ? "Register marked" : "Needs attention"}</Text>
         ) : null}
       </View>
       )}
@@ -904,15 +912,15 @@ export function TeacherDeskBoard() {
         {[
           {
             label: data?.classTeacher ? "Students" : "Classes",
-            value: String(data?.classTeacher ? data.studentCount || roster.length : taughtClasses.length),
-            hint: data?.classTeacher ? data.classLabel || "Your class" : "Taught this week",
+            value: String(data?.classTeacher ? studentCount || roster.length : taughtClasses.length),
+            hint: data?.classTeacher ? homeroomLabel || "Your class" : "Taught this week",
             tone: "bg-blue-50 text-clay-600",
             route: "/class",
           },
           {
             label: "Attendance",
-            value: classAtt ? `${classAtt.pct}%` : data?.markedToday ? `${Math.max(0, 100 - Math.round((outToday.length / Math.max(1, data.studentCount || roster.length)) * 100))}%` : "—",
-            hint: classAtt ? "Recent class average" : data?.markedToday ? "Today" : "Register pending",
+            value: classAtt ? `${classAtt.pct}%` : markedToday ? `${Math.max(0, 100 - Math.round((outToday.length / Math.max(1, studentCount || roster.length)) * 100))}%` : "—",
+            hint: classAtt ? "Recent class average" : markedToday ? "Today" : "Register pending",
             tone: "bg-emerald-50 text-green-700",
             route: "/attendance",
           },
@@ -1571,13 +1579,16 @@ export function TeacherClassBoard() {
   const { data, reload } = useRecord();
   const { token, user } = useSession();
   const toast = useToast();
-  const roster = data?.roster ?? [];
+  const homerooms = data?.homerooms ?? [];
+  const [classId, setClassId] = useState("");
+  const homeroom = homerooms.find((h) => h.classId === classId) || homerooms[0] || null;
+  const roster = homeroom?.roster ?? [];
   const [q, setQ] = useState("");
   const [noteFor, setNoteFor] = useState<(typeof roster)[number] | null>(null);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
-  const classLabel = data?.classLabel || "";
+  const classLabel = homeroom?.classLabel || "";
   const teacherName = user?.name || "class teacher";
   const needle = q.trim().toLowerCase();
   const shown = needle
@@ -1631,6 +1642,15 @@ export function TeacherClassBoard() {
         lede={roster.length ? "Call or WhatsApp home. A note reaches that family only." : undefined}
       />
       {toast.message ? <Toast message={toast.message} onDone={toast.clear} /> : null}
+      <ClassSwitch
+        testID="class-board-switch"
+        options={homerooms.map((h) => ({ id: h.classId, label: h.classLabel, hint: `${h.studentCount} students` }))}
+        value={homeroom?.classId || ""}
+        onChange={(id) => {
+          setClassId(id);
+          setQ("");
+        }}
+      />
       {!roster.length ? (
         <Empty title="No class teacher section" body="When you are class teacher, your section is here." />
       ) : (
@@ -1724,20 +1744,18 @@ export function TeacherAttendanceBoard() {
   const toast = useToast();
   const { width } = useWindowDimensions();
   const phone = width < 768;
-  // A class handed to me for today's attendance (its class teacher is out); "" = my own class.
-  const covers = data?.attendanceCovers ?? [];
-  const [coverId, setCoverId] = useState("");
-  const cover = covers.find((row) => row.classId === coverId) || null;
-  const ownRosterEmpty = !(data?.roster ?? []).length;
+  // Classes I am class teacher of, then classes handed to me for today's attendance (their class teacher is out).
+  const homerooms = data?.homerooms ?? [];
+  const covers = (data?.attendanceCovers ?? []).filter((row) => !homerooms.some((h) => h.classId === row.classId));
+  const [pickedId, setPickedId] = useState("");
+  const homeroom = homerooms.find((h) => h.classId === pickedId) || null;
+  const cover = homeroom ? null : covers.find((row) => row.classId === pickedId) || null;
   useEffect(() => {
-    if (!coverId && ownRosterEmpty && covers.length) setCoverId(covers[0].classId);
-    if (coverId && !covers.some((row) => row.classId === coverId)) setCoverId("");
-  }, [coverId, ownRosterEmpty, covers]);
-  const roster = useMemo(
-    () => [...(cover ? cover.roster : data?.roster ?? [])].sort(compareByRollThenName),
-    [data?.roster, cover]
-  );
-  const classLabel = cover ? cover.classLabel : data?.classLabel || "";
+    const ids = [...homerooms.map((h) => h.classId), ...covers.map((c) => c.classId)];
+    if (!ids.includes(pickedId) && ids.length) setPickedId(ids[0]);
+  }, [pickedId, homerooms, covers]);
+  const roster = useMemo(() => [...(homeroom?.roster ?? cover?.roster ?? [])].sort(compareByRollThenName), [homeroom, cover]);
+  const classLabel = homeroom?.classLabel || cover?.classLabel || "";
   const [q, setQ] = useState("");
   const [monthly, setMonthly] = useState(false);
   const calendar = useMemo(
@@ -1937,7 +1955,7 @@ export function TeacherAttendanceBoard() {
   const pctToday = marked > 0 ? Math.round(((yes + late) / marked) * 100) : null;
   const dirty = Object.keys(marks).length > 0;
   const savedForDate =
-    date === today ? Boolean(cover ? cover.markedToday : data?.markedToday) : roster.some((s) => s.days?.some((d) => d.date === date));
+    date === today ? Boolean((homeroom ?? cover)?.markedToday) : roster.some((s) => s.days?.some((d) => d.date === date));
   const [searchOpen, setSearchOpen] = useState(false);
 
   // The 3 school days before the selected date, oldest first (per-student history on phone).
@@ -2039,32 +2057,19 @@ export function TeacherAttendanceBoard() {
         }}
         onError={(msg) => toast.show(msg)}
       />
-      {covers.length ? (
-        <View className="mb-2 flex-row flex-wrap gap-2" testID="attendance-cover-switch">
-          {[
-            ...(ownRosterEmpty ? [] : [{ id: "", label: data?.classLabel || "My class", hint: "My class" }]),
-            ...covers.map((row) => ({ id: row.classId, label: row.classLabel, hint: row.forTeacher ? `Today · for ${row.forTeacher}` : "Today only" })),
-          ].map((opt) => {
-            const on = opt.id === coverId;
-            return (
-              <Pressable
-                key={opt.id || "own"}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: on }}
-                onPress={() => {
-                  setCoverId(opt.id);
-                  setDate(today);
-                  setMarks({});
-                }}
-                className={`rounded-xl border px-3 py-1.5 ${on ? "border-[#2855F6] bg-[#EEF3FF]" : "border-ink-200 bg-white"}`}
-              >
-                <Text className={`text-[13px] font-semibold ${on ? "text-[#1F45C7]" : "text-ink-900"}`}>{opt.label}</Text>
-                <Text className="text-[11px] text-ink-500">{opt.hint}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      ) : null}
+      <ClassSwitch
+        testID="attendance-cover-switch"
+        options={[
+          ...homerooms.map((h) => ({ id: h.classId, label: h.classLabel, hint: "My class" })),
+          ...covers.map((row) => ({ id: row.classId, label: row.classLabel, hint: row.forTeacher ? `Today · for ${row.forTeacher}` : "Today only" })),
+        ]}
+        value={homeroom?.classId || cover?.classId || ""}
+        onChange={(id) => {
+          setPickedId(id);
+          setDate(today);
+          setMarks({});
+        }}
+      />
       {!roster.length ? (
         <Empty title="No class teacher section" body="When you are class teacher, the register is here." />
       ) : (

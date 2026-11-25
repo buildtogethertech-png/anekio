@@ -616,9 +616,8 @@ describe("school onboarding imports", () => {
     const klass = await prisma.class.findFirstOrThrow({ where: { name: "9", section: "C" } });
     const teacher = await prisma.teacher.findFirstOrThrow({ where: { user: { name: "New Sheet Teacher" } }, include: { user: { include: { role: true } } } });
     expect(teacher.user.role.slug).toBe("TEACHER");
-    expect(teacher.classId).toBe(klass.id);
     expect(teacher.monthlySalary).toBe(41000);
-    await expect(prisma.teacherClass.findUniqueOrThrow({ where: { teacherId_classId: { teacherId: teacher.id, classId: klass.id } } })).resolves.toBeTruthy();
+    await expect(prisma.teacherClass.findUniqueOrThrow({ where: { teacherId_classId: { teacherId: teacher.id, classId: klass.id } } })).resolves.toMatchObject({ classTeacher: true });
 
     const staff = await prisma.staffMember.findFirstOrThrow({ where: { name: "Sheet Fees Admin" }, include: { user: { include: { role: true } }, role: true } });
     expect(staff.role?.slug || staff.user?.role.slug).toBe("FEES");
@@ -647,8 +646,8 @@ describe("school onboarding imports", () => {
     expect(preview).toMatchObject({ rowCount: 1, validCount: 1, errors: [] });
 
     await applyOnboardingImport(user, { batchId: preview.batchId });
-    const teacher = await prisma.teacher.findUniqueOrThrow({ where: { id: existingTeacher.id } });
-    expect(teacher.classId).toBe("class-6-a");
+    const link = await prisma.teacherClass.findUniqueOrThrow({ where: { teacherId_classId: { teacherId: existingTeacher.id, classId: "class-6-a" } } });
+    expect(link.classTeacher).toBe(true);
   });
 
   it("creates the same class-section label in a different tenant", async () => {

@@ -164,7 +164,6 @@ async function teacherMaySeeClass(user: AccessUser, classId: string) {
     include: { subjects: true, classes: true, skills: true },
   });
   if (!teacher) return false;
-  if (teacher.classId === classId) return true;
   if (teacher.subjects.some((row) => row.classId === classId)) return true;
   if (teacher.classes.some((row) => row.classId === classId)) return true;
   if (teacher.skills.some((row) => row.classId === classId)) return true;

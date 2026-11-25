@@ -72,7 +72,16 @@ import { assertManagerChoice, defaultManagerIdForRole, managerIdForNewUser, team
 import { admissionCustomValues, admissionFormFields, admissionFormJson, admissionLeadInput, applySchoolClassOptions, effectiveAdmissionFormJson, isPersonName, parentAdmissionContact, staffOnboardingFormFields, staffOnboardingFormJson, studentAdmissionCustomValues, websiteFormFields, websiteFormJson } from "./admission-form";
 import { configuredAdmissionFormJson, configuredFormJson, liveSchoolClassLabels } from "./admission-form-config";
 import { markOnboardingConfigured } from "./onboarding";
-import { assertStudentAccess, classTeacherOnly, CLASS_ROLLS_EDIT, CLASS_STUDENTS_ADD, CLASS_STUDENTS_EDIT, ownClassIdFor } from "./class-teacher-access";
+import {
+  assertStudentAccess,
+  checkedClassTeacherPicks,
+  classTeacherOnly,
+  CLASS_ROLLS_EDIT,
+  CLASS_STUDENTS_ADD,
+  CLASS_STUDENTS_EDIT,
+  ownClassIdsFor,
+  setClassTeacherClasses,
+} from "./class-teacher-access";
 import { saveStaffAnswers, saveStudentAnswers, studentFieldTypes } from "./custom-fields";
 import { monthOf, recordSalary } from "./salary-history";
 import { lessonGroupFor, tidyCombined } from "./timetable-combined";
@@ -261,13 +270,14 @@ async function createStudentNow(
   need(user, "people.edit", CLASS_STUDENTS_ADD);
   if (classTeacherOnly(user, CLASS_STUDENTS_ADD)) {
     // Class teacher: own class only, and no money. No admission fee, no old due, no payment, no enquiry.
-    const ownClassId = await ownClassIdFor(user);
-    if (!ownClassId) throw new Error("Only a class teacher can add students.");
-    if (input.classId && input.classId !== ownClassId) throw new Error("You can add students to your own class only.");
+    const ownClassIds = await ownClassIdsFor(user);
+    if (!ownClassIds.length) throw new Error("Only a class teacher can add students.");
+    if (input.classId && !ownClassIds.includes(input.classId)) throw new Error("You can add students to your own class only.");
+    if (!input.classId && ownClassIds.length > 1) throw new Error("Pick which of your classes to add the student to.");
     if (input.leadId) throw new Error("Only the office can admit from an enquiry.");
     input = {
       ...input,
-      classId: ownClassId,
+      classId: input.classId || ownClassIds[0],
       parentId: "",
       billingStartPeriod: undefined,
       collectAdmissionFee: false,
@@ -1012,7 +1022,8 @@ export async function updateTeacherCore(
     /** YYYY-MM the new salary applies from (default: this month). */
     salaryEffectiveFrom?: string;
     salaryReason?: string;
-    classId?: string | null;
+    /** "Class teacher of": every class this teacher is class teacher of. Omitted = unchanged. */
+    classIds?: string[];
     customValues?: Record<string, string>;
   }
 ) {
@@ -1050,17 +1061,7 @@ export async function updateTeacherCore(
     if (taken) throw new Error("That employee id is already used");
   }
   await assertPhoneFree(mobile, teacher.userId);
-  let classId: string | null | undefined;
-  if (input.classId !== undefined) {
-    const pickedClassId = String(input.classId || "").trim();
-    if (pickedClassId) {
-      const klass = await prisma.class.findFirst({ where: { id: pickedClassId, archivedAt: null }, select: { id: true } });
-      if (!klass) throw new Error("Class missing");
-      classId = klass.id;
-    } else {
-      classId = null;
-    }
-  }
+  const classIds = input.classIds !== undefined ? await checkedClassTeacherPicks(input.classIds) : undefined;
   const userPatch: { name: string; email: string; phone: string; password?: string; managerId?: string | null } = {
     name,
     email,
@@ -1078,7 +1079,6 @@ export async function updateTeacherCore(
       ...(joinedOn ? { joinedOn } : {}),
       ...place,
       qualification: qualification || null,
-      ...(classId !== undefined ? { class: classId ? { connect: { id: classId } } : { disconnect: true } } : {}),
       // A raise from a later month is only history for now; today's salary changes when that month comes.
       ...(input.monthlySalary !== undefined && can(user, "salary.approve") && !(String(input.salaryEffectiveFrom || "") > monthOf())
         ? { monthlySalary: parseMonthlySalary(input.monthlySalary) }
@@ -1090,13 +1090,7 @@ export async function updateTeacherCore(
   if (input.monthlySalary !== undefined && can(user, "salary.approve")) {
     await recordSalary(prisma, "teacher", id, { orgId: teacher.orgId ?? null, amount: parseMonthlySalary(input.monthlySalary), effectiveFrom: input.salaryEffectiveFrom, reason: input.salaryReason, actorId: user.id });
   }
-  if (classId) {
-    await prisma.teacherClass.upsert({
-      where: { teacherId_classId: { teacherId: id, classId } },
-      update: {},
-      create: { teacherId: id, classId },
-    });
-  }
+  if (classIds) await setClassTeacherClasses(id, classIds);
 }
 
 export async function updateStaffMemberCore(
@@ -1386,11 +1380,10 @@ export async function createClassCore(
   if (teacherId) {
     const teacher = await prisma.teacher.findUnique({ where: { id: teacherId }, select: { id: true } });
     if (teacher) {
-      await prisma.teacher.update({ where: { id: teacherId }, data: { classId: klass.id } });
       await prisma.teacherClass.upsert({
         where: { teacherId_classId: { teacherId, classId: klass.id } },
-        update: {},
-        create: { teacherId, classId: klass.id },
+        update: { classTeacher: true },
+        create: { teacherId, classId: klass.id, classTeacher: true },
       });
     }
   }
@@ -2118,7 +2111,8 @@ export async function createStaffMemberCore(
     pincode?: string;
     managerId?: string | null;
     monthlySalary?: number | string;
-    classId?: string | null;
+    /** "Class teacher of" (teacher roles only). */
+    classIds?: string[];
     customValues?: Record<string, string>;
   }
 ): Promise<{ kind: "teacher" | "staff" | "parent"; id: string }> {
@@ -2150,11 +2144,7 @@ export async function createStaffMemberCore(
   const monthlySalary = parseMonthlySalary(can(user, "salary.approve") ? input.monthlySalary : undefined);
   const onboardingAnswers = (await staffOnboardingValues(input.customValues)) ?? {};
   if (role.portal === "TEACHER") {
-    const classId = String(input.classId || "").trim();
-    if (classId) {
-      const klass = await prisma.class.findFirst({ where: { id: classId, archivedAt: null }, select: { id: true } });
-      if (!klass) throw new Error("Class missing");
-    }
+    const classIds = await checkedClassTeacherPicks(input.classIds);
     const employeeId = await nextEmployeeId("T", user.orgId ?? null);
     const created = await prisma.user.create({
       data: {
@@ -2171,16 +2161,13 @@ export async function createStaffMemberCore(
             joinedOn,
             monthlySalary,
             ...(String(input.customValues?.qualification || "").trim() ? { qualification: String(input.customValues?.qualification).trim().slice(0, 200) } : {}),
-            ...(classId ? { classId } : {}),
             ...place,
           },
         },
       },
       include: { teacher: true },
     });
-    if (classId && created.teacher) {
-      await prisma.teacherClass.create({ data: { teacherId: created.teacher.id, classId } });
-    }
+    if (classIds.length && created.teacher) await setClassTeacherClasses(created.teacher.id, classIds);
     if (created.teacher) {
       await saveStaffAnswers(prisma, "teacher", created.teacher.id, { orgId: user.orgId ?? null, actorId: user.id, answers: onboardingAnswers });
       await recordSalary(prisma, "teacher", created.teacher.id, { orgId: user.orgId ?? null, amount: created.teacher.monthlySalary, effectiveFrom: monthOf(created.teacher.joinedOn), reason: "Joining salary", actorId: user.id });
@@ -2331,7 +2318,10 @@ export async function submitParentQueryCore(
         include: {
           class: {
             include: {
-              teachers: { include: { user: { select: { name: true } } } },
+              teacherLinks: {
+                where: { classTeacher: true, teacher: { archivedAt: null } },
+                select: { teacher: { select: { user: { select: { name: true } } } } },
+              },
             },
           },
         },
@@ -2341,7 +2331,7 @@ export async function submitParentQueryCore(
   if (!parent?.students.length) throw new Error("No child is linked to this parent.");
   const child = parent.students.find((s) => s.id === input.studentId) || parent.students[0];
   const classLabel = `${child.class.name}-${child.class.section}`;
-  const classTeacher = child.class.teachers[0]?.user.name || "Class teacher";
+  const classTeacher = child.class.teacherLinks.map((link) => link.teacher.user.name).join(", ") || "Class teacher";
   const portals = target === "teacher" ? [Portal.TEACHER] : [Portal.OFFICE];
   const classIds = target === "teacher" ? [child.classId] : [];
   const title = target === "teacher" ? `Parent consult: ${subject}` : `Parent query: ${subject}`;
@@ -4589,7 +4579,6 @@ async function needExamClass(user: AccessUser, classId: string, mode: "mark" | "
   });
   if (!teacher) throw new Error("Not your class");
   const linked =
-    teacher.classId === classId ||
     teacher.subjects.some((s) => s.classId === classId) ||
     teacher.classes.some((c) => c.classId === classId);
   const assigned = linked
@@ -4605,7 +4594,7 @@ async function needExamClass(user: AccessUser, classId: string, mode: "mark" | "
         },
       });
   if (!assigned) throw new Error("Not your class");
-  if (mode === "run" && teacher.classId !== classId) {
+  if (mode === "run" && !teacher.classes.some((c) => c.classId === classId && c.classTeacher)) {
     throw new Error("Only the class teacher or admin can do that");
   }
 }
@@ -5092,12 +5081,12 @@ export async function sendClassNoteCore(
   input: { studentId?: string; title?: string; body?: string }
 ) {
   need(user, "class.view");
-  const teacher = await prisma.teacher.findUnique({ where: { userId: user.id } });
-  if (!teacher?.classId) throw new Error("When you are class teacher, notes go from here.");
+  const classIds = await ownClassIdsFor(user);
+  if (!classIds.length) throw new Error("When you are class teacher, notes go from here.");
   const studentId = String(input.studentId || "").trim();
   if (!studentId) throw new Error("Pick a child");
   const student = await prisma.student.findUnique({ where: { id: studentId } });
-  if (!student || student.classId !== teacher.classId) throw new Error("That child is not in your section");
+  if (!student || !classIds.includes(student.classId || "")) throw new Error("That child is not in your section");
   const title = String(input.title || "").trim() || `Note · ${student.name}`;
   const body = String(input.body || "").trim();
   if (!body) throw new Error("Write a short note");
@@ -5149,10 +5138,11 @@ export async function setClassRollNumbersCore(
   need(user, "people.edit", CLASS_ROLLS_EDIT);
   let classId = String(input.classId || "").trim();
   if (!can(user, "people.edit")) {
-    const own = await ownClassIdFor(user);
-    if (!own) throw new Error("Only a class teacher can set roll numbers.");
-    if (classId && classId !== own) throw new Error("You can set roll numbers for your own class only.");
-    classId = own;
+    const own = await ownClassIdsFor(user);
+    if (!own.length) throw new Error("Only a class teacher can set roll numbers.");
+    if (classId && !own.includes(classId)) throw new Error("You can set roll numbers for your own class only.");
+    if (!classId && own.length > 1) throw new Error("Pick which of your classes to renumber.");
+    classId = classId || own[0];
   }
   if (!classId) throw new Error("Pick a class.");
   const rolls = (Array.isArray(input.rolls) ? input.rolls : []).map((row) => ({

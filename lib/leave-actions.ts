@@ -275,9 +275,12 @@ export async function decideLeave(user: AccessUser, input: { requestId?: string;
   if (!row.student) throw new Error("Leave request missing");
   const child = row.student;
   const parent = user.portal === "PARENT" ? await prisma.parent.findUnique({ where: { userId: user.id } }) : null;
-  const teacher = user.portal === "TEACHER" ? await prisma.teacher.findUnique({ where: { userId: user.id } }) : null;
+  const teacher =
+    user.portal === "TEACHER"
+      ? await prisma.teacher.findUnique({ where: { userId: user.id }, select: { classes: { where: { classId: child.classId, classTeacher: true }, select: { classId: true } } } })
+      : null;
   const isGuardian = Boolean(parent && parent.id === child.parentId);
-  const isClassTeacher = Boolean(teacher?.classId && teacher.classId === child.classId);
+  const isClassTeacher = Boolean(teacher?.classes.length);
   if (row.status !== "WAITING") throw new Error("This leave is already decided");
 
   if (isGuardian && !row.guardianAt) {

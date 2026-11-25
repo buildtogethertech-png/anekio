@@ -158,7 +158,7 @@ describe.sequential.skipIf(!schoolDay)("class attendance cover", () => {
       data: {
         id: "teacher-co",
         employeeId: "T-FIX-3",
-        class: { connect: { id: fixture.classId } },
+        classes: { create: [{ classId: fixture.classId, classTeacher: true }] },
         user: { create: { id: "user-co", email: "co.fixture@school.test", password: teacherLogin.password, name: "Co Teacher", roleId: teacherLogin.roleId } },
       },
     });

@@ -114,7 +114,7 @@ export async function notifyNoticeRecipients(input: {
 function noticeReachesUser(
   user: {
     role: { portal: Portal };
-    teacher: { classId: string | null; subjects: { classId: string }[]; classes: { classId: string }[] } | null;
+    teacher: { subjects: { classId: string }[]; classes: { classId: string }[] } | null;
     parent: { students: { id: string; classId: string }[] } | null;
     student: { id: string; classId: string } | null;
   },
@@ -129,7 +129,6 @@ function noticeReachesUser(
   if (!classIds.length || user.role.portal === "OFFICE") return true;
   if (user.role.portal === "TEACHER") {
     const ids = new Set<string>();
-    if (user.teacher?.classId) ids.add(user.teacher.classId);
     for (const s of user.teacher?.subjects ?? []) ids.add(s.classId);
     for (const c of user.teacher?.classes ?? []) ids.add(c.classId);
     return classIds.some((id) => ids.has(id));

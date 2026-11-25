@@ -3,6 +3,7 @@ import { Modal as RnModal, Platform, Pressable, ScrollView, Text, TextInput, use
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Button, Modal, Toast, useToast } from "./ui";
 import { act } from "../lib/mutate";
+import { ClassTeacherNote, classTeachersByClass } from "./staff-admit-form";
 import { weekdayOfYmd, ymd, type SchoolCalendar } from "../lib/calendar";
 import {
   dayKind,
@@ -21,7 +22,6 @@ import {
   salaryForMonth,
 } from "../lib/payroll";
 import { useOptionalRecord, type RecordPayload } from "../lib/record";
-import { Select } from "./form";
 import type { IoniconName } from "../lib/nav-icons";
 import { EmployeeLeaveCard } from "./leave-balances";
 import { SalaryPayCard } from "./salary-pay-card";
@@ -246,22 +246,20 @@ export function StaffAttendanceDetail({
     }
   }
   const record = useOptionalRecord();
-  const classOptions = [{ id: "", label: "Not a class teacher" }, ...(record?.data?.classes ?? []).map((c) => ({ id: c.id, label: c.label }))];
-  const classTeacherLabel = classOptions.find((c) => c.id && c.id === person.teachClassId)?.label || "";
+  const classOptions = (record?.data?.classes ?? []).map((c) => ({ id: c.id, label: c.label }));
+  const teachClassIds = person.teachClassIds ?? [];
+  const classTeacherLabel = classOptions.filter((c) => teachClassIds.includes(c.id)).map((c) => c.label).join(", ");
   const canPickClass = Boolean(onEditSalary && person.kind === "staff" && person.teaches);
   const [classBusy, setClassBusy] = useState(false);
-  /** Class teacher for an office employee who also teaches. */
-  async function pickClassTeacher(classId: string) {
-    if (classId === (person.teachClassId || "")) return;
+  /** Class teacher for an office employee who also teaches: tap a class to add or remove it. */
+  async function toggleClassTeacher(classId: string) {
+    if (classBusy) return;
+    const next = teachClassIds.includes(classId) ? teachClassIds.filter((id) => id !== classId) : [...teachClassIds, classId];
     setClassBusy(true);
     try {
-      const res = await act<{ classLabel: string; replaced: string }>(token, "setStaffClassTeacher", { staffId: person.id, classId });
+      const res = await act<{ classLabels: string[] }>(token, "setStaffClassTeacher", { staffId: person.id, classIds: next });
       toast.show(
-        !classId
-          ? `${person.name} is no longer a class teacher.`
-          : res.replaced
-            ? `${person.name} is now class teacher of ${res.classLabel} (was ${res.replaced}).`
-            : `${person.name} is now class teacher of ${res.classLabel}.`
+        res.classLabels.length ? `${person.name} is class teacher of ${res.classLabels.join(", ")}.` : `${person.name} is no longer a class teacher.`
       );
       await onSaved();
     } catch (e) {
@@ -270,6 +268,34 @@ export function StaffAttendanceDetail({
       setClassBusy(false);
     }
   }
+  const classTeacherPicker = (
+    <View>
+      <Text className="mb-1.5 text-[12px] font-medium text-ink-700">Class teacher of</Text>
+      <View className="flex-row flex-wrap gap-2">
+        {classOptions.map((c) => {
+          const on = teachClassIds.includes(c.id);
+          return (
+            <Pressable
+              key={c.id}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: on, disabled: classBusy }}
+              disabled={classBusy}
+              onPress={() => void toggleClassTeacher(c.id)}
+              className={`rounded-full border px-3 py-1 ${on ? "border-[#1F45C7] bg-[#EEF3FF]" : "border-ink-200 bg-white"}`}
+            >
+              <Text className={`text-[13px] font-medium ${on ? "text-[#1F45C7]" : "text-ink-700"}`}>{c.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      <ClassTeacherNote
+        name={person.name}
+        picked={teachClassIds}
+        classes={classOptions}
+        others={classTeachersByClass(record?.data?.staff ?? [], person.id)}
+      />
+    </View>
+  );
   const split = width >= 960;
   const now = ymd(new Date());
   const [month, setMonth] = useState(initialMonth || now.slice(0, 7));
@@ -791,8 +817,8 @@ export function StaffAttendanceDetail({
             </Pressable>
           ) : null}
           {canPickClass ? (
-            <View className="w-[220px]" style={{ opacity: classBusy ? 0.6 : 1 }}>
-              <Select label="Class teacher of" value={person.teachClassId || ""} options={classOptions} onChange={(id) => void pickClassTeacher(id)} placeholder="Not a class teacher" />
+            <View className="max-w-[360px]" style={{ opacity: classBusy ? 0.6 : 1 }}>
+              {classTeacherPicker}
             </View>
           ) : null}
         </View>
@@ -801,8 +827,8 @@ export function StaffAttendanceDetail({
       {/* Phone: class teacher picker for office staff who also teach (the switch lives in More). */}
       {phone && canPickClass ? (
         <View className="mb-4 rounded-2xl border border-ink-100 bg-white px-4 py-3" style={{ opacity: classBusy ? 0.6 : 1 }}>
-          <Select label="Class teacher of" value={person.teachClassId || ""} options={classOptions} onChange={(id) => void pickClassTeacher(id)} placeholder="Not a class teacher" />
-          <Text className="mt-1.5 text-[11px] leading-4 text-ink-500">They mark this class's attendance from Teacher mode.</Text>
+          {classTeacherPicker}
+          <Text className="mt-1.5 text-[11px] leading-4 text-ink-500">They mark these classes' attendance from Teacher mode.</Text>
         </View>
       ) : null}
 

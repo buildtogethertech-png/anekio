@@ -69,7 +69,6 @@ export async function teamClassIds(managerId: string) {
   for (const row of reports) {
     const t = row.teacher;
     if (!t) continue;
-    if (t.classId) ids.add(t.classId);
     for (const s of t.subjects) ids.add(s.classId);
     for (const s of t.skills) ids.add(s.classId);
     for (const c of t.classes) ids.add(c.classId);

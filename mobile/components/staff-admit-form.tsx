@@ -16,7 +16,8 @@ export type StaffAdmitPayload = {
   name: string;
   phone: string;
   roleId: string;
-  classId: string;
+  /** "Class teacher of": every class they are class teacher of. */
+  classIds: string[];
   joinedOn: string;
   email: string;
   address: string;
@@ -51,12 +52,87 @@ function needsManager(role?: StaffAdmitRole) {
   return true;
 }
 
+/** classId → names of everyone already class teacher there (leave out the person being edited). */
+export type ClassTeachersByClass = Record<string, string[]>;
+
+/** Class-teacher names per class from staff rows, leaving out one person (the one being edited). */
+export function classTeachersByClass(
+  staff: { id: string; name: string; classIds?: string[]; teachClassIds?: string[] }[],
+  exceptId = ""
+): ClassTeachersByClass {
+  const out: ClassTeachersByClass = {};
+  for (const row of staff) {
+    if (row.id === exceptId) continue;
+    for (const classId of row.classIds ?? row.teachClassIds ?? []) out[classId] = [...(out[classId] ?? []), row.name];
+  }
+  return out;
+}
+
+/**
+ * Plain information under "Class teacher of", never a block: who else is already class teacher of a picked
+ * class (they will share it), and that this person will be class teacher of every class picked.
+ */
+export function ClassTeacherNote({
+  name,
+  picked,
+  classes,
+  others,
+}: {
+  name: string;
+  picked: string[];
+  classes: { id: string; label: string }[];
+  others: ClassTeachersByClass;
+}) {
+  const labelOf = (id: string) => classes.find((c) => c.id === id)?.label || "";
+  // Class order (1-A, 2-A, …), not the order they were tapped.
+  picked = classes.map((c) => c.id).filter((id) => picked.includes(id));
+  const lines = picked
+    .filter((id) => others[id]?.length)
+    .map((id) => `${labelOf(id)} already has ${others[id].join(", ")} as class teacher. They will share it.`);
+  if (picked.length > 1) {
+    lines.push(`${name.trim() || "This teacher"} will be class teacher of ${picked.map(labelOf).filter(Boolean).join(", ")}.`);
+  }
+  if (!lines.length) return null;
+  return (
+    <View className="mt-2 gap-1 rounded-md bg-amber-50 px-3 py-2" testID="class-teacher-note">
+      {lines.map((line) => (
+        <Text key={line} className="text-[12px] leading-4 text-amber-800">
+          {line}
+        </Text>
+      ))}
+    </View>
+  );
+}
+
+/** "Class teacher of": tap classes to add or remove them. A teacher can be class teacher of several. */
+function ClassTeacherChips({ classes, value, onChange }: { classes: StaffAdmitClass[]; value: string[]; onChange: (ids: string[]) => void }) {
+  const chip = (key: string, label: string, on: boolean, onPress: () => void) => (
+    <Pressable
+      key={key}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: on }}
+      onPress={onPress}
+      className={`rounded-full border px-3 py-1.5 ${on ? "border-[#1F45C7] bg-[#EEF3FF]" : "border-ink-200 bg-white"}`}
+    >
+      <Text className={`text-sm font-medium ${on ? "text-[#1F45C7]" : "text-ink-700"}`}>{label}</Text>
+    </Pressable>
+  );
+  return (
+    <View className="flex-row flex-wrap gap-2">
+      {chip("none", "None", !value.length, () => onChange([]))}
+      {classes.map((c) =>
+        chip(c.id, c.label, value.includes(c.id), () => onChange(value.includes(c.id) ? value.filter((id) => id !== c.id) : [...value, c.id]))
+      )}
+    </View>
+  );
+}
+
 function emptyForm(roles: StaffAdmitRole[], managers: ManagerOption[]): StaffAdmitPayload {
   return {
     name: "",
     phone: "",
     roleId: suggestedRoleId(roles),
-    classId: "",
+    classIds: [],
     joinedOn: todayYmd(),
     email: "",
     address: "",
@@ -82,7 +158,10 @@ export function StaffAdmitForm({
   staffForm = [],
   editing,
   salaryEditable = true,
+  classTeachers = {},
 }: {
+  /** Who is already class teacher of each class (not this person), shown as information when picking. */
+  classTeachers?: ClassTeachersByClass;
   /** Only people who approve salaries can change the monthly salary. */
   salaryEditable?: boolean;
   /** Editing an existing employee: prefill form answers, count saved documents, show pay & reporting. */
@@ -144,7 +223,7 @@ export function StaffAdmitForm({
           ...form,
           // None ("") lets the server use the default manager for that role.
           managerId: showManager ? (wizard || sectioned ? form.managerId : form.managerId || defaultManagerId(managers)) : "",
-          classId: showClassTeacher ? form.classId : "",
+          classIds: showClassTeacher ? form.classIds : [],
           customValues: custom,
         },
         files
@@ -268,7 +347,7 @@ export function StaffAdmitForm({
                   return (
                     <Pressable
                       key={r.id}
-                      onPress={() => patch({ roleId: r.id, classId: r.portal === "TEACHER" || alsoTeaches ? form.classId : "" })}
+                      onPress={() => patch({ roleId: r.id, classIds: r.portal === "TEACHER" || alsoTeaches ? form.classIds : [] })}
                       className={`h-9 justify-center rounded-full border px-4 ${on ? "border-[#1F45C7] bg-[#1F45C7]" : "border-ink-200 bg-white"}`}
                     >
                       <Text className={`text-sm font-semibold ${on ? "text-white" : "text-ink-800"}`}>{r.name}</Text>
@@ -281,16 +360,8 @@ export function StaffAdmitForm({
             {showClassTeacher && classes.length ? (
               <View>
                 {label("Class teacher of")}
-                <View className="flex-row flex-wrap gap-2">
-                  {[{ id: "", label: "None" }, ...classes].map((c) => {
-                    const on = form.classId === c.id;
-                    return (
-                      <Pressable key={c.id || "none"} onPress={() => patch({ classId: c.id })} className={`rounded-full border px-3 py-1.5 ${on ? "border-[#1F45C7] bg-[#EEF3FF]" : "border-ink-200 bg-white"}`}>
-                        <Text className={`text-sm font-medium ${on ? "text-[#1F45C7]" : "text-ink-700"}`}>{c.label}</Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
+                <ClassTeacherChips classes={classes} value={form.classIds} onChange={(classIds) => patch({ classIds })} />
+                <ClassTeacherNote name={form.name} picked={form.classIds} classes={classes} others={classTeachers} />
               </View>
             ) : null}
           </View>
@@ -640,20 +711,16 @@ export function StaffAdmitForm({
               value={form.roleId}
               options={roles.map((r) => ({ id: r.id, label: r.name, group: r.portal || "Role" }))}
               onChange={(roleId) =>
-                patch({ roleId, classId: roles.find((r) => r.id === roleId)?.portal === "TEACHER" || alsoTeaches ? form.classId : "" })
+                patch({ roleId, classIds: roles.find((r) => r.id === roleId)?.portal === "TEACHER" || alsoTeaches ? form.classIds : [] })
               }
               placeholder="Pick a role"
             />
           </View>
           {showClassTeacher ? (
             <View className="flex-1">
-              <Dropdown
-                label="Class teacher of"
-                value={form.classId}
-                options={[{ id: "", label: "Not a class teacher" }, ...classes.map((c) => ({ id: c.id, label: c.label }))]}
-                onChange={(classId) => patch({ classId })}
-                placeholder="Choose class"
-              />
+              <Text className="mb-1.5 text-sm font-medium text-ink-800">Class teacher of</Text>
+              <ClassTeacherChips classes={classes} value={form.classIds} onChange={(classIds) => patch({ classIds })} />
+              <ClassTeacherNote name={form.name} picked={form.classIds} classes={classes} others={classTeachers} />
             </View>
           ) : null}
         </View>

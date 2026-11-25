@@ -13,6 +13,7 @@ import { ensureSchoolSessions } from "./school-session";
 import { ensureCurrentSessionStudentRollNumbers } from "./student-rolls";
 import { runWithoutTenant } from "./tenant-context";
 import { SALARY_HISTORY_INCLUDE } from "./salary-history";
+import { CLASS_TEACHER_LINKS, classIdsFromLinks, classTeacherClassIds, sortClassesByLabel } from "./class-teacher-access";
 
 export async function getParentWithChildren(userId: string) {
   await ensureCurrentSessionStudentRollNumbers();
@@ -39,7 +40,7 @@ export async function getTeacherProfile(userId: string) {
     where: { userId },
     include: {
       user: true,
-      class: { include: { students: { include: { interests: true } } } },
+      classes: CLASS_TEACHER_LINKS,
       subjects: { include: { class: true } },
     },
   });
@@ -265,7 +266,6 @@ export async function teacherExamClassIds(userId: string) {
     include: { subjects: true, classes: true },
   });
   const ids = new Set<string>();
-  if (teacher?.classId) ids.add(teacher.classId);
   for (const s of teacher?.subjects ?? []) ids.add(s.classId);
   for (const c of teacher?.classes ?? []) ids.add(c.classId);
   if (teacher) {
@@ -279,14 +279,15 @@ export async function teacherExamClassIds(userId: string) {
 }
 
 export async function getTeacherExamWork(userId: string) {
-  const teacher = await prisma.teacher.findUnique({ where: { userId } });
+  const teacher = await prisma.teacher.findUnique({ where: { userId }, select: { id: true } });
   if (!teacher) return [];
+  const ownClassIds = await classTeacherClassIds(teacher.id);
   return prisma.exam.findMany({
     where: {
       OR: [
         { teacherId: teacher.id },
         { setterId: teacher.id },
-        { classId: teacher.classId || "__none__" },
+        { classId: { in: ownClassIds } },
         { evaluators: { some: { teacherId: teacher.id } } },
       ],
     },
@@ -341,9 +342,10 @@ function absentRun(days: { date: Date; status: string }[], through: string) {
 export async function getTeacherDesk(userId: string) {
   const teacher = await prisma.teacher.findUnique({
     where: { userId },
-    include: { user: true, class: true },
+    include: { user: true, classes: CLASS_TEACHER_LINKS },
   });
   if (!teacher) return null;
+  const homeroomClasses = sortClassesByLabel(teacher.classes.map((link) => link.class));
   const today = ymd(new Date());
   const weekEnd = addDays(today, 7);
   const work = await getTeacherExamWork(userId);
@@ -536,9 +538,9 @@ export async function getTeacherDesk(userId: string) {
       href: `/teacher/reports/exams?classId=${e.classId}${e.seriesId ? `&series=${e.seriesId}` : ""}`,
     }));
 
-  const students = teacher.classId
+  const students = homeroomClasses.length
     ? await prisma.student.findMany({
-        where: { classId: teacher.classId },
+        where: { classId: { in: homeroomClasses.map((c) => c.id) } },
         include: {
           parent: { include: { user: true } },
           attendance: { orderBy: { date: "desc" }, take: 40 },
@@ -548,17 +550,28 @@ export async function getTeacherDesk(userId: string) {
         orderBy: { name: "asc" },
       })
     : [];
-  const todayRows = students.map((s) => s.attendance.find((a) => ymd(a.date) === today) ?? null);
-  const markedToday = students.length > 0 && todayRows.every(Boolean);
-  const outToday = students.filter((_, i) => todayRows[i]?.status === "ABSENT").map((s) => s.name);
+  const markedOn = (s: (typeof students)[number]) => s.attendance.find((a) => ymd(a.date) === today) ?? null;
+  // One entry per class this teacher is class teacher of, in class order.
+  const homerooms = homeroomClasses.map((klass) => {
+    const mine = students.filter((s) => s.classId === klass.id);
+    return {
+      classId: klass.id,
+      classLabel: `${klass.name}-${klass.section}`,
+      studentCount: mine.length,
+      markedToday: mine.length > 0 && mine.every((s) => markedOn(s)),
+      outToday: mine.filter((s) => markedOn(s)?.status === "ABSENT").map((s) => s.name),
+    };
+  });
+  const labelOf = new Map(homerooms.map((h) => [h.classId, h.classLabel]));
   const callHome = students
     .map((s) => {
       const run = absentRun(s.attendance, today);
       const phone = (s.parent?.phone || "").replace(/\D/g, "").slice(-10);
-      const classLabel = teacher.class ? `${teacher.class.name}-${teacher.class.section}` : "class";
+      const classLabel = labelOf.get(s.classId) || "class";
       return {
         id: s.id,
         name: s.name,
+        classLabel,
         days: run,
         parentName: s.parent?.user.name || "",
         phone: s.parent?.phone || "",
@@ -575,11 +588,7 @@ export async function getTeacherDesk(userId: string) {
 
   return {
     teacherName: teacher.user.name,
-    classLabel: teacher.class ? `${teacher.class.name}-${teacher.class.section}` : "",
-    classTeacher: Boolean(teacher.classId),
-    studentCount: students.length,
-    markedToday,
-    outToday,
+    homerooms,
     todos,
     doneWork,
     markSheets,
@@ -711,7 +720,7 @@ export async function getPeople() {
   const [students, teachers, parents, classes, pastStudents, joiningStudents] = await Promise.all([
     prisma.student.findMany({ include, orderBy: { name: "asc" } }),
     prisma.teacher.findMany({
-      include: { user: { include: { manager: { select: { id: true, name: true, phone: true } } } }, class: true, subjects: true },
+      include: { user: { include: { manager: { select: { id: true, name: true, phone: true } } } }, classes: CLASS_TEACHER_LINKS, subjects: true },
       orderBy: { employeeId: "asc" },
     }),
     prisma.parent.findMany({
@@ -963,7 +972,7 @@ export async function getStaffRoster(date = startOfDay()) {
   const [teachers, staff, days, leave, payrollRuns, audits, salaryPayments] = await Promise.all([
     prisma.teacher.findMany({
       where: { teachingOnly: false }, // office staff who also teach are listed once, as staff
-      include: { user: { include: { manager: { select: { id: true, name: true } } } }, class: true, fieldValues: { select: { fieldId: true, valueText: true } }, ...SALARY_HISTORY_INCLUDE },
+      include: { user: { include: { manager: { select: { id: true, name: true } } } }, classes: CLASS_TEACHER_LINKS, fieldValues: { select: { fieldId: true, valueText: true } }, ...SALARY_HISTORY_INCLUDE },
       orderBy: { employeeId: "asc" },
     }),
     prisma.staffMember.findMany({
@@ -997,11 +1006,14 @@ export async function getStaffRoster(date = startOfDay()) {
     prisma.staffSalaryPayment.findMany({ orderBy: [{ paidOn: "desc" }, { createdAt: "desc" }], take: 3000 }),
   ]);
   // Office employees marked "Also a teacher" (their teachingOnly Teacher rows point back at the staff row).
-  const teaching = await prisma.teacher.findMany({ where: { teachingOnly: true, staffMemberId: { not: null } }, select: { staffMemberId: true, classId: true } });
+  const teaching = await prisma.teacher.findMany({
+    where: { teachingOnly: true, staffMemberId: { not: null } },
+    select: { staffMemberId: true, classes: CLASS_TEACHER_LINKS },
+  });
   const teachingStaffIds = new Set(teaching.map((t) => t.staffMemberId as string));
-  /** staffId → class they are class teacher of (via their teaching profile). */
-  const teachingClassByStaff = new Map(teaching.filter((t) => t.classId).map((t) => [t.staffMemberId as string, t.classId as string]));
-  return { teachers, staff, days, leave, payrollRuns, audits, salaryPayments, date, teachingStaffIds, teachingClassByStaff };
+  /** staffId → classes they are class teacher of (via their teaching profile), in class order. */
+  const teachingClassesByStaff = new Map(teaching.map((t) => [t.staffMemberId as string, classIdsFromLinks(t.classes)]));
+  return { teachers, staff, days, leave, payrollRuns, audits, salaryPayments, date, teachingStaffIds, teachingClassesByStaff };
 }
 
 export async function getDeskPulse() {
@@ -1074,7 +1086,6 @@ export async function teacherNoticeClassIds(userId: string) {
     include: { subjects: true, classes: true },
   });
   const ids = new Set<string>();
-  if (teacher?.classId) ids.add(teacher.classId);
   for (const s of teacher?.subjects ?? []) ids.add(s.classId);
   for (const c of teacher?.classes ?? []) ids.add(c.classId);
   return [...ids];

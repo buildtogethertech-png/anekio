@@ -61,7 +61,7 @@ type InboxMessage = {
 type Person = { userId: string; name: string; role: string };
 type ThreadDetail = { thread: InboxThread; messages: InboxMessage[]; taggable: Person[] };
 type Recipients = {
-  classTeacher: { userId: string; name: string } | null;
+  classTeachers: { userId: string; name: string }[];
   teachers: { userId: string; name: string; subject: string }[];
 };
 
@@ -323,13 +323,13 @@ export function NewConversationSheet({
     if (!token || !studentId) return;
     api<Recipients>(`/inbox/recipients?studentId=${encodeURIComponent(studentId)}`, token)
       .then(setRecipients)
-      .catch(() => setRecipients({ classTeacher: null, teachers: [] }));
+      .catch(() => setRecipients({ classTeachers: [], teachers: [] }));
   }, [open, studentId, token, initialTarget, initialSubject]);
 
   const teacherPick = recipients?.teachers.find((t) => t.userId === teacherId);
   const ready =
     Boolean(message.trim()) &&
-    (target === "OFFICE" || (target === "CLASS_TEACHER" && Boolean(recipients?.classTeacher)) || (target === "TEACHER" && Boolean(teacherPick)));
+    (target === "OFFICE" || (target === "CLASS_TEACHER" && Boolean(recipients?.classTeachers.length)) || (target === "TEACHER" && Boolean(teacherPick)));
 
   async function send() {
     if (!ready) return;
@@ -399,8 +399,12 @@ export function NewConversationSheet({
           "CLASS_TEACHER",
           "person-outline",
           "Class teacher",
-          recipients?.classTeacher ? recipients.classTeacher.name : recipients ? "No class teacher assigned yet" : "Loading…",
-          Boolean(recipients && !recipients.classTeacher)
+          recipients?.classTeachers.length
+            ? recipients.classTeachers.map((t) => t.name).join(", ")
+            : recipients
+              ? "No class teacher assigned yet"
+              : "Loading…",
+          Boolean(recipients && !recipients.classTeachers.length)
         )}
         {option(
           "TEACHER",
