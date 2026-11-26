@@ -5652,8 +5652,9 @@ export function StaffBoard() {
       const rows = staff.map((p) => {
         const status = statusOf(p).toUpperCase();
         const hit = dayOn(p.days, date);
+        const seenInAt = hit?.inAt || "";
         if (status === "LEAVE") {
-          return { kind: p.kind || "staff", id: p.id, status: "LEAVE" as const, inAt: "", outAt: "" };
+          return { kind: p.kind || "staff", id: p.id, status: "LEAVE" as const, inAt: "", outAt: "", seenInAt };
         }
         const inAt = status === "ABSENT" ? "" : timesOf(p) || "";
         return {
@@ -5662,6 +5663,7 @@ export function StaffBoard() {
           status: (status === "LATE" ? "LATE" : status === "ABSENT" ? "ABSENT" : "PRESENT") as "PRESENT" | "ABSENT" | "LATE",
           inAt,
           outAt: status === "ABSENT" ? "" : hit?.outAt || "",
+          seenInAt,
         };
       });
       const saved = await act<{ ok: true; days?: { kind: string; id: string; inAt?: string; status?: string }[] }>(

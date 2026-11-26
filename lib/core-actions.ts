@@ -1549,6 +1549,8 @@ export async function markStaffAttendanceCore(
       inAt?: string;
       outAt?: string;
       clear?: boolean;
+      /** The in time the office screen showed when it loaded. Missing on older apps. */
+      seenInAt?: string;
     }[];
   }
 ) {
@@ -1577,6 +1579,11 @@ export async function markStaffAttendanceCore(
     let inAt = row.inAt;
     let outAt = row.outAt;
     const existing = await findStaffDayOnStamp(row.kind, row.id, stamp);
+    if (existing?.inAt && existing.inVia && (row.seenInAt ?? "") !== existing.inAt) {
+      // They checked in themselves (location / beacon / QR) after this screen loaded: keep it.
+      written.push({ kind: row.kind, id: row.id, date: stamp, status: existing.status, inAt: existing.inAt });
+      continue;
+    }
     if (row.status === "ABSENT") {
       inAt = "";
       outAt = "";

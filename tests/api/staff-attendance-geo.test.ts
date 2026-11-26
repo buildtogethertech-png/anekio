@@ -138,7 +138,7 @@ describe.sequential("staff attendance by location", () => {
     const stamp = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(day.date);
     const office = await act(officeToken, "markStaffAttendance", {
       date: stamp,
-      rows: [{ kind: "teacher", id: "teacher-tara", status: "PRESENT", inAt: "00:00", outAt: "23:00" }],
+      rows: [{ kind: "teacher", id: "teacher-tara", status: "PRESENT", inAt: "00:00", outAt: "23:00", seenInAt: "00:00" }],
     });
     expect(office.status).toBe(200);
     day = await prisma.staffDay.findFirstOrThrow({ where: { teacherId: "teacher-tara" } });
@@ -204,13 +204,30 @@ describe.sequential("staff attendance by location", () => {
   it("office Save the day keeps a time staff marked themselves, and Absent clears in and out", async () => {
     const today = (await prisma.staffDay.findFirstOrThrow({ where: { teacherId: "teacher-tara" } })).date;
     const stamp = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(today);
-    const save = (status: string) =>
-      act(officeToken, "markStaffAttendance", { date: stamp, rows: [{ kind: "teacher", id: "teacher-tara", status, inAt: "", outAt: "" }] });
-    expect((await save("PRESENT")).status).toBe(200);
+    const save = (status: string, seenInAt?: string) =>
+      act(officeToken, "markStaffAttendance", {
+        date: stamp,
+        rows: [{ kind: "teacher", id: "teacher-tara", status, inAt: "", outAt: "", ...(seenInAt === undefined ? {} : { seenInAt }) }],
+      });
+    expect((await save("PRESENT", "00:00")).status).toBe(200);
     const kept = await prisma.staffDay.findFirstOrThrow({ where: { teacherId: "teacher-tara" } });
     expect(kept.inAt).toBe("00:00");
     expect(kept.outAt).toMatch(/^\d{2}:\d{2}$/);
-    expect((await save("ABSENT")).status).toBe(200);
+
+    // A screen loaded before they checked in (or an older app that does not say) cannot wipe the check-in.
+    for (const stale of ["", undefined]) {
+      const res = await save("ABSENT", stale);
+      expect(res.status).toBe(200);
+      expect(res.body.days).toEqual([expect.objectContaining({ id: "teacher-tara", inAt: "00:00", status: kept.status })]);
+      expect(await prisma.staffDay.findFirstOrThrow({ where: { teacherId: "teacher-tara" } })).toMatchObject({
+        status: kept.status,
+        inAt: "00:00",
+        outAt: kept.outAt,
+      });
+    }
+
+    // The screen showed the check-in and the office still says Absent: that is on purpose.
+    expect((await save("ABSENT", "00:00")).status).toBe(200);
     expect(await prisma.staffDay.findFirstOrThrow({ where: { teacherId: "teacher-tara" } })).toMatchObject({ status: "ABSENT", inAt: "", outAt: "" });
   });
 
