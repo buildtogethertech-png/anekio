@@ -1589,6 +1589,13 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
       ? filteredParents.find((p) => p.id === picked.id) || (wide ? filteredParents[0] || null : null)
       : null;
   const selected = selectedStudent;
+  // Edit student: the typed mobile is another parent's here, so offer to link the student to them (sibling).
+  const editPhoneDigits = String(edit.parentPhone ?? "").replace(/\D/g, "").slice(-10);
+  const linkedParent = edit.parentId ? admitParents.find((p) => p.id === edit.parentId) : undefined;
+  const siblingParent =
+    !linkedParent && editPhoneDigits.length === 10
+      ? admitParents.find((p) => p.id !== selected?.parentId && (p.phone || "").replace(/\D/g, "").slice(-10) === editPhoneDigits)
+      : undefined;
 
   function selectStudent(studentId: string, tab: StudentTab = "overview") {
     setKind("student");
@@ -2230,6 +2237,21 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
         </SectionCard>
 
         <SectionCard step={2} title="Parent" subtitle={selected.parentId ? "Linked parent login." : "Add a mobile to create the parent login."}>
+          {linkedParent ? (
+            <View className="flex-row items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3">
+              <Ionicons name="people-outline" size={18} color="#047857" />
+              <View className="min-w-0 flex-1">
+                <Text className="text-[15px] font-semibold text-ink-900">{linkedParent.name}</Text>
+                <Text className="text-xs text-emerald-800">
+                  {linkedParent.phone || ""} · existing parent{Array.isArray(linkedParent.children) && linkedParent.children.length ? ` of ${linkedParent.children.map((c) => c.name).join(", ")}` : ""}
+                </Text>
+              </View>
+              <Pressable accessibilityRole="button" hitSlop={8} onPress={() => setEdit((p) => ({ ...p, parentId: undefined, parentPhone: undefined }))}>
+                <Text className="text-sm font-semibold text-emerald-700">Undo</Text>
+              </Pressable>
+            </View>
+          ) : (
+          <>
           <Field label="Parent name">
             <Input value={edit.parentName ?? selected.parent} onChangeText={(v) => setEdit((p) => ({ ...p, parentName: v }))} placeholder="Parent or guardian" />
           </Field>
@@ -2245,9 +2267,25 @@ export function PeopleBoard({ studentOnly = false, title = "Students" }: { stude
               </Field>
             </View>
           </View>
+          {siblingParent ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setEdit((p) => ({ ...p, parentId: siblingParent.id }))}
+              className="flex-row items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3"
+            >
+              <Ionicons name="people-outline" size={18} color="#047857" />
+              <View className="min-w-0 flex-1">
+                <Text className="text-[15px] font-semibold text-ink-900">{siblingParent.name}</Text>
+                <Text className="text-xs text-emerald-800">Already a parent here · link as sibling</Text>
+              </View>
+              <Text className="text-sm font-semibold text-emerald-700">Link</Text>
+            </Pressable>
+          ) : null}
           <Field label="Address">
             <Input value={edit.address ?? selected.parentStreet ?? selected.parentAddress ?? ""} onChangeText={(v) => setEdit((p) => ({ ...p, address: v }))} placeholder="House, street, area" />
           </Field>
+          </>
+          )}
         </SectionCard>
 
         <SectionCard step={3} title={showFees && officeEdit ? "Path & fee add-ons" : "Path"} subtitle="Optional.">
