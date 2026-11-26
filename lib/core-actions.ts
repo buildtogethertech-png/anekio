@@ -904,12 +904,28 @@ export async function updateStudentCore(
     include: { user: true },
   });
   if (!parent) throw new Error("Parent missing");
+  if (input.parentId && input.parentId !== student.parentId) {
+    // Linked to another parent already in the school (sibling): move the student only, that parent's details stay.
+    if ((parent.orgId ?? null) !== (student.orgId ?? null)) throw new Error("Parent missing");
+    await prisma.$transaction(async (tx) => {
+      await tx.student.update({ where: { id }, data: { name, admissionNo, classId, parentId, dateOfBirth: dob ? new Date(dob) : null } });
+      await assignStudentRollNumber(tx, { studentId: id, classId, orgId: student.orgId ?? user.orgId ?? null });
+      await tx.studentInterest.deleteMany({ where: { studentId: id } });
+      if (tags.length) await tx.studentInterest.createMany({ data: tags.map((tag) => ({ studentId: id, tag })) });
+    });
+    return;
+  }
   if (parentEmail && parentEmail !== parent.user.email) {
     const taken = await prisma.user.findFirst({ where: { email: parentEmail } });
     if (taken && taken.id !== parent.userId) {
       throw new Error("That email is already on another profile");
     }
   }
+  const sibling = await prisma.parent.findFirst({
+    where: { phone: parentPhone, NOT: { id: parentId } },
+    include: { user: { select: { name: true } } },
+  });
+  if (sibling) throw new Error(`${parentPhone} is already ${sibling.user.name}'s number (a parent here). Tap "Link" to add this student to them.`);
   await assertPhoneFree(parentPhone, parent.userId);
   await prisma.$transaction(async (tx) => {
     await tx.student.update({
