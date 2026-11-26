@@ -1,24 +1,24 @@
-import { Alert, Platform } from "react-native";
+import { Platform } from "react-native";
 
 const mockGetDocument = jest.fn();
 jest.mock("expo-document-picker", () => ({ getDocumentAsync: (...args: unknown[]) => mockGetDocument(...args) }));
-const mockTakePhoto = jest.fn();
-jest.mock("../photo-capture", () => ({ takePhoto: () => mockTakePhoto() }));
+const mockChoose = jest.fn();
+jest.mock("../photo-capture", () => ({ chooseAttachSource: (o: unknown) => mockChoose(o) }));
 jest.mock("../api", () => ({ apiBase: () => "http://test" }));
 
 import { nativeMimeTypes, pickFile } from "../upload";
 
-type Button = { text: string; onPress?: () => void };
+const CAM = { uri: "file:///cam.jpg", name: "photo.jpg", type: "image/jpeg" };
 function answer(text: string) {
-  jest.spyOn(Alert, "alert").mockImplementationOnce((_t, _m, buttons) => {
-    (buttons as Button[]).find((b) => b.text === text)?.onPress?.();
-  });
+  mockChoose.mockResolvedValueOnce(
+    text === "Camera" ? { kind: "photo", file: CAM } : text === "Gallery" ? { kind: "photos" } : text === "File" ? { kind: "files" } : null
+  );
 }
 
 beforeEach(() => {
   Platform.OS = "android";
   mockGetDocument.mockReset().mockResolvedValue({ canceled: false, assets: [{ uri: "file:///a.jpg", name: "a.jpg", mimeType: "image/jpeg" }] });
-  mockTakePhoto.mockReset().mockResolvedValue({ uri: "file:///cam.jpg", name: "photo.jpg", type: "image/jpeg" });
+  mockChoose.mockReset();
 });
 
 describe("phone file picker", () => {
@@ -32,20 +32,21 @@ describe("phone file picker", () => {
     expect(nativeMimeTypes("")).toEqual(["*/*"]);
   });
 
-  it("a photo field asks Take photo / Choose photo; Take photo opens the camera", async () => {
-    answer("Take photo");
+  it("a photo field opens the attach sheet (no File tile); Camera returns the photo", async () => {
+    answer("Camera");
     expect(await pickFile("image/png,image/jpeg,image/webp")).toMatchObject({ uri: "file:///cam.jpg" });
+    expect(mockChoose).toHaveBeenCalledWith({ files: false });
     expect(mockGetDocument).not.toHaveBeenCalled();
   });
 
-  it("Choose photo opens the picker on images only", async () => {
-    answer("Photos");
+  it("Gallery opens the picker on images only", async () => {
+    answer("Gallery");
     await pickFile("image/png,image/jpeg,application/pdf,.pdf");
     expect(mockGetDocument).toHaveBeenCalledWith(expect.objectContaining({ type: ["image/png", "image/jpeg"] }));
   });
 
-  it("Files keeps PDFs too", async () => {
-    answer("Files");
+  it("File keeps PDFs too", async () => {
+    answer("File");
     await pickFile("image/png,application/pdf,.pdf");
     expect(mockGetDocument).toHaveBeenCalledWith(expect.objectContaining({ type: ["image/png", "application/pdf"] }));
   });
@@ -54,13 +55,11 @@ describe("phone file picker", () => {
     answer("Cancel");
     expect(await pickFile("image/png,image/jpeg")).toBeNull();
     expect(mockGetDocument).not.toHaveBeenCalled();
-    expect(mockTakePhoto).not.toHaveBeenCalled();
   });
 
   it("CSV import goes straight to files, with no photo question", async () => {
-    const alert = jest.spyOn(Alert, "alert");
     await pickFile(".csv,text/csv,text/plain");
-    expect(alert).not.toHaveBeenCalled();
+    expect(mockChoose).not.toHaveBeenCalled();
     expect(mockGetDocument).toHaveBeenCalledWith(expect.objectContaining({ type: ["text/csv", "text/plain"] }));
   });
 });
