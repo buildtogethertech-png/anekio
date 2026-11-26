@@ -40,7 +40,7 @@ describe("StaffTimesheet out time", () => {
     await waitFor(() =>
       expect(mockAct).toHaveBeenCalledWith("t", "markStaffAttendance", {
         date: today,
-        rows: [{ kind: "teacher", id: "t1", status: "PRESENT", inAt: "08:20", outAt: "15:30", clear: false }],
+        rows: [{ kind: "teacher", id: "t1", status: "PRESENT", inAt: "08:20", outAt: "15:30", clear: false, seenInAt: expect.any(String) }],
       })
     );
   });

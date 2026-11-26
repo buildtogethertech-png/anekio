@@ -239,7 +239,7 @@ describe("StaffBoard leave requests", () => {
     await waitFor(() =>
       expect(mockAct).toHaveBeenCalledWith("office-token", "markStaffAttendance", {
         date: expect.any(String),
-        rows: [{ kind: "staff", id: "staff-1", status: "LEAVE", inAt: "", outAt: "" }],
+        rows: [{ kind: "staff", id: "staff-1", status: "LEAVE", inAt: "", outAt: "", seenInAt: "" }],
       })
     );
   });
@@ -356,7 +356,7 @@ describe("StaffBoard leave requests", () => {
     await waitFor(() =>
       expect(mockAct).toHaveBeenCalledWith("office-token", "markStaffAttendance", {
         date: "2026-09-09",
-        rows: [{ kind: "staff", id: "staff-1", status: "ABSENT", inAt: "", outAt: "" }],
+        rows: [{ kind: "staff", id: "staff-1", status: "ABSENT", inAt: "", outAt: "", seenInAt: "" }],
       })
     );
   });
@@ -371,7 +371,7 @@ describe("StaffBoard leave requests", () => {
     await waitFor(() =>
       expect(mockAct).toHaveBeenCalledWith("office-token", "markStaffAttendance", {
         date: "2026-09-09",
-        rows: [{ kind: "staff", id: "staff-1", status: "LATE", inAt: "", outAt: "" }],
+        rows: [{ kind: "staff", id: "staff-1", status: "LATE", inAt: "", outAt: "", seenInAt: "" }],
       })
     );
   });
@@ -386,7 +386,7 @@ describe("StaffBoard leave requests", () => {
     await waitFor(() =>
       expect(mockAct).toHaveBeenCalledWith("office-token", "markStaffAttendance", {
         date: "2026-09-09",
-        rows: [{ kind: "staff", id: "staff-1", status: "ABSENT", inAt: "", outAt: "" }],
+        rows: [{ kind: "staff", id: "staff-1", status: "ABSENT", inAt: "", outAt: "", seenInAt: "" }],
       })
     );
   });
@@ -436,6 +436,7 @@ describe("StaffBoard leave requests", () => {
             inAt: "08:05",
             outAt: "",
             clear: false,
+            seenInAt: expect.any(String),
           },
         ],
       })

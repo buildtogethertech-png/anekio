@@ -115,7 +115,7 @@ export function StaffTimesheet({
   const toast = useToast();
   const teachers = useMemo(() => staff.filter((p) => p.kind === "teacher"), [staff]);
   const [month, setMonth] = useState(today.slice(0, 7));
-  const [edit, setEdit] = useState<{ person: Person; date: string; inAt: string; outAt: string } | null>(null);
+  const [edit, setEdit] = useState<{ person: Person; date: string; inAt: string; outAt: string; seenInAt: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const dates = useMemo(() => daysInMonth(month), [month]);
   const { width: screenW } = useWindowDimensions();
@@ -145,7 +145,13 @@ export function StaffTimesheet({
     }
     const byDate = new Map((person.days ?? []).map((d) => [dateKey(d.date), d]));
     const overlayInAt = overlayDate === today ? overlayTimes?.[`${person.kind}:${person.id}`] : undefined;
-    setEdit({ person, date: today, inAt: overlayInAt || byDate.get(today)?.inAt || "", outAt: byDate.get(today)?.outAt || "" });
+    setEdit({
+      person,
+      date: today,
+      inAt: overlayInAt || byDate.get(today)?.inAt || "",
+      outAt: byDate.get(today)?.outAt || "",
+      seenInAt: byDate.get(today)?.inAt || "",
+    });
   }
 
   async function saveIn(clear = false) {
@@ -176,6 +182,7 @@ export function StaffTimesheet({
             inAt: inAt || "",
             outAt,
             clear: false,
+            seenInAt: edit.seenInAt,
           },
         ],
       });
