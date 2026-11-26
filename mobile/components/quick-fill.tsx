@@ -459,7 +459,7 @@ function UploadFlow({
   async function chooseFile() {
     setError("");
     try {
-      const file = native ? await pickFile(acceptOf(field)) : await pickWeb(acceptOf(field), false);
+      const file = native ? await pickFile(acceptOf(field), { ask: false }) : await pickWeb(acceptOf(field), false);
       if (file) setShot(file);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not open files.");

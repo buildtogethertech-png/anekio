@@ -1,9 +1,11 @@
-import { Platform } from "react-native";
+import { Alert, Platform } from "react-native";
 import { apiBase } from "./api";
+import { takePhoto } from "./photo-capture";
 
 export type PickedFile = { uri: string; name: string; type: string };
 
-export async function pickFile(accept = "*/*"): Promise<PickedFile | null> {
+/** Pick a file. On the phone, where a photo is allowed, first asks: Take photo / Choose photo (/ Files). */
+export async function pickFile(accept = "*/*", opts: { ask?: boolean } = {}): Promise<PickedFile | null> {
   if (Platform.OS === "web") {
     return new Promise((resolve) => {
       const input = document.createElement("input");
@@ -21,14 +23,68 @@ export async function pickFile(accept = "*/*"): Promise<PickedFile | null> {
       input.click();
     });
   }
+  const types = nativeMimeTypes(accept);
+  const images = types.some((t) => t.startsWith("image/"));
+  if (images && opts.ask !== false) {
+    const others = types.some((t) => !t.startsWith("image/"));
+    const choice = await new Promise<"camera" | "photos" | "files" | null>((resolve) => {
+      Alert.alert(
+        others ? "Add a photo or file" : "Add a photo",
+        undefined,
+        [
+          { text: "Take photo", onPress: () => resolve("camera") },
+          { text: others ? "Photos" : "Choose photo", onPress: () => resolve("photos") },
+          others ? { text: "Files", onPress: () => resolve("files") } : { text: "Cancel", style: "cancel", onPress: () => resolve(null) },
+        ],
+        { cancelable: true, onDismiss: () => resolve(null) }
+      );
+    });
+    if (!choice) return null;
+    if (choice === "camera") return takePhoto();
+    if (choice === "photos") return openDocumentPicker(types.filter((t) => t.startsWith("image/")));
+  }
+  return openDocumentPicker(types);
+}
+
+const EXT_TYPES: Record<string, string> = {
+  pdf: "application/pdf",
+  csv: "text/csv",
+  txt: "text/plain",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  xls: "application/vnd.ms-excel",
+  doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+};
+
+/** Android's picker takes a list of MIME types; one "a,b,c" string matches no file, so every file is greyed out. */
+export function nativeMimeTypes(accept: string): string[] {
+  const out = new Set<string>();
+  for (const raw of String(accept || "").split(",")) {
+    const t = raw.trim().toLowerCase();
+    if (!t) continue;
+    if (t.startsWith(".")) {
+      const mime = EXT_TYPES[t.slice(1)];
+      if (mime) out.add(mime);
+    } else if (t.includes("/")) {
+      out.add(t);
+    }
+  }
+  return out.size ? [...out] : ["*/*"];
+}
+
+async function openDocumentPicker(types: string[]): Promise<PickedFile | null> {
   try {
     const picker = require("expo-document-picker") as {
-      getDocumentAsync: (opts: { type?: string; copyToCacheDirectory?: boolean }) => Promise<{
+      getDocumentAsync: (opts: { type?: string | string[]; copyToCacheDirectory?: boolean }) => Promise<{
         canceled?: boolean;
         assets?: { uri: string; name?: string; mimeType?: string }[];
       }>;
     };
-    const result = await picker.getDocumentAsync({ type: accept, copyToCacheDirectory: true });
+    const result = await picker.getDocumentAsync({ type: types.length === 1 ? types[0] : types, copyToCacheDirectory: true });
     const asset = result.assets?.[0];
     if (result.canceled || !asset) return null;
     return { uri: asset.uri, name: asset.name || "file", type: asset.mimeType || "application/octet-stream" };
