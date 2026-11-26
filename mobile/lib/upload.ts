@@ -1,10 +1,10 @@
-import { Alert, Platform } from "react-native";
+import { Platform } from "react-native";
 import { apiBase } from "./api";
-import { takePhoto } from "./photo-capture";
+import { chooseAttachSource } from "./photo-capture";
 
 export type PickedFile = { uri: string; name: string; type: string };
 
-/** Pick a file. On the phone, where a photo is allowed, first asks: Take photo / Choose photo (/ Files). */
+/** Pick a file. On the phone, where a photo is allowed, the attach sheet first offers Camera / Gallery (/ File). */
 export async function pickFile(accept = "*/*", opts: { ask?: boolean } = {}): Promise<PickedFile | null> {
   if (Platform.OS === "web") {
     return new Promise((resolve) => {
@@ -27,21 +27,10 @@ export async function pickFile(accept = "*/*", opts: { ask?: boolean } = {}): Pr
   const images = types.some((t) => t.startsWith("image/"));
   if (images && opts.ask !== false) {
     const others = types.some((t) => !t.startsWith("image/"));
-    const choice = await new Promise<"camera" | "photos" | "files" | null>((resolve) => {
-      Alert.alert(
-        others ? "Add a photo or file" : "Add a photo",
-        undefined,
-        [
-          { text: "Take photo", onPress: () => resolve("camera") },
-          { text: others ? "Photos" : "Choose photo", onPress: () => resolve("photos") },
-          others ? { text: "Files", onPress: () => resolve("files") } : { text: "Cancel", style: "cancel", onPress: () => resolve(null) },
-        ],
-        { cancelable: true, onDismiss: () => resolve(null) }
-      );
-    });
-    if (!choice) return null;
-    if (choice === "camera") return takePhoto();
-    if (choice === "photos") return openDocumentPicker(types.filter((t) => t.startsWith("image/")));
+    const source = await chooseAttachSource({ files: others });
+    if (!source) return null;
+    if (source.kind === "photo") return source.file;
+    if (source.kind === "photos") return openDocumentPicker(types.filter((t) => t.startsWith("image/")));
   }
   return openDocumentPicker(types);
 }
