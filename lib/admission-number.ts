@@ -99,7 +99,9 @@ export function sessionStartYear(sessionStart: string | null | undefined, asOf =
 }
 
 type AdmissionDb = {
-  student: { findMany: (args: { where: { orgId: string | null }; select: { admissionNo: true } }) => Promise<{ admissionNo: string }[]> };
+  student: {
+    findMany: (args: { where: { orgId: string | null; admissionNo: { not: string } }; select: { admissionNo: true } }) => Promise<{ admissionNo: string }[]>;
+  };
   schoolConfig: {
     findFirst: (args: { where: { orgId: string } }) => Promise<AdmissionConfigRow | null>;
     findUnique: (args: { where: { id: string } }) => Promise<AdmissionConfigRow | null>;
@@ -120,7 +122,8 @@ export async function admissionNumberContext(db: unknown, orgId: string | null) 
   const client = db as AdmissionDb;
   const [config, rows] = await Promise.all([
     orgId ? client.schoolConfig.findFirst({ where: { orgId } }) : client.schoolConfig.findUnique({ where: { id: "school" } }),
-    client.student.findMany({ where: { orgId }, select: { admissionNo: true } }),
+    // Naming admissionNo keeps students who left or join next year in the list (lib/prisma.ts): their numbers stay taken.
+    client.student.findMany({ where: { orgId, admissionNo: { not: "" } }, select: { admissionNo: true } }),
   ]);
   return {
     settings: admissionSettingsFrom(config),
