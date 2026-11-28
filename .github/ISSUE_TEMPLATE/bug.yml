@@ -1,0 +1,53 @@
+name: Bug report
+description: Kuch galat ho raha hai? Yahan batao.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: input
+    id: school
+    attributes:
+      label: School ka naam
+      placeholder: SRI RAMAKRISHNA SCHOOL
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Kahan dikkat hai?
+      options:
+        - Mobile app
+        - Web (admin panel)
+        - Dono
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: Kya hua?
+      placeholder: Fees save karne par error aa raha hai...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Kya hona chahiye tha?
+  - type: textarea
+    id: steps
+    attributes:
+      label: Kaise dobara ho sakta hai? (steps)
+      placeholder: |
+        1. Fees page kholo
+        2. Student chuno
+        3. Save dabao
+  - type: textarea
+    id: proof
+    attributes:
+      label: Screenshot / video
+      description: Yahan photo ya video drag karke daal do.
+  - type: dropdown
+    id: urgency
+    attributes:
+      label: Kitna urgent?
+      options:
+        - Normal
+        - Urgent - school ka kaam ruka hai
