@@ -1,0 +1,52 @@
+name: PRD / Spec
+description: Bada feature jiska plan pehle likhna hai (problem, goal, scope, flow).
+title: "[PRD] "
+labels: ["prd", "feature"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Kiski dikkat hai aur kitni badi hai.
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal / success
+      description: Ship hone ke baad kya badlega, kaise naapenge.
+    validations:
+      required: true
+  - type: textarea
+    id: users
+    attributes:
+      label: Users
+      placeholder: Admin, teacher, parent...
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope - kya banega
+      placeholder: |
+        - ...
+    validations:
+      required: true
+  - type: textarea
+    id: out
+    attributes:
+      label: Out of scope - kya nahi banega
+  - type: textarea
+    id: flow
+    attributes:
+      label: Flow / screens
+      description: Step by step kaise chalega. Mockup ya screenshot yahan drag karo.
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+  - type: textarea
+    id: risks
+    attributes:
+      label: Risks / open questions

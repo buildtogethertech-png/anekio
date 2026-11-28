@@ -1,0 +1,58 @@
+name: Feature request
+description: Naya feature ya kisi cheez me sudhaar chahiye? Yahan likho.
+title: "[Feature] "
+labels: ["feature"]
+body:
+  - type: input
+    id: school
+    attributes:
+      label: Kis school ne maanga? (agar kisi ne)
+      placeholder: SRI RAMAKRISHNA SCHOOL / sabke liye
+  - type: dropdown
+    id: where
+    attributes:
+      label: Kahan chahiye?
+      options:
+        - Mobile app
+        - Web (admin panel)
+        - Dono
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem kya hai?
+      description: Abhi kya dikkat aati hai jiski wajah se yeh chahiye.
+      placeholder: Office ko har mahine 300 parents ko fees ka message haath se bhejna padta hai.
+    validations:
+      required: true
+  - type: textarea
+    id: want
+    attributes:
+      label: Kya chahiye?
+      placeholder: Due date se 3 din pehle WhatsApp reminder apne aap jaaye.
+    validations:
+      required: true
+  - type: dropdown
+    id: who
+    attributes:
+      label: Kaun use karega?
+      multiple: true
+      options:
+        - Admin / office
+        - Teacher
+        - Parent
+        - Student
+        - Anekio team
+  - type: textarea
+    id: example
+    attributes:
+      label: Screenshot / example
+      description: Kisi aur app ka screenshot, drawing ya photo yahan drag karo.
+  - type: dropdown
+    id: urgency
+    attributes:
+      label: Kitna zaroori?
+      options:
+        - Normal
+        - Jaldi chahiye - school wait kar raha hai

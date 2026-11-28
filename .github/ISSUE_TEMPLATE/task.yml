@@ -1,0 +1,31 @@
+name: Dev task
+description: Developer team ka technical kaam (refactor, infra, cleanup, deploy, script).
+title: "[Task] "
+labels: ["task"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: Kya karna hai?
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Kyun?
+  - type: textarea
+    id: done
+    attributes:
+      label: Done kab maana jaayega?
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+  - type: input
+    id: area
+    attributes:
+      label: Code area / files
+      placeholder: lib/fee-run.ts, deploy/server/cron.sh
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes / links
